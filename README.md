@@ -8,6 +8,9 @@ plug-in discovery. Execution stays in the SDK / LangGraph.
 ## Install
 
 ```bash
+git clone https://github.com/sagi5060/agentdeck.git
+cd agentdeck
+uv venv
 uv pip install -e ".[dev,serve]"     # or: make install
 ```
 
