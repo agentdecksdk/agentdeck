@@ -43,7 +43,7 @@ class TwoStepFlow(BaseWorkflow):
 AGENT_FLOW_WORKFLOW_PY = """
 from pydantic import BaseModel
 from agentdeck.workflows import END, AgentNode, BaseWorkflow, StateGraph
-from agentdeck_project.greeter.agent import Greeter
+from agentdeck_project.agents.greeter.agent import Greeter
 
 class State(BaseModel):
     input: str = ""
@@ -65,12 +65,12 @@ class ChatFlow(BaseWorkflow):
 @pytest.fixture
 def project(tmp_path, monkeypatch):
     root = tmp_path / ".agentdeck"
-    (root / "greeter").mkdir(parents=True)
-    (root / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
-    (root / "two_step").mkdir()
-    (root / "two_step" / "workflow.py").write_text(textwrap.dedent(TWO_STEP_WORKFLOW_PY))
-    (root / "agent_flow").mkdir()
-    (root / "agent_flow" / "workflow.py").write_text(textwrap.dedent(AGENT_FLOW_WORKFLOW_PY))
+    (root / "agents" / "greeter").mkdir(parents=True)
+    (root / "agents" / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
+    (root / "workflows" / "two_step").mkdir(parents=True)
+    (root / "workflows" / "two_step" / "workflow.py").write_text(textwrap.dedent(TWO_STEP_WORKFLOW_PY))
+    (root / "workflows" / "agent_flow").mkdir(parents=True)
+    (root / "workflows" / "agent_flow" / "workflow.py").write_text(textwrap.dedent(AGENT_FLOW_WORKFLOW_PY))
     monkeypatch.chdir(tmp_path)
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]

@@ -205,11 +205,13 @@ class PlainFlow(BaseWorkflow):
 
 @pytest.fixture
 def app_project(tmp_path, monkeypatch):
-    root = tmp_path / ".agentdeck" / "approval_flow"
+    root = tmp_path / ".agentdeck" / "workflows" / "approval_flow"
     root.mkdir(parents=True)
     (root / "workflow.py").write_text(textwrap.dedent(APPROVAL_WORKFLOW_PY))
-    (tmp_path / ".agentdeck" / "plain_flow").mkdir()
-    (tmp_path / ".agentdeck" / "plain_flow" / "workflow.py").write_text(textwrap.dedent(PLAIN_WORKFLOW_PY))
+    (tmp_path / ".agentdeck" / "workflows" / "plain_flow").mkdir()
+    (tmp_path / ".agentdeck" / "workflows" / "plain_flow" / "workflow.py").write_text(
+        textwrap.dedent(PLAIN_WORKFLOW_PY)
+    )
     monkeypatch.chdir(tmp_path)
     # the project alias is process-global; drop stale mounts from other tests
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
