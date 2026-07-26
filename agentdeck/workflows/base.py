@@ -149,8 +149,7 @@ class BaseWorkflow:
         saver = graph.checkpointer
         if saver is None or isinstance(saver, bool):
             return []
-        # Drain the listing before querying state: the sqlite saver holds one lock for
-        # the whole ``alist`` generator, so reading a snapshot mid-iteration deadlocks.
+        # Drain the listing first: the sqlite saver locks for the whole alist generator.
         thread_ids = {
             tid
             async for checkpoint in saver.alist(None)
@@ -158,8 +157,7 @@ class BaseWorkflow:
         }
         pending: list[InterruptResult] = []
         for thread_id in sorted(thread_ids):
-            # A shared saver holds every workflow's threads; a foreign thread replays
-            # against this graph with no pending tasks, hence no interrupts.
+            # Foreign threads (shared saver) replay with no pending tasks, so no interrupts.
             snapshot = await graph.aget_state({"configurable": {"thread_id": thread_id}})
             pending.extend(interrupt_result(i.value, thread_id) for i in snapshot.interrupts)
         return pending

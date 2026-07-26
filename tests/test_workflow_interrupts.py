@@ -312,6 +312,7 @@ def _run_script(arg: str, decision: str, env: dict[str, str]) -> str:
         text=True,
         env=env,
         check=False,
+        timeout=30,
     )
     assert result.returncode == 0, result.stderr
     return result.stdout.strip()
