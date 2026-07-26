@@ -7,7 +7,8 @@
 
 ## Releasing (x.y.z)
 
-1. Bump `version` in `pyproject.toml` on `dev`.
+1. Bump `version` in `pyproject.toml` on `dev` and move the **Unreleased**
+   CHANGELOG entries under the new version heading.
 2. Merge `dev` → `main`.
 3. Tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 4. The release workflow verifies the tag matches `pyproject.toml`, runs the full
