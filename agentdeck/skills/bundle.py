@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from agentdeck.errors import NotFoundError
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -105,7 +107,7 @@ class SkillRegistry:
         try:
             return skills[name]
         except KeyError:
-            raise KeyError(
+            raise NotFoundError(
                 f"No skill named {name!r} under {self.root}. Available: {sorted(skills)}.",
             ) from None
 

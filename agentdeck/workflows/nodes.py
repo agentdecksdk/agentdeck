@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from agentdeck.agents.base import BaseAgent, BaseSandboxAgent
 from agentdeck.agents.runners.headless import HeadlessRunner
+from agentdeck.errors import SkillError
 from agentdeck.runtime.settings import get_settings
 from agentdeck.runtime.workspace import Workspace
 from agentdeck.skills import SkillBundle, SkillExecutor, SkillOutputSchema, SkillResult
@@ -22,8 +23,11 @@ PathBuilder = Callable[[Any], str | Path | None]
 TextParser = Callable[[str], Any]
 
 
-class SkillExecutionError(RuntimeError):
-    """A skill exited non-zero with ``raise_on_error=True``."""
+class SkillExecutionError(SkillError, RuntimeError):
+    """A skill exited non-zero with ``raise_on_error=True``.
+
+    Also a ``RuntimeError`` so existing ``except RuntimeError`` call sites keep working.
+    """
 
     def __init__(self, skill: str, exit_code: int, stderr: str) -> None:
         self.skill, self.exit_code, self.stderr = skill, exit_code, stderr

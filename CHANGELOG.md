@@ -7,6 +7,18 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+### Added
+- `agentdeck/errors.py`: one exception hierarchy — `AgentdeckError` base,
+  `NotFoundError` (unknown agent/workflow/skill; also a `KeyError` for
+  compat), `SkillError` (base for `SkillExecutionError`, `SkillEnvError`),
+  `ConfigError`. Exported from `agentdeck` alongside `App`.
+
+### Changed
+- `PluginRegistry.get` / `SkillRegistry.get` now raise `NotFoundError`
+  instead of bare `KeyError` (still catchable as `KeyError`).
+- `agentdeck-serve` maps `NotFoundError` to HTTP 404 and other
+  `AgentdeckError`s to 422, both with the message as the response body.
+
 ## [0.1.0] - 2026-07-26
 
 ### Added

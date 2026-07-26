@@ -15,15 +15,28 @@ import os
 from typing import Any
 
 from agentdeck.app import App
+from agentdeck.errors import AgentdeckError, NotFoundError
 from agentdeck.workflows.state import json_default
 
 
 def create_app() -> Any:
-    from fastapi import FastAPI
+    from fastapi import FastAPI, Request
+    from fastapi.responses import JSONResponse
 
     deck = App()
     inventory = deck.load()
     api = FastAPI(title="agentdeck")
+
+    # Registered narrowest-first: FastAPI's exception_handlers dict resolves by
+    # exact type, so NotFoundError needs its own entry even though it's also
+    # an AgentdeckError.
+    @api.exception_handler(NotFoundError)
+    async def not_found(_request: Request, exc: NotFoundError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @api.exception_handler(AgentdeckError)
+    async def agentdeck_error(_request: Request, exc: AgentdeckError) -> JSONResponse:
+        return JSONResponse(status_code=422, content={"detail": str(exc)})
 
     @api.get("/health")
     async def health() -> dict[str, Any]:

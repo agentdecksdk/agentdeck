@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from agents.sandbox.entries import BaseEntry, LocalDir
 from agents.sandbox.workspace_paths import SandboxPathGrant
 
+from agentdeck.errors import SkillError
 from agentdeck.runtime.observability import RunTrace, init_observability, trace_run
 from agentdeck.runtime.workspace import Workspace, current_capture, input_file_entries
 from agentdeck.skills.bundle import DEFAULT_ENTRY_SCRIPT, SkillBundle
@@ -32,8 +33,11 @@ _OUTPUT_LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$")
 # ``import agentdecks_core``. See ``agentdeck/skills/skill_runtime``.
 
 
-class SkillEnvError(RuntimeError):
-    """Raised when a required env var declared in ``SKILL.md`` is missing."""
+class SkillEnvError(SkillError, RuntimeError):
+    """Raised when a required env var declared in ``SKILL.md`` is missing.
+
+    Also a ``RuntimeError`` so existing ``except RuntimeError`` call sites keep working.
+    """
 
     def __init__(self, skill: str, missing: Sequence[str]) -> None:
         self.skill = skill
