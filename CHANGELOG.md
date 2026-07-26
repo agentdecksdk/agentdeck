@@ -8,6 +8,20 @@ they move under a version heading when a release is tagged.
 ## [Unreleased]
 
 ### Added
+- `App.chat_stream(name, session_id, message)`: async iterator of text deltas
+  followed by a terminal `StreamDone(final_output, usage)`, wrapping the Agents
+  SDK `Runner.run_streamed` with the same session semantics as `chat()`.
+  `HeadlessRunner.run_streamed` is the runner-layer counterpart to `run`,
+  honoring `run_config` / `max_turns` / sandbox attachment / trace_run
+  identically; it cancels the SDK run loop when the generator is closed or
+  abandoned, and records failed turns on the trace.
+- `POST /agents/{name}/chat?stream=true`: `text/event-stream` response with
+  incremental `delta` events and a final `done` event carrying
+  `{"output", "usage"}`. A failure mid-stream emits an `error` event; a
+  request missing `session_id` / `message` is rejected with 422 before the
+  stream starts. Sent with `Cache-Control: no-cache` and
+  `X-Accel-Buffering: no` so proxies don't buffer the stream.
+
 - `agentdeck/errors.py`: one exception hierarchy — `AgentdeckError` base,
   `NotFoundError` (unknown agent/workflow/skill), `SkillError` (base for
   `SkillExecutionError`, `SkillEnvError`), `ConfigError`. Exported from
@@ -24,6 +38,10 @@ they move under a version heading when a release is tagged.
   re-runs the whole compile pass on boot.
 
 ### Changed
+- The streamed `done` event's `"output"` is now the SDK's `final_output`
+  (matching non-streamed `chat()`, and the validated model for an
+  `output_type` agent) instead of the re-joined text deltas, which disagreed
+  for tool-using and structured-output agents.
 - `agentdeck-serve` answers `503` on every endpoint before the lifespan has
   started the `App` (`/health` reports `{"status": "starting"}`) instead of
   raising `AttributeError` or reporting an empty inventory as `ok`.

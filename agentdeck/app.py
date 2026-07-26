@@ -41,7 +41,7 @@ from agents import SQLiteSession
 
 from agentdeck.agents.mcp.lifecycle import MCPLifecycle
 from agentdeck.agents.registry import AgentRegistry
-from agentdeck.agents.runners import HeadlessRunner
+from agentdeck.agents.runners import HeadlessRunner, StreamDone
 from agentdeck.runtime.registry import _package_dir
 from agentdeck.runtime.sessions import SessionFactory
 from agentdeck.runtime.settings import Settings, get_settings
@@ -152,6 +152,19 @@ class App:
         agent_cls = self.agents.get(name)
         runner = HeadlessRunner.from_agent(agent_cls.build(), **runner_options)
         return await runner.run(message, session=self.session_for(session_id))
+
+    async def chat_stream(
+        self, name: str, session_id: str, message: Any, **runner_options: Any
+    ) -> AsyncIterator[str | StreamDone]:
+        """Streaming counterpart to :meth:`chat`: same session, text deltas followed by one
+        :class:`~agentdeck.agents.runners.StreamDone` instead of a single ``RunResult`` — the
+        session is passed identically, so history ends up the same whether a turn was streamed
+        or not.
+        """
+        agent_cls = self.agents.get(name)
+        runner = HeadlessRunner.from_agent(agent_cls.build(), **runner_options)
+        async for delta in runner.run_streamed(message, session=self.session_for(session_id)):
+            yield delta
 
     @classmethod
     @asynccontextmanager

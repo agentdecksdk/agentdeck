@@ -37,6 +37,9 @@ app.load()           # imports, builds, and compiles everything; fails fast
 result = await app.run_agent("Greeter", "hello")                  # one-shot
 state  = await app.run_workflow("NewBooking", {"request": "..."}) # one ainvoke
 turn   = await app.chat("Greeter", session_id="wa-123", message="hi")  # multi-turn
+
+async for chunk in app.chat_stream("Greeter", "wa-123", "hi"):         # streamed turn
+    ...  # text deltas, then a final StreamDone(final_output=..., usage=...)
 ```
 
 `chat()` keeps history per `session_id` — Redis when
@@ -66,6 +69,7 @@ docker compose up
 |---|---|
 | `GET /health` | inventory of loaded agents / workflows / skills |
 | `POST /agents/{name}/chat` | `{"session_id", "message"}` → `{"output"}` |
+| `POST /agents/{name}/chat?stream=true` | same body → SSE: `delta` frames, then one `done` frame with `{"output", "usage"}` (or an `error` frame if the turn fails) |
 | `POST /workflows/{name}` | JSON state in → final state out |
 
 ## Configuration

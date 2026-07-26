@@ -19,7 +19,7 @@ from agentdeck.runtime.settings import Settings, get_settings
 from agentdeck.runtime.workspace import Workspace
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Mapping, Sequence
+    from collections.abc import AsyncGenerator, AsyncIterator, Mapping, Sequence
     from pathlib import Path
 
 
@@ -141,6 +141,14 @@ class BaseRunner(ABC):
     @abstractmethod
     async def run(self) -> Any:
         """Drive the configured agent."""
+
+    def run_streamed(self, message: Any = None, *, session: Any = None) -> AsyncIterator[Any]:
+        """Streamed counterpart to :meth:`run`, yielding incremental output.
+
+        Not abstract: streaming depends on the underlying engine, so a runner opts in by
+        overriding this as an async generator (see :class:`HeadlessRunner`).
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support streaming")
 
 
 def _needs_sandbox(agent: Agent, _seen: set[int] | None = None) -> bool:
