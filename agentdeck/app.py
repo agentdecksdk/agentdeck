@@ -17,6 +17,14 @@ agents, workflows, and skills.
 every workflow graph, so configuration errors surface at startup instead of
 mid-conversation. Everything else stays lazy and delegates to the existing
 registries and runners.
+
+For anything long-running — and for every deployment using Redis sessions or
+MCP servers — prefer ``App.open()``: it runs ``load()``, starts the MCP
+lifecycle, and guarantees ``aclose()`` on exit, so the Redis client and MCP
+servers are never leaked::
+
+    async with App.open() as app:
+        turn = await app.chat("FileAgent", session_id="wa-123", message="hi")
 """
 
 from __future__ import annotations
@@ -82,8 +90,10 @@ class App:
     # DI seam for tests: pass a prebuilt factory (or one wrapping fakeredis) to skip
     # `from_settings`'s real Redis client entirely.
     session_factory: SessionFactory | None = None
+    inventory: dict[str, list[str]] = field(init=False, default_factory=dict)
     _local_sessions: dict[str, Session] = field(init=False, default_factory=dict)
     _closed: bool = field(init=False, default=False)
+    _started_mcp: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
         package = _mount_project_dir()
@@ -100,7 +110,8 @@ class App:
     def load(self) -> dict[str, list[str]]:
         """Discover and *instantiate* everything; raises on the first broken bundle.
 
-        Returns ``{"agents": [...], "workflows": [...], "skills": [...]}``.
+        Returns ``{"agents": [...], "workflows": [...], "skills": [...]}`` and stashes
+        it on ``self.inventory`` so callers don't have to re-run the compile pass.
         """
         agents = self.agents.list(refresh=True)
         workflows = self.workflows.list(refresh=True)
@@ -111,11 +122,12 @@ class App:
             wf_cls.build()  # compiles + caches the LangGraph graph
         for bundle in skills.values():
             bundle.output_schema  # noqa: B018 — imports/validates the declared schema
-        return {
+        self.inventory = {
             "agents": sorted(agents),
             "workflows": sorted(workflows),
             "skills": sorted(skills),
         }
+        return self.inventory
 
     async def run_agent(self, name: str, message: Any = None, **runner_options: Any) -> Any:
         """One-shot headless run of a discovered agent; returns the SDK ``RunResult``."""
@@ -152,9 +164,10 @@ class App:
         ``session_factory`` is the DI seam for tests (e.g. a fake wrapping fakeredis).
         """
         app = cls(session_factory=session_factory)
-        app.load()
-        await MCPLifecycle.startup()
         try:
+            app.load()
+            await MCPLifecycle.startup()
+            app._started_mcp = True
             yield app
         finally:
             await app.aclose()
@@ -164,9 +177,14 @@ class App:
         if self._closed:
             return
         self._closed = True
-        if self.session_factory is not None:
-            await self.session_factory.aclose()
-        await MCPLifecycle.shutdown()
+        try:
+            if self.session_factory is not None:
+                await self.session_factory.aclose()
+        finally:
+            # the MCP registry is process-wide: only tear it down if this App started it
+            if self._started_mcp:
+                self._started_mcp = False
+                await MCPLifecycle.shutdown()
 
 
 __all__ = ["App"]

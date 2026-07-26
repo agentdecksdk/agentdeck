@@ -4,6 +4,7 @@
 
 Endpoints:
     GET  /health                     -> {"status": "ok", agents, workflows, skills}
+                                        503 {"status": "starting"} before the lifespan runs
     POST /agents/{name}/chat         -> {"session_id", "message"} -> {"output"}
     POST /workflows/{name}           -> JSON state in, final state out
 """
@@ -25,9 +26,8 @@ if TYPE_CHECKING:
 
 
 def create_app() -> Any:
-    from fastapi import FastAPI
-
-    inventory: dict[str, Any] = {}
+    from fastapi import FastAPI, HTTPException
+    from fastapi.responses import JSONResponse
 
     @asynccontextmanager
     async def lifespan(api: FastAPI) -> AsyncIterator[None]:
@@ -35,25 +35,31 @@ def create_app() -> Any:
         # (including SIGTERM from `compose stop`), so no connection is leaked.
         async with App.open() as deck:
             api.state.deck = deck
-            # open() already ran load(); re-running it here just to capture the
-            # inventory for /health is idempotent (refresh=True) and cheap.
-            inventory.update(deck.load())
             yield
+            api.state.deck = None
 
     api = FastAPI(title="agentdeck", lifespan=lifespan)
+    api.state.deck = None  # set by the lifespan; None means "not started yet"
+
+    def deck() -> App:
+        if api.state.deck is None:
+            raise HTTPException(status_code=503, detail="agentdeck is not started")
+        return api.state.deck
 
     @api.get("/health")
-    async def health() -> dict[str, Any]:
-        return {"status": "ok", **inventory}
+    async def health() -> Any:
+        if api.state.deck is None:
+            return JSONResponse({"status": "starting"}, status_code=503)
+        return {"status": "ok", **api.state.deck.inventory}
 
     @api.post("/agents/{name}/chat")
     async def chat(name: str, body: dict[str, Any]) -> dict[str, Any]:
-        result = await api.state.deck.chat(name, body["session_id"], body["message"])
+        result = await deck().chat(name, body["session_id"], body["message"])
         return {"output": result.final_output}
 
     @api.post("/workflows/{name}")
     async def run_workflow(name: str, state: dict[str, Any]) -> Any:
-        out = await api.state.deck.run_workflow(name, state)
+        out = await deck().run_workflow(name, state)
         return json.loads(json.dumps(out, default=json_default))
 
     return api
