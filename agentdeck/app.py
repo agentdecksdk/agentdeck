@@ -17,12 +17,21 @@ agents, workflows, and skills.
 every workflow graph, so configuration errors surface at startup instead of
 mid-conversation. Everything else stays lazy and delegates to the existing
 registries and runners.
+
+For anything long-running — and for every deployment using Redis sessions or
+MCP servers — prefer ``App.open()``: it runs ``load()``, starts the MCP
+lifecycle, and guarantees ``aclose()`` on exit, so the Redis client and MCP
+servers are never leaked::
+
+    async with App.open() as app:
+        turn = await app.chat("FileAgent", session_id="wa-123", message="hi")
 """
 
 from __future__ import annotations
 
 import sys
 import types
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from importlib.machinery import ModuleSpec
 from pathlib import Path
@@ -30,6 +39,7 @@ from typing import TYPE_CHECKING, Any
 
 from agents import SQLiteSession
 
+from agentdeck.agents.mcp.lifecycle import MCPLifecycle
 from agentdeck.agents.registry import AgentRegistry
 from agentdeck.agents.runners import HeadlessRunner, StreamDone
 from agentdeck.runtime.registry import _package_dir
@@ -77,15 +87,21 @@ class App:
     agents: AgentRegistry = field(init=False)
     workflows: WorkflowRegistry = field(init=False)
     skills: SkillRegistry = field(init=False)
-    _session_factory: SessionFactory | None = field(init=False, default=None)
+    # DI seam for tests: pass a prebuilt factory (or one wrapping fakeredis) to skip
+    # `from_settings`'s real Redis client entirely.
+    session_factory: SessionFactory | None = None
+    inventory: dict[str, list[str]] = field(init=False, default_factory=dict)
     _local_sessions: dict[str, Session] = field(init=False, default_factory=dict)
+    _closed: bool = field(init=False, default=False)
+    _started_mcp: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
         package = _mount_project_dir()
         self.agents = AgentRegistry(package)
         self.workflows = WorkflowRegistry(package)
         self.skills = SkillRegistry((_package_dir(package) or Path(PROJECT_DIR)) / "skills")
-        self._session_factory = SessionFactory.from_settings(self.settings.session)
+        if self.session_factory is None:
+            self.session_factory = SessionFactory.from_settings(self.settings.session)
 
     @property
     def settings(self) -> Settings:
@@ -94,7 +110,8 @@ class App:
     def load(self) -> dict[str, list[str]]:
         """Discover and *instantiate* everything; raises on the first broken bundle.
 
-        Returns ``{"agents": [...], "workflows": [...], "skills": [...]}``.
+        Returns ``{"agents": [...], "workflows": [...], "skills": [...]}`` and stashes
+        it on ``self.inventory`` so callers don't have to re-run the compile pass.
         """
         agents = self.agents.list(refresh=True)
         workflows = self.workflows.list(refresh=True)
@@ -105,11 +122,12 @@ class App:
             wf_cls.build()  # compiles + caches the LangGraph graph
         for bundle in skills.values():
             bundle.output_schema  # noqa: B018 — imports/validates the declared schema
-        return {
+        self.inventory = {
             "agents": sorted(agents),
             "workflows": sorted(workflows),
             "skills": sorted(skills),
         }
+        return self.inventory
 
     async def run_agent(self, name: str, message: Any = None, **runner_options: Any) -> Any:
         """One-shot headless run of a discovered agent; returns the SDK ``RunResult``."""
@@ -125,8 +143,8 @@ class App:
         """Conversation memory for ``session_id`` — Redis when ``AGENTDECK_SESSION_REDIS_URL``
         is set, otherwise an in-process SQLite session (dev/test fallback, lost on exit).
         """
-        if self._session_factory is not None:
-            return self._session_factory.session_for(session_id)
+        if self.session_factory is not None:
+            return self.session_factory.session_for(session_id)
         return self._local_sessions.setdefault(session_id, SQLiteSession(session_id))
 
     async def chat(self, name: str, session_id: str, message: Any, **runner_options: Any) -> Any:
@@ -147,6 +165,39 @@ class App:
         runner = HeadlessRunner.from_agent(agent_cls.build(), **runner_options)
         async for delta in runner.run_streamed(message, session=self.session_for(session_id)):
             yield delta
+
+    @classmethod
+    @asynccontextmanager
+    async def open(cls, *, session_factory: SessionFactory | None = None) -> AsyncIterator[App]:
+        """Build, ``load()``, and start the MCP lifecycle; ``aclose()`` runs on exit (even on error).
+
+            async with App.open() as app:
+                ...
+
+        ``session_factory`` is the DI seam for tests (e.g. a fake wrapping fakeredis).
+        """
+        app = cls(session_factory=session_factory)
+        try:
+            app.load()
+            await MCPLifecycle.startup()
+            app._started_mcp = True
+            yield app
+        finally:
+            await app.aclose()
+
+    async def aclose(self) -> None:
+        """Close the Redis session client and MCP servers. Idempotent — safe to call twice."""
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            if self.session_factory is not None:
+                await self.session_factory.aclose()
+        finally:
+            # the MCP registry is process-wide: only tear it down if this App started it
+            if self._started_mcp:
+                self._started_mcp = False
+                await MCPLifecycle.shutdown()
 
 
 __all__ = ["App"]

@@ -13,6 +13,8 @@ from agents.sandbox.capabilities.compaction import (
 )
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from agentdeck.errors import ConfigError
+
 
 class _ChatCompletionsCompaction(Compaction):
     """Compaction without Responses-API sampling params.
@@ -46,6 +48,8 @@ class CompactionSpec(BaseModel):
     @field_validator("threshold", mode="before")
     @classmethod
     def _validate_threshold(cls, value: object) -> object:
+        # Stays ValueError, not ConfigError: pydantic only folds ValueError /
+        # AssertionError from a validator into a ValidationError.
         # isinstance(True, int) is True — reject bool explicitly.
         if isinstance(value, bool):
             raise ValueError("compaction.threshold must be an int or float, not bool")
@@ -65,13 +69,13 @@ class CompactionSpec(BaseModel):
         if isinstance(self.threshold, float):
             model = self.model or agent_model
             if not model:
-                raise ValueError(
+                raise ConfigError(
                     "compaction.threshold as a fraction requires a model — "
                     "set compaction.model or the agent's `model` attribute.",
                 )
             info = CompactionModelInfo.maybe_for_model(model)
             if info is None:
-                raise ValueError(
+                raise ConfigError(
                     f"compaction.threshold as a fraction requires a model with a known "
                     f"context window; '{model}' is not in CompactionModelInfo's table. "
                     "Use an int threshold for an absolute token cap instead.",

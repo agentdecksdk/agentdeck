@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from agentdeck.errors import ConfigError, NotFoundError
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -79,7 +81,7 @@ class SkillBundle:
             return None
         rel, sep, cls_name = str(spec).partition(":")
         if not sep or not rel.strip() or not cls_name.strip():
-            raise ValueError(
+            raise ConfigError(
                 f"{self.name}: metadata.output_schema must be 'relative/path.py:ClassName', got {spec!r}.",
             )
         return rel.strip(), cls_name.strip()
@@ -105,7 +107,7 @@ class SkillRegistry:
         try:
             return skills[name]
         except KeyError:
-            raise KeyError(
+            raise NotFoundError(
                 f"No skill named {name!r} under {self.root}. Available: {sorted(skills)}.",
             ) from None
 
@@ -129,9 +131,9 @@ def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
     try:
         data = yaml.safe_load(match.group(1)) or {}
     except yaml.YAMLError as exc:
-        raise ValueError(f"invalid YAML frontmatter: {exc}") from exc
+        raise ConfigError(f"invalid YAML frontmatter: {exc}") from exc
     if not isinstance(data, dict):
-        raise ValueError(f"frontmatter must be a YAML mapping, got {type(data).__name__}")
+        raise ConfigError(f"frontmatter must be a YAML mapping, got {type(data).__name__}")
     return data, text[match.end() :]
 
 

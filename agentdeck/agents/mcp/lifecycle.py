@@ -20,6 +20,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.agents.mcp.transport import MCPServerStreamableHttpResilient
+from agentdeck.errors import ConfigError
 from agentdeck.runtime.settings import McpSettings, get_settings
 
 if TYPE_CHECKING:
@@ -47,10 +48,10 @@ def _build_server(name: str, spec: dict[str, Any]) -> MCPServer:
     """Construct an ``MCPServer`` from one JSON entry (http transport only)."""
     transport = (spec.get("type") or "http").lower()
     if transport not in {"http", "streamable-http", "streamable_http"}:
-        raise ValueError(f"MCP server '{name}': unsupported transport '{transport}'")
+        raise ConfigError(f"MCP server '{name}': unsupported transport '{transport}'")
     url = spec.get("url")
     if not isinstance(url, str):
-        raise ValueError(f"MCP server '{name}': missing `url` for http transport")
+        raise ConfigError(f"MCP server '{name}': missing `url` for http transport")
     params: dict[str, Any] = {"url": url}
     if isinstance(headers := spec.get("headers"), dict):
         params["headers"] = headers

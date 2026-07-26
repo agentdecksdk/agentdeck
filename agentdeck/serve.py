@@ -4,6 +4,7 @@
 
 Endpoints:
     GET  /health                     -> {"status": "ok", agents, workflows, skills}
+                                        503 {"status": "starting"} before the lifespan runs
     POST /agents/{name}/chat         -> {"session_id", "message"} -> {"output"}
     POST /agents/{name}/chat?stream=true
                                       -> text/event-stream: "delta" events, then one
@@ -15,28 +16,65 @@ Endpoints:
 from __future__ import annotations
 
 import json
+import logging
 import os
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.agents.runners import StreamDone
 from agentdeck.app import App
+from agentdeck.errors import AgentdeckError, NotFoundError
 from agentdeck.workflows.state import json_default
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from fastapi import FastAPI
+
+logger = logging.getLogger(__name__)
+
 
 def create_app() -> Any:
-    from fastapi import FastAPI, HTTPException
-    from fastapi.responses import StreamingResponse
+    from fastapi import FastAPI, HTTPException, Request
+    from fastapi.responses import JSONResponse, StreamingResponse
 
-    deck = App()
-    inventory = deck.load()
-    api = FastAPI(title="agentdeck")
+    @asynccontextmanager
+    async def lifespan(api: FastAPI) -> AsyncIterator[None]:
+        # App.open() closes the Redis session client + MCP servers on shutdown
+        # (including SIGTERM from `compose stop`), so no connection is leaked.
+        async with App.open() as deck:
+            api.state.deck = deck
+            yield
+            api.state.deck = None
+
+    api = FastAPI(title="agentdeck", lifespan=lifespan)
+    api.state.deck = None  # set by the lifespan; None means "not started yet"
+
+    def deck() -> App:
+        if api.state.deck is None:
+            raise HTTPException(status_code=503, detail="agentdeck is not started")
+        return api.state.deck
+
+    # Starlette resolves a handler by walking the exception's MRO, so the
+    # AgentdeckError entry below would already catch NotFoundError. It gets its
+    # own entry because it is the one AgentdeckError caused by client input, and
+    # so the only one whose message is safe to echo back.
+    @api.exception_handler(NotFoundError)
+    async def not_found(_request: Request, exc: NotFoundError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @api.exception_handler(AgentdeckError)
+    async def internal_error(request: Request, exc: AgentdeckError) -> JSONResponse:
+        # Every other AgentdeckError is a server-side fault, and its message can
+        # carry secrets (skill stderr, config values) — log it, never ship it.
+        logger.exception("%s serving %s", type(exc).__name__, request.url.path, exc_info=exc)
+        return JSONResponse(status_code=500, content={"detail": "internal error"})
 
     @api.get("/health")
-    async def health() -> dict[str, Any]:
-        return {"status": "ok", **inventory}
+    async def health() -> Any:
+        if api.state.deck is None:
+            return JSONResponse({"status": "starting"}, status_code=503)
+        return {"status": "ok", **api.state.deck.inventory}
 
     @api.post("/agents/{name}/chat")
     async def chat(name: str, body: dict[str, Any], stream: bool = False) -> Any:
@@ -46,11 +84,12 @@ def create_app() -> Any:
             session_id, message = body["session_id"], body["message"]
         except KeyError as exc:
             raise HTTPException(status_code=422, detail=f"missing field: {exc.args[0]}") from exc
+        app = deck()  # resolve before streaming so a pre-startup 503 keeps its status code
         if stream:
 
             async def events() -> AsyncIterator[str]:
                 try:
-                    async for chunk in deck.chat_stream(name, session_id, message):
+                    async for chunk in app.chat_stream(name, session_id, message):
                         if isinstance(chunk, StreamDone):
                             # The SDK's own final_output — validated model for an output_type
                             # agent, last assistant message otherwise — not the re-joined
@@ -70,12 +109,12 @@ def create_app() -> Any:
                 # Proxies buffer streamed responses by default; nginx needs X-Accel-Buffering.
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
-        result = await deck.chat(name, session_id, message)
+        result = await app.chat(name, session_id, message)
         return {"output": result.final_output}
 
     @api.post("/workflows/{name}")
     async def run_workflow(name: str, state: dict[str, Any]) -> Any:
-        out = await deck.run_workflow(name, state)
+        out = await deck().run_workflow(name, state)
         return json.loads(json.dumps(out, default=json_default))
 
     return api
