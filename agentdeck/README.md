@@ -73,7 +73,7 @@ class FileAgent(BaseSandboxAgent):
 Both classes are used the same way:
 
 ```python
-agent  = FileAgent.build()          # -> SandboxAgent (or Agent for BaseAgent)
+agent = FileAgent.build()  # -> SandboxAgent (or Agent for BaseAgent)
 result = await FileAgent.run("hi")  # -> one-shot RunResult via HeadlessRunner
 ```
 
@@ -97,12 +97,12 @@ result = await FileAgent.run("hi")  # -> one-shot RunResult via HeadlessRunner
 
 ```python
 CapabilitiesSpec(
-    shell=ShellSpec(yield_floor_ms=300_000),        # or True for env defaults
-    skills=["md-segment-translate"],                   # list[str] under skills_dir
-    skills_dir=SHARED_SKILLS_DIR,                   # Path to a skill-bundle directory
-    compaction=CompactionSpec(threshold=0.9),       # or True for runtime defaults
+    shell=ShellSpec(yield_floor_ms=300_000),  # or True for env defaults
+    skills=["md-segment-translate"],  # list[str] under skills_dir
+    skills_dir=SHARED_SKILLS_DIR,  # Path to a skill-bundle directory
+    compaction=CompactionSpec(threshold=0.9),  # or True for runtime defaults
     filesystem=FilesystemSpec(configure_tools=fn),  # or True
-    memory=MemorySpec(layout={...}, read={...}),    # or True
+    memory=MemorySpec(layout={...}, read={...}),  # or True
 )
 ```
 
@@ -151,7 +151,12 @@ from pydantic import BaseModel
 from catalog import SHARED_SKILLS
 from catalog.skills.md_to_segment_translate import MarkdownSegmentTranslateOutput
 from agentdeck.workflows import (
-    END, AgentNode, BaseWorkflow, LoadFileNode, SkillNode, StateGraph,
+    END,
+    AgentNode,
+    BaseWorkflow,
+    LoadFileNode,
+    SkillNode,
+    StateGraph,
 )
 
 TRANSLATE = SHARED_SKILLS.get("md-segment-translate")
@@ -170,18 +175,29 @@ class TranslateAndSummarize(BaseWorkflow):
     @classmethod
     def build_graph(cls) -> StateGraph:
         g = StateGraph(cls.state)
-        g.add_node("translate", SkillNode(
-            TRANSLATE,
-            argv=lambda s: [s.source_path, "--target-language", "English"],
-            into="translate_out",                       # typed schema instance
-        ))
-        g.add_node("load", LoadFileNode(
-            path=lambda s: s.translate_out and s.translate_out.translated_md,
-            into="summary_input",
-        ))
-        g.add_node("summarize", AgentNode(
-            DocumentSummaryAgent, input_key="summary_input", output_key="summary",
-        ))
+        g.add_node(
+            "translate",
+            SkillNode(
+                TRANSLATE,
+                argv=lambda s: [s.source_path, "--target-language", "English"],
+                into="translate_out",  # typed schema instance
+            ),
+        )
+        g.add_node(
+            "load",
+            LoadFileNode(
+                path=lambda s: s.translate_out and s.translate_out.translated_md,
+                into="summary_input",
+            ),
+        )
+        g.add_node(
+            "summarize",
+            AgentNode(
+                DocumentSummaryAgent,
+                input_key="summary_input",
+                output_key="summary",
+            ),
+        )
         g.set_entry_point("translate")
         g.add_edge("translate", "load")
         g.add_edge("load", "summarize")
@@ -190,7 +206,7 @@ class TranslateAndSummarize(BaseWorkflow):
 
 
 await TranslateAndSummarize.run({"source_path": "/abs/path.md"})
-TranslateAndSummarize.as_tool()   # -> agents.tool.FunctionTool
+TranslateAndSummarize.as_tool()  # -> agents.tool.FunctionTool
 ```
 
 ### Node callables
@@ -260,8 +276,8 @@ subclass of a base class declared in those modules. Reused by:
 from agentdeck.agents import AgentRegistry
 
 reg = AgentRegistry("catalog.agents")
-reg.list()              # {"FileAgent": <class>, ...}
-reg.get("FileAgent")    # <class FileAgent>
+reg.list()  # {"FileAgent": <class>, ...}
+reg.get("FileAgent")  # <class FileAgent>
 ```
 
 ---
@@ -276,11 +292,11 @@ env-var reference.
 ```python
 from agentdeck.runtime import get_settings
 
-s = get_settings()        # cached
-s.openai.model            # "cyankiwi/..."
-s.runner.max_turns        # 30
-s.skills.env_dict()       # {"GAIA_PARSER_URL": "...", ...}
-s.sandbox_env()           # OPENAI_* + SKILL_* dict for the sandbox manifest
+s = get_settings()  # cached
+s.openai.model  # "cyankiwi/..."
+s.runner.max_turns  # 30
+s.skills.env_dict()  # {"GAIA_PARSER_URL": "...", ...}
+s.sandbox_env()  # OPENAI_* + SKILL_* dict for the sandbox manifest
 ```
 
 ---

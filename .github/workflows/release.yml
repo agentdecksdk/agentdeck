@@ -1,0 +1,41 @@
+name: Release
+
+# Tag main with vX.Y.Z to release: verifies the tag matches pyproject
+# version, runs the full gate, builds, and publishes a GitHub Release
+# with the sdist + wheel attached.
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+      - name: Verify tag matches pyproject version
+        run: |
+          version=$(uv run --no-project python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$version" != "$tag" ]; then
+            echo "pyproject version $version != tag $tag" >&2
+            exit 1
+          fi
+      - name: Install and check
+        run: |
+          uv venv
+          uv pip install -e ".[dev,serve]"
+          .venv/bin/ruff check agentdeck/ tests/
+          .venv/bin/ty check agentdeck
+          .venv/bin/pytest tests/ -q
+      - name: Build
+        run: uv build
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes

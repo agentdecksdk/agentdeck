@@ -1,0 +1,28 @@
+name: Bug report
+description: Something broke
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Smallest .agentdeck bundle / snippet that shows the problem.
+      render: python
+  - type: input
+    id: version
+    attributes:
+      label: agentdeck version / commit
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Python version, OS, model provider (OpenAI / Gemini / local), relevant AGENTDECK_* settings (never paste keys).

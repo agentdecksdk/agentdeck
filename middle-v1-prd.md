@@ -1,9 +1,9 @@
 # Middle — Product Requirements Document
 
-**Version:** 1.0  
-**Product stage:** V1 / design baseline  
-**Date:** 26 July 2026  
-**Status:** Draft for product and engineering review  
+**Version:** 1.0
+**Product stage:** V1 / design baseline
+**Date:** 26 July 2026
+**Status:** Draft for product and engineering review
 **Owner:** Middle product team
 
 ---
