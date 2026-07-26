@@ -13,8 +13,9 @@ Two things live in this repo:
   runner glue, graph compilation. Execution stays in the Agents SDK / LangGraph.
   Don't move execution logic into agentdeck.
 - Single entry point: `App` (`agentdeck/app.py`). It always serves the
-  `./.agentdeck/` project dir — bundles are `<bundle>/agent.py`,
-  `<bundle>/workflow.py`, `skills/*/SKILL.md`. No other catalog mechanism.
+  `./.agentdeck/` project dir — bundles are `agents/<bundle>/agent.py`,
+  `workflows/<bundle>/workflow.py`, `skills/*/SKILL.md`. No other catalog
+  mechanism.
 - Skill output schemas are **workflow-only**: never import `SkillOutputSchema`
   or a skill's typed schema module from agent code. The agent's contract with a
   skill is SKILL.md prose + `key=value` stdout lines.

@@ -45,6 +45,14 @@ they move under a version heading when a release is tagged.
   New module `agentdeck/agents/subagents.py`.
 
 ### Changed
+- **Breaking:** `.agentdeck/` project layout now uses top-level type
+  subdirectories — `agents/<bundle>/agent.py` and `workflows/<bundle>/workflow.py`
+  instead of `<bundle>/agent.py` / `<bundle>/workflow.py` straight under the
+  project root. `skills/*/SKILL.md` is unchanged. `PluginRegistry` gained a
+  required `type_dir` field (`AgentRegistry`/`WorkflowRegistry` default it to
+  `"agents"`/`"workflows"`). No migration shim — an old-layout project dir now
+  raises a `ConfigError` pointing at the new paths instead of silently
+  discovering nothing.
 - A non-durable workflow whose node calls `interrupt()` now raises `ConfigError`
   instead of silently returning an unresumable state.
 

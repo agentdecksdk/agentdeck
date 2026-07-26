@@ -20,13 +20,13 @@ Everything you define lives in a `.agentdeck/` directory next to where you run:
 
 ```text
 .agentdeck/
-├── greeter/agent.py            # a BaseAgent subclass
-├── new_booking/workflow.py     # a BaseWorkflow subclass
-└── skills/parse-request/       # skill bundles: SKILL.md + scripts/run.py
+├── agents/greeter/agent.py          # a BaseAgent subclass
+├── workflows/new_booking/workflow.py  # a BaseWorkflow subclass
+└── skills/parse-request/            # skill bundles: SKILL.md + scripts/run.py
 ```
 
 No `__init__.py`, no registration — dirs are discovered by convention
-(`<bundle>/agent.py`, `<bundle>/workflow.py`, `skills/*/SKILL.md`).
+(`agents/<bundle>/agent.py`, `workflows/<bundle>/workflow.py`, `skills/*/SKILL.md`).
 
 ```python
 from agentdeck import App

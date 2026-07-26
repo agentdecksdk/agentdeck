@@ -63,7 +63,7 @@ def client(tmp_path, monkeypatch):
     from agentdeck.runtime.settings import reset_settings_cache
     from agentdeck.serve import create_app
 
-    root = tmp_path / ".agentdeck" / "approval_flow"
+    root = tmp_path / ".agentdeck" / "workflows" / "approval_flow"
     root.mkdir(parents=True)
     (root / "workflow.py").write_text(textwrap.dedent(APPROVAL_WORKFLOW_PY))
     monkeypatch.chdir(tmp_path)

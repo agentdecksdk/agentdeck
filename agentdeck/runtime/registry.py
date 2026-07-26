@@ -8,17 +8,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Generic, TypeVar
 
-from agentdeck.errors import NotFoundError
+from agentdeck.errors import ConfigError, NotFoundError
 
 T = TypeVar("T")
-
-# ``skills/`` is reserved for project-side skill bundles colocated with agents.
-RESERVED_DIRS: frozenset[str] = frozenset({"skills", "__pycache__"})
 
 
 @dataclass(slots=True)
 class PluginRegistry(Generic[T]):
-    """Discover ``T`` subclasses in ``<package>/<bundle>/<module_name>.py``.
+    """Discover ``T`` subclasses in ``<package>/<type_dir>/<bundle>/<module_name>.py``.
 
     Lazy: discovery runs on the first :meth:`list` call and is cached on
     the instance. Pass ``refresh=True`` to force a re-scan.
@@ -27,6 +24,7 @@ class PluginRegistry(Generic[T]):
     package: str
     base_class: type[T]
     module_name: str
+    type_dir: str
     label: str = "plugin"
     _cache: dict[str, type[T]] | None = field(default=None, init=False, repr=False)
 
@@ -46,14 +44,18 @@ class PluginRegistry(Generic[T]):
             raise NotFoundError(f"No {self.label} named {name!r}. Available: {sorted(plugins)}.") from None
 
     def _scan(self) -> dict[str, type[T]]:
-        root = _package_dir(self.package)
-        if root is None or not root.is_dir():
+        project_root = _package_dir(self.package)
+        if project_root is None or not project_root.is_dir():
+            return {}
+        root = project_root / self.type_dir
+        if not root.is_dir():
+            self._reject_legacy_layout(project_root)
             return {}
         found: dict[str, type[T]] = {}
         for child in sorted(root.iterdir()):
             if not self._is_bundle(child):
                 continue
-            module = importlib.import_module(f"{self.package}.{child.name}.{self.module_name}")
+            module = importlib.import_module(f"{self.package}.{self.type_dir}.{child.name}.{self.module_name}")
             # ``attr.__module__ == module.__name__`` filters re-exports —
             # only classes defined in this module are registered.
             for attr in vars(module).values():
@@ -66,13 +68,16 @@ class PluginRegistry(Generic[T]):
                     found[attr.__name__] = attr
         return found
 
+    def _reject_legacy_layout(self, project_root: Path) -> None:
+        # pre-0.3 layout put bundles straight under the project root instead of type_dir/.
+        if any((c / f"{self.module_name}.py").is_file() for c in project_root.iterdir() if c.is_dir()):
+            raise ConfigError(
+                f"old .agentdeck layout detected: move '<bundle>/{self.module_name}.py' "
+                f"under '.agentdeck/{self.type_dir}/<bundle>/{self.module_name}.py'."
+            )
+
     def _is_bundle(self, path: Path) -> bool:
-        return (
-            path.is_dir()
-            and path.name not in RESERVED_DIRS
-            and not path.name.startswith(("_", "."))
-            and (path / f"{self.module_name}.py").is_file()
-        )
+        return path.is_dir() and not path.name.startswith(("_", ".")) and (path / f"{self.module_name}.py").is_file()
 
 
 def _package_dir(package: str) -> Path | None:
