@@ -12,6 +12,7 @@ from agentdeck.agents.mcp import (
 )
 from agentdeck.agents.registry import AgentRegistry
 from agentdeck.agents.runners import BaseRunner, HeadlessRunner
+from agentdeck.agents.web_search import web_search
 
 __all__ = [
     "AgentRegistry",
@@ -30,4 +31,5 @@ __all__ = [
     "mcp_status_banner",
     "resolve_agent_mcp_servers",
     "resolve_agent_mcp_status",
+    "web_search",
 ]

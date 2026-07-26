@@ -341,6 +341,7 @@ class Settings(BaseModel):
     skills: SkillsSettings = Field(default_factory=lambda: SkillsSettings.model_validate({}))
     langfuse: LangfuseSettings = Field(default_factory=lambda: LangfuseSettings.model_validate({}))
     mcp: McpSettings = Field(default_factory=lambda: McpSettings.model_validate({}))
+    tavily: TavilySettings = Field(default_factory=lambda: TavilySettings.model_validate({}))
 
     def sandbox_env(self, extra: Mapping[str, str] | None = None) -> dict[str, str]:
         """Standard env every sandbox sees: ``OPENAI_*`` + ``SKILL_*`` + extras."""
@@ -369,6 +370,7 @@ __all__ = [
     "SessionSettings",
     "Settings",
     "SkillsSettings",
+    "TavilySettings",
     "get_settings",
     "reset_settings_cache",
     "resolve_config_path",
