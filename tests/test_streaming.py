@@ -192,7 +192,9 @@ def client(project):
 
     from agentdeck.serve import create_app
 
-    return TestClient(create_app())
+    # context manager runs the lifespan; without it every endpoint is 503
+    with TestClient(create_app()) as c:
+        yield c
 
 
 def test_stream_endpoint_emits_deltas_then_done(client, monkeypatch):
