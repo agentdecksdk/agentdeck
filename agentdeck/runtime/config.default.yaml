@@ -16,6 +16,13 @@ runner:
   max_turns: 30
   max_tokens: null  # cap on tokens per model response; null => model default (uncapped)
 
+checkpoint:
+  # LangGraph checkpointer for ``durable=True`` workflows. Backend: sqlite | postgres | memory.
+  # ``url`` is the sqlite file path (or postgres DSN); empty sqlite url falls back to
+  # ``.agentdeck/checkpoints.sqlite3``. Needs the ``[durability]`` extra for sqlite/postgres.
+  backend: sqlite
+  url: ""
+
 session:
   redis_url: null       # null => in-process SQLite fallback (dev only)
   redis_key_prefix: agents:session

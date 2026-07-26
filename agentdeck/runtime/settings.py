@@ -261,6 +261,22 @@ class TavilySettings(LayeredSettings):
     api_key: str = ""
 
 
+class CheckpointSettings(LayeredSettings):
+    """LangGraph checkpointer backend for ``durable=True`` workflows.
+
+    ``backend`` picks the saver (``sqlite`` for dev, ``postgres`` for prod,
+    ``memory`` for tests — never persists past the process); ``url`` is the
+    sqlite file path or the Postgres DSN. Resolving the saver classes lives in
+    ``agentdeck.runtime.checkpointer`` — sqlite/postgres ship in the optional
+    ``[durability]`` extra, so this settings model stays import-free of them.
+    """
+
+    model_config = settings_config("AGENTDECK_CHECKPOINT_")
+
+    backend: str = "sqlite"
+    url: str = ""
+
+
 class SessionSettings(LayeredSettings):
     """Configuration for Redis-backed agent conversation memory.
 
@@ -337,6 +353,7 @@ class Settings(BaseModel):
     # doesn't block strict typing.
     openai: OpenAISettings = Field(default_factory=lambda: OpenAISettings.model_validate({}))
     runner: RunnerSettings = Field(default_factory=lambda: RunnerSettings.model_validate({}))
+    checkpoint: CheckpointSettings = Field(default_factory=lambda: CheckpointSettings.model_validate({}))
     session: SessionSettings = Field(default_factory=lambda: SessionSettings.model_validate({}))
     skills: SkillsSettings = Field(default_factory=lambda: SkillsSettings.model_validate({}))
     langfuse: LangfuseSettings = Field(default_factory=lambda: LangfuseSettings.model_validate({}))
@@ -361,6 +378,7 @@ __all__ = [
     "ENV_FILE",
     "PACKAGED_DEFAULT_YAML",
     "REPO_ROOT",
+    "CheckpointSettings",
     "LangfuseSettings",
     "McpServerSettings",
     "McpSettings",

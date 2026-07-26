@@ -37,6 +37,20 @@ they move under a version heading when a release is tagged.
 - `App.load()` stashes its result on `App.inventory`, so `/health` no longer
   re-runs the whole compile pass on boot.
 
+- Workflow durability: `BaseWorkflow.durable: ClassVar[bool] = False` opt-in.
+  `durable=True` compiles the graph with a LangGraph checkpointer resolved from
+  a new `CheckpointSettings` group (`AGENTDECK_CHECKPOINT_*`, YAML `checkpoint:`
+  — `backend`: `sqlite` | `postgres` | `memory`, `url`). `App.run_workflow` and
+  `BaseWorkflow.run` accept `thread_id: str | None = None`, threaded into
+  LangGraph's `config={"configurable": {"thread_id": ...}}` so a run can
+  resume; `durable=True` with no `thread_id` raises. `durable=False` (default)
+  compiles and runs exactly as before. New optional `[durability]` extra
+  (`langgraph-checkpoint-sqlite`, `langgraph-checkpoint-postgres`) — a missing
+  extra raises a clear `ImportError` at first use instead of a bare
+  `ModuleNotFoundError`. `memory`/`sqlite` are exercised in tests
+  (`tests/test_workflow_durability.py`), including a real cross-process restart
+  against a sqlite file, matching the issue's acceptance test.
+
 ### Changed
 - The streamed `done` event's `"output"` is now the SDK's `final_output`
   (matching non-streamed `chat()`, and the validated model for an

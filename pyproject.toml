@@ -30,6 +30,12 @@ observability = [
     "openinference-instrumentation-openai-agents>=0.1",
     "opentelemetry-sdk>=1.27",
 ]
+durability = [
+    # sqlite saver pulls in sqlite-vec (a langgraph vector-store dep unrelated to
+    # checkpointing) — kept optional rather than in core deps for that reason.
+    "langgraph-checkpoint-sqlite>=2.0",
+    "langgraph-checkpoint-postgres>=2.0",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -65,3 +71,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["agentdeck"]
+
+[tool.ty.rules]
+# optional-extra imports carry `ty: ignore[unresolved-import]` — "unused" or not
+# depends on which extras the local venv has, so don't police it
+unused-ignore-comment = "ignore"

@@ -135,9 +135,21 @@ class App:
         runner = HeadlessRunner.from_agent(agent_cls.build(), **runner_options)
         return await runner.run(message)
 
-    async def run_workflow(self, name: str, state: Any = None, **runner_options: Any) -> Any:
-        """Single ``ainvoke`` of a discovered workflow; returns the final state."""
-        return await self.workflows.get(name).run(state, **runner_options)
+    async def run_workflow(
+        self,
+        name: str,
+        state: Any = None,
+        *,
+        thread_id: str | None = None,
+        **runner_options: Any,
+    ) -> Any:
+        """Single ``ainvoke`` of a discovered workflow; returns the final state.
+
+        ``thread_id`` scopes LangGraph checkpointed state — required for a
+        ``durable=True`` workflow (so a later call with the same id resumes it),
+        ignored otherwise.
+        """
+        return await self.workflows.get(name).run(state, thread_id=thread_id, **runner_options)
 
     def session_for(self, session_id: str) -> Session:
         """Conversation memory for ``session_id`` — Redis when ``AGENTDECK_SESSION_REDIS_URL``
