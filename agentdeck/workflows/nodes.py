@@ -8,13 +8,18 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
+from langgraph.config import get_config, get_stream_writer
+
 from agentdeck.agents.base import BaseAgent, BaseSandboxAgent
-from agentdeck.agents.runners.headless import HeadlessRunner
+from agentdeck.agents.runners.headless import HeadlessRunner, StreamDone
 from agentdeck.runtime.settings import get_settings
 from agentdeck.runtime.workspace import Workspace
 from agentdeck.skills import SkillBundle, SkillExecutionError, SkillExecutor, SkillOutputSchema, SkillResult
 
 logger = logging.getLogger(__name__)
+
+# Set by DevWorkflowRunner.run_stream(); unset under run()/ainvoke(), which stay on Runner.run.
+STREAM_CONFIGURABLE_KEY = "agentdeck_stream"
 
 ArgvBuilder = Callable[[Any], Sequence[str | Path]]
 StateUpdate = Callable[[Any, SkillResult], Awaitable[dict[str, Any]] | dict[str, Any]]
@@ -140,6 +145,8 @@ class AgentNode:
     Reads the prompt from ``state[input_key]`` and writes the agent's
     ``final_output`` to ``state[output_key]``. ``input_files_key`` mounts
     host paths from state under the sandbox ``input_files/`` prefix.
+    Forwards the nested agent's text deltas into the graph's custom stream
+    (``get_stream_writer()``) so ``run_workflow_stream`` surfaces them too.
     """
 
     __slots__ = ("agent_cls", "input_key", "output_key", "input_files_key", "_built")
@@ -174,10 +181,19 @@ class AgentNode:
         logger.debug("agent node %s: start", self.agent_cls.__name__)
         files = _read(state, self.input_files_key)
         kwargs: dict[str, Any] = {"input_files": list(files)} if files else {}
-        result = await HeadlessRunner.from_agent(self._built, **kwargs).run(
-            _read(state, self.input_key),
-        )
-        return {self.output_key: result.final_output}
+        runner = HeadlessRunner.from_agent(self._built, **kwargs)
+        prompt = _read(state, self.input_key)
+        if not _is_streaming():
+            result = await runner.run(prompt)
+            return {self.output_key: result.final_output}
+        writer = get_stream_writer()
+        done: Any = None
+        async for chunk in runner.run_streamed(prompt):
+            if isinstance(chunk, StreamDone):
+                done = chunk
+            else:
+                writer(chunk)
+        return {self.output_key: done.final_output}
 
 
 class SandboxAgentNode(AgentNode):
@@ -189,6 +205,11 @@ class SandboxAgentNode(AgentNode):
 def _const[T](value: T) -> Callable[[Any], T]:
     """Wrap a static value as a ``(state) -> value`` builder."""
     return lambda _state: value
+
+
+def _is_streaming() -> bool:
+    """``True`` only inside ``DevWorkflowRunner.run_stream``'s ``astream`` call."""
+    return bool(get_config().get("configurable", {}).get(STREAM_CONFIGURABLE_KEY))
 
 
 def _read(state: Any, key: str | None) -> Any:

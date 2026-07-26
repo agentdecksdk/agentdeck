@@ -13,6 +13,12 @@ Endpoints:
     POST /workflows/{name}           -> JSON state in, final state out — or
                                         {"type": "interrupt", "payload", "thread_id"} when the
                                         run pauses on a human decision
+    POST /workflows/{name}?stream=true
+                                      -> text/event-stream: "node_update"/"custom" events per
+                                         the LangGraph node updates/custom stream, then one
+                                         "done" event carrying the final state — or one
+                                         "interrupt" event in its place when the run pauses;
+                                         an "error" event replaces either if the run fails
     GET  /workflows/{name}/pending   -> [{"type": "interrupt", "payload", "thread_id"}, ...]
     POST /workflows/{name}/{thread_id}/resume
                                       -> {"value": ...} -> final state, or the next interrupt
@@ -118,9 +124,30 @@ def create_app() -> Any:
         return {"output": result.final_output}
 
     @api.post("/workflows/{name}")
-    async def run_workflow(name: str, state: dict[str, Any], thread_id: str | None = None) -> Any:
-        out = await deck().run_workflow(name, state, thread_id=thread_id)
-        return _jsonable(out)
+    async def run_workflow(name: str, state: dict[str, Any], stream: bool = False, thread_id: str | None = None) -> Any:
+        app = deck()  # resolve before streaming so a pre-startup 503 keeps its status code
+        if stream:
+
+            async def events() -> AsyncIterator[str]:
+                try:
+                    async for event in app.run_workflow_stream(name, state, thread_id=thread_id):
+                        if event["type"] == "done":
+                            yield f"event: done\ndata: {json.dumps(event['state'], default=json_default)}\n\n"
+                        elif event["type"] == "interrupt":
+                            yield f"event: interrupt\ndata: {json.dumps(event, default=json_default)}\n\n"
+                        else:
+                            yield f"data: {json.dumps(event, default=json_default)}\n\n"
+                except Exception as exc:
+                    # Mid-stream failures can't change the status code any more; report
+                    # them in-band without leaking internals.
+                    yield f"event: error\ndata: {json.dumps({'error': type(exc).__name__})}\n\n"
+
+            return StreamingResponse(
+                events(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+        return _jsonable(await app.run_workflow(name, state, thread_id=thread_id))
 
     @api.get("/workflows/{name}/pending")
     async def pending_interrupts(name: str) -> Any:

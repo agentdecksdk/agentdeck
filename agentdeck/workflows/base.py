@@ -14,11 +14,11 @@ from pydantic import BaseModel
 from agentdeck.errors import ConfigError
 from agentdeck.runtime.checkpointer import resolve_checkpointer
 from agentdeck.runtime.settings import get_settings
-from agentdeck.workflows.interrupts import InterruptResult, as_interrupt, interrupt_result
+from agentdeck.workflows.interrupts import INTERRUPT_KEY, InterruptResult, as_interrupt, interrupt_result
 from agentdeck.workflows.state import dump_state
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import AsyncIterator, Iterable, Sequence
 
     from agents.tool import FunctionTool
     from langgraph.graph import StateGraph
@@ -84,24 +84,50 @@ class BaseWorkflow:
         resume the run with :meth:`resume`. The interrupted node re-runs from its start on
         resume, so it must be pure: put side effects in earlier nodes.
         """
-        if cls.durable and thread_id is None:
-            raise ValueError(
-                f"{cls.__name__} is durable=True; run() requires a thread_id to load/persist checkpointed state.",
-            )
-        if thread_id is not None:
-            config = dict(runner_options.get("config") or {})
-            config["configurable"] = {**config.get("configurable", {}), "thread_id": thread_id}
-            runner_options["config"] = config
+        runner_options = cls._thread_scoped_options(thread_id, runner_options)
         result = await cls.runner(**runner_options).run(state)
+        interrupted = cls._interrupt_or_none(result, thread_id)
+        return result if interrupted is None else interrupted
+
+    @classmethod
+    async def run_stream(
+        cls, state: Any = None, *, thread_id: str | None = None, **runner_options: Any
+    ) -> AsyncIterator[dict[str, Any] | InterruptResult]:
+        """Streaming counterpart to :meth:`run`: yields ``node_update``/``custom`` events per
+        :meth:`DevWorkflowRunner.run_stream <agentdeck.workflows.runners.dev.DevWorkflowRunner.run_stream>`,
+        then one terminal ``done`` event — or an :class:`~agentdeck.workflows.interrupts.InterruptResult`
+        event in its place when the run paused for a human. Same ``thread_id`` semantics as ``run``.
+        """
+        runner_options = cls._thread_scoped_options(thread_id, runner_options)
+        async for event in cls.runner(**runner_options).run_stream(state):
+            # LangGraph reports the pause as an update from a pseudo-node; the terminal event carries it.
+            if event["type"] == "node_update" and event["node"] == INTERRUPT_KEY:
+                continue
+            interrupted = cls._interrupt_or_none(event["state"], thread_id) if event["type"] == "done" else None
+            yield event if interrupted is None else interrupted
+
+    @classmethod
+    def _interrupt_or_none(cls, result: Any, thread_id: str | None) -> InterruptResult | None:
+        """The pause ``result`` stopped on, or ``None``; a non-durable pause can't be resumed."""
         interrupted = as_interrupt(result, thread_id or "")
-        if interrupted is None:
-            return result
-        if not cls.durable:
+        if interrupted is not None and not cls.durable:
             raise ConfigError(
                 f"{cls.__name__} called interrupt() but is durable=False: with no checkpointer the paused run "
                 "cannot be resumed. Set `durable = True` on the workflow.",
             )
         return interrupted
+
+    @classmethod
+    def _thread_scoped_options(cls, thread_id: str | None, runner_options: dict[str, Any]) -> dict[str, Any]:
+        if cls.durable and thread_id is None:
+            raise ValueError(
+                f"{cls.__name__} is durable=True; a thread_id is required to load/persist checkpointed state.",
+            )
+        if thread_id is None:
+            return runner_options
+        config = dict(runner_options.get("config") or {})
+        config["configurable"] = {**config.get("configurable", {}), "thread_id": thread_id}
+        return {**runner_options, "config": config}
 
     @classmethod
     async def resume(cls, thread_id: str, value: Any, **runner_options: Any) -> Any:

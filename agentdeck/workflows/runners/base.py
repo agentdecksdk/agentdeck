@@ -13,7 +13,7 @@ from agentdeck.runtime.settings import get_settings
 
 if TYPE_CHECKING:
     import os
-    from collections.abc import Mapping, Sequence
+    from collections.abc import AsyncIterator, Mapping, Sequence
 
     from langgraph.graph.state import CompiledStateGraph
 
@@ -57,6 +57,10 @@ class BaseWorkflowRunner(ABC):
     @abstractmethod
     async def run(self, state: Any = None) -> Any:
         """Drive the configured graph."""
+
+    def run_stream(self, state: Any = None) -> AsyncIterator[dict[str, Any]]:
+        """Streamed counterpart to :meth:`run`; not abstract, see :class:`DevWorkflowRunner`."""
+        raise NotImplementedError(f"{type(self).__name__} does not support streaming")
 
 
 __all__ = ["BaseWorkflowRunner"]

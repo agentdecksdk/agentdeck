@@ -74,6 +74,9 @@ class BaseAgent:
     # the agent rather than crashing the backend.
     mcp_server_names: ClassVar[Sequence[str]] = ()
 
+    # Registry names spawnable via ``spawn_subagent``; empty (default) adds no such tool.
+    subagents: ClassVar[Sequence[str]] = ()
+
     @classmethod
     def build(cls) -> Agent:
         return Agent(**cls._kwargs())
@@ -117,13 +120,18 @@ class BaseAgent:
     def _kwargs(cls) -> dict[str, Any]:
         # Empty list/dict attrs drop out so the SDK can apply its own defaults.
         instructions, mcp_servers = _build_instructions_and_mcp(cls)
+        tools = list(cls.tools)
+        if cls.subagents:
+            from agentdeck.agents.subagents import spawn_subagent_tool
+
+            tools.append(spawn_subagent_tool(cls))
         fields: dict[str, Any] = {
             "name": cls.name or cls.__name__,
             "instructions": instructions,
             "handoff_description": cls.handoff_description,
             "model": cls.model,
             "model_settings": ModelSettings(**cls.model_settings) if cls.model_settings else None,
-            "tools": list(cls.tools) or None,
+            "tools": tools or None,
             "handoffs": _resolve_handoffs(cls.handoffs) or None,
             "output_type": cls.output_type,
             "hooks": cls.hooks,
