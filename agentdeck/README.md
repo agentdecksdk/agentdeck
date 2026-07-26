@@ -25,7 +25,7 @@ Everything that is neither agent- nor workflow-specific.
 | --- | --- |
 | [`settings.py`](runtime/settings.py) | Layered `Settings` (`OpenAISettings`, `RunnerSettings`, `SkillsSettings`). Loaded from process env / `.env`. |
 | [`workspace.py`](runtime/workspace.py) | `Workspace` — owns one `SandboxSession`, shared across nested agents / workflows / skills via a `ContextVar`. |
-| [`registry.py`](runtime/registry.py) | Generic `PluginRegistry` — discovers any `<package>/<bundle>/<module>.py` plug-in. |
+| [`registry.py`](runtime/registry.py) | Generic `PluginRegistry` — discovers any `<package>/<type_dir>/<bundle>/<module>.py` plug-in. |
 | [`events.py`](runtime/events.py) | Helpers that read text deltas, tool args, and tool outputs out of Agents SDK stream items. |
 
 ## `agentdeck.skills` — deterministic skill execution
