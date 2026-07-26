@@ -7,6 +7,43 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+### Added
+- Human-in-the-loop for `durable = True` workflows: a node calling
+  `langgraph.types.interrupt(payload)` (re-exported as
+  `agentdeck.workflows.interrupt`) pauses the run, and `run_workflow` returns
+  `{"type": "interrupt", "payload": ..., "thread_id": ...}` instead of a final
+  state. `App.resume_workflow(name, thread_id, value)` answers it (returning the
+  final state or the next interrupt) and `App.pending_interrupts(name=None)`
+  lists every thread still waiting — the approval inbox. Same trio on
+  `BaseWorkflow` as `run` / `resume` / `pending`.
+- `run_workflow_stream` ends a paused run with that same interrupt event in place
+  of its terminal `done` event, and the SSE endpoint emits it as an `interrupt`
+  event instead of `done`.
+- `GET /workflows/{name}/pending` and `POST /workflows/{name}/{thread_id}/resume`
+  (`{"value": ...}`); `POST /workflows/{name}` takes an optional `thread_id`
+  query parameter so durable runs can be started over HTTP.
+
+- `App.run_workflow_stream(name, state=None, thread_id=None)`: async iterator over a
+  workflow's `astream(stream_mode=["updates", "custom"])` — a `node_update` event per
+  completed node, a `custom` event per `langgraph.config.get_stream_writer()` call, then one
+  terminal `done` event carrying the final state. Same `thread_id` semantics as
+  `run_workflow`, which is unchanged.
+- `AgentNode` now forwards its nested agent's text deltas into the graph's custom stream via
+  `get_stream_writer()` (a no-op outside `run_workflow_stream`), so a workflow-driven chat
+  streams tokens the same as a direct agent chat.
+- `POST /workflows/{name}?stream=true`: `text/event-stream` response mirroring the chat
+  endpoint's pattern — `node_update`/`custom` `message` events, a terminal `done` event with
+  the final state, or an `error` event on a mid-stream failure.
+- `subagents = [...]` class attribute on `BaseAgent`: opt-in `spawn_subagent`
+  `FunctionTool` that lets the model delegate a task to another registered
+  agent at runtime. The subagent runs as an isolated `HeadlessRunner`
+  one-shot (no session, no shared history — the task text is its entire
+  context) and its `final_output` is returned as a string. Spawning a name
+  outside the allowlist, or attempting to spawn from inside an already-
+  spawned subagent (depth-limited via a `ContextVar`, default depth 1),
+  returns an `error: ...` string instead of raising, so the run continues.
+  New module `agentdeck/agents/subagents.py`.
+
 ### Changed
 - **Breaking:** `.agentdeck/` project layout now uses top-level type
   subdirectories — `agents/<bundle>/agent.py` and `workflows/<bundle>/workflow.py`
@@ -16,6 +53,8 @@ they move under a version heading when a release is tagged.
   `"agents"`/`"workflows"`). No migration shim — an old-layout project dir now
   raises a `ConfigError` pointing at the new paths instead of silently
   discovering nothing.
+- A non-durable workflow whose node calls `interrupt()` now raises `ConfigError`
+  instead of silently returning an unresumable state.
 
 ## [0.2.0] - 2026-07-26
 

@@ -53,6 +53,8 @@ if TYPE_CHECKING:
 
     from agents.memory.session import Session
 
+    from agentdeck.workflows.interrupts import InterruptResult
+
 PROJECT_DIR = ".agentdeck"
 _PROJECT_ALIAS = "agentdeck_project"
 
@@ -148,8 +150,49 @@ class App:
         ``thread_id`` scopes LangGraph checkpointed state — required for a
         ``durable=True`` workflow (so a later call with the same id resumes it),
         ignored otherwise.
+
+        A run that stops on ``langgraph.types.interrupt()`` returns an
+        :class:`~agentdeck.workflows.interrupts.InterruptResult`
+        (``{"type": "interrupt", "payload": ..., "thread_id": ...}``) instead of a final
+        state; feed the human's answer back with :meth:`resume_workflow`.
         """
         return await self.workflows.get(name).run(state, thread_id=thread_id, **runner_options)
+
+    async def resume_workflow(self, name: str, thread_id: str, value: Any, **runner_options: Any) -> Any:
+        """Answer the interrupt paused on ``thread_id``; returns the final state or the next interrupt.
+
+        The interrupted node re-runs from its start with ``interrupt()`` returning ``value``,
+        so anything it did before pausing happens twice — keep interrupt nodes pure.
+        """
+        return await self.workflows.get(name).resume(thread_id, value, **runner_options)
+
+    async def pending_interrupts(self, name: str | None = None) -> list[InterruptResult]:
+        """Approval inbox: every thread paused on an interrupt, for one workflow or all of them."""
+        workflows = [self.workflows.get(name)] if name else list(self.workflows.list().values())
+        pending: list[InterruptResult] = []
+        for workflow in workflows:
+            pending.extend(await workflow.pending())
+        return pending
+
+    async def run_workflow_stream(
+        self,
+        name: str,
+        state: Any = None,
+        *,
+        thread_id: str | None = None,
+        **runner_options: Any,
+    ) -> AsyncIterator[dict[str, Any] | InterruptResult]:
+        """Streaming counterpart to :meth:`run_workflow`: a ``node_update`` event per completed
+        node, a ``custom`` event per nested :class:`~agentdeck.workflows.nodes.AgentNode`'s text
+        delta (or any :func:`~langgraph.config.get_stream_writer` call), then one terminal
+        ``done`` event carrying the final state. Same ``thread_id`` semantics as ``run_workflow``.
+
+        A run that pauses on ``langgraph.types.interrupt()`` ends with an
+        :class:`~agentdeck.workflows.interrupts.InterruptResult` event instead of ``done``;
+        answer it with :meth:`resume_workflow`.
+        """
+        async for event in self.workflows.get(name).run_stream(state, thread_id=thread_id, **runner_options):
+            yield event
 
     def session_for(self, session_id: str) -> Session:
         """Conversation memory for ``session_id`` — Redis when ``AGENTDECK_SESSION_REDIS_URL``
