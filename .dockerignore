@@ -1,0 +1,7 @@
+.git
+.venv
+dist
+tests
+.agentdeck
+__pycache__
+*.pyc

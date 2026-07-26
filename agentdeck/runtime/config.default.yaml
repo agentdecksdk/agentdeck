@@ -1,0 +1,42 @@
+# Packaged defaults for ``agentdeck.runtime.settings``.
+#
+# Resolution order: ``APP_CONFIG_PATH`` → ``<repo>/config.yaml`` →
+# this file. Every section maps 1:1 to a settings class; shell env
+# vars (``OPENAI_BASE_URL`` etc.) still win.
+
+openai:
+  api_key: ""
+  base_url: ""          # empty => SDK default (api.openai.com)
+  model: gpt-4.1-mini
+  tracing_api_key: null
+
+runner:
+  workflow_name: agentdeck
+  temperature: 1.0
+  max_turns: 30
+  max_tokens: null  # cap on tokens per model response; null => model default (uncapped)
+
+session:
+  redis_url: null       # null => in-process SQLite fallback (dev only)
+  redis_key_prefix: agents:session
+  redis_ttl: null
+
+shell:
+  yield_floor_ms: 600000
+  max_output_tokens: 15000
+
+# skill:
+#   Extra keys here are forwarded into the sandbox env (uppercased, SKILL_ prefix).
+
+langfuse:
+  # LLM-observability tracing export (Langfuse). Disabled until BOTH keys are
+  # set (AGENTDECK_LANGFUSE_PUBLIC_KEY / _SECRET_KEY, or the fields below).
+  public_key: ""
+  secret_key: ""
+  host: http://localhost:3000
+  environment: local
+
+mcp:
+  # Named MCP servers agents reach via ``BaseAgent.mcp_server_names``.
+  # Override per-env via the YAML ``mcp:`` section or ``AGENTDECK_MCP_SERVERS`` (JSON).
+  servers: {}
