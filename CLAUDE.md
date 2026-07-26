@@ -30,8 +30,26 @@ Two things live in this repo:
 - Python ≥3.12, ruff (config in pyproject), line length 120, tests in `tests/`.
 - Layered pydantic-settings; env prefixes are `AGENTDECK_*` (renamed from the
   original project's `SYSAGENT_*` — never reintroduce the old prefix).
-- `make test` / `make lint` / `make build`; compose runs the package as an
-  installed dependency, with `.agentdeck/` mounted read-only.
+- **`make check` is the gate** (ruff + ty + pytest) — CI runs exactly this.
+  Pre-commit hooks (ruff, ruff-format, ty, hygiene) are installed via
+  `pre-commit install`; keep the ruff-pre-commit rev in sync with the venv's
+  ruff version or the hook and `make lint` disagree.
+- `ty: ignore` is allowed only at deliberate SDK shims, with a comment.
+- Compose runs the package as an installed dependency, `.agentdeck/` mounted
+  read-only.
+- `openai==2.32.0` is pinned to `openai-agents==0.17.0` — don't loosen it
+  (openai 2.33+ crashes the run loop).
+- Add CHANGELOG entries under **Unreleased** with every user-visible change.
+
+## Git / release
+
+- Remote: `github.com/sagi5060/agentdeck` (private). **`dev` is the default
+  branch** — PRs and day-to-day commits target `dev`. `main` is release-only.
+- Release: bump `pyproject.toml` version + move Unreleased CHANGELOG entries
+  on `dev`, merge to `main`, tag `vX.Y.Z` — release.yml verifies the tag
+  matches the version, runs the gate, and publishes a GitHub Release.
+- `AGENTS.md` just points here — this file is the single source of agent
+  instructions.
 
 ## History / provenance
 
