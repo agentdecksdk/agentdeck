@@ -7,6 +7,17 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+### Added
+- `subagents = [...]` class attribute on `BaseAgent`: opt-in `spawn_subagent`
+  `FunctionTool` that lets the model delegate a task to another registered
+  agent at runtime. The subagent runs as an isolated `HeadlessRunner`
+  one-shot (no session, no shared history — the task text is its entire
+  context) and its `final_output` is returned as a string. Spawning a name
+  outside the allowlist, or attempting to spawn from inside an already-
+  spawned subagent (depth-limited via a `ContextVar`, default depth 1),
+  returns an `error: ...` string instead of raising, so the run continues.
+  New module `agentdeck/agents/subagents.py`.
+
 ## [0.2.0] - 2026-07-26
 
 ### Added
