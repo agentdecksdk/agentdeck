@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from functools import cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
@@ -44,15 +44,21 @@ def _run_sync(coro: Coroutine[None, None, object]) -> object:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
-    box: list[object] = []
+    result: list[object] = []
+    error: list[BaseException] = []
 
     def _runner() -> None:
-        box.append(asyncio.run(coro))
+        try:
+            result.append(asyncio.run(coro))
+        except BaseException as exc:  # noqa: BLE001 — re-raised on the calling thread below
+            error.append(exc)
 
     thread = threading.Thread(target=_runner, daemon=True)
     thread.start()
     thread.join()
-    return box[0]
+    if error:
+        raise error[0]
+    return result[0]
 
 
 def resolve_checkpointer(settings: CheckpointSettings) -> BaseCheckpointSaver:
@@ -122,17 +128,19 @@ def _postgres_saver(url: str) -> BaseCheckpointSaver:
     if not url:
         raise ValueError("checkpoint backend 'postgres' needs AGENTDECK_CHECKPOINT_URL (a DSN)")
     try:
-        from langgraph.checkpoint.postgres import PostgresSaver  # ty: ignore[unresolved-import] — [durability] extra
+        from langgraph.checkpoint.postgres.aio import (  # ty: ignore[unresolved-import] — [durability] extra
+            AsyncPostgresSaver,
+        )
     except ImportError as exc:
         raise ImportError(
             f"checkpoint backend 'postgres' needs langgraph-checkpoint-postgres — {_DURABILITY_HINT}",
         ) from exc
 
-    # ``from_conn_string`` is a contextmanager (it owns closing the connection); we
-    # enter it manually and keep the saver for the process lifetime instead — see the
-    # module docstring on connection lifecycle.
-    saver = PostgresSaver.from_conn_string(url).__enter__()
-    saver.setup()
+    # Async saver, same reason as sqlite: the runner always calls ``ainvoke``.
+    # ``from_conn_string`` is an async contextmanager owning the connection; we enter
+    # it manually and keep the saver for the process lifetime (see module docstring).
+    saver: Any = _run_sync(AsyncPostgresSaver.from_conn_string(url).__aenter__())
+    _run_sync(saver.setup())
     return saver
 
 

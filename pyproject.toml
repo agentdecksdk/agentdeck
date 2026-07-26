@@ -71,3 +71,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["agentdeck"]
+
+[tool.ty.rules]
+# optional-extra imports carry `ty: ignore[unresolved-import]` — "unused" or not
+# depends on which extras the local venv has, so don't police it
+unused-ignore-comment = "ignore"

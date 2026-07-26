@@ -172,3 +172,68 @@ def test_unknown_backend_raises(monkeypatch):
 
     with pytest.raises(ValueError, match="unknown checkpoint backend"):
         asyncio.run(wf.run(None, thread_id="a"))
+
+
+def test_postgres_resolves_the_async_saver(monkeypatch):
+    """Wiring test, no server: the postgres arm must construct the ASYNC saver
+    (the runner always calls ``ainvoke``; the sync saver raises NotImplementedError).
+    Stubs the [durability] postgres module so no connection is attempted.
+    """
+    import sys
+    import types
+
+    from agentdeck.runtime.checkpointer import resolve_checkpointer
+    from agentdeck.runtime.settings import CheckpointSettings
+
+    class StubSaver:
+        def __init__(self):
+            self.setup_awaited = False
+
+        async def setup(self):
+            self.setup_awaited = True
+
+    stub_instance = StubSaver()
+
+    class StubAsyncPostgresSaver:
+        @staticmethod
+        def from_conn_string(url):
+            class _Ctx:
+                async def __aenter__(self):
+                    return stub_instance
+
+            return _Ctx()
+
+    aio_mod = types.ModuleType("langgraph.checkpoint.postgres.aio")
+    aio_mod.AsyncPostgresSaver = StubAsyncPostgresSaver
+    pg_mod = types.ModuleType("langgraph.checkpoint.postgres")
+    pg_mod.aio = aio_mod
+    monkeypatch.setitem(sys.modules, "langgraph.checkpoint.postgres", pg_mod)
+    monkeypatch.setitem(sys.modules, "langgraph.checkpoint.postgres.aio", aio_mod)
+
+    # unique DSN defeats _postgres_saver's @cache across test runs
+    saver = resolve_checkpointer(CheckpointSettings(backend="postgres", url="postgresql://stub/wiring-test"))
+
+    assert saver is stub_instance
+    assert stub_instance.setup_awaited
+
+
+def test_postgres_without_url_raises():
+    from agentdeck.runtime.checkpointer import resolve_checkpointer
+    from agentdeck.runtime.settings import CheckpointSettings
+
+    with pytest.raises(ValueError, match="DSN"):
+        resolve_checkpointer(CheckpointSettings(backend="postgres", url=""))
+
+
+def test_run_sync_propagates_exceptions_from_inside_a_loop():
+    """A failing bootstrap coroutine must surface its real error, not IndexError."""
+    from agentdeck.runtime.checkpointer import _run_sync
+
+    async def _boom():
+        raise RuntimeError("real cause")
+
+    async def _inside_loop():
+        with pytest.raises(RuntimeError, match="real cause"):
+            _run_sync(_boom())
+
+    asyncio.run(_inside_loop())
