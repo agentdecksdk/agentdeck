@@ -7,6 +7,16 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+### Added
+- `App.chat_stream(name, session_id, message)`: async iterator of text deltas,
+  wrapping the Agents SDK `Runner.run_streamed` with the same session
+  semantics as `chat()`. `HeadlessRunner.run_streamed` is the runner-layer
+  counterpart to `run`, honoring `run_config` / `max_turns` / sandbox
+  attachment / trace_run identically.
+- `POST /agents/{name}/chat?stream=true`: `text/event-stream` response with
+  incremental `delta` events and a final `done` event carrying the full
+  output.
+
 ## [0.1.0] - 2026-07-26
 
 ### Added

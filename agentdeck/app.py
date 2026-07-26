@@ -39,6 +39,8 @@ from agentdeck.skills.bundle import SkillRegistry
 from agentdeck.workflows.registry import WorkflowRegistry
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from agents.memory.session import Session
 
 PROJECT_DIR = ".agentdeck"
@@ -132,6 +134,16 @@ class App:
         agent_cls = self.agents.get(name)
         runner = HeadlessRunner.from_agent(agent_cls.build(), **runner_options)
         return await runner.run(message, session=self.session_for(session_id))
+
+    async def chat_stream(self, name: str, session_id: str, message: Any, **runner_options: Any) -> AsyncIterator[str]:
+        """Streaming counterpart to :meth:`chat`: same session, text deltas instead of a
+        single ``RunResult`` — the session is passed identically, so history ends up the
+        same whether a turn was streamed or not.
+        """
+        agent_cls = self.agents.get(name)
+        runner = HeadlessRunner.from_agent(agent_cls.build(), **runner_options)
+        async for delta in runner.run_streamed(message, session=self.session_for(session_id)):
+            yield delta
 
 
 __all__ = ["App"]
