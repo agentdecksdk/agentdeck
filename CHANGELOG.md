@@ -7,6 +7,8 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-27
+
 ### Fixed
 - `resolve_checkpointer`'s sqlite backend no longer raises `RuntimeError: no
   running event loop` when `App.load()` (or any other sync caller) builds a
@@ -165,6 +167,7 @@ they move under a version heading when a release is tagged.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/sagi5060/agentdeck/compare/v0.2.0...v1.0.0
 [0.2.0]: https://github.com/sagi5060/agentdeck/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/sagi5060/agentdeck/releases/tag/v0.1.0
