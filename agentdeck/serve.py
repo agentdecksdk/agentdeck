@@ -12,11 +12,13 @@ Endpoints:
 from __future__ import annotations
 
 import json
+import logging
 import os
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.app import App
+from agentdeck.errors import AgentdeckError, NotFoundError
 from agentdeck.workflows.state import json_default
 
 if TYPE_CHECKING:
@@ -24,9 +26,11 @@ if TYPE_CHECKING:
 
     from fastapi import FastAPI
 
+logger = logging.getLogger(__name__)
+
 
 def create_app() -> Any:
-    from fastapi import FastAPI, HTTPException
+    from fastapi import FastAPI, HTTPException, Request
     from fastapi.responses import JSONResponse
 
     @asynccontextmanager
@@ -45,6 +49,21 @@ def create_app() -> Any:
         if api.state.deck is None:
             raise HTTPException(status_code=503, detail="agentdeck is not started")
         return api.state.deck
+
+    # Starlette resolves a handler by walking the exception's MRO, so the
+    # AgentdeckError entry below would already catch NotFoundError. It gets its
+    # own entry because it is the one AgentdeckError caused by client input, and
+    # so the only one whose message is safe to echo back.
+    @api.exception_handler(NotFoundError)
+    async def not_found(_request: Request, exc: NotFoundError) -> JSONResponse:
+        return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+    @api.exception_handler(AgentdeckError)
+    async def internal_error(request: Request, exc: AgentdeckError) -> JSONResponse:
+        # Every other AgentdeckError is a server-side fault, and its message can
+        # carry secrets (skill stderr, config values) — log it, never ship it.
+        logger.exception("%s serving %s", type(exc).__name__, request.url.path, exc_info=exc)
+        return JSONResponse(status_code=500, content={"detail": "internal error"})
 
     @api.get("/health")
     async def health() -> Any:

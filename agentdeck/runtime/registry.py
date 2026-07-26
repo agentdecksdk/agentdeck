@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Generic, TypeVar
 
+from agentdeck.errors import NotFoundError
+
 T = TypeVar("T")
 
 # ``skills/`` is reserved for project-side skill bundles colocated with agents.
@@ -41,7 +43,7 @@ class PluginRegistry(Generic[T]):
         try:
             return plugins[name]
         except KeyError:
-            raise KeyError(f"No {self.label} named {name!r}. Available: {sorted(plugins)}.") from None
+            raise NotFoundError(f"No {self.label} named {name!r}. Available: {sorted(plugins)}.") from None
 
     def _scan(self) -> dict[str, type[T]]:
         root = _package_dir(self.package)

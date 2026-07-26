@@ -12,7 +12,7 @@ from agentdeck.agents.base import BaseAgent, BaseSandboxAgent
 from agentdeck.agents.runners.headless import HeadlessRunner
 from agentdeck.runtime.settings import get_settings
 from agentdeck.runtime.workspace import Workspace
-from agentdeck.skills import SkillBundle, SkillExecutor, SkillOutputSchema, SkillResult
+from agentdeck.skills import SkillBundle, SkillExecutionError, SkillExecutor, SkillOutputSchema, SkillResult
 
 logger = logging.getLogger(__name__)
 
@@ -20,14 +20,6 @@ ArgvBuilder = Callable[[Any], Sequence[str | Path]]
 StateUpdate = Callable[[Any, SkillResult], Awaitable[dict[str, Any]] | dict[str, Any]]
 PathBuilder = Callable[[Any], str | Path | None]
 TextParser = Callable[[str], Any]
-
-
-class SkillExecutionError(RuntimeError):
-    """A skill exited non-zero with ``raise_on_error=True``."""
-
-    def __init__(self, skill: str, exit_code: int, stderr: str) -> None:
-        self.skill, self.exit_code, self.stderr = skill, exit_code, stderr
-        super().__init__(f"skill {skill!r} failed (exit {exit_code}): {stderr.strip()[:500]}")
 
 
 class SkillNode:
