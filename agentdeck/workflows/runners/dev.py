@@ -7,11 +7,14 @@ from typing import TYPE_CHECKING, Any, cast
 
 from agentdeck.runtime.observability import trace_run
 from agentdeck.runtime.workspace import Workspace, current_capture
+from agentdeck.workflows.nodes import STREAM_CONFIGURABLE_KEY
 from agentdeck.workflows.runners.base import BaseWorkflowRunner
 from agentdeck.workflows.state import coerce_input
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+    from langchain_core.runnables import RunnableConfig
 
 
 @dataclass(slots=True)
@@ -52,11 +55,15 @@ class DevWorkflowRunner(BaseWorkflowRunner):
                 environment=self.environment,
                 input_files=self.input_files,
             ):
-                # Multi-mode astream yields (mode, chunk) tuples at runtime; the SDK's stub
-                # only declares the single-mode `dict[str, Any] | Any` shape, hence the casts.
+                # Tells a nested AgentNode (via get_config()) that it's safe to use run_streamed.
+                stream_config: RunnableConfig = {
+                    **self.config,
+                    "configurable": {**self.config.get("configurable", {}), STREAM_CONFIGURABLE_KEY: True},
+                }
+                # astream's stub only declares the single-mode shape; multi-mode yields (mode, chunk) tuples.
                 stream = cast(
                     "AsyncIterator[tuple[str, Any]]",
-                    self.graph.astream(initial, config=self.config, stream_mode=["updates", "custom", "values"]),
+                    self.graph.astream(initial, config=stream_config, stream_mode=["updates", "custom", "values"]),
                 )
                 async for mode, chunk in stream:
                     if mode == "updates":

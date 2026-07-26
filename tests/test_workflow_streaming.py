@@ -124,6 +124,11 @@ async def test_run_workflow_stream_yields_one_node_update_per_node_then_done(pro
 async def test_run_workflow_stream_agent_node_forwards_deltas_via_custom_stream(project, monkeypatch):
     events = [_delta_event("Hel"), _delta_event("lo"), _delta_event("!")]
     fake_result = FakeRunResultStreaming(events=events, final_output="Hello!")
+
+    def boom(agent, message, **kwargs):
+        raise AssertionError("run_workflow_stream() must not touch Runner.run")
+
+    monkeypatch.setattr("agentdeck.agents.runners.headless.Runner.run", boom)
     monkeypatch.setattr(
         "agentdeck.agents.runners.headless.Runner.run_streamed",
         lambda agent, message, **kwargs: fake_result,
@@ -158,6 +163,32 @@ async def test_run_workflow_unchanged_when_not_streamed(project, monkeypatch):
 
     assert out == {"text": "HI", "count": 1}
     assert len(calls) == 1  # a single ainvoke, exactly as before this feature existed
+
+
+async def test_agent_node_uses_plain_run_when_workflow_is_not_streamed(project, monkeypatch):
+    """The substantive guarantee: an AgentNode inside a plain run_workflow() call must go
+    through Runner.run, never Runner.run_streamed — a detached streaming task has different
+    cancellation/exception-timing semantics, so get_stream_writer() no-op-ing alone isn't enough.
+    """
+    run_calls = []
+    run_streamed_calls = []
+
+    async def fake_run(agent, message, **kwargs):
+        run_calls.append((agent, message))
+        return SimpleNamespace(final_output="Hello!", context_wrapper=SimpleNamespace(usage=None))
+
+    def fake_run_streamed(agent, message, **kwargs):
+        run_streamed_calls.append((agent, message))
+        raise AssertionError("run_workflow() must not touch Runner.run_streamed")
+
+    monkeypatch.setattr("agentdeck.agents.runners.headless.Runner.run", fake_run)
+    monkeypatch.setattr("agentdeck.agents.runners.headless.Runner.run_streamed", fake_run_streamed)
+
+    out = await project.run_workflow("ChatFlow", {"input": "hi"})
+
+    assert out == {"input": "hi", "output": "Hello!"}
+    assert len(run_calls) == 1
+    assert run_streamed_calls == []
 
 
 def _sse_frames(text: str) -> list[tuple[str, dict]]:
