@@ -50,13 +50,3 @@ Two things live in this repo:
   matches the version, runs the gate, and publishes a GitHub Release.
 - `AGENTS.md` just points here — this file is the single source of agent
   instructions.
-
-## History / provenance
-
-The package was extracted from `~/prjs/sys-agents-team/SysAgentsHarness`
-(package name `sysagent`). The `sysagents_core` dependency never existed as a
-real package — its `Capture`/`CaptureActor` were reconstructed into
-`agentdeck/runtime/capture.py`. Dead donor code (backends/, db/, DevRunner,
-runtime/events.py, runtime/tools.py, skill_runtime llm/batch) was audited and
-deleted — recover from git history if ever needed; don't re-copy from the
-donor repo.
