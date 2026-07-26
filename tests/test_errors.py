@@ -22,8 +22,8 @@ class Greeter(BaseAgent):
 @pytest.fixture
 def project(tmp_path, monkeypatch):
     root = tmp_path / ".agentdeck"
-    (root / "greeter").mkdir(parents=True)
-    (root / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
+    (root / "agents" / "greeter").mkdir(parents=True)
+    (root / "agents" / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
     monkeypatch.chdir(tmp_path)
     # the project alias is process-global; drop stale mounts from other tests
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
@@ -31,7 +31,9 @@ def project(tmp_path, monkeypatch):
 
 
 def test_registry_miss_is_agentdeck_error():
-    registry = PluginRegistry(package="agentdeck.agents", base_class=object, module_name="agent", label="agent")
+    registry = PluginRegistry(
+        package="agentdeck.agents", base_class=object, module_name="agent", type_dir="agents", label="agent"
+    )
     with pytest.raises(AgentdeckError):
         registry.get("does-not-exist")
 

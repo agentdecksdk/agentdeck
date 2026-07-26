@@ -20,13 +20,13 @@ Everything you define lives in a `.agentdeck/` directory next to where you run:
 
 ```text
 .agentdeck/
-├── greeter/agent.py            # a BaseAgent subclass
-├── new_booking/workflow.py     # a BaseWorkflow subclass
-└── skills/parse-request/       # skill bundles: SKILL.md + scripts/run.py
+├── agents/greeter/agent.py          # a BaseAgent subclass
+├── workflows/new_booking/workflow.py  # a BaseWorkflow subclass
+└── skills/parse-request/            # skill bundles: SKILL.md + scripts/run.py
 ```
 
 No `__init__.py`, no registration — dirs are discovered by convention
-(`<bundle>/agent.py`, `<bundle>/workflow.py`, `skills/*/SKILL.md`).
+(`agents/<bundle>/agent.py`, `workflows/<bundle>/workflow.py`, `skills/*/SKILL.md`).
 
 ```python
 from agentdeck import App
@@ -41,6 +41,15 @@ turn   = await app.chat("Greeter", session_id="wa-123", message="hi")  # multi-t
 async for chunk in app.chat_stream("Greeter", "wa-123", "hi"):         # streamed turn
     ...  # text deltas, then a final StreamDone(final_output=..., usage=...)
 ```
+
+A `durable = True` workflow can pause for a human: a node calls
+`interrupt(payload)`, `run_workflow` returns
+`{"type": "interrupt", "payload": ..., "thread_id": ...}`, and the decision comes
+back later — possibly in another process — via
+`app.resume_workflow(name, thread_id, value)`. `app.pending_interrupts()` lists
+everything still waiting. A streamed run (`app.run_workflow_stream`) ends on that
+same interrupt event instead of its terminal `done`. The interrupted node re-runs
+from its start on resume, so keep it pure and put side effects in earlier nodes.
 
 `chat()` keeps history per `session_id` — Redis when
 `AGENTDECK_SESSION_REDIS_URL` is set, in-process SQLite otherwise.
@@ -70,7 +79,10 @@ docker compose up
 | `GET /health` | inventory of loaded agents / workflows / skills |
 | `POST /agents/{name}/chat` | `{"session_id", "message"}` → `{"output"}` |
 | `POST /agents/{name}/chat?stream=true` | same body → SSE: `delta` frames, then one `done` frame with `{"output", "usage"}` (or an `error` frame if the turn fails) |
-| `POST /workflows/{name}` | JSON state in → final state out |
+| `POST /workflows/{name}` | JSON state in → final state out (optional `?thread_id=` for durable runs) |
+| `POST /workflows/{name}?stream=true` | SSE: `node_update`/`custom` frames, then one `done` frame with the final state — or one `interrupt` frame if the run paused |
+| `GET /workflows/{name}/pending` | threads paused on a human decision — the approval inbox |
+| `POST /workflows/{name}/{thread_id}/resume` | `{"value": ...}` → final state, or the next interrupt |
 
 ## Configuration
 

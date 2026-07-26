@@ -25,7 +25,7 @@ Everything that is neither agent- nor workflow-specific.
 | --- | --- |
 | [`settings.py`](runtime/settings.py) | Layered `Settings` (`OpenAISettings`, `RunnerSettings`, `SkillsSettings`). Loaded from process env / `.env`. |
 | [`workspace.py`](runtime/workspace.py) | `Workspace` — owns one `SandboxSession`, shared across nested agents / workflows / skills via a `ContextVar`. |
-| [`registry.py`](runtime/registry.py) | Generic `PluginRegistry` — discovers any `<package>/<bundle>/<module>.py` plug-in. |
+| [`registry.py`](runtime/registry.py) | Generic `PluginRegistry` — discovers any `<package>/<type_dir>/<bundle>/<module>.py` plug-in. |
 | [`events.py`](runtime/events.py) | Helpers that read text deltas, tool args, and tool outputs out of Agents SDK stream items. |
 
 ## `agentdeck.skills` — deterministic skill execution
@@ -266,16 +266,20 @@ exposes the raw `SkillResult`.
 
 ## Plug-in discovery
 
-`PluginRegistry` walks `<package>/<bundle>/<module>.py` and indexes every
-subclass of a base class declared in those modules. Reused by:
+`PluginRegistry` walks `<package>/<type_dir>/<bundle>/<module>.py` and indexes
+every subclass of a base class declared in those modules. Reused by:
 
-* `AgentRegistry`    — `<package>/<bundle>/agent.py`    → `BaseAgent` subclasses.
-* `WorkflowRegistry` — `<package>/<bundle>/workflow.py` → `BaseWorkflow` subclasses.
+* `AgentRegistry`    — `<package>/agents/<bundle>/agent.py`       → `BaseAgent` subclasses.
+* `WorkflowRegistry` — `<package>/workflows/<bundle>/workflow.py` → `BaseWorkflow` subclasses.
+
+An old-style project dir without the `agents/` / `workflows/` type
+subdirectory raises a `ConfigError` pointing at the new layout instead of
+silently discovering nothing.
 
 ```python
 from agentdeck.agents import AgentRegistry
 
-reg = AgentRegistry("catalog.agents")
+reg = AgentRegistry("catalog", type_dir="agents")
 reg.list()  # {"FileAgent": <class>, ...}
 reg.get("FileAgent")  # <class FileAgent>
 ```

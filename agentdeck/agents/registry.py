@@ -10,10 +10,11 @@ from agentdeck.runtime.registry import PluginRegistry
 
 @dataclass(slots=True)
 class AgentRegistry(PluginRegistry[BaseAgent]):
-    """Discovers :class:`BaseAgent` subclasses in ``<package>/<name>/agent.py``."""
+    """Discovers :class:`BaseAgent` subclasses in ``<package>/agents/<name>/agent.py``."""
 
     base_class: type[BaseAgent] = BaseAgent
     module_name: str = "agent"
+    type_dir: str = "agents"
     label: str = "agent"
 
 

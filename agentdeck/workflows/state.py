@@ -7,6 +7,7 @@ import json
 from collections.abc import Mapping
 from typing import Any
 
+from langgraph.types import Command
 from pydantic import BaseModel
 
 
@@ -14,6 +15,8 @@ def coerce_input(value: Any, schema: type) -> Any:
     """Normalise a workflow caller's ``value`` into a graph-input dict."""
     if value is None:
         return {}
+    if isinstance(value, Command):
+        return value  # resume directive, not state — LangGraph consumes it as-is
     if isinstance(value, schema):
         return value.model_dump() if isinstance(value, BaseModel) else value
     if isinstance(value, Mapping):

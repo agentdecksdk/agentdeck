@@ -13,8 +13,9 @@ Two things live in this repo:
   runner glue, graph compilation. Execution stays in the Agents SDK / LangGraph.
   Don't move execution logic into agentdeck.
 - Single entry point: `App` (`agentdeck/app.py`). It always serves the
-  `./.agentdeck/` project dir — bundles are `<bundle>/agent.py`,
-  `<bundle>/workflow.py`, `skills/*/SKILL.md`. No other catalog mechanism.
+  `./.agentdeck/` project dir — bundles are `agents/<bundle>/agent.py`,
+  `workflows/<bundle>/workflow.py`, `skills/*/SKILL.md`. No other catalog
+  mechanism.
 - Skill output schemas are **workflow-only**: never import `SkillOutputSchema`
   or a skill's typed schema module from agent code. The agent's contract with a
   skill is SKILL.md prose + `key=value` stdout lines.
@@ -24,6 +25,10 @@ Two things live in this repo:
   minimal (currently imports `agentdeck.runtime.capture`, a known caveat when
   sandboxing is enabled).
 - Model calls never mutate external state directly; deterministic code does.
+- A node calling `interrupt()` re-runs **from its start** when the workflow
+  resumes — everything before the `interrupt()` call executes twice. Interrupt
+  nodes must be pure; side effects (external mutations, sent messages) belong in
+  earlier nodes. Interrupts require `durable = True` (a checkpointer).
 
 ## Conventions
 
