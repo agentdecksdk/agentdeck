@@ -10,7 +10,12 @@ Endpoints:
                                       -> text/event-stream: "delta" events, then one
                                          "done" event carrying {"output", "usage"};
                                          an "error" event replaces "done" if the turn fails
-    POST /workflows/{name}           -> JSON state in, final state out
+    POST /workflows/{name}           -> JSON state in, final state out — or
+                                        {"type": "interrupt", "payload", "thread_id"} when the
+                                        run pauses on a human decision
+    GET  /workflows/{name}/pending   -> [{"type": "interrupt", "payload", "thread_id"}, ...]
+    POST /workflows/{name}/{thread_id}/resume
+                                      -> {"value": ...} -> final state, or the next interrupt
 """
 
 from __future__ import annotations
@@ -113,11 +118,25 @@ def create_app() -> Any:
         return {"output": result.final_output}
 
     @api.post("/workflows/{name}")
-    async def run_workflow(name: str, state: dict[str, Any]) -> Any:
-        out = await deck().run_workflow(name, state)
-        return json.loads(json.dumps(out, default=json_default))
+    async def run_workflow(name: str, state: dict[str, Any], thread_id: str | None = None) -> Any:
+        out = await deck().run_workflow(name, state, thread_id=thread_id)
+        return _jsonable(out)
+
+    @api.get("/workflows/{name}/pending")
+    async def pending_interrupts(name: str) -> Any:
+        return _jsonable(await deck().pending_interrupts(name))
+
+    @api.post("/workflows/{name}/{thread_id}/resume")
+    async def resume_workflow(name: str, thread_id: str, body: dict[str, Any]) -> Any:
+        if "value" not in body:
+            raise HTTPException(status_code=422, detail="missing field: value")
+        return _jsonable(await deck().resume_workflow(name, thread_id, body["value"]))
 
     return api
+
+
+def _jsonable(value: Any) -> Any:
+    return json.loads(json.dumps(value, default=json_default))
 
 
 def main() -> None:

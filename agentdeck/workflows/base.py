@@ -8,10 +8,13 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from langgraph.graph import END, START
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command
 from pydantic import BaseModel
 
+from agentdeck.errors import ConfigError
 from agentdeck.runtime.checkpointer import resolve_checkpointer
 from agentdeck.runtime.settings import get_settings
+from agentdeck.workflows.interrupts import InterruptResult, as_interrupt, interrupt_result
 from agentdeck.workflows.state import dump_state
 
 if TYPE_CHECKING:
@@ -74,7 +77,13 @@ class BaseWorkflow:
 
     @classmethod
     async def run(cls, state: Any = None, *, thread_id: str | None = None, **runner_options: Any) -> Any:
-        """Run the graph once. ``thread_id`` scopes checkpointed state (required if ``durable``)."""
+        """Run the graph once. ``thread_id`` scopes checkpointed state (required if ``durable``).
+
+        Returns the final state, or an :class:`~agentdeck.workflows.interrupts.InterruptResult`
+        if a node called ``langgraph.types.interrupt()`` — hand that payload to a human and
+        resume the run with :meth:`resume`. The interrupted node re-runs from its start on
+        resume, so it must be pure: put side effects in earlier nodes.
+        """
         if cls.durable and thread_id is None:
             raise ValueError(
                 f"{cls.__name__} is durable=True; run() requires a thread_id to load/persist checkpointed state.",
@@ -83,7 +92,51 @@ class BaseWorkflow:
             config = dict(runner_options.get("config") or {})
             config["configurable"] = {**config.get("configurable", {}), "thread_id": thread_id}
             runner_options["config"] = config
-        return await cls.runner(**runner_options).run(state)
+        result = await cls.runner(**runner_options).run(state)
+        interrupted = as_interrupt(result, thread_id or "")
+        if interrupted is None:
+            return result
+        if not cls.durable:
+            raise ConfigError(
+                f"{cls.__name__} called interrupt() but is durable=False: with no checkpointer the paused run "
+                "cannot be resumed. Set `durable = True` on the workflow.",
+            )
+        return interrupted
+
+    @classmethod
+    async def resume(cls, thread_id: str, value: Any, **runner_options: Any) -> Any:
+        """Resume the run paused on ``thread_id``: ``interrupt()`` returns ``value``.
+
+        Returns the final state, or the next
+        :class:`~agentdeck.workflows.interrupts.InterruptResult` if the run pauses again.
+        """
+        if not cls.durable:
+            raise ConfigError(f"{cls.__name__} is durable=False: there is no checkpointed run to resume.")
+        return await cls.run(Command(resume=value), thread_id=thread_id, **runner_options)
+
+    @classmethod
+    async def pending(cls) -> list[InterruptResult]:
+        """Every thread of this workflow currently paused on an interrupt — the approval inbox."""
+        if not cls.durable:
+            return []
+        graph = cls.build()
+        saver = graph.checkpointer
+        if saver is None or isinstance(saver, bool):
+            return []
+        # Drain the listing before querying state: the sqlite saver holds one lock for
+        # the whole ``alist`` generator, so reading a snapshot mid-iteration deadlocks.
+        thread_ids = {
+            tid
+            async for checkpoint in saver.alist(None)
+            if isinstance(tid := checkpoint.config.get("configurable", {}).get("thread_id"), str)
+        }
+        pending: list[InterruptResult] = []
+        for thread_id in sorted(thread_ids):
+            # A shared saver holds every workflow's threads; a foreign thread replays
+            # against this graph with no pending tasks, hence no interrupts.
+            snapshot = await graph.aget_state({"configurable": {"thread_id": thread_id}})
+            pending.extend(interrupt_result(i.value, thread_id) for i in snapshot.interrupts)
+        return pending
 
     @classmethod
     def as_tool(

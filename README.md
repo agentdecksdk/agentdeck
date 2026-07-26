@@ -42,6 +42,14 @@ async for chunk in app.chat_stream("Greeter", "wa-123", "hi"):         # streame
     ...  # text deltas, then a final StreamDone(final_output=..., usage=...)
 ```
 
+A `durable = True` workflow can pause for a human: a node calls
+`interrupt(payload)`, `run_workflow` returns
+`{"type": "interrupt", "payload": ..., "thread_id": ...}`, and the decision comes
+back later — possibly in another process — via
+`app.resume_workflow(name, thread_id, value)`. `app.pending_interrupts()` lists
+everything still waiting. The interrupted node re-runs from its start on resume,
+so keep it pure and put side effects in earlier nodes.
+
 `chat()` keeps history per `session_id` — Redis when
 `AGENTDECK_SESSION_REDIS_URL` is set, in-process SQLite otherwise.
 
@@ -70,7 +78,9 @@ docker compose up
 | `GET /health` | inventory of loaded agents / workflows / skills |
 | `POST /agents/{name}/chat` | `{"session_id", "message"}` → `{"output"}` |
 | `POST /agents/{name}/chat?stream=true` | same body → SSE: `delta` frames, then one `done` frame with `{"output", "usage"}` (or an `error` frame if the turn fails) |
-| `POST /workflows/{name}` | JSON state in → final state out |
+| `POST /workflows/{name}` | JSON state in → final state out (optional `?thread_id=` for durable runs) |
+| `GET /workflows/{name}/pending` | threads paused on a human decision — the approval inbox |
+| `POST /workflows/{name}/{thread_id}/resume` | `{"value": ...}` → final state, or the next interrupt |
 
 ## Configuration
 

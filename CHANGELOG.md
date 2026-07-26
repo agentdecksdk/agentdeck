@@ -7,6 +7,23 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+### Added
+- Human-in-the-loop for `durable = True` workflows: a node calling
+  `langgraph.types.interrupt(payload)` (re-exported as
+  `agentdeck.workflows.interrupt`) pauses the run, and `run_workflow` returns
+  `{"type": "interrupt", "payload": ..., "thread_id": ...}` instead of a final
+  state. `App.resume_workflow(name, thread_id, value)` answers it (returning the
+  final state or the next interrupt) and `App.pending_interrupts(name=None)`
+  lists every thread still waiting — the approval inbox. Same trio on
+  `BaseWorkflow` as `run` / `resume` / `pending`.
+- `GET /workflows/{name}/pending` and `POST /workflows/{name}/{thread_id}/resume`
+  (`{"value": ...}`); `POST /workflows/{name}` takes an optional `thread_id`
+  query parameter so durable runs can be started over HTTP.
+
+### Changed
+- A non-durable workflow whose node calls `interrupt()` now raises `ConfigError`
+  instead of silently returning an unresumable state.
+
 ## [0.2.0] - 2026-07-26
 
 ### Added
