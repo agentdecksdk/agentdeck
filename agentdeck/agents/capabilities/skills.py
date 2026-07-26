@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agents.sandbox.capabilities import Skills
 from agents.sandbox.capabilities.skills import LocalDirLazySkillSource, SkillMetadata
 from agents.sandbox.entries import LocalDir
-from agents.sandbox.manifest import Manifest
 from agents.sandbox.workspace_paths import SandboxPathGrant
 
 from agentdeck.skills import SkillRegistry
+
+if TYPE_CHECKING:
+    from agents.sandbox.manifest import Manifest
 
 
 class _AllowListedSkillSource(LocalDirLazySkillSource):

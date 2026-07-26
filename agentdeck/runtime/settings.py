@@ -253,6 +253,14 @@ class McpSettings(LayeredSettings):
         return {name: spec.model_dump(exclude_none=True) for name, spec in self.servers.items()}
 
 
+class TavilySettings(LayeredSettings):
+    """Tavily web-search API. One knob: ``TAVILY_API_KEY`` env var (or YAML ``tavily: api_key:``)."""
+
+    model_config = settings_config("TAVILY_")
+
+    api_key: str = ""
+
+
 class SessionSettings(LayeredSettings):
     """Configuration for Redis-backed agent conversation memory.
 

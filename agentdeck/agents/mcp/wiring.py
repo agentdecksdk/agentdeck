@@ -7,11 +7,14 @@ instead of fabricating an answer.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
-
-from agents.mcp import MCPServer
+from typing import TYPE_CHECKING
 
 from agentdeck.agents.mcp.lifecycle import MCPLifecycle
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
+    from agents.mcp import MCPServer
 
 
 def resolve_agent_mcp_status(names: Iterable[str]) -> tuple[list[MCPServer], list[str]]:

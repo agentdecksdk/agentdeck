@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from agents import Agent, AgentHooks, ModelSettings
-from agents.agent_output import AgentOutputSchemaBase
 from agents.handoffs import Handoff
 from agents.sandbox import SandboxAgent
-from agents.tool import FunctionTool
 
 from agentdeck.agents.capabilities import CapabilitiesSpec
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
+    from agents.agent_output import AgentOutputSchemaBase
+    from agents.tool import FunctionTool
 
 # Sidecar registries, keyed by ``id(tool)`` because the SDK's ``FunctionTool``
 # isn't hashable. Records: (i) the wrapped inner ``Agent`` so a non-sandbox

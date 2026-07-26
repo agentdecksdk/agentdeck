@@ -14,12 +14,14 @@ import importlib
 import importlib.util
 import sys
 from pathlib import Path
-from types import ModuleType
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from pydantic import BaseModel
 
-from agentdeck.skills.executor import SkillResult
+if TYPE_CHECKING:
+    from types import ModuleType
+
+    from agentdeck.skills.executor import SkillResult
 
 
 class SkillOutputSchema(BaseModel):

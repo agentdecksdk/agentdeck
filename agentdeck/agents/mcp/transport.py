@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
 from contextlib import AsyncExitStack, suppress
-from typing import Any, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import httpx
 from agents.mcp import MCPServerStreamableHttp
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 

@@ -28,7 +28,7 @@ class ShellSpec(LayeredSettings):
         # Raise the SDK's static yield-time max so long commands don't hit
         # a partial-yield path before our floor kicks in.
         if floor_ms > pty_types.PTY_YIELD_TIME_MS_MAX:
-            pty_types.PTY_YIELD_TIME_MS_MAX = floor_ms
+            pty_types.PTY_YIELD_TIME_MS_MAX = floor_ms  # ty: ignore[invalid-assignment] — deliberate SDK patch
 
         def configure(toolset: ShellToolSet) -> None:
             original = toolset.exec_command.run
@@ -36,7 +36,7 @@ class ShellSpec(LayeredSettings):
             async def run(args: Any) -> str:
                 return _mark_truncation(await original(_apply_caps(args, floor_ms, max_tokens)))
 
-            toolset.exec_command.run = run
+            toolset.exec_command.run = run  # ty: ignore[invalid-assignment] — deliberate SDK method wrap
 
         return Shell(configure_tools=configure)
 

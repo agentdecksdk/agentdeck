@@ -43,7 +43,6 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
@@ -51,7 +50,9 @@ from typing import TYPE_CHECKING, Any, Literal
 from agentdeck.runtime.settings import LangfuseSettings, get_settings
 
 if TYPE_CHECKING:
-    from opentelemetry.sdk.trace import ReadableSpan
+    from collections.abc import Generator
+
+    from opentelemetry.sdk.trace import ReadableSpan  # ty: ignore[unresolved-import] — [observability] extra
 
     from agentdeck.runtime.capture import Capture
 
@@ -113,8 +114,10 @@ def init_observability(settings: LangfuseSettings | None = None) -> bool:
         return False
 
     from agents import set_trace_processors
-    from langfuse import Langfuse
-    from openinference.instrumentation.openai_agents import OpenAIAgentsInstrumentor
+    from langfuse import Langfuse  # ty: ignore[unresolved-import] — [observability] extra
+    from openinference.instrumentation.openai_agents import (  # ty: ignore[unresolved-import] — [observability] extra
+        OpenAIAgentsInstrumentor,
+    )
 
     # Name the OTel resource before Langfuse builds its TracerProvider — ``Resource.create``
     # reads ``OTEL_SERVICE_NAME``, so this replaces the default ``unknown_service``. Respect
@@ -213,8 +216,8 @@ def trace_run(
     if not _initialized:
         yield RunTrace()
         return
-    from langfuse import get_client
-    from opentelemetry import trace as _otel
+    from langfuse import get_client  # ty: ignore[unresolved-import] — [observability] extra
+    from opentelemetry import trace as _otel  # ty: ignore[unresolved-import] — [observability] extra
 
     # Nested (already inside a traced run) → inherit identity + trace name; just add structure.
     if _otel.get_current_span().get_span_context().is_valid:
@@ -222,7 +225,7 @@ def trace_run(
             yield RunTrace(span)
         return
 
-    from langfuse import propagate_attributes
+    from langfuse import propagate_attributes  # ty: ignore[unresolved-import] — [observability] extra
 
     session_id, user_id, metadata = _identity(capture)
     with (
@@ -246,7 +249,7 @@ def sandbox_trace_env(settings: LangfuseSettings | None = None) -> dict[str, str
     lf = settings if settings is not None else get_settings().langfuse
     if not lf.enabled:
         return {}
-    from opentelemetry.propagate import inject
+    from opentelemetry.propagate import inject  # ty: ignore[unresolved-import] — [observability] extra
 
     # Standard LANGFUSE_* env — get_client() reads these natively; environment matches
     # the host client so skill spans land in the same Langfuse environment. The bounded

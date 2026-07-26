@@ -4,27 +4,30 @@ from __future__ import annotations
 
 import io
 import logging
-import os
-from collections.abc import AsyncGenerator, Callable, Generator, Iterator, Mapping, Sequence
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agents.run_config import SandboxRunConfig
 from agents.sandbox import Manifest
 from agents.sandbox.entries import BaseEntry, File
 from agents.sandbox.manifest import Environment
 from agents.sandbox.sandboxes.unix_local import UnixLocalSandboxClient
-from agents.sandbox.session import SandboxSession
 from agents.sandbox.session.manifest_ops import apply_entry_batch
-from agents.sandbox.session.sandbox_client import BaseSandboxClient
-from agents.sandbox.types import ExecResult
-from agents.sandbox.workspace_paths import SandboxPathGrant
 
 from agentdeck.runtime.capture import CAPTURE_ENV, Capture
 from agentdeck.runtime.observability import sandbox_trace_env
+
+if TYPE_CHECKING:
+    import os
+    from collections.abc import AsyncGenerator, Callable, Generator, Iterator, Mapping, Sequence
+
+    from agents.sandbox.session import SandboxSession
+    from agents.sandbox.session.sandbox_client import BaseSandboxClient
+    from agents.sandbox.types import ExecResult
+    from agents.sandbox.workspace_paths import SandboxPathGrant
 
 logger = logging.getLogger(__name__)
 

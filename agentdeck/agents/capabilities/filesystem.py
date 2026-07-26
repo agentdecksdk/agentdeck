@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agents import function_tool
 from agents.sandbox.capabilities import Filesystem
 from agents.sandbox.capabilities.tools.apply_patch_tool import SandboxApplyPatchTool
-from agents.sandbox.session.base_sandbox_session import BaseSandboxSession
-from agents.sandbox.types import User
-from agents.tool import FunctionTool
-from agents.tool_context import ToolContext
 from pydantic import BaseModel, ConfigDict
+
+if TYPE_CHECKING:
+    from agents.sandbox.session.base_sandbox_session import BaseSandboxSession
+    from agents.sandbox.types import User
+    from agents.tool import FunctionTool
+    from agents.tool_context import ToolContext
 
 # SDK ships ``apply_patch`` as a ``CustomTool`` (freeform grammar) which
 # chat-completions rejects. We wrap the same underlying invoker in a

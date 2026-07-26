@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from agents.sandbox.capabilities import Capability
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from agentdeck.agents.capabilities.compaction import CompactionSpec
@@ -12,6 +12,9 @@ from agentdeck.agents.capabilities.filesystem import FilesystemSpec
 from agentdeck.agents.capabilities.memory import MemorySpec
 from agentdeck.agents.capabilities.shell import ShellSpec
 from agentdeck.agents.capabilities.skills import build_skills
+
+if TYPE_CHECKING:
+    from agents.sandbox.capabilities import Capability
 
 
 class CapabilitiesSpec(BaseModel):

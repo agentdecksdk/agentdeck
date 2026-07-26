@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from agentdeck.agents.base import BaseAgent, BaseSandboxAgent
 from agentdeck.agents.runners.headless import HeadlessRunner
 from agentdeck.runtime.settings import get_settings
 from agentdeck.runtime.workspace import Workspace
 from agentdeck.skills import SkillBundle, SkillExecutor, SkillOutputSchema, SkillResult
+
+logger = logging.getLogger(__name__)
 
 ArgvBuilder = Callable[[Any], Sequence[str | Path]]
 StateUpdate = Callable[[Any, SkillResult], Awaitable[dict[str, Any]] | dict[str, Any]]
@@ -58,17 +61,26 @@ class SkillNode:
                 f"to declare 'metadata.output_schema' in SKILL.md.",
             )
         self.bundle = bundle
-        self.argv = argv
+        # Normalize to builders once, so __call__ needs no runtime narrowing.
+        # ``cast`` because ``callable()`` can't prove a Sequence isn't also callable.
+        self.argv: ArgvBuilder = cast("ArgvBuilder", argv) if callable(argv) else _const(tuple(argv))
         self.into = into
-        self.env = env
+        self.env: Callable[[Any], Mapping[str, str]] | None = (
+            cast("Callable[[Any], Mapping[str, str]]", env)
+            if callable(env)
+            else _const(dict(env))
+            if env is not None
+            else None
+        )
         self.update = update
         self.timeout = timeout
         self.raise_on_error = raise_on_error
         self._schema: type[SkillOutputSchema] | None = bundle.output_schema if into is not None else None
 
     async def __call__(self, state: Any) -> dict[str, Any]:
-        argv = self.argv(state) if callable(self.argv) else self.argv
-        extras = self.env(state) if callable(self.env) else self.env
+        argv = self.argv(state)
+        extras = self.env(state) if self.env is not None else None
+        logger.debug("skill %s: start argv=%s", self.bundle.name, argv)
         # Resolve settings per-call so test monkeypatches take effect.
         executor = SkillExecutor(bundle=self.bundle, env=get_settings().sandbox_env())
         result = await executor.run(
@@ -76,6 +88,7 @@ class SkillNode:
             timeout=self.timeout,
             env_extras=dict(extras) if extras else None,
         )
+        logger.debug("skill %s: exit=%s ok=%s", self.bundle.name, result.exit_code, result.ok)
         if self.raise_on_error and not result.ok:
             raise SkillExecutionError(self.bundle.name, result.exit_code, result.stderr)
 
@@ -84,10 +97,9 @@ class SkillNode:
             delta[self.into] = self._schema.from_result(result)
         if self.update is not None:
             update = self.update(state, result)
-            if inspect.isawaitable(update):
-                update = await update
-            if update:
-                delta.update(update)
+            resolved = cast("dict[str, Any]", await update if inspect.isawaitable(update) else update)
+            if resolved:
+                delta.update(resolved)
         return delta
 
 
@@ -167,6 +179,7 @@ class AgentNode:
     async def __call__(self, state: Any) -> dict[str, Any]:
         if self._built is None:
             self._built = self.agent_cls.build()
+        logger.debug("agent node %s: start", self.agent_cls.__name__)
         files = _read(state, self.input_files_key)
         kwargs: dict[str, Any] = {"input_files": list(files)} if files else {}
         result = await HeadlessRunner.from_agent(self._built, **kwargs).run(
@@ -179,6 +192,11 @@ class SandboxAgentNode(AgentNode):
     """:class:`AgentNode` constrained to :class:`BaseSandboxAgent` subclasses."""
 
     _expected_base = BaseSandboxAgent
+
+
+def _const[T](value: T) -> Callable[[Any], T]:
+    """Wrap a static value as a ``(state) -> value`` builder."""
+    return lambda _state: value
 
 
 def _read(state: Any, key: str | None) -> Any:

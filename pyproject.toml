@@ -34,6 +34,7 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "ruff>=0.6",
+    "ty>=0.0.1a21",
 ]
 
 [tool.ruff]
@@ -41,11 +42,18 @@ line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "SIM"]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "SIM", "TC"]
 ignore = ["E501", "UP046", "UP047"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["agentdeck"]
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+    "pydantic_settings.BaseSettings",
+    "agentdeck.runtime.settings.LayeredSettings",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -11,6 +10,8 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from agentdeck.skills.output import SkillOutputSchema
 
 DEFAULT_ENTRY_SCRIPT = "run.py"

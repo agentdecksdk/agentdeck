@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import os
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Self
 
@@ -14,6 +12,9 @@ from agentdeck.runtime.observability import init_observability
 from agentdeck.runtime.settings import get_settings
 
 if TYPE_CHECKING:
+    import os
+    from collections.abc import Mapping, Sequence
+
     from langgraph.graph.state import CompiledStateGraph
 
     from agentdeck.workflows.base import BaseWorkflow

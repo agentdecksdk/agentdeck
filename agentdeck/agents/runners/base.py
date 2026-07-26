@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import os
 from abc import ABC, abstractmethod
-from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
 import httpx
 from agents import Agent, ModelSettings, OpenAIProvider, RunConfig
@@ -19,6 +17,10 @@ from agentdeck.agents.base import inner_agent_of, is_sandbox_tool
 from agentdeck.runtime.observability import init_observability
 from agentdeck.runtime.settings import Settings, get_settings
 from agentdeck.runtime.workspace import Workspace
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Mapping, Sequence
+    from pathlib import Path
 
 
 def _default_use_responses() -> bool:

@@ -26,10 +26,9 @@ import types
 from dataclasses import dataclass, field
 from importlib.machinery import ModuleSpec
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agents import SQLiteSession
-from agents.memory.session import Session
 
 from agentdeck.agents.registry import AgentRegistry
 from agentdeck.agents.runners import HeadlessRunner
@@ -38,6 +37,9 @@ from agentdeck.runtime.sessions import SessionFactory
 from agentdeck.runtime.settings import Settings, get_settings
 from agentdeck.skills.bundle import SkillRegistry
 from agentdeck.workflows.registry import WorkflowRegistry
+
+if TYPE_CHECKING:
+    from agents.memory.session import Session
 
 PROJECT_DIR = ".agentdeck"
 _PROJECT_ALIAS = "agentdeck_project"

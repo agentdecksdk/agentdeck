@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import re
-from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from agents.sandbox.entries import BaseEntry, LocalDir
 from agents.sandbox.workspace_paths import SandboxPathGrant
@@ -13,6 +14,11 @@ from agents.sandbox.workspace_paths import SandboxPathGrant
 from agentdeck.runtime.observability import RunTrace, init_observability, trace_run
 from agentdeck.runtime.workspace import Workspace, current_capture, input_file_entries
 from agentdeck.skills.bundle import DEFAULT_ENTRY_SCRIPT, SkillBundle
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator, Mapping, Sequence
+
+logger = logging.getLogger(__name__)
 
 # Mount path matches the SDK's Skills layout — bundles behave the same
 # whether the LLM picks them through the SDK or the graph picks them here.
@@ -107,6 +113,7 @@ class SkillExecutor:
         # root. Idempotent + a no-op without Langfuse keys; already done inside a run.
         init_observability()
 
+        logger.debug("skill %s: start args=%s", self.bundle.name, [str(a) for a in args])
         env = dict(self.env)
         if env_extras:
             env.update(env_extras)
@@ -156,6 +163,9 @@ class SkillExecutor:
                 outputs=tuple(parse_skill_outputs(stdout)),
             )
             _record_step(step, skill_result)
+            logger.debug(
+                "skill %s: exit=%s outputs=%d", self.bundle.name, skill_result.exit_code, len(skill_result.outputs)
+            )
             return skill_result
 
     async def run_checked(

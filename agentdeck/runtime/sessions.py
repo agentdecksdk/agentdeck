@@ -11,10 +11,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agents.extensions.memory import RedisSession
-from agents.memory.session import Session
 from redis.asyncio import Redis
 
 if TYPE_CHECKING:
+    from agents.memory.session import Session
+
     from agentdeck.runtime.settings import SessionSettings
 
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from langgraph.graph import END, START
@@ -14,6 +13,8 @@ from pydantic import BaseModel
 from agentdeck.workflows.state import dump_state
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Sequence
+
     from agents.tool import FunctionTool
     from langgraph.graph import StateGraph
     from langgraph.graph.state import CompiledStateGraph

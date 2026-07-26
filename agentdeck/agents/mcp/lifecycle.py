@@ -17,13 +17,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Sequence
-from typing import Any
-
-from agents.mcp import MCPServer
+from typing import TYPE_CHECKING, Any
 
 from agentdeck.agents.mcp.transport import MCPServerStreamableHttpResilient
 from agentdeck.runtime.settings import McpSettings, get_settings
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from agents.mcp import MCPServer
 
 logger = logging.getLogger(__name__)
 
