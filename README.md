@@ -42,6 +42,18 @@ turn   = await app.chat("Greeter", session_id="wa-123", message="hi")  # multi-t
 `chat()` keeps history per `session_id` — Redis when
 `AGENTDECK_SESSION_REDIS_URL` is set, in-process SQLite otherwise.
 
+For anything long-running — and for every deployment using Redis sessions or
+MCP servers — use `App.open()` instead of a bare `App()`. It runs `load()`,
+starts the MCP lifecycle, and guarantees `aclose()` on exit (even on error), so
+the Redis client and MCP servers are never leaked:
+
+```python
+async with App.open() as app:
+    turn = await app.chat("Greeter", session_id="wa-123", message="hi")
+```
+
+`agentdeck-serve` does exactly this in its FastAPI lifespan.
+
 ## Serve
 
 ```bash
