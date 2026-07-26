@@ -51,8 +51,9 @@ def test_skill_errors_are_agentdeck_errors():
 def test_unknown_agent_chat_returns_404_with_body(project):
     from agentdeck.serve import create_app
 
-    client = TestClient(create_app())
-    response = client.post("/agents/unknown/chat", json={"session_id": "s", "message": "hi"})
+    # context manager runs the lifespan; without it every endpoint is 503
+    with TestClient(create_app()) as client:
+        response = client.post("/agents/unknown/chat", json={"session_id": "s", "message": "hi"})
     assert response.status_code == 404
     assert response.json()["detail"].startswith("No agent named 'unknown'.")
 
@@ -66,8 +67,8 @@ def test_skill_error_returns_500_without_leaking_stderr(project, monkeypatch):
         raise SkillExecutionError("greeter", 1, secret)
 
     monkeypatch.setattr(App, "chat", boom)
-    client = TestClient(create_app())
-    response = client.post("/agents/greeter/chat", json={"session_id": "s", "message": "hi"})
+    with TestClient(create_app()) as client:
+        response = client.post("/agents/greeter/chat", json={"session_id": "s", "message": "hi"})
     assert response.status_code == 500
     assert response.json() == {"detail": "internal error"}
     assert "hunter2" not in response.text
