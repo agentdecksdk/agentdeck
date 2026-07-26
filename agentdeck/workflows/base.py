@@ -10,6 +10,8 @@ from langgraph.graph import END, START
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
+from agentdeck.runtime.checkpointer import resolve_checkpointer
+from agentdeck.runtime.settings import get_settings
 from agentdeck.workflows.state import dump_state
 
 if TYPE_CHECKING:
@@ -36,6 +38,10 @@ class BaseWorkflow:
     name: ClassVar[str] = ""
     description: ClassVar[str] = ""
     state: ClassVar[type]
+    # Opt-in durability: compiles with a checkpointer (``AGENTDECK_CHECKPOINT_*``,
+    # see ``runtime.checkpointer``) so a run can resume by ``thread_id`` after the
+    # process dies. ``False`` (default) compiles exactly as before — no behavior change.
+    durable: ClassVar[bool] = False
 
     # ``cls.__dict__.get`` (vs. ``getattr``) prevents subclasses from
     # inheriting the parent's compiled graph.
@@ -51,7 +57,11 @@ class BaseWorkflow:
     def build(cls) -> CompiledStateGraph[Any]:
         """Return the compiled graph, building (and caching) on first call."""
         if cls.__dict__.get("_compiled") is None:
-            cls._compiled = cls.build_graph().compile()
+            if cls.durable:
+                checkpointer = resolve_checkpointer(get_settings().checkpoint)
+                cls._compiled = cls.build_graph().compile(checkpointer=checkpointer)
+            else:
+                cls._compiled = cls.build_graph().compile()
         compiled: CompiledStateGraph[Any, None, Any, Any] | None = cls._compiled
         assert compiled is not None  # set above; narrows ClassVar Optional
         return compiled
@@ -63,7 +73,16 @@ class BaseWorkflow:
         return DevWorkflowRunner.from_workflow(cls, **runner_options)
 
     @classmethod
-    async def run(cls, state: Any = None, **runner_options: Any) -> Any:
+    async def run(cls, state: Any = None, *, thread_id: str | None = None, **runner_options: Any) -> Any:
+        """Run the graph once. ``thread_id`` scopes checkpointed state (required if ``durable``)."""
+        if cls.durable and thread_id is None:
+            raise ValueError(
+                f"{cls.__name__} is durable=True; run() requires a thread_id to load/persist checkpointed state.",
+            )
+        if thread_id is not None:
+            config = dict(runner_options.get("config") or {})
+            config["configurable"] = {**config.get("configurable", {}), "thread_id": thread_id}
+            runner_options["config"] = config
         return await cls.runner(**runner_options).run(state)
 
     @classmethod
