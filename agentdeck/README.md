@@ -44,7 +44,7 @@ Class-attribute-driven wrapper over `agents.Agent` and `agents.sandbox.SandboxAg
 | --- | --- |
 | [`base.py`](agents/base.py) | `BaseAgent` and `BaseSandboxAgent` declarative bases. |
 | [`capabilities/`](agents/capabilities/) | `CapabilitiesSpec` and per-capability specs: `shell`, `skills`, `compaction`, `filesystem`, `memory`. |
-| [`runners/`](agents/runners/) | `BaseRunner` ABC, `HeadlessRunner` (single-shot). |
+| [`runners/`](agents/runners/) | `BaseRunner` ABC, `HeadlessRunner` (single-shot `run` + streamed `run_streamed`), `StreamDone` sentinel. |
 | [`registry.py`](agents/registry.py) | `AgentRegistry` — auto-discovery of `BaseAgent` subclasses. |
 
 ### Declaring an agent

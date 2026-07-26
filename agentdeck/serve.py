@@ -7,7 +7,8 @@ Endpoints:
     POST /agents/{name}/chat         -> {"session_id", "message"} -> {"output"}
     POST /agents/{name}/chat?stream=true
                                       -> text/event-stream: "delta" events, then one
-                                         "done" event carrying the full output
+                                         "done" event carrying {"output", "usage"};
+                                         an "error" event replaces "done" if the turn fails
     POST /workflows/{name}           -> JSON state in, final state out
 """
 
@@ -17,6 +18,7 @@ import json
 import os
 from typing import TYPE_CHECKING, Any
 
+from agentdeck.agents.runners import StreamDone
 from agentdeck.app import App
 from agentdeck.workflows.state import json_default
 
@@ -25,7 +27,7 @@ if TYPE_CHECKING:
 
 
 def create_app() -> Any:
-    from fastapi import FastAPI
+    from fastapi import FastAPI, HTTPException
     from fastapi.responses import StreamingResponse
 
     deck = App()
@@ -38,21 +40,37 @@ def create_app() -> Any:
 
     @api.post("/agents/{name}/chat")
     async def chat(name: str, body: dict[str, Any], stream: bool = False) -> Any:
+        # Read the body up front: inside the generator a KeyError would surface as a
+        # 200 that just stops, since the response headers are already on the wire.
+        try:
+            session_id, message = body["session_id"], body["message"]
+        except KeyError as exc:
+            raise HTTPException(status_code=422, detail=f"missing field: {exc.args[0]}") from exc
         if stream:
 
             async def events() -> AsyncIterator[str]:
-                # The done event's "output" is the deltas re-joined rather than a
-                # separate RunResult field: for a plain-text agent (the streaming use
-                # case) that's exactly the final output, and it avoids holding the SDK's
-                # RunResultStreaming open past what chat_stream's contract exposes.
-                chunks: list[str] = []
-                async for delta in deck.chat_stream(name, body["session_id"], body["message"]):
-                    chunks.append(delta)
-                    yield f"data: {json.dumps({'delta': delta})}\n\n"
-                yield f"event: done\ndata: {json.dumps({'output': ''.join(chunks)})}\n\n"
+                try:
+                    async for chunk in deck.chat_stream(name, session_id, message):
+                        if isinstance(chunk, StreamDone):
+                            # The SDK's own final_output — validated model for an output_type
+                            # agent, last assistant message otherwise — not the re-joined
+                            # deltas, which disagree for tool-using agents.
+                            done = {"output": chunk.final_output, "usage": chunk.usage}
+                            yield f"event: done\ndata: {json.dumps(done, default=json_default)}\n\n"
+                        else:
+                            yield f"data: {json.dumps({'delta': chunk})}\n\n"
+                except Exception as exc:
+                    # Mid-stream failures (max turns, guardrail trip, model error) can't change
+                    # the status code any more; report them in-band without leaking internals.
+                    yield f"event: error\ndata: {json.dumps({'error': type(exc).__name__})}\n\n"
 
-            return StreamingResponse(events(), media_type="text/event-stream")
-        result = await deck.chat(name, body["session_id"], body["message"])
+            return StreamingResponse(
+                events(),
+                media_type="text/event-stream",
+                # Proxies buffer streamed responses by default; nginx needs X-Accel-Buffering.
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+        result = await deck.chat(name, session_id, message)
         return {"output": result.final_output}
 
     @api.post("/workflows/{name}")
