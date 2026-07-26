@@ -110,18 +110,21 @@ def _sqlite_saver(url: str) -> BaseCheckpointSaver:
 
     # The plain (sync) ``SqliteSaver`` can't back ``graph.ainvoke`` — it raises
     # NotImplementedError on every async method. The async saver needs its aiosqlite
-    # handshake awaited once; ``_run_sync`` does that whether or not we're already
-    # inside the caller's event loop (see its docstring).
+    # handshake awaited once, and ``AsyncSqliteSaver.__init__`` itself calls
+    # ``asyncio.get_running_loop()`` — so it must be constructed inside the same
+    # ``_run_sync`` call as the connect, not after it returns (a bare ``asyncio.run``
+    # closes its loop before this function's next line runs, and there may be no
+    # other loop at all when ``App.load()`` calls this synchronously).
     path = url or ".agentdeck/checkpoints.sqlite3"
 
-    async def _connect() -> aiosqlite.Connection:
+    async def _connect_and_build() -> BaseCheckpointSaver:
         conn = aiosqlite.connect(path)
         await conn
-        return conn
+        saver = sqlite_aio.AsyncSqliteSaver(conn)
+        await saver.setup()
+        return saver
 
-    conn = _run_sync(_connect())
-    saver = sqlite_aio.AsyncSqliteSaver(conn)
-    _run_sync(saver.setup())
+    saver: Any = _run_sync(_connect_and_build())
     return saver
 
 

@@ -7,6 +7,12 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+### Fixed
+- `resolve_checkpointer`'s sqlite backend no longer raises `RuntimeError: no
+  running event loop` when `App.load()` (or any other sync caller) builds a
+  `durable=True` workflow outside a running loop — `AsyncSqliteSaver`'s
+  constructor calls `asyncio.get_running_loop()` itself, so it's now built
+  inside the same `_run_sync` call as the connect, matching the postgres path.
 ### Added
 - Human-in-the-loop for `durable = True` workflows: a node calling
   `langgraph.types.interrupt(payload)` (re-exported as

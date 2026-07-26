@@ -108,6 +108,21 @@ def test_durable_sqlite_backend_persists_across_invokes(tmp_path, monkeypatch):
     assert db_path.exists()
 
 
+def test_durable_sqlite_backend_builds_outside_an_event_loop(tmp_path, monkeypatch):
+    """Issue #15: ``App.load()`` calls ``BaseWorkflow.build()`` synchronously, with no
+    event loop running at all — not even nested inside a caller's loop. The sqlite
+    saver must not assume one exists.
+    """
+    pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
+    db_path = tmp_path / "checkpoints.sqlite3"
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "sqlite")
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT_URL", str(db_path))
+    reset_settings_cache()
+    wf = _make_counter_workflow(durable=True)
+
+    wf.build()  # must not raise RuntimeError: no running event loop
+
+
 _RESTART_SCRIPT = """
 import asyncio
 from pydantic import BaseModel
