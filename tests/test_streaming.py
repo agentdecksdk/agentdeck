@@ -21,8 +21,8 @@ class Greeter(BaseAgent):
 @pytest.fixture
 def project(tmp_path, monkeypatch):
     root = tmp_path / ".agentdeck"
-    (root / "greeter").mkdir(parents=True)
-    (root / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
+    (root / "agents" / "greeter").mkdir(parents=True)
+    (root / "agents" / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
     monkeypatch.chdir(tmp_path)
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]

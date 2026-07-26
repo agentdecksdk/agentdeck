@@ -43,10 +43,10 @@ Run `scripts/run.py`.
 @pytest.fixture
 def project(tmp_path, monkeypatch):
     root = tmp_path / ".agentdeck"
-    (root / "greeter").mkdir(parents=True)
-    (root / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
-    (root / "hello_flow").mkdir()
-    (root / "hello_flow" / "workflow.py").write_text(textwrap.dedent(WORKFLOW_PY))
+    (root / "agents" / "greeter").mkdir(parents=True)
+    (root / "agents" / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
+    (root / "workflows" / "hello_flow").mkdir(parents=True)
+    (root / "workflows" / "hello_flow" / "workflow.py").write_text(textwrap.dedent(WORKFLOW_PY))
     (root / "skills" / "echo-skill" / "scripts").mkdir(parents=True)
     (root / "skills" / "echo-skill" / "SKILL.md").write_text(SKILL_MD)
     (root / "skills" / "echo-skill" / "scripts" / "run.py").touch()
@@ -165,8 +165,8 @@ def test_injected_session_factory_is_used_and_closed_once(project, monkeypatch):
 def test_injected_session_factory_closed_when_load_fails(tmp_path, monkeypatch):
     """A failure inside open() (broken bundle) must still close the injected factory."""
     root = tmp_path / ".agentdeck"
-    (root / "broken").mkdir(parents=True)
-    (root / "broken" / "agent.py").write_text("raise RuntimeError('broken bundle')\n")
+    (root / "agents" / "broken").mkdir(parents=True)
+    (root / "agents" / "broken" / "agent.py").write_text("raise RuntimeError('broken bundle')\n")
     monkeypatch.chdir(tmp_path)
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
@@ -181,3 +181,19 @@ def test_injected_session_factory_closed_when_load_fails(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError):
         asyncio.run(scenario())
     assert fake.closed == 1
+
+
+def test_old_layout_raises_clear_config_error(tmp_path, monkeypatch):
+    """A pre-0.3 project (bundles straight under the project root) fails loudly, not silently."""
+    from agentdeck.errors import ConfigError
+
+    root = tmp_path / ".agentdeck"
+    (root / "greeter").mkdir(parents=True)
+    (root / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
+    monkeypatch.chdir(tmp_path)
+    for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
+        del sys.modules[mod]
+    from agentdeck import App
+
+    with pytest.raises(ConfigError, match="agents/<bundle>/agent.py"):
+        App().load()

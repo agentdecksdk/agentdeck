@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from functools import cache
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
@@ -30,8 +30,10 @@ if TYPE_CHECKING:
 
 _DURABILITY_HINT = 'install the "durability" extra: pip install "agentdeck[durability]"'
 
+_T = TypeVar("_T")
 
-def _run_sync(coro: Coroutine[None, None, object]) -> object:
+
+def _run_sync(coro: Coroutine[None, None, _T]) -> _T:
     """Run ``coro`` to completion, whether or not an event loop is already running.
 
     ``BaseWorkflow.build()`` resolves the checkpointer synchronously, but it can be
@@ -44,7 +46,7 @@ def _run_sync(coro: Coroutine[None, None, object]) -> object:
         asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
-    result: list[object] = []
+    result: list[_T] = []
     error: list[BaseException] = []
 
     def _runner() -> None:

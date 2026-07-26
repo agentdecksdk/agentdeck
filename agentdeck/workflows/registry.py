@@ -10,10 +10,11 @@ from agentdeck.workflows.base import BaseWorkflow
 
 @dataclass(slots=True)
 class WorkflowRegistry(PluginRegistry[BaseWorkflow]):
-    """Discovers :class:`BaseWorkflow` subclasses in ``<package>/<name>/workflow.py``."""
+    """Discovers :class:`BaseWorkflow` subclasses in ``<package>/workflows/<name>/workflow.py``."""
 
     base_class: type[BaseWorkflow] = BaseWorkflow
     module_name: str = "workflow"
+    type_dir: str = "workflows"
     label: str = "workflow"
 
 

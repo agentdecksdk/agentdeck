@@ -3,8 +3,8 @@ agents, workflows, and skills.
 
     from agentdeck import App
 
-    app = App()                   # serves ./.agentdeck: <bundle>/agent.py,
-    app.load()                    # <bundle>/workflow.py and a skills/ dir
+    app = App()                   # serves ./.agentdeck: agents/<bundle>/agent.py,
+    app.load()                    # workflows/<bundle>/workflow.py and a skills/ dir
 
     app.agents.get("FileAgent")                       # BaseAgent subclass
     app.workflows.get("TranslateAndSummarize")        # BaseWorkflow subclass
@@ -62,7 +62,7 @@ def _mount_project_dir() -> str:
 
     A hidden dir can't be imported by name, so we register a synthetic parent
     package whose ``__path__`` points at it; the normal import machinery then
-    resolves ``<alias>.<bundle>.agent`` as namespace packages — no
+    resolves ``<alias>.agents.<bundle>.agent`` as namespace packages — no
     ``__init__.py`` needed anywhere under the project dir.
     """
     root = Path(PROJECT_DIR).resolve()
@@ -81,7 +81,7 @@ class App:
     """Facade over the three plug-in registries plus settings.
 
     Always serves the ``./.agentdeck`` project dir of the current working
-    directory: ``<bundle>/agent.py``, ``<bundle>/workflow.py``, ``skills/``.
+    directory: ``agents/<bundle>/agent.py``, ``workflows/<bundle>/workflow.py``, ``skills/``.
     """
 
     agents: AgentRegistry = field(init=False)
