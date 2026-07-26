@@ -12,18 +12,35 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, Any
 
 from agentdeck.app import App
 from agentdeck.workflows.state import json_default
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from fastapi import FastAPI
 
 
 def create_app() -> Any:
     from fastapi import FastAPI
 
-    deck = App()
-    inventory = deck.load()
-    api = FastAPI(title="agentdeck")
+    inventory: dict[str, Any] = {}
+
+    @asynccontextmanager
+    async def lifespan(api: FastAPI) -> AsyncIterator[None]:
+        # App.open() closes the Redis session client + MCP servers on shutdown
+        # (including SIGTERM from `compose stop`), so no connection is leaked.
+        async with App.open() as deck:
+            api.state.deck = deck
+            # open() already ran load(); re-running it here just to capture the
+            # inventory for /health is idempotent (refresh=True) and cheap.
+            inventory.update(deck.load())
+            yield
+
+    api = FastAPI(title="agentdeck", lifespan=lifespan)
 
     @api.get("/health")
     async def health() -> dict[str, Any]:
@@ -31,12 +48,12 @@ def create_app() -> Any:
 
     @api.post("/agents/{name}/chat")
     async def chat(name: str, body: dict[str, Any]) -> dict[str, Any]:
-        result = await deck.chat(name, body["session_id"], body["message"])
+        result = await api.state.deck.chat(name, body["session_id"], body["message"])
         return {"output": result.final_output}
 
     @api.post("/workflows/{name}")
     async def run_workflow(name: str, state: dict[str, Any]) -> Any:
-        out = await deck.run_workflow(name, state)
+        out = await api.state.deck.run_workflow(name, state)
         return json.loads(json.dumps(out, default=json_default))
 
     return api

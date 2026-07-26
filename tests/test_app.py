@@ -75,3 +75,18 @@ def test_run_workflow(project):
 def test_sessions_keyed_by_id(project):
     assert project.session_for("a") is project.session_for("a")
     assert project.session_for("a") is not project.session_for("b")
+
+
+def test_open_close_lifecycle(project):
+    """open -> chat-plumbing-level usage (no live model) -> aclose, SQLite fallback."""
+    from agentdeck import App
+
+    async def scenario() -> App:
+        async with App.open() as app:
+            assert app.session_factory is None  # no AGENTDECK_SESSION_REDIS_URL in test env
+            assert app.session_for("s1") is app.session_for("s1")
+            assert app.load()["agents"] == ["Greeter"]
+        return app  # aclose() already ran once via the `async with` exit
+
+    app = asyncio.run(scenario())
+    asyncio.run(app.aclose())  # idempotent: closing an already-closed app must not raise

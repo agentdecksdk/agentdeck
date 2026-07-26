@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import sys
 import types
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from importlib.machinery import ModuleSpec
 from pathlib import Path
@@ -30,6 +31,7 @@ from typing import TYPE_CHECKING, Any
 
 from agents import SQLiteSession
 
+from agentdeck.agents.mcp.lifecycle import MCPLifecycle
 from agentdeck.agents.registry import AgentRegistry
 from agentdeck.agents.runners import HeadlessRunner
 from agentdeck.runtime.registry import _package_dir
@@ -39,6 +41,8 @@ from agentdeck.skills.bundle import SkillRegistry
 from agentdeck.workflows.registry import WorkflowRegistry
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from agents.memory.session import Session
 
 PROJECT_DIR = ".agentdeck"
@@ -75,15 +79,19 @@ class App:
     agents: AgentRegistry = field(init=False)
     workflows: WorkflowRegistry = field(init=False)
     skills: SkillRegistry = field(init=False)
-    _session_factory: SessionFactory | None = field(init=False, default=None)
+    # DI seam for tests: pass a prebuilt factory (or one wrapping fakeredis) to skip
+    # `from_settings`'s real Redis client entirely.
+    session_factory: SessionFactory | None = None
     _local_sessions: dict[str, Session] = field(init=False, default_factory=dict)
+    _closed: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
         package = _mount_project_dir()
         self.agents = AgentRegistry(package)
         self.workflows = WorkflowRegistry(package)
         self.skills = SkillRegistry((_package_dir(package) or Path(PROJECT_DIR)) / "skills")
-        self._session_factory = SessionFactory.from_settings(self.settings.session)
+        if self.session_factory is None:
+            self.session_factory = SessionFactory.from_settings(self.settings.session)
 
     @property
     def settings(self) -> Settings:
@@ -123,8 +131,8 @@ class App:
         """Conversation memory for ``session_id`` — Redis when ``AGENTDECK_SESSION_REDIS_URL``
         is set, otherwise an in-process SQLite session (dev/test fallback, lost on exit).
         """
-        if self._session_factory is not None:
-            return self._session_factory.session_for(session_id)
+        if self.session_factory is not None:
+            return self.session_factory.session_for(session_id)
         return self._local_sessions.setdefault(session_id, SQLiteSession(session_id))
 
     async def chat(self, name: str, session_id: str, message: Any, **runner_options: Any) -> Any:
@@ -132,6 +140,33 @@ class App:
         agent_cls = self.agents.get(name)
         runner = HeadlessRunner.from_agent(agent_cls.build(), **runner_options)
         return await runner.run(message, session=self.session_for(session_id))
+
+    @classmethod
+    @asynccontextmanager
+    async def open(cls, *, session_factory: SessionFactory | None = None) -> AsyncIterator[App]:
+        """Build, ``load()``, and start the MCP lifecycle; ``aclose()`` runs on exit (even on error).
+
+            async with App.open() as app:
+                ...
+
+        ``session_factory`` is the DI seam for tests (e.g. a fake wrapping fakeredis).
+        """
+        app = cls(session_factory=session_factory)
+        app.load()
+        await MCPLifecycle.startup()
+        try:
+            yield app
+        finally:
+            await app.aclose()
+
+    async def aclose(self) -> None:
+        """Close the Redis session client and MCP servers. Idempotent — safe to call twice."""
+        if self._closed:
+            return
+        self._closed = True
+        if self.session_factory is not None:
+            await self.session_factory.aclose()
+        await MCPLifecycle.shutdown()
 
 
 __all__ = ["App"]

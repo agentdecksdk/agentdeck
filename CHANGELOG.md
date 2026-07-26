@@ -7,6 +7,16 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+### Added
+- `App.open()` async context manager: runs `load()`, starts the MCP lifecycle,
+  and guarantees `aclose()` on exit (even on error). `App.aclose()` closes the
+  Redis session client and MCP servers; idempotent, safe to call twice.
+- `App(session_factory=...)` DI seam: inject a prebuilt `SessionFactory` (e.g.
+  wrapping fakeredis) instead of building one from settings — for tests.
+- `agentdeck-serve` now wires `App.open()`/`aclose()` through a FastAPI
+  lifespan, so `compose stop` (SIGTERM) shuts down the Redis client and MCP
+  servers cleanly instead of leaking them.
+
 ## [0.1.0] - 2026-07-26
 
 ### Added
