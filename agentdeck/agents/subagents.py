@@ -20,13 +20,10 @@ if TYPE_CHECKING:
 
     from agentdeck.agents.base import BaseAgent
 
-# Matches App._mount_project_dir's alias — kept a literal (not imported from app.py) since a
-# registry built lazily at call time is what makes plain ``App()`` usage work: by the time the
-# tool actually runs, App.__post_init__ has already mounted the project package under this name.
+# Kept a literal (not imported from app.py) so lazy registry construction still resolves it.
 _PROJECT_ALIAS = "agentdeck_project"
 
-# depth 1: the top-level agent (depth 0) may spawn; a spawned subagent (depth 1) may not spawn
-# further ones — no override surface in v1.
+# Depth 0 (top level) may spawn; depth 1 (already-spawned) may not — no override surface in v1.
 _MAX_DEPTH = 1
 _depth: ContextVar[int] = ContextVar("agentdeck_subagent_depth", default=0)
 

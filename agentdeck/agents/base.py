@@ -74,8 +74,7 @@ class BaseAgent:
     # the agent rather than crashing the backend.
     mcp_server_names: ClassVar[Sequence[str]] = ()
 
-    # Registry names this agent may hand a task to via the ``spawn_subagent`` tool. Empty
-    # (default) means no such tool is added — opt-in only. See agentdeck.agents.subagents.
+    # Registry names spawnable via ``spawn_subagent``; empty (default) adds no such tool.
     subagents: ClassVar[Sequence[str]] = ()
 
     @classmethod

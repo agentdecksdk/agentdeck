@@ -1,15 +1,18 @@
 """spawn_subagent tool: allowlist, depth guard, parallel fan-out, opt-in wiring."""
 
 import asyncio
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
 import pytest
+from agents import Runner
 from agents.tool_context import ToolContext
 
-from agentdeck.agents.base import BaseAgent
+from agentdeck.agents.base import BaseAgent, BaseSandboxAgent
 from agentdeck.agents.registry import AgentRegistry
 from agentdeck.agents.subagents import _depth, spawn_subagent_tool
 from agentdeck.errors import NotFoundError
+from agentdeck.runtime.workspace import Workspace
 
 
 class Worker(BaseAgent):
@@ -55,6 +58,7 @@ def _stub_headless_runner(monkeypatch):
 
     class FakeRunner:
         async def run(self, task, *, session=None):
+            await asyncio.sleep(0)  # yield control so gathered spawns genuinely interleave
             return SimpleNamespace(final_output=f"handled:{task}")
 
     monkeypatch.setattr(HeadlessRunner, "from_agent", staticmethod(lambda agent, **kw: FakeRunner()))
@@ -121,6 +125,37 @@ def test_agent_with_subagents_gets_spawn_tool():
 
     assert len(kwargs["tools"]) == 1
     assert kwargs["tools"][0].name == "spawn_subagent"
+
+
+def test_spawning_sandbox_agent_triggers_attach_sandbox(monkeypatch):
+    """Sandbox interplay (issue #11 risk area): spawning a BaseSandboxAgent subagent must
+    still make HeadlessRunner.attach_sandbox() detect the SandboxAgent and bind run_config.sandbox
+    before the turn runs — real HeadlessRunner/attach_sandbox, only the SDK boundary is faked.
+    """
+
+    class SandboxWorker(BaseSandboxAgent):
+        handoff_description = "sandboxed worker"
+
+    opened = []
+
+    @asynccontextmanager
+    async def fake_open(cls, **kwargs):
+        opened.append(kwargs)
+        yield SimpleNamespace(sandbox_run_config="fake-sandbox-config")
+
+    monkeypatch.setattr(Workspace, "open", classmethod(fake_open))
+
+    async def fake_run(agent, message, *, run_config, max_turns, session=None):
+        assert run_config.sandbox == "fake-sandbox-config"  # attach_sandbox wired it in first
+        return SimpleNamespace(final_output="sandboxed result", context_wrapper=SimpleNamespace(usage=None))
+
+    monkeypatch.setattr(Runner, "run", fake_run)
+
+    tool = spawn_subagent_tool(Supervisor, registry=FakeRegistry({"Worker": SandboxWorker}))
+    result = _invoke(tool, "Worker", "do sandboxed thing")
+
+    assert result == "sandboxed result"
+    assert opened  # Workspace.open was entered -> _needs_sandbox's isinstance(SandboxAgent) branch fired
 
 
 def test_spawn_subagent_tool_defaults_to_project_registry():
