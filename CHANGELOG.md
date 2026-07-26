@@ -16,6 +16,9 @@ they move under a version heading when a release is tagged.
   final state or the next interrupt) and `App.pending_interrupts(name=None)`
   lists every thread still waiting — the approval inbox. Same trio on
   `BaseWorkflow` as `run` / `resume` / `pending`.
+- `run_workflow_stream` ends a paused run with that same interrupt event in place
+  of its terminal `done` event, and the SSE endpoint emits it as an `interrupt`
+  event instead of `done`.
 - `GET /workflows/{name}/pending` and `POST /workflows/{name}/{thread_id}/resume`
   (`{"value": ...}`); `POST /workflows/{name}` takes an optional `thread_id`
   query parameter so durable runs can be started over HTTP.

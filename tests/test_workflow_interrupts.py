@@ -160,6 +160,7 @@ from agentdeck.workflows import END, BaseWorkflow, StateGraph, interrupt
 
 class State(BaseModel):
     request: str = ""
+    prepared: int = 0
     decision: str = ""
     outcome: str = ""
 
@@ -170,26 +171,86 @@ class ApprovalFlow(BaseWorkflow):
     @classmethod
     def build_graph(cls):
         g = StateGraph(cls.state)
+        g.add_node("prepare", lambda s: {"prepared": s.prepared + 1})
         g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
         g.add_node("done", lambda s: {"outcome": "booked" if s.decision == "yes" else "dropped"})
-        g.set_entry_point("ask")
+        g.set_entry_point("prepare")
+        g.add_edge("prepare", "ask")
         g.add_edge("ask", "done")
         g.add_edge("done", END)
         return g
 """
 
 
-def test_app_surface_pauses_lists_and_resumes(tmp_path, monkeypatch):
-    """``App`` is the entry point: run -> pending_interrupts() (no name = every workflow) -> resume."""
+PLAIN_WORKFLOW_PY = """
+from pydantic import BaseModel
+from agentdeck.workflows import END, BaseWorkflow, StateGraph
+
+class State(BaseModel):
+    text: str = ""
+
+class PlainFlow(BaseWorkflow):
+    state = State
+    durable = True
+
+    @classmethod
+    def build_graph(cls):
+        g = StateGraph(cls.state)
+        g.add_node("shout", lambda s: {"text": s.text.upper()})
+        g.set_entry_point("shout")
+        g.add_edge("shout", END)
+        return g
+"""
+
+
+@pytest.fixture
+def app_project(tmp_path, monkeypatch):
     root = tmp_path / ".agentdeck" / "approval_flow"
     root.mkdir(parents=True)
     (root / "workflow.py").write_text(textwrap.dedent(APPROVAL_WORKFLOW_PY))
+    (tmp_path / ".agentdeck" / "plain_flow").mkdir()
+    (tmp_path / ".agentdeck" / "plain_flow" / "workflow.py").write_text(textwrap.dedent(PLAIN_WORKFLOW_PY))
     monkeypatch.chdir(tmp_path)
+    # the project alias is process-global; drop stale mounts from other tests
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
     from agentdeck import App
 
-    app = App()
+    return App()
+
+
+async def test_streamed_run_ends_with_an_interrupt_event_and_still_resumes(app_project):
+    """The streaming surface: node updates, then an interrupt event *instead of* ``done``."""
+    events = [
+        event
+        async for event in app_project.run_workflow_stream("ApprovalFlow", {"request": "tue 9am"}, thread_id="t-stream")
+    ]
+
+    assert events == [
+        {"type": "node_update", "node": "prepare", "delta": {"prepared": 1}},
+        {"type": "interrupt", "payload": {"question": "tue 9am"}, "thread_id": "t-stream"},
+    ]
+    inbox = await app_project.pending_interrupts("ApprovalFlow")
+    assert [p for p in inbox if p["thread_id"] == "t-stream"] == [events[-1]]
+
+    resumed = await app_project.resume_workflow("ApprovalFlow", "t-stream", "yes")
+
+    assert resumed["outcome"] == "booked"  # a streamed pause resumes like any other
+
+
+async def test_streamed_durable_run_without_an_interrupt_still_ends_with_done(app_project):
+    """No regression for #9's shape: only a paused run swaps ``done`` for an interrupt."""
+    events = [event async for event in app_project.run_workflow_stream("PlainFlow", {"text": "hi"}, thread_id="t-p")]
+
+    assert events == [
+        {"type": "node_update", "node": "shout", "delta": {"text": "HI"}},
+        {"type": "done", "state": {"text": "HI"}},
+    ]
+
+
+def test_app_surface_pauses_lists_and_resumes(app_project):
+    """``App`` is the entry point: run -> pending_interrupts() (no name = every workflow) -> resume."""
+    app = app_project
 
     async def _scenario():
         paused = await app.run_workflow("ApprovalFlow", {"request": "tue 9am"}, thread_id="t-app")
