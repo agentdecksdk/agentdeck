@@ -17,6 +17,7 @@
 ## Setup
 
 ```bash
+git clone https://github.com/sagi5060/agentdeck.git && cd agentdeck
 uv venv && uv pip install -e ".[dev,serve]"
 pre-commit install          # ruff + ty + hygiene hooks on every commit
 ```
