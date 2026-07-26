@@ -7,6 +7,8 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-26
+
 ### Added
 - `App.chat_stream(name, session_id, message)`: async iterator of text deltas
   followed by a terminal `StreamDone(final_output, usage)`, wrapping the Agents
@@ -108,5 +110,6 @@ they move under a version heading when a release is tagged.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sagi5060/agentdeck/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/sagi5060/agentdeck/releases/tag/v0.1.0
