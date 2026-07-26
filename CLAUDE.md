@@ -35,6 +35,9 @@ Two things live in this repo:
   `pre-commit install`; keep the ruff-pre-commit rev in sync with the venv's
   ruff version or the hook and `make lint` disagree.
 - `ty: ignore` is allowed only at deliberate SDK shims, with a comment.
+- Comments: only when a constraint truly isn't visible in the code, and then
+  ONE line. No multi-line explanations, no essays above handlers/functions —
+  if it needs a paragraph, the paragraph belongs in the PR description.
 - Compose runs the package as an installed dependency, `.agentdeck/` mounted
   read-only.
 - `openai==2.32.0` is pinned to `openai-agents==0.17.0` — don't loosen it
