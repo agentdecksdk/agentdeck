@@ -24,6 +24,10 @@ Two things live in this repo:
   minimal (currently imports `agentdeck.runtime.capture`, a known caveat when
   sandboxing is enabled).
 - Model calls never mutate external state directly; deterministic code does.
+- A node calling `interrupt()` re-runs **from its start** when the workflow
+  resumes — everything before the `interrupt()` call executes twice. Interrupt
+  nodes must be pure; side effects (external mutations, sent messages) belong in
+  earlier nodes. Interrupts require `durable = True` (a checkpointer).
 
 ## Conventions
 

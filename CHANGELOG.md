@@ -8,6 +8,21 @@ they move under a version heading when a release is tagged.
 ## [Unreleased]
 
 ### Added
+- Human-in-the-loop for `durable = True` workflows: a node calling
+  `langgraph.types.interrupt(payload)` (re-exported as
+  `agentdeck.workflows.interrupt`) pauses the run, and `run_workflow` returns
+  `{"type": "interrupt", "payload": ..., "thread_id": ...}` instead of a final
+  state. `App.resume_workflow(name, thread_id, value)` answers it (returning the
+  final state or the next interrupt) and `App.pending_interrupts(name=None)`
+  lists every thread still waiting — the approval inbox. Same trio on
+  `BaseWorkflow` as `run` / `resume` / `pending`.
+- `run_workflow_stream` ends a paused run with that same interrupt event in place
+  of its terminal `done` event, and the SSE endpoint emits it as an `interrupt`
+  event instead of `done`.
+- `GET /workflows/{name}/pending` and `POST /workflows/{name}/{thread_id}/resume`
+  (`{"value": ...}`); `POST /workflows/{name}` takes an optional `thread_id`
+  query parameter so durable runs can be started over HTTP.
+
 - `App.run_workflow_stream(name, state=None, thread_id=None)`: async iterator over a
   workflow's `astream(stream_mode=["updates", "custom"])` — a `node_update` event per
   completed node, a `custom` event per `langgraph.config.get_stream_writer()` call, then one
@@ -28,6 +43,10 @@ they move under a version heading when a release is tagged.
   spawned subagent (depth-limited via a `ContextVar`, default depth 1),
   returns an `error: ...` string instead of raising, so the run continues.
   New module `agentdeck/agents/subagents.py`.
+
+### Changed
+- A non-durable workflow whose node calls `interrupt()` now raises `ConfigError`
+  instead of silently returning an unresumable state.
 
 ## [0.2.0] - 2026-07-26
 

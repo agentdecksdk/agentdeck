@@ -8,10 +8,13 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from langgraph.graph import END, START
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command
 from pydantic import BaseModel
 
+from agentdeck.errors import ConfigError
 from agentdeck.runtime.checkpointer import resolve_checkpointer
 from agentdeck.runtime.settings import get_settings
+from agentdeck.workflows.interrupts import INTERRUPT_KEY, InterruptResult, as_interrupt, interrupt_result
 from agentdeck.workflows.state import dump_state
 
 if TYPE_CHECKING:
@@ -74,21 +77,45 @@ class BaseWorkflow:
 
     @classmethod
     async def run(cls, state: Any = None, *, thread_id: str | None = None, **runner_options: Any) -> Any:
-        """Run the graph once. ``thread_id`` scopes checkpointed state (required if ``durable``)."""
+        """Run the graph once. ``thread_id`` scopes checkpointed state (required if ``durable``).
+
+        Returns the final state, or an :class:`~agentdeck.workflows.interrupts.InterruptResult`
+        if a node called ``langgraph.types.interrupt()`` — hand that payload to a human and
+        resume the run with :meth:`resume`. The interrupted node re-runs from its start on
+        resume, so it must be pure: put side effects in earlier nodes.
+        """
         runner_options = cls._thread_scoped_options(thread_id, runner_options)
-        return await cls.runner(**runner_options).run(state)
+        result = await cls.runner(**runner_options).run(state)
+        interrupted = cls._interrupt_or_none(result, thread_id)
+        return result if interrupted is None else interrupted
 
     @classmethod
     async def run_stream(
         cls, state: Any = None, *, thread_id: str | None = None, **runner_options: Any
-    ) -> AsyncIterator[dict[str, Any]]:
+    ) -> AsyncIterator[dict[str, Any] | InterruptResult]:
         """Streaming counterpart to :meth:`run`: yields ``node_update``/``custom`` events per
         :meth:`DevWorkflowRunner.run_stream <agentdeck.workflows.runners.dev.DevWorkflowRunner.run_stream>`,
-        then one terminal ``done`` event. Same ``thread_id`` semantics as ``run``.
+        then one terminal ``done`` event — or an :class:`~agentdeck.workflows.interrupts.InterruptResult`
+        event in its place when the run paused for a human. Same ``thread_id`` semantics as ``run``.
         """
         runner_options = cls._thread_scoped_options(thread_id, runner_options)
         async for event in cls.runner(**runner_options).run_stream(state):
-            yield event
+            # LangGraph reports the pause as an update from a pseudo-node; the terminal event carries it.
+            if event["type"] == "node_update" and event["node"] == INTERRUPT_KEY:
+                continue
+            interrupted = cls._interrupt_or_none(event["state"], thread_id) if event["type"] == "done" else None
+            yield event if interrupted is None else interrupted
+
+    @classmethod
+    def _interrupt_or_none(cls, result: Any, thread_id: str | None) -> InterruptResult | None:
+        """The pause ``result`` stopped on, or ``None``; a non-durable pause can't be resumed."""
+        interrupted = as_interrupt(result, thread_id or "")
+        if interrupted is not None and not cls.durable:
+            raise ConfigError(
+                f"{cls.__name__} called interrupt() but is durable=False: with no checkpointer the paused run "
+                "cannot be resumed. Set `durable = True` on the workflow.",
+            )
+        return interrupted
 
     @classmethod
     def _thread_scoped_options(cls, thread_id: str | None, runner_options: dict[str, Any]) -> dict[str, Any]:
@@ -101,6 +128,39 @@ class BaseWorkflow:
         config = dict(runner_options.get("config") or {})
         config["configurable"] = {**config.get("configurable", {}), "thread_id": thread_id}
         return {**runner_options, "config": config}
+
+    @classmethod
+    async def resume(cls, thread_id: str, value: Any, **runner_options: Any) -> Any:
+        """Resume the run paused on ``thread_id``: ``interrupt()`` returns ``value``.
+
+        Returns the final state, or the next
+        :class:`~agentdeck.workflows.interrupts.InterruptResult` if the run pauses again.
+        """
+        if not cls.durable:
+            raise ConfigError(f"{cls.__name__} is durable=False: there is no checkpointed run to resume.")
+        return await cls.run(Command(resume=value), thread_id=thread_id, **runner_options)
+
+    @classmethod
+    async def pending(cls) -> list[InterruptResult]:
+        """Every thread of this workflow currently paused on an interrupt — the approval inbox."""
+        if not cls.durable:
+            return []
+        graph = cls.build()
+        saver = graph.checkpointer
+        if saver is None or isinstance(saver, bool):
+            return []
+        # Drain the listing first: the sqlite saver locks for the whole alist generator.
+        thread_ids = {
+            tid
+            async for checkpoint in saver.alist(None)
+            if isinstance(tid := checkpoint.config.get("configurable", {}).get("thread_id"), str)
+        }
+        pending: list[InterruptResult] = []
+        for thread_id in sorted(thread_ids):
+            # Foreign threads (shared saver) replay with no pending tasks, so no interrupts.
+            snapshot = await graph.aget_state({"configurable": {"thread_id": thread_id}})
+            pending.extend(interrupt_result(i.value, thread_id) for i in snapshot.interrupts)
+        return pending
 
     @classmethod
     def as_tool(
