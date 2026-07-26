@@ -33,11 +33,8 @@ _OUTPUT_LINE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$")
 # ``import agentdecks_core``. See ``agentdeck/skills/skill_runtime``.
 
 
-class SkillEnvError(SkillError, RuntimeError):
-    """Raised when a required env var declared in ``SKILL.md`` is missing.
-
-    Also a ``RuntimeError`` so existing ``except RuntimeError`` call sites keep working.
-    """
+class SkillEnvError(SkillError):
+    """Raised when a required env var declared in ``SKILL.md`` is missing."""
 
     def __init__(self, skill: str, missing: Sequence[str]) -> None:
         self.skill = skill
@@ -45,6 +42,19 @@ class SkillEnvError(SkillError, RuntimeError):
         super().__init__(
             f"skill {skill!r} requires env var(s) {sorted(self.missing)} but they are unset.",
         )
+
+
+class SkillExecutionError(SkillError):
+    """A skill exited non-zero where the caller asked to raise.
+
+    ``skill`` is the failing stage's label — the bundle name unless a caller
+    named the stage. ``stderr`` is clipped in the message but kept whole on the
+    attribute; it is untrusted subprocess output, so don't put it in a response.
+    """
+
+    def __init__(self, skill: str, exit_code: int, stderr: str) -> None:
+        self.skill, self.exit_code, self.stderr = skill, exit_code, stderr
+        super().__init__(f"skill {skill!r} failed (exit {exit_code}): {stderr.strip()[:500]}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,18 +88,16 @@ class SkillResult:
         return Path(value) if value is not None else None
 
     def raise_if_failed(self, stage: str) -> None:
-        """Raise ``RuntimeError`` describing a non-zero exit, with clipped stderr."""
+        """Raise :class:`SkillExecutionError` describing a non-zero exit."""
         if self.ok:
             return
-        raise RuntimeError(
-            f"{stage} failed (exit {self.exit_code}): {self.stderr.strip()[:500]}",
-        )
+        raise SkillExecutionError(stage, self.exit_code, self.stderr)
 
     def require_output(self, key: str, stage: str) -> str:
-        """Return ``outputs[key]`` or raise ``RuntimeError`` naming the stage."""
+        """Return ``outputs[key]`` or raise :class:`SkillError` naming the stage."""
         value = self.output(key)
         if value is None:
-            raise RuntimeError(f"{stage}: skill did not emit {key}.")
+            raise SkillError(f"{stage}: skill did not emit {key}.")
         return value
 
 
@@ -240,4 +248,11 @@ def _decode(value: bytes | str | None) -> str:
     return value
 
 
-__all__ = ["SkillEnvError", "SkillExecutor", "SkillOutput", "SkillResult", "parse_skill_outputs"]
+__all__ = [
+    "SkillEnvError",
+    "SkillExecutionError",
+    "SkillExecutor",
+    "SkillOutput",
+    "SkillResult",
+    "parse_skill_outputs",
+]

@@ -9,15 +9,27 @@ they move under a version heading when a release is tagged.
 
 ### Added
 - `agentdeck/errors.py`: one exception hierarchy — `AgentdeckError` base,
-  `NotFoundError` (unknown agent/workflow/skill; also a `KeyError` for
-  compat), `SkillError` (base for `SkillExecutionError`, `SkillEnvError`),
-  `ConfigError`. Exported from `agentdeck` alongside `App`.
+  `NotFoundError` (unknown agent/workflow/skill), `SkillError` (base for
+  `SkillExecutionError`, `SkillEnvError`), `ConfigError`. Exported from
+  `agentdeck` alongside `App`.
 
 ### Changed
 - `PluginRegistry.get` / `SkillRegistry.get` now raise `NotFoundError`
-  instead of bare `KeyError` (still catchable as `KeyError`).
-- `agentdeck-serve` maps `NotFoundError` to HTTP 404 and other
-  `AgentdeckError`s to 422, both with the message as the response body.
+  instead of bare `KeyError`.
+- Invalid configuration now raises `ConfigError` instead of `ValueError`:
+  unusable `compaction.threshold`/`model` combinations, `skills_dir` and
+  skill allow-list problems, malformed MCP server entries, and malformed
+  `SKILL.md` frontmatter. Pydantic field validators still raise `ValueError`
+  (pydantic requires it).
+- `SkillResult.raise_if_failed` raises `SkillExecutionError` and
+  `SkillResult.require_output` raises `SkillError`, both instead of bare
+  `RuntimeError`. `SkillExecutionError` moved to `agentdeck.skills.executor`
+  and is re-exported from `agentdeck.skills` / `agentdeck.workflows`.
+- `agentdeck-serve` maps `NotFoundError` to HTTP 404 with the message as the
+  body; every other `AgentdeckError` is a server fault and now returns 500
+  with a fixed `{"detail": "internal error"}` body, the real detail logged
+  server-side. Previously these returned 422 with the exception message,
+  which could echo skill stderr back to the client.
 
 ## [0.1.0] - 2026-07-26
 

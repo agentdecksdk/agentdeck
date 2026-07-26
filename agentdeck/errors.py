@@ -1,7 +1,12 @@
-"""One exception hierarchy: every error the harness raises is an ``AgentdeckError``.
+"""One exception hierarchy: the errors the harness raises are ``AgentdeckError``s.
 
 Lets consumers write a single ``except AgentdeckError`` and lets ``serve.py``
 map errors to HTTP status without knowing every concrete type.
+
+Not everything is migrated, deliberately: pydantic ``field_validator`` bodies
+keep raising ``ValueError`` (pydantic only folds those into
+``ValidationError``), and missing-path / workspace faults keep their stdlib
+types (``FileNotFoundError``, ``RuntimeError``).
 """
 
 from __future__ import annotations
@@ -11,17 +16,8 @@ class AgentdeckError(Exception):
     """Base for every error agentdeck raises."""
 
 
-class NotFoundError(AgentdeckError, KeyError):
-    """Unknown agent / workflow / skill name.
-
-    Also a ``KeyError`` so existing ``except KeyError`` call sites (registry
-    lookups predate this hierarchy) keep working unchanged.
-    """
-
-    def __str__(self) -> str:
-        # KeyError.__str__ reprs a single arg (quotes the message); override
-        # back to the plain message for logs and the serve.py 404 body.
-        return self.args[0] if len(self.args) == 1 else super().__str__()
+class NotFoundError(AgentdeckError):
+    """Unknown agent / workflow / skill name."""
 
 
 class SkillError(AgentdeckError):

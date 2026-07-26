@@ -10,6 +10,7 @@ from agents.sandbox.capabilities.skills import LocalDirLazySkillSource, SkillMet
 from agents.sandbox.entries import LocalDir
 from agents.sandbox.workspace_paths import SandboxPathGrant
 
+from agentdeck.errors import ConfigError
 from agentdeck.skills import SkillRegistry
 
 if TYPE_CHECKING:
@@ -58,15 +59,15 @@ class _AutoGrantedSkills(Skills):
 def build_skills(names: list[str], skills_dir: Path | None) -> Skills:
     """Build SDK :class:`Skills` from a directory, gated by an allow-list."""
     if skills_dir is None:
-        raise ValueError(
+        raise ConfigError(
             "skills are listed but no skills_dir was provided. "
             "Set CapabilitiesSpec(skills_dir=...) to a directory of skill bundles.",
         )
     src = Path(skills_dir).expanduser().resolve()
     if not src.is_dir():
-        raise ValueError(f"skills_dir does not exist or is not a directory: {src}")
+        raise ConfigError(f"skills_dir does not exist or is not a directory: {src}")
     if missing := sorted(set(names) - set(SkillRegistry(src).list())):
-        raise ValueError(
+        raise ConfigError(
             f"Unknown skill(s) {missing} under {src}. Available: {sorted(SkillRegistry(src).list())}.",
         )
     return _AutoGrantedSkills(

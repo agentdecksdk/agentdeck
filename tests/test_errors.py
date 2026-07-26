@@ -6,10 +6,10 @@ import textwrap
 import pytest
 from fastapi.testclient import TestClient
 
+from agentdeck.app import App
 from agentdeck.errors import AgentdeckError, NotFoundError, SkillError
 from agentdeck.runtime.registry import PluginRegistry
-from agentdeck.skills.executor import SkillEnvError
-from agentdeck.workflows.nodes import SkillExecutionError
+from agentdeck.skills.executor import SkillEnvError, SkillExecutionError
 
 AGENT_PY = """
 from agentdeck.agents import BaseAgent
@@ -36,21 +36,16 @@ def test_registry_miss_is_agentdeck_error():
         registry.get("does-not-exist")
 
 
-def test_not_found_error_is_also_key_error():
-    # Compat: registries raised bare KeyError before this hierarchy existed.
-    assert issubclass(NotFoundError, KeyError)
-    with pytest.raises(KeyError):
-        raise NotFoundError("no such thing")
+def test_not_found_error_message_is_plain():
+    # serve.py puts str(exc) in the 404 body — no KeyError-style requoting.
+    assert str(NotFoundError("no such thing")) == "no such thing"
 
 
-def test_skill_errors_are_agentdeck_and_runtime_errors():
-    # Compat: both predate SkillError and are caught via `except RuntimeError` elsewhere.
+def test_skill_errors_are_agentdeck_errors():
     assert issubclass(SkillEnvError, SkillError)
     assert issubclass(SkillEnvError, AgentdeckError)
-    assert issubclass(SkillEnvError, RuntimeError)
     assert issubclass(SkillExecutionError, SkillError)
     assert issubclass(SkillExecutionError, AgentdeckError)
-    assert issubclass(SkillExecutionError, RuntimeError)
 
 
 def test_unknown_agent_chat_returns_404_with_body(project):
@@ -59,4 +54,20 @@ def test_unknown_agent_chat_returns_404_with_body(project):
     client = TestClient(create_app())
     response = client.post("/agents/unknown/chat", json={"session_id": "s", "message": "hi"})
     assert response.status_code == 404
-    assert "unknown" in response.json()["detail"]
+    assert response.json()["detail"].startswith("No agent named 'unknown'.")
+
+
+def test_skill_error_returns_500_without_leaking_stderr(project, monkeypatch):
+    from agentdeck.serve import create_app
+
+    secret = "Traceback: AWS_SECRET_ACCESS_KEY=hunter2"
+
+    async def boom(self, *_args, **_kwargs):
+        raise SkillExecutionError("greeter", 1, secret)
+
+    monkeypatch.setattr(App, "chat", boom)
+    client = TestClient(create_app())
+    response = client.post("/agents/greeter/chat", json={"session_id": "s", "message": "hi"})
+    assert response.status_code == 500
+    assert response.json() == {"detail": "internal error"}
+    assert "hunter2" not in response.text
