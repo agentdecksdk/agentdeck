@@ -7,6 +7,19 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+### Added
+- `App.run_workflow_stream(name, state=None, thread_id=None)`: async iterator over a
+  workflow's `astream(stream_mode=["updates", "custom"])` — a `node_update` event per
+  completed node, a `custom` event per `langgraph.config.get_stream_writer()` call, then one
+  terminal `done` event carrying the final state. Same `thread_id` semantics as
+  `run_workflow`, which is unchanged.
+- `AgentNode` now forwards its nested agent's text deltas into the graph's custom stream via
+  `get_stream_writer()` (a no-op outside `run_workflow_stream`), so a workflow-driven chat
+  streams tokens the same as a direct agent chat.
+- `POST /workflows/{name}?stream=true`: `text/event-stream` response mirroring the chat
+  endpoint's pattern — `node_update`/`custom` `message` events, a terminal `done` event with
+  the final state, or an `error` event on a mid-stream failure.
+
 ## [0.2.0] - 2026-07-26
 
 ### Added

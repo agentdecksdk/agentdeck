@@ -11,6 +11,11 @@ Endpoints:
                                          "done" event carrying {"output", "usage"};
                                          an "error" event replaces "done" if the turn fails
     POST /workflows/{name}           -> JSON state in, final state out
+    POST /workflows/{name}?stream=true
+                                      -> text/event-stream: "node_update"/"custom" events per
+                                         the LangGraph node updates/custom stream, then one
+                                         "done" event carrying the final state; an "error"
+                                         event replaces "done" if the run fails
 """
 
 from __future__ import annotations
@@ -113,8 +118,28 @@ def create_app() -> Any:
         return {"output": result.final_output}
 
     @api.post("/workflows/{name}")
-    async def run_workflow(name: str, state: dict[str, Any]) -> Any:
-        out = await deck().run_workflow(name, state)
+    async def run_workflow(name: str, state: dict[str, Any], stream: bool = False) -> Any:
+        app = deck()  # resolve before streaming so a pre-startup 503 keeps its status code
+        if stream:
+
+            async def events() -> AsyncIterator[str]:
+                try:
+                    async for event in app.run_workflow_stream(name, state):
+                        if event["type"] == "done":
+                            yield f"event: done\ndata: {json.dumps(event['state'], default=json_default)}\n\n"
+                        else:
+                            yield f"data: {json.dumps(event, default=json_default)}\n\n"
+                except Exception as exc:
+                    # Mid-stream failures can't change the status code any more; report
+                    # them in-band without leaking internals.
+                    yield f"event: error\ndata: {json.dumps({'error': type(exc).__name__})}\n\n"
+
+            return StreamingResponse(
+                events(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            )
+        out = await app.run_workflow(name, state)
         return json.loads(json.dumps(out, default=json_default))
 
     return api

@@ -15,7 +15,7 @@ from agentdeck.runtime.settings import get_settings
 from agentdeck.workflows.state import dump_state
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import AsyncIterator, Iterable, Sequence
 
     from agents.tool import FunctionTool
     from langgraph.graph import StateGraph
@@ -75,15 +75,32 @@ class BaseWorkflow:
     @classmethod
     async def run(cls, state: Any = None, *, thread_id: str | None = None, **runner_options: Any) -> Any:
         """Run the graph once. ``thread_id`` scopes checkpointed state (required if ``durable``)."""
+        runner_options = cls._thread_scoped_options(thread_id, runner_options)
+        return await cls.runner(**runner_options).run(state)
+
+    @classmethod
+    async def run_stream(
+        cls, state: Any = None, *, thread_id: str | None = None, **runner_options: Any
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Streaming counterpart to :meth:`run`: yields ``node_update``/``custom`` events per
+        :meth:`DevWorkflowRunner.run_stream <agentdeck.workflows.runners.dev.DevWorkflowRunner.run_stream>`,
+        then one terminal ``done`` event. Same ``thread_id`` semantics as ``run``.
+        """
+        runner_options = cls._thread_scoped_options(thread_id, runner_options)
+        async for event in cls.runner(**runner_options).run_stream(state):
+            yield event
+
+    @classmethod
+    def _thread_scoped_options(cls, thread_id: str | None, runner_options: dict[str, Any]) -> dict[str, Any]:
         if cls.durable and thread_id is None:
             raise ValueError(
-                f"{cls.__name__} is durable=True; run() requires a thread_id to load/persist checkpointed state.",
+                f"{cls.__name__} is durable=True; a thread_id is required to load/persist checkpointed state.",
             )
-        if thread_id is not None:
-            config = dict(runner_options.get("config") or {})
-            config["configurable"] = {**config.get("configurable", {}), "thread_id": thread_id}
-            runner_options["config"] = config
-        return await cls.runner(**runner_options).run(state)
+        if thread_id is None:
+            return runner_options
+        config = dict(runner_options.get("config") or {})
+        config["configurable"] = {**config.get("configurable", {}), "thread_id": thread_id}
+        return {**runner_options, "config": config}
 
     @classmethod
     def as_tool(

@@ -151,6 +151,22 @@ class App:
         """
         return await self.workflows.get(name).run(state, thread_id=thread_id, **runner_options)
 
+    async def run_workflow_stream(
+        self,
+        name: str,
+        state: Any = None,
+        *,
+        thread_id: str | None = None,
+        **runner_options: Any,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Streaming counterpart to :meth:`run_workflow`: a ``node_update`` event per completed
+        node, a ``custom`` event per nested :class:`~agentdeck.workflows.nodes.AgentNode`'s text
+        delta (or any :func:`~langgraph.config.get_stream_writer` call), then one terminal
+        ``done`` event carrying the final state. Same ``thread_id`` semantics as ``run_workflow``.
+        """
+        async for event in self.workflows.get(name).run_stream(state, thread_id=thread_id, **runner_options):
+            yield event
+
     def session_for(self, session_id: str) -> Session:
         """Conversation memory for ``session_id`` — Redis when ``AGENTDECK_SESSION_REDIS_URL``
         is set, otherwise an in-process SQLite session (dev/test fallback, lost on exit).
