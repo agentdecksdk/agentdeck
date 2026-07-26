@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import Any, ClassVar
 
 from agents import Agent, AgentHooks, ModelSettings
 from agents.agent_output import AgentOutputSchemaBase
@@ -12,10 +12,6 @@ from agents.sandbox import SandboxAgent
 from agents.tool import FunctionTool
 
 from agentdeck.agents.capabilities import CapabilitiesSpec
-
-if TYPE_CHECKING:
-    from agentdeck.agents.runners.dev import DevRunner
-
 
 # Sidecar registries, keyed by ``id(tool)`` because the SDK's ``FunctionTool``
 # isn't hashable. Records: (i) the wrapped inner ``Agent`` so a non-sandbox
@@ -80,14 +76,11 @@ class BaseAgent:
         return Agent(**cls._kwargs())
 
     @classmethod
-    def runner(cls, **runner_options: Any) -> DevRunner:
-        from agentdeck.agents.runners.dev import DevRunner
+    async def run(cls, message: Any = None, **runner_options: Any) -> Any:
+        """One-shot headless run; returns the SDK ``RunResult``."""
+        from agentdeck.agents.runners.headless import HeadlessRunner
 
-        return DevRunner.from_agent(cls.build(), **runner_options)
-
-    @classmethod
-    async def run(cls, **runner_options: Any) -> None:
-        await cls.runner(**runner_options).run()
+        return await HeadlessRunner.from_agent(cls.build(), **runner_options).run(message)
 
     @classmethod
     def as_tool(cls, **as_tool_kwargs: Any) -> FunctionTool:

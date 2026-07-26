@@ -43,30 +43,6 @@ class PluginRegistry(Generic[T]):
         except KeyError:
             raise KeyError(f"No {self.label} named {name!r}. Available: {sorted(plugins)}.") from None
 
-    def pick(self, name: str | None) -> type[T]:
-        """Resolve one entry by name, or the sole entry when ``name`` is unset.
-
-        Raises :class:`LookupError` whenever the input is empty, ambiguous, or
-        unknown — callers decide whether that becomes an HTTP 4xx, a Typer
-        exit, or a Rich panel.
-        """
-        plugins = self.list()
-        where = f" under {self.package!r}"
-        if not plugins:
-            raise LookupError(f"No {self.label}s discovered{where}.")
-        if name is None:
-            if len(plugins) == 1:
-                return next(iter(plugins.values()))
-            raise LookupError(
-                f"Multiple {self.label}s available{where}: {sorted(plugins)}. Pin one explicitly.",
-            )
-        try:
-            return plugins[name]
-        except KeyError as exc:
-            raise LookupError(
-                f"No {self.label} named {name!r}{where}. Available: {sorted(plugins)}.",
-            ) from exc
-
     def _scan(self) -> dict[str, type[T]]:
         root = _package_dir(self.package)
         if root is None or not root.is_dir():

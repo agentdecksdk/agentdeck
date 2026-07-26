@@ -2,8 +2,7 @@
 
 A single ``config.yaml`` (resolved via ``APP_CONFIG_PATH`` → repo-root →
 packaged default) hosts every settings group keyed by section: ``openai:``,
-``runner:``, ``session:``, ``shell:``, ``skill:``, ``mcp:``, ``chatkit:``,
-``polarion:``, ``acp:``. Each :class:`BaseSettings` subclass reads only its section; shell
+``runner:``, ``session:``, ``shell:``, ``skill:``, ``mcp:``. Each :class:`BaseSettings` subclass reads only its section; shell
 env vars (prefix-bound, e.g. ``OPENAI_BASE_URL``) override the file. The
 repo-root ``.env`` is loaded once at import (process env wins) so local
 ``uv run`` invocations see the same overrides Docker Compose injects.
@@ -77,7 +76,7 @@ def _yaml_section_for_prefix(prefix: str) -> str:
 
     ``OPENAI_`` → ``openai``, ``AGENTDECK_RUNNER_`` → ``runner``,
     ``AGENTDECK_SESSION_`` → ``session``, ``AGENTDECK_SHELL_`` → ``shell``,
-    ``SKILL_`` → ``skill``, ``CHATKIT_`` → ``chatkit``.
+    ``SKILL_`` → ``skill``.
     """
     name = prefix.strip().rstrip("_").lower()
     if name.startswith("agentdeck_"):
@@ -117,7 +116,7 @@ def _as_env_value(value: Any) -> str:
 class LayeredSettings(BaseSettings):
     """``BaseSettings`` with two additions: ``with_overrides`` for CLI flag layering
     and a YAML section source keyed off ``env_prefix`` (so one ``config.yaml`` can
-    host every subgroup — ``openai:``, ``runner:``, ``polarion:``, …).
+    host every subgroup — ``openai:``, ``runner:``, …).
 
     Used by both runtime settings (``OpenAISettings`` etc.) and backend settings
     (``PolarionSettings`` etc.). One base class, one resolution algorithm.
@@ -185,43 +184,6 @@ class RunnerSettings(LayeredSettings):
     # ``resolve_max_tokens``) — the same two-layer split as ``temperature``, not a mirror
     # of it. ``None`` = model default (uncapped).
     max_tokens: int | None = None
-
-
-class DbSettings(LayeredSettings):
-    """Optional SysAgentsDB knowledge-service client (HTTP mode only).
-
-    The harness talks to a *running* ``agentdeck-api`` over HTTP — never the
-    in-process self-host engine. These values are passed explicitly to
-    :class:`agentdecks_knowledge.sdk.Client`, so the SDK never has to read the
-    environment itself (it natively looks for the bare ``AGENTDECK_BASE_URL`` /
-    ``AGENTDECK_API_KEY``; we namespace under ``AGENTDECK_DB_`` to keep our config
-    grouped like every other settings block).
-
-    When ``base_url`` is empty the database is disabled and the connector
-    (:func:`agentdeck.db.db_connector`) yields ``None``.
-    """
-
-    model_config = settings_config("AGENTDECK_DB_")
-
-    base_url: str = ""
-    # Sent as the REST X-API-Key; must match the server's AGENTDECK_API_KEY.
-    api_key: str = ""
-    timeout: float = 30.0
-    # Default project requirements/documents are filed under when a run does not
-    # name one (SDK requires a project_name on every write).
-    default_project: str = ""
-
-    @property
-    def enabled(self) -> bool:
-        return bool(self.base_url)
-
-    def client_kwargs(self) -> dict[str, Any]:
-        """Explicit kwargs for ``agentdecks_knowledge.sdk.Client(...)`` (HTTP mode)."""
-        return {
-            "base_url": self.base_url,
-            "api_key": self.api_key or None,
-            "timeout": self.timeout,
-        }
 
 
 class LangfuseSettings(LayeredSettings):
@@ -369,7 +331,6 @@ class Settings(BaseModel):
     runner: RunnerSettings = Field(default_factory=lambda: RunnerSettings.model_validate({}))
     session: SessionSettings = Field(default_factory=lambda: SessionSettings.model_validate({}))
     skills: SkillsSettings = Field(default_factory=lambda: SkillsSettings.model_validate({}))
-    db: DbSettings = Field(default_factory=lambda: DbSettings.model_validate({}))
     langfuse: LangfuseSettings = Field(default_factory=lambda: LangfuseSettings.model_validate({}))
     mcp: McpSettings = Field(default_factory=lambda: McpSettings.model_validate({}))
 
@@ -391,7 +352,6 @@ __all__ = [
     "ENV_FILE",
     "PACKAGED_DEFAULT_YAML",
     "REPO_ROOT",
-    "DbSettings",
     "LangfuseSettings",
     "McpServerSettings",
     "McpSettings",

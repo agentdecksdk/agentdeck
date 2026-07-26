@@ -44,7 +44,7 @@ Class-attribute-driven wrapper over `agents.Agent` and `agents.sandbox.SandboxAg
 | --- | --- |
 | [`base.py`](agents/base.py) | `BaseAgent` and `BaseSandboxAgent` declarative bases. |
 | [`capabilities/`](agents/capabilities/) | `CapabilitiesSpec` and per-capability specs: `shell`, `skills`, `compaction`, `filesystem`, `memory`. |
-| [`runners/`](agents/runners/) | `BaseRunner` ABC, `DevRunner` (streamed REPL), `HeadlessRunner` (single-shot). |
+| [`runners/`](agents/runners/) | `BaseRunner` ABC, `HeadlessRunner` (single-shot). |
 | [`registry.py`](agents/registry.py) | `AgentRegistry` — auto-discovery of `BaseAgent` subclasses. |
 
 ### Declaring an agent
@@ -73,9 +73,8 @@ class FileAgent(BaseSandboxAgent):
 Both classes are used the same way:
 
 ```python
-agent  = FileAgent.build()    # -> SandboxAgent (or Agent for BaseAgent)
-runner = FileAgent.runner()   # -> DevRunner with settings + manifest resolved
-await FileAgent.run()         # -> interactive streamed REPL
+agent  = FileAgent.build()          # -> SandboxAgent (or Agent for BaseAgent)
+result = await FileAgent.run("hi")  # -> one-shot RunResult via HeadlessRunner
 ```
 
 ### `BaseAgent` class attributes
@@ -127,10 +126,9 @@ in `(0, 1]` (fraction of the model's context window — needs a known `model`).
 SDK `RunConfig`, and assembles a `Manifest` (env + input files). Subclasses
 choose how the agent is driven:
 
-| Runner | Driving model |
-| --- | --- |
-| [`DevRunner`](agents/runners/dev.py) | Interactive Rich/prompt-toolkit REPL with streamed output, slash commands, and live sandbox session. |
-| [`HeadlessRunner`](agents/runners/headless.py) | Single `Runner.run(...)` invocation; inherits or opens a `Workspace` if the agent needs one. Used by graph nodes and tool wrappers. |
+`HeadlessRunner` performs a single `Runner.run(...)`; it inherits or opens a
+`Workspace` when the agent needs one. Used by graph nodes, tool wrappers, and
+`App.run_agent` / `App.chat`.
 
 ---
 
@@ -268,14 +266,6 @@ reg.get("FileAgent")    # <class FileAgent>
 
 ---
 
-## Protocol plugins
-
-Foreign protocol surfaces live under [`backends/`](../backends/). The ACP stdio
-transport is implemented by [`backends/acp`](../backends/acp/) and mounted as
-`agentdeck backend acp stdio`; agentdeck keeps only the framework primitives that
-the plugin consumes.
-
----
 
 ## Settings
 
@@ -294,9 +284,3 @@ s.sandbox_env()           # OPENAI_* + SKILL_* dict for the sandbox manifest
 ```
 
 ---
-
-## CLI
-
-The `agentdeck` CLI lives at [`../backends/cli/`](../backends/cli/) and is
-the canonical driver for both runtimes. See the [main README](../README.md#cli)
-for the user-facing reference.

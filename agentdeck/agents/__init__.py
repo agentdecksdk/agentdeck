@@ -11,7 +11,7 @@ from agentdeck.agents.mcp import (
     resolve_agent_mcp_status,
 )
 from agentdeck.agents.registry import AgentRegistry
-from agentdeck.agents.runners import BaseRunner, DevRunner, HeadlessRunner
+from agentdeck.agents.runners import BaseRunner, HeadlessRunner
 
 __all__ = [
     "AgentRegistry",
@@ -20,7 +20,6 @@ __all__ = [
     "BaseSandboxAgent",
     "CapabilitiesSpec",
     "CompactionSpec",
-    "DevRunner",
     "FilesystemSpec",
     "HeadlessRunner",
     "MCPLifecycle",
