@@ -33,6 +33,7 @@ import sys
 import types
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from importlib.machinery import ModuleSpec
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -47,6 +48,7 @@ from agentdeck.runtime.sessions import SessionFactory
 from agentdeck.runtime.settings import Settings, get_settings
 from agentdeck.skills.bundle import SkillRegistry
 from agentdeck.workflows.registry import WorkflowRegistry
+from agentdeck.workflows.timers import wake_at_of
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -57,6 +59,12 @@ if TYPE_CHECKING:
 
 PROJECT_DIR = ".agentdeck"
 _PROJECT_ALIAS = "agentdeck_project"
+
+
+def _require_aware(now: datetime) -> datetime:
+    if now.tzinfo is None:
+        raise ValueError(f"due_resumes/tick require a timezone-aware `now`; got naive {now!r}.")
+    return now
 
 
 def _mount_project_dir() -> str:
@@ -173,6 +181,29 @@ class App:
         for workflow in workflows:
             pending.extend(await workflow.pending())
         return pending
+
+    async def due_resumes(self, now: datetime | None = None) -> list[InterruptResult]:
+        """Timer-paused threads (``sleep_until``) whose wake time has passed — a filtered
+        view of :meth:`pending_interrupts`. ``now`` defaults to the current UTC time and
+        must be timezone-aware if given.
+        """
+        now = _require_aware(now) if now is not None else datetime.now(UTC)
+        pending = await self.pending_interrupts()
+        return [p for p in pending if (wake_at := wake_at_of(p["payload"])) is not None and wake_at <= now]
+
+    async def tick(self, now: datetime | None = None) -> list[Any]:
+        """Resume every thread whose ``sleep_until`` timer is due; resume value is its wake
+        timestamp. Callers own the schedule (cron, systemd timer, a loop) — agentdeck runs
+        no daemon of its own.
+        """
+        now = _require_aware(now) if now is not None else datetime.now(UTC)
+        results = []
+        for workflow in self.workflows.list().values():
+            for pending in await workflow.pending():
+                wake_at = wake_at_of(pending["payload"])
+                if wake_at is not None and wake_at <= now:
+                    results.append(await workflow.resume(pending["thread_id"], wake_at))
+        return results
 
     async def run_workflow_stream(
         self,
