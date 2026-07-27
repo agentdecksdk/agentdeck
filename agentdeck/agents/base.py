@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from agents import Agent, AgentHooks, ModelSettings
 from agents.handoffs import Handoff
@@ -11,7 +11,7 @@ from agents.sandbox import SandboxAgent
 from agentdeck.agents.capabilities import CapabilitiesSpec
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     from agents.agent_output import AgentOutputSchemaBase
     from agents.tool import FunctionTool
@@ -79,7 +79,11 @@ class BaseAgent:
 
     @classmethod
     def build(cls) -> Agent:
-        return Agent(**cls._kwargs())
+        return cls._build({})
+
+    @classmethod
+    def _build(cls, building: dict[type[BaseAgent], Agent[Any]]) -> Agent[Any]:
+        return _build_cached(cls, lambda: Agent(**cls._kwargs()), building)
 
     @classmethod
     async def run(cls, message: Any = None, **runner_options: Any) -> Any:
@@ -132,7 +136,6 @@ class BaseAgent:
             "model": cls.model,
             "model_settings": ModelSettings(**cls.model_settings) if cls.model_settings else None,
             "tools": tools or None,
-            "handoffs": _resolve_handoffs(cls.handoffs) or None,
             "output_type": cls.output_type,
             "hooks": cls.hooks,
             "mcp_servers": mcp_servers or None,
@@ -185,25 +188,63 @@ def _build_instructions_and_mcp(cls: type[BaseAgent]) -> tuple[str, list[Any]]:
     return instructions, list(available)
 
 
-def _resolve_handoffs(handoffs: Sequence[Any]) -> list[Agent[Any] | Handoff[Any, Agent[Any]]]:
+# Kept a literal (not imported from app.py) so lazy registry construction still resolves it.
+_PROJECT_ALIAS = "agentdeck_project"
+
+
+def _build_cached(
+    cls: type[BaseAgent],
+    ctor: Callable[[], Agent[Any]],
+    building: dict[type[BaseAgent], Agent[Any]],
+) -> Agent[Any]:
+    """Construct ``cls``'s agent once per :meth:`BaseAgent.build` call, breaking handoff cycles.
+
+    ``building`` is threaded through recursive handoff resolution (mirrors the ``_seen``-set
+    pattern in ``agents/runners/base.py``'s ``_needs_sandbox``): the ``Agent`` is registered
+    before its handoffs are resolved, so a cycle (A -> B -> A) returns the same in-progress
+    instance instead of recursing forever; its ``handoffs`` list is mutated in place once
+    resolved, so peers holding the earlier reference see the final value.
+    """
+    cached = building.get(cls)
+    if cached is not None:
+        return cached
+    agent = ctor()
+    building[cls] = agent
+    agent.handoffs = _resolve_handoffs(cls.handoffs, building) or []
+    return agent
+
+
+def _resolve_handoffs(
+    handoffs: Sequence[Any],
+    building: dict[type[BaseAgent], Agent[Any]],
+) -> list[Agent[Any] | Handoff[Any, Agent[Any]]]:
     """Resolve declarative handoff entries into SDK ``Agent`` / ``Handoff`` instances.
 
-    Entries may be a :class:`BaseAgent` subclass (built lazily here so peer
-    agents don't have to be constructed at import time), an already-built
+    Entries may be a :class:`BaseAgent` subclass (built lazily here so peer agents don't have
+    to be constructed at import time), a registry name (``str``, resolved via the same
+    discovery registry ``App`` uses — breaks bidirectional-import cycles), an already-built
     ``Agent``, or a fully constructed ``Handoff``.
     """
     resolved: list[Agent[Any] | Handoff[Any, Agent[Any]]] = []
     for entry in handoffs:
+        if isinstance(entry, str):
+            entry = _lookup_agent_class(entry)
         if isinstance(entry, type) and issubclass(entry, BaseAgent):
-            resolved.append(entry.build())
+            resolved.append(entry._build(building))
             continue
         if isinstance(entry, (Agent, Handoff)):
             resolved.append(entry)
             continue
         raise TypeError(
-            f"handoffs entry must be a BaseAgent subclass, Agent, or Handoff; got {type(entry).__name__}.",
+            f"handoffs entry must be a BaseAgent subclass, Agent, Handoff, or str; got {type(entry).__name__}.",
         )
     return resolved
+
+
+def _lookup_agent_class(name: str) -> type[BaseAgent]:
+    from agentdeck.agents.registry import AgentRegistry
+
+    return AgentRegistry(_PROJECT_ALIAS).get(name)
 
 
 class BaseSandboxAgent(BaseAgent):
@@ -265,9 +306,14 @@ class BaseSandboxAgent(BaseAgent):
 
     @classmethod
     def build(cls) -> SandboxAgent:
-        return SandboxAgent(
-            **cls._kwargs(),
-            capabilities=cls.capabilities.build(agent_model=cls.model),
+        return cast("SandboxAgent", cls._build({}))
+
+    @classmethod
+    def _build(cls, building: dict[type[BaseAgent], Agent[Any]]) -> Agent[Any]:
+        return _build_cached(
+            cls,
+            lambda: SandboxAgent(**cls._kwargs(), capabilities=cls.capabilities.build(agent_model=cls.model)),
+            building,
         )
 
 

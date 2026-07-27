@@ -108,13 +108,7 @@ def _sqlite_saver(url: str) -> BaseCheckpointSaver:
             f"checkpoint backend 'sqlite' needs langgraph-checkpoint-sqlite — {_DURABILITY_HINT}"
         ) from exc
 
-    # The plain (sync) ``SqliteSaver`` can't back ``graph.ainvoke`` — it raises
-    # NotImplementedError on every async method. The async saver needs its aiosqlite
-    # handshake awaited once, and ``AsyncSqliteSaver.__init__`` itself calls
-    # ``asyncio.get_running_loop()`` — so it must be constructed inside the same
-    # ``_run_sync`` call as the connect, not after it returns (a bare ``asyncio.run``
-    # closes its loop before this function's next line runs, and there may be no
-    # other loop at all when ``App.load()`` calls this synchronously).
+    # AsyncSqliteSaver.__init__ needs a running loop — build it inside _run_sync, matching postgres.
     path = url or ".agentdeck/checkpoints.sqlite3"
 
     async def _connect_and_build() -> BaseCheckpointSaver:

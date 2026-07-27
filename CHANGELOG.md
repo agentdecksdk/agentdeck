@@ -8,6 +8,11 @@ they move under a version heading when a release is tagged.
 ## [Unreleased]
 
 ### Added
+- `BaseAgent.handoffs` entries may now be a `str` registry name, resolved lazily
+  at `build()` time via the same discovery registry `App` uses — two agents that
+  hand off to each other no longer need to import each other's module. Unknown
+  names raise `NotFoundError` naming the available agents; mutual handoffs
+  resolve without recursing forever.
 - Durable timer waits (#22): `agentdeck.workflows.sleep_until(when)` pauses a node in a
   `durable = True` workflow until a timezone-aware wall-clock moment, built on `interrupt()`
   — a payload convention (`{"type": "timer", "wake_at": ...}`) so a timer-paused thread is
