@@ -7,6 +7,8 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-27
+
 ### Added
 - `BaseAgent.handoffs` entries may now be a `str` registry name, resolved lazily
   at `build()` time via the same discovery registry `App` uses — two agents that
