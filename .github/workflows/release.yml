@@ -28,7 +28,7 @@ jobs:
           fi
       - name: Install and check
         run: |
-          uv pip install -e ".[dev,serve,durability]"
+          uv pip install -e ".[dev,serve]"
           .venv/bin/ruff check agentdeck/ tests/
           .venv/bin/ty check agentdeck
           .venv/bin/pytest tests/ -q
