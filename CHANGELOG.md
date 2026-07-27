@@ -13,6 +13,14 @@ they move under a version heading when a release is tagged.
   hand off to each other no longer need to import each other's module. Unknown
   names raise `NotFoundError` naming the available agents; mutual handoffs
   resolve without recursing forever.
+- Durable timer waits (#22): `agentdeck.workflows.sleep_until(when)` pauses a node in a
+  `durable = True` workflow until a timezone-aware wall-clock moment, built on `interrupt()`
+  — a payload convention (`{"type": "timer", "wake_at": ...}`) so a timer-paused thread is
+  distinguishable from a human-paused one in the inbox. `App.due_resumes(now=None)` filters
+  `pending_interrupts()` to timer threads whose wake time has passed; `App.tick(now=None)`
+  resumes every due thread (resume value = its wake timestamp). Callers own the scheduling
+  cadence (cron, systemd timer, a loop) — agentdeck runs no daemon. Naive datetimes are
+  rejected with a clear `ValueError`.
 
 ## [1.0.0] - 2026-07-27
 
