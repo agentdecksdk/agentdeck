@@ -22,6 +22,15 @@ they move under a version heading when a release is tagged.
   cadence (cron, systemd timer, a loop) — agentdeck runs no daemon. Naive datetimes are
   rejected with a clear `ValueError`.
 
+### Fixed
+- `HeadlessRunner.run`/`run_streamed` now forward the chat `session_id` (read
+  off the SDK `session` object) into `trace_run`, so an `App.chat(...,
+  session_id=...)` turn's root trace carries that session id in Langfuse
+  instead of always tracing with a null session — per-customer trace grouping
+  was silently broken. `trace_run` gains an optional `session_id` keyword that
+  wins over the capture-derived identity at a run root; nested units are
+  unaffected.
+
 ## [1.0.0] - 2026-07-27
 
 ### Fixed

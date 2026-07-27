@@ -30,6 +30,11 @@ class StreamDone:
     usage: dict[str, int] = field(default_factory=dict)
 
 
+def _session_id(session: Any) -> str | None:
+    """Pull the chat session id off the SDK session (``SQLiteSession``/``RedisSession``), if any."""
+    return getattr(session, "session_id", None)
+
+
 def _usage_of(result: Any) -> dict[str, int]:
     """Flatten the SDK's ``Usage`` into a JSON-safe dict (empty when unavailable)."""
     usage = getattr(getattr(result, "context_wrapper", None), "usage", None)
@@ -51,7 +56,9 @@ class HeadlessRunner(BaseRunner):
         # One root observation carries the turn's identity + input/output; OpenInference's
         # spans nest under it. Nested inside a workflow run, this becomes a child of the
         # workflow's root span, re-affirming the same session.
-        with trace_run(current_capture(), name=self.agent.name, kind="agent", input=message) as tr:
+        with trace_run(
+            current_capture(), name=self.agent.name, kind="agent", input=message, session_id=_session_id(session)
+        ) as tr:
             async with self.attach_sandbox():
                 result = await Runner.run(
                     self.agent,
@@ -76,7 +83,9 @@ class HeadlessRunner(BaseRunner):
         client disconnect, and without the cancel the turn would keep running while the
         sandbox is torn down under it.
         """
-        with trace_run(current_capture(), name=self.agent.name, kind="agent", input=message) as tr:
+        with trace_run(
+            current_capture(), name=self.agent.name, kind="agent", input=message, session_id=_session_id(session)
+        ) as tr:
             async with self.attach_sandbox():
                 result = Runner.run_streamed(
                     self.agent,

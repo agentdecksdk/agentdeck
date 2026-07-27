@@ -194,6 +194,7 @@ def trace_run(
     name: str,
     kind: ObservationKind = "chain",
     input: Any = None,
+    session_id: str | None = None,
 ) -> Generator[RunTrace, None, None]:
     """Open one Langfuse observation for a run, session-tagged. Auto-detects root vs nested.
 
@@ -211,6 +212,10 @@ def trace_run(
     the child's, and the session is already on the context. Becoming the current OTel span
     is what makes the unit's own LLM/sandbox calls nest under it instead of floating up.
 
+    ``session_id``, when given, names the chat session at a run root (e.g. ``App.chat``'s
+    caller-supplied id) and wins over the capture-derived one, which stays the fallback for
+    sandboxed skills that only have a ``Capture``.
+
     A cheap no-op when Langfuse is disabled.
     """
     if not _initialized:
@@ -227,9 +232,11 @@ def trace_run(
 
     from langfuse import propagate_attributes  # ty: ignore[unresolved-import] — [observability] extra
 
-    session_id, user_id, metadata = _identity(capture)
+    capture_session_id, user_id, metadata = _identity(capture)
     with (
-        propagate_attributes(session_id=session_id, user_id=user_id, trace_name=name, metadata=metadata or None),
+        propagate_attributes(
+            session_id=session_id or capture_session_id, user_id=user_id, trace_name=name, metadata=metadata or None
+        ),
         get_client().start_as_current_observation(name=name, as_type=kind, input=input) as span,
     ):
         yield RunTrace(span)
