@@ -201,6 +201,8 @@ class LangfuseSettings(LayeredSettings):
     public_key: str = ""
     secret_key: str = ""
     host: str = "http://localhost:3000"
+    # Langfuse 4.x name for the endpoint; wins over ``host`` (kept as the legacy alias) when set.
+    base_url: str = ""
     environment: str = "local"
     debug: bool = False
     sample_rate: float = 1.0
@@ -212,6 +214,10 @@ class LangfuseSettings(LayeredSettings):
     @property
     def enabled(self) -> bool:
         return bool(self.public_key and self.secret_key)
+
+    @property
+    def endpoint(self) -> str:
+        return self.base_url or self.host
 
 
 class McpServerSettings(BaseModel):

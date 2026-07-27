@@ -7,6 +7,11 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+### Added
+- `AGENTDECK_LANGFUSE_BASE_URL`: Langfuse 4.x endpoint name; wins over
+  `AGENTDECK_LANGFUSE_HOST` (kept as the legacy alias) and is mirrored to
+  sandboxed skills as both `LANGFUSE_BASE_URL` and `LANGFUSE_HOST`.
+
 ## [1.1.0] - 2026-07-27
 
 ### Added
