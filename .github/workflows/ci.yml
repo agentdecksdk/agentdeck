@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install
-        run: uv pip install -e ".[dev,serve]"
+        run: uv pip install -e ".[dev,serve,durability]"
       - name: Lint
         run: .venv/bin/ruff check agentdeck/ tests/
       - name: Typecheck
