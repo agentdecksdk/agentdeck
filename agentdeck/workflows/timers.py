@@ -11,7 +11,7 @@ from typing import Any
 
 from langgraph.types import interrupt
 
-TIMER_TYPE = "timer"
+TIMER_TYPE = "agentdeck.timer"
 WAKE_AT_KEY = "wake_at"
 
 
@@ -25,7 +25,7 @@ def sleep_until(when: datetime) -> Any:
     """Pause the calling node until ``when`` (timezone-aware; naive datetimes are rejected).
 
     Wraps ``langgraph.types.interrupt()`` with a payload convention —
-    ``{"type": "timer", "wake_at": <ISO-8601 UTC>}`` — so a paused-on-timer thread is
+    ``{"type": "agentdeck.timer", "wake_at": <ISO-8601 UTC>}`` — so a paused-on-timer thread is
     distinguishable from a paused-on-human thread in ``App.pending_interrupts()``.
     ``App.tick()`` resumes due threads with the wake timestamp as the resume value.
     Requires ``durable = True``, same as any other ``interrupt()`` call.

@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from agentdeck.runtime.settings import reset_settings_cache
+from agentdeck.workflows.timers import TIMER_TYPE
 
 
 @pytest.fixture(autouse=True)
@@ -35,7 +36,7 @@ def test_past_timer_is_due_and_completes_after_tick(app_project_timers):
     paused, due, finished = asyncio.run(_scenario())
 
     assert paused["type"] == "interrupt"
-    assert paused["payload"]["type"] == "timer"
+    assert paused["payload"]["type"] == TIMER_TYPE
     # the memory saver is cached per process (see test_workflow_interrupts.py), so scope to this thread
     assert [d for d in due if d["thread_id"] == "t-past"] == [paused]
     assert any(f.get("woke_at") for f in finished if isinstance(f, dict))  # tick() resumed it
@@ -113,8 +114,7 @@ class {cls}(BaseWorkflow):
     @classmethod
     def build_graph(cls):
         g = StateGraph(cls.state)
-        # distinct node name per workflow: foreign-graph replay of a shared thread_id only
-        # finds a pending interrupt if the node it stopped on exists in *that* graph too.
+        # distinct node name per workflow: foreign-graph replay only sees interrupts on nodes that graph has too
         g.add_node("{cls}_wait", lambda s: {{"woke_at": str(sleep_until({when}))}})
         g.set_entry_point("{cls}_wait")
         g.add_edge("{cls}_wait", END)
@@ -192,7 +192,7 @@ def test_tick_survives_a_process_restart(tmp_path):
     finished = json.loads(_run_script("resume", str(tmp_path), env))
 
     assert paused["type"] == "interrupt"
-    assert paused["payload"]["type"] == "timer"
+    assert paused["payload"]["type"] == TIMER_TYPE
     assert finished["due"] == [paused]
     resumed_woke_at = datetime.fromisoformat(finished["resumed"][0]["woke_at"])
     assert resumed_woke_at == datetime.fromisoformat(paused["payload"]["wake_at"])
