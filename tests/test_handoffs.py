@@ -66,6 +66,7 @@ def test_mutual_string_handoffs_both_build(mutual_project):
 
     assert [h.name for h in booking.handoffs] == ["CancelAgent"]
     assert [h.name for h in cancel.handoffs] == ["BookingAgent"]
+    assert booking.handoffs[0].handoffs[0] is booking  # cycle resolves to the same instance, not a placeholder
 
 
 def test_app_load_green_with_mutual_handoffs(mutual_project):
