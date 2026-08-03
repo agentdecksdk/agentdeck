@@ -7,6 +7,27 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-08-03
+
+No changes to the `agentdeck` package itself — this version covers the
+documentation platform and its CI.
+
+### Added
+- `docs-site/`: MDX documentation platform built on Nextra 4 and the Next.js
+  App Router, statically exported to GitHub Pages under `/agentdeck`.
+  `docs-pages.yml` builds and deploys it when a GitHub Release is published;
+  `docs-check.yml` builds it on every PR that touches `docs-site/`.
+
+### Fixed
+- Docs build failed to prerender every page (`expected nonoptional, received
+  undefined` at `children`). `nextra-theme-docs@4.6.1`'s `<Layout>` strips
+  `children` off its props before validating them against a schema that still
+  requires `children`; zod 4.4.0 turned that into a hard error. zod is pinned
+  to `4.3.5` via `overrides`, `docs-site/package-lock.json` is committed, and
+  both docs workflows install with `npm ci` so resolution stops drifting.
+- Docs "Edit this page" links pointed at a feature branch and now point at
+  `dev`.
+
 ## [1.2.0] - 2026-07-28
 
 ### Added
