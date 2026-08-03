@@ -1,22 +1,68 @@
 name: Feature request
-description: Propose an addition or change
+description: Propose a focused addition or behavior change
 labels: [enhancement]
 body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of agentdeck would this change affect?
+      options:
+        - Agents
+        - Workflows
+        - Skills
+        - App / serving
+        - Runtime / observability
+        - Documentation
+        - Other
+    validations:
+      required: true
   - type: textarea
     id: problem
     attributes:
       label: Problem
-      description: What can't you do today? Describe the need, not the solution.
+      description: What cannot be done today, who is affected, and why does it matter? Describe the need before the solution.
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
       label: Proposed shape
-      description: Rough API / config sketch, if you have one.
+      description: Describe the intended behavior. Include a rough API or configuration example when useful.
       render: python
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Done when
+      description: List observable outcomes that can be verified by tests or documentation review.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and non-goals
+      description: Clarify what belongs in this request and what should remain unchanged or be handled separately.
   - type: textarea
     id: alternatives
     attributes:
       label: Alternatives considered
-      description: Including "do nothing" — why isn't the current surface enough?
+      description: Include workarounds and the do-nothing option. Why is the current surface insufficient?
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Related issues, examples from other projects, diagrams, or implementation constraints.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched the existing issues and did not find a duplicate.
+          required: true
+        - label: This request describes one focused concern rather than several unrelated changes.
+          required: true
