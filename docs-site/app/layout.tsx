@@ -34,7 +34,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <Layout
           navbar={navbar}
           pageMap={await getPageMap()}
-          docsRepositoryBase="https://github.com/sagi5060/agentdeck/tree/agent/mdx-docs-platform/docs-site"
+          docsRepositoryBase="https://github.com/sagi5060/agentdeck/tree/dev/docs-site"
           footer={footer}
           sidebar={{ autoCollapse: true }}
         >
