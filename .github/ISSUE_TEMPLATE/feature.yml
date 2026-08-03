@@ -1,0 +1,95 @@
+name: Feature request
+description: Propose a new capability or improvement
+title: "[Feature]: "
+labels:
+  - feature
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing an improvement. Describe the problem first, then the desired outcome.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Give a concise description of the requested feature.
+      placeholder: Add support for...
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem or limitation does this solve?
+      placeholder: Today, users cannot...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed solution
+      description: Describe the expected behavior or high-level solution.
+      placeholder: The system should...
+    validations:
+      required: true
+
+  - type: textarea
+    id: user-story
+    attributes:
+      label: User story
+      description: Describe who needs this and why.
+      placeholder: |
+        As a ...
+        I want ...
+        So that ...
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Clarify what is included and excluded.
+      placeholder: |
+        In scope:
+        - ...
+
+        Out of scope:
+        - ...
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: List the observable conditions required for completion.
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0 - Critical
+        - P1 - High
+        - P2 - Normal
+        - P3 - Low
+      default: 2
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical-notes
+    attributes:
+      label: Technical notes
+      description: Add architecture considerations, dependencies, APIs, or implementation ideas.
+
+  - type: textarea
+    id: open-questions
+    attributes:
+      label: Open questions
+      description: List unresolved decisions or risks.
