@@ -1,0 +1,95 @@
+name: Bug report
+description: Report reproducible incorrect behavior
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Provide enough detail for another contributor to reproduce and verify the issue.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Briefly describe the bug.
+      placeholder: When..., the system...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual behavior
+      description: What happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        AgentDeck version or commit:
+        OS:
+        Python version:
+        Runtime or provider:
+        Browser, if applicable:
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Critical - blocks core usage or causes data loss
+        - High - major functionality is broken
+        - Medium - functionality is impaired but a workaround exists
+        - Low - minor or cosmetic issue
+      default: 2
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, traces, or screenshots
+      description: Remove secrets and personal information before submitting.
+      render: shell
+
+  - type: textarea
+    id: possible-cause
+    attributes:
+      label: Possible cause
+      description: Optional investigation notes or suspected root cause.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I removed secrets, credentials, and private data from the report.
+          required: true
