@@ -1,28 +1,69 @@
 name: Bug report
-description: Something broke
+description: Report reproducible incorrect behavior
 labels: [bug]
 body:
-  - type: textarea
-    id: what
+  - type: dropdown
+    id: area
     attributes:
-      label: What happened
-      description: What did you do, what did you expect, what happened instead?
+      label: Area
+      description: Which part of agentdeck is affected?
+      options:
+        - Agents
+        - Workflows
+        - Skills
+        - App / serving
+        - Runtime / observability
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened? Include the exact error or traceback when available.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened instead?
     validations:
       required: true
   - type: textarea
     id: repro
     attributes:
       label: Minimal reproduction
-      description: Smallest .agentdeck bundle / snippet that shows the problem.
+      description: Provide the smallest .agentdeck bundle, code snippet, or command that reproduces the problem.
       render: python
+    validations:
+      required: true
   - type: input
     id: version
     attributes:
       label: agentdeck version / commit
+      placeholder: "1.2.0 or 9912016"
     validations:
       required: true
   - type: textarea
     id: env
     attributes:
       label: Environment
-      description: Python version, OS, model provider (OpenAI / Gemini / local), relevant AGENTDECK_* settings (never paste keys).
+      description: Python version, OS, model provider, and relevant AGENTDECK_* settings. Never paste credentials or API keys.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Logs, screenshots, related issues, or anything else that may help isolate the problem.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checks
+      options:
+        - label: I searched the existing issues and did not find a duplicate.
+          required: true
+        - label: I removed credentials, API keys, and other sensitive data.
+          required: true
