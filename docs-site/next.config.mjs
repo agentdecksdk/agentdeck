@@ -1,9 +1,6 @@
 import nextra from 'nextra'
 
-const withNextra = nextra({
-  contentDirBasePath: '/docs'
-})
-
+const withNextra = nextra()
 const isGitHubPages = process.env.GITHUB_ACTIONS === 'true'
 
 export default withNextra({
