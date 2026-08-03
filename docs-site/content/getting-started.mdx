@@ -1,0 +1,36 @@
+---
+title: Getting Started
+description: Install AgentDeck and run your first agent.
+---
+
+# Getting Started
+
+## Install
+
+```bash
+git clone https://github.com/sagi5060/agentdeck.git
+cd agentdeck
+uv venv
+uv pip install -e ".[dev,serve]"
+```
+
+## Create a project
+
+AgentDeck discovers definitions from a local `.agentdeck` directory:
+
+```text
+.agentdeck/
+├── agents/greeter/agent.py
+├── workflows/new-booking/workflow.py
+└── skills/parse-request/SKILL.md
+```
+
+## Run an agent
+
+```python
+from agentdeck import App
+
+async with App.open() as app:
+    result = await app.run_agent("Greeter", "hello")
+    print(result.final_output)
+```
