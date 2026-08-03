@@ -1,0 +1,24 @@
+---
+title: Core Concepts
+description: Understand the AgentDeck execution model and its main abstractions.
+---
+
+# Core Concepts
+
+AgentDeck separates declarative configuration from execution.
+
+## Agents
+
+Agents define reasoning behavior, tools, handoffs, models, and structured outputs.
+
+## Capabilities
+
+Sandbox capabilities grant controlled access to shell, filesystem, memory, skills, and context compaction.
+
+## Skills
+
+Skills are deterministic executable bundles described by `SKILL.md` and run inside a shared workspace.
+
+## Workflows
+
+Workflows use typed LangGraph state to combine deterministic transitions, skills, and agent reasoning.

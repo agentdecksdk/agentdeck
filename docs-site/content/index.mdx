@@ -1,0 +1,27 @@
+---
+title: AgentDeck
+description: Declarative infrastructure for agents, deterministic skills, and durable workflows.
+---
+
+# AgentDeck
+
+AgentDeck is a declarative harness over the OpenAI Agents SDK and LangGraph.
+It owns configuration, discovery, capabilities, skills, runners, and workflow compilation while execution remains in the underlying runtimes.
+
+## Core building blocks
+
+- **Agents** — declarative agent definitions with tools, handoffs, structured output, and streaming.
+- **Capabilities** — sandbox features such as shell, filesystem, memory, skills, and compaction.
+- **Skills** — deterministic executable bundles described by `SKILL.md`.
+- **Workflows** — typed LangGraph workflows with agent nodes, skill nodes, streaming, durability, and human interrupts.
+
+## Minimal example
+
+```python
+from agentdeck import App
+
+async with App.open() as app:
+    result = await app.run_agent("Greeter", "hello")
+```
+
+[Start building →](/docs/getting-started)
