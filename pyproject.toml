@@ -66,9 +66,10 @@ runtime-evaluated-base-classes = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-# tests/golden/conftest.py imports fake_model by name; explicit beats pytest's implicit
-# basedir insertion, which would go ambiguous if tests/conftest.py appeared.
-pythonpath = ["tests/golden"]
+# tests/golden/conftest.py imports fake_model by name and tests/contract imports cases;
+# explicit beats pytest's implicit basedir insertion, which would go ambiguous if
+# tests/conftest.py appeared.
+pythonpath = ["tests/golden", "tests/contract"]
 
 [build-system]
 requires = ["hatchling"]

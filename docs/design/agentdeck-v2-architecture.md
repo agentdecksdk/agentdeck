@@ -200,6 +200,11 @@ audit attribution, and distributed tracing are each trivial later *if and only i
 parameter already flows through every call. Every port method below takes `ctx`; no
 exceptions, no "we'll add it when we need it."
 
+*(Amended 2026-08-05, as built: the data fields are all there, plus `parent_run_id` and
+`triggered_by` so `run.started` can be filled from the context alone; `principal` is a `str`
+until an auth story needs more. `gate` and `caps` are the two fields that are behavior rather
+than data — they wait for Story 3 and Story 4, which build the things they would point at.)*
+
 ### 4.4 Run lifecycle
 
 ```text
@@ -224,6 +229,13 @@ nothing, the second resumes with a value.
 
 Ports are small and role-shaped (ISP): a surface that only reads events depends on
 `EventSinkPort`, never on a god `Platform` interface.
+
+*(Amended 2026-08-05, as built: `SessionStorePort` keys on `log_key`, not `session_id` — a
+run without a session is its own log, so persist-before-yield holds for one-off runs too —
+and its range parameter is `from_seq: int = 0`, inclusive, because `after_seq=0` would have
+excluded event 0. `EnginePort` ships with `start` only; `supports` and `resume` land with the
+engines that need them, in Stories 2–3. `ControlPort` and the capability ports are unbuilt:
+they arrive with Story 3 and Story 4 respectively.)*
 
 ```python
 # core/ports/engine.py — the lifecycle/event boundary
@@ -291,6 +303,14 @@ so the core is runnable with zero infrastructure.
 
 One class owns the orchestration that today is smeared across `app.py`, both runner
 hierarchies, and `serve.py`:
+
+*(Amended 2026-08-05, as built: `Runtime(engines, store, invocables, sinks=(), clock=_now)` —
+a `Mapping[str, InvocableSpec]` stands in for `InvocableRegistry` until discovery moves in
+(Story 2), and `control`/`tools` arrive with the stories that build them. Two behaviors the
+sketch below leaves out: the Runtime **emits `run.started` itself** at `seq` 0, because the
+payload's context snapshot is `RunContext` data no engine should be trusted to copy; and an
+engine whose stream ends on neither a terminal nor a suspending kind gets a `run.failed`
+recorded on its behalf, since a run left open hangs every consumer forever.)*
 
 ```python
 # runtime/service.py

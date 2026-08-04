@@ -20,6 +20,22 @@ they move under a version heading when a release is tagged.
   yet; runtime behaviour is unchanged. One serialization per kind is frozen under
   `tests/core/snapshots/`, and an import-linter contract keeps core on stdlib +
   pydantic only.
+- `agentdeck.core`: `RunContext` (the run's identity and limits, passed to every port),
+  `InvocableSpec`/`InvocableKind` (one noun for agents, workflows and skills), and the
+  first three ports — `EnginePort`, `SessionStorePort`, `EventSinkPort`.
+- `agentdeck.runtime.service.Runtime`: the run loop — stamp the envelope, append to the
+  log, fan out to sinks, yield, in that order, so an event a consumer has seen is already
+  persisted. It opens every run with `run.started`, records `run.failed` for an engine
+  that raises (and re-raises to the caller) or that ends without a terminal event, and
+  never lets a slow or failing sink stall a run.
+- `agentdeck.adapters.stores.memory.MemoryEventStore` and
+  `agentdeck.adapters.engines.stub.StubEngine`: the event log in a dict, and an engine
+  that plays a scripted event sequence. Both are permanent — the stub is the reference
+  implementation of the engine contract and the contract suite's fastest engine.
+- `tests/contract/`: the cross-engine invariant suite — `run.started` first at `seq` 0,
+  contiguous `seq`, exactly one terminal event and it is last, persist-before-yield,
+  envelope stamped from the context, and an abandoned stream leaving the log intact.
+  Every engine added later is appended to `tests/contract/cases.py` and inherits all of it.
 - Docs-site search actually works: a Pagefind `postbuild` step builds the index the
   Nextra search box fetches at runtime, guarded by a CI check.
 - `tests/test_docs_site.py`: every published Python block is parsed and its `agentdeck`
