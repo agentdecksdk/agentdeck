@@ -15,18 +15,22 @@ forbidden_modules =
     fastapi
     redis
 
-# Staged for the three-ring refactor — Phase 1 (PR #1, the events schema) creates
-# agentdeck.core and activates this contract by renaming the section header to
-# [importlinter:contract:core-is-engine-free]. It cannot be enabled here: the module
-# does not exist yet, and import-linter errors on unknown source modules.
-#
-# [importlinter:contract:core-is-engine-free-STAGED]
-# name = core imports no engine or surface
-# type = forbidden
-# source_modules =
-#     agentdeck.core
-# forbidden_modules =
-#     agents
-#     langgraph
-#     fastapi
-#     redis
+# Activated by PR #1 (the events schema). core is the innermost ring: stdlib and
+# pydantic only, so the outer rings are also forbidden — importing one would invert the
+# dependency direction the whole refactor rests on.
+[importlinter:contract:core-is-engine-free]
+name = core imports no engine, surface or outer ring
+type = forbidden
+source_modules =
+    agentdeck.core
+forbidden_modules =
+    agents
+    langgraph
+    fastapi
+    redis
+    agentdeck.agents
+    agentdeck.workflows
+    agentdeck.skills
+    agentdeck.runtime
+    agentdeck.serve
+    agentdeck.app

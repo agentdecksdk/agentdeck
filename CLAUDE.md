@@ -1,13 +1,31 @@
-# middle / agentdeck
+# agentdeck
 
-Two things live in this repo:
+Declarative harness over the OpenAI Agents SDK + LangGraph, being rebuilt into a
+small engine-agnostic core (one event schema, one Runtime, pluggable engine and
+protocol adapters) — see `docs/project-brief.md` for the why.
 
-1. **`agentdeck/`** — an installable Python package: declarative harness over
-   the OpenAI Agents SDK + LangGraph. This is what we're building right now.
-2. **`middle-v1-prd.md`** — the PRD for Middle, an autonomous scheduling
-   operator that will be built *on top of* agentdeck.
+**Start at `docs/00-project-index.md`** — it maps every design/delivery doc,
+says which one wins when they disagree, and lists what's next.
+**All coding standards live in `docs/coding-standards.md`** (typing, errors,
+async/event-path law, test structure, naming, dependencies, security, PR/commit
+discipline, agent-specific rules). This file is deliberately short and does not
+restate them — read that file before writing any non-trivial code.
 
-## Architecture rules (agentdeck)
+## Where things stand
+
+- **v1 (shipped, frozen behavior):** `agentdeck/agents/`, `agentdeck/workflows/`,
+  `agentdeck/skills/`, `agentdeck/runtime/capture.py` — the bundle harness
+  described below. Still the live public surface; changes must preserve the
+  `.agentdeck/` layout, public API, and SSE wire format byte-for-byte (enforced
+  by `tests/golden/`, replayed on every `make test`).
+- **v2 (in progress, this branch):** `agentdeck/core/` — event schema and ports —
+  is being built per `docs/prompts/pr1-event-schema-prompt.md`, against the
+  design in `docs/design/agentdeck-v2-architecture.md` and
+  `docs/design/adr-d5-two-stores.md`. Target layout and import law:
+  `docs/coding-standards.md` §3. Modules move from v1 to v2 **only** as scheduled
+  in `docs/delivery/epic-agentdeck-v2-core.md` — no opportunistic migration.
+
+## v1 architecture rules (current shipped behavior)
 
 - agentdeck owns **configuration only** — settings, capabilities, discovery,
   runner glue, graph compilation. Execution stays in the Agents SDK / LangGraph.
@@ -30,19 +48,44 @@ Two things live in this repo:
   nodes must be pure; side effects (external mutations, sent messages) belong in
   earlier nodes. Interrupts require `durable = True` (a checkpointer).
 
+## v2 in progress — non-negotiables
+
+(Full detail, incl. typing/errors/async/tests/naming: `docs/coding-standards.md`.)
+
+- `core/` imports **stdlib + pydantic only**, no exceptions — enforced by
+  `import-linter` (`.importlinter`, `make lint-imports`).
+- Events go through payload classes, never hand-built dicts; consumers use
+  `parse_event` and tolerate `UnknownEvent`. New kinds/envelope changes land only
+  in dedicated schema PRs (`docs/coding-standards.md` §7).
+- Golden JSON snapshots (`tests/core/snapshots/`) change only with an explicit,
+  PR-declared schema change.
+
+## Simplicity
+
+- YAGNI first: no interface with one implementation, no config for a value that
+  never changes, no scaffolding "for later." Stdlib/native before a dependency;
+  a dependency before vendoring. Boring and short beats clever — a coding agent
+  should take the first solution that actually works, not the most extensible one.
+- This applies *inside* `docs/coding-standards.md`'s judgment-ledger process, not
+  instead of it: a deliberate shortcut still gets a one-line ledger entry (or a
+  `# ponytail:`-style comment naming the ceiling and the upgrade trigger), it just
+  shouldn't be gold-plated in the first place.
+- Exceptions the ladder never applies to: input validation at trust boundaries,
+  error handling that prevents data loss, the event/session invariants in
+  `docs/coding-standards.md` §6–§7, and anything the task explicitly asked for.
+
 ## Conventions
 
-- Python ≥3.12, ruff (config in pyproject), line length 120, tests in `tests/`.
-- Layered pydantic-settings; env prefixes are `AGENTDECK_*` (renamed from the
-  original project's `SYSAGENT_*` — never reintroduce the old prefix).
-- **`make check` is the gate** (ruff + ty + pytest) — CI runs exactly this.
-  Pre-commit hooks (ruff, ruff-format, ty, hygiene) are installed via
+- Python ≥3.12, ruff + `ty` (config in `pyproject.toml`), line length 120.
+- **`make check` is the gate** (lint + typecheck + lint-imports + test) — CI runs
+  exactly this. Pre-commit hooks (ruff, ruff-format, ty, hygiene) installed via
   `pre-commit install`; keep the ruff-pre-commit rev in sync with the venv's
   ruff version or the hook and `make lint` disagree.
-- `ty: ignore` is allowed only at deliberate SDK shims, with a comment.
-- Comments: only when a constraint truly isn't visible in the code, and then
-  ONE line. No multi-line explanations, no essays above handlers/functions —
-  if it needs a paragraph, the paragraph belongs in the PR description.
+- `ty: ignore` only at deliberate SDK shims, with a comment.
+- Golden/goldens (`tests/golden/`, `tests/core/snapshots/`) never auto-update;
+  `make golden` regenerates them deliberately, with a PR justification.
+- Layered pydantic-settings; env prefixes are `AGENTDECK_*` (renamed from the
+  original project's `SYSAGENT_*` — never reintroduce the old prefix).
 - Compose runs the package as an installed dependency, `.agentdeck/` mounted
   read-only.
 - `openai==2.32.0` is pinned to `openai-agents==0.17.0` — don't loosen it

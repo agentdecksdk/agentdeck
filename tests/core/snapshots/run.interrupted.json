@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "kind": "run.interrupted",
+  "seq": 6,
+  "run_id": "run_1",
+  "session_id": "sess_1",
+  "tenant": "acme",
+  "origin": "Greeter",
+  "ts": "2026-01-01T12:00:00Z",
+  "payload": {
+    "kind": "run.interrupted",
+    "interrupt_id": "int_1",
+    "reason": "approval",
+    "payload": {
+      "question": "book tuesday 9am?"
+    },
+    "thread_id": "t-1",
+    "expected_resume": "yes|no"
+  }
+}

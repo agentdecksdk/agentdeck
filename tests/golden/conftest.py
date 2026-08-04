@@ -11,7 +11,6 @@ import pytest
 pytest.importorskip("fastapi")
 
 FIXTURE_PROJECT = Path(__file__).parent / "fixture_project"
-SNAPSHOTS = Path(__file__).parent / "snapshots"
 
 # Env that must not leak in from a developer's shell or the repo-root .env: Redis
 # sessions, Langfuse export and the sqlite checkpointer would all reach outside the test,

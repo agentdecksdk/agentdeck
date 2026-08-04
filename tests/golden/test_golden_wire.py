@@ -5,8 +5,10 @@ Re-record deliberately with ``make golden``; a diff here means the wire changed.
 """
 
 import os
+from pathlib import Path
 
-from conftest import SNAPSHOTS
+# own path, not conftest's: `conftest` is not a unique module name across test dirs
+SNAPSHOTS = Path(__file__).parent / "snapshots"
 
 UPDATE = os.getenv("AGENTDECK_GOLDEN_UPDATE") == "1"
 THREAD = "t-golden"
