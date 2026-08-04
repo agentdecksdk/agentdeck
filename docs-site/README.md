@@ -27,6 +27,22 @@ The static export is generated in `docs-site/out/`.
 requires `children` — every page fails to prerender. Drop the override once
 Nextra ships a fix.
 
+## Search
+
+Nextra's search box loads `_pagefind/pagefind.js` at runtime, which `next build` does not
+produce — the `postbuild` script indexes `out/` with Pagefind and CI asserts the index
+exists. Without it the box renders and finds nothing.
+
 ## Content
 
 Documentation pages live under `content/`. Navigation is controlled by colocated `_meta.ts` files.
+
+Python blocks are parsed and their `agentdeck` imports resolved by
+`tests/test_docs_site.py` (part of `make check`), which also checks that every internal
+link resolves to a page. A block that cannot be checked opts out with a reason:
+
+````text
+```python no-test reason="illustrative fragment"
+````
+
+Plan and phases: `docs/delivery/docs-site-plan.md`.

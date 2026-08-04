@@ -13,6 +13,17 @@ they move under a version heading when a release is tagged.
   deliberately with `make golden`; see `tests/golden/README.md`.
 - `import-linter` contracts (`.importlinter`) run by `make lint-imports`, and both
   are wired into `make check` / CI.
+- Docs-site search actually works: a Pagefind `postbuild` step builds the index the
+  Nextra search box fetches at runtime, guarded by a CI check.
+- `tests/test_docs_site.py`: every published Python block is parsed and its `agentdeck`
+  imports resolved, and every internal docs link must resolve to a page — so renames
+  and dead links fail `make check` instead of shipping.
+
+### Fixed
+- Docs Getting Started documented a contributor `git clone` as the install path and
+  omitted provider configuration; it now installs from a git tag and sets the model env.
+- Docs overview linked to a non-existent `/docs/getting-started` page, and both of its
+  Python examples used `async with` at module level, so neither could run as printed.
 
 ## [1.2.1] - 2026-08-03
 
