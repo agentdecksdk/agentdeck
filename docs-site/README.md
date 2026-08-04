@@ -5,10 +5,14 @@ MDX-powered documentation built with Nextra 4 and the Next.js App Router.
 ## Local development
 
 ```bash
-cd docs-site
-npm ci
-npm run dev
+npm --prefix docs-site ci
+npm --prefix docs-site run dev        # http://localhost:3030, hot reload, no search
+npm --prefix docs-site run preview    # http://localhost:3031, real build, search works
 ```
+
+Ports are pinned so they don't drift when something else holds 3000. `dev` has no search:
+Pagefind indexes built HTML, so only `preview` (which goes through `npm run build`, firing
+`postbuild`) serves an index.
 
 ## Production build
 

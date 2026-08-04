@@ -2,9 +2,10 @@
   "name": "agentdeck-docs",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev --turbopack -p 3030",
     "build": "next build",
     "postbuild": "pagefind --site out --output-path out/_pagefind",
+    "preview": "npm run build && python3 -m http.server -d out 3031",
     "start": "next start"
   },
   "dependencies": {
