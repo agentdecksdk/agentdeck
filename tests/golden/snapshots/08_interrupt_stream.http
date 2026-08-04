@@ -1,0 +1,8 @@
+HTTP 200
+content-type: text/event-stream; charset=utf-8
+cache-control: no-cache
+x-accel-buffering: no
+
+event: interrupt
+data: {"type": "interrupt", "payload": {"question": "tue 9am"}, "thread_id": "t-golden"}
+

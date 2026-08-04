@@ -1,0 +1,4 @@
+HTTP 200
+content-type: application/json
+
+[{"type":"interrupt","payload":{"question":"tue 9am"},"thread_id":"t-golden"}]

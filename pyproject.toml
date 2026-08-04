@@ -42,6 +42,7 @@ dev = [
     "ruff>=0.6",
     "ty>=0.0.1a21",
     "pre-commit>=4.0",
+    "import-linter==2.13",
 ]
 
 [tool.ruff]

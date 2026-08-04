@@ -1,0 +1,4 @@
+HTTP 404
+content-type: application/json
+
+{"detail":"No agent named 'Nope'. Available: ['Greeter']."}

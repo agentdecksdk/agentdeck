@@ -20,7 +20,13 @@ jobs:
         run: .venv/bin/ruff check agentdeck/ tests/
       - name: Typecheck
         run: .venv/bin/ty check agentdeck
+      - name: Import contracts
+        run: .venv/bin/lint-imports
       - name: Test
         run: .venv/bin/pytest tests/ -q
+      - name: Golden replay (twice — snapshots must be process-stable)
+        run: |
+          .venv/bin/pytest tests/golden -q
+          .venv/bin/pytest tests/golden -q
       - name: Build
         run: uv build

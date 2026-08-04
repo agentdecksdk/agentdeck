@@ -7,6 +7,13 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+### Added
+- Golden wire baselines (`tests/golden/`): byte-level snapshots of the HTTP/SSE
+  surface against a scripted fake model, replayed by `make test`. Re-record
+  deliberately with `make golden`; see `tests/golden/README.md`.
+- `import-linter` contracts (`.importlinter`) run by `make lint-imports`, and both
+  are wired into `make check` / CI.
+
 ## [1.2.1] - 2026-08-03
 
 No changes to the `agentdeck` package itself — this version covers the

@@ -1,0 +1,12 @@
+HTTP 200
+content-type: text/event-stream; charset=utf-8
+cache-control: no-cache
+x-accel-buffering: no
+
+data: {"type": "node_update", "node": "shout", "delta": {"upper": "HELLO"}}
+
+data: {"type": "node_update", "node": "measure", "delta": {"length": 5}}
+
+event: done
+data: {"text": "hello", "upper": "HELLO", "length": 5}
+
