@@ -9,13 +9,12 @@ Target: a running agent in under five minutes.
 
 ## Install
 
-AgentDeck is not on PyPI — the repository is private, so install from git at a tag. You
-need read access to the repo.
-
 ```bash
 uv venv && source .venv/bin/activate
 uv pip install "agentdeck[serve] @ git+ssh://git@github.com/sagi5060/agentdeck.git@v1.2.1"
 ```
+
+Installs from git at a tag; you need read access to the repository.
 
 Contributing to AgentDeck itself instead? Clone the repo and run `make install` — that
 path is in `CONTRIBUTING.md`, not here.
