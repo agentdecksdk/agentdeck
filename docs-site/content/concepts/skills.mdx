@@ -1,0 +1,84 @@
+---
+title: Skills
+description: Deterministic work in a subprocess, described by SKILL.md.
+---
+
+# Skills
+
+A skill is a directory with prose and a script. The prose tells a model when and how to use
+it; the script does the work in a subprocess where nothing is left to chance.
+
+```text
+.agentdeck/skills/parse-request/
+├── SKILL.md            # frontmatter + instructions for the model
+├── scripts/run.py      # the entry point
+└── output.py           # optional: typed output for workflows
+```
+
+## SKILL.md
+
+YAML frontmatter, then prose. `name` defaults to the directory name; `description` is what a
+model reads when deciding whether this skill applies.
+
+```markdown
+---
+name: parse-request
+description: Extract pickup, dropoff, and date from a free-text booking request.
+metadata:
+  output_schema: "output.py:ParseRequestOutput"
+---
+
+Run `scripts/run.py "<request text>"`. It prints one `key=value` line per field:
+
+    pickup=Berlin
+    dropoff=Munich
+    date=2026-08-12
+```
+
+## The contract with an agent is stdout
+
+An agent sees exactly two things: the SKILL.md prose, and the `key=value` lines the script
+prints. That's the whole interface — no imports, no shared types.
+
+```python
+# .agentdeck/skills/parse-request/scripts/run.py
+import sys
+
+
+def main() -> None:
+    request = sys.argv[1]
+    print(f"pickup={request.split('->')[0].strip()}")
+    print(f"dropoff={request.split('->')[1].strip()}")
+
+
+main()
+```
+
+## Typed output is workflow-only
+
+A workflow can lift those same lines into a Pydantic model, so graph code gets a typed
+object instead of parsing text:
+
+```python
+# .agentdeck/skills/parse-request/output.py
+from agentdeck.skills import SkillOutputSchema
+
+
+class ParseRequestOutput(SkillOutputSchema):
+    pickup: str
+    dropoff: str
+```
+
+`from_result` lifts each declared field from the matching stdout line. Declare it in
+frontmatter as `metadata.output_schema`, then a [`SkillNode`](/concepts/workflows) can store
+the parsed object straight into state.
+
+**Schemas are workflow-side only.** Never import a skill's schema module from agent code:
+the agent's contract is the prose and the `key=value` lines, and coupling an agent to the
+typed schema breaks the one interface both sides agreed on.
+
+## Why a subprocess
+
+The script runs the same way every time, exits with a status, and can be tested with no
+model in the loop. Model calls decide *whether* to run it; the script decides what happens
+— which is the division of labor that makes a run reproducible.
