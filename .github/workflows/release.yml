@@ -39,4 +39,11 @@ jobs:
       - name: GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+        run: |
+          # Anything that is not exactly X.Y.Z is a pre-release, so a beta never becomes the
+          # repo's "Latest release". Defaulting this way means an odd tag errs toward hidden.
+          flags="--generate-notes"
+          if [[ ! "${GITHUB_REF_NAME#v}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            flags="$flags --prerelease"
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" $flags
