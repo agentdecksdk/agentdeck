@@ -12,6 +12,7 @@ from agentdeck.core.content import (
     TextBlock,
     coerce_input,
 )
+from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
     KNOWN_KINDS,
     RESULT_PREVIEW_MAX,
@@ -43,6 +44,7 @@ from agentdeck.core.events import (
     check_terminal,
     parse_event,
 )
+from agentdeck.core.invocable import InvocableKind, InvocableSpec
 
 __all__ = [
     "KNOWN_KINDS",
@@ -56,12 +58,15 @@ __all__ = [
     "ImageBlock",
     "Input",
     "InputAppended",
+    "InvocableKind",
+    "InvocableSpec",
     "KnownPayload",
     "MessageCompleted",
     "NodeUpdated",
     "ResourceBlock",
     "RunCancelled",
     "RunCompleted",
+    "RunContext",
     "RunContextSnapshot",
     "RunFailed",
     "RunInterrupted",

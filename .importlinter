@@ -34,3 +34,44 @@ forbidden_modules =
     agentdeck.runtime
     agentdeck.serve
     agentdeck.app
+
+# The Runtime is the use-case layer: it orchestrates through ports and must never reach for
+# an engine, a store or a surface directly — those arrive from the composition root.
+# Narrower than it looks: importing agentdeck.runtime.service still executes the v1
+# agentdeck/runtime/__init__.py, which pulls in settings and workspace. Story 2 empties that.
+[importlinter:contract:runtime-service-is-adapter-free]
+name = the Runtime imports core only, never an adapter or a surface
+type = forbidden
+source_modules =
+    agentdeck.runtime.service
+forbidden_modules =
+    agents
+    langgraph
+    fastapi
+    redis
+    agentdeck.adapters
+    agentdeck.agents
+    agentdeck.workflows
+    agentdeck.skills
+    agentdeck.serve
+    agentdeck.app
+
+# These two adapters wrap no external system at all, so they stay pure forever: a store or
+# engine reaching back into the Runtime or a surface would invert the dependency direction.
+[importlinter:contract:pure-adapters-stay-pure]
+name = the memory store and stub engine import core only
+type = forbidden
+source_modules =
+    agentdeck.adapters.stores.memory
+    agentdeck.adapters.engines.stub
+forbidden_modules =
+    agents
+    langgraph
+    fastapi
+    redis
+    agentdeck.runtime
+    agentdeck.agents
+    agentdeck.workflows
+    agentdeck.skills
+    agentdeck.serve
+    agentdeck.app
