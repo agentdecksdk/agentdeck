@@ -1,0 +1,919 @@
+# AgentDeck v2 — Architecture Design
+
+**Status:** proposal · **Baseline:** `agentdeck` 1.2.1 (`Sagi5060/agentdeck@60b95b6`) · **Date:** 2026-08-03
+
+This document specifies the target architecture for evolving agentdeck from a declarative
+harness over two SDKs into an agent development and runtime platform, following Clean
+Architecture and SOLID. It is grounded in the current tree: every migration step names the
+real module it moves. Three worked examples validate the design — a chat turn end-to-end,
+adding pause/resume/cancel, and adding the Agent Client Protocol (ACP).
+
+---
+
+## 1. Goals and non-goals
+
+The finish line is a platform that can absorb everything on the roadmap — sessions and
+chat, tools and protocols, generated UI, integrations, observability, cost, audit,
+multi-tenancy — **without any of those features requiring changes to the code that runs
+agents**. The strategy is therefore not to design the platform; it is to design a small
+core whose contracts every future feature can consume.
+
+Explicit non-goals, recorded so they stay refused: no YAML/JSON agent-definition DSL
+(Python authoring by convention is a strength, not a gap); no auth system in the core (a
+`Principal` on the context plus a `PolicyPort` is the whole footprint); no marketplace; no
+dashboard before the event schema is stable; no hosted "control plane" until there is an
+organization willing to operate one.
+
+---
+
+## 2. Principles
+
+**The Dependency Rule.** Source-code dependencies point inward only. The core imports
+nothing from the OpenAI Agents SDK, LangGraph, FastAPI, Redis, or any protocol library.
+Adapters import the core plus exactly one external system each. Surfaces import the
+runtime service and render its events. The current tree violates this everywhere —
+`app.py` imports `agents.SQLiteSession` directly, `serve.py` knows the shape of both
+runner outputs — and that violation is precisely why every feature today costs two
+implementations.
+
+**Clean Architecture mapping.** Entities are the core nouns (§4.1). Use cases are the
+`Runtime` service (§4.6) — the application-specific orchestration of "start a run, fan out
+events, honor signals." Interface adapters are Ring 2. Frameworks and drivers are Ring 3
+together with the SDKs themselves.
+
+**One event log, many readers.** The single highest-leverage design decision is the
+canonical, versioned `Event` union. Streaming chat, workflow node updates, interrupts,
+tool traces, generated UI, cost accounting, audit, replay, evals, the approvals inbox, and
+the dashboard are all the same log read differently. It is the platform's real public
+contract — more so than the Python API — and it is versioned from day one.
+
+**Unify observable behavior, not programming models.** The Agents SDK loop and a LangGraph
+graph have genuinely different execution models. Forcing one execution abstraction over
+both produces a lowest-common-denominator that makes each engine worse. The port therefore
+sits at the **lifecycle and event boundary** — start, stream, interrupt, resume,
+checkpoint, cancel — and each engine stays idiomatic behind it.
+
+---
+
+## 3. The three rings
+
+```text
+┌────────────────────────────────────────────────────────────────────┐
+│ RING 3 · SURFACES        serve (FastAPI/SSE) · acp (stdio) · cli   │
+│   thin, dumb, logic-free — they render Ring-1 events               │
+├────────────────────────────────────────────────────────────────────┤
+│ RING 2 · ADAPTERS                                                  │
+│   engines/     openai_agents · langgraph · <next year's thing>     │
+│   stores/      memory · sqlite · redis · postgres                  │
+│   control/     memory · redis                                      │
+│   tools/       mcp · functions · http                              │
+│   protocols/   sse · acp · ag-ui · a2a                             │
+│   caps/        sandbox_fs · sandbox_shell · acp_client_fs …        │
+│   telemetry/   langfuse · otel                                     │
+├────────────────────────────────────────────────────────────────────┤
+│ RING 1 · CORE  (zero I/O, pydantic + stdlib only)                  │
+│   nouns:  Invocable · Session · Run · Event · RunContext ·         │
+│           ContentBlock · Interrupt · Artifact                      │
+│   ports:  EnginePort · SessionStorePort · EventSinkPort ·          │
+│           ControlPort · capability ports · ToolSourcePort ·        │
+│           PolicyPort · SecretsPort                                 │
+│   use case: Runtime (run / resume / signal / replay)               │
+└────────────────────────────────────────────────────────────────────┘
+        dependencies point downward-in only, never outward
+```
+
+A Ring-2 adapter must be **independently deletable**: removing `adapters/protocols/acp/`
+deletes ACP support and breaks nothing else. That property is the day-to-day test of
+whether the layering is being respected.
+
+---
+
+## 4. Ring 1 — the core
+
+### 4.1 Nouns
+
+`Invocable` is the root noun — deliberately not `Agent`. An agent, a workflow, a skill, a
+sub-agent, and (later) a remote A2A agent are all things that can be started with input in
+a context and that emit events until they finish. Making `Agent` the root is the trap that
+produced today's bifurcation; `agents/registry.py` and `workflows/registry.py` are the
+same class written twice because the shared noun was missing.
+
+`Session` is the durable conversation/state container keyed by `session_id`, holding the
+ordered event log and engine-specific thread state. `Run` is one invocation within a
+session, addressable by `run_id` — a first-class noun because out-of-band control (§9)
+requires naming a run from another process. `ContentBlock` is the input/output atom (text,
+image, resource reference, audio), adopted now because ACP, A2A, and multimodal input all
+require it and retrofitting it later touches every surface. `Interrupt` and `Artifact`
+carry over from the current design with types instead of raw dicts.
+
+```python
+# core/invocable.py
+class InvocableKind(StrEnum):
+    AGENT = "agent"; WORKFLOW = "workflow"; SKILL = "skill"
+
+class InvocableSpec(BaseModel):
+    """Engine-neutral description. The authoring layer (BaseAgent/BaseWorkflow
+    class attributes) compiles down to this; engines consume only this."""
+    name: str
+    kind: InvocableKind
+    engine: str                        # "openai-agents" | "langgraph" | ...
+    capabilities: CapabilityRequest    # what it needs (fs, shell, approval, tools)
+    metadata: dict[str, Any] = {}
+    native: Any                        # opaque engine payload; core never inspects it
+```
+
+```python
+# core/content.py
+class TextBlock(BaseModel):      type: Literal["text"] = "text"; text: str
+class ImageBlock(BaseModel):     type: Literal["image"] = "image"; media_type: str; data_b64: str
+class ResourceBlock(BaseModel):  type: Literal["resource"] = "resource"; uri: str; media_type: str | None = None
+
+ContentBlock = Annotated[TextBlock | ImageBlock | ResourceBlock, Field(discriminator="type")]
+Input = list[ContentBlock]           # replaces `message: Any` / `input: str` everywhere
+```
+
+### 4.2 The Event schema — the keystone
+
+*(Amended 2026-08-04 to match the frozen schema in `pr1-event-schema-prompt.md`, which is
+the authoritative statement; this section is its summary.)*
+
+Every event shares a versioned envelope of exactly eight fields; the payload is a
+discriminated union **nested** under `payload`, so envelope and payload fields never
+share a namespace. Evolution rules (D8): adding a new `kind` or an optional field is a
+minor change; renaming, removing, or changing the meaning of a field bumps `v`.
+Consumers must ignore kinds they don't know — implemented via a `parse_event` entry
+point that falls back to `UnknownEvent(kind, raw_payload)` instead of raising, which is
+what lets a v1 dashboard render a stream from a v1.4 engine. The envelope is **closed**
+(D9): new needs go into payloads or into `run.started`; an envelope addition must
+demonstrate that routing/ordering/isolation itself is impossible without it.
+
+```python
+# core/events.py
+class Event(BaseModel):
+    v: int = 1
+    kind: str                # discriminator, mirrors the payload class
+    seq: int                 # per-run, CONTIGUOUS from 0; assigned only by the Runtime (decision A)
+    run_id: str
+    session_id: str | None
+    tenant: str              # stamped outside-in from RunContext; engines cannot set it
+    origin: str              # which invocable produced it (never the engine) — multi-agent attribution
+    ts: AwareDatetime        # informational; ordering authority is seq, never ts
+    payload: <discriminated union by kind>
+```
+
+| Category   | Kinds | Notes |
+|---|---|---|
+| Lifecycle  | `run.started`, `run.completed`, `run.failed`, `run.paused`, `run.resumed`, `run.cancelled` | `run.started` is the per-run join point: `invocable`, `parent_run_id`, context snapshot (`principal`, `trace_id`, `budget`, `triggered_by`); `run.completed` carries `output: Input` and the **authoritative** usage aggregate; `run.failed` carries structured `error_code` + `retryable`; exactly one terminal event per run, always last |
+| Content    | `text.delta`, `thought.delta`, `message.completed` | every delta carries `message_id` (runs can hold multiple messages); `message.completed` carries the **full final text** (decision B) — deltas are streaming UX, this event is the record; one `message_id` never spans two origins |
+| Tools      | `tool.call.started`, `tool.call.completed` | `call_id`, `tool`, `args`; results as bounded `result_preview` + `result_size` + `result_sha256` + optional `artifact_id` — never raw bytes inline |
+| Workflow   | `node.updated`, `custom` | `node.updated`: `node`, `state_patch` (shallow merge); `custom` payloads carry a namespaced `name` — per D10, kinds are minted only in core; engines translate into existing kinds or use `custom`, and recurring `custom` usage is a promotion signal, not a precedent |
+| Control    | `run.interrupted`, `input.appended` | interrupt: `interrupt_id`, `reason: "human" \| "pause" \| "approval"`, typed `payload`, `thread_id` — the approvals inbox is a filter on this kind; `input.appended` records mid-turn steering |
+| Data       | `artifact.created`, `usage.reported` | artifacts by reference (id, media type, uri, size); `usage.reported` is per-model-call and advisory — the terminal aggregate wins |
+
+Engines emit payloads; the `Runtime` stamps the envelope (`seq`, `tenant`, `ts`,
+`origin` as reported by the adapter). Engines therefore cannot lie about ordering or
+tenancy. Contiguous `seq` upgrades ordering into **loss detection**: a consumer seeing
+`0,1,2,4` knows 3 is missing and refetches from the store. Supporting invariants:
+persist-before-yield (an event a consumer has seen is already in the store); an
+interrupted-then-resumed run keeps the same `run_id` with continuing `seq`.
+
+### 4.3 RunContext — thread it everywhere, today
+
+```python
+# core/context.py
+@dataclass(frozen=True, slots=True)
+class RunContext:
+    tenant: str                        # single hardcoded tenant is fine — the field is not optional
+    principal: Principal               # who asked; Principal is a frozen dataclass, not an auth system
+    run_id: str
+    session_id: str | None
+    trace_id: str
+    deadline: AwareDatetime | None
+    budget: Budget | None              # max tokens / max $ / max tool calls
+    idempotency_key: str | None        # forwarded to side-effecting tools
+    gate: Gate                         # cooperative pause/cancel (§9)
+    caps: CapabilityProvider           # caller-injected capabilities (§10)
+```
+
+This is the highest-leverage hour in the plan. Multi-tenancy, rate limiting, budget caps,
+audit attribution, and distributed tracing are each trivial later *if and only if* this
+parameter already flows through every call. Every port method below takes `ctx`; no
+exceptions, no "we'll add it when we need it."
+
+### 4.4 Run lifecycle
+
+```text
+                 signal PAUSE          signal RESUME
+  PENDING → RUNNING ──────────→ PAUSED ──────────→ RUNNING
+               │                                     │
+               │ engine emits run.interrupted        │
+               ├────────────→ WAITING_HUMAN ─────────┘  (resume with value)
+               │
+               ├──→ COMPLETED      (terminal)
+               ├──→ FAILED         (terminal)
+               └──→ CANCELLED      (terminal; reachable from RUNNING, PAUSED, WAITING_HUMAN)
+```
+
+Transitions are guarded in one place (`core/status.py`): a signal arriving after a
+terminal state is a **no-op, not an error** — the race is inherent and the state machine
+absorbs it. `PAUSED` (operator pressed pause) and `WAITING_HUMAN` (the run itself asked a
+question) are distinct states because they resume differently: the first resumes with
+nothing, the second resumes with a value.
+
+### 4.5 Ports
+
+Ports are small and role-shaped (ISP): a surface that only reads events depends on
+`EventSinkPort`, never on a god `Platform` interface.
+
+```python
+# core/ports/engine.py — the lifecycle/event boundary
+class EnginePort(ABC):
+    engine: ClassVar[str]
+
+    @abstractmethod
+    def supports(self, spec: InvocableSpec) -> bool: ...
+
+    @abstractmethod
+    def start(self, spec: InvocableSpec, input: Input,
+              history: list[Event], ctx: RunContext) -> AsyncIterator[EventPayload]: ...
+
+    @abstractmethod
+    def resume(self, spec: InvocableSpec, thread_id: str,
+               value: Any, ctx: RunContext) -> AsyncIterator[EventPayload]: ...
+```
+
+```python
+# core/ports/store.py
+class SessionStorePort(ABC):
+    async def append(self, session_id: str, events: Sequence[Event], ctx: RunContext) -> None: ...
+    async def read(self, session_id: str, ctx: RunContext,
+                   after_seq: int = 0) -> list[Event]: ...
+
+# core/ports/sink.py — fire-and-forget fan-out; a slow sink must never stall a run
+class EventSinkPort(ABC):
+    async def emit(self, event: Event) -> None: ...
+
+# core/ports/control.py
+class Signal(StrEnum): PAUSE = "pause"; RESUME = "resume"; CANCEL = "cancel"
+
+class ControlPort(ABC):
+    async def signal(self, run_id: str, sig: Signal, ctx: RunContext) -> None: ...
+    async def poll(self, run_id: str) -> Signal | None: ...
+    async def status(self, run_id: str) -> RunStatus: ...
+    async def set_status(self, run_id: str, status: RunStatus) -> None: ...
+```
+
+```python
+# core/ports/capabilities.py — caller-injected (§10); the sandbox is ONE implementation
+class FilesystemPort(ABC):
+    async def read_text(self, path: str, ctx: RunContext) -> str: ...
+    async def write_text(self, path: str, text: str, ctx: RunContext) -> None: ...
+
+class TerminalPort(ABC):
+    async def exec(self, cmd: list[str], ctx: RunContext) -> ExecResult: ...
+
+class ApprovalPort(ABC):
+    async def request(self, req: ApprovalRequest, ctx: RunContext) -> Decision: ...
+
+class CapabilityProvider(BaseModel, arbitrary_types_allowed=True):
+    filesystem: FilesystemPort | None = None
+    terminal: TerminalPort | None = None
+    approval: ApprovalPort | None = None
+    def require(self, name: str) -> Any: ...   # raises CapabilityUnavailable with a clear message
+```
+
+`ToolSourcePort` (MCP servers, plain functions, HTTP tools all yield `ToolSpec`s),
+`PolicyPort` (`allow(principal, action, resource) -> Decision`), and `SecretsPort`
+(`get(ref) -> SecretValue`) complete the set. Each has an in-memory/no-op implementation
+so the core is runnable with zero infrastructure.
+
+### 4.6 The Runtime service — the use-case layer
+
+One class owns the orchestration that today is smeared across `app.py`, both runner
+hierarchies, and `serve.py`:
+
+```python
+# runtime/service.py
+class Runtime:
+    def __init__(self, engines: list[EnginePort], store: SessionStorePort,
+                 control: ControlPort, sinks: list[EventSinkPort],
+                 tools: list[ToolSourcePort], registry: InvocableRegistry): ...
+
+    async def run(self, name: str, input: Input, ctx: RunContext) -> AsyncIterator[Event]:
+        spec   = self.registry.get(name)
+        engine = self._engine_for(spec)                 # OCP: new engines register, nothing changes here
+        history = await self.store.read(ctx.session_id, ctx) if ctx.session_id else []
+        await self.control.set_status(ctx.run_id, RunStatus.RUNNING)
+        async for payload in engine.start(spec, input, history, ctx):
+            event = self._stamp(payload, ctx)           # envelope: seq, tenant, ts
+            await self.store.append(ctx.session_id, [event], ctx)
+            self._fan_out(event)                        # sinks, non-blocking
+            yield event
+        # terminal status recorded from the terminal event, races absorbed by the state machine
+
+    async def resume(self, name: str, thread_id: str, value: Any,
+                     ctx: RunContext) -> AsyncIterator[Event]: ...
+    async def signal(self, run_id: str, sig: Signal, ctx: RunContext) -> None: ...
+    async def replay(self, session_id: str, ctx: RunContext) -> list[Event]: ...
+    async def pending_interrupts(self, ctx: RunContext) -> list[Event]: ...
+```
+
+`App` remains the public entry point but shrinks to a **composition root**: it discovers
+bundles (the existing `PluginRegistry` convention survives intact), builds the adapter set
+from `Settings`, wires the `Runtime`, and re-exposes `run_agent` / `run_workflow` /
+`chat` / `chat_stream` as thin compatibility wrappers so existing `.agentdeck/` projects
+keep working through the migration.
+
+---
+
+## 5. Ring 2 — adapters
+
+**`engines/openai_agents/`** is the only place in the codebase that imports `agents`.
+Today's `HeadlessRunner.run_streamed` yields `str | StreamDone`; its successor walks the
+same SDK stream items (the helpers in `runtime/events.py` already do the extraction) and
+yields typed payloads: `text.delta`, `tool.call.*`, `message.completed`, then
+`run.completed` with usage. It checks `ctx.gate` between stream items and before each tool
+dispatch. Session history *(amended per ADR-D5)*: the adapter owns SDK-native session
+state as its private execution store — the relocated `SessionFactory` — so the model
+receives its exact prior items (reasoning items, paired tool-call IDs) rather than a
+reconstruction; the event log remains the platform-facing record, and the two are tied by
+the transcript-fidelity invariant (everything entering execution state is recorded in the
+log at message level; log written first, engine state second). The Chat-Completions
+shims currently living inside
+`capabilities/compaction.py` and `capabilities/filesystem.py` move here too: they are
+engine quirks, and quirks belong inside the adapter that owns them.
+
+**`engines/langgraph/`** absorbs `workflows/` nearly whole — `base.py` graph compilation,
+`nodes.py`, `state.py`, `interrupts.py`, `timers.py`, and `runtime/checkpointer.py`. Its
+mapping is thin because the shapes already correspond: `astream` updates →
+`node.updated`, LangGraph `interrupt` → `run.interrupted` (reason `"human"`),
+checkpointer `thread_id` → the resume token. Durable timers (`wake_at_of`) surface as a
+scheduled `resume` — which is why `resume` lives on `Runtime`, not on the serve layer.
+
+**`stores/`** implements `SessionStorePort` over the **event log** — new code, not a port
+of `SessionFactory` (which relocates into the openai-agents adapter as its execution
+store, per ADR-D5): `memory` and `sqlite` for
+dev, `redis` and `postgres` for deployment, all implementing `SessionStorePort` over the
+event log. **`control/`**: `memory` for dev; `redis` for anything multi-worker — Redis is
+what makes "pause from another process" possible at all. **`tools/mcp/`** is today's
+`agents/mcp/` (lifecycle, transport, wiring) re-homed behind `ToolSourcePort`; its
+lifecycle hooks into `App.open()` exactly as now. **`caps/sandbox/`** wraps the existing
+`Workspace`/`SandboxSession` machinery as the default `FilesystemPort` + `TerminalPort`.
+**`telemetry/langfuse/`** is `runtime/observability.py` rebuilt as an `EventSinkPort` —
+note the direction reversal: instrumentation stops hooking the SDK and starts reading the
+log, which is why it will cover workflows too, for free. **`protocols/`** hosts the
+per-protocol serializers: `sse` (extracted from `serve.py`), `acp` (§11), later `ag-ui`
+and `a2a`.
+
+---
+
+## 6. Ring 3 — surfaces
+
+`surfaces/serve/` keeps the existing HTTP contract — `/health`, `/agents/{name}/chat`
+(+`?stream=true` SSE), `/workflows/{name}` (+stream, +`thread_id`), `/pending`,
+`/resume` — but every handler becomes the same four lines: build `RunContext`, call
+`Runtime`, hand the event iterator to the `sse` protocol adapter, return. The
+`_jsonable`/frame-shaping logic in today's `serve.py` disappears into `protocols/sse/`.
+New routes: `POST /runs/{id}/pause|resume|cancel`, `GET /runs/{id}`. `surfaces/acp/` is a
+stdio entrypoint (§11), a sibling of `agentdeck-serve` and roughly the same size.
+`surfaces/cli/` gains `agentdeck run`, `agentdeck sessions replay`, `agentdeck runs
+signal` for free, because they too are event readers.
+
+### Target layout
+
+```text
+agentdeck/
+├── core/                    # Ring 1 — pydantic + stdlib ONLY (enforced by import-linter in CI)
+│   ├── events.py  content.py  context.py  invocable.py  status.py  errors.py
+│   └── ports/     engine.py  store.py  sink.py  control.py  capabilities.py  tools.py  policy.py  secrets.py
+├── runtime/                 # use cases + discovery
+│   ├── service.py           # Runtime
+│   ├── discovery.py         # today's PluginRegistry, unchanged conventions
+│   └── settings.py          # layered settings, now also selects adapters
+├── authoring/               # the user-facing declarative API
+│   ├── agent.py             # BaseAgent / BaseSandboxAgent  → compile to InvocableSpec
+│   ├── workflow.py          # BaseWorkflow                  → compile to InvocableSpec
+│   └── capabilities.py      # CapabilitiesSpec → CapabilityRequest
+├── adapters/
+│   ├── engines/{openai_agents,langgraph}/
+│   ├── stores/{memory,sqlite,redis,postgres}/
+│   ├── control/{memory,redis}/
+│   ├── tools/{mcp,functions}/
+│   ├── caps/{sandbox}/
+│   ├── protocols/{sse,acp}/
+│   └── telemetry/{langfuse}/
+├── skills/                  # bundles/executor stay; executor consumes FilesystemPort/TerminalPort
+├── surfaces/{serve,acp,cli}/
+└── app.py                   # composition root + backward-compat facade
+```
+
+The user-visible `.agentdeck/` project convention — `agents/<bundle>/agent.py`,
+`workflows/<bundle>/workflow.py`, `skills/*/SKILL.md`, no `__init__.py`, no
+registration — **does not change at all**.
+
+---
+
+## 7. Worked example 1 — a chat message, end to end
+
+```text
+WhatsApp POST /agents/Greeter/chat {session_id:"wa-123", message:"hi"}
+  │
+  ▼  surface: parse → Input=[TextBlock("hi")], build RunContext(tenant, run_id, gate, caps=sandbox defaults)
+Runtime.run("Greeter", input, ctx)
+  │   registry → InvocableSpec(engine="openai-agents")
+  │   store.read("wa-123")            → prior events (the record); engine loads its own SDK session (execution state, ADR-D5)
+  │   control.set_status(RUNNING)
+  ▼
+engines/openai_agents.start(...)      # the only file importing `agents`
+  │   SDK stream item ──translate──▶  text.delta / tool.call.started / tool.call.completed / …
+  ▼
+Runtime stamps envelope (seq, tenant, ts) → store.append → fan out to sinks → yield
+  │
+  ├─▶ surface: text.delta → WhatsApp message chunks;  run.completed → done
+  ├─▶ telemetry/langfuse sink → trace
+  ├─▶ cost sink: usage from run.completed → budget ledger
+  └─▶ store: the log itself = audit + replay + session/load, no extra code
+```
+
+Seven features, one stream, each consumer under ~80 lines. Swap `Greeter` for a LangGraph
+workflow and every consumer above works unchanged — the stream just also contains
+`node.updated` events, which chat surfaces ignore by rule (§4.2).
+
+---
+
+## 8. Worked example 2 — pause / resume / cancel
+
+Ring 1 additions: `run_id` addressable from outside (already a noun), three event kinds
+(`run.paused`, `run.resumed`, `run.cancelled`), the status machine of §4.4, `ControlPort`,
+and the engine-facing `Gate`:
+
+```python
+class Gate(Protocol):
+    async def checkpoint(self) -> None:
+        """Returns immediately; blocks while PAUSED; raises RunCancelled on CANCEL.
+        Engines call this at every safe point."""
+```
+
+Ring 2 is where the real work is, isolated per engine. LangGraph: nearly free — pause maps
+onto `interrupt` at the next node boundary, the checkpointer already provides durable
+resume, cancel is a graph abort; the human-in-the-loop machinery generalizes. OpenAI
+Agents SDK: the actual work — the adapter inserts `await ctx.gate.checkpoint()` between
+stream items and before each tool call. Ring 3: four thin routes; and because pause/cancel
+are just three more event kinds, the CLI, the dashboard, and every protocol adapter
+inherit the feature with zero changes — that is the payoff of §2's "one log, many readers."
+
+Four semantic contracts, decided here rather than discovered in production. *Safe points:*
+"pause" means "at the next safe point" — between stream items, before a tool call, at a
+node boundary — never "right now, mid-token." This is a documented contract, uniform
+across engines. *Resume without a stack:* the Agents SDK has no checkpoint; the event log
+**is** the checkpoint, and resume means re-entering the loop with accumulated history —
+the same rule the README already states for interrupted LangGraph nodes ("keep the node
+pure, side effects earlier"), now promoted from per-engine footnote to platform-wide
+invariant. *Cancel is cooperative:* a tool that already POSTed a payment does not un-POST;
+`ctx.idempotency_key` exists so retried or resumed side effects deduplicate at the
+receiver. *Races are no-ops:* pausing a completed run does nothing, by state-machine rule.
+
+Note what the example shows: every hard part was semantics, none was wiring. In the
+current tree this feature would touch `agents/runners/`, `workflows/runners/`, `serve.py`,
+and both registries — and agents and workflows would end up with subtly different pause
+behavior that leaks into every consumer.
+
+---
+
+## 9. Worked example 3 — supporting ACP
+
+ACP: JSON-RPC 2.0 over stdio, editor spawns the agent as a subprocess; baseline methods
+`session/new`, `session/prompt`, `session/cancel`, streaming `session/update`; and — the
+interesting part — **bidirectional**: the agent calls the client (`fs/read_text_file`,
+permission requests) and awaits answers, because the editor owns unsaved buffers and
+permission policy.
+
+What the architecture gives away for free:
+
+| ACP | Maps to | Cost |
+|---|---|---|
+| `session/new` / `session/load` | `Session` + `Runtime.replay` of the event log | free |
+| `session/prompt` (content blocks) | `Runtime.run(name, Input, ctx)` | free — §4.1 chose blocks for this |
+| `session/update` stream | event payloads reserialized per kind | ~1 mapping table |
+| `session/cancel` | `Runtime.signal(run_id, CANCEL)` | free — §8 built it |
+| `session/request_permission` | `ApprovalPort` → `run.interrupted(reason="approval")` | free |
+| per-session MCP servers | existing `tools/mcp` wiring | free |
+
+The one genuine gap — and the one Ring-1 change: everything so far pushes events
+*outward*, but ACP needs the run to make requests *back to its caller* and use the
+**editor's** filesystem, not the sandbox. Hence §4.5's caller-injected
+`CapabilityProvider`. The ACP surface supplies a `FilesystemPort` whose `read_text` sends
+`fs/read_text_file` down the JSON-RPC pipe and awaits the reply, and an `ApprovalPort`
+that issues `session/request_permission`. Same port, same agent code, different backing;
+HTTP callers keep the sandbox implementation. This one generalization is also what later
+unlocks AG-UI and A2UI — the same shape, a caller offering surfaces the run can drive.
+
+Concretely: `adapters/protocols/acp/` holds JSON-RPC framing, method dispatch, the
+event→`session/update` mapper (the single churn-absorbing file, with the protocol version
+pinned — parts of the spec are still marked unstable), and the client-backed capability
+ports. `surfaces/acp/` is the `agentdeck acp` stdio entrypoint. Capability negotiation:
+what the client declares at `initialize` decides which ports go into `ctx.caps`, with
+sandbox fallback; the agent's advertised capabilities are *derived* from what is
+registered, never hardcoded. ACP is point-to-point, so this surface runs single-tenant —
+but `RunContext.tenant` is populated anyway; the core is never forked for a surface.
+
+Scoreboard: one core field (`caps`), one adapter directory, one entrypoint. Zero changes
+to engines, serve, telemetry, or any existing consumer.
+
+---
+
+## 10. SOLID scorecard
+
+| Principle | Where it shows up | Current violation it fixes |
+|---|---|---|
+| **S**ingle Responsibility | Each adapter has one reason to change: SDK upgrade → `engines/openai_agents` only; ACP spec churn → one mapper file | `serve.py` changes for SDK, LangGraph, *and* SSE reasons; `app.py` is discovery + sessions + MCP + two runner APIs |
+| **O**pen/Closed | New engine, protocol, or store = new adapter package + registration; `Runtime`, core, surfaces untouched. Event consumers ignore unknown kinds, so new kinds don't break old readers | Adding any engine today means a third parallel silo with its own registry and runner |
+| **L**iskov Substitution | Engines are substitutable behind `EnginePort` — enforced by a **shared contract-test suite** parametrized over every engine: event ordering, exactly-one-terminal-event, interrupt/resume round-trip, cancel semantics, gate honored | Agents and workflows return different shapes (`str \| StreamDone` vs state dicts), so nothing downstream can treat them uniformly |
+| **I**nterface Segregation | Many small ports; a cost sink depends on `EventSinkPort` alone; the skill executor sees only `FilesystemPort` + `TerminalPort`, not the workspace | `Workspace` is ambient via ContextVar — everything can reach everything |
+| **D**ependency Inversion | Core defines ports; adapters implement them; `import-linter` in CI forbids `core/` importing `agents`, `langgraph`, `fastapi`, `redis` | `app.py` imports `agents.SQLiteSession`; capabilities import SDK internals to shim them |
+
+The contract-test suite deserves emphasis: it is LSP made executable, and it is the
+artifact that makes "add a third engine next year" a safe claim rather than a hope.
+
+---
+
+## 11. Migration from the current tree
+
+| Current module | Destination | Change |
+|---|---|---|
+| `agents/runners/headless.py` | `adapters/engines/openai_agents/runner.py` | emits event payloads instead of `str \| StreamDone`; gains gate checks |
+| `runtime/events.py` (SDK stream helpers) | same adapter | unchanged logic, new output types |
+| `agents/base.py`, `agents/capabilities/spec.py` | `authoring/` | user-facing API frozen; compiles to `InvocableSpec` + `CapabilityRequest` |
+| `agents/capabilities/{shell,filesystem}.py` | `adapters/caps/sandbox/` | become `FilesystemPort`/`TerminalPort` impls; SDK shims move into the engine adapter |
+| `agents/mcp/*` | `adapters/tools/mcp/` | behind `ToolSourcePort`; lifecycle unchanged |
+| `workflows/*` (base, nodes, state, interrupts, timers, runners) | `adapters/engines/langgraph/` | interrupts map to `run.interrupted`; timers schedule `Runtime.resume` |
+| `runtime/checkpointer.py` | `adapters/engines/langgraph/` | engine-private |
+| `runtime/sessions.py` (`SessionFactory`) | `adapters/engines/openai_agents/sessions.py` | kept as the engine's execution store (ADR-D5); event-log stores in `adapters/stores/` are new code |
+| `runtime/observability.py` | `adapters/telemetry/langfuse/` | becomes an `EventSinkPort`; stops instrumenting the SDK directly |
+| `runtime/registry.py` (`PluginRegistry`) | `runtime/discovery.py` | conventions untouched |
+| `serve.py` | `surfaces/serve/` + `adapters/protocols/sse/` | handlers become Runtime calls; SSE wire format preserved |
+| `errors.py`, `skills/*` | `core/errors.py`; `skills/` (executor re-targeted to ports) | mechanical |
+| `app.py` | `app.py` (composition root) | public API preserved as facade |
+
+**Phases**, each shippable and each keeping `make test` green:
+
+*Phase 1 — nouns.* Introduce `core/` (events, context, content, status, ports as ABCs
+with in-memory impls) plus the contract-test suite skeleton. Thread `RunContext` through
+every existing call with a default single-tenant context. No behavior change; the
+cheapest phase and the one that makes every later phase possible.
+
+*Phase 2 — the seam.* Convert both runners to emit event payloads behind `EnginePort`;
+build `Runtime`; move code into `adapters/`; shrink `App` to composition root with the
+compat facade; rewrite `serve.py` on `Runtime` while byte-preserving the SSE frames.
+This is the big one — the bifurcation dies here.
+
+*Phase 3 — control.* `ControlPort` (memory + redis), `Gate` checks in both engines, the
+status machine, four new routes. First visible new feature, and the proof that features
+now cost one implementation instead of two.
+
+*Phase 4 — capabilities.* `CapabilityProvider` on the context; sandbox becomes the
+default implementation; skill executor re-targeted to the ports.
+
+*Phase 5 — ACP.* The protocol adapter and stdio surface, per §9. First external proof of
+"speak every protocol."
+
+---
+
+## 12. Decisions and refusals (recorded)
+
+**D1** Unify engines at the lifecycle/event boundary, not the programming model — each
+engine stays idiomatic; only observable behavior is standardized. **D2** Python authoring
+by convention; no config DSL — a DSL is a large surface that reimplements Python badly.
+**D3** `Input` is content blocks from day one — ACP/A2A/multimodal all require it and it
+is brutal to retrofit. **D4** Capabilities are caller-injected ports; the sandbox is one
+implementation, not the definition. **D5 *(revised — see `adr-d5-two-stores.md`)*** Two stores, both authoritative in their
+own jurisdiction: the event log is the platform-facing *record* (the only thing
+consumers read); engine-native session state (SDK session, LangGraph checkpointer) is
+each loop's private *working memory*, owned by its adapter. Tied by the
+transcript-fidelity invariant; log written first; rebuild-from-log is disaster recovery
+only. **D6** Cancellation is cooperative with documented
+safe points; resume re-enters with history (no stack restore) — uniform across engines.
+**D7** `RunContext` is threaded everywhere immediately, even single-tenant. **D8** Events
+are versioned; unknown kinds are ignored by every consumer; breaking changes bump `v`.
+**D9** The envelope is closed at eight fields; new needs go into payloads or
+`run.started`. **D10** Event kinds are minted only in core; engines translate into
+existing kinds or use namespaced `custom`; recurring `custom` usage is a promotion
+signal, not a precedent.
+
+**Refused, deliberately:** auth in the core; a marketplace; a dashboard before the event
+schema stabilizes; "control plane" positioning while there is no hosted offering; a third
+registry for anything — there is exactly one `InvocableRegistry`.
+
+**Open questions** for the first design review: whether `usage.reported` should be
+per-model-call or aggregated at `run.completed` only (affects budget enforcement
+granularity); whether `node.updated` state patches should be JSON-Patch or shallow merge
+(affects dashboard diffing); and where skill executions sit — as `InvocableKind.SKILL`
+runs with their own `run_id` (auditable, my recommendation) or as tool calls inside the
+parent run.
+
+---
+
+## Appendix A — Prebuilt content: the standard library
+
+### A.1 Where it lives
+
+Prebuilt tools, agents, workflows, and skills are **content, not architecture**. They do
+not get a ring, privileged internal APIs, or a fourth registry. They form a standard
+library that sits on top of the authoring API exactly as user code does — the Python
+stdlib model: shipped in the box, held to a higher quality bar, obeying the same rules
+as everyone else.
+
+```text
+agentdeck/
+├── stdlib/
+│   ├── tools/        # engine-neutral function tools → ToolSpec
+│   ├── agents/       # bundles in the SAME format users author
+│   ├── workflows/
+│   └── skills/       # SKILL.md bundles, identical to user skills
+└── templates/        # scaffolding: copied by `agentdeck new --template`, then user-owned
+```
+
+Three rules make the stdlib work, and each is enforceable rather than aspirational.
+
+**Rule 1 — stdlib depends only on `authoring/` + core ports, never on adapter
+internals.** This is what guarantees a stdlib agent runs on any engine/store/protocol
+combination, and it is checked by the same import-linter contract that protects `core/`.
+Where a piece of content is genuinely engine-specific, it declares that honestly instead
+of hiding it: the current `agents/web_search.py` wraps an OpenAI-hosted tool, so it moves
+to `stdlib/tools/web_search.py` with `engines=["openai-agents"]` on its `ToolSpec`, and
+the registry refuses to attach it to a LangGraph run with a clear build-time error rather
+than a runtime surprise. A second implementation of the *same spec name* — a plain HTTP
+search tool that works everywhere — can be added later and resolved per engine at build
+time; that is DIP applied to tools.
+
+**Rule 2 — stdlib bundles ship in the user bundle format and are found by the same
+discovery.** No special internal loading path: the platform dogfoods its own authoring
+API, which keeps that API honest. The only extension required is teaching
+`runtime/discovery.py` to read Python entry points (`agentdeck.bundles`) in addition to
+the `.agentdeck/` directory. That one change is load-bearing far beyond the stdlib: it
+means *any* pip package can ship agents, skills, and tools — `agentdeck-contrib-*`
+packages, internal company packages, third parties — which implements the diagram's
+entire Plugins / Marketplace / Ecosystem row as ordinary Python packaging, with no
+marketplace infrastructure built or operated.
+
+**Rule 3 — stdlib and templates are different things with different lifecycles.** Stdlib
+content is referenced at runtime and updated with the package; templates are copied into
+the user's project by the CLI scaffold and owned by the user from that moment on. The
+sorting test: a `fetch_url` tool is stdlib (users call it as-is, forever); a
+customer-support agent is a template (users will gut it on day two). Getting this wrong
+in either direction hurts — stdlib that users need to fork rots in their trees, and
+templates referenced at runtime break user projects on every upgrade.
+
+### A.2 The user experience this buys
+
+Day one, zero code, a tested platform agent:
+
+```bash
+pip install agentdeck[toolkit]
+agentdeck run Summarizer "summarize this file..."
+```
+
+Because a stdlib agent is an ordinary bundle, everything users can do with their own
+agents works on platform agents with no additional machinery — chat with them over HTTP,
+use them as workflow nodes via the node factories, or hand off to them:
+
+```python
+class SupportBot(BaseAgent):
+    handoffs = [stdlib.agents.Researcher]      # platform-built agent as a peer
+```
+
+Customization has two deliberate gradients. Lightweight — extend in place, tracking
+upstream improvements:
+
+```python
+from agentdeck.stdlib.agents import Researcher
+
+class MyResearcher(Researcher):
+    instructions = Researcher.instructions + "\nAlways answer in Hebrew."
+    tools = [*Researcher.tools, my_internal_search]
+```
+
+Heavyweight — take ownership via scaffold:
+
+```bash
+agentdeck new my-support --template customer-support
+```
+
+which copies a full working starting point (agent, skills, workflow, evals) into the
+user's `.agentdeck/`. None of this requires stdlib-specific features; it all falls out of
+Rule 2. Had the stdlib been built on privileged internal hooks instead, users could run
+platform agents but never crack them open.
+
+### A.3 Placement decisions for existing and planned content
+
+**`BaseSandboxAgent` dissolves.** The class split exists only because the underlying SDK
+distinguishes `Agent` from `SandboxAgent` — an engine detail leaking into the authoring
+API. In the target design there is one `BaseAgent`; declaring
+`capabilities = CapabilitiesSpec(shell=True, ...)` is what makes an agent sandboxed. The
+openai-agents engine adapter inspects the compiled `CapabilityRequest` and decides
+internally which SDK class to build, and the sandbox itself is simply the default
+`FilesystemPort`/`TerminalPort` implementation in `adapters/caps/sandbox/`.
+`BaseSandboxAgent` survives as a deprecated alias so existing bundles keep working.
+
+**Reusable workflow components split the work from the wiring.** A bare LangGraph node in
+the stdlib would be a reusable component usable in exactly one engine, defeating the
+point. The *work* — e.g. parsing a document — ships as an engine-neutral unit: a skill
+(`stdlib/skills/parse-doc/`, a deterministic script running against `FilesystemPort`) or
+a function tool. The *node-ness* is provided by generic factories owned by the LangGraph
+adapter — `skill_node("parse-doc")`, `agent_node("Summarizer")`, `tool_node(...)` — thin
+wrappers adapting any invocable into a graph node (today's `workflows/nodes.py` already
+gestures at this and becomes that adapter's official surface). Only genuinely
+graph-specific glue — routing logic, state mapping — belongs inside a workflow bundle
+itself. The rule of thumb: ask *what is the reusable part?* If it is the work, it goes in
+the stdlib, engine-neutral; if it is the wiring, it is a factory in the engine adapter.
+The payoff is concrete: one `parse-doc` implementation is simultaneously a workflow node,
+an agent capability, and a standalone `Runtime.run("parse-doc", ...)`.
+
+### A.4 The quality bar and distribution
+
+"Prebuilt" is a claim, and it is what separates a standard library from example code, so
+it is enforced in CI: every stdlib item must pass the shared contract-test suite (§10)
+and ship with its own evals in the repo. An agent without evals does not enter
+`stdlib/agents/`; it lives in `templates/` or `examples/` until it earns promotion.
+
+Distribution keeps the core lean: the base install contains no stdlib content beyond
+what core functionality needs; `pip install agentdeck[toolkit]` pulls the batteries; and
+heavier or fast-moving bundles live as separate `agentdeck-contrib-*` packages discovered
+through the same entry points. Versioning follows the package — stdlib content is
+released, changelogged, and deprecated exactly like API surface, because per Rule 2 it
+*is* API surface.
+
+---
+
+## Appendix B — The platform from the user's perspective
+
+Everything above is architecture. This appendix is the same design seen from the other
+side of the API: what a user actually does, and why each moment of that experience is
+only possible because of a specific decision in §§2–9. It doubles as the product pitch,
+and every claim in it is load-bearing — if a future change breaks one of these examples,
+the change is wrong.
+
+The one-line premise: **the user writes the agent; the platform provides everything
+around the agent** — sessions, surfaces, control, governance, observability. Engines
+compete on making one loop smarter; they structurally cannot own what happens *between*
+loops, *across* engines, *over* weekends, and *between* companies. That territory is the
+platform's, and all of it is the one event log wearing different hats.
+
+### B.1 A day in the life
+
+**Twenty lines, three surfaces.** The user drops one file into
+`.agentdeck/agents/support/agent.py`:
+
+```python
+class SupportBot(BaseAgent):
+    instructions = "Help users with flytrucks shipments."
+    tools = [lookup_shipment]
+    capabilities = CapabilitiesSpec(filesystem=True)
+```
+
+No registration, no server code. Then:
+
+```bash
+agentdeck run SupportBot "where is order 4412?"   # terminal
+agentdeck serve                                    # HTTP + streaming chat API
+agentdeck acp                                      # the same agent inside an editor
+```
+
+Three integrations that would each be hand-written elsewhere are the same class here,
+because surfaces render events and never contain logic (§3, §6).
+
+**Memory without plumbing.** A customer chats on WhatsApp on Monday and emails on
+Wednesday; both hit `session_id="cust-881"` and the agent remembers exactly — including
+tool results — because the caller passed an ID and the store did the rest (§4.1, ADR-D5).
+
+**The Friday-evening approval.** A refund workflow reaches "approve payouts over ₪500"
+at 17:40 and stops with `run.interrupted`. Nothing runs over the weekend — no process, no
+open connection. On Monday someone taps Approve in the pending inbox and the run resumes
+precisely where it stopped, across two server restarts, courtesy of the checkpoint +
+interrupt machinery (§4.4, §8).
+
+**The runaway agent.** An agent loops on a tool, burning tokens. From any terminal:
+`agentdeck runs signal r_7f3a cancel` — it stops at the next safe point and the log shows
+exactly what it did (§8). `Budget(max_usd=2)` on the context prevents the runaway in the
+first place (§4.3).
+
+**Observability nobody wrote.** Every run is automatically a trace, a cost line, and a
+replayable transcript, because those are three sink readers of the same log (§7). "It
+gave a weird answer yesterday" becomes replaying that session event by event instead of
+guessing.
+
+**The bet against lock-in.** A better engine ships next year; the user changes `engine=`
+on one invocable, and sessions, pause, ACP, tracing, and the HTTP API keep working —
+none of them ever knew which engine ran (§2, D1). This is the deepest "why": agent SDKs
+churn yearly, but the user's accumulated assets — conversations, tools, skills,
+integrations, dashboards — should not churn with them. AgentDeck is where the durable
+parts live.
+
+### B.2 Full systems from simple definitions
+
+Because agents, workflows, skills, and remote agents are all `Invocable` (§4.1),
+everything composes with everything. One worked system — shipment claims:
+
+```python
+class ClaimsAgent(BaseAgent):
+    tools = [lookup_shipment, stdlib.tools.fetch_url]     # own function + stdlib
+    mcp_servers = [MCPServer.stdio("uvx", ["jira-mcp"])]  # a whole toolset, one line
+
+class FrontDesk(BaseAgent):                               # triage in four lines
+    instructions = "Route: damage claims → ClaimsAgent, delays → TrackingAgent."
+    handoffs = [ClaimsAgent, TrackingAgent]
+
+class ClaimPipeline(BaseWorkflow):                        # the governed spine
+    nodes = {
+        "assess":  agent_node(ClaimsAgent),               # LLM judgment
+        "report":  skill_node("damage-report"),           # deterministic, no LLM
+        "approve": approval_node("Payout > ₪500"),        # durable human gate
+        "payout":  tool_node(issue_refund),               # idempotency key from ctx
+    }
+    edges = [("assess", "report"), ("report", "approve"), ("approve", "payout")]
+```
+
+plus a `.agentdeck/skills/damage-report/` folder, and:
+
+```bash
+agentdeck serve        # web app chats with FrontDesk over SSE
+agentdeck acp          # ops runs ClaimsAgent inside their editor
+```
+
+Total user-written code: two agent classes, one workflow class, one skill folder, two
+functions — roughly eighty lines. Provided without writing: routing, streaming chat,
+durable approval that survives restarts, pause/cancel on any run, per-run cost, audit,
+replay, a Jira integration, an editor integration.
+
+The compositional property to protect: the arrows point *any* direction. The workflow
+calls agents as nodes; an agent can trigger the workflow as a tool ("file this as a
+formal claim"); the skill runs standalone via `Runtime.run("parse-doc", ...)`; a remote
+agent slots into `handoffs` like a local class. No adapters between the user's own
+pieces.
+
+An honest caveat belongs in the pitch: the LLM parts still need evals and iteration. The
+platform makes the *system* cheap, not the prompt engineering — which is what the stdlib
+quality bar (A.4) and the eval harness exist for.
+
+### B.3 Above the engines: A2A, A2UI, and platform-only abilities
+
+**A2A outbound-facing — the system becomes an agent others can hire.**
+`agentdeck serve --protocols sse,a2a` exposes `ClaimPipeline` as an A2A task endpoint. A
+partner company's agent negotiates, submits, and receives artifacts; on this side it is
+just events — the partner's task lands in *this* pending inbox, *these* approval gates
+apply, *this* audit log records it. Zero new code: the A2A adapter is a serializer over
+the same stream (§5, §9 pattern).
+
+**A2A inbound-facing — remote agents as first-class citizens.**
+
+```python
+customs = RemoteAgent(url="https://partner.example/a2a", name="CustomsBot")
+
+class ClaimPipeline(BaseWorkflow):
+    nodes = {..., "customs": agent_node(customs)}   # a remote node in this graph
+
+class FrontDesk(BaseAgent):
+    handoffs = [ClaimsAgent, customs]               # or a handoff target
+```
+
+This is the `Invocable` bet paying out: a remote company's agent slots in exactly like a
+local class — implemented as an `EnginePort` whose "engine" is HTTP
+(`adapters/engines/a2a_remote/`) — and its tool calls still land in the local event log,
+so cost and audit cover work the platform did not even execute.
+
+**A2UI — agents that build their own interface.** Instead of describing a form in prose:
+
+```python
+await ctx.caps.ui.render(Form("Claim details",
+    fields=[Text("order_id"), Photo("damage"), Select("severity", ...)]))
+```
+
+That is a `ui.surface.created` event; whatever client is listening renders it, and the
+user's submission flows back through the same caller-injected capability that powers ACP
+file reads (§4.5, §9). The consequential detail: the approval node can now present a
+rich approval card — claim summary, photos, amount, Approve/Reject — in Slack, the
+dashboard, or a partner's client, because it is one event rendered by every listener.
+
+**Abilities that exist only above the loop**, each impossible for any single SDK because
+each SDK *is* one execution model:
+
+*Cross-engine orchestration* — one `ClaimPipeline` run containing a LangGraph spine,
+openai-agents nodes, a deterministic skill, and a remote A2A agent: four execution
+models, one run, one trace, one cancel button.
+
+*Uniform governance* — `Budget`, `deadline`, and `PolicyPort` rules such as "payout
+tools require an approval event earlier in this run," enforced by the Runtime
+identically across every engine, local or remote (§4.3, §4.5).
+
+*Steering* — "actually it was 2 boxes, not 3" mid-investigation:
+`POST /runs/{id}/messages` drains at the next safe point instead of forcing a restart
+(Story 3b; ADR-D5 write ordering).
+
+*Replay as a superpower* — the log becomes regression testing (re-run last month's
+fifty claim sessions against `ClaimsAgent` v2 and diff outcomes before deploying) and
+time-travel debugging (branch a recorded session at event 34 and try a different path).
+
+*Fleet operations* — `agentdeck runs list --status waiting_human`; signal any run from
+anywhere; one inbox spanning agents, workflows, and partner-submitted A2A tasks; and
+event-driven automation, e.g. a ~15-line sink that pings Slack when any run crosses 80%
+of its budget.

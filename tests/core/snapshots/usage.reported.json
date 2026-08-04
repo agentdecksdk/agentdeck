@@ -1,0 +1,19 @@
+{
+  "v": 1,
+  "kind": "usage.reported",
+  "seq": 14,
+  "run_id": "run_1",
+  "session_id": "sess_1",
+  "tenant": "acme",
+  "origin": "Greeter",
+  "ts": "2026-01-01T12:00:00Z",
+  "payload": {
+    "kind": "usage.reported",
+    "model": "fake-golden",
+    "usage": {
+      "input_tokens": 11,
+      "output_tokens": 5,
+      "usd": 0.0004
+    }
+  }
+}

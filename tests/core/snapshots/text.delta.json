@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "kind": "text.delta",
+  "seq": 7,
+  "run_id": "run_1",
+  "session_id": "sess_1",
+  "tenant": "acme",
+  "origin": "Greeter",
+  "ts": "2026-01-01T12:00:00Z",
+  "payload": {
+    "kind": "text.delta",
+    "message_id": "msg_1",
+    "text": "Tuesday "
+  }
+}

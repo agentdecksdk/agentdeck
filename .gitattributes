@@ -1,2 +1,3 @@
 # byte-exact wire recordings — never let a checkout rewrite their line endings
 tests/golden/snapshots/** -text
+tests/core/snapshots/** -text

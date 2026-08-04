@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "kind": "artifact.created",
+  "seq": 13,
+  "run_id": "run_1",
+  "session_id": "sess_1",
+  "tenant": "acme",
+  "origin": "Greeter",
+  "ts": "2026-01-01T12:00:00Z",
+  "payload": {
+    "kind": "artifact.created",
+    "artifact_id": "art_1",
+    "media_type": "text/csv",
+    "uri": "file:///runs/run_1/art_1.csv",
+    "size": 2048
+  }
+}
