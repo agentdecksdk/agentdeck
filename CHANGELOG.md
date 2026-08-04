@@ -7,6 +7,15 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+## [2.0.0b1] - 2026-08-05
+
+First beta of the v2 line: the engine-agnostic core and the Runtime land alongside the
+shipped v1 harness. **The v1 public surface is unchanged** — `App`, `run_agent`,
+`run_workflow`, `chat`, `chat_stream`, the `./.agentdeck/` project layout and the SSE wire
+format are byte-for-byte what 1.2.1 served, and nothing in `agentdeck.core` or
+`agentdeck.runtime.service` is wired into them yet (the golden replay suite is what proves
+it). The bump marks the start of the v2 rebuild, not a break in what already works.
+
 ### Added
 - Golden wire baselines (`tests/golden/`): byte-level snapshots of the HTTP/SSE
   surface against a scripted fake model, replayed by `make test`. Re-record
@@ -40,7 +49,7 @@ they move under a version heading when a release is tagged.
 - `tests/contract/`: the cross-engine invariant suite — `run.started` first at `seq` 0,
   contiguous `seq`, exactly one terminal event and it is last, persist-before-yield,
   envelope stamped from the context, and an abandoned stream leaving the log intact.
-  Every engine added later is appended to `tests/contract/cases.py` and inherits all of it.
+  Every engine added later is appended to `tests/contract/contract_cases.py` and inherits it all.
 - Docs-site search actually works: a Pagefind `postbuild` step builds the index the
   Nextra search box fetches at runtime, guarded by a CI check.
 - `tests/test_docs_site.py`: every published Python block is parsed and its `agentdeck`

@@ -1,11 +1,13 @@
 name: Release
 
-# Tag main with vX.Y.Z to release: verifies the tag matches pyproject
-# version, runs the full gate, builds, and publishes a GitHub Release
-# with the sdist + wheel attached.
+# Tag main with vX.Y.Z, or a PEP 440 pre-release (vX.Y.ZbN, vX.Y.ZrcN), to release:
+# verifies the tag matches pyproject version, runs the full gate, builds, and
+# publishes a GitHub Release with the sdist + wheel attached.
+# Any v* tag fires and the version check below is the gate: a narrower glob silently
+# does not trigger on a tag it fails to match, which is the worse failure mode.
 on:
   push:
-    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+    tags: ["v*"]
 
 permissions:
   contents: write
