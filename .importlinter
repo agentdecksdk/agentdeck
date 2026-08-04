@@ -1,0 +1,32 @@
+[importlinter]
+root_package = agentdeck
+include_external_packages = True
+
+# Enforced today: the error hierarchy is the one module every layer may import, so it
+# must stay free of the execution engines and the HTTP surface.
+[importlinter:contract:errors-are-engine-free]
+name = errors imports no engine or surface
+type = forbidden
+source_modules =
+    agentdeck.errors
+forbidden_modules =
+    agents
+    langgraph
+    fastapi
+    redis
+
+# Staged for the three-ring refactor — Phase 1 (PR #1, the events schema) creates
+# agentdeck.core and activates this contract by renaming the section header to
+# [importlinter:contract:core-is-engine-free]. It cannot be enabled here: the module
+# does not exist yet, and import-linter errors on unknown source modules.
+#
+# [importlinter:contract:core-is-engine-free-STAGED]
+# name = core imports no engine or surface
+# type = forbidden
+# source_modules =
+#     agentdeck.core
+# forbidden_modules =
+#     agents
+#     langgraph
+#     fastapi
+#     redis

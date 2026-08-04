@@ -20,7 +20,14 @@ jobs:
         run: .venv/bin/ruff check agentdeck/ tests/
       - name: Typecheck
         run: .venv/bin/ty check agentdeck
+      - name: Import contracts
+        run: .venv/bin/lint-imports
       - name: Test
         run: .venv/bin/pytest tests/ -q
+      # `Test` already replayed the goldens once; this second, separate process is what
+      # proves the snapshots don't depend on process state (in-process stability has its
+      # own test).
+      - name: Golden replay (second process)
+        run: .venv/bin/pytest tests/golden -q
       - name: Build
         run: uv build

@@ -1,0 +1,4 @@
+HTTP 422
+content-type: application/json
+
+{"detail":"missing field: session_id"}
