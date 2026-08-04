@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Sequence
+    from collections.abc import AsyncGenerator, Sequence
 
     from agentdeck.core.content import Input
     from agentdeck.core.context import RunContext
@@ -25,7 +25,13 @@ class EnginePort(ABC):
     ``run.failed`` / ``run.cancelled``), a suspending one (``run.interrupted`` /
     ``run.paused``) whose terminal event comes after resume, or a raised exception.
     Stopping after anything else is a contract violation the Runtime records as
-    ``run.failed``.
+    ``run.failed``. A terminal payload ends the run there and then: the Runtime stops
+    reading, so anything yielded after one is discarded rather than logged.
+
+    ``run.started`` is the Runtime's to emit — it carries context an engine never sees.
+
+    An async generator, not any async iterable: the Runtime closes the stream when it stops
+    reading early, so an engine gets its ``finally`` blocks either way.
 
     Engines emit existing kinds or namespaced ``custom`` — minting a kind is core's job.
     """
@@ -40,7 +46,7 @@ class EnginePort(ABC):
         input: Input,
         history: Sequence[Event],
         ctx: RunContext,
-    ) -> AsyncIterator[KnownPayload]:
+    ) -> AsyncGenerator[KnownPayload, None]:
         """Play one run. ``history`` is the log so far, which is the record of the session —
         an engine that keeps its own execution state loads that itself (ADR-D5).
         """

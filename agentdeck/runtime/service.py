@@ -11,15 +11,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import aclosing
 from datetime import UTC, datetime
 from itertools import count
 from typing import TYPE_CHECKING
 
-from agentdeck.core.events import TERMINAL_KINDS, Event, RunContextSnapshot, RunFailed, RunStarted
+from agentdeck.core.events import TERMINAL_KINDS, Event, RunCancelled, RunContextSnapshot, RunFailed, RunStarted
 from agentdeck.errors import NotFoundError
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+    from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
 
     from agentdeck.core.content import Input
     from agentdeck.core.context import RunContext
@@ -60,13 +61,16 @@ class Runtime:
         # ponytail: unbounded set — a bounded queue per sink if one ever piles up
         self._sink_tasks: set[asyncio.Task[None]] = set()
 
-    async def run(self, name: str, input: Input, ctx: RunContext) -> AsyncIterator[Event]:
+    async def run(self, name: str, input: Input, ctx: RunContext) -> AsyncGenerator[Event, None]:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
 
         The engine's exception, if any, reaches the caller — but ``run.failed`` is recorded
-        first, so the log tells the whole story even when nobody was listening.
+        first, so the log tells the whole story even when nobody was listening. Every exit
+        closes the run in the log: a consumer that walks away gets ``run.cancelled``.
         """
         spec, engine = self._resolve(name)
+        # ponytail: whole log per run — window it (or hand the engine a summary) once a
+        # session's history outgrows one read, which a real store will notice long before this does
         history = await self._store.read(ctx.log_key, ctx)
         seq = count()
 
@@ -82,13 +86,24 @@ class Runtime:
                 triggered_by=ctx.triggered_by,
             ),
         )
-        yield await self._record(opening, spec, ctx, next(seq))
         last = opening.kind
 
         try:
-            async for payload in engine.start(spec, input, history, ctx):
-                yield await self._record(payload, spec, ctx, next(seq))
-                last = payload.kind
+            yield await self._record(opening, spec, ctx, next(seq))
+            async with aclosing(engine.start(spec, input, history, ctx)) as stream:
+                async for payload in stream:
+                    yield await self._record(payload, spec, ctx, next(seq))
+                    last = payload.kind
+                    if last in TERMINAL_KINDS:
+                        # Terminal means terminal: stop reading so nothing can follow it into
+                        # the log. An engine yielding more after this gets it discarded.
+                        break
+        except GeneratorExit:
+            # Nobody is listening any more, so there is no event to yield — but an unclosed
+            # run in the log is indistinguishable from one still in flight.
+            logger.info("run %s abandoned by its consumer after %r", ctx.run_id, last)
+            await self._record(RunCancelled(reason="consumer stopped reading"), spec, ctx, next(seq))
+            raise
         except Exception as exc:
             # The exception is the caller's, the event is the record — both, always. The type
             # name only: an exception message can carry content that must not reach a sink.
@@ -103,6 +118,15 @@ class Runtime:
             yield await self._record(
                 _engine_failed(f"engine {engine.engine!r} ended after {last!r}"), spec, ctx, next(seq)
             )
+
+    async def drain(self) -> None:
+        """Wait for the sink emits still in flight.
+
+        The composition root calls this at shutdown: without it, pending emits are destroyed
+        with the event loop and the last few audit or cost events are silently lost. Never
+        called per event — that would be exactly the join the fan-out exists to avoid.
+        """
+        await asyncio.gather(*self._sink_tasks, return_exceptions=True)
 
     def _resolve(self, name: str) -> tuple[InvocableSpec, EnginePort]:
         spec = self._invocables.get(name)

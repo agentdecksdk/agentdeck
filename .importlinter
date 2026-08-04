@@ -37,6 +37,8 @@ forbidden_modules =
 
 # The Runtime is the use-case layer: it orchestrates through ports and must never reach for
 # an engine, a store or a surface directly — those arrive from the composition root.
+# Narrower than it looks: importing agentdeck.runtime.service still executes the v1
+# agentdeck/runtime/__init__.py, which pulls in settings and workspace. Story 2 empties that.
 [importlinter:contract:runtime-service-is-adapter-free]
 name = the Runtime imports core only, never an adapter or a surface
 type = forbidden

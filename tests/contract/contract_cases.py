@@ -22,6 +22,7 @@ from agentdeck.core.events import (
     ToolCallCompleted,
     ToolCallStarted,
     Usage,
+    UsageReported,
 )
 from agentdeck.core.invocable import InvocableKind
 
@@ -57,8 +58,8 @@ class Played:
 
 
 def _stub_cases() -> list[Case]:
-    """Every shape a run can take. The last two are misbehaving engines on purpose: the
-    Runtime has to close a run its engine left open."""
+    """Every shape a run can take. The last three are misbehaving engines on purpose: the
+    Runtime has to close a run its engine left open, and refuse to let one reopen a closed one."""
     deltas = [TextDelta(message_id="m1", text=chunk) for chunk in ("one ", "two ", "three")]
     return [
         Case(
@@ -107,6 +108,18 @@ def _stub_cases() -> list[Case]:
             id="stub/stops-without-a-terminal-event",
             engine=StubEngine(),
             spec=stub_spec("Quitter", TextDelta(message_id="m1", text="and then nothing")),
+            ends="terminal",
+        ),
+        Case(
+            id="stub/yields-after-a-terminal-event",
+            engine=StubEngine(),
+            spec=stub_spec(
+                "Chatterbox",
+                MessageCompleted(message_id="m1", text="done"),
+                RunCompleted(output=[TextBlock(text="done")], usage=USAGE),
+                UsageReported(model="fake", usage=USAGE),
+                RunCompleted(output=[TextBlock(text="done twice")], usage=USAGE),
+            ),
             ends="terminal",
         ),
     ]

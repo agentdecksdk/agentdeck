@@ -5,6 +5,7 @@ sink fan-out, and where a sessionless run's events land.
 from __future__ import annotations
 
 import asyncio
+from contextlib import aclosing
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -15,14 +16,22 @@ from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import TextBlock
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import RunCompleted, TextDelta, Usage
+from agentdeck.core.events import (
+    RunCompleted,
+    RunFailed,
+    RunInterrupted,
+    TextDelta,
+    Usage,
+    UsageReported,
+    check_terminal,
+)
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports import EventSinkPort
-from agentdeck.errors import NotFoundError
+from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.runtime.service import Runtime
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Sequence
+    from collections.abc import AsyncGenerator, Sequence
 
     from agentdeck.core.content import Input
     from agentdeck.core.events import Event, KnownPayload
@@ -42,16 +51,18 @@ def _runtime(*, sinks: list[EventSinkPort] | None = None) -> tuple[Runtime, Memo
 
 
 class Recorder(EventSinkPort):
-    """A sink that just remembers what it was given."""
+    """A sink that awaits before recording, so it can only pass if the port's promise holds:
+    every event arrives, in no particular order."""
 
     def __init__(self) -> None:
         self.events: list[Event] = []
-        self.arrived = asyncio.Event()
 
     async def emit(self, event: Event) -> None:
+        await asyncio.sleep(0)
         self.events.append(event)
-        if event.kind == "run.completed":
-            self.arrived.set()
+
+    def by_seq(self) -> list[Event]:
+        return sorted(self.events, key=lambda event: event.seq)
 
 
 class Broken(EventSinkPort):
@@ -105,21 +116,31 @@ async def test_a_run_without_a_session_is_still_persisted_under_its_own_id() -> 
 
 async def test_sinks_see_every_event_without_the_run_waiting_for_them() -> None:
     recorder = Recorder()
-    runtime, store = _runtime(sinks=[recorder])
+    runtime, _ = _runtime(sinks=[recorder])
     events = [event async for event in runtime.run("Greeter", INPUT, CTX)]
     # the run finished without awaiting the sink; the sink catches up right after
-    await asyncio.wait_for(recorder.arrived.wait(), timeout=1)
-    assert recorder.events == events
+    await runtime.drain()
+    assert recorder.by_seq() == events
 
 
-async def test_a_failing_sink_does_not_fail_the_run() -> None:
+async def test_a_failing_sink_does_not_fail_the_run_or_starve_the_others() -> None:
     recorder = Recorder()
     runtime, store = _runtime(sinks=[Broken(), recorder])
     events = [event async for event in runtime.run("Greeter", INPUT, CTX)]
-    await asyncio.wait_for(recorder.arrived.wait(), timeout=1)
+    await runtime.drain()
     assert [event.kind for event in events][-1] == "run.completed"
     assert await store.read(CTX.log_key, CTX) == events
-    assert recorder.events == events
+    assert recorder.by_seq() == events
+
+
+async def test_drain_waits_for_the_sink_emits_still_in_flight() -> None:
+    """Without it, pending emits die with the event loop and the last audit events vanish."""
+    recorder = Recorder()
+    runtime, _ = _runtime(sinks=[recorder])
+    async for _ in runtime.run("Greeter", INPUT, CTX):
+        pass
+    await runtime.drain()
+    assert len(recorder.events) == 3  # that the run never waited for them is the slow-sink test
 
 
 async def test_a_slow_sink_does_not_hold_up_the_stream() -> None:
@@ -137,6 +158,7 @@ async def test_a_slow_sink_does_not_hold_up_the_stream() -> None:
     events = [event async for event in runtime.run("Greeter", INPUT, CTX)]
     assert [event.kind for event in events][-1] == "run.completed"
     slow.release.set()
+    await runtime.drain()
 
 
 async def test_the_engine_exception_reaches_the_caller_after_run_failed_is_recorded() -> None:
@@ -186,7 +208,7 @@ async def test_the_engine_receives_the_history_the_store_holds() -> None:
     class Nosy(StubEngine):
         async def start(
             self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
-        ) -> AsyncIterator[KnownPayload]:
+        ) -> AsyncGenerator[KnownPayload, None]:
             seen_history.append(list(history))
             yield DONE
 
@@ -200,3 +222,70 @@ async def test_the_engine_receives_the_history_the_store_holds() -> None:
 
     assert seen_history[0] == []
     assert seen_history[1] == first
+
+
+async def test_nothing_an_engine_yields_after_a_terminal_payload_reaches_the_log() -> None:
+    """Recording it would produce a log that says the run both completed and failed — strictly
+    worse than the open run the no-terminal guard exists for."""
+    spec = stub_spec(
+        "Chatterbox",
+        DONE,
+        UsageReported(model="fake", usage=Usage(input_tokens=1, output_tokens=1)),
+        RunFailed(error_code="tool_error", message="too late", retryable=True),
+    )
+    store = MemoryEventStore()
+    runtime = Runtime([StubEngine()], store, {spec.name: spec}, clock=lambda: TS)
+
+    events = [event async for event in runtime.run("Chatterbox", INPUT, CTX)]
+    assert [event.kind for event in events] == ["run.started", "run.completed"]
+    assert check_terminal(events) is None
+    assert await store.read(CTX.log_key, CTX) == events
+
+
+async def test_an_abandoned_run_is_closed_in_the_log() -> None:
+    """A consumer that walks away leaves a run that will never produce another event; without a
+    terminal one, a later reader cannot tell it from a run still in flight."""
+    spec = stub_spec("Chatty", *[TextDelta(message_id="m1", text=str(n)) for n in range(3)], DONE)
+    store = MemoryEventStore()
+    runtime = Runtime([StubEngine()], store, {spec.name: spec}, clock=lambda: TS)
+
+    async with aclosing(runtime.run("Chatty", INPUT, CTX)) as run:
+        async for _ in run:
+            break
+
+    stored = await store.read(CTX.log_key, CTX)
+    assert [event.kind for event in stored] == ["run.started", "run.cancelled"]
+    assert check_terminal(stored) is None
+    assert stored[-1].payload.reason == "consumer stopped reading"
+
+
+async def test_a_completed_run_is_not_cancelled_when_its_consumer_lets_go() -> None:
+    """The close path must not fire on a run that already ended — that would be two terminals."""
+    runtime, store = _runtime()
+    async with aclosing(runtime.run("Greeter", INPUT, CTX)) as run:
+        async for _ in run:
+            pass
+    assert [event.kind for event in await store.read(CTX.log_key, CTX)][-1] == "run.completed"
+
+
+async def test_a_suspended_run_is_not_cancelled_when_its_consumer_lets_go() -> None:
+    """An interrupted run is legitimately waiting; closing the stream must not close the run."""
+    spec = stub_spec("Approver", RunInterrupted(interrupt_id="i1", reason="approval", payload={}))
+    store = MemoryEventStore()
+    runtime = Runtime([StubEngine()], store, {spec.name: spec}, clock=lambda: TS)
+
+    async with aclosing(runtime.run("Approver", INPUT, CTX)) as run:
+        async for _ in run:
+            pass
+
+    assert [event.kind for event in await store.read(CTX.log_key, CTX)] == ["run.started", "run.interrupted"]
+
+
+async def test_an_invocable_with_no_script_is_a_config_error() -> None:
+    """A misconfigured invocable is the caller's mistake, not a run that failed."""
+    spec = InvocableSpec(name="Empty", kind=InvocableKind.AGENT, engine="stub", native=None)
+    runtime = Runtime([StubEngine()], MemoryEventStore(), {spec.name: spec}, clock=lambda: TS)
+
+    with pytest.raises(ConfigError, match="no stub script"):
+        async for _ in runtime.run("Empty", INPUT, CTX):
+            pass

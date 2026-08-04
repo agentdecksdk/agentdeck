@@ -16,9 +16,9 @@ from agentdeck.core.events import TERMINAL_KINDS, check_contiguous, check_termin
 from agentdeck.runtime.service import SUSPENDED_KINDS
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator, AsyncIterator
 
-    from cases import Case, Played
+    from contract_cases import Case, Played
 
     from agentdeck.adapters.stores.memory import MemoryEventStore
     from agentdeck.core.context import RunContext
@@ -82,17 +82,34 @@ async def test_the_stream_and_the_store_tell_the_same_story(
     assert await store.read(ctx.log_key, ctx) == played.events
 
 
-async def test_an_abandoned_stream_leaves_the_store_intact(
+async def test_an_abandoned_stream_leaves_a_closed_run_behind(
     case: Case, runtime: Runtime, store: MemoryEventStore, ctx: RunContext
 ) -> None:
     """A consumer that walks away mid-run — closed tab, killed CLI — truncates the log at an
-    event boundary and never corrupts it."""
+    event boundary, and the run is closed there: a later reader must be able to tell
+    "abandoned" from "still in flight", which is the same reason an open run is a bug."""
     async with aclosing(runtime.run(case.spec.name, case.input, ctx)) as run:
         async for _ in run:
             break
     stored = await store.read(ctx.log_key, ctx)
     assert [event.seq for event in stored] == list(range(len(stored)))
     assert stored[0].kind == "run.started"
+    assert check_terminal(stored) is None
+    assert stored[-1].kind == "run.cancelled"
+
+
+async def test_a_gap_can_be_refetched_from_the_store_by_run(
+    case: Case, runtime: Runtime, store: MemoryEventStore, ctx: RunContext
+) -> None:
+    """What contiguous ``seq`` buys: a consumer that missed events asks the store for that run
+    from the gap onward — and gets that run's tail only, even with two runs in the log."""
+    first = [event async for event in _tolerant(runtime.run(case.spec.name, case.input, ctx))]
+    later_ctx = replace(ctx, run_id="r-2")
+    second = [event async for event in _tolerant(runtime.run(case.spec.name, case.input, later_ctx))]
+
+    assert await store.read_run(ctx.log_key, "r-1", ctx) == first
+    assert await store.read_run(ctx.log_key, "r-2", later_ctx) == second
+    assert await store.read_run(ctx.log_key, "r-2", later_ctx, from_seq=1) == second[1:]
 
 
 async def test_a_second_run_in_the_session_counts_its_seq_from_zero_again(
@@ -107,7 +124,7 @@ async def test_a_second_run_in_the_session_counts_its_seq_from_zero_again(
     assert await store.read(ctx.log_key, ctx) == first + second
 
 
-async def _tolerant(events: AsyncIterator[Event]) -> AsyncIterator[Event]:
+async def _tolerant(events: AsyncIterator[Event]) -> AsyncGenerator[Event, None]:
     """Iterate a run, swallowing the engine's exception — these tests assert on the log, and a
     scripted failure is one of the cases."""
     try:

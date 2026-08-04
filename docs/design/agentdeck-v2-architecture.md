@@ -231,11 +231,17 @@ Ports are small and role-shaped (ISP): a surface that only reads events depends 
 `EventSinkPort`, never on a god `Platform` interface.
 
 *(Amended 2026-08-05, as built: `SessionStorePort` keys on `log_key`, not `session_id` — a
-run without a session is its own log, so persist-before-yield holds for one-off runs too —
-and its range parameter is `from_seq: int = 0`, inclusive, because `after_seq=0` would have
-excluded event 0. `EnginePort` ships with `start` only; `supports` and `resume` land with the
-engines that need them, in Stories 2–3. `ControlPort` and the capability ports are unbuilt:
-they arrive with Story 3 and Story 4 respectively.)*
+run without a session is its own log, so persist-before-yield holds for one-off runs too. Its
+reads split in two: `read(log_key, ctx)` is the session's whole history in append order, and
+`read_run(log_key, run_id, ctx, from_seq=0)` is the inclusive range a consumer uses to refetch
+after a gap. A range read has to name the run, because `seq` restarts at 0 per run and a
+seq range over a whole log would splice together the tail of every run in it — the design's
+`read(session_id, after_seq)` had both that bug and an off-by-one, since `after_seq=0` would
+have excluded event 0. `EnginePort` ships with `start` only; `supports` and `resume` land with
+the engines that need them, in Stories 2–3. `start` returns an `AsyncGenerator`, not a bare
+`AsyncIterator`: the Runtime closes the stream when it stops reading early — at a terminal
+payload, or when its own consumer walks away — so an engine's cleanup runs either way. `ControlPort` and the capability ports are
+unbuilt: they arrive with Story 3 and Story 4 respectively.)*
 
 ```python
 # core/ports/engine.py — the lifecycle/event boundary
@@ -308,9 +314,15 @@ hierarchies, and `serve.py`:
 a `Mapping[str, InvocableSpec]` stands in for `InvocableRegistry` until discovery moves in
 (Story 2), and `control`/`tools` arrive with the stories that build them. Two behaviors the
 sketch below leaves out: the Runtime **emits `run.started` itself** at `seq` 0, because the
-payload's context snapshot is `RunContext` data no engine should be trusted to copy; and an
-engine whose stream ends on neither a terminal nor a suspending kind gets a `run.failed`
-recorded on its behalf, since a run left open hangs every consumer forever.)*
+payload's context snapshot is `RunContext` data no engine should be trusted to copy; and it
+**closes every run in the log**, on all four exits — a terminal payload ends the read there
+(anything an engine yields after one is discarded, so terminal-is-last holds by construction),
+an engine that stops on neither a terminal nor a suspending kind gets `run.failed` recorded on
+its behalf, an engine that raises gets `run.failed` before the exception is re-raised, and a
+consumer that abandons the stream gets `run.cancelled`. A run left open in the log is
+indistinguishable from one still in flight, which is the failure all four guard against.
+`Runtime.drain()` awaits the sink emits still in flight, for the composition root to call at
+shutdown; it is never called per event.)*
 
 ```python
 # runtime/service.py

@@ -14,9 +14,10 @@ from typing import TYPE_CHECKING, ClassVar
 
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports import EnginePort
+from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
     from agentdeck.core.content import Input
     from agentdeck.core.context import RunContext
@@ -37,7 +38,7 @@ class StubEngine(EnginePort):
         input: Input,
         history: Sequence[Event],
         ctx: RunContext,
-    ) -> AsyncIterator[KnownPayload]:
+    ) -> AsyncGenerator[KnownPayload, None]:
         for step in _script_of(spec):
             if isinstance(step, Exception):
                 raise step
@@ -50,10 +51,14 @@ def stub_spec(name: str, *steps: Step, kind: InvocableKind = InvocableKind.AGENT
 
 
 def _script_of(spec: InvocableSpec) -> tuple[Step, ...]:
+    """A misconfigured invocable is the caller's mistake, not a run that failed — so this is a
+    ``ConfigError`` at the adapter's edge rather than a stdlib type leaking into ``run.failed``."""
     script = spec.native
     if isinstance(script, str) or not isinstance(script, Sequence):
-        raise TypeError(f"{spec.name!r} has no stub script: expected a sequence in native, got {type(script).__name__}")
+        raise ConfigError(
+            f"{spec.name!r} has no stub script: expected a sequence of payloads in native, got {type(script).__name__}"
+        )
     return tuple(script)
 
 
-__all__ = ["StubEngine", "Step", "stub_spec"]
+__all__ = ["Step", "StubEngine", "stub_spec"]

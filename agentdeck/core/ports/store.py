@@ -17,7 +17,8 @@ if TYPE_CHECKING:
 
 
 class SessionStorePort(ABC):
-    """Append-only, ordered by ``seq``.
+    """Append-only. A log holds every run of one session, so it is ordered by *append*, not
+    by ``seq`` — ``seq`` restarts at 0 for each run and only orders events within it.
 
     ``log_key`` is the session the events belong to, or the run itself when there is no
     session (``RunContext.log_key``) — a store never has to decide where to put them.
@@ -29,8 +30,17 @@ class SessionStorePort(ABC):
         the Runtime yields to consumers immediately after."""
 
     @abstractmethod
-    async def read(self, log_key: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
-        """Events from ``from_seq`` onward, inclusive, in ``seq`` order."""
+    async def read(self, log_key: str, ctx: RunContext) -> list[Event]:
+        """Every event in the log, oldest first — one session's whole history."""
+
+    @abstractmethod
+    async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
+        """One run's events from ``from_seq`` onward, inclusive.
+
+        A range read has to name the run: ``seq`` is per run, so a seq range over a whole
+        log would splice together the tails of every run in it. This is what a consumer
+        calls to refetch after spotting a gap.
+        """
 
 
 __all__ = ["SessionStorePort"]

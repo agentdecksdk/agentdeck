@@ -1,6 +1,6 @@
 """Harness for the contract suite: one Runtime per case, wired to nothing but memory.
 
-The cases themselves live in ``cases.py`` so the test modules can import their types.
+The cases themselves live in ``contract_cases.py`` so the test modules can import their types.
 """
 
 from __future__ import annotations
@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from cases import CASES, TS, Case, Played
+from contract_cases import CASES, TS, Case, Played
 
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.context import RunContext

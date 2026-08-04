@@ -25,13 +25,18 @@ they move under a version heading when a release is tagged.
   first three ports — `EnginePort`, `SessionStorePort`, `EventSinkPort`.
 - `agentdeck.runtime.service.Runtime`: the run loop — stamp the envelope, append to the
   log, fan out to sinks, yield, in that order, so an event a consumer has seen is already
-  persisted. It opens every run with `run.started`, records `run.failed` for an engine
-  that raises (and re-raises to the caller) or that ends without a terminal event, and
-  never lets a slow or failing sink stall a run.
+  persisted. It opens every run with `run.started` and closes every run in the log: a
+  terminal payload ends the run there (anything after it is discarded), an engine that
+  raises or stops without a terminal event gets `run.failed`, and a consumer that abandons
+  the stream gets `run.cancelled` — a run left open cannot be told from one in flight. A
+  slow or failing sink never stalls a run; `Runtime.drain()` awaits the emits still in
+  flight for the composition root to call at shutdown.
 - `agentdeck.adapters.stores.memory.MemoryEventStore` and
   `agentdeck.adapters.engines.stub.StubEngine`: the event log in a dict, and an engine
   that plays a scripted event sequence. Both are permanent — the stub is the reference
-  implementation of the engine contract and the contract suite's fastest engine.
+  implementation of the engine contract and the contract suite's fastest engine. The store
+  reads whole logs (`read`) or one run's seq range (`read_run`), because `seq` restarts per
+  run; it keys on tenant as well as log key, and refuses an event stamped for another.
 - `tests/contract/`: the cross-engine invariant suite — `run.started` first at `seq` 0,
   contiguous `seq`, exactly one terminal event and it is last, persist-before-yield,
   envelope stamped from the context, and an abandoned stream leaving the log intact.
