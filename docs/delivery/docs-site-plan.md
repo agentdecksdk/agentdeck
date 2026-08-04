@@ -35,6 +35,14 @@ Defects to fix before adding anything:
   produces it — no `postbuild` Pagefind step existed. The box rendered and found nothing.
 - The package is **not on PyPI** (private repo, `pyproject.toml` 1.2.1 unpublished), so any
   `pip install agentdeck` instruction is fiction. Interim truth: install from a git tag.
+- **`.env` does not work for an installed package** — `runtime/settings.py` loads
+  `Path(__file__).parents[2] / ".env"`, which is `site-packages/.env` once installed, and no
+  settings class declares `env_file`. It only works in a source checkout, i.e. the path the
+  docs now tell readers *not* to take. Docs work around it by exporting the vars; the product
+  defect (cwd `.env` never read) is a separate issue, not a docs fix.
+- `.env.example` claimed `OPENAI_BASE_URL` "defaults to a legacy private server if unset."
+  It does not: `base_url: str = ""` and the packaged `config.default.yaml` documents empty as
+  the SDK default (`api.openai.com`). Stale comment from the pre-rename deployment; corrected.
 
 ## 3. Decisions
 
@@ -102,12 +110,19 @@ Two stages, because the cheap one already has teeth and the expensive one needs 
 justify it.
 
 **Stage 1 — `tests/test_docs_site.py`, in `make check` (DS-0, done).** Globs
-`docs-site/content/**/*.mdx`; for every `python` block, `compile()` it and resolve every
-`agentdeck` import through `importlib` + `getattr`; separately, assert every `](/…)` target
-has a page. A block that can't be checked opts out as ` ```python no-test reason="…" ` — the
-reason is enforced by regex, so the escape hatch can't be used silently. ~45 lines, no new
-dependency, no fixtures. On landing it caught three real defects: the `/docs/getting-started`
-404 and both published examples using `async with` at module level (never runnable).
+`docs-site/content/**/*.mdx`; every `python`/`py` block (indented or not) is `ast.parse`d and
+each `agentdeck` import resolved through `importlib` + `getattr`; every absolute markdown link
+must have a page; `_meta.ts` keys must match the top-level pages. A block that can't be checked
+opts out as ` ```python no-test reason="…" ` — the reason is regex-enforced, so the escape hatch
+can't be used silently. ~65 lines, no new dependency, no fixtures. On landing it caught three
+real defects: the `/docs/getting-started` 404 and both published examples using `async with` at
+module level (never runnable).
+
+**Known ceilings of stage 1** — named because "checked" must not be read as "verified":
+non-Python blocks are invisible (a wrong `bash` install or env line passes — exactly how the
+`.env` defect below survived); only absolute markdown links are resolved, so relative hrefs,
+reference-style links and MDX `<Cards>` are not; anchors are stripped, not validated. Stage 2
+closes the first of these for Python only.
 
 **Stage 2 — the example executor (DS-1's opening deliverable, its own line in §7).** Parse
 and *run* multi-file examples: fence meta `file=.agentdeck/agents/support/agent.py` writes
@@ -130,10 +145,14 @@ Aligned to PRD §6 releases. DS-0 is the only phase that isn't gated on product 
 ### DS-0 — Repair and arm (branch `docs/ds-0-repair`, independent of v2) — **complete**
 
 - [x] Fix the `/docs/` link; `examples` added to `_meta.ts`, `cookbook.mdx` deleted per DS-D6
-- [x] Getting Started rewritten: git+tag install (DS-D9), provider env (`OPENAI_BASE_URL` explicitly — it defaults to a legacy private server), project layout, one-file agent, `run_agent` and `chat`
-- [x] `tests/test_docs_site.py` in `make check`; all three assertions red-tested (broken link, renamed symbol, reasonless `no-test`)
+- [x] Getting Started rewritten: git+tag install (DS-D9), exported provider env, project layout, one-file agent, `run_agent` and `chat`
+- [x] `tests/test_docs_site.py` in `make check`; every assertion red-tested (broken link, renamed symbol, reasonless `no-test`, indented/`py`-aliased fence, nav drift)
 - [x] Pagefind wired: `postbuild` indexes `out/`, verified under `GITHUB_ACTIONS=true` (6 pages, basePath-correct), CI asserts `out/_pagefind/pagefind.js`, rationale in `docs-site/README.md`
 - [x] Overview rewritten: what you did not write, two runnable examples, "what AgentDeck is not" (PRD §8)
+
+Follow-ups DS-0 does not close: the install block pins `@v1.2.1` and nothing gates it, so the
+release procedure must bump it (add it to the release skill's checklist); the cwd-`.env` defect
+above wants its own issue; nav drift is gated for top-level pages only, not nested `_meta.ts`.
 
 ### DS-1 — Document what ships today (v1.2.1 truth)
 

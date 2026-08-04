@@ -38,8 +38,11 @@ exists. Without it the box renders and finds nothing.
 Documentation pages live under `content/`. Navigation is controlled by colocated `_meta.ts` files.
 
 Python blocks are parsed and their `agentdeck` imports resolved by
-`tests/test_docs_site.py` (part of `make check`), which also checks that every internal
-link resolves to a page. A block that cannot be checked opts out with a reason:
+`tests/test_docs_site.py` (part of `make check`), which also checks that every **absolute
+markdown** link resolves to a page and that `_meta.ts` keys match the top-level pages.
+Relative hrefs, reference-style links, MDX `<Cards>`, anchors, and non-Python blocks are
+not covered — see the plan's §6 for the full list of ceilings. A block that cannot be
+checked opts out with a reason:
 
 ````text
 ```python no-test reason="illustrative fragment"

@@ -21,16 +21,14 @@ path is in `CONTRIBUTING.md`, not here.
 
 ## Point it at a model
 
-Create a `.env` next to where you'll run. It is loaded automatically; process env wins.
-
 ```bash
-OPENAI_MODEL=gpt-4.1-mini
-OPENAI_API_KEY=sk-...
-OPENAI_BASE_URL=https://api.openai.com/v1
+export OPENAI_MODEL=gpt-4.1-mini
+export OPENAI_API_KEY=sk-...
 ```
 
-Set `OPENAI_BASE_URL` explicitly. Any OpenAI-compatible server works (vLLM, Ollama,
-a gateway); for Chat-Completions-only servers add `OPENAI_USE_RESPONSES=false`.
+Unset `OPENAI_BASE_URL` means `api.openai.com`. Point it at any OpenAI-compatible server
+(a gateway, vLLM, Ollama); Chat-Completions-only servers also need
+`OPENAI_USE_RESPONSES=false`.
 
 ## Create the project
 
