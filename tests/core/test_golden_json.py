@@ -22,6 +22,7 @@ def test_serialization_matches_snapshots(examples):
         for name, body in recorded.items():
             (SNAPSHOTS / name).write_bytes(body)
         return
+    # set first: a missing or orphaned kind reads as a set diff, not a FileNotFoundError
+    assert sorted(recorded) == sorted(p.name for p in SNAPSHOTS.iterdir())
     for name, body in recorded.items():
         assert body == (SNAPSHOTS / name).read_bytes(), f"schema changed: {name}"
-    assert sorted(recorded) == sorted(p.name for p in SNAPSHOTS.iterdir())

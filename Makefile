@@ -18,8 +18,8 @@ typecheck:      ## ty type check
 lint-imports:   ## import-linter contracts (.importlinter)
 	.venv/bin/lint-imports
 
-golden:         ## re-record tests/golden snapshots — deliberate, never automatic
-	AGENTDECK_GOLDEN_UPDATE=1 .venv/bin/pytest tests/golden -q
+golden:         ## re-record the wire + schema snapshots — deliberate, never automatic
+	AGENTDECK_GOLDEN_UPDATE=1 .venv/bin/pytest tests/golden tests/core -q
 
 check: lint typecheck lint-imports test   ## full gate
 

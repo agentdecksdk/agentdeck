@@ -40,12 +40,16 @@ TERMINAL_KINDS = frozenset({"run.completed", "run.failed", "run.cancelled"})
 
 
 class Usage(CoreModel):
+    """Token and cost accounting. ``usd`` is None when no price is known for the model."""
+
     input_tokens: int
     output_tokens: int
     usd: float | None = None
 
 
 class Budget(CoreModel):
+    """The caps the run was admitted under; None means uncapped on that axis."""
+
     max_usd: float | None = None
     max_tokens: int | None = None
 
@@ -88,11 +92,15 @@ class RunFailed(CoreModel):
 
 
 class RunPaused(CoreModel):
+    """Cooperative pause — not terminal, and not an interrupt awaiting an answer."""
+
     kind: Literal["run.paused"] = "run.paused"
     reason: str | None = None
 
 
 class RunResumed(CoreModel):
+    """The run continues after a pause or an interrupt, same ``run_id``, continuing ``seq``."""
+
     kind: Literal["run.resumed"] = "run.resumed"
     reason: str | None = None
 
@@ -116,12 +124,16 @@ class RunInterrupted(CoreModel):
 
 
 class TextDelta(CoreModel):
+    """One streamed fragment of a message; the record is ``message.completed``."""
+
     kind: Literal["text.delta"] = "text.delta"
     message_id: str
     text: str
 
 
 class ThoughtDelta(CoreModel):
+    """Reasoning fragment — same framing as ``text.delta``, separate channel."""
+
     kind: Literal["thought.delta"] = "thought.delta"
     message_id: str
     text: str
@@ -137,6 +149,8 @@ class MessageCompleted(CoreModel):
 
 
 class ToolCallStarted(CoreModel):
+    """Dispatch, paired with a ``tool.call.completed`` carrying the same ``call_id``."""
+
     kind: Literal["tool.call.started"] = "tool.call.started"
     call_id: str
     tool: str
@@ -249,7 +263,8 @@ KNOWN_KINDS: frozenset[str] = frozenset(p.model_fields["kind"].default for p in 
 class Event(CoreModel):
     """The closed envelope (D9): eight fields. New needs go into a payload or into
     ``run.started``; a field here requires showing that routing, ordering or isolation
-    is impossible without it."""
+    is impossible without it. Closed is a rule about what we add, enforced by review —
+    on the read side an unknown envelope field is still ignored, never fatal (D8)."""
 
     v: int = 1
     kind: str
