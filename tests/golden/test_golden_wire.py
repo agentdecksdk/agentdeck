@@ -38,6 +38,8 @@ def capture(client) -> dict[str, bytes]:
         "09_pending.http": _record(client.get("/workflows/ApprovalFlow/pending")),
         "10_resume.http": _record(client.post(f"/workflows/ApprovalFlow/{THREAD}/resume", json={"value": "yes"})),
         "11_pending_after_resume.http": _record(client.get("/workflows/ApprovalFlow/pending")),
+        "12_workflow_error.http": _record(client.post("/workflows/BoomFlow", json={"text": "x"})),
+        "13_workflow_error_stream.http": _record(client.post("/workflows/BoomFlow?stream=true", json={"text": "x"})),
     }
 
 
@@ -45,12 +47,25 @@ def test_wire_matches_snapshots(make_client):
     with make_client() as client:
         recorded = capture(client)
     if UPDATE:
+        for stale in {p.name for p in SNAPSHOTS.iterdir()} - set(recorded):
+            (SNAPSHOTS / stale).unlink()  # a renamed case must not leave its old file behind
         for name, body in recorded.items():
             (SNAPSHOTS / name).write_bytes(body)
         return
     for name, body in recorded.items():
         assert body == (SNAPSHOTS / name).read_bytes(), f"wire changed: {name}"
     assert sorted(recorded) == sorted(p.name for p in SNAPSHOTS.iterdir())
+
+
+def test_failures_never_echo_the_error_message(make_client):
+    """The 500 body and the SSE error frame carry a type name only — never the message."""
+    with make_client() as client:
+        # importable only once App has mounted ./.agentdeck as `agentdeck_project`
+        from agentdeck_project.workflows.boom_flow.workflow import SECRET
+
+        recorded = capture(client)
+    for name in ("12_workflow_error.http", "13_workflow_error_stream.http"):
+        assert SECRET.encode() not in recorded[name]
 
 
 def test_capture_is_stable_across_runs(make_client):

@@ -25,6 +25,14 @@ documented change — never something to "fix" by re-recording without reading t
 | `09_pending.http` | `GET /workflows/ApprovalFlow/pending` while paused |
 | `10_resume.http` | `POST /workflows/ApprovalFlow/t-golden/resume` |
 | `11_pending_after_resume.http` | `GET /workflows/ApprovalFlow/pending` once answered |
+| `12_workflow_error.http` | `POST /workflows/BoomFlow` — node raises; 500 `{"detail": "internal error"}` |
+| `13_workflow_error_stream.http` | the same `?stream=true` — in-band `error` frame |
+
+Cases 12/13 exist for the one wire contract with a security property: an `AgentdeckError`
+that isn't a `NotFoundError` may carry secrets (skill stderr, config values), so the
+surface must render a type name and nothing else. `BoomFlow` raises a deliberately
+secret-shaped message and `test_failures_never_echo_the_error_message` asserts it is
+absent from both recordings.
 
 Each snapshot file is a small HTTP-shaped record:
 
@@ -60,11 +68,15 @@ is pinned at the source instead:
   deltas and drops structural events, which is itself part of the recorded contract.
 - **Ids the client owns.** `session_id`, `thread_id` and workflow input state are
   literals in `capture`.
-- **Env.** `conftest._PINNED_ENV` overrides the settings knobs that would otherwise
-  reach outside the test (Redis sessions, Langfuse export, the sqlite checkpointer) so
-  a developer's `.env` cannot change a snapshot. The checkpointer is `memory`, and its
-  process-wide cache is cleared per client so `/pending` never sees another capture's
-  threads.
+- **Env and config.** `conftest._PINNED_ENV` overrides the settings knobs that would
+  otherwise reach outside the test (Redis sessions, Langfuse export, the sqlite
+  checkpointer) or truncate the scripted turn (`AGENTDECK_RUNNER_MAX_TURNS`). Note that
+  `.env` and `config.yaml` resolve from the *installed package's* repo root, not the cwd
+  (`runtime/settings.py`'s `REPO_ROOT`), so `chdir` alone does not neutralize them —
+  `APP_CONFIG_PATH` is therefore pinned to the packaged `config.default.yaml`. Env vars
+  outside `_PINNED_ENV` are still able to reach a capture; add one here rather than
+  normalizing its effect away. The checkpointer is `memory`, and its process-wide cache
+  is cleared per client so `/pending` never sees another capture's threads.
 - **Timestamps.** Nothing on these endpoints emits one. The fixture workflows are pure
   functions of their input state.
 
@@ -81,6 +93,8 @@ section — an undocumented normalization is a hole in the safety net.
 - `workflows/echo_flow/workflow.py` — two pure nodes; the `done` path.
 - `workflows/approval_flow/workflow.py` — one `interrupt()`, `durable = True`; the
   pending/resume path.
+- `workflows/boom_flow/workflow.py` — one node raising a secret-shaped `SkillError`; the
+  500 and SSE-`error` paths.
 
 ## Running and re-recording
 
@@ -91,8 +105,17 @@ make golden       # re-record snapshots — deliberate, never automatic
 
 `make golden` is `AGENTDECK_GOLDEN_UPDATE=1 pytest tests/golden -q`. Re-record only
 after deciding the new bytes are correct, and put the snapshot diff in the PR
-description.
+description. Update mode also deletes snapshots that no case produces any more, so a
+renamed case cannot leave an orphan behind.
+
+Besides an intended change of ours, one other thing legitimately moves these bytes: a
+dependency bump. `content-type: text/event-stream; charset=utf-8` comes from starlette
+and the JSON separators from FastAPI's encoder, so a starlette / FastAPI / pydantic
+upgrade can shift a snapshot with no agentdeck change at all — the diff is then the
+review artifact for that bump (one is already queued: `TestClient` warns that `httpx` is
+deprecated in favour of `httpx2`). Nothing recorded here depends on the Python version;
+CI records on 3.13.
 
 `test_capture_is_stable_across_runs` captures twice against two independent app
-instances in one process and asserts the bytes match; CI additionally runs the suite
-twice in separate processes.
+instances in one process and asserts the bytes match; CI replays the suite once more in
+a separate process.

@@ -14,7 +14,8 @@ FIXTURE_PROJECT = Path(__file__).parent / "fixture_project"
 SNAPSHOTS = Path(__file__).parent / "snapshots"
 
 # Env that must not leak in from a developer's shell or the repo-root .env: Redis
-# sessions, Langfuse export and the sqlite checkpointer would all reach outside the test.
+# sessions, Langfuse export and the sqlite checkpointer would all reach outside the test,
+# and max_turns below the scripted two would truncate the recorded turn.
 _PINNED_ENV = {
     "AGENTDECK_CHECKPOINT_BACKEND": "memory",
     "AGENTDECK_CHECKPOINT_URL": "",
@@ -22,6 +23,7 @@ _PINNED_ENV = {
     "AGENTDECK_LANGFUSE_PUBLIC_KEY": "",
     "AGENTDECK_LANGFUSE_SECRET_KEY": "",
     "AGENTDECK_MCP_SERVERS": "{}",
+    "AGENTDECK_RUNNER_MAX_TURNS": "30",
     "OPENAI_API_KEY": "golden",
     "OPENAI_BASE_URL": "",
     "OPENAI_MODEL": "fake-golden",
@@ -35,11 +37,14 @@ def make_client(monkeypatch):
     from fastapi.testclient import TestClient
 
     from agentdeck.runtime.checkpointer import _memory_saver
-    from agentdeck.runtime.settings import reset_settings_cache
+    from agentdeck.runtime.settings import PACKAGED_DEFAULT_YAML, reset_settings_cache
     from agentdeck.serve import create_app
 
     for key, value in _PINNED_ENV.items():
         monkeypatch.setenv(key, value)
+    # .env and config.yaml resolve from the *package's* repo root, not the cwd, so chdir
+    # alone can't neutralize them — pin the YAML source to the shipped defaults.
+    monkeypatch.setenv("APP_CONFIG_PATH", str(PACKAGED_DEFAULT_YAML))
     monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", ScriptedProvider)
     monkeypatch.chdir(FIXTURE_PROJECT)
 
