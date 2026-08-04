@@ -1,36 +1,93 @@
 ---
 title: Getting Started
-description: Install AgentDeck and run your first agent.
+description: Install AgentDeck, point it at a model, and run your first agent.
 ---
 
 # Getting Started
 
+Target: a running agent in under five minutes.
+
 ## Install
 
 ```bash
-git clone https://github.com/sagi5060/agentdeck.git
-cd agentdeck
-uv venv
-uv pip install -e ".[dev,serve]"
+uv venv && source .venv/bin/activate
+uv pip install "agentdeck[serve] @ git+ssh://git@github.com/sagi5060/agentdeck.git@v1.2.1"
 ```
 
-## Create a project
+Installs from git at a tag; you need read access to the repository.
 
-AgentDeck discovers definitions from a local `.agentdeck` directory:
+Contributing to AgentDeck itself instead? Clone the repo and run `make install` — that
+path is in `CONTRIBUTING.md`, not here.
+
+## Point it at a model
+
+```bash
+export OPENAI_MODEL=gpt-4.1-mini
+export OPENAI_API_KEY=sk-...
+```
+
+Unset `OPENAI_BASE_URL` means `api.openai.com`. Point it at any OpenAI-compatible server
+(a gateway, vLLM, Ollama); Chat-Completions-only servers also need
+`OPENAI_USE_RESPONSES=false`.
+
+## Create the project
+
+Definitions live in a `.agentdeck/` directory next to where you run. Location is
+registration — there is no catalog file.
 
 ```text
 .agentdeck/
-├── agents/greeter/agent.py
-├── workflows/new-booking/workflow.py
-└── skills/parse-request/SKILL.md
+├── agents/greeter/agent.py        # a BaseAgent subclass
+├── workflows/new_booking/workflow.py
+└── skills/parse-request/          # SKILL.md + scripts/run.py
 ```
 
-## Run an agent
+One file is a complete agent:
 
 ```python
+# .agentdeck/agents/greeter/agent.py
+from agentdeck.agents import BaseAgent
+
+
+class Greeter(BaseAgent):
+    instructions = "You are a friendly scheduling assistant. Keep replies to one short sentence."
+```
+
+## Run it
+
+```python
+import asyncio
+
 from agentdeck import App
 
-async with App.open() as app:
-    result = await app.run_agent("Greeter", "hello")
-    print(result.final_output)
+
+async def main() -> None:
+    async with App.open() as app:
+        result = await app.run_agent("Greeter", "hello")
+        print(result.final_output)
+
+
+asyncio.run(main())
 ```
+
+For a conversation that remembers across turns, use `chat()` with a session id instead:
+
+```python
+import asyncio
+
+from agentdeck import App
+
+
+async def main() -> None:
+    async with App.open() as app:
+        await app.chat("Greeter", "sess-1", "book me a slot Tuesday")
+        second = await app.chat("Greeter", "sess-1", "actually, make it Wednesday")
+        print(second.final_output)
+
+
+asyncio.run(main())
+```
+
+## Next
+
+[How the pieces fit →](/concepts) · [Task guides →](/guides) · [API reference →](/reference)

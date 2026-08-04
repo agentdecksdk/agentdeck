@@ -20,6 +20,20 @@ they move under a version heading when a release is tagged.
   yet; runtime behaviour is unchanged. One serialization per kind is frozen under
   `tests/core/snapshots/`, and an import-linter contract keeps core on stdlib +
   pydantic only.
+- Docs-site search actually works: a Pagefind `postbuild` step builds the index the
+  Nextra search box fetches at runtime, guarded by a CI check.
+- `tests/test_docs_site.py`: every published Python block is parsed and its `agentdeck`
+  imports resolved, every absolute docs link must resolve to a page, and `_meta.ts` keys
+  must match the pages — so renames, dead links, and nav drift fail `make check`.
+
+### Fixed
+- Docs Getting Started documented a contributor `git clone` as the install path and
+  omitted provider configuration; it now installs from a git tag and exports the model
+  env (a project `.env` is not read by an installed package — #16).
+- Docs overview linked to a non-existent `/docs/getting-started` page, and both of its
+  Python examples used `async with` at module level, so neither could run as printed.
+- `.env.example` claimed `OPENAI_BASE_URL` defaults to a legacy private server; the
+  packaged default is empty, which the SDK reads as `api.openai.com`.
 
 ## [1.2.1] - 2026-08-03
 

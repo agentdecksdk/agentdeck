@@ -45,3 +45,6 @@ jobs:
 
       - name: Verify static export
         run: test -f out/index.html
+
+      - name: Verify search index
+        run: test -f out/_pagefind/pagefind.js

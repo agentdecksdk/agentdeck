@@ -1,27 +1,55 @@
 ---
 title: AgentDeck
-description: Declarative infrastructure for agents, deterministic skills, and durable workflows.
+description: Write the agent. AgentDeck owns everything around it.
 ---
 
 # AgentDeck
 
-AgentDeck is a declarative harness over the OpenAI Agents SDK and LangGraph.
-It owns configuration, discovery, capabilities, skills, runners, and workflow compilation while execution remains in the underlying runtimes.
+You write small Python definitions — agents, skills, workflows. AgentDeck owns everything
+around them: project discovery, settings and provider wiring, tools and MCP servers,
+sandbox capabilities, sessions, streaming, typed workflows with human approval. Execution
+stays in the OpenAI Agents SDK and LangGraph.
 
-## Core building blocks
-
-- **Agents** — declarative agent definitions with tools, handoffs, structured output, and streaming.
-- **Capabilities** — sandbox features such as shell, filesystem, memory, skills, and compaction.
-- **Skills** — deterministic executable bundles described by `SKILL.md`.
-- **Workflows** — typed LangGraph workflows with agent nodes, skill nodes, streaming, durability, and human interrupts.
-
-## Minimal example
+## A whole agent
 
 ```python
-from agentdeck import App
+# .agentdeck/agents/greeter/agent.py
+from agentdeck.agents import BaseAgent
 
-async with App.open() as app:
-    result = await app.run_agent("Greeter", "hello")
+
+class Greeter(BaseAgent):
+    instructions = "You are a friendly scheduling assistant. Keep replies to one short sentence."
 ```
 
-[Start building →](/docs/getting-started)
+Nothing registers it — the file's location is the registration. Run it:
+
+```python
+import asyncio
+
+from agentdeck import App
+
+
+async def main() -> None:
+    async with App.open() as app:
+        result = await app.run_agent("Greeter", "hello")
+        print(result.final_output)
+
+
+asyncio.run(main())
+```
+
+## What you did not write
+
+- **Registration** — drop a file into `.agentdeck/`; discovery does the rest.
+- **Provider and runner config** — layered settings from env, `.env`, and `config.yaml`.
+- **Conversation memory** — `chat()` keeps a session across turns, surfaces, and restarts.
+- **Streaming** — `chat_stream()` and an SSE HTTP surface: same agent, no extra code.
+- **Sandboxing** — shell, filesystem, memory, skills, and compaction declared, not plumbed.
+- **Workflow machinery** — graph compilation, durability, and human interrupts from a typed state class.
+
+## What AgentDeck is not
+
+No YAML or JSON agent DSL — definitions are Python. No auth system, no marketplace, no
+hosted control plane. It does not reimplement the engines it runs on.
+
+[Install and run one →](/getting-started) · [How the pieces fit →](/concepts)
