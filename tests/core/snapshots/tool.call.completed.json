@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "kind": "tool.call.completed",
+  "seq": 11,
+  "run_id": "run_1",
+  "session_id": "sess_1",
+  "tenant": "acme",
+  "origin": "Greeter",
+  "ts": "2026-01-01T12:00:00Z",
+  "payload": {
+    "kind": "tool.call.completed",
+    "call_id": "call_1",
+    "tool": "lookup_slot",
+    "result_preview": "09:00, 13:00",
+    "result_size": 12,
+    "result_sha256": "c0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeec0ffeeabcd",
+    "artifact_id": null,
+    "error": null
+  }
+}

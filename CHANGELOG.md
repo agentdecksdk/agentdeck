@@ -13,6 +13,13 @@ they move under a version heading when a release is tagged.
   deliberately with `make golden`; see `tests/golden/README.md`.
 - `import-linter` contracts (`.importlinter`) run by `make lint-imports`, and both
   are wired into `make check` / CI.
+- `agentdeck.core`: the canonical event schema v1 (`events.py`) and content blocks
+  (`content.py`) — a closed eight-field `Event` envelope over a payload union
+  discriminated by `kind`, `parse_event()` tolerating unknown kinds and fields, and
+  the `check_contiguous` / `check_terminal` ordering invariants. Nothing imports it
+  yet; runtime behaviour is unchanged. One serialization per kind is frozen under
+  `tests/core/snapshots/`, and an import-linter contract keeps core on stdlib +
+  pydantic only.
 
 ## [1.2.1] - 2026-08-03
 

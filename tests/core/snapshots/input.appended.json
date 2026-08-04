@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "kind": "input.appended",
+  "seq": 15,
+  "run_id": "run_1",
+  "session_id": "sess_1",
+  "tenant": "acme",
+  "origin": "Greeter",
+  "ts": "2026-01-01T12:00:00Z",
+  "payload": {
+    "kind": "input.appended",
+    "input": [
+      {
+        "type": "text",
+        "text": "make it 10am"
+      }
+    ],
+    "source": "operator"
+  }
+}
