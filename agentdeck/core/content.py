@@ -1,8 +1,7 @@
-"""Content blocks — the one input/output shape core knows about.
+"""Typed content blocks.
 
-``Input`` replaces the ad-hoc ``message: str`` / ``input: Any`` shapes at every
-boundary: a list of typed blocks discriminated on ``type``, so text, images and
-out-of-band resources travel the same channel.
+``Input`` is what every boundary passes instead of a bare string: a list of blocks
+discriminated on ``type``, so text, images and references travel the same way.
 """
 
 from __future__ import annotations
@@ -13,9 +12,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class CoreModel(BaseModel):
-    """Base for every core schema model: unknown fields are dropped, never fatal (D8)."""
+    """Base for the schema models: unknown fields are dropped, and nothing mutates."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="ignore", frozen=True)
 
 
 class TextBlock(CoreModel):
@@ -30,7 +29,7 @@ class ImageBlock(CoreModel):
 
 
 class ResourceBlock(CoreModel):
-    """A payload held elsewhere — bytes never travel inline."""
+    """Bytes held elsewhere, referenced by uri."""
 
     type: Literal["resource"] = "resource"
     uri: str
@@ -44,8 +43,8 @@ _BLOCK_TYPES = (TextBlock, ImageBlock, ResourceBlock)
 
 
 def coerce_input(value: str | Input) -> Input:
-    """A bare string becomes one ``TextBlock``, an ``Input`` passes through unchanged
-    (so the call is idempotent), anything else raises rather than being guessed at."""
+    """A string becomes one ``TextBlock``; an ``Input`` passes through, so calling twice is
+    safe. Anything else raises."""
     if isinstance(value, str):
         return [TextBlock(text=value)]
     if isinstance(value, list) and all(isinstance(block, _BLOCK_TYPES) for block in value):

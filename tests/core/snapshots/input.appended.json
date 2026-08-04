@@ -13,6 +13,11 @@
       {
         "type": "text",
         "text": "make it 10am"
+      },
+      {
+        "type": "resource",
+        "uri": "s3://cal/tue.ics",
+        "media_type": "text/calendar"
       }
     ],
     "source": "operator"

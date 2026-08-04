@@ -91,6 +91,27 @@ def test_a_malformed_known_payload_still_raises():
         parse_event(_wire("text.delta", {"message_id": "msg_1"}))
 
 
+def test_a_payload_named_raw_payload_does_not_slip_past_its_own_schema():
+    """The UnknownEvent arm must not become a bypass for a malformed known payload."""
+    with pytest.raises(ValidationError):
+        parse_event(_wire("text.delta", {"raw_payload": {"a": 1}}))
+
+
+def test_an_unknown_payload_keeps_every_sibling_field():
+    event = parse_event(_wire("future.thing", {"raw_payload": {"deep": 1}, "extra": 2}))
+    assert isinstance(event.payload, UnknownEvent)
+    assert event.payload.raw_payload == {
+        "kind": "future.thing",
+        "raw_payload": {"deep": 1},
+        "extra": 2,
+    }
+
+
+def test_unknown_event_refuses_a_known_kind():
+    with pytest.raises(ValidationError, match="known kind"):
+        UnknownEvent(kind="text.delta", raw_payload={})
+
+
 def test_a_bad_envelope_raises_even_for_an_unknown_kind():
     wire = _wire("future.thing", {"whatever": 1})
     del wire["tenant"]
@@ -107,6 +128,7 @@ def test_envelope_kind_must_match_payload_kind():
             kind="text.delta",
             seq=0,
             run_id="run_1",
+            session_id=None,
             tenant="acme",
             origin="Greeter",
             ts=TS,
@@ -117,8 +139,38 @@ def test_envelope_kind_must_match_payload_kind():
         )
 
 
+def test_a_payload_must_carry_its_own_discriminator():
+    wire = _wire("text.delta", {"message_id": "msg_1", "text": "hi"})
+    del wire["payload"]["kind"]
+    with pytest.raises(ValidationError):
+        parse_event(wire)
+
+
+def test_session_id_must_be_stated_even_when_absent():
+    wire = _wire("text.delta", {"message_id": "msg_1", "text": "hi"})
+    del wire["session_id"]
+    with pytest.raises(ValidationError):
+        parse_event(wire)
+
+
+def test_seq_and_counters_reject_negatives():
+    wire = _wire("text.delta", {"message_id": "msg_1", "text": "hi"})
+    with pytest.raises(ValidationError):
+        parse_event({**wire, "seq": -1})
+    with pytest.raises(ValidationError):
+        Usage(input_tokens=-1, output_tokens=0)
+
+
+def test_events_do_not_mutate(examples):
+    event = examples["text.delta"]
+    with pytest.raises(ValidationError):
+        event.kind = "run.completed"
+    with pytest.raises(ValidationError):
+        event.payload.text = "rewritten"
+
+
 def test_result_preview_is_capped():
-    args = {"call_id": "call_1", "tool": "t", "result_size": 9, "result_sha256": "ab"}
+    args = {"call_id": "call_1", "tool": "t", "result_size": 9, "result_sha256": "a" * 64}
     ToolCallCompleted(result_preview="x" * RESULT_PREVIEW_MAX, **args)
     with pytest.raises(ValidationError, match="RESULT_PREVIEW_MAX"):
         ToolCallCompleted(result_preview="x" * (RESULT_PREVIEW_MAX + 1), **args)
@@ -154,6 +206,13 @@ def test_contiguous_run_and_empty_run_have_no_gaps(examples, make_event):
     delta = examples["text.delta"].payload
     assert check_contiguous(make_event(delta, seq) for seq in range(4)) == []
     assert check_contiguous([]) == []
+
+
+def test_gap_detection_refuses_two_runs_at_once(examples, make_event):
+    delta = examples["text.delta"].payload
+    mixed = [make_event(delta, 0), make_event(delta, 1).model_copy(update={"run_id": "run_2"})]
+    with pytest.raises(ValueError, match="one run"):
+        check_contiguous(mixed)
 
 
 def _run(examples, make_event, *kinds: str) -> list[Event]:

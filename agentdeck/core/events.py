@@ -1,33 +1,19 @@
-"""Canonical event schema v1 — the one shape every engine, surface and store speaks.
+"""Event schema v1: one envelope, one payload per kind.
 
-Engines emit *payloads*; the Runtime stamps the *envelope*. That split is why an
-engine cannot lie about ordering or tenancy.
+Engines produce payloads, the Runtime fills the envelope — so an engine cannot get
+``seq`` or ``tenant`` wrong. ``seq`` is per-run and contiguous from 0, which makes it
+both the ordering authority and a loss check; ``ts`` is informational.
 
-**D8 — versioning.** A new ``kind``, or a new optional field on a payload, is a minor
-change; renaming a field, removing one, or changing its meaning bumps ``Event.v``.
-Consumers MUST ignore kinds they don't know, which :func:`parse_event` makes possible:
-a v1 dashboard can render a stream from a v1.4 engine.
-
-**D9 — the envelope is closed.** Eight fields. Per-run constants go into
-``run.started`` (the join point), per-event data into its payload. An envelope addition
-must demonstrate that routing, ordering or isolation is *impossible* without it.
-
-**D10 — kinds are minted only here.** Engines translate into the kinds below or emit
-``custom`` with a namespaced ``name``. Recurring use of one ``custom`` name is a signal
-to promote it into core, never a precedent for minting kinds outside core.
-
-**Ordering.** ``seq`` is per-run, contiguous from 0, assigned only by the Runtime, and
-is the sole ordering authority — ``ts`` is informational. Contiguity makes loss
-detectable (:func:`check_contiguous`). Persist-before-yield holds: an event a consumer
-has seen is already in the store. A resumed run keeps its ``run_id`` and continues its
-``seq``.
+Unknown kinds parse instead of raising (:func:`parse_event`) and unknown fields inside a
+known payload are dropped, so an old reader survives a newer writer. Adding a kind or an
+optional field stays compatible; renaming or removing one means bumping ``v``.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Any, Literal, get_args
 
-from pydantic import AwareDatetime, Field, ValidationError, field_validator, model_validator
+from pydantic import AwareDatetime, ConfigDict, Field, NonNegativeInt, ValidationError, field_validator, model_validator
 
 from agentdeck.core.content import CoreModel, Input
 
@@ -42,8 +28,8 @@ TERMINAL_KINDS = frozenset({"run.completed", "run.failed", "run.cancelled"})
 class Usage(CoreModel):
     """Token and cost accounting. ``usd`` is None when no price is known for the model."""
 
-    input_tokens: int
-    output_tokens: int
+    input_tokens: NonNegativeInt
+    output_tokens: NonNegativeInt
     usd: float | None = None
 
 
@@ -55,7 +41,7 @@ class Budget(CoreModel):
 
 
 class RunContextSnapshot(CoreModel):
-    """The parts of the run's context worth replaying from the event log alone."""
+    """Enough of the run's context to reconstruct it from the log alone."""
 
     principal: str
     trace_id: str
@@ -64,7 +50,7 @@ class RunContextSnapshot(CoreModel):
 
 
 class RunStarted(CoreModel):
-    """The per-run join point: every per-run constant lives here, never on the envelope."""
+    """Opens a run and carries its per-run constants."""
 
     kind: Literal["run.started"] = "run.started"
     invocable: str
@@ -75,7 +61,7 @@ class RunStarted(CoreModel):
 
 
 class RunCompleted(CoreModel):
-    """Terminal. ``usage`` here is the authoritative aggregate for the run."""
+    """Terminal. ``usage`` is the authoritative total for the run."""
 
     kind: Literal["run.completed"] = "run.completed"
     output: Input
@@ -83,7 +69,7 @@ class RunCompleted(CoreModel):
 
 
 class RunFailed(CoreModel):
-    """Terminal. ``error_code`` is a closed set so consumers can branch without parsing prose."""
+    """Terminal. ``error_code`` is closed so callers branch on it instead of parsing prose."""
 
     kind: Literal["run.failed"] = "run.failed"
     error_code: Literal["engine_error", "tool_error", "budget_exceeded", "deadline", "cancelled_hard"]
@@ -92,14 +78,14 @@ class RunFailed(CoreModel):
 
 
 class RunPaused(CoreModel):
-    """Cooperative pause — not terminal, and not an interrupt awaiting an answer."""
+    """Cooperative pause — not terminal, and not waiting on an answer."""
 
     kind: Literal["run.paused"] = "run.paused"
     reason: str | None = None
 
 
 class RunResumed(CoreModel):
-    """The run continues after a pause or an interrupt, same ``run_id``, continuing ``seq``."""
+    """The run continues: same ``run_id``, ``seq`` keeps counting."""
 
     kind: Literal["run.resumed"] = "run.resumed"
     reason: str | None = None
@@ -113,7 +99,7 @@ class RunCancelled(CoreModel):
 
 
 class RunInterrupted(CoreModel):
-    """Not terminal: the run keeps its ``run_id`` and continues its ``seq`` on resume."""
+    """Waiting on an answer. Not terminal — ``run_id`` and ``seq`` continue on resume."""
 
     kind: Literal["run.interrupted"] = "run.interrupted"
     interrupt_id: str
@@ -124,7 +110,7 @@ class RunInterrupted(CoreModel):
 
 
 class TextDelta(CoreModel):
-    """One streamed fragment of a message; the record is ``message.completed``."""
+    """One streamed fragment; ``message.completed`` is the record."""
 
     kind: Literal["text.delta"] = "text.delta"
     message_id: str
@@ -140,8 +126,7 @@ class ThoughtDelta(CoreModel):
 
 
 class MessageCompleted(CoreModel):
-    """The full final text — deltas are streaming UX, this is the record; one
-    ``message_id`` never spans two origins."""
+    """The full final text — deltas are streaming UX. One ``message_id`` never spans two origins."""
 
     kind: Literal["message.completed"] = "message.completed"
     message_id: str
@@ -149,7 +134,7 @@ class MessageCompleted(CoreModel):
 
 
 class ToolCallStarted(CoreModel):
-    """Dispatch, paired with a ``tool.call.completed`` carrying the same ``call_id``."""
+    """Dispatch; paired with ``tool.call.completed`` by ``call_id``."""
 
     kind: Literal["tool.call.started"] = "tool.call.started"
     call_id: str
@@ -158,13 +143,13 @@ class ToolCallStarted(CoreModel):
 
 
 class ToolCallCompleted(CoreModel):
-    """Raw results never appear in events: a capped preview, a size, a hash, an artifact ref."""
+    """A capped preview plus size and hash, never the result itself."""
 
     kind: Literal["tool.call.completed"] = "tool.call.completed"
     call_id: str
     tool: str
     result_preview: str
-    result_size: int
+    result_size: NonNegativeInt
     result_sha256: str
     artifact_id: str | None = None
     error: str | None = None
@@ -178,7 +163,7 @@ class ToolCallCompleted(CoreModel):
 
 
 class NodeUpdated(CoreModel):
-    """``state_patch`` shallow-merges into the workflow state — top-level keys replace."""
+    """``state_patch`` shallow-merges into the state: top-level keys replace."""
 
     kind: Literal["node.updated"] = "node.updated"
     node: str
@@ -186,17 +171,17 @@ class NodeUpdated(CoreModel):
 
 
 class ArtifactCreated(CoreModel):
-    """By reference only — never inline bytes."""
+    """A reference to bytes stored elsewhere."""
 
     kind: Literal["artifact.created"] = "artifact.created"
     artifact_id: str
     media_type: str
     uri: str
-    size: int
+    size: NonNegativeInt
 
 
 class UsageReported(CoreModel):
-    """Per-model-call and advisory; the terminal aggregate on ``run.completed`` wins."""
+    """One model call, advisory — the total on ``run.completed`` wins."""
 
     kind: Literal["usage.reported"] = "usage.reported"
     model: str
@@ -204,7 +189,7 @@ class UsageReported(CoreModel):
 
 
 class InputAppended(CoreModel):
-    """Mid-turn steering. Schema now, no producer yet."""
+    """Mid-turn steering. No producer yet."""
 
     kind: Literal["input.appended"] = "input.appended"
     input: Input
@@ -212,7 +197,7 @@ class InputAppended(CoreModel):
 
 
 class Custom(CoreModel):
-    """The engine escape hatch (D10) — ``name`` must be namespaced."""
+    """Engine-specific event; ``name`` must be namespaced."""
 
     kind: Literal["custom"] = "custom"
     name: str
@@ -228,10 +213,23 @@ class Custom(CoreModel):
 
 
 class UnknownEvent(CoreModel):
-    """Payload of a kind this version does not know. Consumers skip it; stores persist it."""
+    """A kind this version doesn't know: consumers skip it, stores keep it.
+
+    Strict on purpose — it sits in a union with the known payloads, so anything laxer
+    would let a malformed known payload validate here instead of raising.
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     kind: str
     raw_payload: dict[str, Any]
+
+    @field_validator("kind")
+    @classmethod
+    def _is_not_a_known_kind(cls, value: str) -> str:
+        if value in KNOWN_KINDS:
+            raise ValueError(f"{value!r} is a known kind — use its payload class")
+        return value
 
 
 KnownPayload = Annotated[
@@ -255,22 +253,22 @@ KnownPayload = Annotated[
     Field(discriminator="kind"),
 ]
 
-# get_args peels the Annotated, then the union — so a new payload class is a one-line
-# change here and KNOWN_KINDS follows it.
+# peels the Annotated, then the union — add a payload class above and this follows it
 KNOWN_KINDS: frozenset[str] = frozenset(p.model_fields["kind"].default for p in get_args(get_args(KnownPayload)[0]))
 
 
 class Event(CoreModel):
-    """The closed envelope (D9): eight fields. New needs go into a payload or into
-    ``run.started``; a field here requires showing that routing, ordering or isolation
-    is impossible without it. Closed is a rule about what we add, enforced by review —
-    on the read side an unknown envelope field is still ignored, never fatal (D8)."""
+    """The eight fields every event carries, whatever its kind.
+
+    Per-run constants belong in the ``run.started`` payload, not here. Unknown envelope
+    fields are ignored rather than rejected, so a newer writer can't break this reader.
+    """
 
     v: int = 1
     kind: str
-    seq: int
+    seq: NonNegativeInt
     run_id: str
-    session_id: str | None = None
+    session_id: str | None
     tenant: str
     origin: str
     ts: AwareDatetime
@@ -284,9 +282,12 @@ class Event(CoreModel):
 
 
 def parse_event(data: dict[str, Any]) -> Event:
-    """The single parsing entry point: an unknown ``kind`` keeps a fully validated
-    envelope and an :class:`UnknownEvent` payload. A malformed *known* payload still
-    raises — forward compatibility is not permission to accept garbage."""
+    """Parse one event: an unknown ``kind`` yields an :class:`UnknownEvent` payload with
+    the envelope still validated. A malformed *known* payload raises.
+
+    An unknown payload of exactly ``{kind, raw_payload}`` is read as already wrapped —
+    that ambiguity is what lets a stored ``UnknownEvent`` round-trip.
+    """
     try:
         return Event.model_validate(data)
     except ValidationError:
@@ -297,15 +298,18 @@ def parse_event(data: dict[str, Any]) -> Event:
 
 
 def check_contiguous(events: Iterable[Event]) -> list[int]:
-    """Missing ``seq`` numbers for one run — contiguity from 0; duplicates are out of scope."""
-    seqs = {event.seq for event in events}
+    """Missing ``seq`` numbers for one run — gaps only, duplicates aren't checked."""
+    run = list(events)
+    if len({event.run_id for event in run}) > 1:
+        raise ValueError("check_contiguous takes one run's events")
+    seqs = {event.seq for event in run}
     if not seqs:
         return []
     return [n for n in range(max(seqs) + 1) if n not in seqs]
 
 
 def check_terminal(events: Sequence[Event]) -> str | None:
-    """``None`` if exactly one terminal event closes the run, else what is wrong."""
+    """``None`` if exactly one terminal event closes the run, else what's wrong."""
     at = [i for i, event in enumerate(events) if event.kind in TERMINAL_KINDS]
     if not at:
         return "no terminal event"

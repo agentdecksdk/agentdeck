@@ -15,9 +15,11 @@ from agentdeck.core import (
     Budget,
     Custom,
     Event,
+    ImageBlock,
     InputAppended,
     MessageCompleted,
     NodeUpdated,
+    ResourceBlock,
     RunCancelled,
     RunCompleted,
     RunContextSnapshot,
@@ -43,7 +45,7 @@ PAYLOADS = (
         invocable="Greeter",
         kind_of_invocable="agent",
         parent_run_id=None,
-        input=[TextBlock(text="any slot tuesday?")],
+        input=[TextBlock(text="any slot tuesday?"), ImageBlock(media_type="image/png", data_b64="iVBORw0=")],
         context=RunContextSnapshot(
             principal="user:sagi",
             trace_id="trace_1",
@@ -79,7 +81,10 @@ PAYLOADS = (
     NodeUpdated(node="shout", state_patch={"text": "HELLO"}),
     ArtifactCreated(artifact_id="art_1", media_type="text/csv", uri="file:///runs/run_1/art_1.csv", size=2048),
     UsageReported(model="fake-golden", usage=USAGE),
-    InputAppended(input=[TextBlock(text="make it 10am")], source="operator"),
+    InputAppended(
+        input=[TextBlock(text="make it 10am"), ResourceBlock(uri="s3://cal/tue.ics", media_type="text/calendar")],
+        source="operator",
+    ),
     Custom(name="langgraph.checkpoint_written", data={"thread_id": "t-1"}),
 )
 

@@ -12,15 +12,15 @@ the most boring option and record it in the PR's judgment ledger (§13).
 ## 1. Scope and precedence
 
 These standards apply to all new code under `agentdeck/` and `tests/`. Precedence order
-when rules collide: (1) CI-enforced checks (ruff, black, import-linter, contract suite),
+when rules collide: (1) CI-enforced checks (ruff, ruff-format, import-linter, contract suite),
 (2) architecture decisions D1–D10 and ADR-D5, (3) this document, (4) existing repo
 conventions, (5) general Python idiom. Legacy modules being migrated are brought up to
 standard **when moved**, never via drive-by edits in unrelated PRs.
 
 ## 2. Tooling and formatting
 
-Use the repo's existing toolchain exactly: **ruff** and **black** with the committed
-configs, **pre-commit** hooks installed, **pytest** via `make test`, Python **3.11+**.
+Use the repo's existing toolchain exactly: **ruff** and **ruff-format** with the committed
+configs, **pre-commit** hooks installed, **pytest** via `make test`, Python **3.12+** (`requires-python = ">=3.12"`).
 Never introduce a new formatter, linter, or test framework. Never run a formatting sweep
 across files a PR does not otherwise touch — diff reviewability is the project's primary
 QA mechanism, and sweeps destroy it. Line length, quote style, and import sorting are
@@ -60,8 +60,10 @@ containers in signatures.
 
 ## 5. Errors and exceptions
 
-`core/errors.py` owns the exception taxonomy (`AgentDeckError` root; `RunCancelled`,
-`CapabilityUnavailable`, `InvocableNotFound`, `StoreError`, `EngineError`, …). The rule
+`core/errors.py` will own the exception taxonomy (`AgentDeckError` root; `RunCancelled`,
+`CapabilityUnavailable`, `InvocableNotFound`, `StoreError`, `EngineError`, …). *Amended
+2026-08-05: today that taxonomy is `agentdeck/errors.py`, already covered by its own
+import contract; it moves under `core/` when core takes ownership, not before.* The rule
 mirrors D10 applied to failures: **SDK and library exception types never cross an
 adapter boundary.** Adapters catch external exceptions at the edge and re-raise the core
 type with `raise ... from exc` (never swallow the chain). Terminal run failures are also
@@ -182,7 +184,7 @@ trusting the PR description (per the PR #0 reviewer prompt's model).
 
 | Rule family             | Enforced by                                                           |
 | ----------------------- | --------------------------------------------------------------------- |
-| Formatting, lint        | ruff + black + pre-commit, CI                                         |
+| Formatting, lint        | ruff + ruff-format + pre-commit, CI                                   |
 | Import law              | import-linter contracts, CI (plus §3 review rules beyond the linter) |
 | Schema stability        | golden JSON snapshots + dedicated-PR rule, review                     |
 | Engine substitutability | contract suite as merge gate                                          |

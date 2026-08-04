@@ -16,6 +16,11 @@
       {
         "type": "text",
         "text": "any slot tuesday?"
+      },
+      {
+        "type": "image",
+        "media_type": "image/png",
+        "data_b64": "iVBORw0="
       }
     ],
     "context": {
