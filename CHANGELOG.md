@@ -52,7 +52,10 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Fixed
 - Shutdown no longer hangs forever on a wedged sink: every wait on the sink
-  path has a deadline.
+  path has a deadline, including the last one — the wait for the sink's
+  consumer to stop. A sink whose `emit` swallows cancellation can delay a
+  shutdown but no longer block it, and a cancellation aimed at whoever is
+  shutting down is no longer absorbed by the shutdown itself.
 - Sink loss counters no longer under-report. Events still queued (and the one
   in flight) when a sink is closed are counted as dropped, so the counters
   agree with the log line that reports them; a sink that raises
