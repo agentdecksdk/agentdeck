@@ -28,7 +28,7 @@ from agentdeck.core.events import (
     RunStarted,
 )
 from agentdeck.core.ports import Gate
-from agentdeck.core.status import RunStatus, can_resume, status_of
+from agentdeck.core.status import RunStatus, can_resume
 from agentdeck.errors import NotFoundError
 
 if TYPE_CHECKING:
@@ -206,37 +206,39 @@ class Runtime:
         """
         lock = self._resume_locks.setdefault(ctx.run_id, asyncio.Lock())
         async with lock:
-            history = [event for event in await self._store.read(ctx.log_key, ctx) if event.run_id == ctx.run_id]
-            if not can_resume(status_of(history)):
+            if not can_resume(await self._store.run_status(ctx.log_key, ctx.run_id, ctx)):
                 return None
-            seq = count(max((event.seq for event in history), default=-1) + 1)
+            seq = count(await self._store.last_seq(ctx.log_key, ctx.run_id, ctx) + 1)
             event = await self._record(RunResumed(reason=None), spec, ctx, next(seq))
         return event, seq
 
     async def pending(self, ctx: RunContext) -> list[PendingRun]:
         """Every run currently ``WAITING_HUMAN`` for this tenant.
 
-        Scans the log rather than keeping an in-memory registry of runs — a registry would
-        go stale the moment a process restarted, which is exactly the bug this avoids.
+        Asks the store to project which runs are waiting rather than keeping an in-memory
+        registry — a registry would go stale the moment a process restarted, which is
+        exactly the bug this avoids. Only the matched runs get a (bounded, per-run) read,
+        to pull the interrupt's ``thread_id`` and ``payload``.
+
+        The listing and those reads are two snapshots, so a run can be resumed between them
+        and come back already answered. That is harmless: ``_claim_resume`` re-checks status
+        under the lock, so acting on a stale entry is a no-op, not a double resume.
         """
         out: list[PendingRun] = []
-        for log_key in await self._store.list_log_keys(ctx):
-            for run_id, run_events in _by_run(await self._store.read(log_key, ctx)).items():
-                if status_of(run_events) is not RunStatus.WAITING_HUMAN:
-                    continue
-                found = _last_interrupt(run_events)
-                if found is None:
-                    continue
-                event, interrupted = found
-                out.append(
-                    PendingRun(
-                        run_id=run_id,
-                        session_id=event.session_id,
-                        invocable=event.origin,
-                        thread_id=interrupted.thread_id or run_id,
-                        payload=interrupted.payload,
-                    )
+        for summary in await self._store.list_runs(ctx, status=RunStatus.WAITING_HUMAN):
+            found = _last_interrupt(await self._store.read_run(summary.log_key, summary.run_id, ctx))
+            if found is None:
+                continue
+            event, interrupted = found
+            out.append(
+                PendingRun(
+                    run_id=summary.run_id,
+                    session_id=event.session_id,
+                    invocable=event.origin,
+                    thread_id=interrupted.thread_id or summary.run_id,
+                    payload=interrupted.payload,
                 )
+            )
         return out
 
     async def drain(self) -> None:
@@ -299,14 +301,6 @@ class Runtime:
 
 def _engine_failed(message: str) -> RunFailed:
     return RunFailed(error_code="engine_error", message=message, retryable=False)
-
-
-def _by_run(events: Sequence[Event]) -> dict[str, list[Event]]:
-    """Group a log's events by ``run_id``, preserving append order within each run."""
-    by_run: dict[str, list[Event]] = {}
-    for event in events:
-        by_run.setdefault(event.run_id, []).append(event)
-    return by_run
 
 
 def _last_interrupt(events: Sequence[Event]) -> tuple[Event, RunInterrupted] | None:

@@ -18,12 +18,32 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `message.completed` for the interrupted message). New `agentdeck runs signal
   <run_id> cancel --control-db <path>` CLI command to send that signal from a
   second terminal.
+- `EventStorePort` (not yet part of any stable public API) gains focused
+  queries alongside its whole-log reads: `last_seq` (a run's highest
+  recorded `seq`), `run_status` (one run's status, derived from its own
+  events), `list_runs` (every run for a tenant, optionally filtered by
+  status), and pagination (`offset`/`limit`) on `read`. Both the memory and
+  SQLite stores implement all four; the SQLite ones use the existing
+  run/log indexes.
 
 ### Changed
 - Internal: the v2 event-log port (not yet part of any stable public API) is
   now named `EventStorePort` instead of `SessionStorePort`, to avoid confusion
   with the OpenAI Agents engine's own session-scoped storage. No behavior
   change and nothing outside the package imports this port.
+- Internal: the Runtime's resume path and the `/pending` listing now use
+  `EventStorePort`'s focused queries instead of folding a whole log to answer
+  one run's status or find waiting runs. Same results, much less work per call:
+  a resume deserializes only its own run's events instead of the whole session's
+  (22 instead of 4,400 on a 200-run session), and the pending listing is one
+  indexed statement returning each run's last lifecycle event — one event parsed
+  per run instead of every event of every log (4.2 ms instead of 32 ms for the
+  same 201 runs).
+
+### Removed
+- `EventStorePort.list_log_keys` (not yet part of any stable public API), along
+  with the log-by-log pending scan that was its only caller. `list_runs` answers
+  the same question without enumerating logs first.
 
 ### Fixed
 - The OpenAI Agents engine no longer runs the SDK's default trace exporter on

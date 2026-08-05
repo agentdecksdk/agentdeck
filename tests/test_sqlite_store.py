@@ -1,8 +1,11 @@
-"""The SQLite event log: same contract as ``tests/test_memory_store.py`` (#52), durable.
+"""The SQLite event log: same contract as ``tests/test_memory_store.py``, durable.
 
-Mirrors that file's cases 1:1 rather than sharing fixtures across the two — two stores is
-too small a set to justify a generic parametrization layer (YAGNI); a reviewer can diff
-the two files directly to confirm the contract actually matches.
+Mirrors that file's cases 1:1 for the append/read/read_run/tenancy basics, so a reviewer
+can diff the two directly, plus the one thing memory cannot prove (durability across
+instances). The focused queries — ``last_seq``, ``run_status``, ``list_runs``, paginated
+``read`` — are asserted once for both stores in ``tests/contract/test_store.py`` instead:
+SQLite answers those with its own SQL rather than the port's default, so parity there is
+an invariant worth running against every store, not prose to be diffed by hand.
 """
 
 from __future__ import annotations

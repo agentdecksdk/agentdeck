@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentdeck.core.ports import EventStorePort
+from agentdeck.core.ports import EventStorePort, RunSummary
+from agentdeck.core.status import LIFECYCLE_KINDS
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from agentdeck.core.context import RunContext
     from agentdeck.core.events import Event
+    from agentdeck.core.status import RunStatus
 
 
 class MemoryEventStore(EventStorePort):
@@ -32,15 +34,36 @@ class MemoryEventStore(EventStorePort):
             raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
         self._logs.setdefault((ctx.tenant, log_key), []).extend(events)
 
-    async def read(self, log_key: str, ctx: RunContext) -> list[Event]:
-        return list(self._logs.get((ctx.tenant, log_key), ()))
+    async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
+        if limit is not None and limit < 0:
+            raise ValueError(f"limit must be None or >= 0, got {limit}")
+        log = self._logs.get((ctx.tenant, log_key), ())
+        page = log[max(offset, 0) :]
+        return list(page if limit is None else page[:limit])
 
     async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
         log = self._logs.get((ctx.tenant, log_key), ())
         return [event for event in log if event.run_id == run_id and event.seq >= from_seq]
 
-    async def list_log_keys(self, ctx: RunContext) -> list[str]:
-        return [log_key for tenant, log_key in self._logs if tenant == ctx.tenant]
+    async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
+        log = self._logs.get((ctx.tenant, log_key), ())
+        return max((event.seq for event in log if event.run_id == run_id), default=-1)
+
+    async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
+        runs = [
+            (log_key, event.run_id)
+            for (tenant, log_key), log in self._logs.items()
+            if tenant == ctx.tenant
+            for event in log
+            if event.kind in LIFECYCLE_KINDS
+        ]
+        # One fold per run through the port's own projection rather than a second inline
+        # copy of it: re-walking a dev-sized dict is cheaper than two ways to derive status.
+        summaries = [
+            RunSummary(log_key=log_key, run_id=run_id, status=await self.run_status(log_key, run_id, ctx))
+            for log_key, run_id in dict.fromkeys(runs)
+        ]
+        return [summary for summary in summaries if status is None or summary.status is status]
 
 
 __all__ = ["MemoryEventStore"]

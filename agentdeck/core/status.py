@@ -44,6 +44,10 @@ _KIND_TO_STATUS: dict[str, RunStatus] = {
     "run.cancelled": RunStatus.CANCELLED,
 }
 
+# A store that can index by kind only has to look at these to answer "what status is this
+# run" — the derivation itself stays here, in ``status_of``.
+LIFECYCLE_KINDS: frozenset[str] = frozenset(_KIND_TO_STATUS)
+
 
 def status_of(events: Sequence[Event]) -> RunStatus:
     """One run's status: the last transition kind wins, in log order. No events at all is
@@ -61,4 +65,4 @@ def can_resume(status: RunStatus) -> bool:
     return status is RunStatus.WAITING_HUMAN
 
 
-__all__ = ["TERMINAL_STATUSES", "RunStatus", "can_resume", "status_of"]
+__all__ = ["LIFECYCLE_KINDS", "TERMINAL_STATUSES", "RunStatus", "can_resume", "status_of"]

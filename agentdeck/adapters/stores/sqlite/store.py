@@ -13,7 +13,8 @@ import sqlite3
 from typing import TYPE_CHECKING
 
 from agentdeck.core.events import parse_event
-from agentdeck.core.ports import EventStorePort
+from agentdeck.core.ports import EventStorePort, RunSummary
+from agentdeck.core.status import LIFECYCLE_KINDS, status_of
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
 
     from agentdeck.core.context import RunContext
     from agentdeck.core.events import Event
+    from agentdeck.core.status import RunStatus
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -59,9 +61,11 @@ class SqliteEventStore(EventStorePort):
         async with self._lock:
             await asyncio.to_thread(self._insert, rows)
 
-    async def read(self, log_key: str, ctx: RunContext) -> list[Event]:
+    async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
+        if limit is not None and limit < 0:
+            raise ValueError(f"limit must be None or >= 0, got {limit}")
         async with self._lock:
-            rows = await asyncio.to_thread(self._select_log, ctx.tenant, log_key)
+            rows = await asyncio.to_thread(self._select_log, ctx.tenant, log_key, max(offset, 0), limit)
         return [parse_event(json.loads(row)) for row in rows]
 
     async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
@@ -69,17 +73,30 @@ class SqliteEventStore(EventStorePort):
             rows = await asyncio.to_thread(self._select_run, ctx.tenant, log_key, run_id, from_seq)
         return [parse_event(json.loads(row)) for row in rows]
 
-    async def list_log_keys(self, ctx: RunContext) -> list[str]:
+    async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
         async with self._lock:
-            return await asyncio.to_thread(self._select_log_keys, ctx.tenant)
+            return await asyncio.to_thread(self._select_last_seq, ctx.tenant, log_key, run_id)
+
+    async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
+        """Overrides the port's per-run fold: one statement returns each run's *last*
+        lifecycle row, so a listing deserializes one event per run instead of all of them."""
+        async with self._lock:
+            rows = await asyncio.to_thread(self._select_last_lifecycle, ctx.tenant)
+        summaries = [
+            RunSummary(log_key=log_key, run_id=run_id, status=status_of([parse_event(json.loads(data))]))
+            for log_key, run_id, data in rows
+        ]
+        return [summary for summary in summaries if status is None or summary.status is status]
 
     def _insert(self, rows: list[tuple[str, str, str, int, str]]) -> None:
         self._conn.executemany("INSERT INTO events (tenant, log_key, run_id, seq, data) VALUES (?, ?, ?, ?, ?)", rows)
         self._conn.commit()
 
-    def _select_log(self, tenant: str, log_key: str) -> list[str]:
+    def _select_log(self, tenant: str, log_key: str, after: int, limit: int | None) -> list[str]:
+        # SQLite treats a negative LIMIT as "no limit" — the one case a plain int can't say.
         cursor = self._conn.execute(
-            "SELECT data FROM events WHERE tenant = ? AND log_key = ? ORDER BY id ASC", (tenant, log_key)
+            "SELECT data FROM events WHERE tenant = ? AND log_key = ? ORDER BY id ASC LIMIT ? OFFSET ?",
+            (tenant, log_key, -1 if limit is None else limit, after),
         )
         return [row[0] for row in cursor.fetchall()]
 
@@ -90,9 +107,24 @@ class SqliteEventStore(EventStorePort):
         )
         return [row[0] for row in cursor.fetchall()]
 
-    def _select_log_keys(self, tenant: str) -> list[str]:
-        cursor = self._conn.execute("SELECT DISTINCT log_key FROM events WHERE tenant = ?", (tenant,))
-        return [row[0] for row in cursor.fetchall()]
+    def _select_last_seq(self, tenant: str, log_key: str, run_id: str) -> int:
+        cursor = self._conn.execute(
+            "SELECT MAX(seq) FROM events WHERE tenant = ? AND log_key = ? AND run_id = ?", (tenant, log_key, run_id)
+        )
+        row = cursor.fetchone()
+        return row[0] if row is not None and row[0] is not None else -1
+
+    def _select_last_lifecycle(self, tenant: str) -> list[tuple[str, str, str]]:
+        # SQLite guarantees the bare columns of a MAX() group come from the row that held the
+        # maximum, so this is the newest lifecycle event of each run in a single group-by.
+        placeholders = ", ".join("?" * len(LIFECYCLE_KINDS))
+        cursor = self._conn.execute(
+            "SELECT log_key, run_id, data, MAX(id) FROM events "
+            f"WHERE tenant = ? AND json_extract(data, '$.kind') IN ({placeholders}) "
+            "GROUP BY log_key, run_id",
+            (tenant, *sorted(LIFECYCLE_KINDS)),
+        )
+        return [(row[0], row[1], row[2]) for row in cursor.fetchall()]
 
     def close(self) -> None:
         self._conn.close()
