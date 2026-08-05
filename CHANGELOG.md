@@ -36,6 +36,12 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `sqlite3` exception is kept as the cause for diagnosis.
 
 ### Changed
+- `MemoryEventStore.append` now yields one scheduling turn (`await asyncio.sleep(0)`)
+  before returning, matching what every durable store already does (SQLite's own
+  `to_thread`). Fidelity, not correctness: a caller whose liveness secretly depended
+  on the in-memory store never suspending — the way the bounded sink dispatch briefly
+  did, before its own fix — is now exercised the same way it would be against a real
+  deployment, in dev and in tests, instead of only by measurement in production.
 - MCP now lives in `agentdeck.adapters.tools.mcp` (registry, hardened HTTP
   transport, agent wiring — all unchanged). `from agentdeck.agents.mcp import ...`,
   `from agentdeck.agents.mcp.lifecycle import ...` and `from agentdeck.agents
