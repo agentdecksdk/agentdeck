@@ -10,6 +10,6 @@ workflows, and skills.
 """
 
 from agentdeck.app import App
-from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, SkillError
+from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, SkillError, StoreError
 
-__all__ = ["AgentdeckError", "App", "ConfigError", "NotFoundError", "SkillError"]
+__all__ = ["AgentdeckError", "App", "ConfigError", "NotFoundError", "SkillError", "StoreError"]

@@ -30,6 +30,10 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   unreachable server still degrades a run instead of failing it, and an agent
   whose servers are all up gets its instructions back byte-for-byte, so upstream
   prompt caches keep hitting.
+- `agentdeck.StoreError`: the error a durable store raises when it cannot be
+  read or written. `except StoreError` (or `except AgentdeckError`) now covers
+  the SQLite event log and the SQLite control-signal database; the underlying
+  `sqlite3` exception is kept as the cause for diagnosis.
 
 ### Changed
 - MCP now lives in `agentdeck.adapters.tools.mcp` (registry, hardened HTTP
@@ -39,8 +43,6 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   dropped in a later release. The deeper module paths
   `agentdeck.agents.mcp.transport` and `agentdeck.agents.mcp.wiring` are gone —
   import those names from the package instead.
-
-### Changed
 - `EventSinkPort.emit` must now return promptly: an emit that blocks longer
   than the dispatch's `emit_timeout` (5s) is abandoned and counted as a
   failure, and a sink that does it repeatedly is disabled like any other
@@ -49,6 +51,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 - `Runtime.drain()` is now terminal — it closes each sink rather than
   pausing it, and returns within a bounded time even against a sink whose
   `emit` never returns. Runs after a `drain()` reach no sinks.
+- The SQLite event log and the SQLite control-signal database now open in
+  **WAL** mode with an explicit 5-second busy timeout. Readers no longer wait
+  behind a writer, so a second process tailing or replaying a log costs the one
+  writing it far less: in a saturated benchmark, read latency at the 99th
+  percentile and in the worst case improved by roughly an order of magnitude.
+  Two things to know about the files: SQLite keeps
+  `<db>-wal` and `<db>-shm` alongside each database — back them up
+  and move them together, not the one file on its own — and WAL depends on
+  shared memory that network filesystems (NFS, SMB) do not provide reliably, so
+  keep these databases on local disk. In-memory databases are unaffected.
 
 ### Fixed
 - Shutdown no longer hangs forever on a wedged sink: every wait on the sink
@@ -62,6 +74,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `CancelledError` from its own `emit` is counted as a failure instead of
   silently killing its consumer; and a clean shutdown with an empty queue no
   longer logs a spurious "queued events go undelivered" error.
+- A SQLite failure inside the event log or the control-signal database no longer
+  surfaces as a raw `sqlite3` exception: it is raised as `StoreError`, with the
+  original chained as its cause. This matters most when two processes answer the
+  same human-in-the-loop interrupt: the one that loses gets the documented
+  "somebody else claimed it" answer, and a store that genuinely cannot be
+  reached raises `StoreError` — two outcomes a raw `sqlite3.OperationalError:
+  database is locked` used to blur together.
 - Crash recovery for conversations on the OpenAI Agents engine: a process that
   died mid-turn used to leave that conversation permanently short of whatever the
   event log had already recorded — the question it was killed on, or the answer it

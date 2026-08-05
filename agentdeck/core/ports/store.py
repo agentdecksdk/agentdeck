@@ -83,7 +83,9 @@ class EventStorePort(ABC):
         same write that tests for it, which is what makes double-resume protection hold
         between two processes sharing a store and not merely between two tasks. Losing is
         never an error: a stray resume is a no-op by design (``can_resume``), so a store
-        returns ``False`` rather than raising.
+        returns ``False`` rather than raising. A store it cannot reach at all is a different
+        answer and does raise — ``StoreError`` from the durable ones — because ``False`` says
+        somebody else already recorded this resume, which an unreachable store cannot know.
 
         The ``seq`` condition covers what the status alone cannot. A caller stamps its event
         before claiming, so a slow one can arrive after the run was resumed *and* interrupted
