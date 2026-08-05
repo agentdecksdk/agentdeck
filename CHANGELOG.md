@@ -59,8 +59,6 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `CancelledError` from its own `emit` is counted as a failure instead of
   silently killing its consumer; and a clean shutdown with an empty queue no
   longer logs a spurious "queued events go undelivered" error.
-
-### Fixed
 - Crash recovery for conversations on the OpenAI Agents engine: a process that
   died mid-turn used to leave that conversation permanently short of whatever the
   event log had already recorded — the question it was killed on, or the answer it
