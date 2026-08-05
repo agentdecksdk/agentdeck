@@ -67,11 +67,11 @@ runtime-evaluated-base-classes = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-# tests/golden/conftest.py imports fake_model by name and tests/contract imports
-# contract_cases; both basenames are unique across test dirs, because a shared one collides
-# on sys.modules. Explicit beats pytest's implicit basedir insertion, which would go
-# ambiguous if tests/conftest.py appeared.
-pythonpath = ["tests/golden", "tests/contract"]
+# tests/golden/conftest.py imports fake_model by name, tests/contract imports contract_cases
+# and tests/ imports concurrency_worker; all three basenames are unique across test dirs,
+# because a shared one collides on sys.modules. Explicit beats pytest's implicit basedir
+# insertion, which would go ambiguous if tests/conftest.py appeared.
+pythonpath = ["tests", "tests/golden", "tests/contract"]
 
 [build-system]
 requires = ["hatchling"]

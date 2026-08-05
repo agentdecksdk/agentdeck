@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -85,6 +86,10 @@ def control_db(root: Path) -> Path:
 
 def marks_file(root: Path) -> Path:
     return root / "node-b-marks"
+
+
+def windows_file(root: Path) -> Path:
+    return root / "claim-windows"
 
 
 def resume_log_key(trial: int) -> str:
@@ -187,6 +192,31 @@ class MarkingStub(StubEngine):
             yield payload
 
 
+class ClaimTimingStore(SqliteEventStore):
+    """Records the window each ``claim_resume`` attempt occupied, both peers appending to
+    one file.
+
+    What this buys the test is the difference between two claims that overlapped and two
+    that merely both happened: only the first is a race, and only the first can catch a
+    claim that checks before it appends. Which peer wins cannot answer that — one peer
+    winning every trial is a plausible outcome of a real race on a loaded box. Wall-clock
+    nanoseconds, not a monotonic count, because only the wall clock means the same thing in
+    two processes.
+    """
+
+    def __init__(self, path: Path, windows: Path) -> None:
+        super().__init__(path)
+        self._windows = windows
+
+    async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
+        started = time.time_ns()
+        try:
+            return await super().claim_resume(log_key, run_id, event, ctx)
+        finally:
+            with self._windows.open("a") as handle:
+                handle.write(f"{run_id} {started} {time.time_ns()}\n")
+
+
 class StallingStore(SqliteEventStore):
     """Blocks forever once ``run_id`` has ``after`` events durable, so the test can kill
     this process with that run genuinely open mid-stream — not tidily between two runs."""
@@ -282,7 +312,7 @@ def _completed() -> ResponseCompletedEvent:
 async def _race_resume(tag: str, trials: int, root: Path) -> None:
     """Both peers answer one interrupt at the same instant; the store picks the winner."""
     sync = root / "sync"
-    store = SqliteEventStore(events_db(root))
+    store = ClaimTimingStore(events_db(root), windows_file(root))
     runtime = Runtime([MarkingStub(marks_file(root))], store, {APPROVER: approver_spec()})
     for trial in range(trials):
         async with asyncio.timeout(TRIAL_TIMEOUT):

@@ -111,6 +111,21 @@ def _read_logs(root: Path, log_keys: Sequence[str]) -> dict[str, list[Event]]:
     return asyncio.run(_read())
 
 
+def _claim_windows(root: Path) -> dict[str, list[tuple[int, int]]]:
+    """Every claim attempt per run, as the (start, end) wall-clock nanoseconds the worker
+    recorded around it."""
+    windows: dict[str, list[tuple[int, int]]] = {}
+    for line in worker.windows_file(root).read_text().splitlines():
+        run_id, start, end = line.split()
+        windows.setdefault(run_id, []).append((int(start), int(end)))
+    return windows
+
+
+def _overlap(windows: Sequence[tuple[int, int]]) -> bool:
+    """Whether both peers were inside ``claim_resume`` at the same moment."""
+    return max(start for start, _ in windows) < min(end for _, end in windows)
+
+
 def _assert_run_is_coherent(events: Sequence[Event], label: str) -> None:
     """The contract suite's own two invariants, on a log two processes produced."""
     assert check_contiguous(events) == [], f"{label}: seq gaps {check_contiguous(events)}\n{_dump(events)}"
@@ -118,9 +133,18 @@ def _assert_run_is_coherent(events: Sequence[Event], label: str) -> None:
     assert check_terminal(events) is None, f"{label}: {check_terminal(events)}\n{_dump(events)}"
 
 
-def _wait_for(path: Path, timeout: float = WORKER_TIMEOUT) -> None:
+def _wait_for(path: Path, process: subprocess.Popen[str], timeout: float = WORKER_TIMEOUT) -> None:
+    """Block until the other process touches ``path``.
+
+    Watching it exit as well as the file: a process that dies on the way to its gate will
+    never touch anything, and waiting out the full timeout for that turns a plain crash into
+    a three-minute mystery.
+    """
     deadline = time.monotonic() + timeout
     while not path.exists():
+        if process.poll() is not None:
+            _, stderr = process.communicate()
+            raise AssertionError(f"exited {process.returncode} before touching {path.name}\n{stderr}")
         if time.monotonic() >= deadline:
             raise AssertionError(f"{path.name} never appeared: the other process never reached its gate")
         time.sleep(0.01)
@@ -132,11 +156,16 @@ def test_two_processes_resuming_one_interrupt_leave_one_winner_and_one_node_b_ex
     terminal event may land, and the loser must exit 0 having yielded nothing at all."""
     reported = _run_peers("resume", RESUME_TRIALS, tmp_path)
     marks = worker.marks_file(tmp_path).read_text().split()
+    attempts = _claim_windows(tmp_path)
     logs = _read_logs(tmp_path, [worker.resume_log_key(trial) for trial in range(RESUME_TRIALS)])
     won: Counter[str] = Counter()
+    raced = 0
 
     for trial in range(RESUME_TRIALS):
         log = logs[worker.resume_log_key(trial)]
+        windows = attempts[worker.resume_run_id(trial)]
+        assert len(windows) == len(TAGS), f"trial {trial}: {len(windows)} claims, both peers must attempt one"
+        raced += _overlap(windows)
         yielded = {tag: _kinds(reported, tag, trial) for tag in TAGS}
         winners = [tag for tag, kinds in yielded.items() if kinds]
 
@@ -155,7 +184,15 @@ def test_two_processes_resuming_one_interrupt_leave_one_winner_and_one_node_b_ex
             *worker.APPROVED_KINDS,
         ], f"trial {trial}\n{_dump(log)}"
 
-    print(f"double-resume winners over {RESUME_TRIALS} trials: {dict(won)}")
+    # Overlapping claims, not the winner split, are what says this raced: a real race can
+    # legitimately go 20/0 on a loaded box (19/1 has been measured against 3-16 idle), while
+    # a loser whose claim starts after the winner's finished would lose for the wrong reason
+    # and stop catching a claim that checks before it appends.
+    assert raced, (
+        f"no trial had both peers inside claim_resume at once ({dict(won)} won): the barrier "
+        "released them apart, so nothing here contended"
+    )
+    print(f"double-resume over {RESUME_TRIALS} trials: winners {dict(won)}, {raced} genuinely overlapping")
 
 
 def test_a_cancel_racing_completion_leaves_exactly_one_terminal_event_with_nothing_after_it(tmp_path: Path) -> None:
@@ -197,7 +234,14 @@ def test_a_cancel_racing_completion_leaves_exactly_one_terminal_event_with_nothi
 def test_two_processes_running_different_runs_on_one_log_keep_each_runs_seq_contiguous(tmp_path: Path) -> None:
     """One session log, two runs, two processes appending into it at once. ``seq`` is per
     run, so each run's must still be contiguous from 0 and closed by exactly one terminal
-    event however the two runs' writes ended up interleaved in the file."""
+    event however the two runs' writes ended up interleaved in the file.
+
+    The log half of "two turns on one session" only. Engine-private execution state is out
+    of scope and cannot be brought into it here: every assertion below reads the event log,
+    where that state never appears, and the stub engine holds none to clobber. Two
+    concurrent turns corrupting an engine's own state is issue #83 — this test passing is
+    not evidence about it either way.
+    """
     reported = _run_peers("interleave", INTERLEAVE_TRIALS, tmp_path)
     logs = _read_logs(tmp_path, [worker.interleave_log_key(trial) for trial in range(INTERLEAVE_TRIALS)])
     interleaved = 0
@@ -232,7 +276,7 @@ def test_a_restart_continues_a_killed_processs_log_without_resetting_seq(tmp_pat
     (tmp_path / "sync").mkdir()
     victim = _spawn("restart", "victim", 1, tmp_path)
     try:
-        _wait_for(tmp_path / "sync" / "mid")
+        _wait_for(tmp_path / "sync" / "mid", victim)
         victim.kill()
         victim_out, _ = victim.communicate(timeout=WORKER_TIMEOUT)
     finally:
