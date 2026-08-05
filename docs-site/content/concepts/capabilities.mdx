@@ -1,0 +1,67 @@
+---
+title: Capabilities
+description: Sandbox powers declared on the agent, not plumbed by hand.
+---
+
+# Capabilities
+
+Capabilities are what an agent is *allowed to do* inside its sandbox: run commands, edit
+files, remember things, compact its own context, use skills. You declare them; AgentDeck
+builds the SDK toolsets.
+
+Subclass `BaseSandboxAgent` and set `capabilities`:
+
+```python
+# .agentdeck/agents/fixer/agent.py
+from agentdeck.agents import BaseSandboxAgent, CapabilitiesSpec, FilesystemSpec
+
+
+class Fixer(BaseSandboxAgent):
+    instructions = "Investigate the failing test and patch it."
+    capabilities = CapabilitiesSpec(
+        filesystem=FilesystemSpec(),
+        skills=["parse-request"],
+    )
+```
+
+## Shorthand
+
+Every structured capability takes `True` for its default spec or `False` to disable, so the
+common case stays short:
+
+```python
+from agentdeck.agents import BaseSandboxAgent, CapabilitiesSpec
+
+
+class Analyst(BaseSandboxAgent):
+    instructions = "Answer questions about the CSVs in the workspace."
+    capabilities = CapabilitiesSpec(filesystem=True, memory=True, shell=False)
+```
+
+Only `shell` is on by default. `extra="forbid"` means a typo in a capability name is an
+error at import, not a silently missing tool.
+
+## What each one gives the agent
+
+| Field | Effect |
+|---|---|
+| `shell` | sandbox `exec_command`, wrapped with host-side caps (`ShellSpec`) |
+| `filesystem` | sandbox file tools, including an `apply_patch` shim for chat-completions models (`FilesystemSpec`) |
+| `memory` | SDK memory: layout, read, and generation config (`MemorySpec`) |
+| `compaction` | context compaction when a conversation outgrows the window (`CompactionSpec`) |
+| `skills` + `skills_dir` | exposes the named [skill](/concepts/skills) bundles to the agent |
+
+## Shell caps are settings, not code
+
+`ShellSpec` is layered settings (`AGENTDECK_SHELL_*` env, `shell:` YAML), so the operational
+limits move without touching the agent:
+
+```bash
+export AGENTDECK_SHELL_YIELD_FLOOR_MS=600000   # how long a command may run before yielding
+export AGENTDECK_SHELL_MAX_OUTPUT_TOKENS=15000 # output budget; overflow is marked truncated
+```
+
+Truncated output is marked as such, so the model can tell "that's all there was" from
+"there was more."
+
+Next: [skills](/concepts/skills) are the deterministic half of the same picture.

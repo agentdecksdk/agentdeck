@@ -1,0 +1,169 @@
+/* AgentDeck brand sheet §3 palette + §4 type scale, applied over nextra-theme-docs. */
+
+:root {
+  --brand-navy: #083d77;
+  --brand-beige: #ebebd3;
+  --brand-magenta: #da4167;
+  --brand-ink: #0f172a;
+  --brand-slate: #334155;
+  --brand-cool-gray: #94a3b8;
+  --brand-soft-gray: #e5e7eb;
+  --brand-canvas: #fbf7f1;
+
+  /* Nextra derives its primary-50..900 ramp from these three. Regal Navy. */
+  --nextra-primary-hue: 211.4;
+  --nextra-primary-saturation: 87.4%;
+  --nextra-primary-lightness: 30%;
+  --nextra-bg: 251 247 241;
+}
+
+.dark {
+  /* Navy cannot carry accents on Ink, so the sheet's accent takes over: Magenta Bloom. */
+  --nextra-primary-hue: 345.1;
+  --nextra-primary-saturation: 67.4%;
+  --nextra-primary-lightness: 55.5%;
+  --nextra-bg: 15 23 42;
+}
+
+body {
+  color: var(--brand-ink);
+}
+
+.dark body {
+  color: var(--brand-soft-gray);
+}
+
+.nextra-border,
+:is(.nextra-border) {
+  border-color: color-mix(in srgb, var(--brand-navy) 14%, transparent);
+}
+
+.dark .nextra-border,
+.dark :is(.nextra-border) {
+  border-color: color-mix(in srgb, var(--brand-cool-gray) 22%, transparent);
+}
+
+/* §6 Brand applications: the docs header is a solid Regal Navy band. */
+.nextra-navbar-blur {
+  background: var(--brand-navy);
+  backdrop-filter: none;
+  border-bottom-color: color-mix(in srgb, var(--brand-ink) 45%, transparent);
+}
+
+.nextra-navbar a,
+.nextra-navbar button,
+.nextra-navbar summary {
+  color: var(--brand-beige);
+}
+
+.nextra-navbar a:hover,
+.nextra-navbar button:hover {
+  color: #fff;
+  opacity: 1;
+}
+
+/* §5 Navigation: the active sidebar item is the docs equivalent of the sheet's active tab.
+   Nextra styles it from primary-100/800, so the palette goes in at the ramp, not per class. */
+:root {
+  --x-color-primary-100: color-mix(in srgb, var(--brand-beige) 62%, #fff);
+  --x-color-primary-800: var(--brand-navy);
+}
+
+.dark {
+  --x-color-primary-400: var(--brand-magenta);
+  /* Magenta Bloom is text here, and pure it lands at 4.19:1 on Ink — under AA. Nudged 10%
+     toward Beige for 4.67:1; the only derived value in the file, and it exists for contrast. */
+  --x-color-primary-600: #dc5272;
+}
+
+/* The accent marks intent without becoming body text: pure Magenta Bloom is 3.99:1 on the
+   canvas, so it underlines the link rather than recoloring it (decoration is exempt). */
+main a:hover {
+  text-decoration-color: var(--brand-magenta);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+/* §4 Typography: geometric sans headings, Inter body, the sheet's type scale. */
+main :is(h1, h2, h3, h4) {
+  font-family: var(--font-display), var(--font-body), sans-serif;
+  letter-spacing: -0.02em;
+  color: var(--brand-navy);
+}
+
+.dark main :is(h1, h2, h3, h4) {
+  color: var(--brand-beige);
+}
+
+main h1 {
+  font-size: clamp(2.25rem, 1.5rem + 2.6vw, 3.5rem);
+  line-height: 1.14;
+  font-weight: 600;
+}
+
+main h2 {
+  font-size: clamp(1.75rem, 1.3rem + 1.6vw, 2.5rem);
+  line-height: 1.2;
+  border-color: color-mix(in srgb, var(--brand-navy) 14%, transparent);
+}
+
+main h3 {
+  font-size: 1.75rem;
+  line-height: 1.29;
+}
+
+main h4 {
+  font-size: 1.25rem;
+  line-height: 1.4;
+}
+
+/* Terminal/code cards sit on Ink in both themes, as the sheet draws them. */
+.nextra-code:not(pre) {
+  background: color-mix(in srgb, var(--brand-beige) 55%, transparent);
+  border-color: color-mix(in srgb, var(--brand-navy) 18%, transparent);
+  color: var(--brand-navy);
+}
+
+.dark .nextra-code:not(pre) {
+  background: color-mix(in srgb, var(--brand-cool-gray) 14%, transparent);
+  color: var(--brand-beige);
+}
+
+figure.nextra-code pre,
+.nextra-code pre {
+  background: var(--brand-ink) !important;
+}
+
+/* Tables: beige header row, hairline navy rules. */
+main th {
+  background: color-mix(in srgb, var(--brand-beige) 70%, transparent);
+  color: var(--brand-navy);
+}
+
+.dark main th {
+  background: color-mix(in srgb, var(--brand-navy) 55%, transparent);
+  color: var(--brand-beige);
+}
+
+/* The one signature the sheet already owns: the two-line tagline, navy over magenta. */
+.brand-tagline {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 600;
+  font-size: clamp(1.75rem, 1.2rem + 2vw, 2.5rem);
+  line-height: 1.16;
+  letter-spacing: -0.02em;
+  margin: 0.5rem 0 2rem;
+}
+
+.brand-tagline span {
+  display: block;
+  color: var(--brand-navy);
+}
+
+.dark .brand-tagline span {
+  color: var(--brand-beige);
+}
+
+.brand-tagline span + span {
+  color: var(--brand-magenta);
+}
