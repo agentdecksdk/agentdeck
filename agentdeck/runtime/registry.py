@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import sys
+import types
 from dataclasses import dataclass, field
+from importlib.machinery import ModuleSpec
 from pathlib import Path
 from typing import Generic, TypeVar
 
 from agentdeck.errors import ConfigError, NotFoundError
 
 T = TypeVar("T")
+
+PROJECT_DIR = ".agentdeck"
+_PROJECT_ALIAS = "agentdeck_project"
 
 
 @dataclass(slots=True)
@@ -80,6 +86,25 @@ class PluginRegistry(Generic[T]):
         return path.is_dir() and not path.name.startswith(("_", ".")) and (path / f"{self.module_name}.py").is_file()
 
 
+def mount_project_dir() -> str:
+    """Make ``./.agentdeck`` importable as package ``agentdeck_project``; returns that name.
+
+    A hidden dir can't be imported by name, so we register a synthetic parent
+    package whose ``__path__`` points at it; the normal import machinery then
+    resolves ``<alias>.agents.<bundle>.agent`` as namespace packages — no
+    ``__init__.py`` needed anywhere under the project dir.
+    """
+    root = Path(PROJECT_DIR).resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(f"project dir not found: {root}")
+    module = types.ModuleType(_PROJECT_ALIAS)
+    module.__path__ = [str(root)]
+    module.__spec__ = ModuleSpec(_PROJECT_ALIAS, None, is_package=True)
+    module.__spec__.submodule_search_locations = [str(root)]
+    sys.modules[_PROJECT_ALIAS] = module
+    return _PROJECT_ALIAS
+
+
 def _package_dir(package: str) -> Path | None:
     spec = importlib.util.find_spec(package)
     if spec is None or not spec.submodule_search_locations:
@@ -87,4 +112,4 @@ def _package_dir(package: str) -> Path | None:
     return Path(next(iter(spec.submodule_search_locations)))
 
 
-__all__ = ["PluginRegistry"]
+__all__ = ["PROJECT_DIR", "PluginRegistry", "mount_project_dir"]
