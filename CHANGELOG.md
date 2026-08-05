@@ -8,6 +8,29 @@ they move under a version heading when a release is tagged.
 ## [Unreleased]
 
 ### Added
+- `agentdeck.adapters.engines.langgraph`: a second real `EnginePort` (M0 step 4, #53) over
+  a compiled LangGraph `StateGraph` — `astream(..., stream_mode="updates")` maps onto
+  `node.updated`, an `interrupt()` onto `run.interrupted`, and resuming continues the same
+  graph with `Command(resume=value)`. The checkpointer (sqlite/memory/postgres) is
+  engine-private, relocated from `runtime/checkpointer.py` (the old path re-exports it
+  unchanged so `agentdeck.workflows.base`, v1, keeps working); `.importlinter` gained a
+  contract so only this adapter may import `langgraph` outside v1.
+- `EnginePort.resume` and `SessionStorePort.list_log_keys`: the two new port methods
+  behind resuming a suspended run — every engine (stub, openai-agents, langgraph) and
+  store (memory, sqlite) implements them, joined by the shared contract suite
+  (`tests/contract/test_resume.py`).
+- `Runtime.resume`/`Runtime.pending`: an atomic `WAITING_HUMAN` -> `RUNNING` transition
+  (two concurrent resumes: exactly one wins, the other is a no-op with no duplicate `seq`),
+  `seq` recovered from the log's own `max(seq)` so it stays contiguous across a process
+  restart, and a stray resume against a completed run is a no-op rather than an error.
+  `core/status.py` derives a run's status by folding its own events — there is no separate
+  status table to fall out of sync with the log.
+- `agentdeck.surfaces.serve.workflows`: an additive `GET /pending` / `POST /resume` surface
+  for v2 workflow runs, alongside (not touching) the existing chat SSE route. Proven by
+  UC2 (`tests/test_uc2_claim_pipeline.py`): a two-node `ClaimPipeline` with an approval
+  interrupt between them survives a real process restart — status reads `WAITING_HUMAN`
+  from the sqlite event log alone, `/pending` lists the interrupt's payload, and resuming
+  runs the second node to `run.completed` with no duplicate events and no `seq` gap.
 - `agentdeck.adapters.engines.openai_agents`: the first real `EnginePort` (M0 step 3,
   #52) — plays a pre-built `agents.Agent` (handoffs and tools included) through
   `Runner.run_streamed` and translates its stream into canonical payloads (`text.delta`,

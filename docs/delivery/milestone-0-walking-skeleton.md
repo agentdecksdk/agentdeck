@@ -80,6 +80,25 @@ fails loudly, not quietly, once attribution changes.
 - The checkpointer stayed engine-private: nothing outside `adapters/engines/langgraph/` imports or reads it (linter + grep).
 - Send a stray `resume` to the already-completed run afterward → no-op per the status machine, not an error.
 
+**Amendment (2026-08-05, #53 — safe-point contract, decided here as the doc asked).**
+`ClaimPipeline`'s interrupting node calls `interrupt()` as its first statement, before any
+other work. A resumed run re-enters that node from its start (LangGraph's own resume
+semantics), but since nothing ran before the call, the re-entry has nothing to repeat: node
+A's own node never re-executes, and no event for it appears twice in the log. The contract
+for any future interrupting node in this codebase: put the `interrupt()` call first, and
+put every side effect either before the node that calls it or after the value it returns —
+never before the call within the same node. This is the same rule v1's workflow interrupts
+already document for `langgraph.types.interrupt()`; UC2 just needed it written down for the
+v2 engine too.
+
+**Amendment (2026-08-05, #53 — double-resume guard is process-local).** The atomic
+`WAITING_HUMAN` → `RUNNING` transition is a lock keyed by `run_id` inside one `Runtime`
+instance, not a store-level compare-and-set. It is correct for two callers racing against
+one process (what the "make sure" bullet above tests), but not for two separate processes
+racing the same run through two different `Runtime`s over the same store — that would need
+a CAS primitive on `SessionStorePort`, which the frozen ports don't have yet. Adding one is
+follow-up work if a real deployment needs it; recorded here rather than silently assumed.
+
 ## 4. Use case 3 — "The rude interruption" (stresses control + ordering guarantees)
 
 **Setup.** A deliberately slow agent: scripted fake emits 30 text chunks with small sleeps. SQLite-backed ControlPort so a second process can signal.
