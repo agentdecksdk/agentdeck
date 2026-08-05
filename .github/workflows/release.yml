@@ -36,13 +36,30 @@ jobs:
           .venv/bin/pytest tests/ -q
       - name: Build
         run: uv build
+      - name: Extract CHANGELOG section
+        run: |
+          # Release notes are the curated CHANGELOG section, not a commit list: extract the
+          # block from "## [<version>]" up to the next "## [" heading or the link-refs block.
+          # A missing section fails loudly — a release without curated notes is the bug this
+          # step exists to prevent, so there is no --generate-notes fallback.
+          version="${GITHUB_REF_NAME#v}"
+          awk -v want="## [$version]" '
+            index($0, want) == 1 { found=1; next }
+            found && index($0, "## [") == 1 { exit }
+            found && index($0, "[") == 1 { exit }
+            found { print }
+          ' CHANGELOG.md | awk 'NF{p=1} p' | tac | awk 'NF{p=1} p' | tac > /tmp/release-notes.md
+          if [ ! -s /tmp/release-notes.md ]; then
+            echo "No CHANGELOG section found for heading '## [$version]' — add release notes to CHANGELOG.md before tagging." >&2
+            exit 1
+          fi
       - name: GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Anything that is not exactly X.Y.Z is a pre-release, so a beta never becomes the
           # repo's "Latest release". Defaulting this way means an odd tag errs toward hidden.
-          flags="--generate-notes"
+          flags="--notes-file /tmp/release-notes.md"
           if [[ ! "${GITHUB_REF_NAME#v}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             flags="$flags --prerelease"
           fi
