@@ -3,15 +3,20 @@ paginated ``read`` — behave identically on every store, parametrized the same 
 engine cases are. Ordering/tenancy/round-trip invariants for ``append``, ``read`` and
 ``read_run`` already live in ``tests/test_memory_store.py`` and ``tests/test_sqlite_store.py``;
 this file covers only the newer focused ops.
+
+The last case is a boundary invariant rather than a query one, and covers both SQLite-backed
+ports by shape: whatever fails underneath, callers see the harness's own error type.
 """
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.context import RunContext
@@ -24,9 +29,13 @@ from agentdeck.core.events import (
     RunStarted,
     TextDelta,
 )
+from agentdeck.core.ports.control import Signal
 from agentdeck.core.status import RunStatus
+from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+
     from agentdeck.core.ports import EventStorePort
 
 TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -345,3 +354,39 @@ async def test_the_focused_queries_never_answer_from_another_tenants_log(event_s
     assert await event_store.run_status("s-1", "r-1", intruder) is RunStatus.PENDING
     assert await event_store.list_runs(intruder) == []
     assert await event_store.read("s-1", intruder, offset=0) == []
+
+
+# Every public method of both SQLite-backed ports, so a method added later without the
+# boundary wrapper is a missing case here rather than a silent leak.
+_SQLITE_CALLS = [
+    pytest.param(SqliteEventStore, lambda port: port.append("s-1", [_event(0, _started())], _ctx()), id="append"),
+    pytest.param(SqliteEventStore, lambda port: port.read("s-1", _ctx()), id="read"),
+    pytest.param(SqliteEventStore, lambda port: port.read_run("s-1", "r-1", _ctx()), id="read_run"),
+    pytest.param(SqliteEventStore, lambda port: port.last_seq("s-1", "r-1", _ctx()), id="last_seq"),
+    pytest.param(SqliteEventStore, lambda port: port.run_status("s-1", "r-1", _ctx()), id="run_status"),
+    pytest.param(SqliteEventStore, lambda port: port.claim_resume("s-1", "r-1", _resumed(2), _ctx()), id="claim"),
+    pytest.param(SqliteEventStore, lambda port: port.list_runs(_ctx()), id="list_runs"),
+    pytest.param(SqliteControlPort, lambda port: port.signal("r-1", Signal.CANCEL), id="signal"),
+    pytest.param(SqliteControlPort, lambda port: port.poll("r-1"), id="poll"),
+]
+
+
+@pytest.mark.parametrize(("port_type", "call"), _SQLITE_CALLS)
+async def test_a_failed_statement_reaches_the_caller_as_a_store_error(
+    port_type: Callable[[], Any], call: Callable[[Any], Coroutine[Any, Any, object]]
+) -> None:
+    """A ``sqlite3`` exception is a library type and must not cross a port: callers of either
+    SQLite-backed port catch ``StoreError``, with the original kept only as the cause.
+
+    ``claim_resume`` is the case that makes this load-bearing — it promises a loser a clean
+    ``False``, so an unreachable store has to be distinguishable from a claim somebody won.
+    Forced by closing the connection, which fails whichever statement the method reaches for:
+    the shape of a database gone unreadable mid-run, without waiting out a real lock.
+    """
+    port = port_type()
+    port.close()
+
+    with pytest.raises(StoreError) as raised:
+        await call(port)
+    assert isinstance(raised.value.__cause__, sqlite3.Error)
+    assert not isinstance(raised.value, sqlite3.Error)

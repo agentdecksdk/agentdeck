@@ -22,6 +22,31 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   kind exporting one class name still collapse to a single invocable, as in v1.)
   Skills are not discovered as invocables yet — no engine runs a `SKILL.md`
   bundle. v1's `App` and its discovery are unchanged.
+- `agentdeck.StoreError`: the error a durable store raises when it cannot be
+  read or written. `except StoreError` (or `except AgentdeckError`) now covers
+  the SQLite event log and the SQLite control-signal database; the underlying
+  `sqlite3` exception is kept as the cause for diagnosis.
+
+### Changed
+- The SQLite event log and the SQLite control-signal database now open in
+  **WAL** mode with an explicit 5-second busy timeout. Readers no longer wait
+  behind a writer, so a second process tailing or replaying a log costs the one
+  writing it far less: in a saturated four-process benchmark, read latency fell
+  from 19.6 ms to 1.2 ms at the 99th percentile (108 ms to 2.9 ms at the worst
+  case) and throughput roughly tripled. Two things to know about the files:
+  SQLite keeps `<db>-wal` and `<db>-shm` alongside each database — back them up
+  and move them together, not the one file on its own — and WAL depends on
+  shared memory that network filesystems (NFS, SMB) do not provide reliably, so
+  keep these databases on local disk. In-memory databases are unaffected.
+
+### Fixed
+- A SQLite failure inside the event log or the control-signal database no longer
+  surfaces as a raw `sqlite3` exception: it is raised as `StoreError`, with the
+  original chained as its cause. This matters most when two processes answer the
+  same human-in-the-loop interrupt: the one that loses gets the documented
+  "somebody else claimed it" answer, and a store that genuinely cannot be
+  reached raises `StoreError` — two outcomes a raw `sqlite3.OperationalError:
+  database is locked` used to blur together.
 
 ## [2.0.0b3] - 2026-08-05
 

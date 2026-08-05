@@ -13,11 +13,13 @@ resume claim, which is the shape two server processes are in.
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from datetime import UTC, datetime
 
 import pytest
 
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
+from agentdeck.adapters.stores.sqlite.store import _BUSY_TIMEOUT_MS
 from agentdeck.core.content import TextBlock
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
@@ -148,6 +150,60 @@ async def test_the_stub_completion_payload_round_trips_through_the_log() -> None
     )
     await store.append("s-1", [event], ctx)
     assert (await store.read("s-1", ctx))[0].payload == payload
+
+
+async def test_a_file_backed_log_opens_in_wal_with_an_explicit_busy_timeout(tmp_path) -> None:
+    """WAL is what keeps a second process's reads out of this one's writes, and the timeout is
+    what makes a peer's in-flight write something to wait out rather than raise over. The
+    ``-wal`` side file is asserted too: it exists beside the database, which is a fact whoever
+    copies or deletes that database has to know.
+    """
+    db_path = tmp_path / "events.sqlite3"
+    store = SqliteEventStore(db_path)
+    try:
+        await store.append("s-1", [_event(0)], _ctx())
+        # Per-connection, so only this store's own connection can be asked. It equals what
+        # sqlite3 itself happens to default to, so this pins the intended wait rather than
+        # proving the pragma ran — the point is that the number is the store's choice.
+        assert store._conn.execute("PRAGMA busy_timeout").fetchone()[0] == _BUSY_TIMEOUT_MS
+        assert (tmp_path / "events.sqlite3-wal").exists()
+        peer = sqlite3.connect(db_path)  # persisted in the header: a fresh connection sees it
+        try:
+            assert peer.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+        finally:
+            peer.close()
+    finally:
+        store.close()
+
+
+async def test_opening_a_pre_wal_file_a_peer_is_writing_falls_back_instead_of_failing(tmp_path) -> None:
+    """Converting a file *into* WAL takes an exclusive lock that a peer's open write denies
+    outright — SQLite refuses it immediately, however long the busy timeout is. Opening a
+    store there has to keep working in whatever mode the file is in: two processes starting
+    at once on a fresh log must not turn a performance posture into a failure to open.
+    """
+    db_path = tmp_path / "events.sqlite3"
+    SqliteEventStore(db_path).close()  # lay down the schema, so opening again writes nothing
+    peer = sqlite3.connect(db_path)
+    peer.execute("PRAGMA journal_mode = DELETE")
+    peer.execute("BEGIN IMMEDIATE")
+    peer.execute("INSERT INTO events (tenant, log_key, run_id, seq, data) VALUES ('acme', 's-1', 'r-9', 0, '{}')")
+    try:
+        store = SqliteEventStore(db_path)
+        assert store._conn.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+        store.close()
+    finally:
+        peer.rollback()
+        peer.close()
+
+
+async def test_an_in_memory_log_still_works_where_there_is_no_wal_to_switch_to() -> None:
+    """An in-memory database has no WAL mode; the pragma answers "memory" instead of failing,
+    and the store has to open and work anyway — it is the mode every other test here uses."""
+    store = SqliteEventStore()
+    assert store._conn.execute("PRAGMA journal_mode").fetchone()[0] == "memory"
+    await store.append("s-1", [_event(0)], _ctx())
+    assert [event.seq for event in await store.read("s-1", _ctx())] == [0]
 
 
 async def test_persists_to_a_real_file_across_separate_store_instances(tmp_path) -> None:
