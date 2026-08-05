@@ -22,6 +22,23 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   kind exporting one class name still collapse to a single invocable, as in v1.)
   Skills are not discovered as invocables yet — no engine runs a `SKILL.md`
   bundle. v1's `App` and its discovery are unchanged.
+- `ToolSourcePort` (`agentdeck.core.ports`): tools now arrive from a source
+  behind one small interface — `resolve(spec)` hands back a `ToolSet` of the
+  tools an invocable gets, the names of the ones it asked for and did not get,
+  and the notice to put in front of the model when something is missing. MCP is
+  the first source, and its behavior is unchanged: an unconfigured or
+  unreachable server still degrades a run instead of failing it, and an agent
+  whose servers are all up gets its instructions back byte-for-byte, so upstream
+  prompt caches keep hitting.
+
+### Changed
+- MCP now lives in `agentdeck.adapters.tools.mcp` (registry, hardened HTTP
+  transport, agent wiring — all unchanged). `from agentdeck.agents.mcp import ...`,
+  `from agentdeck.agents.mcp.lifecycle import ...` and `from agentdeck.agents
+  import ...` keep working and hand back the same objects; both paths will be
+  dropped in a later release. The deeper module paths
+  `agentdeck.agents.mcp.transport` and `agentdeck.agents.mcp.wiring` are gone —
+  import those names from the package instead.
 
 ## [2.0.0b3] - 2026-08-05
 

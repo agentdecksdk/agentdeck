@@ -52,11 +52,21 @@ line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "SIM", "TC"]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "SIM", "TC", "TID251"]
 ignore = ["E501", "UP046", "UP047"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["agentdeck"]
+
+# import-linter can't express this one: `agents.mcp` is a subpackage of an external
+# package, which its contracts reject outright. Ruff sees the import statement itself,
+# so the ban lands where the SDK is actually named.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"agents.mcp".msg = "the MCP client is adapters/tools/mcp's alone — take tools off a ToolSet instead"
+
+[tool.ruff.lint.per-file-ignores]
+"agentdeck/adapters/tools/mcp/*" = ["TID251"]
+"tests/test_mcp_tool_source.py" = ["TID251"]
 
 [tool.ruff.lint.flake8-type-checking]
 runtime-evaluated-base-classes = [

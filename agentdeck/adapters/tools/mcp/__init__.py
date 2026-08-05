@@ -1,21 +1,17 @@
-"""Legacy path, kept working: MCP relocated to ``agentdeck.adapters.tools.mcp``, behind
-``ToolSourcePort`` — tools are a source's business, not an agent's, the same way
-``SessionFactory`` and the checkpointer became their engines'.
-
-``agentdeck.agents`` (v1, frozen behavior) still imports these names from here, so this
-path re-exports the real implementation rather than making every v1 caller chase the move.
-New code imports the adapter.
-"""
+"""The MCP tool adapter: ``ToolSourcePort`` over an MCP server registry, transport and all."""
 
 from __future__ import annotations
 
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle, load_mcp_config
+from agentdeck.adapters.tools.mcp.source import MCP_SERVER_NAMES_KEY, MCPToolSource
 from agentdeck.adapters.tools.mcp.transport import MCPServerStreamableHttpResilient
 from agentdeck.adapters.tools.mcp.wiring import mcp_status_banner, resolve_agent_mcp_servers, resolve_agent_mcp_status
 
 __all__ = [
+    "MCP_SERVER_NAMES_KEY",
     "MCPLifecycle",
     "MCPServerStreamableHttpResilient",
+    "MCPToolSource",
     "load_mcp_config",
     "mcp_status_banner",
     "resolve_agent_mcp_servers",

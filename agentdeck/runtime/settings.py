@@ -225,7 +225,7 @@ class McpServerSettings(BaseModel):
 
     Mirrors a single value in Claude Code's ``mcpServers`` block. Extra keys
     are tolerated so a Claude-Code-shaped spec drops in unchanged. Only the
-    HTTP transport is supported today (see ``agentdeck.agents.mcp._build_server``).
+    HTTP transport is supported today (see ``agentdeck.adapters.tools.mcp``).
     """
 
     model_config = ConfigDict(extra="allow")
@@ -255,7 +255,7 @@ class McpSettings(LayeredSettings):
     servers: dict[str, McpServerSettings] = Field(default_factory=dict)
 
     def as_config(self) -> dict[str, dict[str, Any]]:
-        """``{name: spec}`` in the shape :class:`agentdeck.agents.mcp.MCPLifecycle` consumes."""
+        """``{name: spec}`` in the shape :class:`agentdeck.adapters.tools.mcp.MCPLifecycle` consumes."""
         return {name: spec.model_dump(exclude_none=True) for name, spec in self.servers.items()}
 
 
