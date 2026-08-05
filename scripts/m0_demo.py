@@ -19,6 +19,13 @@ Everything runs against temporary SQLite files that are created and torn down in
 `tempfile.TemporaryDirectory`; nothing is left behind and nothing pre-existing is touched.
 Every section ends with `assert`s, so a broken skeleton fails this script loudly instead
 of just looking like a nicer chat log.
+
+UC2's "kill -9, restart" is modeled by dropping every Python reference and rebuilding a
+fresh `Runtime`/store/engine from the same two SQLite files, in this same process — not a
+real OS-level `kill`. The real-subprocess version of that restart (two actual `python`
+processes sharing only the files on disk) is covered by
+`tests/test_uc2_claim_pipeline.py::test_uc2_claim_pipeline_survives_a_real_process_restart`,
+not repeated here.
 """
 
 from __future__ import annotations
