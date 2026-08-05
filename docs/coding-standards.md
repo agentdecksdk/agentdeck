@@ -39,6 +39,10 @@ broader than the linter's contracts:
   `adapters/engines/langgraph/` the only place `langgraph` may be. No adapter imports
   another adapter directory. The working test: *deleting any adapter directory must
   break nothing outside it.*
+  *(Amended 2026-08-05, #78: `adapters/tools/mcp/` is the one other holder of `agents` — an
+  MCP server has to be an SDK object to be attachable to an SDK agent. It imports the MCP
+  client and nothing else of the SDK, and `agents.mcp` is banned everywhere else, by ruff
+  TID251 rather than import-linter, which cannot name an external subpackage.)*
 - `surfaces/` import `runtime/` and `core/` (and their own framework, e.g. FastAPI in
   `surfaces/serve/`), never adapters directly.
 - `authoring/` imports `core/` only; user-facing API compiles to `InvocableSpec`.
@@ -54,7 +58,9 @@ Full type annotations on every function and method — no bare `def f(x):` anywh
 code. `core/` and all port signatures are **contracts**: their annotations are exact,
 use `Literal`/`StrEnum` instead of bare strings, and avoid `Any` (an `Any` in a port
 signature requires a judgment-ledger entry defending it; `native: Any` on
-`InvocableSpec` is the one blessed opaque field). Data crossing a boundary is a pydantic
+`InvocableSpec` is the one blessed opaque field — *amended 2026-08-05, #78: and
+`ToolSet.tools: tuple[Any, ...]`, for the same reason, engine-native handles core cannot
+name; two is the whole list and a third needs the same defence*). Data crossing a boundary is a pydantic
 v2 model; process-internal value objects (e.g. `RunContext`) are
 `@dataclass(frozen=True, slots=True)`. Mutating a context or event after construction is
 a bug by definition — model updates as constructing new objects. `Optional` is written

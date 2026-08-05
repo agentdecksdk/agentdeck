@@ -340,6 +340,29 @@ class CapabilityProvider(BaseModel, arbitrary_types_allowed=True):
 (`get(ref) -> SecretValue`) complete the set. Each has an in-memory/no-op implementation
 so the core is runnable with zero infrastructure.
 
+*(Amended 2026-08-05, #78 — as built, `ToolSourcePort` is
+`resolve(spec: InvocableSpec) -> ToolSet` and there is no `ToolSpec`. A `ToolSet` carries
+`tools` (engine-native handles, opaque to core), `unavailable` (the names the invocable asked
+for and did not get) and `notice` (prose to put in front of the model when something is
+missing, empty otherwise). Decomposing an MCP server into declarative `ToolSpec`s would mean
+agentdeck dispatching tool calls itself — execution, which stays in the SDK — so the handles
+travel opaque and the ring that attaches them is the one that understands them. The method is
+**sync**: a source resolves from state the composition root already connected, and prompt
+assembly, its only caller, is synchronous — and it is the only sync method in `core/ports/`.
+Connect/close are deliberately **not** on the port: `App` drives the MCP lifecycle in its
+lifespan exactly as it does today, so resolving tools never connects a source. `ToolSet.tools`
+is typed `tuple[Any, ...]` — the second blessed opaque field after `InvocableSpec.native`, for
+the same reason.
+
+Two costs, named now rather than after source #2. (i) Opaque handles are only as portable as
+the engine that made them: an MCP server off this source is attachable by an openai-agents
+`Agent` and nothing else, so a second engine cannot consume these tools without pulling in
+openai-agents — the day one does, either it grows its own MCP source or `ToolSet` gains a
+declarative shape and agentdeck takes on tool dispatch. (ii) With lifecycle off the port,
+every source must expose its own out-of-band `startup`/`shutdown`, which the composition root
+wires **by concrete type** — there is no uniform "connect all sources" call, and adding one is
+what a `ToolSourceRegistry` would be for.)*
+
 ### 4.6 The Runtime service — the use-case layer
 
 One class owns the orchestration that today is smeared across `app.py`, both runner
@@ -375,6 +398,19 @@ submission order, never re-entered; a consumer killed by a `CancelledError` esca
 is replaced on the next submit. `Runtime.drain()` flushes the queues and then stops the
 consumers, racing each flush against its consumer so one dead consumer cannot hang shutdown
 for every other sink.)*
+
+*(Amended 2026-08-05, hardening: every wait on this path is now bounded, because a sink
+blocked inside `emit` defeated every exit condition the flush had and hung shutdown outright.
+An `emit` that does not return within `EMIT_TIMEOUT` (5s) is abandoned and counted as a
+failed emit, so a wedged sink reaches the same breaker a raising one does; the shutdown flush
+has its own deadline (`SHUTDOWN_TIMEOUT`, 10s) and gives up rather than waiting. The dispatch's
+lifecycle is now explicit: `flush(timeout)` waits for the queued events to be *attempted* and
+leaves the dispatch usable, `close(timeout)` is terminal — after it, a submit is counted as a
+drop instead of starting a fresh consumer, and events still queued or in flight are added to
+the drop count so the counters match the loss reported in the log. A `CancelledError` a sink
+raises from its own `emit` is now a counted failure rather than a silently dead consumer; only
+a genuine cancellation (`close`, loop shutdown) still ends a consumer, and that path replaces
+it on the next submit as before.)*
 
 *(A sink with guaranteed delivery is a deliberate non-goal today. A blocking/backpressure
 policy was built and then removed before merge: no sink implementation needs it, and the only
@@ -447,7 +483,13 @@ dev, `redis` and `postgres` for deployment, all implementing `EventStorePort` ov
 event log. **`control/`**: `memory` for dev; `redis` for anything multi-worker — Redis is
 what makes "pause from another process" possible at all. **`tools/mcp/`** is today's
 `agents/mcp/` (lifecycle, transport, wiring) re-homed behind `ToolSourcePort`; its
-lifecycle hooks into `App.open()` exactly as now. **`caps/sandbox/`** wraps the existing
+lifecycle hooks into `App.open()` exactly as now. *(Amended 2026-08-05, #78 — as built, this
+adapter is the one exception to "`engines/openai_agents/` is the only place that imports
+`agents`": an MCP server has to be an SDK `MCPServer` to be attachable to an SDK agent, and
+the client hardening lives here rather than being duplicated per engine. The import law it is
+held to instead: nothing outside `adapters/tools/mcp/` may import the MCP SDK, and this adapter
+imports no other engine's SDK — both linter-enforced. v1's `agentdeck.agents.mcp` path
+re-exports the moved names until the pre-stable cleanup drops the shim.)* **`caps/sandbox/`** wraps the existing
 `Workspace`/`SandboxSession` machinery as the default `FilesystemPort` + `TerminalPort`.
 **`telemetry/langfuse/`** is `runtime/observability.py` rebuilt as an `EventSinkPort` —
 note the direction reversal: instrumentation stops hooking the SDK and starts reading the
@@ -660,7 +702,7 @@ artifact that makes "add a third engine next year" a safe claim rather than a ho
 | `runtime/events.py` (SDK stream helpers) | same adapter | unchanged logic, new output types |
 | `agents/base.py`, `agents/capabilities/spec.py` | `authoring/` | user-facing API frozen; compiles to `InvocableSpec` + `CapabilityRequest` |
 | `agents/capabilities/{shell,filesystem}.py` | `adapters/caps/sandbox/` | become `FilesystemPort`/`TerminalPort` impls; SDK shims move into the engine adapter |
-| `agents/mcp/*` | `adapters/tools/mcp/` | behind `ToolSourcePort`; lifecycle unchanged |
+| `agents/mcp/*` | `adapters/tools/mcp/` | behind `ToolSourcePort`; lifecycle unchanged *(amended 2026-08-05, #78: moved, plus `source.py` implementing the port; v1's path re-exports until the shim is dropped, and no engine consumes the port yet)* |
 | `workflows/*` (base, nodes, state, interrupts, timers, runners) | `adapters/engines/langgraph/` | interrupts map to `run.interrupted`; timers schedule `Runtime.resume` |
 | `runtime/checkpointer.py` | `adapters/engines/langgraph/` | engine-private |
 | `runtime/sessions.py` (`SessionFactory`) | `adapters/engines/openai_agents/sessions.py` | kept as the engine's execution store (ADR-D5); event-log stores in `adapters/stores/` are new code |

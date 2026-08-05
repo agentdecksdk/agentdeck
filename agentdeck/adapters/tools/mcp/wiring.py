@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentdeck.agents.mcp.lifecycle import MCPLifecycle
+from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence

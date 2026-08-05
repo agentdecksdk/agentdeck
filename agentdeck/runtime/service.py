@@ -243,13 +243,14 @@ class Runtime:
         return out
 
     async def drain(self) -> None:
-        """Flush what the sinks have not taken yet, then stop their consumers.
+        """Flush what the sinks have not taken yet, then close them.
 
         The composition root calls this at shutdown: without it, queued emits are destroyed
         with the event loop and the last few audit or cost events are silently lost. Never
-        called per event — that would be exactly the join the fan-out exists to avoid.
+        called per event — that would be exactly the join the fan-out exists to avoid. It is
+        terminal: closed sinks stay closed, and a run after this one reaches none of them.
         """
-        await asyncio.gather(*(dispatch.drain() for dispatch in self._sinks), return_exceptions=True)
+        await asyncio.gather(*(dispatch.close() for dispatch in self._sinks), return_exceptions=True)
 
     def _with_gate(self, ctx: RunContext) -> RunContext:
         """Bind ``ctx.gate`` to this Runtime's ``ControlPort``, if it has one.
