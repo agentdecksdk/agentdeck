@@ -1,6 +1,6 @@
 # Milestone 0 — Findings (the go/no-go checkpoint)
 
-**Status:** accepted (falsifier review) · pending maintainer ruling (origin/speaker attribution)
+**Status:** accepted (falsifier review) · ruled 2026-08-05 (origin/speaker attribution: Option B)
 **Date:** 2026-08-05 · **Relates to:** `milestone-0-walking-skeleton.md` §6, `agentdeck-v2-architecture.md`,
 `adr-d5-two-stores.md`, `epic-agentdeck-v2-core.md`, `prompts/pr1-event-schema-prompt.md`
 **Closes:** issue #57 (the M0 finish checkpoint)
@@ -15,10 +15,11 @@ four. The demo artifact is `scripts/m0_demo.py` (§9).
 ## 1. Verdict
 
 **GO.** None of the six falsifiers in milestone §6 fired. The epic proceeds to Story 2
-hardening rather than pausing for redesign. One open design finding — whether `origin`
-should be invocable-scoped or sub-agent-scoped — has an analysis in §3 with a
-recommendation, but the ruling itself is **PENDING MAINTAINER DECISION**, per this
-checkpoint's own instructions: this document does not decide it.
+hardening rather than pausing for redesign. The one open design finding — whether `origin`
+should be invocable-scoped or sub-agent-scoped — is analyzed in §3 with both options; the
+maintainer ruled **Option B** on 2026-08-05: `origin` stays exactly as shipped, and
+"speaker" is defined as the invocable a caller addressed, not the SDK's internal
+sub-agent. That ruling is now the documented contract, not an open gap.
 
 ---
 
@@ -101,10 +102,17 @@ moment a concrete consumer needs it. If a UI story lands in the PRD backlog that
 distinguishing sub-agents inside one run, Option A is the correct fix at that point, done
 as its own dedicated schema PR.
 
-**RULING: PENDING MAINTAINER DECISION.** This section presents the options; it does not
-choose between them. The maintainer rules in PR review for issue #57, and the ruling gets
-folded back into `milestone-0-walking-skeleton.md` §2's amendment and this section as a
-follow-up dated note.
+**RULING (2026-08-05, maintainer decision on issue #57): Option B.** `origin` stays
+exactly as shipped — "speaker" is defined as *the invocable the caller addressed*, not
+*the SDK's internal sub-agent*. An invocable-scoped `origin` is the contract, not a gap:
+`FrontDesk` → `ClaimsAgent` rendering as one labeled speaker across an internal handoff is
+correct behavior under this definition, and `tests/test_uc1_handoff.py`'s assertion of
+that shipped behavior documents the contract, not a known gap awaiting a fix. Option A (an
+additive, payload-level speaker field) remains the designated fix *if* a concrete UI story
+ever needs sub-agent-level attribution — done at that point as its own dedicated schema
+PR, not retrofitted here speculatively. The contract is stated where consumers will look:
+`origin`'s field docstring in `agentdeck/core/events.py`, and a short note in
+`agentdeck-v2-architecture.md` §4.2.
 
 ---
 
@@ -132,8 +140,8 @@ format; each gets its one-line justification.
 | `Budget`'s naming | PR #1 prompt writes `RunContextSnapshot.budget` as an inline anonymous shape (`{max_usd, max_tokens} \| None`) | A named `Budget` class in `core/events.py`, reused by `RunContextSnapshot` | Matches the design doc's own §4.3 usage (`Budget(max_usd=2)`) and avoids two anonymous-but-identical shapes; same wire format either way. |
 
 **Not a divergence, cross-referenced instead of repeated here:** the `origin` field's
-*shape* is exactly as specified; the open question is which *value* the Runtime stamps
-into it for a multi-agent run, covered in full in §3.
+*shape* is exactly as specified; which *value* the Runtime stamps into it for a
+multi-agent run was the open question ruled in §3 (Option B: invocable-scoped, as shipped).
 
 ---
 
@@ -195,7 +203,7 @@ into it for a multi-agent run, covered in full in §3.
 | `StateGraph` schemas in this codebase must be `TypedDict`/pydantic, never a bare `dict` | UC2 fixture debugging (#58) | This document (§5, point 3) — promoted here; a lint or runtime check is future work, not done in this PR |
 | Durable checkpointers are cached per URL and bind to the first event loop that touches them | UC2/UC3 checkpointer work (#58) | `agentdeck/adapters/engines/langgraph/checkpointer.py`'s own docstring; restated here (§5, point 4) for visibility outside that file |
 | `httpx.ASGITransport` cannot prove live signal/response interleaving; that proof needs a real ASGI server | UC3 (#54) | `agentdeck-v2-architecture.md` §8's 2026-08-05 amendment; re-grounded for Story 3 in the epic amendment (§7) |
-| `origin` is invocable-scoped, not sub-agent-scoped | UC1 (#52 review) | `milestone-0-walking-skeleton.md` §2's 2026-08-05 amendment; analyzed and left open in §3 above |
+| `origin` is invocable-scoped, not sub-agent-scoped — **ruled Option B**, 2026-08-05 | UC1 (#52 review) | `milestone-0-walking-skeleton.md` §2's 2026-08-05 amendment; ruled in §3 above; stated as the contract in `core/events.py`'s `origin` docstring and `agentdeck-v2-architecture.md` §4.2 |
 
 ---
 
@@ -203,9 +211,15 @@ into it for a multi-agent run, covered in full in §3.
 
 - `milestone-0-walking-skeleton.md` §6: closing note recording the go/no-go verdict and
   linking here and to the demo script.
+- `milestone-0-walking-skeleton.md` §2's 2026-08-05 amendment: appended the ruling (Option
+  B, invocable-scoped `origin` is the contract, not a gap).
 - `epic-agentdeck-v2-core.md`: dated amendment re-grounding Story 2's remaining scope and
   estimate in what the crude adapters actually taught (see the amendment itself for detail
   — summarized in §5-6 above).
+- `agentdeck/core/events.py`: `origin`'s field docstring states the Option B contract
+  (docstring-only; no serialization or wire-format change).
+- `agentdeck-v2-architecture.md` §4.2: short note stating the same ruling where the
+  envelope is specified.
 - `00-project-index.md` §4: the "M0 finish" execution-order step is marked done, pointing
   at this document and `scripts/m0_demo.py`.
 - This document is new.

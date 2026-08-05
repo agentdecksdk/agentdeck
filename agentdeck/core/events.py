@@ -270,6 +270,9 @@ class Event(CoreModel):
     run_id: str
     session_id: str | None
     tenant: str
+    # the invocable the caller addressed, never the engine — an internal handoff (one
+    # invocable delegating to another sub-agent inside its own run) does not change this;
+    # "speaker" is defined at invocable granularity, not sub-agent granularity
     origin: str
     ts: AwareDatetime
     payload: KnownPayload | UnknownEvent
