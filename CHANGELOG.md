@@ -62,6 +62,23 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `CancelledError` from its own `emit` is counted as a failure instead of
   silently killing its consumer; and a clean shutdown with an empty queue no
   longer logs a spurious "queued events go undelivered" error.
+- Crash recovery for conversations on the OpenAI Agents engine: a process that
+  died mid-turn used to leave that conversation permanently short of whatever the
+  event log had already recorded — the question it was killed on, or the answer it
+  had just given. The model then answered later turns with a hole in its context
+  and nothing reported a problem. Each turn now checks the log against the
+  engine's own conversation state and replays the messages that are missing before
+  the model runs, so a restarted process picks the conversation up whole.
+  Messages only, in content and order: tool results and model reasoning are not
+  reconstructed, so a conversation repaired this way carries the *text* of a tool
+  answer without the tool call behind it — worth knowing if you read model context
+  back. A turn a client disconnected from before the first token is never replayed,
+  so retrying that question does not send it twice; a turn that was answered before
+  the client went away keeps both its messages. Conversation state that has diverged
+  from the log rather than fallen behind it is left untouched and reported on the run
+  as `custom` / `openai_agents.session_diverged`. LangGraph workflows are unaffected —
+  a checkpoint is written by the graph step itself, so there is no gap between two
+  writes to repair.
 
 ## [2.0.0b3] - 2026-08-05
 
