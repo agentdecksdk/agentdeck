@@ -74,7 +74,7 @@ checkpoint, cancel — and each engine stays idiomatic behind it.
 │ RING 1 · CORE  (zero I/O, pydantic + stdlib only)                  │
 │   nouns:  Invocable · Session · Run · Event · RunContext ·         │
 │           ContentBlock · Interrupt · Artifact                      │
-│   ports:  EnginePort · SessionStorePort · EventSinkPort ·          │
+│   ports:  EnginePort · EventStorePort · EventSinkPort ·            │
 │           ControlPort · capability ports · ToolSourcePort ·        │
 │           PolicyPort · SecretsPort                                 │
 │   use case: Runtime (run / resume / signal / replay)               │
@@ -238,7 +238,7 @@ nothing, the second resumes with a value.
 Ports are small and role-shaped (ISP): a surface that only reads events depends on
 `EventSinkPort`, never on a god `Platform` interface.
 
-*(Amended 2026-08-05, as built: `SessionStorePort` keys on `log_key`, not `session_id` — a
+*(Amended 2026-08-05, as built: `EventStorePort` keys on `log_key`, not `session_id` — a
 run without a session is its own log, so persist-before-yield holds for one-off runs too. Its
 reads split in two: `read(log_key, ctx)` is the session's whole history in append order, and
 `read_run(log_key, run_id, ctx, from_seq=0)` is the inclusive range a consumer uses to refetch
@@ -270,7 +270,7 @@ class EnginePort(ABC):
 
 ```python
 # core/ports/store.py
-class SessionStorePort(ABC):
+class EventStorePort(ABC):
     async def append(self, session_id: str, events: Sequence[Event], ctx: RunContext) -> None: ...
     async def read(self, session_id: str, ctx: RunContext,
                    after_seq: int = 0) -> list[Event]: ...
@@ -335,7 +335,7 @@ shutdown; it is never called per event.)*
 ```python
 # runtime/service.py
 class Runtime:
-    def __init__(self, engines: list[EnginePort], store: SessionStorePort,
+    def __init__(self, engines: list[EnginePort], store: EventStorePort,
                  control: ControlPort, sinks: list[EventSinkPort],
                  tools: list[ToolSourcePort], registry: InvocableRegistry): ...
 
@@ -390,10 +390,10 @@ mapping is thin because the shapes already correspond: `astream` updates →
 checkpointer `thread_id` → the resume token. Durable timers (`wake_at_of`) surface as a
 scheduled `resume` — which is why `resume` lives on `Runtime`, not on the serve layer.
 
-**`stores/`** implements `SessionStorePort` over the **event log** — new code, not a port
+**`stores/`** implements `EventStorePort` over the **event log** — new code, not a port
 of `SessionFactory` (which relocates into the openai-agents adapter as its execution
 store, per ADR-D5): `memory` and `sqlite` for
-dev, `redis` and `postgres` for deployment, all implementing `SessionStorePort` over the
+dev, `redis` and `postgres` for deployment, all implementing `EventStorePort` over the
 event log. **`control/`**: `memory` for dev; `redis` for anything multi-worker — Redis is
 what makes "pause from another process" possible at all. **`tools/mcp/`** is today's
 `agents/mcp/` (lifecycle, transport, wiring) re-homed behind `ToolSourcePort`; its
