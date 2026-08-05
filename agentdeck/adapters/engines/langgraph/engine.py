@@ -1,4 +1,4 @@
-"""The langgraph engine (#53, M0 step 4): ``EnginePort`` over a compiled ``StateGraph``.
+"""The langgraph engine: ``EnginePort`` over a compiled ``StateGraph``.
 
 ``spec.native`` is an *uncompiled* ``StateGraph`` — this adapter compiles it itself, with
 its own checkpointer, and caches the result per invocable name (ADR-D5: an engine's
@@ -9,6 +9,11 @@ onto the payloads this adapter yields: a ``{node: patch}`` chunk becomes ``node.
 a ``{"__interrupt__": (...)}`` chunk becomes ``run.interrupted`` and ends the stream (the
 graph suspends there; resuming re-enters the same ``astream`` call with a
 ``Command(resume=value)``), and the stream simply ending means the graph reached ``END``.
+
+The ``StateGraph``'s schema must be a ``TypedDict`` (or pydantic model), never a bare
+``dict``: langgraph treats a bare ``dict`` as one opaque channel, so a node's return
+replaces the *entire* state instead of merging into it, which would silently break the
+shallow-merge every ``node.updated`` promises its readers.
 """
 
 from __future__ import annotations

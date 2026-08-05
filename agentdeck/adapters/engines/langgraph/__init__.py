@@ -1,4 +1,4 @@
-"""The langgraph engine adapter (#53, M0 step 4): ``EnginePort`` over a compiled ``StateGraph``."""
+"""The langgraph engine adapter: ``EnginePort`` over a compiled ``StateGraph``."""
 
 from __future__ import annotations
 

@@ -48,7 +48,7 @@ SUSPENDED_KINDS = frozenset({"run.interrupted", "run.paused"})
 
 @dataclass(frozen=True, slots=True)
 class PendingRun:
-    """One run currently ``WAITING_HUMAN`` — what :meth:`Runtime.pending` lists (#53)."""
+    """One run currently ``WAITING_HUMAN`` — what :meth:`Runtime.pending` lists."""
 
     run_id: str
     session_id: str | None
