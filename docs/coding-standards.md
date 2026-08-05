@@ -58,6 +58,13 @@ a bug by definition — model updates as constructing new objects. `Optional` is
 `X | None`. Prefer `collections.abc` types (`Sequence`, `AsyncIterator`) over concrete
 containers in signatures.
 
+`ty` must pass, but never by contorting the code: when satisfying the checker means
+casts-of-casts, phantom variables, restructured control flow, or otherwise smellier code
+than the straightforward version, keep the straightforward version and add a targeted
+`# ty: ignore[rule]` with a one-line reason. A suppression that keeps the code honest
+beats an appeasement that obscures it; suppressions are narrow (one line, one rule),
+never file- or block-wide.
+
 ## 5. Errors and exceptions
 
 `core/errors.py` will own the exception taxonomy (`AgentDeckError` root; `RunCancelled`,

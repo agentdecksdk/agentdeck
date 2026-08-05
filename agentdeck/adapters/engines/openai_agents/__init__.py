@@ -1,4 +1,4 @@
-"""The openai-agents engine adapter (#52, M0 step 3): ``EnginePort`` over ``agents.Runner``."""
+"""The openai-agents engine adapter: ``EnginePort`` over ``agents.Runner``."""
 
 from __future__ import annotations
 

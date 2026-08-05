@@ -35,9 +35,14 @@ make check                  # lint + typecheck + tests — CI runs exactly this
   bundle or an app, not here.
 - **The `App` entry point serves `./.agentdeck/` only.** Don't add alternative
   catalog mechanisms.
-- **Typed boundaries**: new public functions carry annotations; `ty` ignores
-  are allowed only at deliberate SDK shims, with a comment saying why.
-- **Comments explain constraints, not mechanics.** Match the existing style.
+- **Typed boundaries**: new public functions carry annotations. `ty` must pass,
+  but never by contorting the code — at deliberate SDK shims, or where appeasing
+  the checker would make the code smellier, use a narrow `# ty: ignore[rule]`
+  with a one-line reason.
+- **Comments are short, focused, and rare.** Only where the code is genuinely
+  hard to follow — a non-obvious path, a decision, a key invariant. A comment
+  stands alone in its own words: never point at a doc section, paragraph, or
+  bullet.
 - **Every non-trivial change lands with a test.** No frameworks beyond pytest.
 - **New dependencies need a reason** the stdlib or an existing dep can't cover.
 - Optional integrations (Langfuse, MCP) must degrade gracefully when

@@ -1,4 +1,4 @@
-"""Anti-rot checks for the published docs (docs/delivery/docs-site-plan.md §6).
+"""Anti-rot checks for the published docs: every code sample on the site must keep working.
 
 Python blocks are parsed and their agentdeck imports resolved, not executed: the golden
 suite's scripted model is hard-wired to one two-turn conversation, so executing arbitrary

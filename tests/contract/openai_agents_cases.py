@@ -1,4 +1,4 @@
-"""The openai-agents adapter's cases for the shared contract suite (#52).
+"""The openai-agents adapter's cases for the shared contract suite.
 
 Appended onto ``contract_cases.CASES`` — same invariants, a real engine instead of the
 stub. ``TailScriptedModel`` decides purely from the *last* input item rather than an
