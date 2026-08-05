@@ -169,3 +169,46 @@ port of `SessionFactory`).
 log transcript)" and add "crash-between-writes reconciliation covered by an integration
 test"; Story 3b (mid-turn injection), when added — `input.appended` is written to the log
 before being drained into execution state, per the write-ordering rule above.
+
+---
+
+## 6. Amendment 2026-08-05 — reconciliation as built (issue #76)
+
+Reconciliation now exists, in `adapters/engines/openai_agents/reconcile.py`, called at turn
+start before `Runner.run_streamed`. Four points where the built thing differs from §3's
+description:
+
+**It is not only inputs, and not `input.appended`.** §3 says the crash "leaves an
+`input.appended` with no engine-side counterpart". `input.appended` still has no producer;
+a turn's input reaches the log on `run.started`, and the SDK writes its session copy inside
+the run. The same window also loses *assistant* messages: the SDK saves a turn's output
+items after they have streamed, so a log that already holds `message.completed` can outlive
+the session write it belongs to. The replay therefore covers both roles — every
+`run.started`/`input.appended` input and every `message.completed` — which is the same
+message-level transcript the fidelity contract test compares.
+
+**The comparison is a prefix check, and divergence is left alone.** The adapter builds both
+message-level transcripts, verifies the session's is a prefix of the log's, and appends the
+remainder as plain `{"role", "content"}` items. If the session is *not* a prefix of the log
+it is left untouched with a warning: it is the authority on execution, and a wrong guess
+about its tail (duplicated or reordered messages) is worse than the gap. Tool calls, tool
+results and reasoning items are never replayed — the log's copies are truncated or absent,
+so message level is the ceiling, exactly as §3 says.
+
+**An emptied session is refilled, not left blank.** §3's operational-separation clause says
+an expired session "simply means the next turn starts a fresh loop memory". As built, an
+empty session against a non-empty log is indistinguishable from a crash on the session's
+first turn, so it takes the same repair: the log's message-level transcript is replayed in.
+That is §3's "best-effort disaster recovery" reached automatically rather than a blank
+start, and it costs one full replay, once, on the first turn after the loss.
+
+**LangGraph has no equivalent gap, and gets no code.** Its checkpointer write *is* the graph
+step, so there is no second write for a crash to fall between: an input either entered a
+super-step that committed or the step never happened. A run's thread is its own
+(`thread_id = run_id`), so unlike the SDK session — shared across a session's turns — a lost
+turn cannot poison a later one. The one place the two stores can disagree there is a resume:
+`run.resumed` is claimed in the log before the engine sees the resume *value*, and that value
+is not in the log (the payload carries only `reason`), so a crash in that window is not
+repairable by replay at all — §3's safety condition ("inputs are not lossy in the log") does
+not hold for it. Recording resume values is a schema change and a separate decision; it is
+noted here so the absence is deliberate rather than overlooked.
