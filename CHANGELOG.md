@@ -2,119 +2,87 @@
 
 All notable changes to agentdeck. Format follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow
-[SemVer](https://semver.org/). Add entries under **Unreleased** as you go;
-they move under a version heading when a release is tagged.
+[SemVer](https://semver.org/). Entries are user-facing — what changed for
+someone using the package, in `Added / Changed / Deprecated / Removed /
+Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
 ### Added
-- `agentdeck.adapters.engines.langgraph`: a second real `EnginePort` (M0 step 4, #53) over
-  a compiled LangGraph `StateGraph` — `astream(..., stream_mode="updates")` maps onto
-  `node.updated`, an `interrupt()` onto `run.interrupted`, and resuming continues the same
-  graph with `Command(resume=value)`. The checkpointer (sqlite/memory/postgres) is
-  engine-private, relocated from `runtime/checkpointer.py` (the old path re-exports it
-  unchanged so `agentdeck.workflows.base`, v1, keeps working); `.importlinter` gained a
-  contract so only this adapter may import `langgraph` outside v1.
-- `EnginePort.resume` and `SessionStorePort.list_log_keys`: the two new port methods
-  behind resuming a suspended run — every engine (stub, openai-agents, langgraph) and
-  store (memory, sqlite) implements them, joined by the shared contract suite
-  (`tests/contract/test_resume.py`).
-- `Runtime.resume`/`Runtime.pending`: an atomic `WAITING_HUMAN` -> `RUNNING` transition
-  (two concurrent resumes: exactly one wins, the other is a no-op with no duplicate `seq`),
-  `seq` recovered from the log's own `max(seq)` so it stays contiguous across a process
-  restart, and a stray resume against a completed run is a no-op rather than an error.
-  `core/status.py` derives a run's status by folding its own events — there is no separate
-  status table to fall out of sync with the log.
-- `agentdeck.surfaces.serve.workflows`: an additive `GET /pending` / `POST /resume` surface
-  for v2 workflow runs, alongside (not touching) the existing chat SSE route. Proven by
-  UC2 (`tests/test_uc2_claim_pipeline.py`): a two-node `ClaimPipeline` with an approval
-  interrupt between them survives a real process restart — status reads `WAITING_HUMAN`
-  from the sqlite event log alone, `/pending` lists the interrupt's payload, and resuming
-  runs the second node to `run.completed` with no duplicate events and no `seq` gap.
-- `agentdeck.adapters.engines.openai_agents`: the first real `EnginePort` (M0 step 3,
-  #52) — plays a pre-built `agents.Agent` (handoffs and tools included) through
-  `Runner.run_streamed` and translates its stream into canonical payloads (`text.delta`,
-  `message.completed`, `tool.call.started`/`.completed`, one namespaced `custom` event per
-  handoff). Joins the stub in the contract suite (`tests/contract/openai_agents_cases.py`).
-  `runtime/sessions.py`'s `SessionFactory` relocates into the adapter as its private
-  execution store (ADR-D5) — kept, not rewritten; the old import path re-exports it for
-  `agentdeck/app.py` (v1), unchanged. `ExecutionStore.session_for` takes the run's
-  `RunContext` and scopes the SDK session key by tenant, so two tenants picking the same
-  session id never share one conversation.
-- `agentdeck.adapters.stores.sqlite`: a durable `SessionStorePort`, same append-only,
-  per-run-`seq` contract as the memory store (`tests/test_sqlite_store.py`).
-- `agentdeck.surfaces.serve`/`agentdeck.surfaces.cli`: a deliberately crude SSE route and
-  ~50-line CLI chat renderer for v2 runs (M0 skeleton, separate from v1's `serve.py`,
-  which is untouched) — the reference consumer for UC1 (`tests/test_uc1_handoff.py`),
-  proving the transcript rebuilds from `message.completed` alone and speakers are told
-  apart using only `origin` + `message_id`.
-- Docs site Concepts section: four pages — agents, capabilities, skills, workflows —
-  written against the shipped v1 surface, each starting from the user's code.
-- Docs site brand: the AgentDeck palette and type scale (Regal Navy, Beige, Magenta Bloom,
-  Ink; Poppins headings over Inter body, both self-hosted so the export makes no external
-  font request). The nav test now gates every section's `_meta.ts`, not just the top level.
+- LangGraph engine adapter (`agentdeck.adapters.engines.langgraph`): runs graph
+  workflows behind `EnginePort`, surviving process restarts — an interrupted run's
+  status and resume point persist, and resuming continues the same event sequence
+  with no duplicates. A new `GET /pending` / `POST /resume` surface lists and
+  answers interrupted runs; resuming the same run twice at once resolves exactly
+  once, and resuming a run that already finished is a no-op rather than an error.
+- OpenAI Agents engine adapter (`agentdeck.adapters.engines.openai_agents`):
+  runs a pre-built `agents.Agent` — handoffs and tools included — behind
+  `EnginePort`, streaming the canonical events (`text.delta`,
+  `message.completed`, `tool.call.started`/`.completed`, and a namespaced
+  `custom` event per handoff). SDK session keys are tenant-scoped, so two
+  tenants reusing the same session id never share a conversation.
+- SQLite event store (`agentdeck.adapters.stores.sqlite`): a durable event
+  log with the same append-only, per-run-`seq` contract as the in-memory
+  store.
+- Minimal v2 surfaces (`agentdeck.surfaces.serve`, `agentdeck.surfaces.cli`):
+  an SSE route and a compact CLI chat renderer for v2 runs — speakers are
+  distinguished by `origin` + `message_id` alone, and transcripts rebuild
+  from `message.completed` events without delta assembly. The v1 server is
+  untouched.
+- Docs site: a Concepts section (agents, capabilities, skills, workflows)
+  written against the shipped v1 surface, and the AgentDeck brand — palette,
+  type scale, self-hosted fonts so the exported site makes no external
+  requests.
 
 ### Removed
-- Docs Guides and Examples pages, which listed fifteen pages that did not exist. Each
-  section returns when its first real page does.
+- Docs site: the empty Guides and Examples sections; each returns when its
+  first real page exists.
 
 ## [2.0.0b1] - 2026-08-05
 
-First beta of the v2 line: the engine-agnostic core and the Runtime land alongside the
-shipped v1 harness. **The v1 public surface is unchanged** — `App`, `run_agent`,
-`run_workflow`, `chat`, `chat_stream`, the `./.agentdeck/` project layout and the SSE wire
-format are byte-for-byte what 1.2.1 served, and nothing in `agentdeck.core` or
-`agentdeck.runtime.service` is wired into them yet (the golden replay suite is what proves
-it). The bump marks the start of the v2 rebuild, not a break in what already works.
+First beta of the v2 line: the engine-agnostic core and the Runtime land
+alongside the shipped v1 harness. **The v1 public surface is unchanged** —
+`App`, `run_agent`, `run_workflow`, `chat`, `chat_stream`, the `./.agentdeck/`
+project layout and the SSE wire format are byte-for-byte what 1.2.1 served.
+The bump marks the start of the v2 rebuild, not a break in what already works.
 
 ### Added
-- Golden wire baselines (`tests/golden/`): byte-level snapshots of the HTTP/SSE
-  surface against a scripted fake model, replayed by `make test`. Re-record
-  deliberately with `make golden`; see `tests/golden/README.md`.
-- `import-linter` contracts (`.importlinter`) run by `make lint-imports`, and both
-  are wired into `make check` / CI.
-- `agentdeck.core`: the canonical event schema v1 (`events.py`) and content blocks
-  (`content.py`) — a closed eight-field `Event` envelope over a payload union
-  discriminated by `kind`, `parse_event()` tolerating unknown kinds and fields, and
-  the `check_contiguous` / `check_terminal` ordering invariants. Nothing imports it
-  yet; runtime behaviour is unchanged. One serialization per kind is frozen under
-  `tests/core/snapshots/`, and an import-linter contract keeps core on stdlib +
-  pydantic only.
-- `agentdeck.core`: `RunContext` (the run's identity and limits, passed to every port),
-  `InvocableSpec`/`InvocableKind` (one noun for agents, workflows and skills), and the
-  first three ports — `EnginePort`, `SessionStorePort`, `EventSinkPort`.
-- `agentdeck.runtime.service.Runtime`: the run loop — stamp the envelope, append to the
-  log, fan out to sinks, yield, in that order, so an event a consumer has seen is already
-  persisted. It opens every run with `run.started` and closes every run in the log: a
-  terminal payload ends the run there (anything after it is discarded), an engine that
-  raises or stops without a terminal event gets `run.failed`, and a consumer that abandons
-  the stream gets `run.cancelled` — a run left open cannot be told from one in flight. A
-  slow or failing sink never stalls a run; `Runtime.drain()` awaits the emits still in
-  flight for the composition root to call at shutdown.
-- `agentdeck.adapters.stores.memory.MemoryEventStore` and
-  `agentdeck.adapters.engines.stub.StubEngine`: the event log in a dict, and an engine
-  that plays a scripted event sequence. Both are permanent — the stub is the reference
-  implementation of the engine contract and the contract suite's fastest engine. The store
-  reads whole logs (`read`) or one run's seq range (`read_run`), because `seq` restarts per
-  run; it keys on tenant as well as log key, and refuses an event stamped for another.
-- `tests/contract/`: the cross-engine invariant suite — `run.started` first at `seq` 0,
-  contiguous `seq`, exactly one terminal event and it is last, persist-before-yield,
-  envelope stamped from the context, and an abandoned stream leaving the log intact.
-  Every engine added later is appended to `tests/contract/contract_cases.py` and inherits it all.
-- Docs-site search actually works: a Pagefind `postbuild` step builds the index the
-  Nextra search box fetches at runtime, guarded by a CI check.
-- `tests/test_docs_site.py`: every published Python block is parsed and its `agentdeck`
-  imports resolved, every absolute docs link must resolve to a page, and `_meta.ts` keys
-  must match the pages — so renames, dead links, and nav drift fail `make check`.
+- `agentdeck.core`: canonical event schema v1 — a closed eight-field `Event`
+  envelope over payload classes discriminated by `kind`, `parse_event()`
+  tolerating unknown kinds and fields, content blocks, and the
+  `check_contiguous` / `check_terminal` ordering invariants. Nothing imports
+  it yet; v1 runtime behavior is unchanged.
+- `agentdeck.core`: `RunContext` (the run's identity and limits, passed to
+  every port), `InvocableSpec` / `InvocableKind` (one noun for agents,
+  workflows and skills), and the first three ports — `EnginePort`,
+  `SessionStorePort`, `EventSinkPort`.
+- `agentdeck.runtime.service.Runtime`: the v2 run loop — stamp the envelope,
+  append to the log, fan out to sinks, yield, in that order, so an event a
+  consumer has seen is already persisted. Every run is closed in the log: an
+  engine that raises or stops early gets `run.failed`, an abandoned stream
+  gets `run.cancelled`, and nothing follows a terminal event. Sinks never
+  stall a run; `Runtime.drain()` flushes in-flight emits at shutdown.
+- In-memory event store (`agentdeck.adapters.stores.memory`) and scripted
+  stub engine (`agentdeck.adapters.engines.stub`) — the stub is the reference
+  implementation of the engine contract.
+- Cross-engine contract test suite (`tests/contract/`): first event at
+  `seq` 0, contiguous `seq`, exactly one terminal event and it is last,
+  persist-before-yield. Every engine added later inherits it.
+- Golden wire baselines (`tests/golden/`): byte-level snapshots of the v1
+  HTTP/SSE surface, replayed on every test run; re-recorded only
+  deliberately via `make golden`.
+- Import-linter contracts wired into `make check` / CI, enforcing the
+  architecture's import boundaries.
+- Docs site: working search (a Pagefind index built at export, guarded by a
+  CI check) and anti-rot tests — published Python samples are parsed and
+  their imports resolved, links must resolve, and navigation must match the
+  pages.
 
 ### Fixed
-- Docs Getting Started documented a contributor `git clone` as the install path and
-  omitted provider configuration; it now installs from a git tag and exports the model
-  env (a project `.env` is not read by an installed package — #16).
-- Docs overview linked to a non-existent `/docs/getting-started` page, and both of its
-  Python examples used `async with` at module level, so neither could run as printed.
-- `.env.example` claimed `OPENAI_BASE_URL` defaults to a legacy private server; the
-  packaged default is empty, which the SDK reads as `api.openai.com`.
+- Docs site: Getting Started installs from a git tag and documents provider
+  configuration instead of describing a contributor clone; the overview's
+  examples run as printed; `.env.example` no longer claims a legacy default
+  for `OPENAI_BASE_URL` (empty means the SDK default).
 
 ## [1.2.1] - 2026-08-03
 
@@ -122,20 +90,14 @@ No changes to the `agentdeck` package itself — this version covers the
 documentation platform and its CI.
 
 ### Added
-- `docs-site/`: MDX documentation platform built on Nextra 4 and the Next.js
-  App Router, statically exported to GitHub Pages under `/agentdeck`.
-  `docs-pages.yml` builds and deploys it when a GitHub Release is published;
-  `docs-check.yml` builds it on every PR that touches `docs-site/`.
+- `docs-site/`: MDX documentation platform (Nextra 4, Next.js App Router),
+  statically exported to GitHub Pages under `/agentdeck` — deployed on
+  release, build-checked on every PR that touches it.
 
 ### Fixed
-- Docs build failed to prerender every page (`expected nonoptional, received
-  undefined` at `children`). `nextra-theme-docs@4.6.1`'s `<Layout>` strips
-  `children` off its props before validating them against a schema that still
-  requires `children`; zod 4.4.0 turned that into a hard error. zod is pinned
-  to `4.3.5` via `overrides`, `docs-site/package-lock.json` is committed, and
-  both docs workflows install with `npm ci` so resolution stops drifting.
-- Docs "Edit this page" links pointed at a feature branch and now point at
-  `dev`.
+- Docs build no longer fails to prerender (zod pinned to 4.3.5 via
+  `overrides`, lockfile committed, workflows install with `npm ci`).
+- "Edit this page" links point at `dev` instead of a feature branch.
 
 ## [1.2.0] - 2026-07-28
 
@@ -147,158 +109,94 @@ documentation platform and its CI.
 ## [1.1.0] - 2026-07-27
 
 ### Added
-- `BaseAgent.handoffs` entries may now be a `str` registry name, resolved lazily
-  at `build()` time via the same discovery registry `App` uses — two agents that
-  hand off to each other no longer need to import each other's module. Unknown
-  names raise `NotFoundError` naming the available agents; mutual handoffs
-  resolve without recursing forever.
-- Durable timer waits (#22): `agentdeck.workflows.sleep_until(when)` pauses a node in a
-  `durable = True` workflow until a timezone-aware wall-clock moment, built on `interrupt()`
-  — a payload convention (`{"type": "timer", "wake_at": ...}`) so a timer-paused thread is
-  distinguishable from a human-paused one in the inbox. `App.due_resumes(now=None)` filters
-  `pending_interrupts()` to timer threads whose wake time has passed; `App.tick(now=None)`
-  resumes every due thread (resume value = its wake timestamp). Callers own the scheduling
-  cadence (cron, systemd timer, a loop) — agentdeck runs no daemon. Naive datetimes are
-  rejected with a clear `ValueError`.
+- `BaseAgent.handoffs` entries may be a `str` registry name, resolved lazily
+  at `build()` time — two agents that hand off to each other no longer need
+  to import each other's module. Unknown names raise `NotFoundError` naming
+  the available agents; mutual handoffs resolve without recursing forever.
+- Durable timer waits: `agentdeck.workflows.sleep_until(when)` pauses a
+  `durable = True` workflow node until a timezone-aware wall-clock moment.
+  `App.due_resumes()` lists timer threads whose wake time has passed;
+  `App.tick()` resumes every due thread. Callers own the scheduling cadence
+  (cron, systemd timer, a loop) — agentdeck runs no daemon. Naive datetimes
+  are rejected with a clear `ValueError`.
 
 ### Fixed
-- `HeadlessRunner.run`/`run_streamed` now forward the chat `session_id` (read
-  off the SDK `session` object) into `trace_run`, so an `App.chat(...,
-  session_id=...)` turn's root trace carries that session id in Langfuse
-  instead of always tracing with a null session — per-customer trace grouping
-  was silently broken. `trace_run` gains an optional `session_id` keyword that
-  wins over the capture-derived identity at a run root; nested units are
-  unaffected.
+- `App.chat(..., session_id=...)` turns now carry that session id on the
+  root Langfuse trace instead of always tracing with a null session —
+  per-customer trace grouping was silently broken.
 
 ## [1.0.0] - 2026-07-27
 
-### Fixed
-- `resolve_checkpointer`'s sqlite backend no longer raises `RuntimeError: no
-  running event loop` when `App.load()` (or any other sync caller) builds a
-  `durable=True` workflow outside a running loop — `AsyncSqliteSaver`'s
-  constructor calls `asyncio.get_running_loop()` itself, so it's now built
-  inside the same `_run_sync` call as the connect, matching the postgres path.
 ### Added
 - Human-in-the-loop for `durable = True` workflows: a node calling
-  `langgraph.types.interrupt(payload)` (re-exported as
-  `agentdeck.workflows.interrupt`) pauses the run, and `run_workflow` returns
-  `{"type": "interrupt", "payload": ..., "thread_id": ...}` instead of a final
-  state. `App.resume_workflow(name, thread_id, value)` answers it (returning the
-  final state or the next interrupt) and `App.pending_interrupts(name=None)`
-  lists every thread still waiting — the approval inbox. Same trio on
+  `agentdeck.workflows.interrupt(payload)` pauses the run; `run_workflow`
+  returns `{"type": "interrupt", "payload": ..., "thread_id": ...}` instead
+  of a final state. `App.resume_workflow(name, thread_id, value)` answers it;
+  `App.pending_interrupts()` lists every thread still waiting. Same trio on
   `BaseWorkflow` as `run` / `resume` / `pending`.
-- `run_workflow_stream` ends a paused run with that same interrupt event in place
-  of its terminal `done` event, and the SSE endpoint emits it as an `interrupt`
-  event instead of `done`.
-- `GET /workflows/{name}/pending` and `POST /workflows/{name}/{thread_id}/resume`
-  (`{"value": ...}`); `POST /workflows/{name}` takes an optional `thread_id`
-  query parameter so durable runs can be started over HTTP.
-
-- `App.run_workflow_stream(name, state=None, thread_id=None)`: async iterator over a
-  workflow's `astream(stream_mode=["updates", "custom"])` — a `node_update` event per
-  completed node, a `custom` event per `langgraph.config.get_stream_writer()` call, then one
-  terminal `done` event carrying the final state. Same `thread_id` semantics as
-  `run_workflow`, which is unchanged.
-- `AgentNode` now forwards its nested agent's text deltas into the graph's custom stream via
-  `get_stream_writer()` (a no-op outside `run_workflow_stream`), so a workflow-driven chat
-  streams tokens the same as a direct agent chat.
-- `POST /workflows/{name}?stream=true`: `text/event-stream` response mirroring the chat
-  endpoint's pattern — `node_update`/`custom` `message` events, a terminal `done` event with
-  the final state, or an `error` event on a mid-stream failure.
-- `subagents = [...]` class attribute on `BaseAgent`: opt-in `spawn_subagent`
-  `FunctionTool` that lets the model delegate a task to another registered
-  agent at runtime. The subagent runs as an isolated `HeadlessRunner`
-  one-shot (no session, no shared history — the task text is its entire
-  context) and its `final_output` is returned as a string. Spawning a name
-  outside the allowlist, or attempting to spawn from inside an already-
-  spawned subagent (depth-limited via a `ContextVar`, default depth 1),
-  returns an `error: ...` string instead of raising, so the run continues.
-  New module `agentdeck/agents/subagents.py`.
+- `GET /workflows/{name}/pending` and
+  `POST /workflows/{name}/{thread_id}/resume`; `POST /workflows/{name}`
+  takes an optional `thread_id` query parameter so durable runs can start
+  over HTTP.
+- `App.run_workflow_stream(name, state=None, thread_id=None)`: async
+  iterator yielding a `node_update` event per completed node, a `custom`
+  event per stream-writer call, then one terminal `done` event with the
+  final state. A paused run ends with an `interrupt` event in place of
+  `done`, over HTTP too (`POST /workflows/{name}?stream=true`).
+- `AgentNode` forwards its nested agent's text deltas into the workflow's
+  custom stream, so a workflow-driven chat streams tokens the same as a
+  direct agent chat.
+- `subagents = [...]` on `BaseAgent`: an opt-in `spawn_subagent` tool that
+  lets the model delegate a one-shot task to another registered agent
+  (isolated run, no shared history, depth-limited). Disallowed or nested
+  spawns return an `error: ...` string instead of raising.
 
 ### Changed
 - **Breaking:** `.agentdeck/` project layout now uses top-level type
-  subdirectories — `agents/<bundle>/agent.py` and `workflows/<bundle>/workflow.py`
-  instead of `<bundle>/agent.py` / `<bundle>/workflow.py` straight under the
-  project root. `skills/*/SKILL.md` is unchanged. `PluginRegistry` gained a
-  required `type_dir` field (`AgentRegistry`/`WorkflowRegistry` default it to
-  `"agents"`/`"workflows"`). No migration shim — an old-layout project dir now
-  raises a `ConfigError` pointing at the new paths instead of silently
-  discovering nothing.
-- A non-durable workflow whose node calls `interrupt()` now raises `ConfigError`
+  subdirectories — `agents/<bundle>/agent.py` and
+  `workflows/<bundle>/workflow.py`. `skills/*/SKILL.md` is unchanged. No
+  migration shim: an old-layout project raises `ConfigError` pointing at the
+  new paths instead of silently discovering nothing.
+- A non-durable workflow whose node calls `interrupt()` raises `ConfigError`
   instead of silently returning an unresumable state.
+
+### Fixed
+- Building a `durable=True` sqlite workflow from sync code no longer raises
+  `RuntimeError: no running event loop`.
 
 ## [0.2.0] - 2026-07-26
 
 ### Added
-- `App.chat_stream(name, session_id, message)`: async iterator of text deltas
-  followed by a terminal `StreamDone(final_output, usage)`, wrapping the Agents
-  SDK `Runner.run_streamed` with the same session semantics as `chat()`.
-  `HeadlessRunner.run_streamed` is the runner-layer counterpart to `run`,
-  honoring `run_config` / `max_turns` / sandbox attachment / trace_run
-  identically; it cancels the SDK run loop when the generator is closed or
-  abandoned, and records failed turns on the trace.
+- `App.chat_stream(name, session_id, message)`: async iterator of text
+  deltas with a terminal `StreamDone(final_output, usage)`, same session
+  semantics as `chat()`; the run is cancelled cleanly when the iterator is
+  closed or abandoned.
 - `POST /agents/{name}/chat?stream=true`: `text/event-stream` response with
-  incremental `delta` events and a final `done` event carrying
-  `{"output", "usage"}`. A failure mid-stream emits an `error` event; a
-  request missing `session_id` / `message` is rejected with 422 before the
-  stream starts. Sent with `Cache-Control: no-cache` and
-  `X-Accel-Buffering: no` so proxies don't buffer the stream.
-
+  incremental `delta` events and a final `done` event; mid-stream failures
+  emit an `error` event; invalid requests are rejected with 422 before the
+  stream starts. Sent with anti-buffering headers for proxies.
 - `agentdeck/errors.py`: one exception hierarchy — `AgentdeckError` base,
-  `NotFoundError` (unknown agent/workflow/skill), `SkillError` (base for
-  `SkillExecutionError`, `SkillEnvError`), `ConfigError`. Exported from
-  `agentdeck` alongside `App`.
-- `App.open()` async context manager: runs `load()`, starts the MCP lifecycle,
-  and guarantees `aclose()` on exit (even on error). `App.aclose()` closes the
-  Redis session client and MCP servers; idempotent, safe to call twice.
-- `App(session_factory=...)` DI seam: inject a prebuilt `SessionFactory` (e.g.
-  wrapping fakeredis) instead of building one from settings — for tests.
-- `agentdeck-serve` now wires `App.open()`/`aclose()` through a FastAPI
-  lifespan, so `compose stop` (SIGTERM) shuts down the Redis client and MCP
-  servers cleanly instead of leaking them.
-- `App.load()` stashes its result on `App.inventory`, so `/health` no longer
-  re-runs the whole compile pass on boot.
-
-- Workflow durability: `BaseWorkflow.durable: ClassVar[bool] = False` opt-in.
-  `durable=True` compiles the graph with a LangGraph checkpointer resolved from
-  a new `CheckpointSettings` group (`AGENTDECK_CHECKPOINT_*`, YAML `checkpoint:`
-  — `backend`: `sqlite` | `postgres` | `memory`, `url`). `App.run_workflow` and
-  `BaseWorkflow.run` accept `thread_id: str | None = None`, threaded into
-  LangGraph's `config={"configurable": {"thread_id": ...}}` so a run can
-  resume; `durable=True` with no `thread_id` raises. `durable=False` (default)
-  compiles and runs exactly as before. New optional `[durability]` extra
-  (`langgraph-checkpoint-sqlite`, `langgraph-checkpoint-postgres`) — a missing
-  extra raises a clear `ImportError` at first use instead of a bare
-  `ModuleNotFoundError`. `memory`/`sqlite` are exercised in tests
-  (`tests/test_workflow_durability.py`), including a real cross-process restart
-  against a sqlite file, matching the issue's acceptance test.
+  `NotFoundError`, `SkillError` (with `SkillExecutionError`, `SkillEnvError`),
+  `ConfigError`.
+- `App.open()` async context manager and idempotent `App.aclose()`;
+  `agentdeck-serve` wires them through a FastAPI lifespan so SIGTERM shuts
+  down Redis and MCP servers cleanly.
+- `App(session_factory=...)` DI seam for tests.
+- Workflow durability: `BaseWorkflow.durable = True` compiles the graph with
+  a checkpointer from the new `AGENTDECK_CHECKPOINT_*` settings (`sqlite` |
+  `postgres` | `memory`); `run_workflow` / `BaseWorkflow.run` accept
+  `thread_id` so a run can resume, including across a real process restart.
+  New optional `[durability]` extra with a clear `ImportError` when missing.
 
 ### Changed
-- The streamed `done` event's `"output"` is now the SDK's `final_output`
-  (matching non-streamed `chat()`, and the validated model for an
-  `output_type` agent) instead of the re-joined text deltas, which disagreed
-  for tool-using and structured-output agents.
-- `agentdeck-serve` answers `503` on every endpoint before the lifespan has
-  started the `App` (`/health` reports `{"status": "starting"}`) instead of
-  raising `AttributeError` or reporting an empty inventory as `ok`.
-- `App.aclose()` tears down the process-wide MCP lifecycle only if that `App`
-  started it, and always runs both cleanup steps even if one fails.
-- `PluginRegistry.get` / `SkillRegistry.get` now raise `NotFoundError`
-  instead of bare `KeyError`.
-- Invalid configuration now raises `ConfigError` instead of `ValueError`:
-  unusable `compaction.threshold`/`model` combinations, `skills_dir` and
-  skill allow-list problems, malformed MCP server entries, and malformed
-  `SKILL.md` frontmatter. Pydantic field validators still raise `ValueError`
-  (pydantic requires it).
-- `SkillResult.raise_if_failed` raises `SkillExecutionError` and
-  `SkillResult.require_output` raises `SkillError`, both instead of bare
-  `RuntimeError`. `SkillExecutionError` moved to `agentdeck.skills.executor`
-  and is re-exported from `agentdeck.skills` / `agentdeck.workflows`.
-- `agentdeck-serve` maps `NotFoundError` to HTTP 404 with the message as the
-  body; every other `AgentdeckError` is a server fault and now returns 500
-  with a fixed `{"detail": "internal error"}` body, the real detail logged
-  server-side. Previously these returned 422 with the exception message,
-  which could echo skill stderr back to the client.
+- The streamed `done` event's `"output"` is the SDK's `final_output`
+  (matching non-streamed `chat()`), not re-joined text deltas.
+- `agentdeck-serve` answers `503` before startup completes instead of
+  raising; `NotFoundError` maps to 404; other errors return a fixed 500 body
+  with the detail logged server-side instead of echoed to the client.
+- Registries raise `NotFoundError` instead of bare `KeyError`; invalid
+  configuration raises `ConfigError` instead of `ValueError`; skill failures
+  raise `SkillExecutionError` / `SkillError` instead of bare `RuntimeError`.
 
 ## [0.1.0] - 2026-07-26
 
@@ -309,28 +207,31 @@ documentation platform and its CI.
 - `agentdeck-serve` FastAPI surface: `/health`, `/agents/{name}/chat`,
   `/workflows/{name}` (`[serve]` extra).
 - `web_search` function tool (Tavily-backed, model-agnostic).
-- `runtime/capture.py`: `Capture` / `CaptureActor` / `CAPTURE_ENV` wire
-  contract (reconstruction of the never-extracted `sysagents_core`).
+- `runtime/capture.py`: the `Capture` / `CaptureActor` / `CAPTURE_ENV`
+  host↔sandbox wire contract.
 - Packaging: pyproject with `serve` / `dev` / `observability` extras,
-  Makefile (`make check` = lint + typecheck + tests), Dockerfile + compose
-  (app + Redis), `.env.example`, pre-commit, CI + tag-driven release workflow.
+  Makefile, Dockerfile + compose (app + Redis), `.env.example`, pre-commit,
+  CI + tag-driven release workflow.
 
 ### Changed
 - Extracted from SysAgentsHarness and renamed: package `sysagent` →
   `agentdeck`, env prefixes `SYSAGENT_*` → `AGENTDECK_*`.
-- Neutralized donor defaults (private GAIA endpoint, model, MCP hosts);
-  empty `OPENAI_BASE_URL` now means the SDK default.
-- Pinned `openai==2.32.0` to match `openai-agents==0.17.0` (2.33+ added
-  required usage fields that crash the run loop).
-- `BaseAgent.run()` is a one-shot headless run (the interactive REPL relied
-  on donor code that was never extracted).
+- Neutralized donor defaults (private endpoints, model, MCP hosts); empty
+  `OPENAI_BASE_URL` means the SDK default.
+- Pinned `openai==2.32.0` to match `openai-agents==0.17.0` (2.33+ crashes
+  the run loop).
+- `BaseAgent.run()` is a one-shot headless run.
 
 ### Removed
 - Dead donor code: `backends/`, `db/`, `DevRunner`, `runtime/events.py`,
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b1...HEAD
+[2.0.0b1]: https://github.com/sagi5060/agentdeck/compare/v1.2.1...v2.0.0b1
+[1.2.1]: https://github.com/sagi5060/agentdeck/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/sagi5060/agentdeck/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/sagi5060/agentdeck/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/sagi5060/agentdeck/compare/v0.2.0...v1.0.0
 [0.2.0]: https://github.com/sagi5060/agentdeck/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/sagi5060/agentdeck/releases/tag/v0.1.0

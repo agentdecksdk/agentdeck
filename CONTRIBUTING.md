@@ -37,6 +37,11 @@ make check                  # lint + typecheck + lint-imports + tests — CI run
 - **When implementation diverges from a design doc**, the same PR amends the doc
   with a dated note. Never code around a doc silently.
 - **Every user-visible change gets a CHANGELOG entry** under **Unreleased**.
+  Entries are release notes, not dev narrative: written for a user of the
+  package, in Keep-a-Changelog category order (`Added / Changed / Deprecated /
+  Removed / Fixed / Security`), and never citing internal design docs,
+  milestones, or issue plumbing — they must read cleanly when attached to a
+  GitHub Release as-is.
 
 ## Ground rules
 
