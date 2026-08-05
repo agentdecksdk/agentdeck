@@ -2,9 +2,10 @@
 
 ``spec.native`` is the pre-built ``agents.Agent`` (handoffs and tools included) — this
 adapter only runs it and translates its stream, per ``core/ports/engine.py``. Execution
-state (the SDK session) is engine-private (ADR-D5): the event log passed in as
-``history`` is not read here, because the whole point of the ADR is that the session,
-not the log, feeds the model.
+state (the SDK session) is engine-private (ADR-D5): the session, not the log, is what
+feeds the model. The log passed in as ``history`` is read for exactly one purpose — the
+turn-start reconciliation in ``reconcile.py``, which repairs a session left behind by a
+crash between the log write and the session write.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from agents import Agent, RunConfig, Runner
 
+from agentdeck.adapters.engines.openai_agents.reconcile import reconcile
 from agentdeck.adapters.engines.openai_agents.sessions import ExecutionStore
 from agentdeck.adapters.engines.openai_agents.translate import translate
 from agentdeck.core.content import TextBlock, coerce_input
@@ -26,6 +28,7 @@ from agentdeck.errors import ConfigError
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 
+    from agents.memory.session import Session
     from agents.result import RunResultStreaming
     from agents.usage import Usage as SDKUsage
 
@@ -38,10 +41,10 @@ if TYPE_CHECKING:
 class OpenAIAgentsEngine(EnginePort):
     """Plays ``spec.native`` (an ``agents.Agent``) through ``Runner.run_streamed``.
 
-    Three protected seams exist for the v1 compat engine in ``compat.py``, which needs a
+    Four protected seams exist for the v1 compat engine in ``compat.py``, which needs a
     differently-configured run and a v1-shaped result but the same stream handling:
-    :meth:`_launch` starts the SDK run, :meth:`_translate` maps one stream event, and
-    :meth:`_terminal` closes the run.
+    :meth:`_session` picks the execution state, :meth:`_launch` starts the SDK run,
+    :meth:`_translate` maps one stream event, and :meth:`_terminal` closes the run.
     """
 
     engine: ClassVar[str] = "openai-agents"
@@ -57,7 +60,14 @@ class OpenAIAgentsEngine(EnginePort):
         ctx: RunContext,
     ) -> AsyncGenerator[KnownPayload, None]:
         agent = _agent_of(spec)
-        async with self._launch(agent, _to_sdk_input(input), ctx) as result:
+        session = self._session(ctx)
+        if session is not None:
+            diverged = await reconcile(session, history)
+            if diverged is not None:
+                # Two stores disagreeing is worth a place in the record, not just a log line;
+                # the run itself still has the session it needs and plays on.
+                yield diverged
+        async with self._launch(agent, _to_sdk_input(input), ctx, session) as result:
             tool_names: dict[str, str] = {}
             # The SDK's run loop is a detached task; an abandoned generator must cancel it
             # explicitly (mirrors agents/runners/headless.py's run_streamed, same reason).
@@ -84,13 +94,19 @@ class OpenAIAgentsEngine(EnginePort):
             for payload in self._terminal(result):
                 yield payload
 
+    def _session(self, ctx: RunContext) -> Session | None:
+        """The execution state this run reads and writes — the adapter's own store by default."""
+        return self._sessions.session_for(ctx)
+
     @asynccontextmanager
-    async def _launch(self, agent: Agent[Any], message: str, ctx: RunContext) -> AsyncIterator[RunResultStreaming]:
+    async def _launch(
+        self, agent: Agent[Any], message: str, ctx: RunContext, session: Session | None
+    ) -> AsyncIterator[RunResultStreaming]:
         """Start the run and hold whatever scope it needs open until the stream is drained."""
         yield Runner.run_streamed(
             agent,
             message,
-            session=self._sessions.session_for(ctx),
+            session=session,
             run_config=RunConfig(tracing_disabled=not _tracing_enabled()),
         )
 

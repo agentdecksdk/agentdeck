@@ -6,12 +6,11 @@ is dropped — never waited for, because a run is never charged for its slowest 
 always counted and logged, because a tap that quietly stops taking events is
 indistinguishable from one that never had any.
 
-Two rules from outside this module are load-bearing in it. The event-path law of
-coding-standards §6 makes sinks fire-and-forget: a slow or failing one logs and drops, it
-never stalls or fails the run. NFR-6 says the same thing as a product requirement — slow
-sinks never stall a run — because a run pinned to its slowest reader turns every optional
-tap into a liveness risk for the run itself. Together they are why every wait here has a
-deadline, shutdown included, and why every event that misses the sink is counted.
+NFR-6 — slow sinks never stall a run — is the requirement behind that, because a run pinned
+to its slowest reader turns every optional tap into a liveness risk for the run itself. Its
+reach does not stop at the event path: waiting on a sink is a liveness risk wherever it is
+done, so nothing here waits on one without a deadline — not even shutdown, which a single
+emit that never returns would otherwise hold open forever.
 
 Guaranteed delivery to a sink is a deliberate non-goal: a consumer that must not miss an
 event reads the event store, which is the ordered, complete copy. If a sink ever genuinely
@@ -22,7 +21,6 @@ wait here.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from typing import TYPE_CHECKING
 
@@ -51,6 +49,23 @@ EMIT_TIMEOUT = 5.0
 # The longest a shutdown waits for one sink's backlog before writing it off. Shutdown has
 # to finish even against a sink that never returns, and the store already has every event.
 SHUTDOWN_TIMEOUT = 10.0
+
+# The longest a shutdown then waits for the cancelled consumer task to actually end. Short
+# because by this point nothing is expected of it: a sink whose emit swallows the
+# cancellation keeps its consumer alive through it, and waiting unbounded on a task that has
+# already been written off would put back the hang everything above removes.
+REAP_TIMEOUT = 1.0
+
+
+def _cancelling_ourselves() -> bool:
+    """True when the ``CancelledError`` in hand is one this task was asked to honour.
+
+    The difference matters at every point where one is caught: a cancel aimed at this task has
+    to keep travelling, because swallowing it hands the caller a clean return from something it
+    asked to stop, and the caller then carries on as if it had never asked.
+    """
+    task = asyncio.current_task()
+    return task is not None and task.cancelling() > 0
 
 
 class SinkDispatch:
@@ -153,11 +168,18 @@ class SinkDispatch:
                 self.depth,
             )
         flushed.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
+        try:
             await flushed
+        except asyncio.CancelledError:
+            if _cancelling_ourselves():
+                raise
 
     async def close(self, timeout: float = SHUTDOWN_TIMEOUT) -> None:
         """Flush what the sink has not taken, stop its consumer, and count what is left.
+
+        Returns in bounded time whatever the sink does: both waits it makes have deadlines, so a
+        sink that neither takes an event nor lets go of its consumer can delay a shutdown but
+        never prevent one.
 
         Terminal and idempotent: closing marks the dispatch shut before it waits for anything,
         so an event submitted by a run still winding down is counted as lost instead of landing
@@ -175,8 +197,19 @@ class SinkDispatch:
             if consumer.done() and self.depth > 0:
                 logger.error("sink %s has no consumer left; %d queued events go undelivered", self._name, self.depth)
             consumer.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await consumer
+            try:
+                async with asyncio.timeout(REAP_TIMEOUT):
+                    await consumer
+            except TimeoutError:
+                # A sink that swallows the cancellation inside its own emit keeps the consumer
+                # running, and shutdown is not the place to argue with it: whether the task dies
+                # later is the sink's business, not ours, and this call has to end either way.
+                logger.warning(
+                    "sink %s did not release its consumer within %ss; abandoning the task", self._name, REAP_TIMEOUT
+                )
+            except asyncio.CancelledError:
+                if _cancelling_ourselves():
+                    raise
         # Cancelling the consumer strands its queue and whatever emit it was inside; both are
         # losses, and counters that disagree with the log line below are how a lost tail turns
         # into a mystery.
@@ -221,8 +254,7 @@ class SinkDispatch:
         except TimeoutError:
             self._count_failure(f"timed out after {self._emit_timeout}s on {event.kind} seq={event.seq}")
         except asyncio.CancelledError:
-            task = asyncio.current_task()
-            if task is not None and task.cancelling():
+            if _cancelling_ourselves():
                 # Ours (a close, a loop shutdown) — the consumer is meant to end here.
                 raise
             self._count_failure(f"raised CancelledError from emit on {event.kind} seq={event.seq}")
@@ -273,6 +305,7 @@ __all__ = [
     "FAILURE_LIMIT",
     "LOG_INTERVAL",
     "QUEUE_CAPACITY",
+    "REAP_TIMEOUT",
     "SHUTDOWN_TIMEOUT",
     "SinkDispatch",
 ]

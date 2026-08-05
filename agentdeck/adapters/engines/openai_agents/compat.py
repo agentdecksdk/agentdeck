@@ -72,9 +72,10 @@ class V1CompatEngine(OpenAIAgentsEngine):
         return self._sessions.session_for(ctx)
 
     @asynccontextmanager
-    async def _launch(self, agent: Agent[Any], message: str, ctx: RunContext) -> AsyncIterator[RunResultStreaming]:
+    async def _launch(
+        self, agent: Agent[Any], message: str, ctx: RunContext, session: Session | None
+    ) -> AsyncIterator[RunResultStreaming]:
         runner = HeadlessRunner.from_agent(agent)
-        session = self._session(ctx)
         with trace_run(
             current_capture(), name=agent.name, kind="agent", input=message, session_id=ctx.session_id
         ) as tr:
