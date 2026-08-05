@@ -44,6 +44,9 @@ broader than the linter's contracts:
 - `authoring/` imports `core/` only; user-facing API compiles to `InvocableSpec`.
 - Absolute imports only within the package. No wildcard imports. No import-time side
   effects (no I/O, no client construction at module import).
+- `__init__.py` is always just re-exports: a one-line docstring, `from ... import ...`,
+  and `__all__` — never class or function definitions. Implementation lives in named
+  modules (`store.py`, `engine.py`, `port.py`), however small the package.
 
 ## 4. Typing
 
