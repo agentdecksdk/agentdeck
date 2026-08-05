@@ -5,6 +5,9 @@ adapter's registry, soft-fail and banner logic all run for real.
 """
 
 import asyncio
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 from agents.mcp import MCPServerStreamableHttp
@@ -158,6 +161,21 @@ def test_a_lone_server_name_is_not_read_as_characters(connect):
     assert tools.unavailable == ()
 
 
+def test_a_declared_name_that_is_not_a_string_is_reported_missing(connect):
+    _start({"knowledge": KNOWLEDGE})
+
+    spec = InvocableSpec(
+        name="Researcher",
+        kind=InvocableKind.AGENT,
+        engine="openai-agents",
+        metadata={MCP_SERVER_NAMES_KEY: [None, 5]},
+    )
+
+    tools = MCPToolSource().resolve(spec)
+    assert tools.tools == ()
+    assert tools.unavailable == ("None", "5")
+
+
 def test_the_banner_is_empty_when_nothing_is_missing():
     assert mcp_status_banner([]) == ""
 
@@ -184,6 +202,29 @@ def test_v1_agent_prompt_carries_the_banner_while_its_server_is_down(connect):
 
     assert agent.instructions == BANNER + INSTRUCTIONS
     assert agent.mcp_servers == []
+
+
+def test_the_mcp_client_is_banned_outside_this_adapter(tmp_path):
+    """The import law: only ``adapters/tools/mcp`` may import ``agents.mcp``.
+
+    Enforced by ruff's banned-api, not import-linter, which rejects a subpackage of an
+    external package outright — so the guard is worth pinning where it can't rot silently.
+    """
+    repo_root = Path(__file__).resolve().parents[1]
+    offender = tmp_path / "another_engine.py"
+    offender.write_text("from agents.mcp import MCPServer\n")
+
+    ruff = Path(sys.executable).parent / "ruff"
+    result = subprocess.run(
+        [str(ruff), "check", "--config", "pyproject.toml", "--no-cache", str(offender)],
+        capture_output=True,
+        text=True,
+        cwd=repo_root,
+        timeout=120,
+    )
+
+    assert "TID251" in result.stdout
+    assert "`agents.mcp` is banned" in result.stdout
 
 
 def test_the_v1_import_paths_re_export_the_relocated_objects():

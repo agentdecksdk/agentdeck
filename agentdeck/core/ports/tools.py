@@ -5,8 +5,10 @@ getting* — so a caller assembling a run never learns which source the tools ca
 whether one of them is down.
 
 Connecting and closing a source is **not** on this port: the composition root owns that
-(``App`` connects MCP in its lifespan), so resolving tools is a lookup that cannot block a
-run or half-open a connection behind an engine's back.
+(``App`` connects MCP in its lifespan), so resolving tools never connects a source — no
+half-open connection appears behind an engine's back, and no run waits on a handshake.
+Resolving is not free, though: a source is free to read configuration, so treat it as
+startup-shaped work, not as something to call per turn.
 """
 
 from __future__ import annotations

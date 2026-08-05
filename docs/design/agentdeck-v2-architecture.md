@@ -348,11 +348,20 @@ missing, empty otherwise). Decomposing an MCP server into declarative `ToolSpec`
 agentdeck dispatching tool calls itself — execution, which stays in the SDK — so the handles
 travel opaque and the ring that attaches them is the one that understands them. The method is
 **sync**: a source resolves from state the composition root already connected, and prompt
-assembly, its only caller, is synchronous. Connect/close are deliberately **not** on the port:
-`App` drives the MCP lifecycle in its lifespan exactly as it does today, so resolving tools can
-never block a run or open a connection behind an engine's back. `ToolSet.tools` is typed
-`tuple[Any, ...]` — the second blessed opaque field after `InvocableSpec.native`, for the same
-reason.)*
+assembly, its only caller, is synchronous — and it is the only sync method in `core/ports/`.
+Connect/close are deliberately **not** on the port: `App` drives the MCP lifecycle in its
+lifespan exactly as it does today, so resolving tools never connects a source. `ToolSet.tools`
+is typed `tuple[Any, ...]` — the second blessed opaque field after `InvocableSpec.native`, for
+the same reason.
+
+Two costs, named now rather than after source #2. (i) Opaque handles are only as portable as
+the engine that made them: an MCP server off this source is attachable by an openai-agents
+`Agent` and nothing else, so a second engine cannot consume these tools without pulling in
+openai-agents — the day one does, either it grows its own MCP source or `ToolSet` gains a
+declarative shape and agentdeck takes on tool dispatch. (ii) With lifecycle off the port,
+every source must expose its own out-of-band `startup`/`shutdown`, which the composition root
+wires **by concrete type** — there is no uniform "connect all sources" call, and adding one is
+what a `ToolSourceRegistry` would be for.)*
 
 ### 4.6 The Runtime service — the use-case layer
 

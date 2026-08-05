@@ -33,9 +33,12 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Changed
 - MCP now lives in `agentdeck.adapters.tools.mcp` (registry, hardened HTTP
-  transport, agent wiring — all unchanged). Importing from
-  `agentdeck.agents.mcp` or `agentdeck.agents` keeps working and returns the same
-  objects; both paths will be dropped in a later release.
+  transport, agent wiring — all unchanged). `from agentdeck.agents.mcp import ...`,
+  `from agentdeck.agents.mcp.lifecycle import ...` and `from agentdeck.agents
+  import ...` keep working and hand back the same objects; both paths will be
+  dropped in a later release. The deeper module paths
+  `agentdeck.agents.mcp.transport` and `agentdeck.agents.mcp.wiring` are gone —
+  import those names from the package instead.
 
 ## [2.0.0b3] - 2026-08-05
 
