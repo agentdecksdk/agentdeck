@@ -30,11 +30,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   had just given. The model then answered later turns with a hole in its context
   and nothing reported a problem. Each turn now checks the log against the
   engine's own conversation state and replays the messages that are missing before
-  the model runs, so a restarted process picks the conversation up whole. Messages
-  only, in content and order: tool results and model reasoning are not
-  reconstructed, and state that has diverged from the log rather than fallen behind
-  it is left untouched. LangGraph workflows are unaffected — a checkpoint is written
-  by the graph step itself, so there is no gap between the two writes to repair.
+  the model runs, so a restarted process picks the conversation up whole.
+  Messages only, in content and order: tool results and model reasoning are not
+  reconstructed, so a conversation repaired this way carries the *text* of a tool
+  answer without the tool call behind it — worth knowing if you read model context
+  back. A turn a client disconnected from is never replayed, so retrying a question
+  does not send it twice, and conversation state that has diverged from the log
+  rather than fallen behind it is left untouched and reported on the run as
+  `custom` / `openai_agents.session_diverged`. LangGraph workflows are unaffected —
+  a checkpoint is written by the graph step itself, so there is no gap between two
+  writes to repair.
 
 ## [2.0.0b3] - 2026-08-05
 

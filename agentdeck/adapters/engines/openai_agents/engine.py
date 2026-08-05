@@ -54,7 +54,11 @@ class OpenAIAgentsEngine(EnginePort):
     ) -> AsyncGenerator[KnownPayload, None]:
         agent = _agent_of(spec)
         session = self._sessions.session_for(ctx)
-        await reconcile(session, history)
+        diverged = await reconcile(session, history)
+        if diverged is not None:
+            # Two stores disagreeing is worth a place in the record, not just a log line; the
+            # run itself still has the session it needs and plays on.
+            yield diverged
         run_config = RunConfig(tracing_disabled=not _tracing_enabled())
         result = Runner.run_streamed(agent, _to_sdk_input(input), session=session, run_config=run_config)
         tool_names: dict[str, str] = {}

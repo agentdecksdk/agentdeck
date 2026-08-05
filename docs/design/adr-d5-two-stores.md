@@ -175,8 +175,8 @@ before being drained into execution state, per the write-ordering rule above.
 ## 6. Amendment 2026-08-05 — reconciliation as built (issue #76)
 
 Reconciliation now exists, in `adapters/engines/openai_agents/reconcile.py`, called at turn
-start before `Runner.run_streamed`. Four points where the built thing differs from §3's
-description:
+start before `Runner.run_streamed`. Points where the built thing differs from §3's
+description, or carries a cost §3 did not name:
 
 **It is not only inputs, and not `input.appended`.** §3 says the crash "leaves an
 `input.appended` with no engine-side counterpart". `input.appended` still has no producer;
@@ -187,13 +187,42 @@ the session write it belongs to. The replay therefore covers both roles — ever
 `run.started`/`input.appended` input and every `message.completed` — which is the same
 message-level transcript the fidelity contract test compares.
 
-**The comparison is a prefix check, and divergence is left alone.** The adapter builds both
-message-level transcripts, verifies the session's is a prefix of the log's, and appends the
-remainder as plain `{"role", "content"}` items. If the session is *not* a prefix of the log
-it is left untouched with a warning: it is the authority on execution, and a wrong guess
-about its tail (duplicated or reordered messages) is worse than the gap. Tool calls, tool
-results and reasoning items are never replayed — the log's copies are truncated or absent,
-so message level is the ceiling, exactly as §3 says.
+**The comparison is a prefix check; divergence is left alone and reported.** The adapter
+builds both message-level transcripts, verifies they agree on their common prefix, and appends
+the remainder as plain `{"role", "content"}` items. Where they disagree *within* that prefix
+the session is left untouched — it is the authority on execution, and a wrong guess about its
+tail (duplicated or reordered messages) is worse than the gap — and the run emits
+`custom(openai_agents.session_diverged)` with the two message counts, so the disagreement
+enters the record instead of only a log line nobody reads. A session merely *ahead* of the log
+is not a divergence and is silent: an input the log deliberately leaves out (below) is enough
+to put it there. Tool calls, tool results and reasoning items are never replayed — the log's
+copies are truncated or absent, so message level is the ceiling, exactly as §3 says.
+
+**§4's "byte-exact model context" no longer holds for a repaired session.** A repair writes
+plain text where an intact session held paired tool-call/tool-result items and reasoning
+items, and that session keeps holding plain text for the rest of the conversation: the model
+can see an answer with no evidence of the tool call that produced it, and a later turn cannot
+reference reasoning that is no longer there. §4's gain is therefore conditional — byte-exact
+across turns *until* a crash forces a repair, transcript-level after one. Accepted, because
+the alternative is a turn the model cannot see at all; a deployment that needs the stronger
+property has to treat a repair as a signal, which is the second reason the event above exists.
+
+**An abandoned turn's input is not replayed.** `run.started` records that a turn was asked
+for, not that the engine took it. A consumer that disconnects before the engine reads anything
+(the ordinary SSE-disconnect path, which the Runtime closes with `run.cancelled`) leaves a
+question the session never saw and the user is about to ask again — replaying it would land a
+copy in front of its own retry. So any run whose log ends in `run.cancelled` contributes no
+input. Crash cases are unaffected: a dead session write shows up as `run.failed`, and a
+SIGKILLed run has no terminal event at all. **Stated limitation:** an input the engine
+*rejected* also shows up as `run.failed` (`_to_sdk_input` refuses non-text blocks), and the
+log cannot distinguish that from a session write that died, so such an input is replayed on
+the next turn. Fixing it needs the log to record engine acceptance, which is a schema change.
+
+**Concurrency is single-process.** Read-then-append is atomic under a per-session
+`asyncio.Lock`, so two turns racing on one session inside one server cannot both apply the
+same repair and double the conversation. Two servers on one session are not covered here and
+do not need to be: #83 rejects concurrent turns on one session at the door with an atomic
+session claim.
 
 **An emptied session is refilled, not left blank.** §3's operational-separation clause says
 an expired session "simply means the next turn starts a fresh loop memory". As built, an
@@ -206,9 +235,14 @@ start, and it costs one full replay, once, on the first turn after the loss.
 step, so there is no second write for a crash to fall between: an input either entered a
 super-step that committed or the step never happened. A run's thread is its own
 (`thread_id = run_id`), so unlike the SDK session — shared across a session's turns — a lost
-turn cannot poison a later one. The one place the two stores can disagree there is a resume:
-`run.resumed` is claimed in the log before the engine sees the resume *value*, and that value
-is not in the log (the payload carries only `reason`), so a crash in that window is not
-repairable by replay at all — §3's safety condition ("inputs are not lossy in the log") does
-not hold for it. Recording resume values is a schema change and a separate decision; it is
-noted here so the absence is deliberate rather than overlooked.
+turn cannot poison a later one.
+
+The one place the two stores can disagree there is a resume, and it is worse than
+unrepairable — it is *stranding*. The conditional append that claims a resume both records
+`run.resumed` and flips the run `WAITING_HUMAN` → `RUNNING`, and it lands before the engine
+sees the resume *value*, which the log does not carry (the payload holds only `reason`). A
+crash in that window therefore leaves the log saying `RUNNING` while the checkpointer is still
+parked at the interrupt: replay cannot help (§3's safety condition, "inputs are not lossy in
+the log", does not hold for a value the log never had), and every later resume is refused as
+stray, so the run can never be continued at all. Tracked as #94 — recovering it needs a
+recorded resume value or a way back to `WAITING_HUMAN`, both decisions of their own.

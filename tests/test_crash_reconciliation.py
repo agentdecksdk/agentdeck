@@ -7,9 +7,11 @@ it answers a question it can no longer see the setup for, and nothing anywhere r
 problem. That silence is why these tests assert on what the scripted model *received*,
 never on an internal flag.
 
-Both crashes here are real rather than stubbed: one fails the session write inside a live
-turn, one SIGKILLs a second OS process the instant the answer lands in the log. Neither
-patches the reconciliation itself.
+The crashes are real rather than stubbed: one fails the session write inside a live turn,
+one SIGKILLs a second OS process with the log a question ahead of a session file that
+outlives it. Neither patches the reconciliation itself. The tests around them pin what must
+*not* be replayed — an abandoned turn's question, a session that went its own way — because
+those are the ways a repair turns into a corruption.
 """
 
 from __future__ import annotations
@@ -27,6 +29,7 @@ import pytest
 from agents import SQLiteSession
 
 from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
+from agentdeck.adapters.engines.openai_agents.reconcile import DIVERGED
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import TextBlock, coerce_input
 from agentdeck.core.events import MessageCompleted, RunStarted
@@ -42,11 +45,14 @@ if TYPE_CHECKING:
 
 WORKER = Path(__file__).parent / "crash_worker.py"
 
-# A wedge detector, not a performance budget: the worker's turn takes milliseconds.
+# A wedge detector, not a performance budget: the worker's turns take milliseconds.
 WORKER_TIMEOUT = 120.0
 
-QUESTION_3 = "and what did I just ask you?"
-QUESTION_4 = "still there?"
+QUESTION_4 = "and what did I just ask you?"
+QUESTION_5 = "still there?"
+
+# How long a held read waits for its second reader before giving up — loop turns, not seconds.
+_HELD_READ_TURNS = 200
 
 FIRST_EXCHANGE = [["user", worker.QUESTION_1], ["assistant", worker.ANSWER_1]]
 
@@ -69,13 +75,41 @@ class _DyingSession(SQLiteSession):
         await super().add_items(items)
 
 
-class _CrashingSessions(ExecutionStore):
-    """One ``_DyingSession`` for the whole test, so a turn's failed write is still visible
-    to the turn after it — the same session a restarted process would reattach to."""
+class _SlowReadSession(_DyingSession):
+    """A session whose read can be made to wait for a second reader before it comes back.
 
-    def __init__(self) -> None:
+    A local SQLite read is far too quick for two turns to overlap inside it by luck; one over
+    a network is not, and that is the shape the race has to be pinned against. Bounded on
+    purpose: under a correct lock the second reader can never arrive, and a test must not
+    wedge waiting for it.
+    """
+
+    def __init__(self, session_id: str) -> None:
+        super().__init__(session_id)
+        self.reads = 0
+        self.readers_awaited = 0
+
+    def hold_reads_for_a_second_reader(self) -> None:
+        self.reads = 0
+        self.readers_awaited = 2
+
+    async def get_items(self, limit: int | None = None) -> list[TResponseInputItem]:
+        items = await super().get_items(limit)
+        self.reads += 1
+        for _ in range(_HELD_READ_TURNS):
+            if self.reads >= self.readers_awaited:
+                break
+            await asyncio.sleep(0)
+        return items
+
+
+class _CrashingSessions(ExecutionStore):
+    """One session for the whole test, so a turn's failed write is still visible to the turn
+    after it — the same session a restarted process would reattach to."""
+
+    def __init__(self, session_id: str = "crash-test", *, slow_reads: bool = False) -> None:
         super().__init__()
-        self.session = _DyingSession("crash-test")
+        self.session = _SlowReadSession(session_id) if slow_reads else _DyingSession(session_id)
 
     def session_for(self, ctx: RunContext) -> SQLiteSession:
         return self.session
@@ -96,7 +130,7 @@ def _log_transcript(events: Sequence[Event]) -> list[list[str]]:
     for event in events:
         if isinstance(event.payload, RunStarted):
             texts = [block.text for block in event.payload.input if isinstance(block, TextBlock)]
-            transcript.append(["user", " ".join(texts)])
+            transcript.append(["user", "\n".join(texts)])
         elif isinstance(event.payload, MessageCompleted):
             transcript.append(["assistant", event.payload.text])
     return transcript
@@ -124,12 +158,12 @@ async def test_an_input_the_session_write_lost_reaches_the_model_on_the_next_tur
     assert worker.transcript_of(await sessions.session.get_items()) == FIRST_EXCHANGE
     assert len(model.inputs) == 1, "turn 2 died before the model was called"
 
-    await _play(runtime, QUESTION_3, "turn-3")
+    await _play(runtime, worker.QUESTION_3, "turn-3")
 
     assert worker.transcript_of(model.inputs[-1]) == [
         *FIRST_EXCHANGE,
         ["user", worker.QUESTION_2],
-        ["user", QUESTION_3],
+        ["user", worker.QUESTION_3],
     ]
 
     # And the two stores agree again afterwards, which is the invariant the gap broke.
@@ -143,36 +177,115 @@ async def test_an_input_the_session_write_lost_reaches_the_model_on_the_next_tur
     assert worker.transcript_of(model.inputs[-1]) == [
         *FIRST_EXCHANGE,
         ["user", worker.QUESTION_2],
-        ["user", QUESTION_3],
+        ["user", worker.QUESTION_3],
         ["assistant", worker.ANSWER_1],
         ["user", QUESTION_4],
     ]
 
 
-async def test_a_session_that_diverged_from_the_log_is_left_alone() -> None:
-    """Message-level replay only repairs a session the log's prefix still describes. A
-    session holding something the log never recorded is the authority on execution, so the
-    next turn must run on it untouched rather than on a guess about its tail."""
+async def test_a_question_the_consumer_abandoned_is_not_replayed_in_front_of_its_retry() -> None:
+    """``run.started`` records that a turn was asked for, not that the engine took it. A
+    consumer that walks away before the engine reads anything leaves a question in the log
+    the session never saw — and the user then asks it again. Replaying it would put the
+    question in front of its own retry, which is a duplicate, not a repair."""
     model = worker.ScriptedModel(worker.ANSWER_1)
     sessions = _CrashingSessions()
-    runtime, _store = _build(model, sessions)
+    runtime, store = _build(model, sessions)
 
     await _play(runtime, worker.QUESTION_1, "turn-1")
+
+    # An SSE consumer disconnecting: read the opening event, stop reading, close the stream.
+    stream = runtime.run(worker.AGENT, coerce_input(worker.QUESTION_2), worker.context("abandoned"))
+    assert (await anext(stream)).kind == "run.started"
+    await stream.aclose()
+
+    abandoned = [event.kind for event in await store.read(worker.SESSION_ID, worker.context("reader"))]
+    assert abandoned[-1] == "run.cancelled", abandoned
+
+    await _play(runtime, worker.QUESTION_2, "retry")
+
+    assert worker.transcript_of(model.inputs[-1]) == [*FIRST_EXCHANGE, ["user", worker.QUESTION_2]]
+
+
+async def test_a_session_that_diverged_from_the_log_is_left_alone_and_says_so() -> None:
+    """Message-level replay only repairs a session the log's prefix still describes. A
+    session holding something the log never recorded is the authority on execution, so the
+    next turn runs on it untouched — and the disagreement lands in the log as an event, since
+    nobody reads warnings."""
+    model = worker.ScriptedModel(worker.ANSWER_1)
+    sessions = _CrashingSessions()
+    runtime, store = _build(model, sessions)
+
+    await _play(runtime, worker.QUESTION_1, "turn-1")
+    # Rewound and continued somewhere else — a compaction, a manual repair, an SDK session
+    # feature this adapter does not know about. What matters is the shape: the log's second
+    # message is an answer, the session's is a question, so neither describes the other.
+    await sessions.session.pop_item()
     await sessions.session.add_items([{"role": "user", "content": "typed straight into the session"}])
 
-    await _play(runtime, worker.QUESTION_2, "turn-2")
+    events = await _play(runtime, worker.QUESTION_2, "turn-2")
 
+    [reported] = [event for event in events if event.kind == "custom" and event.payload.name == DIVERGED]
+    assert reported.payload.data == {"agreed_through": 1, "session_messages": 2, "logged_messages": 2}
+    assert reported.seq == 1, "the report belongs to the turn it interrupted, right after run.started"
     assert worker.transcript_of(model.inputs[-1]) == [
-        *FIRST_EXCHANGE,
+        ["user", worker.QUESTION_1],
         ["user", "typed straight into the session"],
         ["user", worker.QUESTION_2],
     ]
 
+    stored = await store.read(worker.SESSION_ID, worker.context("reader"))
+    assert [event.kind for event in stored if event.kind == "custom"] == ["custom"], "reported once, in the record"
+
+
+async def test_two_turns_racing_on_one_session_apply_the_repair_once() -> None:
+    """Two turns of one session in flight at the same time both find the same gap. Only one
+    of them may fill it: read-then-append is not atomic on its own, and the loser would
+    otherwise append a second copy of everything the first one repaired."""
+    model = worker.ScriptedModel(worker.ANSWER_1)
+    sessions = _CrashingSessions("racing-turns", slow_reads=True)
+    runtime, store = _build(model, sessions)
+
+    await _play(runtime, worker.QUESTION_1, "turn-1")
+    sessions.session.writes_fail = True
+    with pytest.raises(SessionWriteDiedError):
+        await _play(runtime, worker.QUESTION_2, "turn-2")
+    sessions.session.writes_fail = False
+
+    sessions.session.hold_reads_for_a_second_reader()
+    await asyncio.gather(
+        _play(runtime, worker.QUESTION_3, "racer-a"),
+        _play(runtime, QUESTION_5, "racer-b"),
+    )
+
+    session_transcript = worker.transcript_of(await sessions.session.get_items())
+    assert session_transcript.count(["user", worker.QUESTION_2]) == 1, session_transcript
+    assert session_transcript.count(["user", worker.QUESTION_1]) == 1, session_transcript
+    assert [event.kind for event in await store.read(worker.SESSION_ID, worker.context("reader"))].count("custom") == 0
+
+
+async def test_a_session_lost_entirely_is_refilled_from_the_log() -> None:
+    """Execution state that is simply gone — expired, or a first turn that crashed before its
+    session write — is the same gap seen from further away, so it takes the same repair: the
+    next turn's model input is the log's conversation, not a blank one."""
+    first_model = worker.ScriptedModel(worker.ANSWER_1)
+    runtime, store = _build(first_model, ExecutionStore())
+    await _play(runtime, worker.QUESTION_1, "turn-1")
+
+    # Same log, execution state the process no longer has.
+    second_model = worker.ScriptedModel(worker.ANSWER_3)
+    restarted = Runtime([OpenAIAgentsEngine(ExecutionStore())], store, {worker.AGENT: worker.spec(second_model)})
+    await _play(restarted, worker.QUESTION_2, "turn-2")
+
+    assert worker.transcript_of(second_model.inputs[-1]) == [*FIRST_EXCHANGE, ["user", worker.QUESTION_2]]
+
 
 async def test_a_turn_a_killed_process_never_wrote_to_its_session_survives_the_restart(tmp_path: Path) -> None:
-    """The same gap across two real processes. One is SIGKILLed the instant its answer is
-    durable in the log — its session dies with it, unwritten — and a fresh process on that
-    log must hand its model the whole conversation, not just the new question."""
+    """The same gap across two real processes, with execution state in a file so that it
+    outlives the one that dies. The victim finishes turn 1 into both stores and is SIGKILLed
+    on turn 2's opening log write: the log has that question, the session file does not. A
+    fresh process on both must hand its model the whole conversation, gap filled, once.
+    """
     victim = subprocess.Popen(
         [sys.executable, "-u", str(WORKER), "victim", str(tmp_path)],
         stdout=subprocess.PIPE,
@@ -188,6 +301,15 @@ async def test_a_turn_a_killed_process_never_wrote_to_its_session_survives_the_r
             victim.kill()
     assert victim.returncode == -signal.SIGKILL, f"the victim was not killed mid-turn: {victim.returncode}\n{stderr}"
 
+    # The window itself, on disk: the log has the second question, the session stops at the
+    # first exchange. Without this the kill could be decorative and the test would not know.
+    store = SqliteEventStore(worker.events_db(tmp_path))
+    reader = worker.context("reader")
+    log = await store.read(worker.SESSION_ID, reader)
+    assert _log_transcript(log) == [*FIRST_EXCHANGE, ["user", worker.QUESTION_2]], _kinds(log)
+    assert [event.kind for event in log if event.run_id == worker.KILLED_RUN] == ["run.started"], _kinds(log)
+    assert worker.transcript_of(await worker.durable_session(tmp_path).get_items()) == FIRST_EXCHANGE
+
     successor = subprocess.run(
         [sys.executable, "-u", str(WORKER), "successor", str(tmp_path)],
         capture_output=True,
@@ -198,18 +320,20 @@ async def test_a_turn_a_killed_process_never_wrote_to_its_session_survives_the_r
     assert successor.returncode == 0, successor.stderr
 
     fed_to_the_model = json.loads(successor.stdout.splitlines()[-1])
-    assert fed_to_the_model == [*FIRST_EXCHANGE, ["user", worker.QUESTION_2]], successor.stdout
-
-    store = SqliteEventStore(worker.events_db(tmp_path))
-    log = await store.read(worker.SESSION_ID, worker.context("reader"))
-    killed = [event.kind for event in log if event.run_id == worker.VICTIM_RUN]
-    assert killed[-1] == worker.STALL_KIND, f"the victim died somewhere else: {killed}"
-    assert _log_transcript(log) == [
+    assert fed_to_the_model == [
         *FIRST_EXCHANGE,
         ["user", worker.QUESTION_2],
-        ["assistant", worker.ANSWER_2],
-    ]
+        ["user", worker.QUESTION_3],
+    ], successor.stdout
+
+    after = await store.read(worker.SESSION_ID, reader)
+    assert [event.kind for event in after if event.kind == "custom"] == [], "a plain gap is not a divergence"
+    assert worker.transcript_of(await worker.durable_session(tmp_path).get_items()) == _log_transcript(after)
     store.close()
+
+
+def _kinds(log: Sequence[Event]) -> str:
+    return "\n".join(f"  {event.run_id} seq={event.seq} {event.kind}" for event in log)
 
 
 async def _wait_for(path: Path, process: subprocess.Popen[str]) -> None:
