@@ -8,6 +8,7 @@ shows up as "fast enough" is not a bound.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from datetime import UTC, datetime
 
@@ -98,6 +99,22 @@ class CancelOnce(Recorder):
             self.raised = True
             raise asyncio.CancelledError
         await super().emit(event)
+
+
+class CancelDeaf(Recorder):
+    """Swallows the cancellation ``close`` sends, the way an over-broad ``except`` in ``emit`` does.
+
+    Never takes an event, and never lets go of the consumer that is inside it — the one sink that
+    a cancel alone cannot get shutdown past.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.wedged = asyncio.Event()
+
+    async def emit(self, event: Event) -> None:
+        with contextlib.suppress(asyncio.CancelledError):
+            await self.wedged.wait()  # never set: a cancellation is the only way out, and it eats it
 
 
 class SelfCancelOnce(Recorder):
@@ -202,6 +219,8 @@ async def test_a_sink_that_keeps_failing_is_disabled_instead_of_retried_forever(
     assert sink.calls == 3
     assert dispatch.dropped == 8
 
+    await dispatch.close()  # the flush above left a live consumer behind; nothing else retires it
+
 
 async def test_a_sink_that_recovers_between_failures_is_never_disabled() -> None:
     """``failure_limit`` counts consecutive failures: an occasionally failing tap stays live."""
@@ -281,7 +300,7 @@ async def test_close_does_not_hang_when_the_consumer_is_gone(caplog: pytest.LogC
         await asyncio.sleep(0)  # seq 0 kills the consumer, leaving seq 1 queued forever
 
     async with asyncio.timeout(10):  # the hang this test exists for
-        await dispatch.close()
+        await dispatch.close(timeout=5)  # under the guard, so a regression fails an assert, not a race
 
     assert sink.seqs() == []
     assert dispatch.depth == 1
@@ -359,6 +378,37 @@ async def test_the_cancellation_close_sends_is_not_counted_as_the_sink_misbehavi
 
     assert dispatch.failed == 0
     assert dispatch.dropped == 1
+
+
+async def test_close_gives_up_on_a_consumer_that_refuses_to_be_cancelled(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A sink that eats the cancellation keeps its consumer, so cancelling is not an exit condition
+    either. Shutdown ends anyway, and says what it walked away from."""
+    caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
+    monkeypatch.setattr("agentdeck.runtime.dispatch.REAP_TIMEOUT", 0.05)  # the bound, shrunk
+    sink = CancelDeaf()
+    dispatch = SinkDispatch(sink)
+    await dispatch.submit(_event(0))
+
+    async with asyncio.timeout(5):  # the hang this bound exists for, not a measurement
+        await dispatch.close(timeout=0.05)
+
+    assert sink.seqs() == []
+    assert "sink CancelDeaf did not release its consumer within 0.05s; abandoning the task" in [
+        record.getMessage() for record in caplog.records
+    ]
+
+
+async def test_close_does_not_swallow_a_cancellation_aimed_at_its_caller() -> None:
+    """The reap's own deadline must not become a cancellation shield: a caller cancelled mid-close
+    and handed a clean return carries on as if it had never been asked to stop."""
+    dispatch = SinkDispatch(CancelDeaf())
+    await dispatch.submit(_event(0))
+
+    with pytest.raises(TimeoutError):  # the caller's deadline, delivered as a cancel into close
+        async with asyncio.timeout(0.2):
+            await dispatch.close(timeout=0.1)
 
 
 async def test_a_cancelled_error_leaked_by_a_sink_is_a_failure_not_a_lost_event() -> None:
