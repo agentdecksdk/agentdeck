@@ -28,7 +28,7 @@ from agentdeck.core.events import (
     RunStarted,
 )
 from agentdeck.core.ports import Gate
-from agentdeck.core.status import RunStatus, can_resume
+from agentdeck.core.status import RunStatus
 from agentdeck.errors import NotFoundError
 from agentdeck.runtime.dispatch import SinkDispatch
 
@@ -85,9 +85,6 @@ class Runtime:
         self._sinks = tuple(SinkDispatch(sink) for sink in sinks)
         self._clock = clock
         self._control = control
-        # guards the WAITING_HUMAN -> RUNNING transition per run_id (see resume()); process-local
-        # ponytail: unbounded dict — never evicted, one lock per run_id for the process lifetime
-        self._resume_locks: dict[str, asyncio.Lock] = {}
 
     async def run(self, name: str, input: Input, ctx: RunContext) -> AsyncGenerator[Event, None]:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
@@ -151,8 +148,9 @@ class Runtime:
     async def resume(self, name: str, thread_id: str, value: Any, ctx: RunContext) -> AsyncGenerator[Event, None]:
         """Continue a run this Runtime suspended earlier.
 
-        An atomic ``WAITING_HUMAN`` -> ``RUNNING`` transition (double-resume: exactly one
-        caller wins) opens it with ``run.resumed``, seq recovered from the log's own
+        The store's conditional append makes the ``WAITING_HUMAN`` -> ``RUNNING`` transition
+        atomic, so exactly one caller wins even when the callers are separate processes; the
+        winner opens the run with ``run.resumed``, seq recovered from the log's own
         ``max(seq)`` so it stays contiguous across a process restart — never reset to 0.
         From there the engine plays on exactly like ``run()`` plays an opening: same
         terminal/suspended/exception handling.
@@ -193,22 +191,26 @@ class Runtime:
             )
 
     async def _claim_resume(self, spec: InvocableSpec, ctx: RunContext) -> tuple[Event, Iterator[int]] | None:
-        """Read the run's status and, if and only if it is ``WAITING_HUMAN``, record
-        ``run.resumed`` right there before releasing the lock — so a second caller racing
-        the same ``run_id`` sees the transition already applied and gets ``None`` (a
-        no-op) instead of a second ``run.resumed`` or a duplicate ``seq``.
+        """Take the run's ``WAITING_HUMAN`` -> ``RUNNING`` transition, or ``None`` if someone
+        else already has it.
 
-        Process-local (an ``asyncio.Lock`` per ``run_id``): correct for two callers racing
-        against one Runtime instance in one process. A cross-process CAS would need a
-        store-level primitive the frozen ports don't have yet, so it is out of scope here
-        rather than added on the side.
+        The store decides, in one conditional append: whoever's ``run.resumed`` lands is the
+        one caller that gets to play the run on. That holds across processes, where a check
+        followed by a separate append never could — two servers sharing a store would both
+        read ``WAITING_HUMAN`` and both write. A loser reads nothing from the engine and
+        yields nothing, so a stray resume stays a no-op rather than an error.
+
+        ``seq`` comes from the log's own ``max(seq)``, so it continues across a process
+        restart instead of resetting. It is read before the claim and can therefore go stale
+        — the store refuses a claim whose ``seq`` is no longer the run's next one, so a
+        caller that was slow enough to miss a whole resume-and-interrupt round of this run
+        loses rather than reusing a ``seq`` somebody already wrote.
         """
-        lock = self._resume_locks.setdefault(ctx.run_id, asyncio.Lock())
-        async with lock:
-            if not can_resume(await self._store.run_status(ctx.log_key, ctx.run_id, ctx)):
-                return None
-            seq = count(await self._store.last_seq(ctx.log_key, ctx.run_id, ctx) + 1)
-            event = await self._record(RunResumed(reason=None), spec, ctx, next(seq))
+        seq = count(await self._store.last_seq(ctx.log_key, ctx.run_id, ctx) + 1)
+        event = self._stamp(RunResumed(reason=None), spec, ctx, next(seq))
+        if not await self._store.claim_resume(ctx.log_key, ctx.run_id, event, ctx):
+            return None
+        await self._fan_out(event)
         return event, seq
 
     async def pending(self, ctx: RunContext) -> list[PendingRun]:
@@ -220,8 +222,8 @@ class Runtime:
         to pull the interrupt's ``thread_id`` and ``payload``.
 
         The listing and those reads are two snapshots, so a run can be resumed between them
-        and come back already answered. That is harmless: ``_claim_resume`` re-checks status
-        under the lock, so acting on a stale entry is a no-op, not a double resume.
+        and come back already answered. That is harmless: the resume claim itself is what
+        checks status, so acting on a stale entry is a no-op, not a double resume.
         """
         out: list[PendingRun] = []
         for summary in await self._store.list_runs(ctx, status=RunStatus.WAITING_HUMAN):
@@ -270,7 +272,15 @@ class Runtime:
 
     async def _record(self, payload: KnownPayload, spec: InvocableSpec, ctx: RunContext, seq: int) -> Event:
         """Stamp, persist, fan out — in that order. Returns the event to yield."""
-        event = Event(
+        event = self._stamp(payload, spec, ctx, seq)
+        await self._store.append(ctx.log_key, [event], ctx)
+        await self._fan_out(event)
+        return event
+
+    def _stamp(self, payload: KnownPayload, spec: InvocableSpec, ctx: RunContext, seq: int) -> Event:
+        """The envelope an engine never sees. Split out of ``_record`` for the resume claim,
+        which hands the store a finished event to append conditionally."""
+        return Event(
             kind=payload.kind,
             seq=seq,
             run_id=ctx.run_id,
@@ -280,9 +290,6 @@ class Runtime:
             ts=self._clock(),
             payload=payload,
         )
-        await self._store.append(ctx.log_key, [event], ctx)
-        await self._fan_out(event)
-        return event
 
     async def _fan_out(self, event: Event) -> None:
         """Sinks get a copy of the stream and no say in it: never called inline, never fatal.

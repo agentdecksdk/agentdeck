@@ -5,11 +5,14 @@ can diff the two directly, plus the one thing memory cannot prove (durability ac
 instances). The focused queries — ``last_seq``, ``run_status``, ``list_runs``, paginated
 ``read`` — are asserted once for both stores in ``tests/contract/test_store.py`` instead:
 SQLite answers those with its own SQL rather than the port's default, so parity there is
-an invariant worth running against every store, not prose to be diffed by hand.
+an invariant worth running against every store, not prose to be diffed by hand. The last
+case here is the other thing memory cannot prove: two connections to one file racing a
+resume claim, which is the shape two server processes are in.
 """
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -17,7 +20,17 @@ import pytest
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import TextBlock
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import Event, RunCompleted, TextDelta, Usage
+from agentdeck.core.events import (
+    Event,
+    KnownPayload,
+    RunCompleted,
+    RunContextSnapshot,
+    RunInterrupted,
+    RunResumed,
+    RunStarted,
+    TextDelta,
+    Usage,
+)
 
 TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -38,6 +51,28 @@ def _event(seq: int, tenant: str = "acme", run_id: str = "r-1") -> Event:
 
 def _ctx(tenant: str = "acme") -> RunContext:
     return RunContext(tenant=tenant, principal="user:1", run_id="r-1", trace_id="tr-1", session_id="s-1")
+
+
+def _lifecycle(seq: int, payload: KnownPayload) -> Event:
+    return Event(
+        kind=payload.kind,
+        seq=seq,
+        run_id="r-1",
+        session_id="s-1",
+        tenant="acme",
+        origin="Approver",
+        ts=TS,
+        payload=payload,
+    )
+
+
+def _started() -> RunStarted:
+    context = RunContextSnapshot(principal="user:1", trace_id="tr-1")
+    return RunStarted(invocable="Approver", kind_of_invocable="workflow", input=[], context=context)
+
+
+def _interrupted() -> RunInterrupted:
+    return RunInterrupted(interrupt_id="i-1", reason="approval", payload={}, thread_id="t-1")
 
 
 async def test_events_read_back_in_the_order_they_were_appended() -> None:
@@ -122,3 +157,31 @@ async def test_persists_to_a_real_file_across_separate_store_instances(tmp_path)
     await SqliteEventStore(db_path).append("s-1", [_event(0), _event(1)], ctx)
     reopened = SqliteEventStore(db_path)
     assert [event.seq for event in await reopened.read("s-1", ctx)] == [0, 1]
+
+
+async def test_two_connections_to_one_file_settle_a_resume_claim_on_one_winner(tmp_path) -> None:
+    """Two stores over one file share no lock, no cache and no ``asyncio.Lock`` — the same
+    position two server processes are in. Repeated, because a broken transaction boundary
+    shows up as an occasional second winner rather than a consistent one.
+    """
+    for trial in range(20):
+        db_path = tmp_path / f"race-{trial}.sqlite3"
+        ctx = _ctx()
+        seeder = SqliteEventStore(db_path)
+        await seeder.append("s-1", [_lifecycle(0, _started()), _lifecycle(1, _interrupted())], ctx)
+        seeder.close()
+
+        first, second = SqliteEventStore(db_path), SqliteEventStore(db_path)
+        claim = _lifecycle(2, RunResumed(reason=None))
+        try:
+            outcomes = await asyncio.gather(
+                first.claim_resume("s-1", "r-1", claim, ctx), second.claim_resume("s-1", "r-1", claim, ctx)
+            )
+            assert sorted(outcomes) == [False, True], f"trial {trial}: {outcomes}"
+            stored = await first.read_run("s-1", "r-1", ctx)
+        finally:
+            first.close()
+            second.close()
+
+        assert [event.kind for event in stored] == ["run.started", "run.interrupted", "run.resumed"]
+        assert [event.seq for event in stored] == [0, 1, 2]

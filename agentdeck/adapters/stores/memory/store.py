@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agentdeck.core.ports import EventStorePort, RunSummary
-from agentdeck.core.status import LIFECYCLE_KINDS
+from agentdeck.core.status import LIFECYCLE_KINDS, can_resume, status_of
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -48,6 +48,21 @@ class MemoryEventStore(EventStorePort):
     async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
         log = self._logs.get((ctx.tenant, log_key), ())
         return max((event.seq for event in log if event.run_id == run_id), default=-1)
+
+    async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
+        """Atomic for free: both checks and the append are plain dict work with no suspension
+        point between them, so no other task can slip in and claim the same run."""
+        if event.run_id != run_id:
+            raise ValueError(f"a claim on run {run_id!r} cannot carry an event for {event.run_id!r}")
+        if event.tenant != ctx.tenant:
+            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
+        mine = [stored for stored in self._logs.get((ctx.tenant, log_key), ()) if stored.run_id == run_id]
+        if not can_resume(status_of(mine)):
+            return False
+        if event.seq != max((stored.seq for stored in mine), default=-1) + 1:
+            return False
+        await self.append(log_key, [event], ctx)
+        return True
 
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
         runs = [
