@@ -1,7 +1,8 @@
-"""The openai-agents adapter's private execution state (ADR-D5 §3).
+"""The openai-agents adapter's private execution state (ADR-D5: the engine's working
+memory is its own, never read by consumers).
 
 ``SessionFactory`` is relocated here unchanged from ``runtime/sessions.py`` — kept, not
-rewritten, per the ADR: it mints per-id :class:`agents.extensions.memory.RedisSession`
+rewritten: it mints per-id :class:`agents.extensions.memory.RedisSession`
 objects sharing one Redis client. ``ExecutionStore`` is the adapter's own seam on top of
 it: Redis-backed when a factory is configured, one in-process
 :class:`agents.SQLiteSession` per key otherwise — the same fallback ``agentdeck.app.App``

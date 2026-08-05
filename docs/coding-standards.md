@@ -58,6 +58,13 @@ a bug by definition — model updates as constructing new objects. `Optional` is
 `X | None`. Prefer `collections.abc` types (`Sequence`, `AsyncIterator`) over concrete
 containers in signatures.
 
+`ty` must pass, but never by contorting the code: when satisfying the checker means
+casts-of-casts, phantom variables, restructured control flow, or otherwise smellier code
+than the straightforward version, keep the straightforward version and add a targeted
+`# ty: ignore[rule]` with a one-line reason. A suppression that keeps the code honest
+beats an appeasement that obscures it; suppressions are narrow (one line, one rule),
+never file- or block-wide.
+
 ## 5. Errors and exceptions
 
 `core/errors.py` will own the exception taxonomy (`AgentDeckError` root; `RunCancelled`,
@@ -133,11 +140,16 @@ Adapters: directory named for the external system. Async iterables read as strea
 ## 10. Docstrings and decision links
 
 Every public module, class, and port method has a docstring stating *what contract it
-implements*, and cites the governing decision where one exists: `"""Execution store for the openai-agents engine (ADR-D5: engine-private working memory)."""`. Comments explain
-*why*, never *what* (the code says what). TODOs carry an owner and a pointer
-(`# TODO(sagi): promote to core kind per D10 if usage recurs`). Docs-as-code: when
-implementation diverges from a design doc, the same PR amends the doc with a dated note
-(index §6 housekeeping rule).
+implements*, and cites the governing decision where one exists: `"""Execution store for the openai-agents engine (ADR-D5: engine-private working memory)."""`. Comments are
+short, focused, and exist only where the code is genuinely hard to follow — a non-obvious
+path, a deliberate decision, a key invariant. Everything else stays uncommented: comments
+explain *why*, never *what* (the code says what). A comment describes the code in its own
+words and stands alone: never point at a doc section, paragraph, or bullet (`# see
+milestone §3` is banned — the reader has the code, not the doc open). A decision *name*
+(ADR-D5, D10) may appear only with the reason inlined, as in the docstring example above.
+TODOs carry an owner and a pointer (`# TODO(sagi): promote to core kind per D10 if usage
+recurs`). Docs-as-code: when implementation diverges from a design doc, the same PR
+amends the doc with a dated note (index §6 housekeeping rule).
 
 ## 11. Dependencies
 

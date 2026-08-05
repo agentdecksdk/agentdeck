@@ -1,16 +1,18 @@
-"""Stream-event → canonical-payload translation (the crude core of #52).
+"""Stream-event → canonical-payload translation.
 
 Ported from the delta-only extraction in ``agents/runners/headless.py`` (v1 stays
-untouched) and widened to the payloads UC1 needs: text deltas, completed messages, tool
-calls and their results. Reasoning items are not translated — ADR-D5 says so by design
-(they live only in the SDK session). Handoffs are not a core kind (D10), so a completed
-handoff becomes one namespaced ``custom`` event rather than a minted kind.
+untouched) and widened to text deltas, completed messages, tool calls and their results.
+Reasoning items are deliberately not translated (ADR-D5: they live only in the SDK
+session, and mirroring them would chain the event schema to the SDK's item format).
+Handoffs are not a core kind (D10: engines translate or namespace, never mint), so a
+completed handoff becomes one namespaced ``custom`` event.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from typing import Any
 
 from agentdeck.core.events import (
@@ -22,6 +24,8 @@ from agentdeck.core.events import (
     ToolCallCompleted,
     ToolCallStarted,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def translate(event: Any, tool_names: dict[str, str]) -> KnownPayload | None:
@@ -65,6 +69,10 @@ def _tool_call_started(item: Any, tool_names: dict[str, str]) -> KnownPayload | 
         return None  # non-function tool call (e.g. computer use) — out of scope for M0
     tool_names[call_id] = name
     args = _parse_args(getattr(raw, "arguments", None))
+    if "_raw" in args:
+        # Content-free by design: call_id and tool name only — the raw arguments string
+        # could carry user content and must never reach a log line.
+        logger.warning("tool call %s (%s) had non-dict JSON args, degraded to _raw", call_id, name)
     return ToolCallStarted(call_id=call_id, tool=name, args=args)
 
 

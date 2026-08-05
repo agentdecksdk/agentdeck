@@ -1,8 +1,8 @@
-"""~50-line CLI chat renderer (#52, M0 step 3) — UC1's reference consumer.
+"""~50-line CLI chat renderer — the reference consumer for the event stream.
 
 Distinguishes bubbles using **only** ``event.origin`` and ``payload.message_id`` — the
 label is ``origin``, the bubble boundary is ``message_id``; grep this file for any other
-mechanism and you won't find one (milestone doc §2). The transcript is rebuilt from
+mechanism and you won't find one. The transcript is rebuilt from
 ``message.completed`` alone: ``text.delta`` is read for nothing, so there is no delta
 assembly to get wrong.
 """

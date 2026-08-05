@@ -1,10 +1,9 @@
-"""UC1 — "the handoff chat" (milestone-0-walking-skeleton.md §2): FrontDesk hands off to
-ClaimsAgent, which calls a tool and answers; turn 2 reuses turn-1 context; the transcript
-reads back from the store alone. Every "make sure" bullet in that section has an
-assertion here, named after it — including the one that is red as literally written: the
-Runtime's ``origin`` is invocable-scoped, not sub-agent-scoped, so ClaimsAgent's answer
-prints under the "FrontDesk" label too. That gap is a recorded design finding (§2's
-2026-08-05 amendment), not fixed here; the bubble assertion below documents it on purpose.
+"""UC1 — the handoff chat: FrontDesk hands off to ClaimsAgent, which calls a tool and
+answers; turn 2 reuses turn-1 context; the transcript reads back from the store alone.
+One asserted behavior is a known gap, not a feature: the Runtime's ``origin`` is
+invocable-scoped, not sub-agent-scoped, so ClaimsAgent's answer prints under the
+"FrontDesk" label too. That is a recorded design finding awaiting a ruling, not fixed
+here; the bubble assertion below documents it on purpose.
 
 Scripted fakes only (no network, no API keys): a fresh ``FrontModel``/``ClaimsModel`` pair
 per test, so a call-count counter is safe — this file never shares an engine across tests
@@ -47,8 +46,8 @@ pytest.importorskip("fastapi")
 
 TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 SESSION_ID = "s1"
-# Longer than RESULT_PREVIEW_MAX (4096) on purpose — the log truncates it, the SDK session
-# must not (milestone doc §2, "the SDK session holds full bytes").
+# Longer than RESULT_PREVIEW_MAX (4096) on purpose — the log truncates it, the SDK
+# session must not: the session holds full bytes so the model never loses context.
 LONG_RESULT = "Shipment 4412 was received damaged. " * 150
 assert len(LONG_RESULT) > RESULT_PREVIEW_MAX
 
@@ -78,8 +77,8 @@ def _response(output: list[Any]) -> Response:
 
 
 class FrontModel(Model):
-    """Always speaks one sentence, then hands off — matches the milestone script's turn 1
-    and gives turn 2 the same shape rather than special-casing it."""
+    """Always speaks one sentence, then hands off — turn 2 gets the same shape rather
+    than special-casing it."""
 
     def __init__(self, handoff_tool: str) -> None:
         self._handoff_tool = handoff_tool
@@ -123,8 +122,8 @@ class FrontModel(Model):
 
 class ClaimsModel(Model):
     """Turn 1: calls the tool, then answers from its result. Turn 2: answers again, first
-    asserting the exact turn-1 tool result (untruncated) is still in its input — the
-    milestone's "execution state, not the log, fed the model" check, live."""
+    asserting the exact turn-1 tool result (untruncated) is still in its input — proof
+    that execution state, not the log, fed the model."""
 
     def __init__(self) -> None:
         self.calls = 0
@@ -221,9 +220,9 @@ async def test_uc1_handoff_chat_end_to_end(capsys: pytest.CaptureFixture[str]) -
     # message_id still gives each bubble a distinct boundary. origin does not additionally
     # say *who* spoke: the Runtime stamps origin = spec.name (the top-level invocable) for
     # every event of a run, so ClaimsAgent's answer prints under the "FrontDesk" label too
-    # — a known gap, recorded as a design finding in milestone-0-walking-skeleton.md §2
-    # (2026-08-05 amendment), not fixed by this adapter. This assertion documents that gap
-    # on purpose, so it fails loudly (not silently) the day speaker attribution changes.
+    # — a recorded design finding awaiting a ruling, not fixed by this adapter. This
+    # assertion documents that gap on purpose, so it fails loudly (not silently) the day
+    # speaker attribution changes.
     message_lines = [line for line in out if ": " in line and line.split(" [", 1)[0] in ("FrontDesk", "ClaimsAgent")]
     assert len(message_lines) == 4  # front's sentence + claims' answer, both turns
     assert len({line.split("]")[0] for line in message_lines}) == 4  # 4 distinct message_ids

@@ -1,4 +1,4 @@
-"""The crude v2 SSE surface (#52, M0 skeleton)."""
+"""The crude v2 SSE surface — a skeleton component, hardened or discarded at the M0 review."""
 
 from __future__ import annotations
 

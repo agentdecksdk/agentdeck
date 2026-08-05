@@ -1,4 +1,4 @@
-"""The event log in SQLite (#52): the same contract as ``adapters.stores.memory``, durable.
+"""The event log in SQLite: the same contract as ``adapters.stores.memory``, durable.
 
 New code, not a port of ``runtime/sessions.py`` — that module is engine-private execution
 state (ADR-D5), a different store with a different owner. This one is the platform record:
@@ -40,9 +40,9 @@ class SqliteEventStore(SessionStorePort):
     """Append-only rows in one SQLite file (or ``:memory:`` for tests).
 
     One connection, serialized by a lock: ``sqlite3`` is stdlib but not coroutine-safe, and
-    a single writer per log is exactly the WAL-style contract the Runtime already assumes
-    (ADR-D5 §3) — a lock is simpler than a pool for that shape. Blocking calls run in a
-    thread so the event loop is never stalled by disk I/O (coding-standards.md §6).
+    a single writer per log is exactly the WAL-style contract the Runtime already assumes —
+    a lock is simpler than a pool for that shape. Blocking calls run in a thread so the
+    event loop is never stalled by disk I/O.
     """
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:

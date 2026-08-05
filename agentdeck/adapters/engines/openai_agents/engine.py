@@ -1,4 +1,4 @@
-"""The openai-agents engine (#52, M0 step 3): ``EnginePort`` over ``agents.Runner``.
+"""The openai-agents engine: ``EnginePort`` over ``agents.Runner``.
 
 ``spec.native`` is the pre-built ``agents.Agent`` (handoffs and tools included) — this
 adapter only runs it and translates its stream, per ``core/ports/engine.py``. Execution
@@ -89,7 +89,7 @@ def _agent_of(spec: InvocableSpec) -> Agent[Any]:
 
 
 def _to_sdk_input(input: Input) -> str:
-    # M0 scope is UC1's plain-text chat; images/resources are a follow-up, not a silent
+    # M0 scope is plain-text chat; images/resources are a follow-up, not a silent
     # drop — better to raise now than answer a question the model never saw.
     texts = [block.text for block in input if isinstance(block, TextBlock)]
     if len(texts) != len(input):
