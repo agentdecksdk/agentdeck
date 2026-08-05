@@ -28,6 +28,16 @@ class ConfigError(AgentdeckError):
     """Invalid or incomplete configuration."""
 
 
+class SessionBusyError(AgentdeckError):
+    """A turn was asked for on a session that already has a run in flight.
+
+    One session runs one turn at a time: a second turn would hand the engine a conversation
+    the first one is still changing. Not a store failure — the log answered, and the answer
+    was no. The message names the run holding the session, which is what a caller retries
+    behind or reports.
+    """
+
+
 class StoreError(AgentdeckError):
     """A durable store failed — the event log, or the control-signal rows beside it.
 
@@ -37,4 +47,4 @@ class StoreError(AgentdeckError):
     """
 
 
-__all__ = ["AgentdeckError", "ConfigError", "NotFoundError", "SkillError", "StoreError"]
+__all__ = ["AgentdeckError", "ConfigError", "NotFoundError", "SessionBusyError", "SkillError", "StoreError"]

@@ -1,4 +1,4 @@
-"""Four concurrency races run across two real OS processes sharing one SQLite event store.
+"""Five concurrency races run across two real OS processes sharing one SQLite event store.
 
 Every invariant asserted here is the contract suite's own — ``check_contiguous`` and
 ``check_terminal`` — applied to logs that two processes wrote together. That is the whole
@@ -19,11 +19,12 @@ is printed even when it passes: these are the tests that catch a real regression
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import subprocess
 import sys
 import time
 from collections import Counter
-from itertools import groupby
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -41,13 +42,16 @@ if TYPE_CHECKING:
 WORKER = Path(__file__).parent / "concurrency_worker.py"
 TAGS = ("a", "b")
 
+# The one knob the staleness half of this file drives, by the name an operator would use.
+_STALE_ENV = "AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS"
+
 # Generous on purpose: it is a wedge detector, not a performance budget. Every race below
 # finishes in a couple of seconds when it is behaving.
 WORKER_TIMEOUT = 180.0
 
 RESUME_TRIALS = 20
 CANCEL_TRIALS = 22  # half raced, half ordered the other way round — see the worker's own note
-INTERLEAVE_TRIALS = 10
+SESSION_TRIALS = 10
 
 
 def _dump(events: Sequence[Event]) -> str:
@@ -89,6 +93,26 @@ def _run_peers(race: str, trials: int, root: Path) -> dict[str, list[list[str]]]
     return reported
 
 
+def _takeover_successor(root: Path, stale_after: str | None) -> subprocess.CompletedProcess[str]:
+    """One restart over the killed process's log, with the staleness window set the way an
+    operator sets it — through the environment — so the setting itself is under test too."""
+    env = {**os.environ}
+    if stale_after is None:
+        env.pop(_STALE_ENV, None)
+    else:
+        env[_STALE_ENV] = stale_after
+    done = subprocess.run(
+        [sys.executable, "-u", str(WORKER), "takeover", "successor", "1", str(root)],
+        capture_output=True,
+        text=True,
+        timeout=WORKER_TIMEOUT,
+        check=False,
+        env=env,
+    )
+    assert done.returncode == 0, done.stderr
+    return done
+
+
 def _kinds(reported: dict[str, list[list[str]]], tag: str, trial: int) -> list[str]:
     """One report line's kinds, after checking it is the line it claims to be — a worker
     that skipped a trial must not shift every later assertion by one."""
@@ -112,17 +136,17 @@ def _read_logs(root: Path, log_keys: Sequence[str]) -> dict[str, list[Event]]:
 
 
 def _claim_windows(root: Path) -> dict[str, list[tuple[int, int]]]:
-    """Every claim attempt per run, as the (start, end) wall-clock nanoseconds the worker
-    recorded around it."""
+    """Every claim attempt, keyed by whatever it contended for — a run for a resume, a session
+    for a start — as the (start, end) wall-clock nanoseconds the worker recorded around it."""
     windows: dict[str, list[tuple[int, int]]] = {}
     for line in worker.windows_file(root).read_text().splitlines():
-        run_id, start, end = line.split()
-        windows.setdefault(run_id, []).append((int(start), int(end)))
+        contended, start, end = line.split()
+        windows.setdefault(contended, []).append((int(start), int(end)))
     return windows
 
 
 def _overlap(windows: Sequence[tuple[int, int]]) -> bool:
-    """Whether both peers were inside ``claim_resume`` at the same moment."""
+    """Whether both peers were inside the same claim at the same moment."""
     return max(start for start, _ in windows) < min(end for _, end in windows)
 
 
@@ -231,40 +255,95 @@ def test_a_cancel_racing_completion_leaves_exactly_one_terminal_event_with_nothi
     print(f"cancel-vs-completion over {CANCEL_TRIALS} trials ({ordered} ordered): {dict(winners)}")
 
 
-def test_two_processes_running_different_runs_on_one_log_keep_each_runs_seq_contiguous(tmp_path: Path) -> None:
-    """One session log, two runs, two processes appending into it at once. ``seq`` is per
-    run, so each run's must still be contiguous from 0 and closed by exactly one terminal
-    event however the two runs' writes ended up interleaved in the file.
-
-    The log half of "two turns on one session" only. Engine-private execution state is out
-    of scope and cannot be brought into it here: every assertion below reads the event log,
-    where that state never appears, and the stub engine holds none to clobber. Two
-    concurrent turns corrupting an engine's own state is issue #83 — this test passing is
-    not evidence about it either way.
+def test_two_processes_starting_a_turn_on_one_session_leave_one_run_and_one_conversation(tmp_path: Path) -> None:
+    """Two servers open a turn of one session at the same instant. The store's conditional
+    append is the only arbiter, so exactly one turn may run and the other must be refused by
+    name — and the engine's own session must end up holding that one turn's conversation, with
+    no trace of the refused one. That last assertion is the point of the rule: the log could
+    survive two turns, a conversation cannot.
     """
-    reported = _run_peers("interleave", INTERLEAVE_TRIALS, tmp_path)
-    logs = _read_logs(tmp_path, [worker.interleave_log_key(trial) for trial in range(INTERLEAVE_TRIALS)])
-    interleaved = 0
+    reported = _run_peers("session", SESSION_TRIALS, tmp_path)
+    attempts = _claim_windows(tmp_path)
+    logs = _read_logs(tmp_path, [worker.session_log_key(trial) for trial in range(SESSION_TRIALS)])
+    won: Counter[str] = Counter()
+    raced = 0
 
-    for trial in range(INTERLEAVE_TRIALS):
-        log = logs[worker.interleave_log_key(trial)]
-        expected = {worker.interleave_run_id(trial, tag): _kinds(reported, tag, trial) for tag in TAGS}
-        per_run: dict[str, list[Event]] = {run_id: [] for run_id in expected}
-        for event in log:
-            assert event.run_id in per_run, f"trial {trial}: stray run {event.run_id}\n{_dump(log)}"
-            per_run[event.run_id].append(event)
+    for trial in range(SESSION_TRIALS):
+        log = logs[worker.session_log_key(trial)]
+        windows = attempts[worker.session_log_key(trial)]
+        assert len(windows) == len(TAGS), f"trial {trial}: {len(windows)} claims, both peers must attempt one"
+        raced += _overlap(windows)
+        outcome = {tag: _kinds(reported, tag, trial) for tag in TAGS}
+        winners = [tag for tag, kinds in outcome.items() if kinds != [worker.REFUSED]]
 
-        for run_id, events in per_run.items():
-            _assert_run_is_coherent(events, f"trial {trial} run {run_id}")
-            assert [event.kind for event in events] == expected[run_id], f"trial {trial} run {run_id}\n{_dump(log)}"
-        assert len(log) == sum(len(events) for events in per_run.values()), f"trial {trial}\n{_dump(log)}"
+        assert len(winners) == 1, f"trial {trial}: {winners or 'nobody'} ran\n{_dump(log)}"
+        winner, loser = winners[0], worker.PEER[winners[0]]
+        won[winner] += 1
+        assert outcome[winner][0] == "run.started", f"trial {trial}: {outcome}\n{_dump(log)}"
+        assert outcome[winner][-1] == "run.completed", f"trial {trial}: {outcome}\n{_dump(log)}"
 
-        # More than two blocks of run_ids means the two processes really were writing into
-        # the file at the same time, rather than one finishing before the other started.
-        if len(list(groupby(event.run_id for event in log))) > 2:
-            interleaved += 1
+        assert {event.run_id for event in log} == {worker.session_run_id(trial, winner)}, _dump(log)
+        _assert_run_is_coherent(log, f"trial {trial}")
+        assert [event.kind for event in log] == outcome[winner], f"trial {trial}\n{_dump(log)}"
 
-    assert interleaved, f"no trial interleaved in {INTERLEAVE_TRIALS}: the two runs never actually overlapped"
+        state = json.dumps(worker.session_items(tmp_path, trial))
+        assert state.count(worker.turn_input(winner)) == 1, f"trial {trial}: {state}"
+        assert worker.turn_input(loser) not in state, f"trial {trial}: the refused turn reached the session\n{state}"
+        assert state.count(worker.chunk_text()) == 1, f"trial {trial}: one answer, once: {state}"
+
+    # As in the resume race: overlapping claims are what says this contended, not the split.
+    assert raced, (
+        f"no trial had both peers inside claim_start at once ({dict(won)} won): the barrier "
+        "released them apart, so nothing here contended"
+    )
+    print(f"one-turn-per-session over {SESSION_TRIALS} trials: winners {dict(won)}, {raced} genuinely overlapping")
+
+
+def test_a_session_a_killed_run_left_open_is_refused_until_the_staleness_window_passes(tmp_path: Path) -> None:
+    """A SIGKILL is the one exit that leaves a run open — every other closes its run in the
+    log — so the session that run holds must neither be lost for good nor handed over the
+    instant somebody asks: a live turn that has been quiet for a moment would then lose its
+    session to a double-clicked send.
+
+    So both halves, in two fresh processes over the dead one's log: refused while the window
+    stands, through once it has passed, with the abandoned run closed as ``run.failed`` under
+    its own name and the takeover on the successor's stderr where an operator would find it.
+    """
+    (tmp_path / "sync").mkdir()
+    victim = _spawn("takeover", "victim", 1, tmp_path)
+    try:
+        _wait_for(tmp_path / "sync" / "mid", victim)
+        victim.kill()
+        victim.communicate(timeout=WORKER_TIMEOUT)
+    finally:
+        if victim.poll() is None:
+            victim.kill()
+
+    refused = _takeover_successor(tmp_path, stale_after=None)
+    assert refused.stdout.split()[2:] == [worker.REFUSED], refused.stdout
+    still_held = _read_logs(tmp_path, [worker.TAKEOVER_LOG])[worker.TAKEOVER_LOG]
+    assert {event.run_id for event in still_held} == {worker.TAKEOVER_KILLED}, _dump(still_held)
+    assert len(still_held) == worker.TAKEOVER_STALL_AFTER, _dump(still_held)
+    assert check_terminal(still_held) == "no terminal event", _dump(still_held)
+
+    taken = _takeover_successor(tmp_path, stale_after="0")
+    assert "took it over and closed it as failed" in taken.stderr, taken.stderr
+
+    log = _read_logs(tmp_path, [worker.TAKEOVER_LOG])[worker.TAKEOVER_LOG]
+    abandoned = [event for event in log if event.run_id == worker.TAKEOVER_KILLED]
+    next_turn = [event for event in log if event.run_id == worker.TAKEOVER_NEXT]
+
+    assert [event.kind for event in next_turn] == taken.stdout.split()[2:], f"{taken.stdout}\n{_dump(log)}"
+    _assert_run_is_coherent(next_turn, "the turn that took the session over")
+    assert next_turn[-1].kind == "run.completed", _dump(log)
+
+    _assert_run_is_coherent(abandoned, "the abandoned run")
+    assert len(abandoned) == worker.TAKEOVER_STALL_AFTER + 1, _dump(log)
+    assert abandoned[-1].kind == "run.failed", _dump(log)
+    assert abandoned[-1].payload.error_code == "cancelled_hard", _dump(log)
+    # Its own name on it: the run that failed, not the turn that closed it.
+    assert abandoned[-1].origin == abandoned[0].origin, _dump(log)
+    assert status_of(abandoned) is RunStatus.FAILED, _dump(log)
 
 
 def test_a_restart_continues_a_killed_processs_log_without_resetting_seq(tmp_path: Path) -> None:
@@ -293,9 +372,12 @@ def test_a_restart_continues_a_killed_processs_log_without_resetting_seq(tmp_pat
     assert successor.returncode == 0, successor.stderr
     lines = [line.split() for line in successor.stdout.splitlines() if line.strip()]
 
-    log = _read_logs(tmp_path, [worker.RESTART_LOG])[worker.RESTART_LOG]
+    logs = _read_logs(tmp_path, [worker.RESTART_LOG, worker.RESTART_KILLED])
+    log = logs[worker.RESTART_LOG]
     resumed = [event for event in log if event.run_id == worker.RESTART_SUSPENDED]
-    killed = [event for event in log if event.run_id == worker.RESTART_KILLED]
+    # A log of its own, because the victim's suspended run still holds the session and one
+    # session takes one turn at a time: a second run there would have been refused, not killed.
+    killed = logs[worker.RESTART_KILLED]
 
     # Its seq check is the one that matters here: a resume that restarted the counter would
     # give 0,1,2,0,1,2,3 — no gaps to find, and still wrong.

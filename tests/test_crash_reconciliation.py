@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import signal
 import subprocess
 import sys
@@ -36,12 +37,12 @@ from agentdeck.core.events import MessageCompleted, RunStarted
 from agentdeck.runtime.service import Runtime
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import AsyncIterator, Sequence
 
     from agents.items import TResponseInputItem
 
     from agentdeck.core.context import RunContext
-    from agentdeck.core.events import Event
+    from agentdeck.core.events import Event, KnownPayload
 
 WORKER = Path(__file__).parent / "crash_worker.py"
 
@@ -122,6 +123,11 @@ def _build(model: worker.ScriptedModel, sessions: ExecutionStore) -> tuple[Runti
 
 async def _play(runtime: Runtime, question: str, run_id: str) -> list[Event]:
     return [event async for event in runtime.run(worker.AGENT, coerce_input(question), worker.context(run_id))]
+
+
+async def _drain(payloads: AsyncIterator[KnownPayload]) -> list[KnownPayload]:
+    """One turn straight off the engine, envelope-free: what a Runtime would have stamped."""
+    return [payload async for payload in payloads]
 
 
 def _log_transcript(events: Sequence[Event]) -> list[list[str]]:
@@ -285,10 +291,19 @@ async def test_a_session_that_diverged_from_the_log_is_left_alone_and_says_so() 
 async def test_two_turns_racing_on_one_session_apply_the_repair_once() -> None:
     """Two turns of one session in flight at the same time both find the same gap. Only one
     of them may fill it: read-then-append is not atomic on its own, and the loser would
-    otherwise append a second copy of everything the first one repaired."""
+    otherwise append a second copy of everything the first one repaired.
+
+    Raced at the engine rather than through two ``Runtime.run`` calls, because the Runtime now
+    refuses the second of those outright. The overlap is still reachable — a turn that takes a
+    silent run's session over runs beside whatever that run is really doing — and this lock is
+    then the only thing between the two of them, so it keeps its own test.
+    """
     model = worker.ScriptedModel(worker.ANSWER_1)
     sessions = _CrashingSessions("racing-turns", slow_reads=True)
-    runtime, store = _build(model, sessions)
+    engine = OpenAIAgentsEngine(sessions)
+    spec = worker.spec(model)
+    store = SqliteEventStore()
+    runtime = Runtime([engine], store, {worker.AGENT: spec})
 
     await _play(runtime, worker.QUESTION_1, "turn-1")
     sessions.session.writes_fail = True
@@ -296,16 +311,17 @@ async def test_two_turns_racing_on_one_session_apply_the_repair_once() -> None:
         await _play(runtime, worker.QUESTION_2, "turn-2")
     sessions.session.writes_fail = False
 
+    history = await store.read(worker.SESSION_ID, worker.context("reader"))
     sessions.session.hold_reads_for_a_second_reader()
-    await asyncio.gather(
-        _play(runtime, worker.QUESTION_3, "racer-a"),
-        _play(runtime, QUESTION_5, "racer-b"),
+    raced = await asyncio.gather(
+        _drain(engine.start(spec, coerce_input(worker.QUESTION_3), history, worker.context("racer-a"))),
+        _drain(engine.start(spec, coerce_input(QUESTION_5), history, worker.context("racer-b"))),
     )
 
     session_transcript = worker.transcript_of(await sessions.session.get_items())
     assert session_transcript.count(["user", worker.QUESTION_2]) == 1, session_transcript
     assert session_transcript.count(["user", worker.QUESTION_1]) == 1, session_transcript
-    assert [event.kind for event in await store.read(worker.SESSION_ID, worker.context("reader"))].count("custom") == 0
+    assert [payload.kind for turn in raced for payload in turn].count("custom") == 0
 
 
 async def test_a_session_lost_entirely_is_refilled_from_the_log() -> None:
@@ -354,14 +370,19 @@ async def test_a_turn_a_killed_process_never_wrote_to_its_session_survives_the_r
     assert [event.kind for event in log if event.run_id == worker.KILLED_RUN] == ["run.started"], _kinds(log)
     assert worker.transcript_of(await worker.durable_session(tmp_path).get_items()) == FIRST_EXCHANGE
 
+    # The killed turn is still open in the log, and an open run holds its session. A restart
+    # takes it over by shortening the staleness window to nothing instead of waiting an hour
+    # for it — which is also the whole setting under test, driven the way an operator sets it.
     successor = subprocess.run(
         [sys.executable, "-u", str(WORKER), "successor", str(tmp_path)],
         capture_output=True,
         text=True,
         timeout=WORKER_TIMEOUT,
         check=False,
+        env={**os.environ, "AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS": "0"},
     )
     assert successor.returncode == 0, successor.stderr
+    assert "took it over and closed it as failed" in successor.stderr, successor.stderr
 
     fed_to_the_model = json.loads(successor.stdout.splitlines()[-1])
     assert fed_to_the_model == [
