@@ -56,8 +56,10 @@ class MemoryEventStore(EventStorePort):
         return max((event.seq for event in log if event.run_id == run_id), default=-1)
 
     async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
-        """Atomic for free, like ``claim_resume``: the scan and the append are plain dict work
-        with no suspension point between them, so no other task can open a run in the gap."""
+        """Atomic for free, like ``claim_resume``: the scan and the write inside ``append`` are
+        plain dict work with no suspension point between them, so no other task can open a run
+        in the gap — ``append``'s own yield comes after that write, too late to be one.
+        """
         if event.tenant != ctx.tenant:
             raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
         overridden: list[str] = []

@@ -12,10 +12,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from agentdeck.core.ports import EventStorePort, RunSummary
+from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine, Sequence
+    from datetime import datetime
 
     from agentdeck.core.context import RunContext
     from agentdeck.core.events import Event
@@ -66,6 +67,9 @@ class NeverYields(EventStorePort):
 
     async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
         return _drive(self._inner.last_seq(log_key, run_id, ctx))
+
+    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
+        return _drive(self._inner.claim_start(log_key, event, ctx, stale_before))
 
     async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
         return _drive(self._inner.claim_resume(log_key, run_id, event, ctx))
