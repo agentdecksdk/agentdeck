@@ -2,9 +2,10 @@
 
 ``spec.native`` is the pre-built ``agents.Agent`` (handoffs and tools included) — this
 adapter only runs it and translates its stream, per ``core/ports/engine.py``. Execution
-state (the SDK session) is engine-private (ADR-D5): the event log passed in as
-``history`` is not read here, because the whole point of the ADR is that the session,
-not the log, feeds the model.
+state (the SDK session) is engine-private (ADR-D5): the session, not the log, is what
+feeds the model. The log passed in as ``history`` is read for exactly one purpose — the
+turn-start reconciliation in ``reconcile.py``, which repairs a session left behind by a
+crash between the log write and the session write.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from agents import Agent, RunConfig, Runner
 
+from agentdeck.adapters.engines.openai_agents.reconcile import reconcile
 from agentdeck.adapters.engines.openai_agents.sessions import ExecutionStore
 from agentdeck.adapters.engines.openai_agents.translate import translate
 from agentdeck.core.content import TextBlock, coerce_input
@@ -52,6 +54,11 @@ class OpenAIAgentsEngine(EnginePort):
     ) -> AsyncGenerator[KnownPayload, None]:
         agent = _agent_of(spec)
         session = self._sessions.session_for(ctx)
+        diverged = await reconcile(session, history)
+        if diverged is not None:
+            # Two stores disagreeing is worth a place in the record, not just a log line; the
+            # run itself still has the session it needs and plays on.
+            yield diverged
         run_config = RunConfig(tracing_disabled=not _tracing_enabled())
         result = Runner.run_streamed(agent, _to_sdk_input(input), session=session, run_config=run_config)
         tool_names: dict[str, str] = {}

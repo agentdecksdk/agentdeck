@@ -56,15 +56,18 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   behind a writer, so a second process tailing or replaying a log costs the one
   writing it far less: in a saturated benchmark, read latency at the 99th
   percentile and in the worst case improved by roughly an order of magnitude.
-  Two things to know about the files:
-  SQLite keeps `<db>-wal` and `<db>-shm` alongside each database — back them up
+  Two things to know about the files: SQLite keeps
+  `<db>-wal` and `<db>-shm` alongside each database — back them up
   and move them together, not the one file on its own — and WAL depends on
   shared memory that network filesystems (NFS, SMB) do not provide reliably, so
   keep these databases on local disk. In-memory databases are unaffected.
 
 ### Fixed
 - Shutdown no longer hangs forever on a wedged sink: every wait on the sink
-  path has a deadline.
+  path has a deadline, including the last one — the wait for the sink's
+  consumer to stop. A sink whose `emit` swallows cancellation can delay a
+  shutdown but no longer block it, and a cancellation aimed at whoever is
+  shutting down is no longer absorbed by the shutdown itself.
 - Sink loss counters no longer under-report. Events still queued (and the one
   in flight) when a sink is closed are counted as dropped, so the counters
   agree with the log line that reports them; a sink that raises
@@ -78,6 +81,23 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   "somebody else claimed it" answer, and a store that genuinely cannot be
   reached raises `StoreError` — two outcomes a raw `sqlite3.OperationalError:
   database is locked` used to blur together.
+- Crash recovery for conversations on the OpenAI Agents engine: a process that
+  died mid-turn used to leave that conversation permanently short of whatever the
+  event log had already recorded — the question it was killed on, or the answer it
+  had just given. The model then answered later turns with a hole in its context
+  and nothing reported a problem. Each turn now checks the log against the
+  engine's own conversation state and replays the messages that are missing before
+  the model runs, so a restarted process picks the conversation up whole.
+  Messages only, in content and order: tool results and model reasoning are not
+  reconstructed, so a conversation repaired this way carries the *text* of a tool
+  answer without the tool call behind it — worth knowing if you read model context
+  back. A turn a client disconnected from before the first token is never replayed,
+  so retrying that question does not send it twice; a turn that was answered before
+  the client went away keeps both its messages. Conversation state that has diverged
+  from the log rather than fallen behind it is left untouched and reported on the run
+  as `custom` / `openai_agents.session_diverged`. LangGraph workflows are unaffected —
+  a checkpoint is written by the graph step itself, so there is no gap between two
+  writes to repair.
 
 ## [2.0.0b3] - 2026-08-05
 
