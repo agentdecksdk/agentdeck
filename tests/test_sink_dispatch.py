@@ -139,7 +139,7 @@ async def test_a_blocking_sink_makes_the_producer_wait_instead_of_losing_an_even
     sink = GatedBlocking()
     dispatch = SinkDispatch(sink, capacity=1)
     await dispatch.submit(_event(0))
-    await dispatch.submit(_event(1))
+    await dispatch.submit(_event(1))  # returns only once the consumer has taken the first
 
     waiting = asyncio.create_task(dispatch.submit(_event(2)))
     for _ in range(3):
