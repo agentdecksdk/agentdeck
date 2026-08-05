@@ -9,6 +9,26 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 ## [Unreleased]
 
 ### Added
+- Langfuse tracing for **workflow** runs, not only agent runs
+  (`agentdeck.adapters.telemetry.langfuse`). `langfuse_sink()` hands back an
+  event sink — or `None` when Langfuse has no keys — to register where you build
+  the v2 `Runtime`: `Runtime(..., sinks=[s for s in (langfuse_sink(),) if s])`.
+  Each run becomes one Langfuse trace: the run itself is the trace, tool calls
+  are spans carrying their arguments and their result preview, hash and size
+  (an inline `data:...;base64,` payload in either is described, never sent —
+  Langfuse would otherwise upload the bytes to its media store),
+  workflow node updates are points on the timeline named for the node and the
+  state keys it touched, and reported token usage becomes Langfuse generations
+  so cost lands where the UI accounts it. It reads nothing but the event
+  stream, so an agent run and a workflow run are traced by exactly the same
+  code — and a run waiting on a human is visible while it waits, its answer
+  continuing the same trace even when it arrives in another worker. Sessions
+  map to Langfuse sessions and the run's principal to its user, so a
+  conversation is one filter away. Configuration is the `AGENTDECK_LANGFUSE_*`
+  settings you already have; with no keys, no sink is registered, and the
+  Langfuse SDK is never even imported. Needs the `[observability]` extra. v1's
+  tracing is unchanged — a v1 agent run with both paths active is reported
+  twice.
 - `InvocableRegistry` (`agentdeck.runtime.discovery`): the v2 Runtime's list of
   what it can run is now discovered from your `./.agentdeck/` project instead of
   written out by hand at every entry point. `InvocableRegistry(engines).load()`
@@ -40,6 +60,12 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `sqlite3` exception is kept as the cause for diagnosis.
 
 ### Changed
+- `MemoryEventStore.append` now yields one scheduling turn (`await asyncio.sleep(0)`)
+  before returning, matching what every durable store already does (SQLite's own
+  `to_thread`). Fidelity, not correctness: a caller whose liveness secretly depended
+  on the in-memory store never suspending — the way the bounded sink dispatch briefly
+  did, before its own fix — is now exercised the same way it would be against a real
+  deployment, in dev and in tests, instead of only by measurement in production.
 - MCP now lives in `agentdeck.adapters.tools.mcp` (registry, hardened HTTP
   transport, agent wiring — all unchanged). `from agentdeck.agents.mcp import ...`,
   `from agentdeck.agents.mcp.lifecycle import ...` and `from agentdeck.agents

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
@@ -33,6 +34,11 @@ class MemoryEventStore(EventStorePort):
         if foreign:
             raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
         self._logs.setdefault((ctx.tenant, log_key), []).extend(events)
+        # Fidelity, not correctness (issue #87): every real store suspends here (SQLite's own
+        # `to_thread`), so a caller whose liveness secretly depends on that turn is caught by
+        # this store too, instead of only by measurement in production. Placed after the
+        # mutation above, so it opens no window in `claim_resume`'s atomicity.
+        await asyncio.sleep(0)
 
     async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
         if limit is not None and limit < 0:
@@ -66,8 +72,10 @@ class MemoryEventStore(EventStorePort):
         return SessionClaim(overridden=tuple(overridden))
 
     async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
-        """Atomic for free: both checks and the append are plain dict work with no suspension
-        point between them, so no other task can slip in and claim the same run."""
+        """Atomic for free: both checks and the write inside ``append`` are plain dict work
+        with no suspension point between them, so no other task can slip in and claim the
+        same run — ``append``'s own yield comes after that write, too late to open a window.
+        """
         if event.run_id != run_id:
             raise ValueError(f"a claim on run {run_id!r} cannot carry an event for {event.run_id!r}")
         if event.tenant != ctx.tenant:
