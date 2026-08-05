@@ -345,6 +345,17 @@ indistinguishable from one still in flight, which is the failure all four guard 
 `Runtime.drain()` awaits the sink emits still in flight, for the composition root to call at
 shutdown; it is never called per event.)*
 
+*(Amended 2026-08-05, as built: the fan-out is **bounded** — one queue and one consumer task
+per sink (`runtime/dispatch.py`), not one task per event. Handing an event over is a queue put
+that does not suspend, so the run path stays non-blocking; what does not fit is decided by the
+sink's own `on_full` policy (`core/ports/sink.py`): `DROP_OLDEST`, the default, loses the
+stalest event, while `BLOCK` makes the producer wait for room — the only choice for a sink that
+must not miss an event, and it pays for it in backpressure. Drops and failed emits are counted
+per sink and logged, and a sink that fails `FAILURE_LIMIT` times in a row is disabled rather
+than retried for the process's lifetime. Because each sink is fed by a single consumer, `emit`
+is now called one event at a time in `seq` order per sink, never re-entered. `Runtime.drain()`
+flushes the queues and then stops the consumers.)*
+
 ```python
 # runtime/service.py
 class Runtime:

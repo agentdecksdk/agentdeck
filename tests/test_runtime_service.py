@@ -143,6 +143,30 @@ async def test_drain_waits_for_the_sink_emits_still_in_flight() -> None:
     assert len(recorder.events) == 3  # that the run never waited for them is the slow-sink test
 
 
+async def test_a_sink_receives_the_stream_in_order_and_one_event_at_a_time() -> None:
+    """Each sink is fed from its own queue by a single consumer, so nothing re-enters ``emit``."""
+
+    class Reentrant(EventSinkPort):
+        def __init__(self) -> None:
+            self.events: list[Event] = []
+            self.inside = False
+            self.overlapped = False
+
+        async def emit(self, event: Event) -> None:
+            self.overlapped = self.overlapped or self.inside
+            self.inside = True
+            await asyncio.sleep(0)
+            self.events.append(event)
+            self.inside = False
+
+    sink = Reentrant()
+    runtime, _ = _runtime(sinks=[sink])
+    events = [event async for event in runtime.run("Greeter", INPUT, CTX)]
+    await runtime.drain()
+    assert sink.events == events
+    assert sink.overlapped is False
+
+
 async def test_a_slow_sink_does_not_hold_up_the_stream() -> None:
     """NFR-6: the run must not be pinned to its slowest reader."""
 
@@ -159,6 +183,33 @@ async def test_a_slow_sink_does_not_hold_up_the_stream() -> None:
     assert [event.kind for event in events][-1] == "run.completed"
     slow.release.set()
     await runtime.drain()
+
+
+async def test_a_stalling_sink_costs_one_task_however_many_events_it_misses() -> None:
+    """A fan-out that spawned a task per event grew one pending task per event past a wedged
+    sink; a queue per sink is what makes the cost of a bad sink fixed instead."""
+
+    class Stalled(EventSinkPort):
+        def __init__(self) -> None:
+            self.release = asyncio.Event()
+
+        async def emit(self, event: Event) -> None:
+            await self.release.wait()
+
+    spec = stub_spec("Chatty", *[TextDelta(message_id="m1", text=str(n)) for n in range(60)], DONE)
+    stalled = Stalled()
+    runtime = Runtime([StubEngine()], MemoryEventStore(), {spec.name: spec}, sinks=[stalled], clock=lambda: TS)
+
+    before = len(asyncio.all_tasks())
+    events = [event async for event in runtime.run("Chatty", INPUT, CTX)]
+
+    assert len(events) == 62
+    assert [event.kind for event in events][-1] == "run.completed"
+    assert len(asyncio.all_tasks()) == before + 1  # the sink's one consumer, not one task per event
+
+    stalled.release.set()
+    await runtime.drain()
+    assert len(asyncio.all_tasks()) == before
 
 
 async def test_the_engine_exception_reaches_the_caller_after_run_failed_is_recorded() -> None:
