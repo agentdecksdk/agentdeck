@@ -1,11 +1,4 @@
-"""Legacy path, kept working: MCP relocated to ``agentdeck.adapters.tools.mcp``, behind
-``ToolSourcePort`` — tools are a source's business, not an agent's, the same way
-``SessionFactory`` and the checkpointer became their engines'.
-
-``agentdeck.agents`` (v1, frozen behavior) still imports these names from here, so this
-path re-exports the real implementation rather than making every v1 caller chase the move.
-New code imports the adapter.
-"""
+"""The MCP tool adapter: server registry, hardened transport, agent wiring."""
 
 from __future__ import annotations
 
