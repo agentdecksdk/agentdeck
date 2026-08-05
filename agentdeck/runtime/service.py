@@ -12,15 +12,27 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import aclosing
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from itertools import count
 from typing import TYPE_CHECKING
 
-from agentdeck.core.events import TERMINAL_KINDS, Event, RunCancelled, RunContextSnapshot, RunFailed, RunStarted
+from agentdeck.core.events import (
+    TERMINAL_KINDS,
+    Event,
+    RunCancelled,
+    RunContextSnapshot,
+    RunFailed,
+    RunInterrupted,
+    RunResumed,
+    RunStarted,
+)
+from agentdeck.core.status import RunStatus, can_resume, status_of
 from agentdeck.errors import NotFoundError
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
+    from collections.abc import AsyncGenerator, Callable, Iterator, Mapping, Sequence
+    from typing import Any
 
     from agentdeck.core.content import Input
     from agentdeck.core.context import RunContext
@@ -32,6 +44,17 @@ logger = logging.getLogger(__name__)
 
 # A run ending on one of these is waiting, not finished: its terminal event arrives on resume.
 SUSPENDED_KINDS = frozenset({"run.interrupted", "run.paused"})
+
+
+@dataclass(frozen=True, slots=True)
+class PendingRun:
+    """One run currently ``WAITING_HUMAN`` — what :meth:`Runtime.pending` lists (#53)."""
+
+    run_id: str
+    session_id: str | None
+    invocable: str
+    thread_id: str
+    payload: dict[str, Any]
 
 
 def _now() -> datetime:
@@ -60,6 +83,9 @@ class Runtime:
         # holds a reference to in-flight sink tasks so the loop can't collect them mid-emit
         # ponytail: unbounded set — a bounded queue per sink if one ever piles up
         self._sink_tasks: set[asyncio.Task[None]] = set()
+        # guards the WAITING_HUMAN -> RUNNING transition per run_id (see resume()); process-local
+        # ponytail: unbounded dict — never evicted, one lock per run_id for the process lifetime
+        self._resume_locks: dict[str, asyncio.Lock] = {}
 
     async def run(self, name: str, input: Input, ctx: RunContext) -> AsyncGenerator[Event, None]:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
@@ -119,6 +145,95 @@ class Runtime:
                 _engine_failed(f"engine {engine.engine!r} ended after {last!r}"), spec, ctx, next(seq)
             )
 
+    async def resume(self, name: str, thread_id: str, value: Any, ctx: RunContext) -> AsyncGenerator[Event, None]:
+        """Continue a run this Runtime suspended earlier.
+
+        An atomic ``WAITING_HUMAN`` -> ``RUNNING`` transition (double-resume: exactly one
+        caller wins) opens it with ``run.resumed``, seq recovered from the log's own
+        ``max(seq)`` so it stays contiguous across a process restart — never reset to 0.
+        From there the engine plays on exactly like ``run()`` plays an opening: same
+        terminal/suspended/exception handling.
+
+        A stray resume — wrong status, already resumed by a racing caller, or a completed
+        run — is a no-op: nothing is read from the engine, nothing is yielded.
+        """
+        spec, engine = self._resolve(name)
+        claimed = await self._claim_resume(spec, ctx)
+        if claimed is None:
+            return
+        opening, seq = claimed
+        yield opening
+        last = opening.kind
+
+        try:
+            async with aclosing(engine.resume(spec, thread_id, value, ctx)) as stream:
+                async for payload in stream:
+                    yield await self._record(payload, spec, ctx, next(seq))
+                    last = payload.kind
+                    if last in TERMINAL_KINDS:
+                        break
+        except GeneratorExit:
+            logger.info("run %s abandoned by its consumer after %r", ctx.run_id, last)
+            await self._record(RunCancelled(reason="consumer stopped reading"), spec, ctx, next(seq))
+            raise
+        except Exception as exc:
+            logger.exception("run %s failed in engine %r", ctx.run_id, engine.engine)
+            failure = f"{type(exc).__name__} in engine {engine.engine!r}"
+            yield await self._record(_engine_failed(failure), spec, ctx, next(seq))
+            raise
+
+        if last not in TERMINAL_KINDS and last not in SUSPENDED_KINDS:
+            logger.error("engine %r ended run %s after %r, not a terminal event", engine.engine, ctx.run_id, last)
+            yield await self._record(
+                _engine_failed(f"engine {engine.engine!r} ended after {last!r}"), spec, ctx, next(seq)
+            )
+
+    async def _claim_resume(self, spec: InvocableSpec, ctx: RunContext) -> tuple[Event, Iterator[int]] | None:
+        """Read the run's status and, if and only if it is ``WAITING_HUMAN``, record
+        ``run.resumed`` right there before releasing the lock — so a second caller racing
+        the same ``run_id`` sees the transition already applied and gets ``None`` (a
+        no-op) instead of a second ``run.resumed`` or a duplicate ``seq``.
+
+        Process-local (an ``asyncio.Lock`` per ``run_id``): correct for two callers racing
+        against one Runtime instance in one process. A cross-process CAS would need a
+        store-level primitive the frozen ports don't have yet, so it is out of scope here
+        rather than added on the side.
+        """
+        lock = self._resume_locks.setdefault(ctx.run_id, asyncio.Lock())
+        async with lock:
+            history = [event for event in await self._store.read(ctx.log_key, ctx) if event.run_id == ctx.run_id]
+            if not can_resume(status_of(history)):
+                return None
+            seq = count(max((event.seq for event in history), default=-1) + 1)
+            event = await self._record(RunResumed(reason=None), spec, ctx, next(seq))
+        return event, seq
+
+    async def pending(self, ctx: RunContext) -> list[PendingRun]:
+        """Every run currently ``WAITING_HUMAN`` for this tenant.
+
+        Scans the log rather than keeping an in-memory registry of runs — a registry would
+        go stale the moment a process restarted, which is exactly the bug this avoids.
+        """
+        out: list[PendingRun] = []
+        for log_key in await self._store.list_log_keys(ctx):
+            for run_id, run_events in _by_run(await self._store.read(log_key, ctx)).items():
+                if status_of(run_events) is not RunStatus.WAITING_HUMAN:
+                    continue
+                found = _last_interrupt(run_events)
+                if found is None:
+                    continue
+                event, interrupted = found
+                out.append(
+                    PendingRun(
+                        run_id=run_id,
+                        session_id=event.session_id,
+                        invocable=event.origin,
+                        thread_id=interrupted.thread_id or run_id,
+                        payload=interrupted.payload,
+                    )
+                )
+        return out
+
     async def drain(self) -> None:
         """Wait for the sink emits still in flight.
 
@@ -171,4 +286,19 @@ def _engine_failed(message: str) -> RunFailed:
     return RunFailed(error_code="engine_error", message=message, retryable=False)
 
 
-__all__ = ["SUSPENDED_KINDS", "Runtime"]
+def _by_run(events: Sequence[Event]) -> dict[str, list[Event]]:
+    """Group a log's events by ``run_id``, preserving append order within each run."""
+    by_run: dict[str, list[Event]] = {}
+    for event in events:
+        by_run.setdefault(event.run_id, []).append(event)
+    return by_run
+
+
+def _last_interrupt(events: Sequence[Event]) -> tuple[Event, RunInterrupted] | None:
+    for event in reversed(events):
+        if isinstance(event.payload, RunInterrupted):
+            return event, event.payload
+    return None
+
+
+__all__ = ["PendingRun", "SUSPENDED_KINDS", "Runtime"]

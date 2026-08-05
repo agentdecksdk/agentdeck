@@ -7,7 +7,7 @@ ordering and isolation stay with the Runtime and an engine cannot get them wrong
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Sequence
@@ -49,6 +49,24 @@ class EnginePort(ABC):
     ) -> AsyncGenerator[KnownPayload, None]:
         """Play one run. ``history`` is the log so far, which is the record of the session —
         an engine that keeps its own execution state loads that itself (ADR-D5).
+        """
+
+    @abstractmethod
+    def resume(
+        self,
+        spec: InvocableSpec,
+        thread_id: str,
+        value: Any,
+        ctx: RunContext,
+    ) -> AsyncGenerator[KnownPayload, None]:
+        """Continue a run this engine suspended with ``run.interrupted(thread_id=...)``.
+
+        ``value`` answers the interrupt; ``thread_id`` is whatever the engine put on that
+        event, opaque to the Runtime. An engine with nothing to suspend on (M0's
+        openai-agents, whose runs never interrupt) raises rather than yielding — there is
+        no run to continue. The Runtime only calls this after confirming the run is
+        waiting on a human answer, so a well-behaved engine never sees a stray or
+        duplicate resume.
         """
 
 

@@ -4,14 +4,18 @@ An invocable's ``native`` is the script: payloads to yield in order, with any ex
 the sequence raised where it sits. That covers every way a run can end — completes, fails
 mid-stream, interrupts, or stops without a terminal event — with no model, no network and
 no timing, which is why it stays the contract suite's fastest engine rather than a
-placeholder for a real one.
+placeholder for a real one. A ``RunInterrupted`` step splits the script in two: ``start``
+plays up to and including it, then stops (mirroring a real engine suspending); ``resume``
+plays whatever comes after it — so one script expresses both halves of a suspend/resume
+case without a second field on ``InvocableSpec``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
+from agentdeck.core.events import RunInterrupted
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports import EnginePort
 from agentdeck.errors import ConfigError
@@ -40,6 +44,24 @@ class StubEngine(EnginePort):
         ctx: RunContext,
     ) -> AsyncGenerator[KnownPayload, None]:
         for step in _script_of(spec):
+            if isinstance(step, Exception):
+                raise step
+            yield step
+            if isinstance(step, RunInterrupted):
+                return  # suspend here; resume() plays whatever the script has after this
+
+    async def resume(
+        self,
+        spec: InvocableSpec,
+        thread_id: str,
+        value: Any,
+        ctx: RunContext,
+    ) -> AsyncGenerator[KnownPayload, None]:
+        after_interrupt = False
+        for step in _script_of(spec):
+            if not after_interrupt:
+                after_interrupt = isinstance(step, RunInterrupted)
+                continue
             if isinstance(step, Exception):
                 raise step
             yield step

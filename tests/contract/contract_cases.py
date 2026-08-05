@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from case_types import Case
+from langgraph_cases import langgraph_cases
 from openai_agents_cases import openai_agents_cases
 
 from agentdeck.adapters.engines.stub import StubEngine, stub_spec
@@ -100,4 +101,4 @@ def _stub_cases() -> list[Case]:
     ]
 
 
-CASES: list[Case] = _stub_cases() + openai_agents_cases()
+CASES: list[Case] = _stub_cases() + openai_agents_cases() + langgraph_cases()

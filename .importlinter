@@ -91,3 +91,23 @@ forbidden_modules =
     langgraph
     redis
     agentdeck.adapters
+
+# Checkpointer relocation (#53): langgraph is now the langgraph adapter's business, the
+# same way `agents` is openai_agents's (`pure-adapters-stay-pure` above already forbids it
+# for the pure stores/stub; this is the v2-wide version, for every module ADR-D5 says must
+# never see a checkpointer). v1 (`agentdeck.workflows` and its `runtime.checkpointer`
+# legacy re-export shim, #53) keeps importing langgraph directly — frozen behavior, not
+# covered here on purpose; only new v2 code is held to this.
+[importlinter:contract:langgraph-is-engine-private]
+name = only the langgraph adapter imports langgraph directly (v2 modules)
+type = forbidden
+source_modules =
+    agentdeck.core
+    agentdeck.runtime.service
+    agentdeck.adapters.stores.memory
+    agentdeck.adapters.stores.sqlite
+    agentdeck.adapters.engines.stub
+    agentdeck.adapters.engines.openai_agents
+    agentdeck.surfaces
+forbidden_modules =
+    langgraph

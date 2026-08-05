@@ -68,6 +68,19 @@ class OpenAIAgentsEngine(EnginePort):
             result.cancel()
         yield _run_completed(result)
 
+    async def resume(
+        self,
+        spec: InvocableSpec,
+        thread_id: str,
+        value: Any,
+        ctx: RunContext,
+    ) -> AsyncGenerator[KnownPayload, None]:
+        # M0 scope is UC1's plain chat, which never suspends — there is no interrupted run
+        # for this engine to continue. Raising (not a silent no-op) matches the Runtime's
+        # own rule that this method is only ever called on a WAITING_HUMAN run.
+        raise ConfigError(f"openai-agents engine (M0) has no interrupts to resume: {spec.name!r} never suspends")
+        yield  # pragma: no cover — makes this an async generator; never reached
+
 
 def _agent_of(spec: InvocableSpec) -> Agent[Any]:
     if not isinstance(spec.native, Agent):
