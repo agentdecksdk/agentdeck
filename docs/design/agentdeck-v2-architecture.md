@@ -177,6 +177,14 @@ tenancy. Contiguous `seq` upgrades ordering into **loss detection**: a consumer 
 persist-before-yield (an event a consumer has seen is already in the store); an
 interrupted-then-resumed run keeps the same `run_id` with continuing `seq`.
 
+*(Ruled 2026-08-05, Milestone 0 checkpoint, issue #57.)* `origin` is invocable-scoped:
+"speaker" means the invocable the caller addressed, not the SDK's internal sub-agent, so
+an internal handoff (one invocable delegating to another inside its own run) does not
+change `origin` for the rest of that run. This is the contract, not a gap — see
+`milestone-0-findings.md` §3 for the analysis and the alternative (an additive,
+payload-level speaker field) that remains available later if a concrete consumer needs
+sub-agent-level attribution.
+
 ### 4.3 RunContext — thread it everywhere, today
 
 ```python

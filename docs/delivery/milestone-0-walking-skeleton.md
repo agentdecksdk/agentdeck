@@ -56,6 +56,11 @@ decided in the adapter PR. `tests/test_uc1_handoff.py` asserts the shipped behav
 (both bubbles labeled `FrontDesk`, with distinct `message_id`s) precisely so this gap
 fails loudly, not quietly, once attribution changes.
 
+**Ruling (2026-08-05, M0 checkpoint, issue #57).** Option B: invocable-scoped `origin` is
+the contract, not a gap — "speaker" means *the invocable the caller addressed*, never the
+SDK's internal sub-agent. See `milestone-0-findings.md` §3 for the analysis and
+`agentdeck/core/events.py`'s `origin` docstring for where the contract is now stated.
+
 ## 3. Use case 2 — "The Friday approval" (stresses durability + engine substitutability)
 
 **Setup.** `ClaimPipeline`: two langgraph nodes with an approval interrupt between them; SQLite checkpointer; same store, same renderer, same serve process as UC1.
@@ -175,3 +180,13 @@ If any gate stays red for more than a day of honest effort, treat it as a design
 **The learning note.** One page, `milestone-0-findings.md`: what the skeleton taught us, ranked by "would have been expensive to learn in Phase 2"; amendments to the design doc, ADR-D5, and the epic (especially Story 2's estimate, now grounded in the crude adapters' actual difficulty); and the decision log for anything decided ad hoc during the spike (e.g. UC2's node re-execution visibility) that must be promoted to a documented contract.
 
 **Disposal decision, made explicitly.** For each skeleton component: *keep* (schema, core, contract suite — these were always Phase 1), *harden* (adapters, Runtime — real error handling in Phase 2), or *discard* (hardcoded registry, CLI renderer beyond its life as a reference consumer). Nothing keeps by default; skeleton code that sneaks into production unreviewed is how spikes rot into foundations.
+
+**Closing note (2026-08-05, #57 — the finish checkpoint).** **Verdict: GO.** None of the
+six falsifiers above fired; the full review, the schema-as-built diff, and the disposal
+table are in `milestone-0-findings.md`. The demo artifact is `scripts/m0_demo.py` — a
+deterministic, replayable script (run it with `python scripts/m0_demo.py`) rather than a
+recording, running UC1 → UC2 → UC3 end to end against real SQLite stores and the real
+`surfaces/serve` FastAPI apps with scripted fakes only. The epic proceeds to Story 2
+hardening (re-sequenced in `epic-agentdeck-v2-core.md`'s own 2026-08-05 amendment); the
+origin/speaker-attribution finding (§2's amendment above) is ruled — Option B, invocable-
+scoped `origin` is the contract, not a gap.

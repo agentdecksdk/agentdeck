@@ -19,9 +19,10 @@ Date: 2026-08-04.
 | 7 | `prompts/pr0-baseline-prompt.md` / `prompts/pr0-review-prompt.md` | Executable handoff: author + reviewer prompts for the safety-net PR | coding agent |
 | 8 | `prompts/pr1-event-schema-prompt.md` | Executable handoff: the frozen event schema spec as an author prompt. **Most current schema statement** | coding agent |
 | 9 | `delivery/docs-site-plan.md` | External docs site (`docs-site/`): IA, content rules, anti-rot tests, phases DS-0…DS-4 | delivery, docs |
+| 10 | `delivery/milestone-0-findings.md` | M0's go/no-go checkpoint: falsifier review, schema-as-built diff, learning note, decision log, keep/harden/discard | delivery, engineers |
 
-**Reading orders.** New engineer: 1 → 3 (through §9) → 4 → 8 → 6 → 5. Product/stakeholder:
-1 → 2 → 3 Appendix B. Implementer starting today: 7 → 8 → 6.
+**Reading orders.** New engineer: 1 → 3 (through §9) → 4 → 8 → 6 → 10 → 5. Product/stakeholder:
+1 → 2 → 3 Appendix B. Implementer starting today: 7 → 8 → 6 → 10.
 
 ## 2. Precedence — which document wins
 
@@ -53,13 +54,15 @@ Documents were written in conversation order and later ones refine earlier ones.
 ## 4. Execution order (single source of truth for "what's next")
 
 ```text
-NOW ──▶ PR #0  safety net: golden SSE baselines + import-linter     [prompt: doc 7]
-    ──▶ PR #1  event schema v1 = Skeleton Step 1                    [prompt: doc 8]
-    ──▶ M0 Steps 2–5: Runtime+stub → openai-agents+UC1 →
-        langgraph+UC2 → control+UC3                                 [gates: doc 6 §5]
-    ──▶ M0 finish: demo recording · falsifier review (go/no-go) ·
-        schema-as-built diff · findings note · keep/harden/discard  [doc 6 §6]
-    ──▶ Epic Story 2 (the seam, full quality) → Story 3+3b ∥ Story 4 → Story 5 (ACP)
+    PR #0  safety net: golden SSE baselines + import-linter          [prompt: doc 7]
+    PR #1  event schema v1 = Skeleton Step 1                         [prompt: doc 8]
+    M0 Steps 2–5: Runtime+stub → openai-agents+UC1 →
+        langgraph+UC2 → control+UC3                                  [gates: doc 6 §5]
+    M0 finish: demo script · falsifier review (GO) ·
+        schema-as-built diff · findings note · keep/harden/discard    [doc 6 §6 —
+        DONE, `delivery/milestone-0-findings.md`, `scripts/m0_demo.py`, #57]
+NOW ──▶ Epic Story 2 (the seam, full quality — re-sequenced per the
+        findings note) → Story 3+3b ∥ Story 4 → Story 5 (ACP)
     ──▶ v2.0 release + epic demo (one agent, three surfaces)
     ──▶ v2.1 batteries → v2.2 rooms & reach → v2.3 operate          [PRD §6]
 ```

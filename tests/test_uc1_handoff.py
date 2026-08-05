@@ -1,9 +1,9 @@
 """UC1 — the handoff chat: FrontDesk hands off to ClaimsAgent, which calls a tool and
 answers; turn 2 reuses turn-1 context; the transcript reads back from the store alone.
-One asserted behavior is a known gap, not a feature: the Runtime's ``origin`` is
+One asserted behavior documents a ruled contract, not a gap: the Runtime's ``origin`` is
 invocable-scoped, not sub-agent-scoped, so ClaimsAgent's answer prints under the
-"FrontDesk" label too. That is a recorded design finding awaiting a ruling, not fixed
-here; the bubble assertion below documents it on purpose.
+"FrontDesk" label too — "speaker" is defined as the invocable, ruled at the M0 checkpoint
+(issue #57); the bubble assertion below documents that contract on purpose.
 
 Scripted fakes only (no network, no API keys): a fresh ``FrontModel``/``ClaimsModel`` pair
 per test, so a call-count counter is safe — this file never shares an engine across tests
@@ -220,9 +220,9 @@ async def test_uc1_handoff_chat_end_to_end(capsys: pytest.CaptureFixture[str]) -
     # message_id still gives each bubble a distinct boundary. origin does not additionally
     # say *who* spoke: the Runtime stamps origin = spec.name (the top-level invocable) for
     # every event of a run, so ClaimsAgent's answer prints under the "FrontDesk" label too
-    # — a recorded design finding awaiting a ruling, not fixed by this adapter. This
-    # assertion documents that gap on purpose, so it fails loudly (not silently) the day
-    # speaker attribution changes.
+    # — ruled at the M0 checkpoint (issue #57) as the contract, not a gap: "speaker" means
+    # the invocable, not the SDK sub-agent. This assertion documents that contract on
+    # purpose, so it fails loudly (not silently) if that ruling is ever revisited.
     message_lines = [line for line in out if ": " in line and line.split(" [", 1)[0] in ("FrontDesk", "ClaimsAgent")]
     assert len(message_lines) == 4  # front's sentence + claims' answer, both turns
     assert len({line.split("]")[0] for line in message_lines}) == 4  # 4 distinct message_ids
