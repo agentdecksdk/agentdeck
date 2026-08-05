@@ -14,7 +14,12 @@ if TYPE_CHECKING:
 
 
 class EventSinkPort(ABC):
-    """One consumer of the stream. Errors and slowness are the sink's problem, not the run's."""
+    """One consumer of the stream. Errors and slowness are the sink's problem, not the run's.
+
+    An ``emit`` must therefore return promptly — a sink whose work is slow buffers internally
+    and flushes on its own schedule, because the dispatch feeding it times out a blocking emit
+    and eventually disables a sink that keeps doing it.
+    """
 
     @abstractmethod
     async def emit(self, event: Event) -> None:
