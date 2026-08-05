@@ -332,8 +332,11 @@ One class owns the orchestration that today is smeared across `app.py`, both run
 hierarchies, and `serve.py`:
 
 *(Amended 2026-08-05, as built: `Runtime(engines, store, invocables, sinks=(), clock=_now)` —
-a `Mapping[str, InvocableSpec]` stands in for `InvocableRegistry` until discovery moves in
-(Story 2), and `control`/`tools` arrive with the stories that build them. Two behaviors the
+the Runtime takes a `Mapping[str, InvocableSpec]` rather than the registry object, and
+`control`/`tools` arrive with the stories that build them. `InvocableRegistry` is real as of
+issue #73 and is what builds that mapping: `InvocableRegistry(engines).load()` in
+`runtime/discovery.py` returns it, so `self.registry.get(name)` in the sketch below is
+`self._invocables.get(name)` as built. Two behaviors the
 sketch below leaves out: the Runtime **emits `run.started` itself** at `seq` 0, because the
 payload's context snapshot is `RunContext` data no engine should be trusted to copy; and it
 **closes every run in the log**, on all four exits — a terminal payload ends the read there
@@ -441,7 +444,7 @@ agentdeck/
 │   └── ports/     engine.py  store.py  sink.py  control.py  capabilities.py  tools.py  policy.py  secrets.py
 ├── runtime/                 # use cases + discovery
 │   ├── service.py           # Runtime
-│   ├── discovery.py         # today's PluginRegistry, unchanged conventions
+│   ├── discovery.py         # InvocableRegistry, over the same bundle conventions
 │   └── settings.py          # layered settings, now also selects adapters
 ├── authoring/               # the user-facing declarative API
 │   ├── agent.py             # BaseAgent / BaseSandboxAgent  → compile to InvocableSpec
@@ -463,6 +466,16 @@ agentdeck/
 The user-visible `.agentdeck/` project convention — `agents/<bundle>/agent.py`,
 `workflows/<bundle>/workflow.py`, `skills/*/SKILL.md`, no `__init__.py`, no
 registration — **does not change at all**.
+
+*(Amended 2026-08-05, as built: `runtime/discovery.py` is the `InvocableRegistry` — it calls
+v1's `PluginRegistry` (still in `runtime/registry.py`, along with the project-dir mount both
+now share) rather than replacing it, because v1's `App` keeps using it until `App` itself
+becomes the composition root. The migration-map row below therefore lands in two steps: the
+`InvocableRegistry` first, the generic scanner's rename with the rest of v1. Since a spec's
+`native` is engine-built — an `agents.Agent`, an uncompiled `StateGraph` — the registry
+reaches through the v1 bundle classes that build them, which is why it sits at the
+composition layer's edge and not inside the Runtime's own import fence. Skills are not
+discovered: no engine plays a `SKILL.md` bundle, so a `SKILL` spec could only fail when run.)*
 
 ---
 
@@ -618,7 +631,7 @@ artifact that makes "add a third engine next year" a safe claim rather than a ho
 | `runtime/checkpointer.py` | `adapters/engines/langgraph/` | engine-private |
 | `runtime/sessions.py` (`SessionFactory`) | `adapters/engines/openai_agents/sessions.py` | kept as the engine's execution store (ADR-D5); event-log stores in `adapters/stores/` are new code |
 | `runtime/observability.py` | `adapters/telemetry/langfuse/` | becomes an `EventSinkPort`; stops instrumenting the SDK directly |
-| `runtime/registry.py` (`PluginRegistry`) | `runtime/discovery.py` | conventions untouched |
+| `runtime/registry.py` (`PluginRegistry`) | `runtime/discovery.py` | conventions untouched *(amended 2026-08-05: `discovery.py` exists now as the `InvocableRegistry` calling into `PluginRegistry`; the scanner itself moves when v1's `App` does)* |
 | `serve.py` | `surfaces/serve/` + `adapters/protocols/sse/` | handlers become Runtime calls; SSE wire format preserved |
 | `errors.py`, `skills/*` | `core/errors.py`; `skills/` (executor re-targeted to ports) | mechanical |
 | `app.py` | `app.py` (composition root) | public API preserved as facade |

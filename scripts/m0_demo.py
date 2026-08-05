@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Milestone-0 demo: UC1 -> UC2 -> UC3, one continuous, deterministic run.
+"""Milestone-0 demo: discovery -> UC1 -> UC2 -> UC3, one continuous, deterministic run.
 
 This is the "demo artifact" `milestone-0-walking-skeleton.md` §6 asks for, in script
 form instead of a recording — deterministic and replayable beats a video that bit-rots.
@@ -20,6 +20,12 @@ Everything runs against temporary SQLite files that are created and torn down in
 Every section ends with `assert`s, so a broken skeleton fails this script loudly instead
 of just looking like a nicer chat log.
 
+The opening section is the one that goes through ``InvocableRegistry``: it authors a
+throwaway ``.agentdeck/`` project and lets discovery produce the specs. UC1-UC3 keep
+building their specs by hand, deliberately — each is pinned to a scripted fake model whose
+exact turns are what makes the schema and ordering assertions falsifiable, and a bundle on
+disk would only hide those fakes behind a file.
+
 UC2's "kill -9, restart" is modeled by dropping every Python reference and rebuilding a
 fresh `Runtime`/store/engine from the same two SQLite files, in this same process — not a
 real OS-level `kill`. The real-subprocess version of that restart (two actual `python`
@@ -35,6 +41,7 @@ import hashlib
 import json
 import subprocess
 import sys
+from contextlib import chdir
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -63,6 +70,8 @@ from agentdeck.core.context import RunContext
 from agentdeck.core.events import RESULT_PREVIEW_MAX, check_contiguous, check_terminal, parse_event
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports.control import Signal
+from agentdeck.errors import ConfigError
+from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
 from agentdeck.surfaces.cli.chat import render, stream_chat
 from agentdeck.surfaces.serve.app import build_app
@@ -100,6 +109,84 @@ def _response(output: list[Any]) -> Response:
         tools=[],
         usage=_usage(),
     )
+
+
+# --------------------------------------------------------------------------------------
+# Discovery — one `.agentdeck/` project becomes the Runtime's invocables
+# --------------------------------------------------------------------------------------
+
+# Two bundles in exactly the format a user authors, written to a scratch project dir. The
+# agent needs no model here: the registry's job is to build it, and UC1 is where a built
+# agent gets played.
+BUNDLE_AGENT_PY = '''"""An agent bundle: `.agentdeck/agents/greeter/agent.py`."""
+
+from agentdeck.agents import BaseAgent
+
+
+class Greeter(BaseAgent):
+    instructions = "Greet the user."
+'''
+
+BUNDLE_WORKFLOW_PY = '''"""A workflow bundle: `.agentdeck/workflows/shout/workflow.py`."""
+
+from typing import TypedDict
+
+from agentdeck.workflows import END, BaseWorkflow, StateGraph
+
+
+class State(TypedDict, total=False):
+    input: str
+    shouted: str
+
+
+class Shout(BaseWorkflow):
+    state = State
+
+    @classmethod
+    def build_graph(cls):
+        graph = StateGraph(cls.state)
+        graph.add_node("shout", lambda state: {"shouted": state["input"].upper()})
+        graph.set_entry_point("shout")
+        graph.add_edge("shout", END)
+        return graph
+'''
+
+
+async def run_discovery(tmp: Path) -> None:
+    _banner("Discovery — InvocableRegistry over a `.agentdeck/` project (both engines)")
+    from agentdeck.adapters.engines.langgraph import LangGraphEngine
+
+    root = tmp / "project" / ".agentdeck"
+    (root / "agents" / "greeter").mkdir(parents=True)
+    (root / "agents" / "greeter" / "agent.py").write_text(BUNDLE_AGENT_PY)
+    (root / "workflows" / "shout").mkdir(parents=True)
+    (root / "workflows" / "shout" / "workflow.py").write_text(BUNDLE_WORKFLOW_PY)
+
+    engines: list[Any] = [OpenAIAgentsEngine(), LangGraphEngine()]
+    with chdir(root.parent):
+        print("-- step 1: InvocableRegistry(engines).load() over ./.agentdeck --")
+        specs = InvocableRegistry(engines).load()
+        for name, spec in sorted(specs.items()):
+            print(f"  {name}: kind={spec.kind.value} engine={spec.engine} native={type(spec.native).__name__}")
+        assert sorted(specs) == ["Greeter", "Shout"]
+        assert specs["Greeter"].engine == OpenAIAgentsEngine.engine
+        assert specs["Shout"].engine == LangGraphEngine.engine
+
+        print("-- step 2: the discovered workflow, played by the Runtime handed that mapping --")
+        runtime = Runtime(engines, MemoryEventStore(), specs)
+        ctx = RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="run-discovery", trace_id="t", session_id="s-disc")
+        kinds = [event.kind async for event in runtime.run("Shout", coerce_input("hello discovery"), ctx)]
+        print(f"  {kinds}")
+        assert kinds == ["run.started", "node.updated", "run.completed"]
+
+        print("-- step 3: the same project, wired to a Runtime with no langgraph engine --")
+        try:
+            InvocableRegistry([OpenAIAgentsEngine()]).load()
+        except ConfigError as exc:
+            print(f"  refused at load, not at run: {exc}")
+        else:
+            raise AssertionError("a project needing an unregistered engine must fail at load")
+    print("Discovery: PASS")
 
 
 # --------------------------------------------------------------------------------------
@@ -531,10 +618,11 @@ async def run_uc3(tmp: Path) -> None:
 
 async def main() -> None:
     with TemporaryDirectory(prefix="agentdeck-m0-demo-") as tmp:
+        await run_discovery(Path(tmp))
         await run_uc1(Path(tmp))
         await run_uc2(Path(tmp))
         await run_uc3(Path(tmp))
-    _banner("ALL PASS — UC1 -> UC2 -> UC3 replayed end to end")
+    _banner("ALL PASS — discovery -> UC1 -> UC2 -> UC3 replayed end to end")
 
 
 if __name__ == "__main__":
