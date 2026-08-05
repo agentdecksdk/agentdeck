@@ -1,5 +1,5 @@
 """What one sink's bounded queue does when the sink cannot keep up: what it keeps, what it
-drops, when it waits, and when it gives up on the sink entirely.
+drops, and when it gives up on the sink entirely. What it never does is wait for it.
 
 Every assertion is on counts and queue depth rather than on elapsed time — a bound that only
 shows up as "fast enough" is not a bound.
@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from agentdeck.core.events import Event, TextDelta
-from agentdeck.core.ports import EventSinkPort, SinkFullPolicy
+from agentdeck.core.ports import EventSinkPort
 from agentdeck.runtime.dispatch import LOG_INTERVAL, SinkDispatch
 
 if TYPE_CHECKING:
@@ -61,10 +61,6 @@ class Gated(Recorder):
         self.events.append(event)
 
 
-class GatedBlocking(Gated):
-    on_full = SinkFullPolicy.BLOCK
-
-
 class Broken(EventSinkPort):
     """Fails every time, and counts how many times it was given the chance."""
 
@@ -74,10 +70,6 @@ class Broken(EventSinkPort):
     async def emit(self, event: Event) -> None:
         self.calls += 1
         raise RuntimeError("sink is down")
-
-
-class BrokenBlocking(Broken):
-    on_full = SinkFullPolicy.BLOCK
 
 
 class Flaky(EventSinkPort):
@@ -169,25 +161,6 @@ async def test_a_stalling_sink_grows_neither_its_queue_nor_the_task_count() -> N
     assert len(asyncio.all_tasks()) == before
 
 
-async def test_a_blocking_sink_makes_the_producer_wait_instead_of_losing_an_event() -> None:
-    sink = GatedBlocking()
-    dispatch = SinkDispatch(sink, capacity=1)
-    await dispatch.submit(_event(0))
-    await dispatch.submit(_event(1))  # returns only once the consumer has taken the first
-
-    waiting = asyncio.create_task(dispatch.submit(_event(2)))
-    for _ in range(3):
-        await asyncio.sleep(0)  # every chance to finish, if it were going to
-    assert not waiting.done()
-    assert dispatch.dropped == 0
-
-    sink.release.set()
-    await waiting
-    await dispatch.drain()
-    assert sink.seqs() == [0, 1, 2]
-    assert dispatch.dropped == 0
-
-
 async def test_a_sink_that_keeps_failing_is_disabled_instead_of_retried_forever() -> None:
     sink = Broken()
     dispatch = SinkDispatch(sink, failure_limit=3)
@@ -218,22 +191,6 @@ async def test_a_sink_that_recovers_between_failures_is_never_disabled() -> None
     assert sink.calls == 10
     assert dispatch.failed == 5
     assert dispatch.dropped == 0
-
-
-async def test_disabling_a_blocking_sink_releases_the_producer_waiting_on_it() -> None:
-    """Otherwise a sink that must not lose events would stall every run forever the moment
-    it broke — a wedge worse than the drops it was configured to avoid."""
-    sink = BrokenBlocking()
-    dispatch = SinkDispatch(sink, capacity=1, failure_limit=1)
-
-    async with asyncio.timeout(5):  # a guard, not a measurement: the point is that it returns
-        for seq in range(3):
-            await dispatch.submit(_event(seq))
-        await dispatch.drain()
-
-    assert dispatch.disabled is True
-    assert sink.calls == 1
-    assert dispatch.dropped + sink.calls == 3
 
 
 async def test_dropped_events_are_logged_not_only_counted(caplog: pytest.LogCaptureFixture) -> None:

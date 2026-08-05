@@ -294,9 +294,9 @@ class Runtime:
     async def _fan_out(self, event: Event) -> None:
         """Sinks get a copy of the stream and no say in it: never called inline, never fatal.
 
-        Each sink gets a queue put rather than an ``emit``, so this returns without
-        suspending — unless a sink asked to be waited for when its queue is full, which only
-        that sink's own ``BLOCK`` policy can do.
+        Each sink gets a queue put rather than an ``emit``, and a full queue costs one loop
+        turn before it starts dropping — so the run is never waiting on a sink, only ever on
+        the loop it already shares with one.
         """
         for dispatch in self._sinks:
             await dispatch.submit(event)

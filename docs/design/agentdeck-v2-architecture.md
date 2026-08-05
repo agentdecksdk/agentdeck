@@ -302,7 +302,7 @@ class EventStorePort(ABC):
                    after_seq: int = 0) -> list[Event]: ...
 
 # core/ports/sink.py — bounded fan-out; a slow sink must never stall a run (see the §4.6
-# amendment: it is fed from a queue, and only an opt-in BLOCK sink is ever waited for)
+# amendment: fed from a queue that drops rather than wait, so a sink is a lossy tap)
 class EventSinkPort(ABC):
     async def emit(self, event: Event) -> None: ...
 
@@ -361,18 +361,23 @@ shutdown; it is never called per event.)*
 
 *(Amended 2026-08-05, as built: the fan-out is **bounded** — one queue and one consumer task
 per sink (`runtime/dispatch.py`), not one task per event. Handing an event over is a queue put;
-what does not fit is decided by the sink's own `on_full` policy (`core/ports/sink.py`):
-`DROP_OLDEST`, the default, yields exactly one loop turn and then drops the stalest event — the
-turn is what separates a sink that is behind from a producer that has simply not suspended yet,
-since nothing on the event path has to — while `BLOCK` makes the producer wait for room, the
-only choice for a sink that must not miss an event, and it pays for it in backpressure. Drops
-and failed emits are counted per sink and logged (rate-limited: one stack trace per failure
-streak), and a sink that fails `FAILURE_LIMIT` times in a row is disabled rather than retried
-for the process's lifetime. Because each sink is fed by a single consumer, `emit` is called one
-event at a time in submission order, never re-entered; a consumer killed by a `CancelledError`
-escaping `emit` is replaced on the next submit. `Runtime.drain()` flushes the queues and then
-stops the consumers, racing each flush against its consumer so one dead consumer cannot hang
-shutdown for every other sink.)*
+a full queue yields exactly one loop turn and then drops the stalest event, and the turn is
+what separates a sink that is behind from a producer that has simply not suspended yet, since
+nothing on the event path has to. That is the only behavior: nothing here ever waits for a
+sink, so NFR-6 holds literally rather than by policy. Drops and failed emits are counted per
+sink and logged (rate-limited: one stack trace per failure streak), and a sink that fails
+`FAILURE_LIMIT` times in a row is disabled rather than retried for the process's lifetime.
+Because each sink is fed by a single consumer, `emit` is called one event at a time in
+submission order, never re-entered; a consumer killed by a `CancelledError` escaping `emit`
+is replaced on the next submit. `Runtime.drain()` flushes the queues and then stops the
+consumers, racing each flush against its consumer so one dead consumer cannot hang shutdown
+for every other sink.)*
+
+*(A sink with guaranteed delivery is a deliberate non-goal today. A blocking/backpressure
+policy was built and then removed before merge: no sink implementation needs it, and the only
+ways to keep it were a producer that waits forever or an amendment to NFR-6. Sinks are a lossy
+tap; a consumer that must see every event reads the event store. If a real sink ever demands
+delivery, it is added on top of this — never by making a run wait.)*
 
 ```python
 # runtime/service.py

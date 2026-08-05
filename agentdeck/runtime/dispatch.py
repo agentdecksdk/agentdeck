@@ -2,8 +2,14 @@
 
 One queue and one consumer task per sink, instead of one task per event: a wedged sink
 then costs a fixed backlog and a single task, whatever the run does next. What cannot fit
-is dropped or waited for — the sink's own choice — but always counted and logged, because
-a tap that quietly stops taking events is indistinguishable from one that never had any.
+is dropped — never waited for, because a run is never charged for its slowest reader — but
+always counted and logged, because a tap that quietly stops taking events is
+indistinguishable from one that never had any.
+
+Guaranteed delivery to a sink is a deliberate non-goal: a consumer that must not miss an
+event reads the event store, which is the ordered, complete copy. If a sink ever genuinely
+needs every event, that is a new behavior layered on this one — not a reason to make a run
+wait here.
 """
 
 from __future__ import annotations
@@ -12,8 +18,6 @@ import asyncio
 import contextlib
 import logging
 from typing import TYPE_CHECKING
-
-from agentdeck.core.ports import SinkFullPolicy
 
 if TYPE_CHECKING:
     from agentdeck.core.events import Event
@@ -65,19 +69,14 @@ class SinkDispatch:
     async def submit(self, event: Event) -> None:
         """Hand one event to the sink's queue.
 
-        Under ``DROP_OLDEST`` this yields at most one loop turn when the queue is full, and
-        never waits for the sink: the turn is what tells a sink that is keeping up apart from
-        one that is not, and only then is the stalest event dropped. ``BLOCK`` is the
-        deliberate opposite — the caller waits for room, because for that sink a missing
-        event is worse than a slow run.
+        Yields at most one loop turn when the queue is full, and never waits for the sink:
+        the turn is what tells a sink that is keeping up apart from one that is not, and only
+        then is the stalest event dropped.
         """
         if self.disabled:
             self._count_drop(event)
             return
         self._ensure_consumer()
-        if self._sink.on_full is SinkFullPolicy.BLOCK:
-            await self._queue.put(event)
-            return
         try:
             self._queue.put_nowait(event)
             return
@@ -132,8 +131,8 @@ class SinkDispatch:
     async def _consume(self) -> None:
         """Take the queue one event at a time, for as long as the sink is worth calling.
 
-        A disabled sink still has its queue emptied — a ``BLOCK`` producer may be waiting
-        for room, and nothing is ever going to make room for it again.
+        A disabled sink's queue is still emptied rather than abandoned, so the backlog it
+        leaves behind is counted as lost instead of just quietly sitting there.
         """
         while True:
             event = await self._queue.get()
