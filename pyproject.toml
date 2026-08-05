@@ -1,6 +1,6 @@
 [project]
 name = "agentdeck"
-version = "2.0.0b1"
+version = "2.0.0b2"
 description = "Declarative harness over the OpenAI Agents SDK and LangGraph: settings, capabilities, skills, runners, graph compilation, plug-in discovery."
 requires-python = ">=3.12"
 dependencies = [

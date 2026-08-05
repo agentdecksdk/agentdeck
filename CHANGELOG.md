@@ -8,6 +8,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [2.0.0b2] - 2026-08-05
+
+Second beta of the v2 line: both real engines now run behind the
+engine-agnostic core — the same event stream, store, and surfaces serve
+OpenAI Agents chats and LangGraph workflows alike. The v1 public surface
+remains byte-for-byte unchanged.
+
 ### Added
 - LangGraph engine adapter (`agentdeck.adapters.engines.langgraph`): runs graph
   workflows behind `EnginePort`, surviving process restarts — an interrupted run's
@@ -227,7 +234,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b1...HEAD
+[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b2...HEAD
+[2.0.0b2]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b1...v2.0.0b2
 [2.0.0b1]: https://github.com/sagi5060/agentdeck/compare/v1.2.1...v2.0.0b1
 [1.2.1]: https://github.com/sagi5060/agentdeck/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/sagi5060/agentdeck/compare/v1.1.0...v1.2.0
