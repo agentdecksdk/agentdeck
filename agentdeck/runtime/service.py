@@ -202,8 +202,10 @@ class Runtime:
         yields nothing, so a stray resume stays a no-op rather than an error.
 
         ``seq`` comes from the log's own ``max(seq)``, so it continues across a process
-        restart instead of resetting; only the winner writes, so no two callers can stamp
-        the same one.
+        restart instead of resetting. It is read before the claim and can therefore go stale
+        — the store refuses a claim whose ``seq`` is no longer the run's next one, so a
+        caller that was slow enough to miss a whole resume-and-interrupt round of this run
+        loses rather than reusing a ``seq`` somebody already wrote.
         """
         seq = count(await self._store.last_seq(ctx.log_key, ctx.run_id, ctx) + 1)
         event = self._stamp(RunResumed(reason=None), spec, ctx, next(seq))

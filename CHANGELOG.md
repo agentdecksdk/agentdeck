@@ -27,9 +27,10 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   run/log indexes.
 - `EventStorePort.claim_resume` (not yet part of any stable public API): a
   conditional append that records `run.resumed` only if the run is still waiting
-  on a human answer, as one indivisible step, and reports whether it won. The
-  memory store gets that for free; the SQLite store does it in a single
-  `BEGIN IMMEDIATE` transaction, so the events file itself picks the winner.
+  on a human answer *and* the event's `seq` is still the run's next one, as one
+  indivisible step, and reports whether it won. The memory store gets that for
+  free; the SQLite store does it in a single `BEGIN IMMEDIATE` transaction, so
+  the events file itself picks the winner.
 
 ### Changed
 - Internal: the v2 event-log port (not yet part of any stable public API) is
@@ -57,7 +58,9 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   them resumes the run; the other is a clean no-op, not an error. Previously the
   guard was a process-local lock, so each process could claim the same waiting run
   — running the workflow's next node twice and writing two `run.resumed` events
-  with the same `seq`.
+  with the same `seq`. A claim that was slow enough to miss a whole
+  interrupt-resume-interrupt round of its run now loses too, instead of answering
+  the run's *second* question with the first one's value.
 - The OpenAI Agents engine no longer runs the SDK's default trace exporter on
   keyless/fake-model runs (tests, CI, the M0 demo): it now passes a `RunConfig`
   with tracing disabled unless `AGENTDECK_OPENAI_AGENTS_TRACING_ENABLED=true` is

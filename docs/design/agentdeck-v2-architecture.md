@@ -266,14 +266,16 @@ a human; the now-unused `list_log_keys` is gone.)*
 
 *(Amended 2026-08-05, as built: `EventStorePort` also owns the resume claim —
 `claim_resume(log_key, run_id, event, ctx) -> bool`, a conditional append that records
-`run.resumed` if and only if the run is `WAITING_HUMAN` at that moment, indivisibly. The
-Runtime's `WAITING_HUMAN` -> `RUNNING` transition is that one call: the write that
-publishes the transition is the write that tests for it, so two processes sharing a store
-cannot both claim one interrupt. `status_of` still derives status, so this is not a second
-store; a store only has to make the check and the append one step — SQLite in a single
-`BEGIN IMMEDIATE` transaction, the dict store for free, since neither the fold nor the
-append suspends. A loser gets `False`, never an exception, and never writes, so it cannot
-duplicate a `seq` either.)*
+`run.resumed` if and only if the run is `WAITING_HUMAN` *and* the event's `seq` is still the
+run's next one, indivisibly. The Runtime's `WAITING_HUMAN` -> `RUNNING` transition is that
+one call: the write that publishes the transition is the write that tests for it, so two
+processes sharing a store cannot both claim one interrupt. `status_of` still derives status,
+so this is not a second store; a store only has to make the two checks and the append one
+step — SQLite in a single `BEGIN IMMEDIATE` transaction, the dict store for free, since
+neither the fold nor the append suspends. The `seq` half matters because a caller stamps its
+event before claiming: a run that was resumed and interrupted again between those two
+moments is waiting once more, and letting that stale claim through would write a `seq` twice.
+A loser gets `False`, never an exception, and never writes.)*
 
 ```python
 # core/ports/engine.py — the lifecycle/event boundary

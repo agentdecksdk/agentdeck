@@ -74,9 +74,10 @@ class EventStorePort(ABC):
 
     @abstractmethod
     async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
-        """Append ``event`` if and only if this run is ``WAITING_HUMAN`` at that moment, as
-        one indivisible step — ``True`` when it was appended, ``False`` for any other status,
-        including a caller that got here first.
+        """Append ``event`` if and only if, at that moment, ``run_id`` is ``WAITING_HUMAN``
+        *and* ``event.seq`` is the next ``seq`` for that run — one indivisible step. ``True``
+        when it was appended, ``False`` on any other status or a stale ``seq``, including
+        when another caller got there first.
 
         The one write that publishes the ``WAITING_HUMAN`` -> ``RUNNING`` transition is the
         same write that tests for it, which is what makes double-resume protection hold
@@ -84,8 +85,11 @@ class EventStorePort(ABC):
         never an error: a stray resume is a no-op by design (``can_resume``), so a store
         returns ``False`` rather than raising.
 
-        Only the winner writes, so the loser cannot duplicate a ``seq`` either — a store
-        that cannot make the check and the append indivisible must not implement this port.
+        The ``seq`` condition covers what the status alone cannot. A caller stamps its event
+        before claiming, so a slow one can arrive after the run was resumed *and* interrupted
+        again: waiting on a human once more, but with that ``seq`` already spent. Refusing it
+        there is what keeps duplicate ``seq``s out of a log — a store that cannot make both
+        checks and the append indivisible must not implement this port.
         """
 
     @abstractmethod

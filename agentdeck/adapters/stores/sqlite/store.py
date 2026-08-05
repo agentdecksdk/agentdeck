@@ -86,6 +86,8 @@ class SqliteEventStore(EventStorePort):
         """The port's conditional append as one ``BEGIN IMMEDIATE`` transaction, so the
         winner is decided by SQLite's own write lock — the file, not this process, is what
         two servers agree through."""
+        if event.run_id != run_id:
+            raise ValueError(f"a claim on run {run_id!r} cannot carry an event for {event.run_id!r}")
         if event.tenant != ctx.tenant:
             raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
         row = (ctx.tenant, log_key, event.run_id, event.seq, event.model_dump_json())
@@ -108,20 +110,22 @@ class SqliteEventStore(EventStorePort):
         self._conn.commit()
 
     def _claim(self, row: tuple[str, str, str, int, str], run_id: str) -> bool:
-        tenant, log_key = row[0], row[1]
-        # BEGIN IMMEDIATE takes the file's write lock before the status read, so a second
-        # process cannot read WAITING_HUMAN in the gap between our read and our insert — a
+        tenant, log_key, _run_id, seq, _data = row
+        # BEGIN IMMEDIATE takes the file's write lock before the reads, so a second process
+        # cannot see this run waiting in the gap between our checks and our insert — a
         # deferred transaction would only lock at the insert, which is exactly too late.
         self._conn.execute("BEGIN IMMEDIATE")
-        try:
+        # Commits the insert on the way out, rolls back if anything raised; the losing paths
+        # wrote nothing, so their commit is only the write lock being handed back.
+        with self._conn:
             last = self._select_last_lifecycle_of_run(tenant, log_key, run_id)
             if not can_resume(status_of([parse_event(json.loads(last))] if last is not None else [])):
                 return False
+            if seq != self._select_last_seq(tenant, log_key, run_id) + 1:
+                # The run went round the loop while this claim was in flight: it waits again,
+                # but on a longer log, and this seq now belongs to an event already written.
+                return False
             self._conn.execute(_INSERT, row)
-        finally:
-            # Either way: the losing path wrote nothing, and it must not hold the write lock
-            # while the winner is still playing the run out.
-            self._conn.commit()
         return True
 
     def _select_log(self, tenant: str, log_key: str, after: int, limit: int | None) -> list[str]:

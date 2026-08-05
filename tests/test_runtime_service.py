@@ -123,6 +123,28 @@ async def test_sinks_see_every_event_without_the_run_waiting_for_them() -> None:
     assert recorder.by_seq() == events
 
 
+async def test_sinks_see_the_resume_events_too_not_just_the_opening_run() -> None:
+    """``run.resumed`` is written by the store's conditional append, not the ordinary record
+    path, so its fan-out is its own line — and a sink silently missing every resume (audit,
+    cost, observability) is exactly what nothing else in the suite would notice.
+    """
+    recorder = Recorder()
+    spec = stub_spec(
+        "Approver",
+        RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1"),
+        DONE,
+        kind=InvocableKind.WORKFLOW,
+    )
+    runtime = Runtime([StubEngine()], MemoryEventStore(), {spec.name: spec}, sinks=[recorder], clock=lambda: TS)
+
+    opening = [event async for event in runtime.run("Approver", INPUT, CTX)]
+    resumed = [event async for event in runtime.resume("Approver", "t1", "approved", CTX)]
+    await runtime.drain()
+
+    assert [event.kind for event in resumed] == ["run.resumed", "run.completed"]
+    assert recorder.by_seq() == opening + resumed
+
+
 async def test_a_failing_sink_does_not_fail_the_run_or_starve_the_others() -> None:
     recorder = Recorder()
     runtime, store = _runtime(sinks=[Broken(), recorder])

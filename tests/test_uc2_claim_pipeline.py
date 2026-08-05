@@ -234,6 +234,13 @@ class LateStore(SqliteEventStore):
             await asyncio.sleep(0.01)
         return await super().last_seq(*args, **kwargs)
 
+    async def claim_resume(self, *args, **kwargs):
+        # The gate is upstream of the claim only because resume() reads the log before it
+        # claims. If that ever stops being true this exits non-zero instead of quietly
+        # turning the race back into a coin toss.
+        assert self._gate.exists(), "the claim outran the gate — this race is no longer ordered"
+        return await super().claim_resume(*args, **kwargs)
+
 
 async def main():
     engine = LangGraphEngine(checkpointer=resolve_checkpointer("sqlite", sys.argv[2]))
@@ -295,10 +302,13 @@ def test_uc2_claim_pipeline_survives_a_real_process_restart(tmp_path: Any) -> No
     assert second.stdout.split() == ["run.resumed", "node.updated", "run.completed"]
 
 
-def _wait_for(path: Path, timeout: float = 30.0) -> None:
+def _wait_for(path: Path, timeout: float = 15.0) -> None:
+    """Poll for a file the other process writes — the sync this race uses instead of a sleep
+    long enough to hope for."""
     deadline = time.monotonic() + timeout
     while not path.exists():
-        assert time.monotonic() < deadline, f"{path.name} never appeared"
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"{path.name} never appeared: the racing process never reached its gate")
         time.sleep(0.01)
 
 
