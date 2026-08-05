@@ -28,9 +28,9 @@ QUEUE_CAPACITY = 256
 # A sink that fails this many times in a row is broken, not unlucky.
 FAILURE_LIMIT = 5
 
-# Every drop is counted; one in this many is also logged, so a wedged sink stays visible
-# without turning one bad tap into a log flood of its own.
-DROP_LOG_INTERVAL = 100
+# Every drop and every failure is counted; one in this many is also logged, so a bad sink
+# stays visible without turning one bad tap into a log flood of its own.
+LOG_INTERVAL = 100
 
 
 class SinkDispatch:
@@ -65,10 +65,11 @@ class SinkDispatch:
     async def submit(self, event: Event) -> None:
         """Hand one event to the sink's queue.
 
-        Returns without suspending under ``DROP_OLDEST``: a full queue loses its stalest
-        event rather than making the caller wait, which is what keeps a run off its slowest
-        sink. ``BLOCK`` is the deliberate opposite — the caller waits for room, because for
-        that sink a missing event is worse than a slow run.
+        Under ``DROP_OLDEST`` this yields at most one loop turn when the queue is full, and
+        never waits for the sink: the turn is what tells a sink that is keeping up apart from
+        one that is not, and only then is the stalest event dropped. ``BLOCK`` is the
+        deliberate opposite — the caller waits for room, because for that sink a missing
+        event is worse than a slow run.
         """
         if self.disabled:
             self._count_drop(event)
@@ -77,6 +78,15 @@ class SinkDispatch:
         if self._sink.on_full is SinkFullPolicy.BLOCK:
             await self._queue.put(event)
             return
+        try:
+            self._queue.put_nowait(event)
+            return
+        except asyncio.QueueFull:
+            # A run can fill the queue without the loop ever turning — nothing on the event
+            # path has to suspend — and then a sink is "full" because the producer is fast,
+            # not because the sink is slow. One turn is room for a sink that is keeping up
+            # and no help at all to a wedged one, which is exactly the distinction wanted.
+            await asyncio.sleep(0)
         while True:
             try:
                 self._queue.put_nowait(event)
@@ -89,12 +99,21 @@ class SinkDispatch:
         """Wait for the queued events to reach the sink, then stop the consumer.
 
         Shutdown only: waiting per event is the exact join the queue exists to avoid. A
-        later ``submit`` starts a fresh consumer, so draining twice is safe.
+        later ``submit`` starts a fresh consumer, so draining twice is safe. The wait is
+        raced against the consumer itself, because a queue whose consumer has died can never
+        empty — and this is called for every sink at once, so one dead consumer waited on
+        unconditionally would cost every other sink its tail.
         """
         consumer = self._consumer
         if consumer is None:
             return
-        await self._queue.join()
+        flushed = asyncio.create_task(self._queue.join())
+        await asyncio.wait({flushed, consumer}, return_when=asyncio.FIRST_COMPLETED)
+        flushed.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await flushed
+        if consumer.done():
+            logger.error("sink %s has no consumer left; %d queued events go undelivered", self._name, self.depth)
         self._consumer = None
         consumer.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -104,7 +123,10 @@ class SinkDispatch:
 
     def _ensure_consumer(self) -> None:
         # Started on first use, not in __init__: a Runtime is usually built before the loop runs.
-        if self._consumer is None:
+        # Restarted when it is gone: a CancelledError escaping a sink's own emit (a leaked
+        # timeout scope, a cancel arriving mid-shutdown) kills the consumer without raising
+        # anything here, and a queue nobody reads swallows every event after that.
+        if self._consumer is None or self._consumer.done():
             self._consumer = asyncio.create_task(self._consume())
 
     async def _consume(self) -> None:
@@ -129,7 +151,17 @@ class SinkDispatch:
         except Exception:
             self.failed += 1
             self._consecutive_failures += 1
-            logger.exception("sink %s failed on %s seq=%d", self._name, event.kind, event.seq)
+            if self._consecutive_failures == 1:
+                # One traceback per streak: a sink failing on every event of a long run would
+                # otherwise bury the log in a thousand copies of the same stack.
+                logger.exception("sink %s failed on %s seq=%d", self._name, event.kind, event.seq)
+            elif self.failed % LOG_INTERVAL == 0:
+                logger.warning(
+                    "sink %s has failed %d emits, %d of them in a row",
+                    self._name,
+                    self.failed,
+                    self._consecutive_failures,
+                )
             if self._consecutive_failures >= self._failure_limit:
                 self.disabled = True
                 logger.error(
@@ -142,10 +174,10 @@ class SinkDispatch:
 
     def _count_drop(self, event: Event) -> None:
         self.dropped += 1
-        if self.dropped == 1 or self.dropped % DROP_LOG_INTERVAL == 0:
+        if self.dropped == 1 or self.dropped % LOG_INTERVAL == 0:
             logger.warning(
                 "sink %s dropped %s seq=%d (%d events lost so far)", self._name, event.kind, event.seq, self.dropped
             )
 
 
-__all__ = ["DROP_LOG_INTERVAL", "FAILURE_LIMIT", "QUEUE_CAPACITY", "SinkDispatch"]
+__all__ = ["FAILURE_LIMIT", "LOG_INTERVAL", "QUEUE_CAPACITY", "SinkDispatch"]

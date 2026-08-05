@@ -37,10 +37,10 @@ class EventSinkPort(ABC):
     async def emit(self, event: Event) -> None:
         """Take one event.
 
-        Called one event at a time per sink instance, in ``seq`` order, from a buffer the
-        run never waits on — so a slow ``emit`` costs this sink's backlog and nothing else.
-        Under ``DROP_OLDEST`` a sink that cannot keep up sees gaps in that order rather than
-        a delayed run; a sink that needs every event declares ``BLOCK`` or reads the store,
+        Called one event at a time per sink instance, in submission order, from a bounded
+        buffer — so a slow ``emit`` costs this sink's own backlog and nothing else. Under
+        ``DROP_OLDEST`` a sink that cannot keep up sees gaps in that order rather than
+        delaying the run; a sink that needs every event declares ``BLOCK`` or reads the store,
         which is the complete copy.
         """
 

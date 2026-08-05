@@ -52,7 +52,7 @@ def _runtime(*, sinks: list[EventSinkPort] | None = None) -> tuple[Runtime, Memo
 
 class Recorder(EventSinkPort):
     """A sink that awaits before recording, so it can only pass if the port's promise holds:
-    every event arrives, in no particular order."""
+    every event arrives, one at a time, in the order it was submitted."""
 
     def __init__(self) -> None:
         self.events: list[Event] = []
@@ -205,6 +205,21 @@ async def test_a_slow_sink_does_not_hold_up_the_stream() -> None:
     assert [event.kind for event in events][-1] == "run.completed"
     slow.release.set()
     await runtime.drain()
+
+
+async def test_a_healthy_sink_sees_a_long_run_whole_even_though_the_run_never_waits() -> None:
+    """Nothing on the event path has to suspend — the memory store's append doesn't — so a
+    whole run can outrun the queue without the loop turning once. A sink that is keeping up
+    must not be charged for that: it is the producer that is fast, not the sink that is slow."""
+    spec = stub_spec("Firehose", *[TextDelta(message_id="m1", text=str(n)) for n in range(1000)], DONE)
+    recorder = Recorder()
+    runtime = Runtime([StubEngine()], MemoryEventStore(), {spec.name: spec}, sinks=[recorder], clock=lambda: TS)
+
+    events = [event async for event in runtime.run("Firehose", INPUT, CTX)]
+    await runtime.drain()
+
+    assert len(events) == 1002  # more than four queues' worth
+    assert recorder.events == events
 
 
 async def test_a_stalling_sink_costs_one_task_however_many_events_it_misses() -> None:
