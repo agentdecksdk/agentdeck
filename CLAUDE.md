@@ -94,7 +94,7 @@ restate them — read that file before writing any non-trivial code.
 
 ## Git / release
 
-- Remote: `github.com/sagi5060/agentdeck` (private). **`dev` is the default
+- Remote: `github.com/sagi5060/agentdeck` (public). **`dev` is the default
   branch** — PRs and day-to-day commits target `dev`. `main` is release-only.
 - Release: bump `pyproject.toml` version + move Unreleased CHANGELOG entries
   on `dev`, merge to `main`, tag `vX.Y.Z` — release.yml verifies the tag
