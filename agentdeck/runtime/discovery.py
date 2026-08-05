@@ -25,6 +25,8 @@ if TYPE_CHECKING:
 # was authored in decides. Written as strings rather than read off the adapters, because an
 # adapter import here would invert the direction the Runtime's wiring depends on; a test
 # pins each literal to its adapter's own ``engine`` so the two can't drift.
+# ponytail: one engine per kind, forever — the day a second engine plays one shape, the
+# engine belongs on the spec (authored per bundle), not in this table.
 ENGINE_FOR_KIND: Final[Mapping[InvocableKind, str]] = {
     InvocableKind.AGENT: "openai-agents",
     InvocableKind.WORKFLOW: "langgraph",
@@ -58,9 +60,11 @@ class InvocableRegistry:
         return specs
 
     def _add(self, specs: dict[str, InvocableSpec], name: str, kind: InvocableKind, native: Any) -> None:
+        # Only catches a collision across kinds: two bundles of one kind exporting the same
+        # class name were already collapsed into one entry by the v1 scan that fed this.
         if name in specs:
             raise ConfigError(
-                f"two bundles are both named {name!r} (a {specs[name].kind.value} and a {kind.value}); "
+                f"two bundles are both named {name!r} (kinds: {specs[name].kind.value} and {kind.value}); "
                 "one name is one invocable — rename one of the classes."
             )
         engine = ENGINE_FOR_KIND[kind]

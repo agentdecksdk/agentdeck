@@ -16,9 +16,10 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `workflows/<bundle>/workflow.py` — and returns the name-to-invocable mapping
   `Runtime` takes, with each bundle pointed at the engine its shape belongs to.
   Adding an agent or a workflow to a project no longer means editing wiring code.
-  Two bundles claiming one name, and a project whose bundles need an engine the
-  Runtime wasn't given, both fail at load with a message naming the offender,
-  rather than at the moment somebody runs it. Skills are not discovered as
+  An agent and a workflow claiming one name, and a project whose bundles need an
+  engine the Runtime wasn't given, both fail at load with a message naming the
+  offender, rather than at the moment somebody runs it. (Two bundles of the same
+  kind exporting one class name still collapse to a single invocable, as in v1.) Skills are not discovered as
   invocables yet — no engine runs a `SKILL.md` bundle. v1's `App` and its
   discovery are unchanged.
 - Run control (`agentdeck.core.ports.control`, `agentdeck.adapters.control`): a
