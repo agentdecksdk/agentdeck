@@ -25,10 +25,13 @@ from agentdeck.core.events import (
     Budget,
     Event,
     NodeUpdated,
+    RunCancelled,
     RunCompleted,
     RunContextSnapshot,
     RunFailed,
     RunInterrupted,
+    RunPaused,
+    RunResumed,
     RunStarted,
     TextDelta,
     ToolCallCompleted,
@@ -61,6 +64,9 @@ CTX = RunContext(
 SECRET = "hunter2"
 TOTAL = Usage(input_tokens=11, output_tokens=7, usd=0.02)
 SHA = "ab" * 32
+PAYLOAD = "A" * 3000
+DATA_URI = f"data:image/png;base64,{PAYLOAD}"
+DESCRIBED = "<inline image/png, 3000 base64 chars>"
 
 # A workflow's shape: a node runs, it calls a tool, a model is billed, the run answers.
 WORKFLOW: tuple[KnownPayload, ...] = (
@@ -293,6 +299,36 @@ async def test_image_bytes_are_described_to_the_trace_never_copied_into_it() -> 
     assert "AAAA" not in repr(collector.everything())
 
 
+async def test_an_inline_data_uri_in_tool_arguments_is_described_never_handed_over() -> None:
+    """The Langfuse SDK decodes a base64 data URI it is handed and queues the bytes for upload
+    to its media store, so a run calling an image or document tool with an inline payload would
+    ship that payload to a third party — the one thing this sink promises not to do.
+    """
+    collector = await _traced(
+        ToolCallStarted(call_id="c1", tool="describe", args={"img": DATA_URI, "seen": [{"again": DATA_URI}]}),
+        ToolCallCompleted(
+            call_id="c1", tool="describe", result_preview=f"got {DATA_URI}", result_size=9, result_sha256=SHA
+        ),
+        RunCompleted(output=[TextBlock(text="a cat")], usage=TOTAL),
+    )
+    call = collector.only().named("describe")
+
+    assert call.input == {"img": DESCRIBED, "seen": [{"again": DESCRIBED}]}
+    assert call.output == f"got {DESCRIBED}"
+    assert PAYLOAD not in repr(collector.everything())
+
+
+async def test_an_inline_data_uri_in_a_run_input_is_described_too() -> None:
+    collector = Collector()
+    runtime = _runtime(collector, RunCompleted(output=INPUT, usage=TOTAL), kind=InvocableKind.AGENT, name="Viewer")
+    async for _ in runtime.run("Viewer", [TextBlock(text=f"look at {DATA_URI}")], CTX):
+        pass
+    await runtime.drain()
+
+    assert collector.only().input == [f"look at {DESCRIBED}"]
+    assert PAYLOAD not in repr(collector.everything())
+
+
 async def test_a_failed_run_closes_its_trace_at_error_level() -> None:
     trace = (await _traced(RunFailed(error_code="tool_error", message="search is down", retryable=True))).only()
 
@@ -345,7 +381,22 @@ async def test_an_interrupted_run_ships_its_half_and_the_resume_continues_the_sa
     assert waiting.shape() == [("plan", "span")]
     assert continued.metadata["resumed"] is True
     assert continued.output == ["shipped"]
+    # The principal is only in ``run.started``; a continuation that lost it would leave half a
+    # run's cost unattributed to whoever asked for it.
+    assert (waiting.user_id, continued.user_id) == ("user:1", "user:1")
     assert [observed.finishes for observed in collector.everything()] == [1, 1, 1, 1]
+
+
+async def test_a_process_that_only_saw_the_resume_still_traces_it_under_the_run_s_own_key() -> None:
+    """The other half of a cross-process resume: no ``run.started`` means no kind and no
+    principal to stamp, but the trace key is the run, so both halves still meet in one trace.
+    """
+    sink = LangfuseSink(collector := Collector())
+    await sink.emit(_event(RunResumed(reason=None)))
+    root = collector.only()
+
+    assert (root.trace_key, root.kind, root.user_id) == ("r-1", "span", None)
+    assert root.metadata["resumed"] is True
 
 
 async def test_a_tool_call_whose_completion_never_arrives_is_closed_when_the_run_ends() -> None:
@@ -389,6 +440,34 @@ async def test_a_run_whose_terminal_event_was_dropped_cannot_hold_its_trace_open
     assert current.finishes == 0
 
 
+async def test_a_run_that_keeps_losing_tool_completions_cannot_pile_up_open_spans() -> None:
+    """The run map is bounded; a chatty run's open calls have to be too, or one long run
+    accumulates a never-finished span per lost completion, serialized arguments and all.
+    """
+    sink = LangfuseSink(collector := Collector(), max_open_calls=1)
+    await sink.emit(_started())
+    await sink.emit(_event(ToolCallStarted(call_id="c1", tool="search", args={}), seq=1))
+    await sink.emit(_event(ToolCallStarted(call_id="c2", tool="search", args={}), seq=2))
+
+    first, second = collector.only().children
+    assert (first.finishes, first.level, first.status) == (1, "WARNING", "no completion event for call c1")
+    assert second.finishes == 0
+
+
+async def test_a_second_opening_of_one_run_abandons_the_root_it_replaces() -> None:
+    """One ``run.started`` per run is the Runtime's promise; a replay of one must not leave a
+    root open forever, invisible in Langfuse and uncounted here.
+    """
+    sink = LangfuseSink(collector := Collector())
+    await sink.emit(_started())
+    await sink.emit(_started())
+
+    first, second = collector.traces
+    assert (first.finishes, first.level) == (1, "WARNING")
+    assert first.status == "superseded by a second opening of this run"
+    assert second.finishes == 0
+
+
 async def test_an_event_kind_this_version_does_not_know_is_skipped_not_crashed_on() -> None:
     sink = LangfuseSink(collector := Collector())
     unknown = parse_event(
@@ -401,13 +480,40 @@ async def test_an_event_kind_this_version_does_not_know_is_skipped_not_crashed_o
     assert collector.only().children == []
 
 
-async def test_emit_never_suspends_so_it_cannot_spend_the_dispatch_deadline() -> None:
+async def test_no_arm_of_the_mapping_ever_suspends_so_none_can_spend_the_dispatch_deadline() -> None:
     """A sink awaiting a round trip per event would burn its emit budget and be disabled after
     five; completing inside a zero-length deadline is what proves no wait happens at all.
+
+    Every arm, not one: a whole run, each ending, a continuation, an eviction and an unknown
+    kind all go through the same deadline, because a single event would only clear one arm.
     """
-    sink = LangfuseSink(Collector())
+    endings: tuple[KnownPayload, ...] = (
+        RunCompleted(output=[TextBlock(text="shipped")], usage=TOTAL),
+        RunFailed(error_code="engine_error", message="boom", retryable=False),
+        RunCancelled(reason="consumer stopped reading"),
+        RunInterrupted(interrupt_id="i1", reason="human", payload={}, thread_id="t1"),
+        RunPaused(reason="waiting on a timer"),
+    )
+    unknown = parse_event(
+        {**_started().model_dump(mode="json"), "kind": "run.teleported", "payload": {"kind": "run.teleported"}}
+    )
+
     async with asyncio.timeout(0):
-        await sink.emit(_started())
+        whole_run = LangfuseSink(Collector())
+        for seq, payload in enumerate((_started().payload, *WORKFLOW)):
+            await whole_run.emit(_event(payload, seq=seq))
+        for ending in endings:
+            sink = LangfuseSink(Collector())
+            await sink.emit(_started())
+            await sink.emit(_event(ending, seq=1))
+        resumed = LangfuseSink(Collector())
+        await resumed.emit(_event(RunResumed(reason=None)))
+        await resumed.emit(unknown)
+        evicting = LangfuseSink(Collector(), max_open_runs=1, max_open_calls=1)
+        await evicting.emit(_started("r-1"))
+        await evicting.emit(_event(ToolCallStarted(call_id="c1", tool="search", args={}), run_id="r-1", seq=1))
+        await evicting.emit(_event(ToolCallStarted(call_id="c2", tool="search", args={}), run_id="r-1", seq=2))
+        await evicting.emit(_started("r-2"))
 
 
 def test_langfuse_without_keys_yields_no_sink_to_register() -> None:

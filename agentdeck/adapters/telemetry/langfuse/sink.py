@@ -17,11 +17,13 @@ event never arrives is eventually evicted instead of leaking its spans forever.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.core.content import ImageBlock, ResourceBlock, TextBlock
 from agentdeck.core.events import (
+    TERMINAL_KINDS,
     NodeUpdated,
     RunCancelled,
     RunCompleted,
@@ -50,8 +52,19 @@ logger = logging.getLogger(__name__)
 # abandoned to make room, which reports the loss instead of accumulating it.
 MAX_OPEN_RUNS = 512
 
+# The same bound per run, for the same reason: a long, chatty run that keeps losing
+# ``tool.call.completed`` would otherwise hold one unfinished span per loss, arguments and all.
+MAX_OPEN_CALLS = 256
+
 # What an invocable's kind means to Langfuse. A skill is a tool call by another name.
 _OBSERVATION_OF: dict[str, ObservationKind] = {"agent": "agent", "workflow": "chain", "skill": "tool"}
+
+# A base64 data URI anywhere in an input or an output is decoded by the Langfuse SDK and
+# queued for upload to its media store, so one gets described here instead. Bytes leaving for
+# a third party are this adapter's decision to make, not a default to inherit.
+_DATA_URI = re.compile(
+    r"data:(?P<media_type>[\w.+-]+/[\w.+-]+)?(?:;[\w.+-]+=[\w.+-]+)*;base64,(?P<data>[A-Za-z0-9+/=]+)"
+)
 
 
 @dataclass(slots=True)
@@ -65,10 +78,21 @@ class _OpenTrace:
 class LangfuseSink(EventSinkPort):
     """Renders each run as a Langfuse trace. Registered only when Langfuse is configured."""
 
-    def __init__(self, tracer: Tracer, *, max_open_runs: int = MAX_OPEN_RUNS) -> None:
+    def __init__(
+        self,
+        tracer: Tracer,
+        *,
+        max_open_runs: int = MAX_OPEN_RUNS,
+        max_open_calls: int = MAX_OPEN_CALLS,
+    ) -> None:
         self._tracer = tracer
         self._max_open_runs = max_open_runs
+        self._max_open_calls = max_open_calls
         self._open: dict[str, _OpenTrace] = {}
+        # Outlives the trace it belongs to, because a suspended run's trace closes and its
+        # continuation still has to say whose run it is. Bounded like ``_open``, and dropped
+        # once the run reaches a terminal event.
+        self._principals: dict[str, str] = {}
 
     async def emit(self, event: Event) -> None:
         """Fold one event into its run's trace. Never suspends: no round trip is awaited."""
@@ -116,6 +140,7 @@ class LangfuseSink(EventSinkPort):
     def _start(self, event: Event, started: RunStarted) -> None:
         context = started.context
         budget = context.budget
+        self._remember(event.run_id, context.principal)
         self._track(
             event.run_id,
             self._tracer.root(
@@ -145,7 +170,9 @@ class LangfuseSink(EventSinkPort):
 
         The kind and the run's constants live in ``run.started``, which a process that only
         picked up the resume never saw — so a continuation is a plain span and says who it
-        belongs to in its metadata.
+        belongs to in its metadata. The principal is carried over when this process opened the
+        first half; a process that only ever saw the resume has none to stamp, and the trace's
+        user then comes from the half that did.
         """
         if event.run_id in self._open:
             return
@@ -156,7 +183,7 @@ class LangfuseSink(EventSinkPort):
                 kind="span",
                 trace_key=event.run_id,
                 session_id=event.session_id,
-                user_id=None,
+                user_id=self._principals.get(event.run_id),
                 metadata={"run_id": event.run_id, "tenant": event.tenant, "resumed": True},
             ),
         )
@@ -165,7 +192,10 @@ class LangfuseSink(EventSinkPort):
         open_trace = self._open.get(event.run_id)
         if open_trace is None:
             return
-        open_trace.calls[call.call_id] = open_trace.root.child(call.tool, kind="tool", input=call.args)
+        while len(open_trace.calls) >= self._max_open_calls:
+            stale_id = next(iter(open_trace.calls))
+            _no_completion(open_trace.calls.pop(stale_id), stale_id)
+        open_trace.calls[call.call_id] = open_trace.root.child(call.tool, kind="tool", input=_without_media(call.args))
 
     def _tool_completed(self, event: Event, call: ToolCallCompleted) -> None:
         open_trace = self._open.get(event.run_id)
@@ -175,7 +205,7 @@ class LangfuseSink(EventSinkPort):
         # a span of its own rather than losing the call, and accept that it has no duration.
         span = open_trace.calls.pop(call.call_id, None) or open_trace.root.child(call.tool, kind="tool")
         span.finish(
-            output=call.result_preview,
+            output=_without_media(call.result_preview),
             metadata=_without_nones(
                 {
                     "result_size": call.result_size,
@@ -211,11 +241,15 @@ class LangfuseSink(EventSinkPort):
         status: str | None = None,
         usage: Usage | None = None,
     ) -> None:
+        if event.kind in TERMINAL_KINDS:
+            # A suspended run keeps its principal: its continuation is still the same run, by
+            # the same caller, and that identity is only in ``run.started``.
+            self._principals.pop(event.run_id, None)
         open_trace = self._open.pop(event.run_id, None)
         if open_trace is None:
             return
         for call_id, span in open_trace.calls.items():
-            span.finish(level="WARNING", status=f"no completion event for call {call_id}")
+            _no_completion(span, call_id)
         if usage is not None:
             # Langfuse accounts tokens and cost on generations only, so the run's own total
             # gets a generation of its own. Reported per-call usage is already counted by the
@@ -227,12 +261,29 @@ class LangfuseSink(EventSinkPort):
     def _track(self, run_id: str, root: Observation) -> None:
         while len(self._open) >= self._max_open_runs:
             stale_id = next(iter(self._open))
-            stale = self._open.pop(stale_id)
             logger.warning("langfuse trace for run %s abandoned: %d runs already open", stale_id, self._max_open_runs)
-            for span in stale.calls.values():
-                span.finish(level="WARNING", status="run abandoned")
-            stale.root.finish(level="WARNING", status="no terminal event seen")
+            self._abandon(self._open.pop(stale_id), "no terminal event seen")
+            self._principals.pop(stale_id, None)
+        if (superseded := self._open.pop(run_id, None)) is not None:
+            # One opening per run is the Runtime's promise; a second one would otherwise leave
+            # the first root open forever, invisible in Langfuse and unaccounted for here.
+            logger.warning("langfuse trace for run %s reopened; the first one is abandoned", run_id)
+            self._abandon(superseded, "superseded by a second opening of this run")
         self._open[run_id] = _OpenTrace(root)
+
+    def _remember(self, run_id: str, principal: str) -> None:
+        if len(self._principals) >= self._max_open_runs:
+            self._principals.pop(next(iter(self._principals)))
+        self._principals[run_id] = principal
+
+    def _abandon(self, open_trace: _OpenTrace, status: str) -> None:
+        for call_id, span in open_trace.calls.items():
+            _no_completion(span, call_id)
+        open_trace.root.finish(level="WARNING", status=status)
+
+
+def _no_completion(span: Observation, call_id: str) -> None:
+    span.finish(level="WARNING", status=f"no completion event for call {call_id}")
 
 
 def _render(blocks: Input) -> list[str]:
@@ -241,7 +292,7 @@ def _render(blocks: Input) -> list[str]:
     for block in blocks:
         match block:
             case TextBlock():
-                out.append(block.text)
+                out.append(_without_media(block.text))
             case ImageBlock():
                 out.append(f"<image {block.media_type}, {len(block.data_b64)} base64 chars>")
             case ResourceBlock():
@@ -249,8 +300,34 @@ def _render(blocks: Input) -> list[str]:
     return out
 
 
+def _without_media(value: Any) -> Any:
+    """``value`` with every inline base64 payload replaced by a description of it.
+
+    Tool arguments and results are engine-shaped data this adapter passes through, and the
+    Langfuse SDK decodes a data URI it finds in one and queues the bytes for upload to its
+    media store. A run that hands a tool an inline image would ship that image; describing it
+    keeps the same promise the run's own content blocks get.
+    """
+    match value:
+        case str():
+            return _DATA_URI.sub(_describe_media, value)
+        case dict():
+            return {key: _without_media(item) for key, item in value.items()}
+        case list():
+            return [_without_media(item) for item in value]
+        case tuple():
+            return tuple(_without_media(item) for item in value)
+        case _:
+            return value
+
+
+def _describe_media(match: re.Match[str]) -> str:
+    media_type = match.group("media_type") or "application/octet-stream"
+    return f"<inline {media_type}, {len(match.group('data'))} base64 chars>"
+
+
 def _without_nones(metadata: Mapping[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in metadata.items() if value is not None}
 
 
-__all__ = ["MAX_OPEN_RUNS", "LangfuseSink"]
+__all__ = ["MAX_OPEN_CALLS", "MAX_OPEN_RUNS", "LangfuseSink"]

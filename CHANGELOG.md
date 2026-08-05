@@ -14,7 +14,9 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   event sink — or `None` when Langfuse has no keys — to register where you build
   the v2 `Runtime`: `Runtime(..., sinks=[s for s in (langfuse_sink(),) if s])`.
   Each run becomes one Langfuse trace: the run itself is the trace, tool calls
-  are spans carrying their arguments and their result preview, hash and size,
+  are spans carrying their arguments and their result preview, hash and size
+  (an inline `data:...;base64,` payload in either is described, never sent —
+  Langfuse would otherwise upload the bytes to its media store),
   workflow node updates are points on the timeline named for the node and the
   state keys it touched, and reported token usage becomes Langfuse generations
   so cost lands where the UI accounts it. It reads nothing but the event

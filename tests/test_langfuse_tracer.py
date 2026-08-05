@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
@@ -49,10 +50,16 @@ WORKFLOW = (
 
 
 class SpyExporter(SpanExporter):
-    """Collects every ended span in-process instead of shipping it anywhere."""
+    """Collects every ended span in-process instead of shipping it anywhere.
+
+    Also the test's handle on the client and provider the fixture built, so a test can reach
+    the SDK the sink is talking to and open a span beside it.
+    """
 
     def __init__(self) -> None:
         self.spans: list = []
+        self.client: Any = None
+        self.provider: Any = None
 
     def export(self, spans):  # noqa: ANN001, ANN201 — OTel's own signature
         self.spans.extend(spans)
@@ -63,6 +70,10 @@ class SpyExporter(SpanExporter):
 
     def by_name(self, name: str):  # noqa: ANN201 — a ReadableSpan, which OTel exposes only as an internal type
         return next(span for span in self.spans if span.name == name)
+
+    def media_queued(self) -> int:
+        """How many uploads the SDK has queued for its media store — zero, always, here."""
+        return self.client._resources._media_upload_queue.qsize()
 
 
 @pytest.fixture
@@ -87,8 +98,8 @@ def spy(monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
         host="http://localhost:1",
         tracer_provider=provider,
     )
-    exporter.client = client  # ty: ignore[unresolved-attribute] — the test's own handle on the client
-    exporter.provider = provider  # ty: ignore[unresolved-attribute] — for opening an unrelated ambient span
+    exporter.client = client
+    exporter.provider = provider
     yield exporter
     LangfuseResourceManager.reset()
 
@@ -146,6 +157,41 @@ async def test_the_trace_belongs_to_the_run_not_to_whatever_span_was_current(spy
     root = spy.by_name("Pipeline")
     assert root.context.trace_id != ambient.context.trace_id
     assert root.context.trace_id == int(spy.client.create_trace_id(seed="r-1"), 16)
+
+
+async def test_an_inline_data_uri_in_tool_args_never_reaches_the_langfuse_media_store(spy) -> None:  # noqa: ANN001
+    """The egress the sink disclaims, checked at the SDK itself: handed a base64 data URI, the
+    Langfuse SDK decodes it and queues an upload to its media API. The sink must never hand it one.
+    """
+    payload = "A" * 3000
+    data_uri = f"data:image/png;base64,{payload}"
+    spec = stub_spec(
+        "Describer",
+        ToolCallStarted(call_id="c1", tool="describe", args={"img": data_uri}),
+        ToolCallCompleted(call_id="c1", tool="describe", result_preview="a cat", result_size=5, result_sha256=SHA),
+        RunCompleted(output=[TextBlock(text="a cat")], usage=TOTAL),
+        kind=InvocableKind.WORKFLOW,
+    )
+    runtime = Runtime(
+        [StubEngine()],
+        MemoryEventStore(),
+        {spec.name: spec},
+        sinks=[LangfuseSink(LangfuseTracer(spy.client))],
+        clock=lambda: TS,
+    )
+    async for _ in runtime.run("Describer", INPUT, CTX):
+        pass
+    await runtime.drain()
+
+    assert spy.media_queued() == 0
+    assert payload not in str(_attr(spy.by_name("describe"), "langfuse.observation.input"))
+
+    # The same URI handed over unredacted does queue an upload — which is what makes the two
+    # assertions above mean something rather than merely pass.
+    unredacted = LangfuseTracer(spy.client).root("Probe", kind="span", trace_key="r-2", session_id=None, user_id=None)
+    unredacted.child("describe", kind="tool", input={"img": data_uri}).finish()
+    unredacted.finish()
+    assert spy.media_queued() > 0
 
 
 def test_configured_keys_yield_a_sink_over_the_real_sdk(spy) -> None:  # noqa: ANN001
