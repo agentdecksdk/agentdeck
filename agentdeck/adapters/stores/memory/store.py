@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentdeck.core.ports import SessionStorePort
+from agentdeck.core.ports import EventStorePort
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from agentdeck.core.events import Event
 
 
-class MemoryEventStore(SessionStorePort):
+class MemoryEventStore(EventStorePort):
     """Append-only lists, one per (tenant, log key). Process exit is data loss, by design.
 
     Keyed by tenant as well as log key so two tenants that pick the same session id cannot

@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     import pytest
 
     from agentdeck.core.events import Event
-    from agentdeck.core.ports import SessionStorePort
+    from agentdeck.core.ports import EventStorePort
 
 CHUNK_COUNT = 30
 MESSAGE_ID = "msg_slowpoke"
@@ -120,14 +120,14 @@ def _spec() -> InvocableSpec:
     return InvocableSpec(name="SlowPoke", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
 
 
-def _build(control: ControlPort) -> tuple[Runtime, SessionStorePort]:
+def _build(control: ControlPort) -> tuple[Runtime, EventStorePort]:
     store = MemoryEventStore()
     runtime = Runtime([OpenAIAgentsEngine()], store, {"SlowPoke": _spec()}, control=control)
     return runtime, store
 
 
 async def _gap_recovering_consumer(
-    source: AsyncIterator[Event], store: SessionStorePort, log_key: str, ctx: RunContext
+    source: AsyncIterator[Event], store: EventStorePort, log_key: str, ctx: RunContext
 ) -> list[Event]:
     """A minimal consumer that trusts the seq invariant: a gap in the live stream is
     detected the moment it arrives and closed by refetching the missing range from the

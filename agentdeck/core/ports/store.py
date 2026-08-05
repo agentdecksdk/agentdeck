@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from agentdeck.core.events import Event
 
 
-class SessionStorePort(ABC):
+class EventStorePort(ABC):
     """Append-only. A log holds every run of one session, so it is ordered by *append*, not
     by ``seq`` — ``seq`` restarts at 0 for each run and only orders events within it.
 
@@ -52,4 +52,4 @@ class SessionStorePort(ABC):
         """
 
 
-__all__ = ["SessionStorePort"]
+__all__ = ["EventStorePort"]

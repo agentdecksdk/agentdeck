@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from agentdeck.core.context import RunContext
     from agentdeck.core.events import KnownPayload
     from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, SessionStorePort
+    from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ class Runtime:
     def __init__(
         self,
         engines: Sequence[EnginePort],
-        store: SessionStorePort,
+        store: EventStorePort,
         invocables: Mapping[str, InvocableSpec],
         sinks: Sequence[EventSinkPort] = (),
         clock: Callable[[], datetime] = _now,

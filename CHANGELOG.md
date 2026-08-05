@@ -19,6 +19,12 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   <run_id> cancel --control-db <path>` CLI command to send that signal from a
   second terminal.
 
+### Changed
+- Internal: the v2 event-log port (not yet part of any stable public API) is
+  now named `EventStorePort` instead of `SessionStorePort`, to avoid confusion
+  with the OpenAI Agents engine's own session-scoped storage. No behavior
+  change and nothing outside the package imports this port.
+
 ## [2.0.0b2] - 2026-08-05
 
 Second beta of the v2 line: both real engines now run behind the
