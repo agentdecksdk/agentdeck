@@ -14,8 +14,11 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.13"
+      # durability pulls in the sqlite checkpointer that the langgraph half of the
+      # contract suite and UC2's kill/restart/approve tests need — omitting it here
+      # let ~16 tests skip silently in the gate of record for months (#33).
       - name: Install
-        run: uv pip install -e ".[dev,serve]"
+        run: uv pip install -e ".[dev,serve,durability]"
       - name: Lint
         run: .venv/bin/ruff check agentdeck/ tests/
       - name: Typecheck
@@ -23,7 +26,22 @@ jobs:
       - name: Import contracts
         run: .venv/bin/lint-imports
       - name: Test
-        run: .venv/bin/pytest tests/ -q
+        run: .venv/bin/pytest tests/ -q --junit-xml=/tmp/pytest-results.xml
+      # Guard against a whole subsystem silently dropping out of the gate again (#33): a
+      # full run with [dev,serve,durability] skips ~43 tests today (parametrized
+      # "only applies to X" contract cases, plus the unrelated [observability] extra).
+      # If durability's importorskip guards ever start firing again, the count jumps to
+      # ~50 — the ceiling below has just enough headroom for incidental new skips to not
+      # false-positive, while still catching that jump. Bump it only with a stated reason.
+      - name: Guard against silently-skipped durability tests
+        run: |
+          ceiling=46
+          skipped=$(grep -oP '(?<=skipped=")[0-9]+' /tmp/pytest-results.xml | head -1)
+          echo "skipped=$skipped (ceiling=$ceiling)"
+          if [ -z "$skipped" ] || [ "$skipped" -gt "$ceiling" ]; then
+            echo "::error::skip count ($skipped) exceeds ceiling ($ceiling) — a subsystem (e.g. durability) may have silently dropped out of the gate. See issue #33."
+            exit 1
+          fi
       # `Test` already replayed the goldens once; this second, separate process is what
       # proves the snapshots don't depend on process state (in-process stability has its
       # own test).
