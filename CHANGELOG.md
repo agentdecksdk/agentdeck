@@ -19,11 +19,24 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   <run_id> cancel --control-db <path>` CLI command to send that signal from a
   second terminal.
 
+### Added
+- `EventStorePort` (not yet part of any stable public API) gains focused
+  queries alongside its whole-log reads: `last_seq` (a run's highest
+  recorded `seq`), `run_status` (one run's status, derived from its own
+  events), `list_runs` (every run for a tenant, optionally filtered by
+  status), and pagination (`after`/`limit`) on `read`. Both the memory and
+  SQLite stores implement all four; the SQLite ones use the existing
+  run/log indexes.
+
 ### Changed
 - Internal: the v2 event-log port (not yet part of any stable public API) is
   now named `EventStorePort` instead of `SessionStorePort`, to avoid confusion
   with the OpenAI Agents engine's own session-scoped storage. No behavior
   change and nothing outside the package imports this port.
+- Internal: the Runtime's resume path and the `/pending` listing now use
+  `EventStorePort`'s focused queries instead of folding a whole log to answer
+  one run's status or find waiting runs — same results, no longer O(session
+  history) per resume or per listing.
 
 ## [2.0.0b2] - 2026-08-05
 

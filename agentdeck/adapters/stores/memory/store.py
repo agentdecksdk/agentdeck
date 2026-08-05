@@ -4,13 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentdeck.core.ports import EventStorePort
+from agentdeck.core.ports import EventStorePort, RunSummary
+from agentdeck.core.status import status_of
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from agentdeck.core.context import RunContext
     from agentdeck.core.events import Event
+    from agentdeck.core.status import RunStatus
 
 
 class MemoryEventStore(EventStorePort):
@@ -32,15 +34,33 @@ class MemoryEventStore(EventStorePort):
             raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
         self._logs.setdefault((ctx.tenant, log_key), []).extend(events)
 
-    async def read(self, log_key: str, ctx: RunContext) -> list[Event]:
-        return list(self._logs.get((ctx.tenant, log_key), ()))
+    async def read(self, log_key: str, ctx: RunContext, after: int = 0, limit: int | None = None) -> list[Event]:
+        log = self._logs.get((ctx.tenant, log_key), ())
+        page = log[after:]
+        return list(page if limit is None else page[:limit])
 
     async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
         log = self._logs.get((ctx.tenant, log_key), ())
         return [event for event in log if event.run_id == run_id and event.seq >= from_seq]
 
+    async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
+        log = self._logs.get((ctx.tenant, log_key), ())
+        return max((event.seq for event in log if event.run_id == run_id), default=-1)
+
     async def list_log_keys(self, ctx: RunContext) -> list[str]:
         return [log_key for tenant, log_key in self._logs if tenant == ctx.tenant]
+
+    async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
+        by_run: dict[tuple[str, str], list[Event]] = {}
+        for (tenant, log_key), log in self._logs.items():
+            if tenant != ctx.tenant:
+                continue
+            for event in log:
+                by_run.setdefault((log_key, event.run_id), []).append(event)
+        summaries = (
+            RunSummary(log_key=lk, run_id=rid, status=status_of(events)) for (lk, rid), events in by_run.items()
+        )
+        return [summary for summary in summaries if status is None or summary.status is status]
 
 
 __all__ = ["MemoryEventStore"]

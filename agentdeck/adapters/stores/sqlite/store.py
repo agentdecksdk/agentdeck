@@ -13,7 +13,7 @@ import sqlite3
 from typing import TYPE_CHECKING
 
 from agentdeck.core.events import parse_event
-from agentdeck.core.ports import EventStorePort
+from agentdeck.core.ports import EventStorePort, RunSummary
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from agentdeck.core.context import RunContext
     from agentdeck.core.events import Event
+    from agentdeck.core.status import RunStatus
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -59,9 +60,9 @@ class SqliteEventStore(EventStorePort):
         async with self._lock:
             await asyncio.to_thread(self._insert, rows)
 
-    async def read(self, log_key: str, ctx: RunContext) -> list[Event]:
+    async def read(self, log_key: str, ctx: RunContext, after: int = 0, limit: int | None = None) -> list[Event]:
         async with self._lock:
-            rows = await asyncio.to_thread(self._select_log, ctx.tenant, log_key)
+            rows = await asyncio.to_thread(self._select_log, ctx.tenant, log_key, after, limit)
         return [parse_event(json.loads(row)) for row in rows]
 
     async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
@@ -69,17 +70,33 @@ class SqliteEventStore(EventStorePort):
             rows = await asyncio.to_thread(self._select_run, ctx.tenant, log_key, run_id, from_seq)
         return [parse_event(json.loads(row)) for row in rows]
 
+    async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
+        async with self._lock:
+            return await asyncio.to_thread(self._select_last_seq, ctx.tenant, log_key, run_id)
+
     async def list_log_keys(self, ctx: RunContext) -> list[str]:
         async with self._lock:
             return await asyncio.to_thread(self._select_log_keys, ctx.tenant)
+
+    async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
+        async with self._lock:
+            pairs = await asyncio.to_thread(self._select_run_ids, ctx.tenant)
+        summaries: list[RunSummary] = []
+        for log_key, run_id in pairs:
+            run_status = await self.run_status(log_key, run_id, ctx)
+            if status is None or run_status is status:
+                summaries.append(RunSummary(log_key=log_key, run_id=run_id, status=run_status))
+        return summaries
 
     def _insert(self, rows: list[tuple[str, str, str, int, str]]) -> None:
         self._conn.executemany("INSERT INTO events (tenant, log_key, run_id, seq, data) VALUES (?, ?, ?, ?, ?)", rows)
         self._conn.commit()
 
-    def _select_log(self, tenant: str, log_key: str) -> list[str]:
+    def _select_log(self, tenant: str, log_key: str, after: int, limit: int | None) -> list[str]:
+        # SQLite treats a negative LIMIT as "no limit" — the one case a plain int can't say.
         cursor = self._conn.execute(
-            "SELECT data FROM events WHERE tenant = ? AND log_key = ? ORDER BY id ASC", (tenant, log_key)
+            "SELECT data FROM events WHERE tenant = ? AND log_key = ? ORDER BY id ASC LIMIT ? OFFSET ?",
+            (tenant, log_key, -1 if limit is None else limit, after),
         )
         return [row[0] for row in cursor.fetchall()]
 
@@ -90,9 +107,20 @@ class SqliteEventStore(EventStorePort):
         )
         return [row[0] for row in cursor.fetchall()]
 
+    def _select_last_seq(self, tenant: str, log_key: str, run_id: str) -> int:
+        cursor = self._conn.execute(
+            "SELECT MAX(seq) FROM events WHERE tenant = ? AND log_key = ? AND run_id = ?", (tenant, log_key, run_id)
+        )
+        row = cursor.fetchone()
+        return row[0] if row is not None and row[0] is not None else -1
+
     def _select_log_keys(self, tenant: str) -> list[str]:
         cursor = self._conn.execute("SELECT DISTINCT log_key FROM events WHERE tenant = ?", (tenant,))
         return [row[0] for row in cursor.fetchall()]
+
+    def _select_run_ids(self, tenant: str) -> list[tuple[str, str]]:
+        cursor = self._conn.execute("SELECT DISTINCT log_key, run_id FROM events WHERE tenant = ?", (tenant,))
+        return [(row[0], row[1]) for row in cursor.fetchall()]
 
     def close(self) -> None:
         self._conn.close()

@@ -251,6 +251,14 @@ the engines that need them, in Stories 2–3. `start` returns an `AsyncGenerator
 payload, or when its own consumer walks away — so an engine's cleanup runs either way. `ControlPort` and the capability ports are
 unbuilt: they arrive with Story 3 and Story 4 respectively.)*
 
+*(Amended 2026-08-05, as built: `EventStorePort` also grew `last_seq(log_key, run_id,
+ctx)`, a `run_status(log_key, run_id, ctx)` projection (default: fold the bounded,
+indexed result of `read_run` through `core/status.py`'s `status_of` — a projection, never
+a second store, per this doc's own two-stores decision), `list_runs(ctx, status=None)`
+scoped to one tenant, and `after`/`limit` pagination on `read`. The Runtime's resume path
+and `Runtime.pending` use these instead of folding a whole log to answer one run's status
+or find every run waiting on a human.)*
+
 ```python
 # core/ports/engine.py — the lifecycle/event boundary
 class EnginePort(ABC):
