@@ -30,6 +30,7 @@ from agentdeck.core.events import (
 from agentdeck.core.ports import Gate
 from agentdeck.core.status import RunStatus
 from agentdeck.errors import NotFoundError
+from agentdeck.runtime.dispatch import SinkDispatch
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Iterator, Mapping, Sequence
@@ -65,7 +66,8 @@ def _now() -> datetime:
 class Runtime:
     """Runs invocables and emits one canonical event stream, whatever engine did the work.
 
-    Sinks are optional and unordered; ``clock`` is injected so tests need no wall clock.
+    Sinks are optional and buffered — each gets its own bounded queue, so the run is never
+    pinned to one; ``clock`` is injected so tests need no wall clock.
     """
 
     def __init__(
@@ -80,12 +82,9 @@ class Runtime:
         self._engines = {engine.engine: engine for engine in engines}
         self._store = store
         self._invocables = invocables
-        self._sinks = tuple(sinks)
+        self._sinks = tuple(SinkDispatch(sink) for sink in sinks)
         self._clock = clock
         self._control = control
-        # holds a reference to in-flight sink tasks so the loop can't collect them mid-emit
-        # ponytail: unbounded set — a bounded queue per sink if one ever piles up
-        self._sink_tasks: set[asyncio.Task[None]] = set()
 
     async def run(self, name: str, input: Input, ctx: RunContext) -> AsyncGenerator[Event, None]:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
@@ -211,7 +210,7 @@ class Runtime:
         event = self._stamp(RunResumed(reason=None), spec, ctx, next(seq))
         if not await self._store.claim_resume(ctx.log_key, ctx.run_id, event, ctx):
             return None
-        self._fan_out(event)
+        await self._fan_out(event)
         return event, seq
 
     async def pending(self, ctx: RunContext) -> list[PendingRun]:
@@ -244,13 +243,13 @@ class Runtime:
         return out
 
     async def drain(self) -> None:
-        """Wait for the sink emits still in flight.
+        """Flush what the sinks have not taken yet, then stop their consumers.
 
-        The composition root calls this at shutdown: without it, pending emits are destroyed
+        The composition root calls this at shutdown: without it, queued emits are destroyed
         with the event loop and the last few audit or cost events are silently lost. Never
         called per event — that would be exactly the join the fan-out exists to avoid.
         """
-        await asyncio.gather(*self._sink_tasks, return_exceptions=True)
+        await asyncio.gather(*(dispatch.drain() for dispatch in self._sinks), return_exceptions=True)
 
     def _with_gate(self, ctx: RunContext) -> RunContext:
         """Bind ``ctx.gate`` to this Runtime's ``ControlPort``, if it has one.
@@ -275,7 +274,7 @@ class Runtime:
         """Stamp, persist, fan out — in that order. Returns the event to yield."""
         event = self._stamp(payload, spec, ctx, seq)
         await self._store.append(ctx.log_key, [event], ctx)
-        self._fan_out(event)
+        await self._fan_out(event)
         return event
 
     def _stamp(self, payload: KnownPayload, spec: InvocableSpec, ctx: RunContext, seq: int) -> Event:
@@ -292,18 +291,15 @@ class Runtime:
             payload=payload,
         )
 
-    def _fan_out(self, event: Event) -> None:
-        """Sinks get a copy of the stream and no say in it: never awaited, never fatal."""
-        for sink in self._sinks:
-            task = asyncio.create_task(self._emit(sink, event))
-            self._sink_tasks.add(task)
-            task.add_done_callback(self._sink_tasks.discard)
+    async def _fan_out(self, event: Event) -> None:
+        """Sinks get a copy of the stream and no say in it: never called inline, never fatal.
 
-    async def _emit(self, sink: EventSinkPort, event: Event) -> None:
-        try:
-            await sink.emit(event)
-        except Exception:
-            logger.exception("sink %s dropped %s seq=%d", type(sink).__name__, event.kind, event.seq)
+        Each sink gets a queue put rather than an ``emit``, and a full queue costs one loop
+        turn before it starts dropping — so the run is never waiting on a sink, only ever on
+        the loop it already shares with one.
+        """
+        for dispatch in self._sinks:
+            await dispatch.submit(event)
 
 
 def _engine_failed(message: str) -> RunFailed:

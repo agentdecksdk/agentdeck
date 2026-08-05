@@ -44,6 +44,7 @@ name = the Runtime imports core only, never an adapter or a surface
 type = forbidden
 source_modules =
     agentdeck.runtime.service
+    agentdeck.runtime.dispatch
 forbidden_modules =
     agents
     langgraph
@@ -107,6 +108,7 @@ type = forbidden
 source_modules =
     agentdeck.core
     agentdeck.runtime.service
+    agentdeck.runtime.dispatch
     agentdeck.adapters.stores.memory
     agentdeck.adapters.stores.sqlite
     agentdeck.adapters.engines.stub

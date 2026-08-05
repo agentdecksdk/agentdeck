@@ -20,10 +20,11 @@ class EventSinkPort(ABC):
     async def emit(self, event: Event) -> None:
         """Take one event.
 
-        Called concurrently and in no guaranteed order: the Runtime dispatches each event
-        without waiting for the last, so a sink that awaits anything can be re-entered on
-        the same instance and can see ``seq`` 3 before ``seq`` 2. A sink that needs order
-        sorts by ``seq``, or reads the store instead — the log is the ordered copy.
+        Called one event at a time per sink instance, in submission order, from a bounded
+        buffer — so a slow ``emit`` costs this sink's own backlog and nothing else. A sink
+        that cannot keep up sees gaps in that order rather than delaying the run: that is not
+        negotiable, and a sink that needs every event reads the store, which is the ordered,
+        complete copy.
         """
 
 

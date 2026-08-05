@@ -45,6 +45,20 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   indexed statement returning each run's last lifecycle event — one event parsed
   per run instead of every event of every log (4.2 ms instead of 32 ms for the
   same 201 runs).
+- Event sinks are now fed from a bounded queue with one worker each, instead of a
+  fresh task per event per sink. A wedged sink (telemetry endpoint down, audit
+  store backpressured) now costs a fixed backlog and one task rather than growing
+  memory for as long as the process runs. A run still never waits on a sink: when a
+  sink's queue is full its stalest event is dropped rather than the run delayed — but
+  only once the sink has been given a turn to catch up, so a sink that is keeping up
+  loses nothing however fast the run produces events. Dropped events and failed
+  emits are counted per sink and reported in the logs — never discarded silently, and
+  never one stack trace per event — and a sink that raises five times in a row is
+  disabled instead of being retried for the rest of the process's life. Two side
+  effects worth knowing: each sink's `emit` is now called one event at a time in
+  submission order and is never re-entered, and `Runtime.drain()` flushes the queues
+  and stops the workers. Sinks remain a lossy tap by design; a consumer that must
+  see every event reads the event store, which is the complete copy.
 
 ### Removed
 - `EventStorePort.list_log_keys` (not yet part of any stable public API), along
