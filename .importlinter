@@ -60,7 +60,7 @@ forbidden_modules =
 # forever: a store or engine reaching back into the Runtime or a surface would invert the
 # dependency direction. This is also what keeps `agents` scoped to the openai-agents
 # adapter (#52): every other store/engine here is explicitly forbidden from importing it.
-# Control (#54) joins this list for the same reason: both its stores are sqlite3/dict only.
+# The control adapters join this list for the same reason: both are sqlite3/dict only.
 [importlinter:contract:pure-adapters-stay-pure]
 name = the memory store, sqlite store, stub engine and control adapters import core only
 type = forbidden

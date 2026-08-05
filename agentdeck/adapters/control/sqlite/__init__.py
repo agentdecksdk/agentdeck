@@ -15,6 +15,8 @@ from agentdeck.core.ports.control import ControlPort, Signal
 if TYPE_CHECKING:
     from pathlib import Path
 
+# ponytail: the signals table grows one row per signaled run, never pruned — add a
+# prune-on-terminal or TTL sweep when signal volume matters.
 _SCHEMA = "CREATE TABLE IF NOT EXISTS signals (run_id TEXT PRIMARY KEY, signal TEXT NOT NULL);"
 
 

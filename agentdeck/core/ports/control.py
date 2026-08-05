@@ -22,10 +22,10 @@ class ControlPort(ABC):
 
     @abstractmethod
     async def signal(self, run_id: str, sig: Signal) -> None:
-        """Record ``sig`` for ``run_id``. Idempotent: signaling twice, or signaling a run
-        whose engine has already stopped polling, changes nothing further — the status
-        machine (``core/status.py``) is what makes a signal on a terminal run a no-op, not
-        this method re-deriving that rule."""
+        """Record ``sig`` for ``run_id``. Idempotent: signaling twice changes nothing.
+        Signaling a run that already ended is harmless by construction, not by an active
+        check — nothing polls the gate once the run loop has exited, so the signal simply
+        sits unread."""
 
     @abstractmethod
     async def poll(self, run_id: str) -> Signal | None:
