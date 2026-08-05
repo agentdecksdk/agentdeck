@@ -7,6 +7,17 @@ they move under a version heading when a release is tagged.
 
 ## [Unreleased]
 
+### Added
+- Docs site Concepts section: four pages — agents, capabilities, skills, workflows —
+  written against the shipped v1 surface, each starting from the user's code.
+- Docs site brand: the AgentDeck palette and type scale (Regal Navy, Beige, Magenta Bloom,
+  Ink; Poppins headings over Inter body, both self-hosted so the export makes no external
+  font request). The nav test now gates every section's `_meta.ts`, not just the top level.
+
+### Removed
+- Docs Guides and Examples pages, which listed fifteen pages that did not exist. Each
+  section returns when its first real page does.
+
 ## [2.0.0b1] - 2026-08-05
 
 First beta of the v2 line: the engine-agnostic core and the Runtime land alongside the

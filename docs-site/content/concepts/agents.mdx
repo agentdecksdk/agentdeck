@@ -1,0 +1,115 @@
+---
+title: Agents
+description: Declarative agent definitions — class attributes in, SDK Agent out.
+---
+
+# Agents
+
+An agent is a class. Set attributes; `build()` forwards the populated ones to the Agents
+SDK constructor and drops the empty ones so the SDK keeps its own defaults.
+
+```python
+# .agentdeck/agents/support/agent.py
+from agentdeck.agents import BaseAgent
+
+
+class Support(BaseAgent):
+    instructions = "Answer customer questions. One short paragraph, no bullet lists."
+    model = "gpt-4.1-mini"
+    model_settings = {"temperature": 0.2}
+```
+
+`name` defaults to the class name, which is also the registry key — `app.run_agent("Support", …)`.
+
+## What you did not write
+
+No registration, no runner wiring, no provider setup, no session plumbing. The same class
+is reachable one-shot, as a conversation, streamed, over HTTP, and as another agent's tool:
+
+```python
+import asyncio
+
+from agentdeck import App
+
+
+async def main() -> None:
+    async with App.open() as app:
+        await app.run_agent("Support", "where is my order?")              # one-shot
+        await app.chat("Support", "wa-123", "where is my order?")          # remembers
+        async for chunk in app.chat_stream("Support", "wa-123", "and now?"):  # streams
+            print(chunk)
+
+
+asyncio.run(main())
+```
+
+## The configuration surface
+
+| Attribute | Purpose |
+|---|---|
+| `instructions` | the system prompt: role, priorities, tool rules, output expectations |
+| `model` | per-agent override; `None` uses the `OPENAI_MODEL` setting |
+| `model_settings` | forwarded to `agents.ModelSettings(**model_settings)` — temperature, token budget, parallel tool calls |
+| `tools` | already-built SDK tools (sandbox tools go in [`capabilities`](/concepts/capabilities) instead) |
+| `handoffs` | peers this agent can transfer the conversation to |
+| `handoff_description` | how this agent describes itself to a peer deciding whether to hand off |
+| `output_type` | a Pydantic model for structured final output; `None` for free text |
+| `mcp_server_names` | names from the `mcp:` settings group — the agent says *which*, config owns transport |
+| `subagents` | registry names spawnable at runtime via the `spawn_subagent` tool |
+| `hooks` | an `AgentHooks` instance for telemetry and bookkeeping |
+
+## Handoffs by name
+
+`handoffs` accepts a class or a **string registry name**, resolved lazily at `build()`.
+Two agents can hand off to each other without importing each other, and mutual handoffs
+resolve without recursing forever:
+
+```python
+# .agentdeck/agents/triage/agent.py
+from agentdeck.agents import BaseAgent
+
+
+class Triage(BaseAgent):
+    instructions = "Route billing questions to Billing, everything else to Support."
+    handoffs = ["Billing", "Support"]
+```
+
+An unknown name raises `NotFoundError` naming the agents that do exist.
+
+## Structured output
+
+Pass a Pydantic model for a strict JSON schema where every field is required. If a smaller
+chat-completions model stalls trying to fill every field, wrap it to keep defaults optional:
+
+```python
+from agents import AgentOutputSchema
+from pydantic import BaseModel
+
+from agentdeck.agents import BaseAgent
+
+
+class Verdict(BaseModel):
+    approved: bool
+    reason: str = ""
+
+
+class Reviewer(BaseAgent):
+    instructions = "Approve or reject the request."
+    output_type = AgentOutputSchema(Verdict, strict_json_schema=False)
+```
+
+## MCP servers degrade instead of crashing
+
+Named servers whose config is missing, or whose startup connect failed, are dropped at
+build time. An unreachable MCP host costs the agent that toolset; it does not take down
+the process.
+
+## Delegation
+
+`subagents` adds a `spawn_subagent` tool restricted to the names you list. The subagent
+runs as an isolated one-shot — no session, no shared history, the task text is its whole
+context — and returns its final output as a string. Spawning outside the allowlist, or
+from inside an already-spawned subagent (depth-limited), returns an `error: …` string
+rather than raising, so the parent run continues.
+
+Next: give an agent real powers with [capabilities](/concepts/capabilities).

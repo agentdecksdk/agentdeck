@@ -63,6 +63,8 @@ def test_internal_links_resolve_to_a_page(page: Path) -> None:
         )
 
 
-def test_nav_keys_and_top_level_pages_match() -> None:
-    keys = set(META_KEY.findall((CONTENT / "_meta.ts").read_text()))
-    assert keys == {p.stem for p in CONTENT.glob("*.mdx")}, "_meta.ts and content/*.mdx disagree"
+@pytest.mark.parametrize("meta", sorted(CONTENT.rglob("_meta.ts")), ids=lambda p: str(p.parent.name))
+def test_nav_keys_match_pages_in_every_section(meta: Path) -> None:
+    section = meta.parent
+    entries = {p.stem for p in section.glob("*.mdx")} | {d.name for d in section.iterdir() if d.is_dir()}
+    assert set(META_KEY.findall(meta.read_text())) == entries, f"{meta.parent.name}/_meta.ts and its pages disagree"
