@@ -29,12 +29,9 @@ servers are never leaked::
 
 from __future__ import annotations
 
-import sys
-import types
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from importlib.machinery import ModuleSpec
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -43,7 +40,7 @@ from agents import SQLiteSession
 from agentdeck.agents.mcp.lifecycle import MCPLifecycle
 from agentdeck.agents.registry import AgentRegistry
 from agentdeck.agents.runners import HeadlessRunner, StreamDone
-from agentdeck.runtime.registry import _package_dir
+from agentdeck.runtime.registry import PROJECT_DIR, _package_dir, mount_project_dir
 from agentdeck.runtime.sessions import SessionFactory
 from agentdeck.runtime.settings import Settings, get_settings
 from agentdeck.skills.bundle import SkillRegistry
@@ -57,33 +54,11 @@ if TYPE_CHECKING:
 
     from agentdeck.workflows.interrupts import InterruptResult
 
-PROJECT_DIR = ".agentdeck"
-_PROJECT_ALIAS = "agentdeck_project"
-
 
 def _require_aware(now: datetime) -> datetime:
     if now.tzinfo is None:
         raise ValueError(f"due_resumes/tick require a timezone-aware `now`; got naive {now!r}.")
     return now
-
-
-def _mount_project_dir() -> str:
-    """Make ``./.agentdeck`` importable as package ``agentdeck_project``.
-
-    A hidden dir can't be imported by name, so we register a synthetic parent
-    package whose ``__path__`` points at it; the normal import machinery then
-    resolves ``<alias>.agents.<bundle>.agent`` as namespace packages — no
-    ``__init__.py`` needed anywhere under the project dir.
-    """
-    root = Path(PROJECT_DIR).resolve()
-    if not root.is_dir():
-        raise FileNotFoundError(f"project dir not found: {root}")
-    module = types.ModuleType(_PROJECT_ALIAS)
-    module.__path__ = [str(root)]
-    module.__spec__ = ModuleSpec(_PROJECT_ALIAS, None, is_package=True)
-    module.__spec__.submodule_search_locations = [str(root)]
-    sys.modules[_PROJECT_ALIAS] = module
-    return _PROJECT_ALIAS
 
 
 @dataclass(slots=True)
@@ -106,7 +81,7 @@ class App:
     _started_mcp: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
-        package = _mount_project_dir()
+        package = mount_project_dir()
         self.agents = AgentRegistry(package)
         self.workflows = WorkflowRegistry(package)
         self.skills = SkillRegistry((_package_dir(package) or Path(PROJECT_DIR)) / "skills")

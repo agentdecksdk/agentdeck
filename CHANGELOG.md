@@ -18,6 +18,19 @@ event store itself rather than by in-process locks, so it holds when a
 second worker joins. The v1 public surface remains byte-for-byte unchanged.
 
 ### Added
+- `InvocableRegistry` (`agentdeck.runtime.discovery`): the v2 Runtime's list of
+  what it can run is now discovered from your `./.agentdeck/` project instead of
+  written out by hand at every entry point. `InvocableRegistry(engines).load()`
+  reads the same bundles v1 always has — `agents/<bundle>/agent.py`,
+  `workflows/<bundle>/workflow.py` — and returns the name-to-invocable mapping
+  `Runtime` takes, with each bundle pointed at the engine its shape belongs to.
+  Adding an agent or a workflow to a project no longer means editing wiring code.
+  An agent and a workflow claiming one name, and a project whose bundles need an
+  engine the Runtime wasn't given, both fail at load with a message naming the
+  offender, rather than at the moment somebody runs it. (Two bundles of the same
+  kind exporting one class name still collapse to a single invocable, as in v1.) Skills are not discovered as
+  invocables yet — no engine runs a `SKILL.md` bundle. v1's `App` and its
+  discovery are unchanged.
 - Run control (`agentdeck.core.ports.control`, `agentdeck.adapters.control`): a
   `ControlPort` for cross-process cancel signals, backed by an in-memory adapter
   for dev/tests and a SQLite-backed one durable enough for a second OS process to
