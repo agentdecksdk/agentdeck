@@ -41,6 +41,21 @@
 - Tool result in the **log** shows preview + hash + size (decision 7), while the **SDK session** holds full bytes.
 - Every event validates against the schema round-trip; `seq` is contiguous from 0 per run.
 
+**Amendment (2026-08-05, #52 review — design finding, not fixed here).** The first
+bullet above is red as literally written. `origin` is invocable-scoped, not
+sub-agent-scoped: the shipped Runtime stamps `origin = spec.name` — the top-level
+invocable addressed from outside — for every event of a run, including after an
+internal openai-agents handoff. So within one turn, FrontDesk's sentence and
+ClaimsAgent's answer share one `origin`; `message_id` still gives two distinct
+bubbles, but `origin` cannot additionally say it was ClaimsAgent who spoke second.
+Fixing this needs either a Runtime/schema change (an engine-supplied speaker
+attribution, which the envelope doesn't have a field for today) or a deliberate
+redefinition of "speaker" as *the invocable*, not *the SDK sub-agent* — that choice is
+deferred to the M0 falsifier review (§6) / `milestone-0-findings.md`, not silently
+decided in the adapter PR. `tests/test_uc1_handoff.py` asserts the shipped behavior
+(both bubbles labeled `FrontDesk`, with distinct `message_id`s) precisely so this gap
+fails loudly, not quietly, once attribution changes.
+
 ## 3. Use case 2 — "The Friday approval" (stresses durability + engine substitutability)
 
 **Setup.** `ClaimPipeline`: two langgraph nodes with an approval interrupt between them; SQLite checkpointer; same store, same renderer, same serve process as UC1.

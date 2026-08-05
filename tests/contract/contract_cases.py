@@ -8,9 +8,10 @@ else about the engine is visible to the tests.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Literal
+
+from case_types import Case
+from openai_agents_cases import openai_agents_cases
 
 from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.core.content import TextBlock
@@ -26,35 +27,9 @@ from agentdeck.core.events import (
 )
 from agentdeck.core.invocable import InvocableKind
 
-if TYPE_CHECKING:
-    from agentdeck.core.content import Input
-    from agentdeck.core.events import Event
-    from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import EnginePort
-
 TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 USAGE = Usage(input_tokens=7, output_tokens=11)
 SHA = "ab" * 32
-
-
-@dataclass(frozen=True)
-class Case:
-    """One run to play. ``ends`` is ``"suspended"`` when the run is waiting on something, so
-    its terminal event only arrives after a resume."""
-
-    id: str
-    engine: EnginePort
-    spec: InvocableSpec
-    ends: Literal["terminal", "suspended"]
-    input: Input = field(default_factory=lambda: [TextBlock(text="any slot tuesday?")])
-
-
-@dataclass(frozen=True)
-class Played:
-    """What one run produced: the events a consumer saw, and the error it ended with."""
-
-    events: list[Event]
-    error: Exception | None
 
 
 def _stub_cases() -> list[Case]:
@@ -125,4 +100,4 @@ def _stub_cases() -> list[Case]:
     ]
 
 
-CASES: list[Case] = _stub_cases()
+CASES: list[Case] = _stub_cases() + openai_agents_cases()

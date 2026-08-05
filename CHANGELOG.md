@@ -8,6 +8,23 @@ they move under a version heading when a release is tagged.
 ## [Unreleased]
 
 ### Added
+- `agentdeck.adapters.engines.openai_agents`: the first real `EnginePort` (M0 step 3,
+  #52) — plays a pre-built `agents.Agent` (handoffs and tools included) through
+  `Runner.run_streamed` and translates its stream into canonical payloads (`text.delta`,
+  `message.completed`, `tool.call.started`/`.completed`, one namespaced `custom` event per
+  handoff). Joins the stub in the contract suite (`tests/contract/openai_agents_cases.py`).
+  `runtime/sessions.py`'s `SessionFactory` relocates into the adapter as its private
+  execution store (ADR-D5) — kept, not rewritten; the old import path re-exports it for
+  `agentdeck/app.py` (v1), unchanged. `ExecutionStore.session_for` takes the run's
+  `RunContext` and scopes the SDK session key by tenant, so two tenants picking the same
+  session id never share one conversation.
+- `agentdeck.adapters.stores.sqlite`: a durable `SessionStorePort`, same append-only,
+  per-run-`seq` contract as the memory store (`tests/test_sqlite_store.py`).
+- `agentdeck.surfaces.serve`/`agentdeck.surfaces.cli`: a deliberately crude SSE route and
+  ~50-line CLI chat renderer for v2 runs (M0 skeleton, separate from v1's `serve.py`,
+  which is untouched) — the reference consumer for UC1 (`tests/test_uc1_handoff.py`),
+  proving the transcript rebuilds from `message.completed` alone and speakers are told
+  apart using only `origin` + `message_id`.
 - Docs site Concepts section: four pages — agents, capabilities, skills, workflows —
   written against the shipped v1 surface, each starting from the user's code.
 - Docs site brand: the AgentDeck palette and type scale (Regal Navy, Beige, Magenta Bloom,

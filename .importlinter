@@ -56,13 +56,16 @@ forbidden_modules =
     agentdeck.serve
     agentdeck.app
 
-# These two adapters wrap no external system at all, so they stay pure forever: a store or
-# engine reaching back into the Runtime or a surface would invert the dependency direction.
+# These adapters wrap no external system at all (sqlite3 is stdlib), so they stay pure
+# forever: a store or engine reaching back into the Runtime or a surface would invert the
+# dependency direction. This is also what keeps `agents` scoped to the openai-agents
+# adapter (#52): every other store/engine here is explicitly forbidden from importing it.
 [importlinter:contract:pure-adapters-stay-pure]
-name = the memory store and stub engine import core only
+name = the memory store, sqlite store and stub engine import core only
 type = forbidden
 source_modules =
     agentdeck.adapters.stores.memory
+    agentdeck.adapters.stores.sqlite
     agentdeck.adapters.engines.stub
 forbidden_modules =
     agents
@@ -75,3 +78,16 @@ forbidden_modules =
     agentdeck.skills
     agentdeck.serve
     agentdeck.app
+
+# Ring 3 (#52): surfaces render events for a Runtime handed to them by the composition
+# root — they never mint an engine or a store themselves.
+[importlinter:contract:surfaces-are-adapter-free]
+name = surfaces import runtime and core only, never an adapter or an engine SDK
+type = forbidden
+source_modules =
+    agentdeck.surfaces
+forbidden_modules =
+    agents
+    langgraph
+    redis
+    agentdeck.adapters
