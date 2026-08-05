@@ -28,4 +28,13 @@ class ConfigError(AgentdeckError):
     """Invalid or incomplete configuration."""
 
 
-__all__ = ["AgentdeckError", "ConfigError", "NotFoundError", "SkillError"]
+class StoreError(AgentdeckError):
+    """A durable store failed — the event log, or the control-signal rows beside it.
+
+    The one type a store adapter raises outward: whatever library it is built on keeps its
+    own exceptions behind the port, chained onto this one as ``__cause__``. Losing a race
+    is not one of these — a refused claim is a ``False``, an unreachable store is an error.
+    """
+
+
+__all__ = ["AgentdeckError", "ConfigError", "NotFoundError", "SkillError", "StoreError"]

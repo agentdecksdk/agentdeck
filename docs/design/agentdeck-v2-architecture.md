@@ -277,6 +277,21 @@ event before claiming: a run that was resumed and interrupted again between thos
 moments is waiting once more, and letting that stale claim through would write a `seq` twice.
 A loser gets `False`, never an exception, and never writes.)*
 
+*(Amended 2026-08-06, as built: both SQLite adapters — the event log and the control-signal
+table — open in WAL mode with an explicit 5-second busy timeout, and translate `sqlite3.Error`
+into `errors.StoreError` at every public method, so no library type crosses a port (§5 of the
+coding standards applied to the store boundary). This is what makes the sentence above hold
+in practice: a losing `claim_resume` waits for the winner's transaction to commit and then
+reads the `RUNNING` status it published, instead of meeting a raw `database is locked`. A lock
+held past the busy timeout is a `StoreError` — a store nobody can write to, deliberately not
+folded into the `False` that means somebody else won. Two operational consequences the design
+doc did not state: WAL puts `-wal`/`-shm` files beside each database (they belong to it for
+backup and deletion), and it relies on cross-process shared memory, so a SQLite store on NFS
+or SMB is unsupported — that deployment wants the Redis or Postgres store. Converting a file
+*into* WAL needs an exclusive lock that SQLite refuses outright while a peer is writing, so a
+connection that cannot switch the mode keeps the one the file has: slower under contention,
+never wrong, and never a failure to open.)*
+
 ```python
 # core/ports/engine.py — the lifecycle/event boundary
 class EnginePort(ABC):

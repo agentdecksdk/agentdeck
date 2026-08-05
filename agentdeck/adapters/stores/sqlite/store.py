@@ -10,14 +10,17 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+from contextlib import suppress
+from functools import partial
 from typing import TYPE_CHECKING
 
 from agentdeck.core.events import parse_event
 from agentdeck.core.ports import EventStorePort, RunSummary
 from agentdeck.core.status import LIFECYCLE_KINDS, can_resume, status_of
+from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
     from pathlib import Path
 
     from agentdeck.core.context import RunContext
@@ -42,63 +45,118 @@ _INSERT = "INSERT INTO events (tenant, log_key, run_id, seq, data) VALUES (?, ?,
 _SORTED_LIFECYCLE_KINDS = tuple(sorted(LIFECYCLE_KINDS))
 _KIND_SLOTS = ", ".join("?" * len(_SORTED_LIFECYCLE_KINDS))
 
+# Pinned here rather than inherited from ``sqlite3.connect``'s own default: long enough that a
+# peer's write transaction — milliseconds of one append — is waited out rather than raised
+# over, short enough that a wedged holder surfaces as an error instead of hanging a request.
+_BUSY_TIMEOUT_MS = 5_000
+
+
+def _connect(db_path: str) -> sqlite3.Connection:
+    """Open the log with the concurrency posture two processes need, and its table."""
+    try:
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        # Before the journal mode, so the switch itself can wait a peer's transaction out.
+        conn.execute(f"PRAGMA busy_timeout = {_BUSY_TIMEOUT_MS}")
+        _enable_wal(conn)
+        conn.executescript(_SCHEMA)
+        conn.commit()
+    except sqlite3.Error as exc:
+        raise StoreError(f"cannot open the event log at {db_path!r}: {exc}") from exc
+    return conn
+
+
+def _enable_wal(conn: sqlite3.Connection) -> None:
+    """Put the file in WAL, settling for the mode it already has if it cannot be switched now.
+
+    Converting *into* WAL needs an exclusive lock, and a peer holding the write lock denies
+    that outright — SQLite refuses immediately there, whatever the busy timeout says. Asking
+    again on a file that is already WAL is free even mid-write, so the only connection that
+    can lose this is the first one to a brand-new file racing another; it then runs in the
+    rollback-journal mode every connection used before WAL was asked for at all, which is
+    slower under contention and never wrong. An in-memory database reports ``memory`` and
+    stays there — there is no WAL for it to switch to, and nothing to work around.
+    """
+    if conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal":
+        return
+    # ponytail: the degraded mode is invisible — log it if an operator ever has to find out
+    # why one process's store came up slower than its peers'.
+    with suppress(sqlite3.OperationalError):
+        conn.execute("PRAGMA journal_mode = WAL")
+
 
 class SqliteEventStore(EventStorePort):
     """Append-only rows in one SQLite file (or ``:memory:`` for tests).
 
     One connection, serialized by a lock: ``sqlite3`` is stdlib but not coroutine-safe, and
-    a single writer per log is exactly the WAL-style contract the Runtime already assumes —
-    a lock is simpler than a pool for that shape. Blocking calls run in a thread so the
-    event loop is never stalled by disk I/O.
+    a single writer per log is exactly the contract the Runtime already assumes — a lock is
+    simpler than a pool for that shape. Blocking calls run in a thread so the event loop is
+    never stalled by disk I/O, and a failed statement reaches the caller as ``StoreError``:
+    a ``sqlite3`` type never crosses the port.
+
+    The file is put in **WAL** mode and every connection sets an explicit busy timeout,
+    because the point of this store is that a second OS process reads and writes the same
+    file: WAL lets those readers run while a writer appends, and the timeout makes a peer's
+    in-flight write something to wait out rather than raise over. Two consequences for whoever
+    operates it: SQLite keeps ``<db>-wal`` and ``<db>-shm`` files beside the database — copy
+    or delete them with it, never just the one file — and WAL needs working shared memory
+    across processes, so it is unreliable on network filesystems like NFS or SMB. Keep the
+    events file on local disk; a networked deployment wants the Redis or Postgres store.
     """
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:
-        self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
-        self._conn.executescript(_SCHEMA)
-        self._conn.commit()
+        self._conn = _connect(str(db_path))
         self._lock = asyncio.Lock()
+
+    async def _run[T](self, work: Callable[[], T], op: str) -> T:
+        """Every statement this store runs goes through here — one caller at a time, off the
+        event loop, and no library exception escaping the port."""
+        async with self._lock:
+            try:
+                return await asyncio.to_thread(work)
+            except sqlite3.Error as exc:
+                raise StoreError(f"event log {op} failed: {exc}") from exc
 
     async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
         foreign = {event.tenant for event in events} - {ctx.tenant}
         if foreign:
             raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
         rows = [(ctx.tenant, log_key, event.run_id, event.seq, event.model_dump_json()) for event in events]
-        async with self._lock:
-            await asyncio.to_thread(self._insert, rows)
+        await self._run(partial(self._insert, rows), "append")
 
     async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
         if limit is not None and limit < 0:
             raise ValueError(f"limit must be None or >= 0, got {limit}")
-        async with self._lock:
-            rows = await asyncio.to_thread(self._select_log, ctx.tenant, log_key, max(offset, 0), limit)
+        rows = await self._run(partial(self._select_log, ctx.tenant, log_key, max(offset, 0), limit), "read")
         return [parse_event(json.loads(row)) for row in rows]
 
     async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
-        async with self._lock:
-            rows = await asyncio.to_thread(self._select_run, ctx.tenant, log_key, run_id, from_seq)
+        rows = await self._run(partial(self._select_run, ctx.tenant, log_key, run_id, from_seq), "read_run")
         return [parse_event(json.loads(row)) for row in rows]
 
     async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
-        async with self._lock:
-            return await asyncio.to_thread(self._select_last_seq, ctx.tenant, log_key, run_id)
+        return await self._run(partial(self._select_last_seq, ctx.tenant, log_key, run_id), "last_seq")
 
     async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
         """The port's conditional append as one ``BEGIN IMMEDIATE`` transaction, so the
         winner is decided by SQLite's own write lock — the file, not this process, is what
-        two servers agree through."""
+        two servers agree through.
+
+        A loser still gets its clean ``False``: it waits for the winner's transaction to
+        commit, then reads the ``RUNNING`` status the winner published. Only a lock held past
+        the busy timeout raises, and that is a store nobody can write to rather than a claim
+        somebody else won — ``StoreError``, never a fabricated ``False``.
+        """
         if event.run_id != run_id:
             raise ValueError(f"a claim on run {run_id!r} cannot carry an event for {event.run_id!r}")
         if event.tenant != ctx.tenant:
             raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
         row = (ctx.tenant, log_key, event.run_id, event.seq, event.model_dump_json())
-        async with self._lock:
-            return await asyncio.to_thread(self._claim, row, run_id)
+        return await self._run(partial(self._claim, row, run_id), "claim_resume")
 
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
         """Overrides the port's per-run fold: one statement returns each run's *last*
         lifecycle row, so a listing deserializes one event per run instead of all of them."""
-        async with self._lock:
-            rows = await asyncio.to_thread(self._select_last_lifecycle, ctx.tenant)
+        rows = await self._run(partial(self._select_last_lifecycle, ctx.tenant), "list_runs")
         summaries = [
             RunSummary(log_key=log_key, run_id=run_id, status=status_of([parse_event(json.loads(data))]))
             for log_key, run_id, data in rows
@@ -172,7 +230,10 @@ class SqliteEventStore(EventStorePort):
         return [(row[0], row[1], row[2]) for row in cursor.fetchall()]
 
     def close(self) -> None:
-        self._conn.close()
+        try:
+            self._conn.close()
+        except sqlite3.Error as exc:
+            raise StoreError(f"closing the event log failed: {exc}") from exc
 
 
 __all__ = ["SqliteEventStore"]
