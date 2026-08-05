@@ -19,6 +19,7 @@ dependencies = [
 
 [project.scripts]
 agentdeck-serve = "agentdeck.serve:main"
+agentdeck = "agentdeck.cli:main"
 
 [project.optional-dependencies]
 serve = [

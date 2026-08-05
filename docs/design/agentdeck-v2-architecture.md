@@ -510,6 +510,21 @@ current tree this feature would touch `agents/runners/`, `workflows/runners/`, `
 and both registries — and agents and workflows would end up with subtly different pause
 behavior that leaks into every consumer.
 
+*(Amended 2026-08-05, #54 — as built, M0's slice of this example is cancel only: `Signal`
+has one member (`CANCEL`); pause/resume/steering stay Story 3. `Gate` is a concrete class,
+not a `Protocol` — with no `ControlPort` behind it, `checkpoint()` is a no-op, so
+`RunContext.gate` defaults to one and every existing caller is unaffected. That default is
+also why callers never construct a working `Gate` themselves: `Runtime.run`/`resume` rebind
+`ctx.gate` to the `Runtime`'s own `ControlPort` before an engine ever sees it, which is what
+keeps `surfaces/serve/app.py` and `surfaces/cli/chat.py` untouched by this feature. `ControlPort`
+itself is narrower than sketched above: `signal(run_id, sig)` / `poll(run_id)` only — no
+`ctx`, no `status`/`set_status`, because status is derived from the event log
+(`core/status.py`) once, never duplicated in a second store. One finding worth recording:
+`httpx.ASGITransport` runs a request's whole ASGI call before returning any response bytes,
+so it cannot interleave a live signal with an in-flight SSE stream — the cross-process proof
+(`tests/test_uc3_slowpoke.py`) drives `Runtime` directly and a real `subprocess` for the CLI
+instead of routing through that transport.)*
+
 ---
 
 ## 9. Worked example 3 — supporting ACP

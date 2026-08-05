@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import aclosing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from itertools import count
 from typing import TYPE_CHECKING
@@ -27,6 +27,7 @@ from agentdeck.core.events import (
     RunResumed,
     RunStarted,
 )
+from agentdeck.core.ports import Gate
 from agentdeck.core.status import RunStatus, can_resume, status_of
 from agentdeck.errors import NotFoundError
 
@@ -38,7 +39,7 @@ if TYPE_CHECKING:
     from agentdeck.core.context import RunContext
     from agentdeck.core.events import KnownPayload
     from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import EnginePort, EventSinkPort, SessionStorePort
+    from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, SessionStorePort
 
 logger = logging.getLogger(__name__)
 
@@ -74,12 +75,14 @@ class Runtime:
         invocables: Mapping[str, InvocableSpec],
         sinks: Sequence[EventSinkPort] = (),
         clock: Callable[[], datetime] = _now,
+        control: ControlPort | None = None,
     ) -> None:
         self._engines = {engine.engine: engine for engine in engines}
         self._store = store
         self._invocables = invocables
         self._sinks = tuple(sinks)
         self._clock = clock
+        self._control = control
         # holds a reference to in-flight sink tasks so the loop can't collect them mid-emit
         # ponytail: unbounded set — a bounded queue per sink if one ever piles up
         self._sink_tasks: set[asyncio.Task[None]] = set()
@@ -95,6 +98,7 @@ class Runtime:
         closes the run in the log: a consumer that walks away gets ``run.cancelled``.
         """
         spec, engine = self._resolve(name)
+        ctx = self._with_gate(ctx)
         # ponytail: whole log per run — window it (or hand the engine a summary) once a
         # session's history outgrows one read, which a real store will notice long before this does
         history = await self._store.read(ctx.log_key, ctx)
@@ -158,6 +162,7 @@ class Runtime:
         run — is a no-op: nothing is read from the engine, nothing is yielded.
         """
         spec, engine = self._resolve(name)
+        ctx = self._with_gate(ctx)
         claimed = await self._claim_resume(spec, ctx)
         if claimed is None:
             return
@@ -242,6 +247,16 @@ class Runtime:
         called per event — that would be exactly the join the fan-out exists to avoid.
         """
         await asyncio.gather(*self._sink_tasks, return_exceptions=True)
+
+    def _with_gate(self, ctx: RunContext) -> RunContext:
+        """Bind ``ctx.gate`` to this Runtime's ``ControlPort``, if it has one.
+
+        The Runtime, not the caller, decides whether a run is cancellable — a caller
+        builds a plain ``RunContext`` and never has to know a ``ControlPort`` exists.
+        """
+        if self._control is None:
+            return ctx
+        return replace(ctx, gate=Gate(self._control, ctx.run_id))
 
     def _resolve(self, name: str) -> tuple[InvocableSpec, EnginePort]:
         spec = self._invocables.get(name)

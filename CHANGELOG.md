@@ -8,6 +8,17 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+- Run control (`agentdeck.core.ports.control`, `agentdeck.adapters.control`): a
+  `ControlPort` for cross-process cancel signals, backed by an in-memory adapter
+  for dev/tests and a SQLite-backed one durable enough for a second OS process to
+  reach a run it never held a reference to. The OpenAI Agents engine checks a
+  cooperative gate between stream items and stops cleanly on cancel, emitting a
+  single `run.cancelled` and leaving a truncated-but-coherent replay behind (no
+  `message.completed` for the interrupted message). New `agentdeck runs signal
+  <run_id> cancel --control-db <path>` CLI command to send that signal from a
+  second terminal.
+
 ## [2.0.0b2] - 2026-08-05
 
 Second beta of the v2 line: both real engines now run behind the

@@ -7,8 +7,10 @@ Frozen: a run's identity cannot change mid-flight.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+
+from agentdeck.core.ports.control import Gate
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -21,7 +23,9 @@ class RunContext:
     """One run's identity and limits.
 
     ``tenant`` and ``principal`` are required and never defaulted downstream: they come
-    from the caller at the edge or the run should not start.
+    from the caller at the edge or the run should not start. ``gate`` defaults to a no-op
+    (no ``ControlPort`` behind it) — the Runtime is what rebinds it to a real one, never
+    the caller building this context.
     """
 
     tenant: str
@@ -34,6 +38,7 @@ class RunContext:
     budget: Budget | None = None
     idempotency_key: str | None = None
     triggered_by: str | None = None
+    gate: Gate = field(default_factory=Gate)
 
     @property
     def log_key(self) -> str:
