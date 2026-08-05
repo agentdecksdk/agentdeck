@@ -1,1 +1,1 @@
-"""Event-log stores — implementations of ``SessionStorePort``."""
+"""Event-log stores — implementations of ``EventStorePort``."""

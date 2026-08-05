@@ -13,7 +13,7 @@ import sqlite3
 from typing import TYPE_CHECKING
 
 from agentdeck.core.events import parse_event
-from agentdeck.core.ports import SessionStorePort
+from agentdeck.core.ports import EventStorePort
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -36,7 +36,7 @@ CREATE INDEX IF NOT EXISTS events_by_run ON events (tenant, log_key, run_id, seq
 """
 
 
-class SqliteEventStore(SessionStorePort):
+class SqliteEventStore(EventStorePort):
     """Append-only rows in one SQLite file (or ``:memory:`` for tests).
 
     One connection, serialized by a lock: ``sqlite3`` is stdlib but not coroutine-safe, and
