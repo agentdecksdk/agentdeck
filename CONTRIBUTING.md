@@ -26,10 +26,12 @@ uv venv && uv pip install -e ".[dev,serve]"
 pre-commit install          # ruff + ty + hygiene hooks on every commit
 ```
 
-Working in a git worktree (or any second checkout): `uv` installs into an
-inherited `VIRTUAL_ENV`, so run `unset VIRTUAL_ENV` first, or pass
-`--python <worktree>/.venv/bin/python`. Otherwise the install lands in the
-other checkout's venv and repoints its editable `agentdeck` at your tree.
+Working in a git worktree (or any second checkout): `uv` reads an inherited
+`VIRTUAL_ENV`, so run `unset VIRTUAL_ENV` first, or pass
+`--python <worktree>/.venv/bin/python`. This applies to **every** `uv pip`
+subcommand, `uninstall` included — otherwise an install lands in the other
+checkout's venv and repoints its editable `agentdeck` at your tree, and an
+uninstall strips packages the other checkout still needs.
 
 ## Before you push
 
