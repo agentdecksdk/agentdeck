@@ -4,6 +4,10 @@
 
 - **`dev`** — default branch. All PRs target `dev`.
 - **`main`** — release branch. Only fast-forwarded from `dev` when cutting a release.
+- PRs are **squash-merged**, so a merged branch's tip never becomes an ancestor of
+  `dev`. `git branch --merged` therefore reports *every* branch as unmerged and is
+  useless here — prune by PR state instead:
+  `gh pr list --head "$branch" --state all --json state -q '.[0].state'`.
 
 ## Releasing (x.y.z)
 
