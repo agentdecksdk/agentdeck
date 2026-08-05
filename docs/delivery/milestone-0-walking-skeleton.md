@@ -120,6 +120,23 @@ follow-up work if a real deployment needs it; recorded here rather than silently
 - Replay shows the truncated-but-coherent history: N deltas, no `message.completed` for the unfinished message, terminal `run.cancelled` — and the renderer copes (unfinished bubble marked, not crashed).
 - **The chaos test (decision A, mandatory):** intercept the stream and drop one mid-run event before it reaches the consumer; the consumer must *detect* the `seq` gap and recover by refetching from the store — proving contiguity buys loss-detection in practice, not just in argument.
 
+**Amendment (2026-08-05, #54 — as built).** Zero edits landed in `surfaces/serve/app.py`
+or `surfaces/cli/chat.py`: `Runtime.run`/`resume` rebind `ctx.gate` to a real `Gate` only
+when the `Runtime` itself was built with a `ControlPort`, so the existing chat route
+becomes cancellable without knowing control exists. The 20×-loop and the real
+cross-process script are two separate tests, deliberately: the loop signals in-process
+(fast, exercises the ordering guarantee 20 times) while the cross-process test spawns a
+real `python -m agentdeck.cli` subprocess for Terminal B once (proving addressability and
+the SQLite signal row actually crossing a process boundary). That subprocess costs over a
+second just importing the `agentdeck` package (`agentdeck/__init__.py` eagerly imports
+v1's `App`, which pulls in `langgraph`) before it can write the signal — SlowPoke's
+cross-process fixture sleeps 0.2s/chunk, not the in-process fixture's 0.005s, so the
+signal has time to land before the run finishes on its own. Also: `httpx.ASGITransport`
+runs a request's whole ASGI call before returning anything, so it cannot interleave a
+live signal with an in-flight SSE response — cancelling the chat route itself is proven by
+architecture (the same `Runtime._with_gate` every other test exercises), not by a
+dedicated HTTP-level test.
+
 ---
 
 ## 5. Build order with per-step gates

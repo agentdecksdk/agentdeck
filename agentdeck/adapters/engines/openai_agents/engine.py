@@ -17,8 +17,9 @@ from agents import Agent, Runner
 from agentdeck.adapters.engines.openai_agents.sessions import ExecutionStore
 from agentdeck.adapters.engines.openai_agents.translate import translate
 from agentdeck.core.content import TextBlock, coerce_input
-from agentdeck.core.events import RunCompleted, Usage
+from agentdeck.core.events import RunCancelled, RunCompleted, Usage
 from agentdeck.core.ports import EnginePort
+from agentdeck.core.ports.control import RunCancelledError
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
@@ -61,6 +62,15 @@ class OpenAIAgentsEngine(EnginePort):
                     payload = translate(event, tool_names)
                     if payload is not None:
                         yield payload
+                    try:
+                        await ctx.gate.checkpoint()
+                    except RunCancelledError:
+                        # A complete chunk was just yielded (or none was, at the very first
+                        # safe point) — never a partial one — so this is the next safe
+                        # point the contract promises, not "right now, mid-token".
+                        result.cancel()
+                        yield RunCancelled(reason="cancel signal")
+                        return
         except BaseException:
             result.cancel()
             raise
