@@ -18,7 +18,7 @@ from agentdeck.runtime.service import SUSPENDED_KINDS
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
 
-    from contract_cases import Case, Played
+    from case_types import Case, Played
 
     from agentdeck.adapters.stores.memory import MemoryEventStore
     from agentdeck.core.context import RunContext

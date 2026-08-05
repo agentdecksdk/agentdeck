@@ -8,7 +8,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
-from contract_cases import CASES, TS, Case, Played
+from case_types import Case, Played
+from contract_cases import CASES, TS
 
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.context import RunContext
