@@ -54,9 +54,9 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 - The SQLite event log and the SQLite control-signal database now open in
   **WAL** mode with an explicit 5-second busy timeout. Readers no longer wait
   behind a writer, so a second process tailing or replaying a log costs the one
-  writing it far less: in a saturated four-process benchmark, read latency fell
-  from 19.6 ms to 1.2 ms at the 99th percentile (108 ms to 2.9 ms at the worst
-  case) and throughput roughly tripled. Two things to know about the files:
+  writing it far less: in a saturated benchmark, read latency at the 99th
+  percentile and in the worst case improved by roughly an order of magnitude.
+  Two things to know about the files:
   SQLite keeps `<db>-wal` and `<db>-shm` alongside each database — back them up
   and move them together, not the one file on its own — and WAL depends on
   shared memory that network filesystems (NFS, SMB) do not provide reliably, so

@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 import pytest
 
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
-from agentdeck.adapters.stores.sqlite.store import _BUSY_TIMEOUT_MS
+from agentdeck.adapters.stores.sqlite import store as store_module
 from agentdeck.core.content import TextBlock
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
@@ -152,20 +152,22 @@ async def test_the_stub_completion_payload_round_trips_through_the_log() -> None
     assert (await store.read("s-1", ctx))[0].payload == payload
 
 
-async def test_a_file_backed_log_opens_in_wal_with_an_explicit_busy_timeout(tmp_path) -> None:
+async def test_a_file_backed_log_opens_in_wal_with_the_busy_timeout_it_asked_for(tmp_path, monkeypatch) -> None:
     """WAL is what keeps a second process's reads out of this one's writes, and the timeout is
     what makes a peer's in-flight write something to wait out rather than raise over. The
     ``-wal`` side file is asserted too: it exists beside the database, which is a fact whoever
     copies or deletes that database has to know.
+
+    The timeout is patched to a value ``sqlite3`` would never choose on its own, because the
+    shipped one is also its default — asserting that would pass whether the pragma ran or not.
     """
+    monkeypatch.setattr(store_module, "_BUSY_TIMEOUT_MS", 3_000)
     db_path = tmp_path / "events.sqlite3"
     store = SqliteEventStore(db_path)
     try:
         await store.append("s-1", [_event(0)], _ctx())
-        # Per-connection, so only this store's own connection can be asked. It equals what
-        # sqlite3 itself happens to default to, so this pins the intended wait rather than
-        # proving the pragma ran — the point is that the number is the store's choice.
-        assert store._conn.execute("PRAGMA busy_timeout").fetchone()[0] == _BUSY_TIMEOUT_MS
+        # Per-connection, so only this store's own connection can be asked.
+        assert store._conn.execute("PRAGMA busy_timeout").fetchone()[0] == 3_000
         assert (tmp_path / "events.sqlite3-wal").exists()
         peer = sqlite3.connect(db_path)  # persisted in the header: a fresh connection sees it
         try:

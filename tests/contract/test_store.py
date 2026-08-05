@@ -19,6 +19,7 @@ import pytest
 from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
+from agentdeck.adapters.stores.sqlite import store as sqlite_store
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
     Event,
@@ -35,6 +36,7 @@ from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
+    from pathlib import Path
 
     from agentdeck.core.ports import EventStorePort
 
@@ -390,3 +392,32 @@ async def test_a_failed_statement_reaches_the_caller_as_a_store_error(
         await call(port)
     assert isinstance(raised.value.__cause__, sqlite3.Error)
     assert not isinstance(raised.value, sqlite3.Error)
+
+
+async def test_a_write_lock_held_past_the_busy_timeout_is_a_store_error_not_a_lost_claim(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The failure that motivated the wrapping, in its own shape rather than a closed
+    connection's: a peer holds the file's write lock longer than this store will wait for it.
+
+    ``claim_resume`` must not answer that with ``False``. ``False`` means somebody else won and
+    the resume is already recorded, so returning it here would discard a human's approval while
+    reporting a race that never happened. The timeout is shortened so the wait costs milliseconds.
+    """
+    monkeypatch.setattr(sqlite_store, "_BUSY_TIMEOUT_MS", 50)
+    store = SqliteEventStore(tmp_path / "events.sqlite3")
+    ctx = _ctx()
+    await _interrupt(store, ctx)
+
+    peer = sqlite3.connect(tmp_path / "events.sqlite3")
+    peer.execute("BEGIN IMMEDIATE")
+    peer.execute("INSERT INTO events (tenant, log_key, run_id, seq, data) VALUES ('acme', 's-1', 'r-9', 0, '{}')")
+    try:
+        with pytest.raises(StoreError) as raised:
+            await store.claim_resume("s-1", "r-1", _resumed(2), ctx)
+        assert isinstance(raised.value.__cause__, sqlite3.OperationalError)
+        assert "locked" in str(raised.value.__cause__)
+    finally:
+        peer.rollback()
+        peer.close()
+        store.close()
