@@ -92,6 +92,44 @@ Move `BaseAgent`/`BaseWorkflow`/`CapabilitiesSpec` into `authoring/`, compiling 
 adapters behind a feature flag first, cutting serve over last. Do not split this story
 across releases — a half-moved seam is worse than either endpoint.
 
+*(Amendment 2026-08-05 — re-sequenced after Milestone 0, `milestone-0-findings.md`.)*
+Milestone 0 (issues #52–#54, #56/#58/#59) already built a crude-but-real slice of this
+story ahead of schedule: `EnginePort` for both engines, `Runtime` (stamp/append/fan-out/
+yield, resume, pending), the memory+SQLite event-log stores, and a `/v2/...` chat +
+`/pending`+`/resume` surface — all proven against real multi-agent/multi-turn (UC1),
+interrupt/restart (UC2), and cancel-under-load (UC3) traffic with zero engine leakage
+into any consumer (`milestone-0-findings.md` §2). **This retires the story's own
+highest-risk bet** — that one `Runtime`/`EnginePort` abstraction could cover openai-agents
+and LangGraph without a consumer-visible seam — as a measured fact, not a hope. The
+estimate stays **L**, but the composition of that L changes:
+
+- **Lower risk than originally scoped:** the acceptance criteria already met at spike
+  quality are the transcript-fidelity test (both engines, `milestone-0-findings.md` §2
+  falsifier 4) and the "no engine-specific logic in surfaces" criterion (§2 falsifier 1);
+  Story 2 hardens these, it does not discover whether they are achievable.
+- **Real remaining net-new scope, not yet touched by the spike:** Redis/Postgres event-log
+  stores; `ToolSourcePort`/MCP relocation; `adapters/telemetry/langfuse/` as an
+  `EventSinkPort`; the real `InvocableRegistry` replacing the hardcoded
+  `dict[str, InvocableSpec]` every M0 test and the demo script built inline
+  (`milestone-0-findings.md` §8); `App` actually becoming the composition root + compat
+  facade — M0's `build_app` is a parallel `/v2/...` route, not wired into `App` and not
+  byte-parity with v1's `serve.py`; and the crash-between-writes reconciliation test
+  ADR-D5 requires, which M0 never exercised (no test in the M0 suite kills a process
+  *between* the log write and the engine-state write — only between two fully-committed
+  turns, per UC2's restart tests).
+- **A hardening item M0 surfaced that this story must resolve, not just harden:** LangGraph
+  durable checkpointers (`adapters/engines/langgraph/checkpointer.py`) cache per URL and
+  bind to the event loop that first constructed them — fine for a server's one long-lived
+  loop, a real constraint for anything else. Story 2's redis/postgres store work and this
+  checkpointer behavior are coupled in a way the original story text didn't anticipate.
+- **A test-infrastructure finding for Story 3, not Story 2:** `httpx.ASGITransport` cannot
+  interleave a live control signal into an in-flight SSE response (it runs a request's
+  whole ASGI call before returning any bytes) — Story 3's "pause honored at next safe
+  point" acceptance criterion, when exercised over the real HTTP route rather than
+  `Runtime` directly, needs a real ASGI server (e.g. `uvicorn` in a subprocess), not
+  `ASGITransport`. Flagged here so it lands as a known requirement, not a mid-story
+  surprise.
+
 ---
 
 ## Story 3 — Run control: pause / resume / cancel (Phase 3)
@@ -122,6 +160,23 @@ ship steering: `Runtime.send(run_id, Input, ctx)`, `POST /runs/{id}/messages`, a
 
 **Estimate:** M. **Risk:** medium — the semantics are the work; the wiring is small.
 Depends on Stories 1–2.
+
+*(Amendment 2026-08-05 — re-grounded after Milestone 0, `milestone-0-findings.md`.)* M0's
+UC3 already shipped a cancel-only slice of this story (`ControlPort`, `Gate`,
+memory+SQLite adapters, cross-process cancel proven via a real subprocess) — Story 3
+extends `Signal` to add `PAUSE`/`RESUME` and steering rather than building control from
+zero. Two findings raise the estimate's risk, not its size: the double-resume guard
+built in M0 is an `asyncio.Lock` keyed by `run_id` **inside one `Runtime` instance** —
+correct for two callers racing one process, silently wrong for two processes racing the
+same run through two separate `Runtime`s over one store, which is exactly the shape the
+"Redis ControlPort: pause from process A stops a run in process B" acceptance criterion
+above requires. A cross-process-safe resume needs a compare-and-set primitive on
+`SessionStorePort`, which the frozen ports don't have yet — this is coupled work, not two
+independent line items, and should be scoped together rather than discovered mid-story.
+Separately, the "pause honored at next safe point" criterion needs a real ASGI server to
+test over the actual HTTP route (`httpx.ASGITransport` cannot interleave a live signal
+into an in-flight SSE response, per the Story 2 amendment above) — plan the test
+infrastructure for that up front instead of learning it while red.
 
 ---
 
