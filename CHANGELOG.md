@@ -8,6 +8,15 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [2.0.0b3] - 2026-08-05
+
+A hardening release: no new surface, sturdier runtime. Cancel a run from
+another process, answer an approval from either of two servers without the
+workflow running twice, and keep telemetry from growing memory or losing
+events behind a wedged endpoint. Every guarantee here is enforced by the
+event store itself rather than by in-process locks, so it holds when a
+second worker joins. The v1 public surface remains byte-for-byte unchanged.
+
 ### Added
 - Run control (`agentdeck.core.ports.control`, `agentdeck.adapters.control`): a
   `ControlPort` for cross-process cancel signals, backed by an in-memory adapter
@@ -307,7 +316,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b2...HEAD
+[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b3...HEAD
+[2.0.0b3]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b2...v2.0.0b3
 [2.0.0b2]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b1...v2.0.0b2
 [2.0.0b1]: https://github.com/sagi5060/agentdeck/compare/v1.2.1...v2.0.0b1
 [1.2.1]: https://github.com/sagi5060/agentdeck/compare/v1.2.0...v1.2.1
