@@ -9,10 +9,11 @@ not the log, feeds the model.
 
 from __future__ import annotations
 
+import os
 from contextlib import aclosing
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
-from agents import Agent, Runner
+from agents import Agent, RunConfig, Runner
 
 from agentdeck.adapters.engines.openai_agents.sessions import ExecutionStore
 from agentdeck.adapters.engines.openai_agents.translate import translate
@@ -51,7 +52,8 @@ class OpenAIAgentsEngine(EnginePort):
     ) -> AsyncGenerator[KnownPayload, None]:
         agent = _agent_of(spec)
         session = self._sessions.session_for(ctx)
-        result = Runner.run_streamed(agent, _to_sdk_input(input), session=session)
+        run_config = RunConfig(tracing_disabled=not _tracing_enabled())
+        result = Runner.run_streamed(agent, _to_sdk_input(input), session=session, run_config=run_config)
         tool_names: dict[str, str] = {}
         # The SDK's run loop is a detached task; an abandoned generator must cancel it
         # explicitly (mirrors agents/runners/headless.py's run_streamed, same reason).
@@ -90,6 +92,19 @@ class OpenAIAgentsEngine(EnginePort):
         # own rule that this method is only ever called on a WAITING_HUMAN run.
         raise ConfigError(f"openai-agents engine (M0) has no interrupts to resume: {spec.name!r} never suspends")
         yield  # pragma: no cover — makes this an async generator; never reached
+
+
+def _tracing_enabled() -> bool:
+    """Opt-in switch for the SDK's default trace exporter (issue #61).
+
+    Off by default: a keyless/fake-model run (tests, CI, the M0 demo) has no OpenAI
+    account to export traces to, and the SDK's exporter otherwise attempts a real HTTPS
+    call on every run, logging a non-fatal ``Tracing client error 401``. Set
+    ``AGENTDECK_OPENAI_AGENTS_TRACING_ENABLED=true`` to restore it for a deployment that
+    wants the SDK's own trace export (as opposed to v1's Langfuse/OpenInference route).
+    """
+    raw = os.environ.get("AGENTDECK_OPENAI_AGENTS_TRACING_ENABLED")
+    return raw is not None and raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _agent_of(spec: InvocableSpec) -> Agent[Any]:

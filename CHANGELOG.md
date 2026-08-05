@@ -38,6 +38,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   one run's status or find waiting runs — same results, no longer O(session
   history) per resume or per listing.
 
+### Fixed
+- The OpenAI Agents engine no longer runs the SDK's default trace exporter on
+  keyless/fake-model runs (tests, CI, the M0 demo): it now passes a `RunConfig`
+  with tracing disabled unless `AGENTDECK_OPENAI_AGENTS_TRACING_ENABLED=true` is
+  set, so a bare checkout no longer logs a non-fatal `Tracing client error 401`
+  or attempts an unsanctioned outbound HTTPS call.
+
 ## [2.0.0b2] - 2026-08-05
 
 Second beta of the v2 line: both real engines now run behind the
