@@ -399,6 +399,19 @@ is replaced on the next submit. `Runtime.drain()` flushes the queues and then st
 consumers, racing each flush against its consumer so one dead consumer cannot hang shutdown
 for every other sink.)*
 
+*(Amended 2026-08-05, hardening: every wait on this path is now bounded, because a sink
+blocked inside `emit` defeated every exit condition the flush had and hung shutdown outright.
+An `emit` that does not return within `EMIT_TIMEOUT` (5s) is abandoned and counted as a
+failed emit, so a wedged sink reaches the same breaker a raising one does; the shutdown flush
+has its own deadline (`SHUTDOWN_TIMEOUT`, 10s) and gives up rather than waiting. The dispatch's
+lifecycle is now explicit: `flush(timeout)` waits for the queued events to be *attempted* and
+leaves the dispatch usable, `close(timeout)` is terminal — after it, a submit is counted as a
+drop instead of starting a fresh consumer, and events still queued or in flight are added to
+the drop count so the counters match the loss reported in the log. A `CancelledError` a sink
+raises from its own `emit` is now a counted failure rather than a silently dead consumer; only
+a genuine cancellation (`close`, loop shutdown) still ends a consumer, and that path replaces
+it on the next submit as before.)*
+
 *(A sink with guaranteed delivery is a deliberate non-goal today. A blocking/backpressure
 policy was built and then removed before merge: no sink implementation needs it, and the only
 ways to keep it were a producer that waits forever or an amendment to NFR-6. Sinks are a lossy
