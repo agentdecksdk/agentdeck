@@ -144,3 +144,48 @@ source_modules =
     agentdeck.skills
 forbidden_modules =
     mcp
+
+# Langfuse as a sink (#77): tracing is a reader of the event stream now, so the Langfuse SDK
+# belongs to the telemetry adapter alone — an engine or a surface opening a span itself is
+# what left workflows untraced in the first place. `langfuse` is a top-level distribution,
+# so import-linter can name it directly; the MCP ban above needed ruff only because
+# `agents.mcp` is a subpackage. v1's `runtime/observability.py` still instruments the SDK for
+# v1 runs and stays deliberately outside this list, which is why `agentdeck.runtime` appears
+# here as its two v2 modules rather than whole.
+[importlinter:contract:langfuse-is-telemetry-private]
+name = only the telemetry adapter imports the Langfuse SDK (v2 modules)
+type = forbidden
+source_modules =
+    agentdeck.core
+    agentdeck.runtime.service
+    agentdeck.runtime.dispatch
+    agentdeck.adapters.stores
+    agentdeck.adapters.control
+    agentdeck.adapters.engines
+    agentdeck.adapters.tools
+    agentdeck.surfaces
+forbidden_modules =
+    langfuse
+
+# The sink reads events and writes spans, nothing else: deleting this directory must cost
+# Langfuse traces and not one behavior more.
+[importlinter:contract:telemetry-adapter-is-engine-free]
+name = the telemetry adapter imports core, settings and Langfuse only
+type = forbidden
+source_modules =
+    agentdeck.adapters.telemetry
+forbidden_modules =
+    agents
+    langgraph
+    fastapi
+    redis
+    agentdeck.adapters.control
+    agentdeck.adapters.engines
+    agentdeck.adapters.stores
+    agentdeck.adapters.tools
+    agentdeck.agents
+    agentdeck.workflows
+    agentdeck.skills
+    agentdeck.surfaces
+    agentdeck.serve
+    agentdeck.app

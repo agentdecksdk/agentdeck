@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
+from never_yields import NeverYields
 
 from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
@@ -207,13 +208,17 @@ async def test_a_slow_sink_does_not_hold_up_the_stream() -> None:
     await runtime.drain()
 
 
-async def test_a_healthy_sink_sees_a_long_run_whole_even_though_the_run_never_waits() -> None:
-    """Nothing on the event path has to suspend — the memory store's append doesn't — so a
-    whole run can outrun the queue without the loop turning once. A sink that is keeping up
-    must not be charged for that: it is the producer that is fast, not the sink that is slow."""
+async def test_a_healthy_sink_sees_a_long_run_whole_even_when_the_store_never_yields_either() -> None:
+    """Liveness here is the dispatch's own job, not something borrowed from the store (issue
+    #87): wrapped in ``NeverYields``, not even the store's ``append`` hands the loop a turn,
+    so a whole run can still outrun the queue without the loop turning once except when the
+    dispatch decides to. A sink that is keeping up must not be charged for that — it is the
+    producer that is fast, not the sink that is slow — and this is the profile that proves it
+    without quietly relying on the store's own scheduling to cover for a dispatch regression."""
     spec = stub_spec("Firehose", *[TextDelta(message_id="m1", text=str(n)) for n in range(1000)], DONE)
     recorder = Recorder()
-    runtime = Runtime([StubEngine()], MemoryEventStore(), {spec.name: spec}, sinks=[recorder], clock=lambda: TS)
+    store = NeverYields(MemoryEventStore())
+    runtime = Runtime([StubEngine()], store, {spec.name: spec}, sinks=[recorder], clock=lambda: TS)
 
     events = [event async for event in runtime.run("Firehose", INPUT, CTX)]
     await runtime.drain()

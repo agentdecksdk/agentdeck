@@ -29,15 +29,36 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   wired `Runtime`, defaulting the mapping to discovery over `./.agentdeck` and
   the store to your settings. `App.load()` calls it and exposes the result as
   `App.runtime`, so an application that wants the canonical event stream for a
-  project no longer has to assemble a Runtime by hand. `App.aclose()` now flushes
-  the Runtime's sinks before closing Redis and MCP, so queued telemetry is not
-  lost at shutdown.
+  project no longer has to assemble a Runtime by hand. `App.aclose()` drains the
+  Runtime before closing Redis and MCP, so a sink registered through the seam
+  flushes at shutdown instead of dying with the event loop — `App` registers none
+  of its own yet, so today that drain is a no-op that keeps its own promise.
 - `AGENTDECK_EVENTS_BACKEND` / `AGENTDECK_EVENTS_URL` (YAML: `events:`) choose
   where the canonical event log goes: `memory` (the default — no configuration,
   no files, and a log that lives and dies with the process) or `sqlite` with
   `url` pointing at a file, for a log that survives a restart. A long-lived
   server on the default keeps its log in memory for as long as it runs; set the
   sqlite backend if that matters to you.
+- Langfuse tracing for **workflow** runs, not only agent runs
+  (`agentdeck.adapters.telemetry.langfuse`). `langfuse_sink()` hands back an
+  event sink — or `None` when Langfuse has no keys — to register where you build
+  the v2 `Runtime`: `Runtime(..., sinks=[s for s in (langfuse_sink(),) if s])`.
+  Each run becomes one Langfuse trace: the run itself is the trace, tool calls
+  are spans carrying their arguments and their result preview, hash and size
+  (an inline `data:...;base64,` payload in either is described, never sent —
+  Langfuse would otherwise upload the bytes to its media store),
+  workflow node updates are points on the timeline named for the node and the
+  state keys it touched, and reported token usage becomes Langfuse generations
+  so cost lands where the UI accounts it. It reads nothing but the event
+  stream, so an agent run and a workflow run are traced by exactly the same
+  code — and a run waiting on a human is visible while it waits, its answer
+  continuing the same trace even when it arrives in another worker. Sessions
+  map to Langfuse sessions and the run's principal to its user, so a
+  conversation is one filter away. Configuration is the `AGENTDECK_LANGFUSE_*`
+  settings you already have; with no keys, no sink is registered, and the
+  Langfuse SDK is never even imported. Needs the `[observability]` extra. v1's
+  tracing is unchanged — a v1 agent run with both paths active is reported
+  twice.
 - `InvocableRegistry` (`agentdeck.runtime.discovery`): the v2 Runtime's list of
   what it can run is now discovered from your `./.agentdeck/` project instead of
   written out by hand at every entry point. `InvocableRegistry(engines).load()`
@@ -65,14 +86,33 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `sqlite3` exception is kept as the cause for diagnosis.
 
 ### Changed
-- `POST /agents/{name}/chat` requires `message` to be a string. The documented
-  body always was one; a JSON object or array in that field used to be handed
-  straight to the SDK and now fails the request. Multi-part input (images,
-  resources) arrives as typed content blocks in a later release.
+- `POST /agents/{name}/chat` now answers **422** for a `message` that is not a
+  string, where the SDK used to accept two more shapes: a message object
+  (`{"role": ..., "content": ...}`) and a list of SDK input items. Both used to
+  work and now fail the request with `{"detail": "message must be a string: ..."}`
+  rather than a server error. Multi-part input (images, resources) returns as
+  typed content blocks in a later release; a plain string is unaffected.
 - A project where an agent class and a workflow class share one name now fails at
   `App.load()` with a message naming both, instead of loading two invocables that
   the HTTP surface could not tell apart. Two bundles of the same kind exporting
   one class name still collapse to a single invocable, as before.
+- The streamed `done` frame serializes a structured `output_type` result the same
+  way the non-streamed body always has, so the two agree. Only nested values
+  whose JSON form differs from `str()` change: a `datetime` in a structured output
+  is now `"2026-08-06T12:34:56Z"` on the streamed frame, where it used to be
+  `"2026-08-06 12:34:56+00:00"`. Text output — the overwhelming majority — is
+  byte-identical.
+- `POST /agents/{name}/chat` without `?stream=true` drives the SDK's streaming
+  API internally (the streamed and non-streamed endpoints are now one code path
+  that differs only in how it answers). Same model, same settings, same result;
+  worth knowing if your provider behaves differently between its streaming and
+  non-streaming endpoints, or gates streaming behind account verification.
+- `MemoryEventStore.append` now yields one scheduling turn (`await asyncio.sleep(0)`)
+  before returning, matching what every durable store already does (SQLite's own
+  `to_thread`). Fidelity, not correctness: a caller whose liveness secretly depended
+  on the in-memory store never suspending — the way the bounded sink dispatch briefly
+  did, before its own fix — is now exercised the same way it would be against a real
+  deployment, in dev and in tests, instead of only by measurement in production.
 - MCP now lives in `agentdeck.adapters.tools.mcp` (registry, hardened HTTP
   transport, agent wiring — all unchanged). `from agentdeck.agents.mcp import ...`,
   `from agentdeck.agents.mcp.lifecycle import ...` and `from agentdeck.agents
