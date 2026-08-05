@@ -260,7 +260,7 @@ async def test_uc1_handoff_chat_end_to_end(capsys: pytest.CaptureFixture[str]) -
     assert payload.result_size == len(LONG_RESULT.encode())
     assert payload.result_sha256 == hashlib.sha256(LONG_RESULT.encode()).hexdigest()
 
-    session = sessions.session_for(SESSION_ID)
+    session = sessions.session_for(ctx)
     sdk_items = await session.get_items()
     sdk_tool_outputs = [
         item["output"]

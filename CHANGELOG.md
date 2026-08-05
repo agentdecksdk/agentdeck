@@ -15,7 +15,9 @@ they move under a version heading when a release is tagged.
   handoff). Joins the stub in the contract suite (`tests/contract/openai_agents_cases.py`).
   `runtime/sessions.py`'s `SessionFactory` relocates into the adapter as its private
   execution store (ADR-D5) — kept, not rewritten; the old import path re-exports it for
-  `agentdeck/app.py` (v1), unchanged.
+  `agentdeck/app.py` (v1), unchanged. `ExecutionStore.session_for` takes the run's
+  `RunContext` and scopes the SDK session key by tenant, so two tenants picking the same
+  session id never share one conversation.
 - `agentdeck.adapters.stores.sqlite`: a durable `SessionStorePort`, same append-only,
   per-run-`seq` contract as the memory store (`tests/test_sqlite_store.py`).
 - `agentdeck.surfaces.serve`/`agentdeck.surfaces.cli`: a deliberately crude SSE route and

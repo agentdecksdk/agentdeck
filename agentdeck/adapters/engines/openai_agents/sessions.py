@@ -20,6 +20,7 @@ from redis.asyncio import Redis
 if TYPE_CHECKING:
     from agents.memory.session import Session
 
+    from agentdeck.core.context import RunContext
     from agentdeck.runtime.settings import SessionSettings
 
 
@@ -61,25 +62,36 @@ class SessionFactory:
 
 
 class ExecutionStore:
-    """The engine's execution memory, keyed by ``RunContext.log_key`` (session, or the run
-    itself when there is no session).
+    """The engine's execution memory, keyed by ``(tenant, RunContext.log_key)`` — session,
+    or the run itself when there is no session.
 
     Not the event log: this is engine-native state (ADR-D5) that only ``OpenAIAgentsEngine``
     reads. ``session_factory`` set means Redis-backed and shared across processes; unset
     falls back to one in-process ``SQLiteSession`` per key, so tests and the M0 skeleton
-    need no network.
+    need no network. The tenant prefix matters even though ``log_key`` is usually a
+    server-generated session id: two tenants are free to pick the same one, and without
+    it their conversations would share one SDK session — exactly the isolation the event
+    stores already enforce (``adapters/stores/memory``'s tenant-scoped buckets).
     """
 
     def __init__(self, session_factory: SessionFactory | None = None) -> None:
         self._session_factory = session_factory
-        self._local: dict[str, Session] = {}
+        # Precisely SQLiteSession, not the broader Session protocol: aclose() below
+        # needs its close(), which isn't part of SessionABC.
+        self._local: dict[str, SQLiteSession] = {}
 
-    def session_for(self, key: str) -> Session:
+    def session_for(self, ctx: RunContext) -> Session:
+        key = f"{ctx.tenant}:{ctx.log_key}"
         if self._session_factory is not None:
             return self._session_factory.session_for(key)
         return self._local.setdefault(key, SQLiteSession(key))
 
     async def aclose(self) -> None:
+        # ponytail: SQLiteSession.close() is sync and cheap for the :memory:/local-file
+        # fallback this is — a pool with async teardown is follow-up work if a real
+        # deployment ever wants the local path instead of Redis.
+        for session in self._local.values():
+            session.close()
         if self._session_factory is not None:
             await self._session_factory.aclose()
 

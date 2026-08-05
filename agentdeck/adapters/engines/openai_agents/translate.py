@@ -64,8 +64,21 @@ def _tool_call_started(item: Any, tool_names: dict[str, str]) -> KnownPayload | 
     if call_id is None or name is None:
         return None  # non-function tool call (e.g. computer use) — out of scope for M0
     tool_names[call_id] = name
-    args = json.loads(raw.arguments) if getattr(raw, "arguments", None) else {}
+    args = _parse_args(getattr(raw, "arguments", None))
     return ToolCallStarted(call_id=call_id, tool=name, args=args)
+
+
+def _parse_args(arguments: str | None) -> dict[str, Any]:
+    """Malformed model-emitted JSON degrades to a raw string field rather than killing the
+    run over a cosmetic payload attribute — the tool call itself still happened and is
+    still logged."""
+    if not arguments:
+        return {}
+    try:
+        parsed = json.loads(arguments)
+    except json.JSONDecodeError:
+        return {"_raw": arguments}
+    return parsed if isinstance(parsed, dict) else {"_raw": arguments}
 
 
 def _tool_call_completed(item: Any, tool_names: dict[str, str]) -> KnownPayload:

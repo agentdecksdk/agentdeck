@@ -49,7 +49,7 @@ class OpenAIAgentsEngine(EnginePort):
         ctx: RunContext,
     ) -> AsyncGenerator[KnownPayload, None]:
         agent = _agent_of(spec)
-        session = self._sessions.session_for(ctx.log_key)
+        session = self._sessions.session_for(ctx)
         result = Runner.run_streamed(agent, _to_sdk_input(input), session=session)
         tool_names: dict[str, str] = {}
         # The SDK's run loop is a detached task; an abandoned generator must cancel it
