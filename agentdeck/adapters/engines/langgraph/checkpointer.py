@@ -139,7 +139,7 @@ def _postgres_saver(url: str) -> BaseCheckpointSaver:
 
     # Async saver, same reason as sqlite: the engine always calls ``ainvoke``/``astream``.
     # ``from_conn_string`` is an async contextmanager owning the connection; we enter it
-    # manually and keep the saver for the process lifetime (see module docstring).
+    # manually and cache the saver, one connection for the process lifetime.
     saver: Any = _run_sync(AsyncPostgresSaver.from_conn_string(url).__aenter__())
     _run_sync(saver.setup())
     return saver
