@@ -25,10 +25,23 @@ pre-commit install          # ruff + ty + hygiene hooks on every commit
 ## Before you push
 
 ```bash
-make check                  # lint + typecheck + tests — CI runs exactly this
+make check                  # lint + typecheck + lint-imports + tests — CI runs exactly this
 ```
 
+## Docs are part of the change, not a follow-up
+
+- **`docs-site/` is the canonical user-facing contract** and `docs/` is never
+  published. A PR that changes user-visible behavior (HTTP/SSE surface, CLI,
+  events, run control) updates the affected `docs-site/` pages in the same PR —
+  anti-rot tests parse the site's code samples, so a stale sample fails CI.
+- **When implementation diverges from a design doc**, the same PR amends the doc
+  with a dated note. Never code around a doc silently.
+- **Every user-visible change gets a CHANGELOG entry** under **Unreleased**.
+
 ## Ground rules
+
+The full standards live in **`docs/coding-standards.md`** — read it before any
+non-trivial change; this list is the two-minute version.
 
 - **agentdeck owns configuration, not execution.** Execution stays in the
   OpenAI Agents SDK / LangGraph. If your change runs things, it belongs in a
@@ -45,5 +58,10 @@ make check                  # lint + typecheck + tests — CI runs exactly this
   bullet.
 - **Every non-trivial change lands with a test.** No frameworks beyond pytest.
 - **New dependencies need a reason** the stdlib or an existing dep can't cover.
+- **`core/` imports stdlib + pydantic only** — no exceptions; import-linter
+  enforces it. New event kinds and envelope changes land only in dedicated
+  schema PRs.
+- **Goldens never auto-update.** `tests/golden/` and `tests/core/snapshots/`
+  change only via `make golden`, deliberately, with the reason in the PR.
 - Optional integrations (Langfuse, MCP) must degrade gracefully when
   unconfigured — never crash an unconfigured run.
