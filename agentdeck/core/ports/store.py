@@ -43,11 +43,17 @@ class EventStorePort(ABC):
         the Runtime yields to consumers immediately after."""
 
     @abstractmethod
-    async def read(self, log_key: str, ctx: RunContext, after: int = 0, limit: int | None = None) -> list[Event]:
-        """Events in append order, oldest first. ``after`` skips that many events from the
-        start (0 = from the start); ``limit`` caps how many come back, ``None`` for the
-        rest. Safe to page with a plain counter: the log only ever grows at the end, so an
-        earlier page never shifts under a later read."""
+    async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
+        """Events in append order, oldest first. ``offset`` is a count of events to skip from
+        the start of the log, not a ``seq`` cursor — ``seq`` restarts per run, so it cannot
+        address a position in a log that holds several. ``limit`` caps how many come back,
+        ``None`` for the rest.
+
+        Safe to page with a plain counter: the log only ever grows at the end, so an earlier
+        page never shifts under a later read. A negative ``offset`` means the same as 0; a
+        negative ``limit`` is a caller bug and raises ``ValueError`` rather than quietly
+        meaning "all" in one store and "none" in another.
+        """
 
     @abstractmethod
     async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
@@ -67,20 +73,16 @@ class EventStorePort(ABC):
         """
 
     @abstractmethod
-    async def list_log_keys(self, ctx: RunContext) -> list[str]:
-        """Every log key with at least one event for this tenant.
-
-        What a pending-interrupts listing scans instead of keeping its own in-memory
-        registry of runs — that registry would be exactly the kind of status-from-memory
-        bug a process restart is supposed to expose.
-        """
-
-    @abstractmethod
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
-        """Every run for this tenant, optionally narrowed to one status.
+        """Every run for this tenant that has recorded a lifecycle transition, across all of
+        the tenant's logs, optionally narrowed to one status.
 
-        A store is free to enumerate however it can index (a distinct scan over run
-        identity), rather than folding every log it owns just to answer "which ones".
+        A run with no transition yet is ``PENDING``, which is indistinguishable from a run
+        this store has never heard of — so a listing cannot meaningfully report it, and both
+        stores leave it out. Every run the Runtime starts records ``run.started`` first.
+
+        A store is free to enumerate however it can index — the point of this query is that
+        finding waiting runs must not cost a fold of every log the tenant owns.
         """
 
     async def run_status(self, log_key: str, run_id: str, ctx: RunContext) -> RunStatus:

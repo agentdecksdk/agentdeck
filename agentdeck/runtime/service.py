@@ -219,6 +219,10 @@ class Runtime:
         registry — a registry would go stale the moment a process restarted, which is
         exactly the bug this avoids. Only the matched runs get a (bounded, per-run) read,
         to pull the interrupt's ``thread_id`` and ``payload``.
+
+        The listing and those reads are two snapshots, so a run can be resumed between them
+        and come back already answered. That is harmless: ``_claim_resume`` re-checks status
+        under the lock, so acting on a stale entry is a no-op, not a double resume.
         """
         out: list[PendingRun] = []
         for summary in await self._store.list_runs(ctx, status=RunStatus.WAITING_HUMAN):
