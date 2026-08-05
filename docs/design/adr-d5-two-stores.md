@@ -194,9 +194,13 @@ the session is left untouched — it is the authority on execution, and a wrong 
 tail (duplicated or reordered messages) is worse than the gap — and the run emits
 `custom(openai_agents.session_diverged)` with the two message counts, so the disagreement
 enters the record instead of only a log line nobody reads. A session merely *ahead* of the log
-is not a divergence and is silent: an input the log deliberately leaves out (below) is enough
-to put it there. Tool calls, tool results and reasoning items are never replayed — the log's
-copies are truncated or absent, so message level is the ceiling, exactly as §3 says.
+is not a divergence and is silent — an input the log deliberately leaves out (below) is enough
+to put it there. That silence is exactly why the skip below has to be narrow: an input dropped
+from the middle of the transcript rather than its end is a *misalignment*, it reports a
+divergence that never heals, and, because divergence stops the replay, it disables
+reconciliation for that session from then on. Tool calls, tool results and reasoning items are
+never replayed — the log's copies are truncated or absent, so message level is the ceiling,
+exactly as §3 says.
 
 **§4's "byte-exact model context" no longer holds for a repaired session.** A repair writes
 plain text where an intact session held paired tool-call/tool-result items and reasoning
@@ -207,16 +211,28 @@ across turns *until* a crash forces a repair, transcript-level after one. Accept
 the alternative is a turn the model cannot see at all; a deployment that needs the stronger
 property has to treat a repair as a signal, which is the second reason the event above exists.
 
-**An abandoned turn's input is not replayed.** `run.started` records that a turn was asked
-for, not that the engine took it. A consumer that disconnects before the engine reads anything
-(the ordinary SSE-disconnect path, which the Runtime closes with `run.cancelled`) leaves a
-question the session never saw and the user is about to ask again — replaying it would land a
-copy in front of its own retry. So any run whose log ends in `run.cancelled` contributes no
-input. Crash cases are unaffected: a dead session write shows up as `run.failed`, and a
-SIGKILLed run has no terminal event at all. **Stated limitation:** an input the engine
-*rejected* also shows up as `run.failed` (`_to_sdk_input` refuses non-text blocks), and the
-log cannot distinguish that from a session write that died, so such an input is replayed on
-the next turn. Fixing it needs the log to record engine acceptance, which is a schema change.
+**An abandoned turn's input is not replayed — but only a turn that got nowhere counts as
+abandoned.** `run.started` records that a turn was asked for, not that the engine took it. A
+consumer that disconnects before the engine reads anything (the ordinary SSE-disconnect path,
+which the Runtime closes with `run.cancelled`) leaves a question the session never saw and the
+user is about to ask again; replaying it would land a copy in front of its own retry. So a run
+is skipped when it is cancelled **and** logged no `message.completed`. The qualification is
+load-bearing, not caution: the SDK persists a turn's input and its output items together, so a
+turn cancelled *after* its answer is in the session whole, and dropping just its input would
+misalign the transcripts in the middle and disable reconciliation for that session (above).
+Crash cases are unaffected: a dead session write shows up as `run.failed`, and a SIGKILLed run
+has no terminal event at all.
+
+**Two stated limitations of reading acceptance off the log.** An input the engine *rejected*
+shows up as `run.failed` (`_to_sdk_input` refuses non-text blocks), indistinguishable from a
+session write that died, so it is replayed on the next turn. And a cancelled turn that got as
+far as a *tool call* but no message is persisted by the SDK while logging no
+`message.completed`, so it is treated as abandoned and misaligns the same way. Both come from
+the same root: the log records what was asked and what was produced, never what the SDK chose
+to persist. A fully general answer accepts *either* transcript — with the skip and without it —
+as a valid prefix of the session, and replays against the strict one only; that is more
+machinery than the reachable cases justify today, and it is written down here rather than
+built.
 
 **Concurrency is single-process.** Read-then-append is atomic under a per-session
 `asyncio.Lock`, so two turns racing on one session inside one server cannot both apply the

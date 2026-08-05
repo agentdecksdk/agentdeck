@@ -207,6 +207,50 @@ async def test_a_question_the_consumer_abandoned_is_not_replayed_in_front_of_its
     assert worker.transcript_of(model.inputs[-1]) == [*FIRST_EXCHANGE, ["user", worker.QUESTION_2]]
 
 
+async def test_a_turn_cancelled_after_its_answer_keeps_both_of_its_messages() -> None:
+    """The other half of that rule, and the one that is easy to get wrong. A consumer that
+    disconnects *after* the answer leaves a turn the SDK has already persisted whole: input and
+    output are both in the session. Dropping its input as "never taken" would misalign the two
+    transcripts from that message on — every later turn would report a false divergence and,
+    worse, refuse to repair anything, so a real gap after it would never be filled.
+    """
+    model = worker.ScriptedModel(worker.ANSWER_1)
+    sessions = _CrashingSessions()
+    runtime, store = _build(model, sessions)
+
+    await _play(runtime, worker.QUESTION_1, "turn-1")
+
+    # Stop reading the moment the answer is in the log, then wait for the SDK's own write of
+    # that turn to land before closing: the shape under test is a turn the session *has*.
+    stream = runtime.run(worker.AGENT, coerce_input(worker.QUESTION_2), worker.context("stopped"))
+    async with asyncio.timeout(WORKER_TIMEOUT):
+        while (await anext(stream)).kind != "message.completed":
+            pass
+        while len(worker.transcript_of(await sessions.session.get_items())) < 4:
+            await asyncio.sleep(0.01)
+    await stream.aclose()
+
+    kinds = [event.kind for event in await store.read(worker.SESSION_ID, worker.context("reader"))]
+    assert kinds[-1] == "run.cancelled", kinds
+    second_turn = [*FIRST_EXCHANGE, ["user", worker.QUESTION_2], ["assistant", worker.ANSWER_1]]
+    assert worker.transcript_of(await sessions.session.get_items()) == second_turn
+
+    # A real gap after it, of the kind this whole module exists for.
+    sessions.session.writes_fail = True
+    with pytest.raises(SessionWriteDiedError):
+        await _play(runtime, worker.QUESTION_3, "crashed")
+    sessions.session.writes_fail = False
+
+    events = await _play(runtime, QUESTION_4, "after")
+
+    assert [event.kind for event in events if event.kind == "custom"] == [], "nothing here is a divergence"
+    assert worker.transcript_of(model.inputs[-1]) == [
+        *second_turn,
+        ["user", worker.QUESTION_3],
+        ["user", QUESTION_4],
+    ]
+
+
 async def test_a_session_that_diverged_from_the_log_is_left_alone_and_says_so() -> None:
     """Message-level replay only repairs a session the log's prefix still describes. A
     session holding something the log never recorded is the authority on execution, so the
@@ -328,6 +372,15 @@ async def test_a_turn_a_killed_process_never_wrote_to_its_session_survives_the_r
 
     after = await store.read(worker.SESSION_ID, reader)
     assert [event.kind for event in after if event.kind == "custom"] == [], "a plain gap is not a divergence"
+
+    # Only the missing question was replayed, not the conversation around it: turn 1's answer is
+    # still the SDK's own item, ids and all. A rewrite from the log would have flattened it to
+    # plain text, which the transcript above cannot tell apart from a targeted repair.
+    items = await worker.durable_session(tmp_path).get_items()
+    answers = [item for item in items if item.get("role") == "assistant"]
+    assert all(item.get("id") for item in answers), f"an answer was rewritten as plain text: {answers}"
+    assert items[2] == {"role": "user", "content": worker.QUESTION_2}, items
+    assert len(items) == 5, f"one question was replayed, nothing else: {items}"
     assert worker.transcript_of(await worker.durable_session(tmp_path).get_items()) == _log_transcript(after)
     store.close()
 

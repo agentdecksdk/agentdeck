@@ -13,11 +13,12 @@ keeps holding it for the rest of that conversation. The model can then see an an
 evidence of the tool call behind it. Accepted deliberately — the alternative is a turn the
 model cannot see at all.
 
-Two things are never replayed. An abandoned run's input: ``run.started`` says a turn was
-asked for, not that the engine took it, so replaying it would land in front of the question
-the user is about to retry. And anything at all into a session that has gone somewhere the
-log's prefix does not cover: that session is the authority on execution, a wrong guess about
-its tail is worse than a gap, and the disagreement is reported instead.
+Two things are never replayed. The input of a run cancelled before it produced anything:
+``run.started`` says a turn was asked for, not that the engine took it, so replaying it would
+land in front of the question the user is about to retry. And anything at all into a session
+that has gone somewhere the log's prefix does not cover: that session is the authority on
+execution, a wrong guess about its tail is worse than a gap, and the disagreement is reported
+instead.
 """
 
 from __future__ import annotations
@@ -64,10 +65,9 @@ async def reconcile(session: Session, history: Sequence[Event]) -> Custom | None
     logged = _log_transcript(history)
     if not logged:
         return None
-    # Read-then-append is atomic only under this lock, so two turns racing on one session in
-    # one process cannot both apply the same repair and double the conversation. One process is
-    # as far as it reaches: two servers on one session are stopped at the door by the session
-    # claim of #83, never by anything here.
+    # Read-then-append is atomic only under this lock: two turns racing on one session would
+    # otherwise both apply the same repair and double the conversation. One process is as far as
+    # it reaches — two servers on one session are stopped at the door by #83's session claim.
     async with _lock_for(session.session_id):
         stored = _session_transcript(await session.get_items())
         shared = min(len(stored), len(logged))
@@ -86,8 +86,8 @@ async def reconcile(session: Session, history: Sequence[Event]) -> Custom | None
             )
         missing = logged[len(stored) :]
         if not missing:
-            # Equal, or the session is ahead — which an input the log deliberately leaves out
-            # (an abandoned turn the engine did take) is enough to cause, with nothing to add.
+            # Equal, or the session is ahead: an abandoned turn the engine had in fact started
+            # leaves an input in the session the log skips, and there is nothing to add for it.
             return None
         logger.info("replaying %d logged message(s) the session is missing into %s", len(missing), session.session_id)
         await session.add_items([_as_item(role, text) for role, text in missing])
@@ -111,12 +111,16 @@ def _log_transcript(history: Sequence[Event]) -> list[Message]:
     assistant's side on ``message.completed``. Deltas are streaming UX and tool traffic is not
     message level, so neither belongs here.
 
-    An abandoned run contributes no input: a consumer that walked away (``run.cancelled``) may
-    well have done so before the engine read anything, and the user's retry would then arrive
-    behind a copy of itself. A *failed* run keeps its input, because a session write that died
-    is exactly what a failure looks like from the log.
+    A run that was cancelled *before it got anywhere* contributes no input: the consumer walked
+    away before the engine read anything, so the session never saw that question and the user's
+    retry would arrive behind a copy of itself. Cancelled after an answer is the opposite case —
+    the SDK persists a turn's input and its output together, so both are in the session and
+    dropping the input would misalign the two transcripts on every later turn. A *failed* run
+    also keeps its input, because a session write that died is what a failure looks like here.
     """
-    abandoned = {event.run_id for event in history if isinstance(event.payload, RunCancelled)}
+    cancelled = {event.run_id for event in history if isinstance(event.payload, RunCancelled)}
+    answered = {event.run_id for event in history if isinstance(event.payload, MessageCompleted)}
+    abandoned = cancelled - answered
     transcript: list[Message] = []
     for event in history:
         payload = event.payload

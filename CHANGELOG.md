@@ -69,10 +69,11 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   Messages only, in content and order: tool results and model reasoning are not
   reconstructed, so a conversation repaired this way carries the *text* of a tool
   answer without the tool call behind it — worth knowing if you read model context
-  back. A turn a client disconnected from is never replayed, so retrying a question
-  does not send it twice, and conversation state that has diverged from the log
-  rather than fallen behind it is left untouched and reported on the run as
-  `custom` / `openai_agents.session_diverged`. LangGraph workflows are unaffected —
+  back. A turn a client disconnected from before the first token is never replayed,
+  so retrying that question does not send it twice; a turn that was answered before
+  the client went away keeps both its messages. Conversation state that has diverged
+  from the log rather than fallen behind it is left untouched and reported on the run
+  as `custom` / `openai_agents.session_diverged`. LangGraph workflows are unaffected —
   a checkpoint is written by the graph step itself, so there is no gap between two
   writes to repair.
 
