@@ -11,7 +11,7 @@ many test functions with the same ``ctx.run_id``).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, TypedDict
 
 from case_types import Case
 from langgraph.graph import END, START, StateGraph
@@ -20,15 +20,24 @@ from agentdeck.adapters.engines.langgraph import LangGraphEngine
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 
 
-def _node_a(_state: dict[str, Any]) -> dict[str, Any]:
+class _State(TypedDict, total=False):
+    """A ``TypedDict`` schema, not a bare ``dict``: langgraph gives each field its own
+    channel only then, so a node's return shallow-merges into state instead of replacing
+    it outright — the same contract ``NodeUpdated.state_patch`` documents for consumers."""
+
+    out: str
+    decision: str
+
+
+def _node_a(_state: _State) -> _State:
     return {"out": "done"}
 
 
-def _boom(_state: dict[str, Any]) -> dict[str, Any]:
+def _boom(_state: _State) -> _State:
     raise RuntimeError("engine blew up")
 
 
-def _interrupts(_state: dict[str, Any]) -> dict[str, Any]:
+def _interrupts(_state: _State) -> _State:
     from langgraph.types import interrupt
 
     value = interrupt({"reason": "approval", "question": "approve?"})
@@ -36,7 +45,7 @@ def _interrupts(_state: dict[str, Any]) -> dict[str, Any]:
 
 
 def _graph(*nodes: tuple[str, Any]) -> StateGraph[Any]:
-    g: StateGraph[Any] = StateGraph(dict)
+    g: StateGraph[Any] = StateGraph(_State)
     names = [name for name, _ in nodes]
     for name, fn in nodes:
         g.add_node(name, fn)

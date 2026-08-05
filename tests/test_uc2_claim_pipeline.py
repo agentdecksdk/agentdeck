@@ -18,15 +18,18 @@ import os
 import subprocess
 import sys
 import textwrap
-from typing import Any
+from typing import Any, TypedDict
 
 import httpx
 import pytest
+from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
 from agentdeck.adapters.engines.langgraph import LangGraphEngine, resolve_checkpointer
+from agentdeck.adapters.engines.langgraph.engine import _to_graph_input
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
+from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import check_contiguous, check_terminal, parse_event
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
@@ -43,17 +46,27 @@ PRINCIPAL = "user:demo"
 SESSION_ID = "s1"
 
 
-def _validate(state: dict[str, Any]) -> dict[str, Any]:
+class ClaimState(TypedDict, total=False):
+    """A ``TypedDict`` schema, not a bare ``dict``: langgraph gives each field its own
+    channel only then, so ``approve``'s return shallow-merges into state instead of
+    replacing it outright — the contract ``NodeUpdated.state_patch`` documents."""
+
+    input: str
+    claim_id: str
+    decision: str
+
+
+def _validate(state: ClaimState) -> ClaimState:
     return {"claim_id": state["input"].rsplit(" ", 1)[-1]}
 
 
-def _approve(state: dict[str, Any]) -> dict[str, Any]:
+def _approve(state: ClaimState) -> ClaimState:
     decision = interrupt({"reason": "approval", "claim_id": state["claim_id"], "question": "approve this claim?"})
     return {"decision": decision}
 
 
 def _claim_pipeline_graph() -> StateGraph[Any]:
-    g: StateGraph[Any] = StateGraph(dict)
+    g: StateGraph[Any] = StateGraph(ClaimState)
     g.add_node("validate", _validate)
     g.add_node("approve", _approve)
     g.add_edge(START, "validate")
@@ -132,6 +145,35 @@ async def test_uc2_claim_pipeline_survives_a_restart(tmp_path: Any) -> None:
     assert node_updates == ["validate", "approve"]  # validate did not re-run after the restart
 
 
+async def test_langgraph_transcript_fidelity() -> None:
+    """ADR-D5's contract for this engine: the checkpointer's own final state (execution
+    state) must equal the event log's state, reconstructed by shallow-merging every
+    ``node.updated`` patch onto the graph's initial input — nothing that entered or left
+    execution state is missing from the log.
+    """
+    checkpointer = MemorySaver()
+    engine = LangGraphEngine(checkpointer=checkpointer)
+    store = SqliteEventStore()
+    runtime = Runtime([engine], store, {"ClaimPipeline": _spec()})
+    ctx = RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="fidelity-1", trace_id="t", session_id="fidelity")
+
+    events = [event async for event in runtime.run("ClaimPipeline", coerce_input("claim 7777"), ctx)]
+    thread_id = events[-1].payload.thread_id
+    assert thread_id is not None
+    events += [event async for event in runtime.resume("ClaimPipeline", thread_id, "approved", ctx)]
+
+    log_state: dict[str, Any] = dict(_to_graph_input(events[0].payload.input))
+    for event in events:
+        if event.kind == "node.updated":
+            log_state.update(event.payload.state_patch)
+
+    compiled = _claim_pipeline_graph().compile(checkpointer=checkpointer)
+    engine_state = await compiled.aget_state({"configurable": {"thread_id": thread_id}})
+
+    assert log_state == engine_state.values
+    assert log_state == {"input": "claim 7777", "claim_id": "7777", "decision": "approved"}
+
+
 _RESTART_SCRIPT = """
 import asyncio, sys
 from agentdeck.adapters.engines.langgraph import LangGraphEngine, resolve_checkpointer
@@ -153,7 +195,14 @@ def _approve(state):
 
 
 def _spec():
-    g = StateGraph(dict)
+    from typing import TypedDict
+
+    class ClaimState(TypedDict, total=False):
+        input: str
+        claim_id: str
+        decision: str
+
+    g = StateGraph(ClaimState)
     g.add_node("validate", _validate)
     g.add_node("approve", _approve)
     g.add_edge(START, "validate")
