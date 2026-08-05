@@ -102,6 +102,21 @@ before every tool dispatch — a new safe point is a documented contract change,
 convenience. Use `asyncio.timeout` for deadlines; tasks are created with owners
 (no fire-and-forget `create_task` without a supervision/cleanup story).
 
+**Liveness is self-supplied, never borrowed** (issue #87): a component that must make
+progress under any conditions creates its own scheduling opportunity — it may never assume
+some other component in the same path happens to yield on its behalf. `SinkDispatch.submit`'s
+`await asyncio.sleep(0)` on a full queue is the canonical example: the dispatcher's consumer
+needs a turn to keep the sink's backlog moving, and the dispatcher supplies that turn itself
+rather than trusting the store, the engine, or anything else upstream to suspend first — the
+bug this law generalizes was a healthy sink silently losing most of a run because nothing else
+in the path happened to yield with the memory store, and did with SQLite only by accident. This
+is *not* a rule that every `async def` must contain a suspending `await` — a cache hit, a
+buffered write, a batching store between flushes, or a no-op sink is a legitimate
+non-suspending coroutine, and forcing a yield into every such call would cost a loop turn per
+call for nothing while misdescribing a genuinely fast path. The law is about *dependence*, not
+*shape*: nothing may need a yield that only happens to arrive courtesy of a neighboring
+component's own implementation detail.
+
 ## 7. Events and schema code
 
 The schema in `core/events.py` is governed by D8/D9/D10 (see PR #1 spec — authoritative).
