@@ -8,6 +8,7 @@ from agentdeck.core.ports.control import ControlPort, Gate, RunCancelledError, S
 from agentdeck.core.ports.engine import EnginePort
 from agentdeck.core.ports.sink import EventSinkPort
 from agentdeck.core.ports.store import EventStorePort, RunSummary
+from agentdeck.core.ports.tools import ToolSet, ToolSourcePort
 
 __all__ = [
     "ControlPort",
@@ -18,4 +19,6 @@ __all__ = [
     "RunCancelledError",
     "RunSummary",
     "Signal",
+    "ToolSet",
+    "ToolSourcePort",
 ]

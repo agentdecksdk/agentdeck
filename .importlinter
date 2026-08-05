@@ -115,6 +115,32 @@ source_modules =
     agentdeck.adapters.engines.openai_agents
     agentdeck.adapters.control.memory
     agentdeck.adapters.control.sqlite
+    agentdeck.adapters.tools.mcp
     agentdeck.surfaces
 forbidden_modules =
     langgraph
+
+# MCP relocation (#78): the MCP client is the tool adapter's alone, so a second consumer of
+# it can't quietly appear next to an engine or a surface. The list is everything except
+# `agentdeck.adapters.tools.mcp` — including the openai-agents engine, which may import
+# `agents` but gets its MCP servers as opaque handles off a `ToolSet`, never by reaching for
+# the SDK itself. Names the `mcp` distribution: import-linter cannot express `agents.mcp`
+# (subpackages of external packages aren't valid contract targets), and `agents` is already
+# forbidden outside the engine adapters and this one by the contracts above.
+[importlinter:contract:mcp-sdk-is-tool-adapter-private]
+name = only the MCP tool adapter imports the MCP SDK
+type = forbidden
+source_modules =
+    agentdeck.core
+    agentdeck.runtime
+    agentdeck.adapters.stores
+    agentdeck.adapters.control
+    agentdeck.adapters.engines
+    agentdeck.surfaces
+    agentdeck.serve
+    agentdeck.app
+    agentdeck.agents
+    agentdeck.workflows
+    agentdeck.skills
+forbidden_modules =
+    mcp
