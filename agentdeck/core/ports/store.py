@@ -42,5 +42,14 @@ class SessionStorePort(ABC):
         calls to refetch after spotting a gap.
         """
 
+    @abstractmethod
+    async def list_log_keys(self, ctx: RunContext) -> list[str]:
+        """Every log key with at least one event for this tenant.
+
+        What a pending-interrupts listing scans instead of keeping its own in-memory
+        registry of runs — that registry would be exactly the kind of status-from-memory
+        bug a process restart is supposed to expose.
+        """
+
 
 __all__ = ["SessionStorePort"]

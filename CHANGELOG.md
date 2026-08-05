@@ -9,6 +9,12 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 ## [Unreleased]
 
 ### Added
+- LangGraph engine adapter (`agentdeck.adapters.engines.langgraph`): runs graph
+  workflows behind `EnginePort`, surviving process restarts — an interrupted run's
+  status and resume point persist, and resuming continues the same event sequence
+  with no duplicates. A new `GET /pending` / `POST /resume` surface lists and
+  answers interrupted runs; resuming the same run twice at once resolves exactly
+  once, and resuming a run that already finished is a no-op rather than an error.
 - OpenAI Agents engine adapter (`agentdeck.adapters.engines.openai_agents`):
   runs a pre-built `agents.Agent` — handoffs and tools included — behind
   `EnginePort`, streaming the canonical events (`text.delta`,

@@ -39,5 +39,8 @@ class MemoryEventStore(SessionStorePort):
         log = self._logs.get((ctx.tenant, log_key), ())
         return [event for event in log if event.run_id == run_id and event.seq >= from_seq]
 
+    async def list_log_keys(self, ctx: RunContext) -> list[str]:
+        return [log_key for tenant, log_key in self._logs if tenant == ctx.tenant]
+
 
 __all__ = ["MemoryEventStore"]

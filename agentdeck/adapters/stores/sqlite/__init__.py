@@ -69,6 +69,10 @@ class SqliteEventStore(SessionStorePort):
             rows = await asyncio.to_thread(self._select_run, ctx.tenant, log_key, run_id, from_seq)
         return [parse_event(json.loads(row)) for row in rows]
 
+    async def list_log_keys(self, ctx: RunContext) -> list[str]:
+        async with self._lock:
+            return await asyncio.to_thread(self._select_log_keys, ctx.tenant)
+
     def _insert(self, rows: list[tuple[str, str, str, int, str]]) -> None:
         self._conn.executemany("INSERT INTO events (tenant, log_key, run_id, seq, data) VALUES (?, ?, ?, ?, ?)", rows)
         self._conn.commit()
@@ -84,6 +88,10 @@ class SqliteEventStore(SessionStorePort):
             "SELECT data FROM events WHERE tenant = ? AND log_key = ? AND run_id = ? AND seq >= ? ORDER BY id ASC",
             (tenant, log_key, run_id, from_seq),
         )
+        return [row[0] for row in cursor.fetchall()]
+
+    def _select_log_keys(self, tenant: str) -> list[str]:
+        cursor = self._conn.execute("SELECT DISTINCT log_key FROM events WHERE tenant = ?", (tenant,))
         return [row[0] for row in cursor.fetchall()]
 
     def close(self) -> None:
