@@ -8,6 +8,26 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Changed
+- `EventSinkPort.emit` must now return promptly: an emit that blocks longer
+  than the dispatch's `emit_timeout` (5s) is abandoned and counted as a
+  failure, and a sink that does it repeatedly is disabled like any other
+  broken sink. A sink whose work is slow buffers internally and flushes on
+  its own schedule.
+- `Runtime.drain()` is now terminal — it closes each sink rather than
+  pausing it, and returns within a bounded time even against a sink whose
+  `emit` never returns. Runs after a `drain()` reach no sinks.
+
+### Fixed
+- Shutdown no longer hangs forever on a wedged sink: every wait on the sink
+  path has a deadline.
+- Sink loss counters no longer under-report. Events still queued (and the one
+  in flight) when a sink is closed are counted as dropped, so the counters
+  agree with the log line that reports them; a sink that raises
+  `CancelledError` from its own `emit` is counted as a failure instead of
+  silently killing its consumer; and a clean shutdown with an empty queue no
+  longer logs a spurious "queued events go undelivered" error.
+
 ## [2.0.0b3] - 2026-08-05
 
 A hardening release: no new surface, sturdier runtime. Cancel a run from
