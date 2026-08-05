@@ -9,6 +9,24 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 ## [Unreleased]
 
 ### Added
+- Langfuse tracing for **workflow** runs, not only agent runs
+  (`agentdeck.adapters.telemetry.langfuse`). `langfuse_sink()` hands back an
+  event sink — or `None` when Langfuse has no keys — to register where you build
+  the v2 `Runtime`: `Runtime(..., sinks=[s for s in (langfuse_sink(),) if s])`.
+  Each run becomes one Langfuse trace: the run itself is the trace, tool calls
+  are spans carrying their arguments and their result preview, hash and size,
+  workflow node updates are points on the timeline named for the node and the
+  state keys it touched, and reported token usage becomes Langfuse generations
+  so cost lands where the UI accounts it. It reads nothing but the event
+  stream, so an agent run and a workflow run are traced by exactly the same
+  code — and a run waiting on a human is visible while it waits, its answer
+  continuing the same trace even when it arrives in another worker. Sessions
+  map to Langfuse sessions and the run's principal to its user, so a
+  conversation is one filter away. Configuration is the `AGENTDECK_LANGFUSE_*`
+  settings you already have; with no keys, no sink is registered, and the
+  Langfuse SDK is never even imported. Needs the `[observability]` extra. v1's
+  tracing is unchanged — a v1 agent run with both paths active is reported
+  twice.
 - `InvocableRegistry` (`agentdeck.runtime.discovery`): the v2 Runtime's list of
   what it can run is now discovered from your `./.agentdeck/` project instead of
   written out by hand at every entry point. `InvocableRegistry(engines).load()`

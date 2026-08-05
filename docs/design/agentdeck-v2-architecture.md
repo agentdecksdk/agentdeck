@@ -493,7 +493,22 @@ re-exports the moved names until the pre-stable cleanup drops the shim.)* **`cap
 `Workspace`/`SandboxSession` machinery as the default `FilesystemPort` + `TerminalPort`.
 **`telemetry/langfuse/`** is `runtime/observability.py` rebuilt as an `EventSinkPort` —
 note the direction reversal: instrumentation stops hooking the SDK and starts reading the
-log, which is why it will cover workflows too, for free. **`protocols/`** hosts the
+log, which is why it will cover workflows too, for free.
+*(Amended 2026-08-06, #77 — as built, this is new code beside v1's module rather than a
+rebuild of it: `runtime/observability.py` still instruments the SDK for v1 runs and is
+untouched, so a v1 agent run traced by both would be reported twice; unifying them is the
+facade slice's call. Three details the design didn't fix. The trace id is derived from
+`run_id`, not minted by the SDK, so the sink can never nest a run under whatever span
+happens to be current on its consumer task and a run resumed in another process reopens the
+same trace. A suspended run closes its root observation and its resume opens a second root
+under that same trace id, because a span held open until a human answers is a trace nobody
+can see while it waits. And the run's token total from `run.completed` becomes a
+`run.usage` generation, since Langfuse accounts usage on generations only. Buffering and
+delivery are the Langfuse SDK's batching processor, which is also what flushes at exit —
+`SinkDispatch.close()` has no hook back into a sink, so anything still buffered when a
+process is killed outright is lost, and the event log stays the complete record. Like
+`tools/mcp/`, the adapter reads `runtime.settings` for its own config group.)*
+**`protocols/`** hosts the
 per-protocol serializers: `sse` (extracted from `serve.py`), `acp` (§11), later `ag-ui`
 and `a2a`.
 
@@ -706,7 +721,7 @@ artifact that makes "add a third engine next year" a safe claim rather than a ho
 | `workflows/*` (base, nodes, state, interrupts, timers, runners) | `adapters/engines/langgraph/` | interrupts map to `run.interrupted`; timers schedule `Runtime.resume` |
 | `runtime/checkpointer.py` | `adapters/engines/langgraph/` | engine-private |
 | `runtime/sessions.py` (`SessionFactory`) | `adapters/engines/openai_agents/sessions.py` | kept as the engine's execution store (ADR-D5); event-log stores in `adapters/stores/` are new code |
-| `runtime/observability.py` | `adapters/telemetry/langfuse/` | becomes an `EventSinkPort`; stops instrumenting the SDK directly |
+| `runtime/observability.py` | `adapters/telemetry/langfuse/` | becomes an `EventSinkPort`; stops instrumenting the SDK directly *(amended 2026-08-06, #77: the sink exists as new code and covers agent and workflow runs alike; v1's module has not moved and still instruments the SDK for v1 runs)* |
 | `runtime/registry.py` (`PluginRegistry`) | `runtime/discovery.py` | conventions untouched *(amended 2026-08-05: `discovery.py` exists now as the `InvocableRegistry` calling into `PluginRegistry`; the scanner itself moves when v1's `App` does)* |
 | `serve.py` | `surfaces/serve/` + `adapters/protocols/sse/` | handlers become Runtime calls; SSE wire format preserved |
 | `errors.py`, `skills/*` | `core/errors.py`; `skills/` (executor re-targeted to ports) | mechanical |
