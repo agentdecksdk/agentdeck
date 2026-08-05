@@ -36,7 +36,10 @@ jobs:
       - name: Guard against silently-skipped durability tests
         run: |
           ceiling=46
-          skipped=$(grep -oP '(?<=skipped=")[0-9]+' /tmp/pytest-results.xml | head -1)
+          # `bash -e` aborts on grep's own exit code before the `-z` check below ever
+          # runs; `|| true` keeps a missing/truncated/attribute-less XML falling through
+          # to that check instead of failing silently with no diagnostic.
+          skipped=$(grep -oP '(?<=skipped=")[0-9]+' /tmp/pytest-results.xml | head -1 || true)
           echo "skipped=$skipped (ceiling=$ceiling)"
           if [ -z "$skipped" ] || [ "$skipped" -gt "$ceiling" ]; then
             echo "::error::skip count ($skipped) exceeds ceiling ($ceiling) — a subsystem (e.g. durability) may have silently dropped out of the gate. See issue #33."
