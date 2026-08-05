@@ -1,0 +1,166 @@
+"""A scripted ``agents.models.interface.Model`` for the tests that drive a real chat turn.
+
+The SDK boundary is the only thing stubbed: everything above it — v1's run config, the
+compat engine, the Runtime, the surface's frame rendering — is the code under test. Patch
+``agentdeck.agents.runners.base.OpenAIProvider`` with :func:`provider_of` so v1's resolved
+``RunConfig`` hands out this model instead of reaching for a real endpoint.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
+from agents.items import ModelResponse
+from agents.models.interface import Model
+from agents.usage import Usage
+from openai.types.responses import (
+    Response,
+    ResponseCompletedEvent,
+    ResponseFunctionToolCall,
+    ResponseOutputMessage,
+    ResponseOutputText,
+    ResponseTextDeltaEvent,
+    ResponseUsage,
+)
+from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Sequence
+
+MODEL_NAME = "fake-scripted"
+
+
+def _usage(input_tokens: int, output_tokens: int) -> ResponseUsage:
+    return ResponseUsage(
+        input_tokens=input_tokens,
+        input_tokens_details=InputTokensDetails(cached_tokens=0),
+        output_tokens=output_tokens,
+        output_tokens_details=OutputTokensDetails(reasoning_tokens=0),
+        total_tokens=input_tokens + output_tokens,
+    )
+
+
+class ScriptedModel(Model):
+    """Answers in ``deltas``; optionally calls ``tool_name`` once first, or raises mid-stream.
+
+    ``inputs`` records what each call was handed, so a test can prove two turns shared one
+    session without reaching into the session store.
+    """
+
+    def __init__(
+        self,
+        deltas: Sequence[str] = ("hi",),
+        *,
+        tool_name: str | None = None,
+        raises: BaseException | None = None,
+        input_tokens: int = 3,
+        output_tokens: int = 4,
+    ) -> None:
+        self.deltas = tuple(deltas)
+        self.tool_name = tool_name
+        self.raises = raises
+        self.calls = 0
+        self.inputs: list[Any] = []
+        self._input_tokens = input_tokens
+        self._output_tokens = output_tokens
+
+    def _response(self, output: list[Any]) -> Response:
+        return Response(
+            id=f"resp_scripted_{self.calls}",
+            created_at=0.0,
+            model=MODEL_NAME,
+            object="response",
+            output=output,
+            parallel_tool_calls=False,
+            tool_choice="auto",
+            tools=[],
+            usage=_usage(self._input_tokens, self._output_tokens),
+        )
+
+    async def stream_response(self, _instructions: Any = None, input: Any = None, *_a: Any, **_k: Any) -> AsyncIterator:
+        self.calls += 1
+        self.inputs.append(input)
+        if self.tool_name is not None and self.calls == 1:
+            yield ResponseCompletedEvent(
+                response=self._response(
+                    [
+                        ResponseFunctionToolCall(
+                            id="fc_scripted_1",
+                            call_id="call_scripted_1",
+                            name=self.tool_name,
+                            arguments="{}",
+                            type="function_call",
+                        )
+                    ]
+                ),
+                sequence_number=0,
+                type="response.completed",
+            )
+            return
+        for index, delta in enumerate(self.deltas):
+            yield ResponseTextDeltaEvent(
+                content_index=0,
+                delta=delta,
+                item_id="msg_scripted_1",
+                logprobs=[],
+                output_index=0,
+                sequence_number=index,
+                type="response.output_text.delta",
+            )
+        if self.raises is not None:
+            raise self.raises
+        text = "".join(self.deltas)
+        yield ResponseCompletedEvent(
+            response=self._response(
+                [
+                    ResponseOutputMessage(
+                        id="msg_scripted_1",
+                        content=[ResponseOutputText(annotations=[], text=text, type="output_text")],
+                        role="assistant",
+                        status="completed",
+                        type="message",
+                    )
+                ]
+            ),
+            sequence_number=len(self.deltas),
+            type="response.completed",
+        )
+
+    async def get_response(self, _instructions: Any = None, input: Any = None, *_a: Any, **_k: Any) -> ModelResponse:
+        self.calls += 1
+        self.inputs.append(input)
+        text = "".join(self.deltas)
+        return ModelResponse(
+            output=[
+                ResponseOutputMessage(
+                    id="msg_scripted_1",
+                    content=[ResponseOutputText(annotations=[], text=text, type="output_text")],
+                    role="assistant",
+                    status="completed",
+                    type="message",
+                )
+            ],
+            usage=Usage(
+                requests=1,
+                input_tokens=self._input_tokens,
+                output_tokens=self._output_tokens,
+                total_tokens=self._input_tokens + self._output_tokens,
+            ),
+            response_id="resp_scripted_1",
+        )
+
+
+def provider_of(model: Model) -> type:
+    """A drop-in for ``OpenAIProvider`` that hands every lookup ``model``."""
+
+    class _Provider:
+        def __init__(self, **_kwargs: Any) -> None:
+            pass
+
+        def get_model(self, _name: str | None = None) -> Model:
+            return model
+
+    return _Provider
+
+
+__all__ = ["MODEL_NAME", "ScriptedModel", "provider_of"]

@@ -44,6 +44,15 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+## What runs a turn
+
+`App` is also the composition root: it wires the discovered project into one runtime and
+hands it to whatever is serving. A chat — `App.chat`, or `POST /agents/{name}/chat` — is
+played by that runtime, which records the turn as an event log: the run opening, text
+deltas, tool calls, token usage per model call, then the result. The log is in memory by
+default; point `AGENTDECK_EVENTS_BACKEND=sqlite` and `AGENTDECK_EVENTS_URL` at a file to
+keep it across restarts.
+
 ## The division of labor
 
 Deterministic code mutates external state; models decide. A model call never writes to

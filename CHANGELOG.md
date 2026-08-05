@@ -9,6 +9,35 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 ## [Unreleased]
 
 ### Added
+- The chat endpoints now run on the v2 Runtime. `POST /agents/{name}/chat` and
+  `?stream=true` are served by the same Runtime, event schema, and event log the
+  `/v2/...` routes use, with the v1 wire format rendered at the surface: the
+  `delta` / `done` / `error` frames, the `{"output", "usage"}` payloads and the
+  404/422/500 bodies are byte-for-byte what 1.2.x sent (the golden replay suite
+  is unchanged, and is what enforces that). Nothing to change in a client. What
+  you gain is what the Runtime keeps: every turn is now recorded as a canonical
+  event log — `run.started`, text deltas, tool calls, per-model-call
+  `usage.reported`, `run.completed` — so a chat turn is finally as inspectable as
+  a `/v2` one. Sessions, Langfuse traces, sandboxes, `max_turns`, the model
+  provider and every other setting resolve exactly as they did before, and a
+  conversation is still one conversation whether the turn arrived through
+  `App.chat` or over HTTP. The workflow endpoints still run on v1's workflow
+  runner, unchanged.
+- `App` is the composition root, and the wiring behind it is one function:
+  `build_runtime(engines=...)` (`agentdeck.composition`) takes the parts — the
+  invocable mapping, engines, event store, sinks, control port — and returns a
+  wired `Runtime`, defaulting the mapping to discovery over `./.agentdeck` and
+  the store to your settings. `App.load()` calls it and exposes the result as
+  `App.runtime`, so an application that wants the canonical event stream for a
+  project no longer has to assemble a Runtime by hand. `App.aclose()` now flushes
+  the Runtime's sinks before closing Redis and MCP, so queued telemetry is not
+  lost at shutdown.
+- `AGENTDECK_EVENTS_BACKEND` / `AGENTDECK_EVENTS_URL` (YAML: `events:`) choose
+  where the canonical event log goes: `memory` (the default — no configuration,
+  no files, and a log that lives and dies with the process) or `sqlite` with
+  `url` pointing at a file, for a log that survives a restart. A long-lived
+  server on the default keeps its log in memory for as long as it runs; set the
+  sqlite backend if that matters to you.
 - `InvocableRegistry` (`agentdeck.runtime.discovery`): the v2 Runtime's list of
   what it can run is now discovered from your `./.agentdeck/` project instead of
   written out by hand at every entry point. `InvocableRegistry(engines).load()`
@@ -32,6 +61,14 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   prompt caches keep hitting.
 
 ### Changed
+- `POST /agents/{name}/chat` requires `message` to be a string. The documented
+  body always was one; a JSON object or array in that field used to be handed
+  straight to the SDK and now fails the request. Multi-part input (images,
+  resources) arrives as typed content blocks in a later release.
+- A project where an agent class and a workflow class share one name now fails at
+  `App.load()` with a message naming both, instead of loading two invocables that
+  the HTTP surface could not tell apart. Two bundles of the same kind exporting
+  one class name still collapse to a single invocable, as before.
 - MCP now lives in `agentdeck.adapters.tools.mcp` (registry, hardened HTTP
   transport, agent wiring — all unchanged). `from agentdeck.agents.mcp import ...`,
   `from agentdeck.agents.mcp.lifecycle import ...` and `from agentdeck.agents

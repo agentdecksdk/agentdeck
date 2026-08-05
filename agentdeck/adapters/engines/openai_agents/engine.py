@@ -10,7 +10,7 @@ not the log, feeds the model.
 from __future__ import annotations
 
 import os
-from contextlib import aclosing
+from contextlib import aclosing, asynccontextmanager
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from agents import Agent, RunConfig, Runner
@@ -24,7 +24,7 @@ from agentdeck.core.ports.control import RunCancelledError
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Sequence
+    from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 
     from agents.result import RunResultStreaming
     from agents.usage import Usage as SDKUsage
@@ -36,7 +36,13 @@ if TYPE_CHECKING:
 
 
 class OpenAIAgentsEngine(EnginePort):
-    """Plays ``spec.native`` (an ``agents.Agent``) through ``Runner.run_streamed``."""
+    """Plays ``spec.native`` (an ``agents.Agent``) through ``Runner.run_streamed``.
+
+    Three protected seams exist for the v1 compat engine in ``compat.py``, which needs a
+    differently-configured run and a v1-shaped result but the same stream handling:
+    :meth:`_launch` starts the SDK run, :meth:`_translate` maps one stream event, and
+    :meth:`_terminal` closes the run.
+    """
 
     engine: ClassVar[str] = "openai-agents"
 
@@ -51,34 +57,48 @@ class OpenAIAgentsEngine(EnginePort):
         ctx: RunContext,
     ) -> AsyncGenerator[KnownPayload, None]:
         agent = _agent_of(spec)
-        session = self._sessions.session_for(ctx)
-        run_config = RunConfig(tracing_disabled=not _tracing_enabled())
-        result = Runner.run_streamed(agent, _to_sdk_input(input), session=session, run_config=run_config)
-        tool_names: dict[str, str] = {}
-        # The SDK's run loop is a detached task; an abandoned generator must cancel it
-        # explicitly (mirrors agents/runners/headless.py's run_streamed, same reason).
-        stream = cast("AsyncGenerator[Any, None]", result.stream_events())
-        try:
-            async with aclosing(stream) as events:
-                async for event in events:
-                    payload = translate(event, tool_names)
-                    if payload is not None:
-                        yield payload
-                    try:
-                        await ctx.gate.checkpoint()
-                    except RunCancelledError:
-                        # A complete chunk was just yielded (or none was, at the very first
-                        # safe point) — never a partial one — so this is the next safe
-                        # point the contract promises, not "right now, mid-token".
-                        result.cancel()
-                        yield RunCancelled(reason="cancel signal")
-                        return
-        except BaseException:
+        async with self._launch(agent, _to_sdk_input(input), ctx) as result:
+            tool_names: dict[str, str] = {}
+            # The SDK's run loop is a detached task; an abandoned generator must cancel it
+            # explicitly (mirrors agents/runners/headless.py's run_streamed, same reason).
+            stream = cast("AsyncGenerator[Any, None]", result.stream_events())
+            try:
+                async with aclosing(stream) as events:
+                    async for event in events:
+                        payload = self._translate(event, tool_names)
+                        if payload is not None:
+                            yield payload
+                        try:
+                            await ctx.gate.checkpoint()
+                        except RunCancelledError:
+                            # A complete chunk was just yielded (or none was, at the very
+                            # first safe point) — never a partial one — so this is the next
+                            # safe point the contract promises, not "right now, mid-token".
+                            result.cancel()
+                            yield RunCancelled(reason="cancel signal")
+                            return
+            except BaseException:
+                result.cancel()
+                raise
             result.cancel()
-            raise
-        else:
-            result.cancel()
-        yield _run_completed(result)
+            for payload in self._terminal(result):
+                yield payload
+
+    @asynccontextmanager
+    async def _launch(self, agent: Agent[Any], message: str, ctx: RunContext) -> AsyncIterator[RunResultStreaming]:
+        """Start the run and hold whatever scope it needs open until the stream is drained."""
+        yield Runner.run_streamed(
+            agent,
+            message,
+            session=self._sessions.session_for(ctx),
+            run_config=RunConfig(tracing_disabled=not _tracing_enabled()),
+        )
+
+    def _translate(self, event: Any, tool_names: dict[str, str]) -> KnownPayload | None:
+        return translate(event, tool_names)
+
+    def _terminal(self, result: RunResultStreaming) -> Sequence[KnownPayload]:
+        return (_run_completed(result),)
 
     async def resume(
         self,

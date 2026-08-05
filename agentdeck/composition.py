@@ -1,0 +1,83 @@
+"""The composition root: the one place adapters are built and handed to a ``Runtime``.
+
+Everything above this module takes ports; everything below it is an adapter. ``App`` calls
+:func:`build_runtime` and so does every other entry point that needs a real Runtime — the
+demo script, the compat surface's tests — so a Runtime is assembled the same way
+everywhere instead of hand-wired per caller. A second front door (a code-first ``Deck()``)
+becomes another caller of this function rather than a second assembly.
+
+Only the parts a caller actually varies are arguments; the rest resolve from settings.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from agentdeck.adapters.engines.langgraph import LangGraphEngine
+from agentdeck.adapters.engines.openai_agents.compat import V1CompatEngine
+from agentdeck.adapters.stores.memory import MemoryEventStore
+from agentdeck.adapters.stores.sqlite import SqliteEventStore
+from agentdeck.runtime.discovery import InvocableRegistry
+from agentdeck.runtime.service import Runtime
+from agentdeck.runtime.settings import EventsSettings, get_settings
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
+    from datetime import datetime
+
+    from agents.memory.session import Session
+
+    from agentdeck.core.invocable import InvocableSpec
+    from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort
+
+
+def build_runtime(
+    *,
+    engines: Sequence[EnginePort],
+    invocables: Mapping[str, InvocableSpec] | None = None,
+    store: EventStorePort | None = None,
+    sinks: Sequence[EventSinkPort] = (),
+    control: ControlPort | None = None,
+    clock: Callable[[], datetime] | None = None,
+) -> Runtime:
+    """Wire ``engines`` into a Runtime over the project's invocables.
+
+    ``invocables`` defaults to discovery over ``./.agentdeck`` — pass a mapping to run
+    specs built in code instead. ``store`` defaults to the configured event store, and
+    ``clock`` to wall time.
+    """
+    engines = tuple(engines)
+    specs = InvocableRegistry(engines).load() if invocables is None else invocables
+    store = store or resolve_event_store()
+    if clock is None:
+        return Runtime(engines, store, specs, sinks=sinks, control=control)
+    return Runtime(engines, store, specs, sinks=sinks, clock=clock, control=control)
+
+
+def v1_engines(session_for: Callable[[str], Session] | None = None) -> tuple[EnginePort, ...]:
+    """The engine set behind v1's public surface: agents configured the way v1 configures
+    them, plus a langgraph engine so discovery can still compile workflow specs.
+
+    That langgraph engine keeps its own in-memory checkpointer rather than the configured
+    one, because v1's workflow surface still runs on v1's runner (which resolves the
+    checkpointer per durable workflow) and nothing routes a workflow here yet. Rerouting
+    workflows means resolving it from settings, which needs the ``[durability]`` extra —
+    resolving it here would make that extra mandatory for anyone who only chats.
+    """
+    return (V1CompatEngine(session_for), LangGraphEngine())
+
+
+def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePort:
+    """Build the event store named by ``backend``: ``memory`` (default) or ``sqlite``."""
+    events = settings if settings is not None else get_settings().events
+    backend = events.backend.strip().lower()
+    if backend == "memory":
+        return MemoryEventStore()
+    if backend == "sqlite":
+        if not events.url:
+            raise ValueError("the sqlite event store needs a file path: set AGENTDECK_EVENTS_URL")
+        return SqliteEventStore(events.url)
+    raise ValueError(f"unknown event store backend {events.backend!r}; expected memory or sqlite")
+
+
+__all__ = ["build_runtime", "resolve_event_store", "v1_engines"]

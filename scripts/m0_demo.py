@@ -3,10 +3,11 @@
 
 This is the "demo artifact" `milestone-0-walking-skeleton.md` §6 asks for, in script
 form instead of a recording — deterministic and replayable beats a video that bit-rots.
-It is a minimal composition root for the v2 skeleton (wiring real engines, real SQLite
-stores, and the real `surfaces/serve` FastAPI apps together), addressing the PR #59
-review finding that no such entry point existed outside the test suite. It lives under
-`scripts/`, not inside the `agentdeck` package, so it is not a new product surface.
+Every Runtime here is assembled by `agentdeck.composition.build_runtime` — the same seam
+`App` calls — so this script demonstrates the real wiring (real engines, real SQLite
+stores, the real `surfaces/serve` FastAPI apps) instead of hand-assembling its own. It
+lives under `scripts/`, not inside the `agentdeck` package, so it is not a new product
+surface.
 
 No network, no API keys: every model is a scripted fake, exactly like the automated UC1-3
 tests it mirrors (`tests/test_uc1_handoff.py`, `tests/test_uc2_claim_pipeline.py`,
@@ -65,6 +66,7 @@ from agentdeck.adapters.control.memory import MemoryControlPort
 from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
+from agentdeck.composition import build_runtime
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import RESULT_PREVIEW_MAX, check_contiguous, check_terminal, parse_event
@@ -72,7 +74,6 @@ from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports.control import Signal
 from agentdeck.errors import ConfigError
 from agentdeck.runtime.discovery import InvocableRegistry
-from agentdeck.runtime.service import Runtime
 from agentdeck.surfaces.cli.chat import render, stream_chat
 from agentdeck.surfaces.serve.app import build_app
 from agentdeck.surfaces.serve.workflows import build_workflow_app
@@ -173,7 +174,7 @@ async def run_discovery(tmp: Path) -> None:
         assert specs["Shout"].engine == LangGraphEngine.engine
 
         print("-- step 2: the discovered workflow, played by the Runtime handed that mapping --")
-        runtime = Runtime(engines, MemoryEventStore(), specs)
+        runtime = build_runtime(engines=engines, invocables=specs, store=MemoryEventStore())
         ctx = RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="run-discovery", trace_id="t", session_id="s-disc")
         kinds = [event.kind async for event in runtime.run("Shout", coerce_input("hello discovery"), ctx)]
         print(f"  {kinds}")
@@ -307,7 +308,9 @@ async def run_uc1(tmp: Path) -> None:
     )
     sessions = ExecutionStore()
     store = SqliteEventStore(str(tmp / "uc1-events.sqlite3"))
-    runtime = Runtime([OpenAIAgentsEngine(sessions)], store, {"FrontDesk": spec}, clock=lambda: TS)
+    runtime = build_runtime(
+        engines=[OpenAIAgentsEngine(sessions)], invocables={"FrontDesk": spec}, store=store, clock=lambda: TS
+    )
     app = build_app(runtime)
 
     session_id = "s1"
@@ -392,7 +395,7 @@ async def run_uc2(tmp: Path) -> None:
 
     engine = LangGraphEngine(checkpointer=resolve_checkpointer("sqlite", checkpoint_path))
     store = SqliteEventStore(db_path)
-    runtime = Runtime([engine], store, {"ClaimPipeline": _spec()})
+    runtime = build_runtime(engines=[engine], invocables={"ClaimPipeline": _spec()}, store=store)
     app = build_app(runtime)
 
     print("-- step 1: POST /v2/invocables/ClaimPipeline/chat --")
@@ -419,7 +422,7 @@ async def run_uc2(tmp: Path) -> None:
 
     engine2 = LangGraphEngine(checkpointer=resolve_checkpointer("sqlite", checkpoint_path))
     store2 = SqliteEventStore(db_path)
-    runtime2 = Runtime([engine2], store2, {"ClaimPipeline": _spec()})
+    runtime2 = build_runtime(engines=[engine2], invocables={"ClaimPipeline": _spec()}, store=store2)
     status_ctx = RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="n/a", trace_id="t", session_id=session_id)
     assert status_of(await store2.read(status_ctx.log_key, status_ctx)) is RunStatus.WAITING_HUMAN
     print("  status read from disk after restart: WAITING_HUMAN")
@@ -522,7 +525,9 @@ async def run_uc3_chaos_gap_detection() -> None:
     print("-- chaos test (decision A): drop one mid-run event, recover it from the store --")
     control = MemoryControlPort()
     store = MemoryEventStore()
-    runtime = Runtime([OpenAIAgentsEngine()], store, {"SlowPoke": _slowpoke_spec(10, 0.0)}, control=control)
+    runtime = build_runtime(
+        engines=[OpenAIAgentsEngine()], invocables={"SlowPoke": _slowpoke_spec(10, 0.0)}, store=store, control=control
+    )
     ctx = RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="run-chaos", trace_id="t", session_id="s-chaos")
 
     full_run = [event async for event in runtime.run("SlowPoke", coerce_input("go slow"), ctx)]
@@ -553,7 +558,9 @@ async def run_uc3_cross_process_cancel(tmp: Path) -> None:
     # 0.2s/chunk, not the chaos test's 0.0: Terminal B is a real `python -m` subprocess,
     # which costs over a second just importing agentdeck (v1's App included) before it
     # can write the signal — the delay gives that import time to land mid-stream.
-    runtime = Runtime([OpenAIAgentsEngine()], store, {"SlowPoke": _slowpoke_spec(30, 0.2)}, control=control)
+    runtime = build_runtime(
+        engines=[OpenAIAgentsEngine()], invocables={"SlowPoke": _slowpoke_spec(30, 0.2)}, store=store, control=control
+    )
     ctx = RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="uc3-cross-process", trace_id="t")
 
     kinds: list[str] = []
@@ -585,7 +592,9 @@ async def run_uc3_replay_and_render(tmp: Path) -> None:
     print("-- replay: the truncated-but-coherent session, through UC1's unedited renderer --")
     control = MemoryControlPort()
     store = MemoryEventStore()
-    runtime = Runtime([OpenAIAgentsEngine()], store, {"SlowPoke": _slowpoke_spec(30, 0.0)}, control=control)
+    runtime = build_runtime(
+        engines=[OpenAIAgentsEngine()], invocables={"SlowPoke": _slowpoke_spec(30, 0.0)}, store=store, control=control
+    )
     ctx = RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="run-replay", trace_id="t", session_id="s-replay")
 
     delta_count = 0
