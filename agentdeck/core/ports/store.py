@@ -73,6 +73,22 @@ class EventStorePort(ABC):
         """
 
     @abstractmethod
+    async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
+        """Append ``event`` if and only if this run is ``WAITING_HUMAN`` at that moment, as
+        one indivisible step — ``True`` when it was appended, ``False`` for any other status,
+        including a caller that got here first.
+
+        The one write that publishes the ``WAITING_HUMAN`` -> ``RUNNING`` transition is the
+        same write that tests for it, which is what makes double-resume protection hold
+        between two processes sharing a store and not merely between two tasks. Losing is
+        never an error: a stray resume is a no-op by design (``can_resume``), so a store
+        returns ``False`` rather than raising.
+
+        Only the winner writes, so the loser cannot duplicate a ``seq`` either — a store
+        that cannot make the check and the append indivisible must not implement this port.
+        """
+
+    @abstractmethod
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
         """Every run for this tenant that has recorded a lifecycle transition, across all of
         the tenant's logs, optionally narrowed to one status.

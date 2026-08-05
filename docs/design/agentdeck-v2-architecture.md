@@ -264,6 +264,17 @@ lifecycle row per run in one statement. The Runtime's resume path and `Runtime.p
 these instead of folding a whole log to answer one run's status or find every run waiting on
 a human; the now-unused `list_log_keys` is gone.)*
 
+*(Amended 2026-08-05, as built: `EventStorePort` also owns the resume claim —
+`claim_resume(log_key, run_id, event, ctx) -> bool`, a conditional append that records
+`run.resumed` if and only if the run is `WAITING_HUMAN` at that moment, indivisibly. The
+Runtime's `WAITING_HUMAN` -> `RUNNING` transition is that one call: the write that
+publishes the transition is the write that tests for it, so two processes sharing a store
+cannot both claim one interrupt. `status_of` still derives status, so this is not a second
+store; a store only has to make the check and the append one step — SQLite in a single
+`BEGIN IMMEDIATE` transaction, the dict store for free, since neither the fold nor the
+append suspends. A loser gets `False`, never an exception, and never writes, so it cannot
+duplicate a `seq` either.)*
+
 ```python
 # core/ports/engine.py — the lifecycle/event boundary
 class EnginePort(ABC):

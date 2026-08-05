@@ -25,6 +25,11 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   status), and pagination (`offset`/`limit`) on `read`. Both the memory and
   SQLite stores implement all four; the SQLite ones use the existing
   run/log indexes.
+- `EventStorePort.claim_resume` (not yet part of any stable public API): a
+  conditional append that records `run.resumed` only if the run is still waiting
+  on a human answer, as one indivisible step, and reports whether it won. The
+  memory store gets that for free; the SQLite store does it in a single
+  `BEGIN IMMEDIATE` transaction, so the events file itself picks the winner.
 
 ### Changed
 - Internal: the v2 event-log port (not yet part of any stable public API) is
@@ -46,6 +51,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   the same question without enumerating logs first.
 
 ### Fixed
+- Duplicate-resume protection now holds between processes, not just between tasks
+  in one process. Two servers (or a server and a second tool) sharing one SQLite
+  event store can answer the same interrupt at the same instant and exactly one of
+  them resumes the run; the other is a clean no-op, not an error. Previously the
+  guard was a process-local lock, so each process could claim the same waiting run
+  — running the workflow's next node twice and writing two `run.resumed` events
+  with the same `seq`.
 - The OpenAI Agents engine no longer runs the SDK's default trace exporter on
   keyless/fake-model runs (tests, CI, the M0 demo): it now passes a `RunConfig`
   with tracing disabled unless `AGENTDECK_OPENAI_AGENTS_TRACING_ENABLED=true` is

@@ -15,7 +15,15 @@ import pytest
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import Event, KnownPayload, RunCompleted, RunInterrupted, RunStarted, TextDelta
+from agentdeck.core.events import (
+    Event,
+    KnownPayload,
+    RunCompleted,
+    RunInterrupted,
+    RunResumed,
+    RunStarted,
+    TextDelta,
+)
 from agentdeck.core.status import RunStatus
 
 if TYPE_CHECKING:
@@ -104,6 +112,81 @@ async def test_run_status_is_scoped_to_one_run_not_the_whole_log(event_store: Ev
     )
     assert await event_store.run_status("s-1", "r-1", ctx) is RunStatus.RUNNING
     assert await event_store.run_status("s-1", "r-2", ctx) is RunStatus.COMPLETED
+
+
+async def _interrupt(event_store: EventStorePort, ctx: RunContext, run_id: str = "r-1") -> None:
+    """Leave one run parked in ``WAITING_HUMAN`` — the only status a resume may claim."""
+    interrupted = RunInterrupted(interrupt_id="i-1", reason="human", payload={"q": "ok?"}, thread_id="t-1")
+    await event_store.append("s-1", [_event(0, _started(), run_id=run_id), _event(1, interrupted, run_id=run_id)], ctx)
+
+
+def _resumed(seq: int, run_id: str = "r-1") -> Event:
+    return _event(seq, RunResumed(reason=None), run_id=run_id)
+
+
+async def test_claim_resume_appends_the_event_and_wins_when_the_run_is_waiting(event_store: EventStorePort) -> None:
+    ctx = _ctx()
+    await _interrupt(event_store, ctx)
+
+    assert await event_store.claim_resume("s-1", "r-1", _resumed(2), ctx) is True
+    assert [event.kind for event in await event_store.read_run("s-1", "r-1", ctx)][-1] == "run.resumed"
+    assert await event_store.run_status("s-1", "r-1", ctx) is RunStatus.RUNNING
+
+
+async def test_a_second_claim_on_the_same_run_loses_and_writes_nothing(event_store: EventStorePort) -> None:
+    """The invariant double-resume protection rests on: the check and the append are one
+    step, so the loser cannot append a second ``run.resumed`` or reuse the winner's seq."""
+    ctx = _ctx()
+    await _interrupt(event_store, ctx)
+    assert await event_store.claim_resume("s-1", "r-1", _resumed(2), ctx) is True
+
+    assert await event_store.claim_resume("s-1", "r-1", _resumed(2), ctx) is False
+    stored = await event_store.read_run("s-1", "r-1", ctx)
+    assert [event.kind for event in stored].count("run.resumed") == 1
+    assert [event.seq for event in stored] == [0, 1, 2]
+
+
+@pytest.mark.parametrize("kind", ["pending", "running", "completed"])
+async def test_claim_resume_refuses_a_run_that_is_not_waiting_on_a_human(
+    event_store: EventStorePort, kind: str
+) -> None:
+    """A resume against any other status is a no-op, not an error — including a run this
+    store has never heard of, which is indistinguishable from one that never started."""
+    ctx = _ctx()
+    if kind == "running":
+        await event_store.append("s-1", [_event(0, _started())], ctx)
+    elif kind == "completed":
+        await event_store.append(
+            "s-1",
+            [_event(0, _started()), _event(1, RunCompleted(output=[], usage={"input_tokens": 1, "output_tokens": 1}))],
+            ctx,
+        )
+
+    assert await event_store.claim_resume("s-1", "r-1", _resumed(9), ctx) is False
+    assert [event.kind for event in await event_store.read_run("s-1", "r-1", ctx)].count("run.resumed") == 0
+
+
+async def test_claim_resume_is_scoped_to_one_run_not_the_whole_log(event_store: EventStorePort) -> None:
+    """One waiting run in a log must not license a resume of a different run beside it."""
+    ctx = _ctx()
+    await _interrupt(event_store, ctx, run_id="r-1")
+    await event_store.append("s-1", [_event(0, _started(), run_id="r-2")], ctx)
+
+    assert await event_store.claim_resume("s-1", "r-2", _resumed(1, run_id="r-2"), ctx) is False
+    assert await event_store.claim_resume("s-1", "r-1", _resumed(2), ctx) is True
+
+
+async def test_claim_resume_never_reaches_into_another_tenants_waiting_run(event_store: EventStorePort) -> None:
+    """Same isolation as every other query: another tenant's interrupt is not claimable, and
+    an event stamped for a foreign tenant never lands in this log."""
+    await _interrupt(event_store, _ctx("acme"))
+    intruder = _ctx("globex")
+
+    own = _event(2, RunResumed(reason=None), tenant="globex")
+    assert await event_store.claim_resume("s-1", "r-1", own, intruder) is False
+    with pytest.raises(ValueError, match="acme"):
+        await event_store.claim_resume("s-1", "r-1", _resumed(2), intruder)
+    assert [event.kind for event in await event_store.read_run("s-1", "r-1", _ctx("acme"))].count("run.resumed") == 0
 
 
 async def test_list_runs_scopes_to_one_tenant(event_store: EventStorePort) -> None:
