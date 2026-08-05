@@ -72,6 +72,10 @@ def _tool_call_completed(item: Any, tool_names: dict[str, str]) -> KnownPayload:
     call_id = item.call_id or ""
     result = str(item.output)
     encoded = result.encode()
+    # TODO(#52): a non-function tool call (computer-use, MCP approval) never populates
+    # tool_names via _tool_call_started (that function returns None for it), so its
+    # result lands here as an orphan tool.call.completed with tool="unknown" and no
+    # paired .started — out of scope for M0's function-tool-only UC1.
     return ToolCallCompleted(
         call_id=call_id,
         tool=tool_names.get(call_id, "unknown"),

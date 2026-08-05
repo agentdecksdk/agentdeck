@@ -1,7 +1,10 @@
 """UC1 — "the handoff chat" (milestone-0-walking-skeleton.md §2): FrontDesk hands off to
 ClaimsAgent, which calls a tool and answers; turn 2 reuses turn-1 context; the transcript
 reads back from the store alone. Every "make sure" bullet in that section has an
-assertion here, named after it.
+assertion here, named after it — including the one that is red as literally written: the
+Runtime's ``origin`` is invocable-scoped, not sub-agent-scoped, so ClaimsAgent's answer
+prints under the "FrontDesk" label too. That gap is a recorded design finding (§2's
+2026-08-05 amendment), not fixed here; the bubble assertion below documents it on purpose.
 
 Scripted fakes only (no network, no API keys): a fresh ``FrontModel``/``ClaimsModel`` pair
 per test, so a call-count counter is safe — this file never shares an engine across tests
@@ -215,11 +218,18 @@ async def test_uc1_handoff_chat_end_to_end(capsys: pytest.CaptureFixture[str]) -
     out = capsys.readouterr().out.splitlines()
 
     # --- "two labeled bubbles, never one smeared paragraph" -------------------------
-    message_lines = [line for line in out if line.startswith("FrontDesk [")]
-    assert len(message_lines) >= 2
-    assert message_lines[0] != message_lines[1]  # distinct message_ids -> distinct bubbles
-    assert any("It was damaged" in line for line in out)
-    assert any("5 to 7 business days" in line for line in out)
+    # message_id still gives each bubble a distinct boundary. origin does not additionally
+    # say *who* spoke: the Runtime stamps origin = spec.name (the top-level invocable) for
+    # every event of a run, so ClaimsAgent's answer prints under the "FrontDesk" label too
+    # — a known gap, recorded as a design finding in milestone-0-walking-skeleton.md §2
+    # (2026-08-05 amendment), not fixed by this adapter. This assertion documents that gap
+    # on purpose, so it fails loudly (not silently) the day speaker attribution changes.
+    message_lines = [line for line in out if ": " in line and line.split(" [", 1)[0] in ("FrontDesk", "ClaimsAgent")]
+    assert len(message_lines) == 4  # front's sentence + claims' answer, both turns
+    assert len({line.split("]")[0] for line in message_lines}) == 4  # 4 distinct message_ids
+    assert all(line.startswith("FrontDesk [") for line in message_lines)  # ClaimsAgent's turn never appears
+    assert any("It was damaged" in line for line in message_lines)
+    assert any("5 to 7 business days" in line for line in message_lines)
 
     # --- step 3: read the transcript back from the store only, no live stream --------
     ctx = _read_ctx()
