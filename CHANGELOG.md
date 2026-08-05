@@ -30,6 +30,10 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   unreachable server still degrades a run instead of failing it, and an agent
   whose servers are all up gets its instructions back byte-for-byte, so upstream
   prompt caches keep hitting.
+- `agentdeck.SessionBusyError`: the error raised when a turn is asked for on a
+  session that already has one running. It names the session and the run holding
+  it, and is an `AgentdeckError` like every other, so `except AgentdeckError`
+  already covers it.
 - `agentdeck.StoreError`: the error a durable store raises when it cannot be
   read or written. `except StoreError` (or `except AgentdeckError`) now covers
   the SQLite event log and the SQLite control-signal database; the underlying
@@ -61,6 +65,28 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   and move them together, not the one file on its own — and WAL depends on
   shared memory that network filesystems (NFS, SMB) do not provide reliably, so
   keep these databases on local disk. In-memory databases are unaffected.
+- **One turn per session at a time.** Starting a turn on a session that already
+  has a run in flight now fails immediately with `SessionBusyError`, naming the
+  session and the run that holds it, instead of running the second turn against a
+  conversation the first one is still changing — which silently corrupted the
+  model's context and could lose a message from either turn. A session counts as
+  busy until its run reaches a terminal event, and a run waiting on a human answer
+  is still busy: it owns the thread its resume continues from. Sequential turns,
+  resumes and runs without a session are unaffected, and two different sessions
+  never contend. This holds across processes, because the check and the write that
+  opens the run are one store operation, so it is not defeated by a second worker.
+  What a caller should do with the refusal is retry or report it; the losing turn
+  is not queued (that is deliberately deferred, not forgotten).
+- A run whose process was killed outright — the one exit that cannot close its own
+  run in the log — no longer holds its session for good. An open run that has
+  written nothing for `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` (one hour by
+  default) stops blocking new turns; the next turn takes the session over, closes
+  the abandoned run as `run.failed` with error code `cancelled_hard`, and logs the
+  takeover at WARNING. Two things follow from that window, both tunable with the
+  same setting: a session a crashed process left claimed is refused until the
+  window elapses, and an approval that has been waiting on a human for longer than
+  the window is closed as failed when somebody starts a new turn on that session —
+  installations with slower approvals should raise it.
 
 ### Fixed
 - Shutdown no longer hangs forever on a wedged sink: every wait on the sink

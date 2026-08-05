@@ -48,6 +48,9 @@ DONE = RunCompleted(output=[TextBlock(text="hi back")], usage=Usage(input_tokens
 
 CTX = RunContext(tenant="acme", principal="user:1", run_id="r-1", trace_id="tr-1", session_id="s-1")
 
+# A wedge detector, not a budget: everything here is in-process and takes microseconds.
+WEDGE_TIMEOUT = 5.0
+
 
 def _runtime(*, sinks: list[EventSinkPort] | None = None) -> tuple[Runtime, MemoryEventStore]:
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
@@ -430,10 +433,15 @@ async def test_a_turn_arriving_while_another_is_in_flight_is_refused() -> None:
         return [event async for event in runtime.run("Greeter", INPUT, replace(CTX, run_id=run_id))]
 
     first = asyncio.create_task(_play("r-1"))
-    await engine.entered.wait()
-    with pytest.raises(SessionBusyError) as refused:
-        await _play("r-2")
-    engine.release.set()
+    try:
+        # Bounded, because the failure mode of a claim that does not refuse is this test waiting
+        # on the engine it blocked: a wedge has to fail rather than hang the suite.
+        async with asyncio.timeout(WEDGE_TIMEOUT):
+            await engine.entered.wait()
+            with pytest.raises(SessionBusyError) as refused:
+                await _play("r-2")
+    finally:
+        engine.release.set()
 
     assert "'s-1'" in str(refused.value)
     assert "'r-1'" in str(refused.value)

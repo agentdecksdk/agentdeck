@@ -238,6 +238,8 @@ class Runtime:
         belongs to its story, and a reader must not find this invocable blamed for it.
         """
         seq = await self._store.last_seq(ctx.log_key, run_id, ctx) + 1
+        # From its last seq, so this reads one event rather than a whole streamed run — all it
+        # is for is the envelope fields the closing event has to inherit.
         tail = await self._store.read_run(ctx.log_key, run_id, ctx, from_seq=seq - 1)
         if not tail:
             return
