@@ -18,7 +18,9 @@ Endpoints:
                                          an "error" event replaces "done" if the turn fails
     POST /workflows/{name}           -> JSON state in, final state out — or
                                         {"type": "interrupt", "payload", "thread_id"} when the
-                                        run pauses on a human decision
+                                        run pauses on a human decision;
+                                        409 while that thread's previous turn is unfinished,
+                                        an unanswered approval included
     POST /workflows/{name}?stream=true
                                       -> text/event-stream: "node_update"/"custom" events per
                                          the LangGraph node updates/custom stream, then one
@@ -27,7 +29,12 @@ Endpoints:
                                          an "error" event replaces either if the run fails
     GET  /workflows/{name}/pending   -> [{"type": "interrupt", "payload", "thread_id"}, ...]
     POST /workflows/{name}/{thread_id}/resume
-                                      -> {"value": ...} -> final state, or the next interrupt
+                                      -> {"value": ...} -> final state, or the next interrupt;
+                                         404 when the thread has no paused run to answer
+
+The workflow inbox above reads the event log, while ``App.pending_interrupts()`` still reads
+the graph's checkpointer — so the two disagree once approvals are driven through both doors
+(see the CHANGELOG; #120 joins them).
 """
 
 from __future__ import annotations
