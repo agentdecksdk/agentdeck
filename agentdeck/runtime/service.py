@@ -359,6 +359,11 @@ class Runtime:
         and come back already answered. That is harmless: the resume claim itself is what
         checks status, so acting on a stale entry is a no-op, not a double resume.
         """
+        # ponytail: every parked run's whole log, per call, and an approval inbox polls this —
+        # so the cost is (parked runs x their length) on a path a UI hits on a timer. Fine while
+        # a deployment parks tens of runs; the upgrade is a store-side projection of each run's
+        # last interrupt, and the trigger is the first inbox that pages or that a poll can't
+        # answer inside its own refresh interval.
         out: list[PendingRun] = []
         for summary in await self._store.list_runs(ctx, status=RunStatus.WAITING_HUMAN):
             found = _last_interrupt(await self._store.read_run(summary.log_key, summary.run_id, ctx))

@@ -130,7 +130,7 @@ class App:
         }
         # One assembly seam, one caller: everything this App hands a surface comes from
         # `build_runtime`, so a second front door adds a caller instead of a second wiring.
-        self._runtime = build_runtime(engines=v1_engines(self.session_for))
+        self._runtime = build_runtime(engines=v1_engines(self.session_for, self.workflows.get))
         return self.inventory
 
     async def run_agent(self, name: str, message: Any = None, **runner_options: Any) -> Any:
