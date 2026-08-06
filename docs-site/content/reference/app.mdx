@@ -1,0 +1,165 @@
+---
+title: App
+description: The single entry point — discovers a project, wires the Runtime, and runs every turn on it.
+---
+
+# App
+
+`App` is the one object a project talks to. It always serves `./.agentdeck` — `agents/<bundle>/agent.py`,
+`workflows/<bundle>/workflow.py`, `skills/*/SKILL.md` — and it is the composition root: every turn
+started through it plays on the same [Runtime](/concepts/runs-and-the-event-log) the HTTP surface
+runs chats on, and is recorded the same way.
+
+```python file=.agentdeck/agents/greeter/agent.py
+from agentdeck.agents import BaseAgent
+
+
+class Greeter(BaseAgent):
+    instructions = "You are a friendly scheduling assistant. Keep replies to one short sentence."
+```
+
+```python run
+import asyncio
+
+from agentdeck import App
+
+
+async def main() -> None:
+    async with App.open() as app:
+        turn = await app.run_agent("Greeter", "hello")
+        print(turn.output)
+        print(turn.usage)
+        print(turn.run_id)
+
+
+asyncio.run(main())
+```
+
+## Construction and lifecycle
+
+`App()` builds the three registries (`agents`, `workflows`, `skills`) but discovers nothing yet.
+`load()` does the discovery: it imports every bundle, calls `build()` on every agent, compiles
+every workflow graph, and validates every skill's declared output schema — so a broken bundle
+raises at startup instead of mid-conversation. `load()` also composes the Runtime (`App.runtime`)
+that every turn-starting method plays on. Calling a turn-starting method without an explicit
+`load()` still works — each one calls `load()` itself on first use.
+
+`App.open()` is the version to prefer for anything long-running, and for any deployment using
+Redis sessions or MCP servers:
+
+```python
+import asyncio
+
+from agentdeck import App
+
+
+async def main() -> None:
+    async with App.open() as app:
+        app.load()  # optional here — open() already ran it
+
+
+asyncio.run(main())
+```
+
+It runs `load()`, starts the MCP server lifecycle, and guarantees `aclose()` on exit — which
+flushes the Runtime's event sinks and closes the Redis session client and MCP servers.
+Constructing `App()` directly and never closing it leaks both.
+
+## Starting a turn
+
+Five methods start a turn. `run_agent`, `chat`, `run_workflow`, and `resume_workflow` all play on
+the Runtime — the turn is recorded to the [event log](/concepts/runs-and-the-event-log) from
+`run.started` to its terminal event, wherever it started, exactly as `POST /agents/{name}/chat` or
+`POST /workflows/{name}` would record it. `run_workflow_stream` is the one exception: it drives the
+workflow's graph directly rather than through the Runtime, so a run started there writes nothing
+to the event log and cannot later be found by `resume_workflow`.
+
+| Method | Signature | Returns |
+|---|---|---|
+| `run_agent` | `(name, message)` | `TurnResult` — one-shot |
+| `chat` | `(name, session_id, message)` | `TurnResult` — same `session_id` keeps history across calls |
+| `chat_stream` | `(name, session_id, message)` | `AsyncIterator[Event]` — the run's own canonical events, live |
+| `run_workflow` | `(name, state=None, *, thread_id=None)` | the final state, or an `InterruptResult` if a node paused |
+| `resume_workflow` | `(name, thread_id, value)` | the final state, or the next `InterruptResult` |
+| `run_workflow_stream` | `(name, state=None, *, thread_id=None, **runner_options)` | `AsyncIterator[dict \| InterruptResult]` — `node_update`/`custom` events, then `done` |
+
+`run_workflow` requires `thread_id` when the named workflow is `durable = True` (so a later call
+with the same id resumes it), and ignores it otherwise. A node that calls `interrupt()` returns an
+`InterruptResult` — `{"type": "interrupt", "payload": ..., "thread_id": ...}` — instead of a final
+state; see [Workflows](/concepts/workflows) for what that means for the node that paused, and
+answer it with `resume_workflow`.
+
+`chat_stream` yields the same `Event` objects `store` would hand back after the fact — `text.delta`
+per token, `run.completed` last — not raw text and a sentinel. This is the one method here that
+does not return a `TurnResult`, because a caller that wants the final answer out of a stream has
+to fold it from the events, the same way any other consumer of the log would.
+
+## `TurnResult`
+
+`run_agent` and `chat` return a `TurnResult`, assembled from the run's own `run.completed` event —
+never the SDK's own result object, so a caller depends on agentdeck's event schema rather than on
+whichever engine ran the turn:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `output` | `Any` | the run's structured output (a `DataBlock`'s data), or the joined text of the final message |
+| `usage` | `Usage` | `input_tokens`, `output_tokens`, `usd` (`None` when no price is known for the model) — the run's authoritative total |
+| `run_id` | `str` | this run's id |
+| `session_id` | `str \| None` | the session this turn belongs to, for `chat`; `None` for `run_agent` |
+
+This is new behavior, not a detail: before the Runtime routed these methods, `run_agent` and
+`chat` returned the OpenAI Agents SDK's own `RunResult`. Calling `BaseAgent.run()` directly — the
+class's own headless runner, bypassing `App` and the Runtime entirely — still does; see
+[Definitions](/reference/definitions) for that distinction.
+
+## Reading a run back
+
+`App.store` is the read side of the event log every turn above writes to:
+
+```python
+event_store = app.store  # an EventStorePort
+```
+
+`await app.store.read(log_key, ctx)` returns one log's events in order, where `log_key` is a
+`TurnResult`'s `session_id` (or `run_id`, for a session-less run) and `ctx` is any `RunContext` of
+this `App`'s tenant. `store` also exposes `list_runs(ctx, status=None)` (every run for the tenant,
+optionally narrowed to one status) and `run_status(log_key, run_id, ctx)` (one run's status,
+folded from its own events) — see [Runs and the Event Log](/concepts/runs-and-the-event-log) for
+what the log holds and what a status fold means.
+
+## Controlling a run in flight
+
+```python no-test reason="needs a live run_id from a run this process is streaming"
+await app.pause_run(run_id, reason="operator stepped away")
+events = await app.resume_run(run_id)
+await app.cancel_run(run_id, reason="user closed the tab")
+```
+
+`pause_run` and `cancel_run` record a request and return immediately — not when the run actually
+stops, which nobody can know at the moment of asking. `resume_run` plays a paused run's
+continuation and returns the events it produced, or an empty list if there was nothing to resume.
+[Run Control](/concepts/run-control) is the full contract: what a safe point is, why a request is
+not a status change, and what a resume replays.
+
+## Workflow bookkeeping
+
+`pending_interrupts(name=None)` lists every thread paused on an interrupt — one workflow's or
+every durable workflow's — the approval inbox. `due_resumes(now=None)` narrows that to threads
+whose `sleep_until` timer has passed, and `tick(now=None)` resumes every one of them; `now`
+defaults to the current UTC time and must be timezone-aware if given. AgentDeck runs no daemon of
+its own — a cron job, a systemd timer, or a loop calling `tick()` owns the cadence.
+
+## Sessions
+
+`session_for(session_id)` returns the SDK conversation-memory session `chat` and `chat_stream` use
+for that id: Redis-backed when `AGENTDECK_SESSION_REDIS_URL` is set, an in-process SQLite session
+otherwise (lost on process exit). Pass `session_factory=` to `App()` or `App.open()` to inject one
+— the seam tests use to swap in a fake wrapping `fakeredis` without a real Redis server.
+
+## What this does not cover
+
+There is no `App` method to fetch one run by `run_id` alone without already knowing its
+`log_key` and building a `RunContext` — `list_runs`/`run_status` above are the closest built-in
+answer. And [Run Control](/concepts/run-control#safe-points) reaches agent runs today; a workflow
+(LangGraph) run has no safe point yet, so `pause_run`/`cancel_run` record the request but nothing
+acts on it.

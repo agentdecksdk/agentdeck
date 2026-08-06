@@ -1,0 +1,128 @@
+---
+title: Capabilities
+description: CapabilitiesSpec and each sandbox capability spec it aggregates, field by field.
+---
+
+# Capabilities
+
+[Capabilities](/concepts/capabilities) covers what each one is for and how the `True`/`False`
+shorthand works. This page is the field-by-field version: every spec class, every field, every
+type and default — set on `BaseSandboxAgent.capabilities`.
+
+```python
+from agentdeck.agents import BaseSandboxAgent, CapabilitiesSpec, FilesystemSpec, ShellSpec
+
+
+class Fixer(BaseSandboxAgent):
+    instructions = "Investigate the failing test and patch it."
+    capabilities = CapabilitiesSpec(
+        shell=ShellSpec(max_output_tokens=8_000),
+        filesystem=FilesystemSpec(),
+    )
+```
+
+## `CapabilitiesSpec`
+
+```python
+from agentdeck.agents import CapabilitiesSpec
+```
+
+| Field | Type | Default | Effect |
+|---|---|---|---|
+| `shell` | `ShellSpec \| None` | `ShellSpec()` | sandbox `exec_command`, on by default |
+| `skills` | `list[str]` | `[]` | names of skill bundles to expose, resolved from `skills_dir` |
+| `skills_dir` | `Path \| None` | `None` | directory of skill bundles; required if `skills` is non-empty |
+| `compaction` | `CompactionSpec \| None` | `None` | context compaction when a conversation outgrows the window |
+| `filesystem` | `FilesystemSpec \| None` | `None` | sandbox file tools, with an `apply_patch` shim for chat-completions models |
+| `memory` | `MemorySpec \| None` | `None` | SDK memory: layout, read, and generation config |
+
+`shell`, `compaction`, `filesystem`, and `memory` each accept `True` (that field's default spec)
+or `False` (disabled) in place of a spec instance — the normalization happens in a pydantic
+validator, so `CapabilitiesSpec(memory=True)` and `CapabilitiesSpec(memory=MemorySpec())` build
+the same capability. `skills` and `skills_dir` have no such shorthand; they are already the
+smallest form. `extra="forbid"` on the model means a misspelled field name raises at import time,
+not a silently-missing capability at first run.
+
+`shell` is the only field on by default — every other capability is opt-in.
+
+## `ShellSpec`
+
+```python
+from agentdeck.agents import ShellSpec
+```
+
+Layered settings: `AGENTDECK_SHELL_*` env, `shell:` in `config.yaml`.
+
+| Field | Type | Default | Effect |
+|---|---|---|---|
+| `yield_floor_ms` | `int` | `600_000` | minimum time a non-interactive command may run before yielding |
+| `max_output_tokens` | `int` | `15_000` | output budget per command; overflow is truncated |
+
+Truncated output is rewritten with an explicit marker (`<<<TRUNCATED_OUTPUT: omitted N tokens at
+this exact point...>>>`) in place of the SDK's own free-text truncation notice, so a model can
+tell "that's all there was" from "there was more" without parsing prose. Interactive PTY runs
+(`tty=True`) are not clamped by `yield_floor_ms` — they are user-facing, not a background command
+with a floor to enforce.
+
+## `FilesystemSpec`
+
+```python
+from agentdeck.agents import FilesystemSpec
+```
+
+| Field | Type | Default | Effect |
+|---|---|---|---|
+| `configure_tools` | `Callable[..., Any] \| None` | `None` | runs after the `apply_patch` shim is installed; same hook the SDK's own `Filesystem` capability accepts |
+
+`FilesystemSpec` exists for one reason: the SDK ships `apply_patch` as a freeform-grammar
+`CustomTool`, which chat-completions models reject outright. `build()` swaps it for a
+`FunctionTool` wrapping the same underlying editor, with a trimmed description sized for a
+strict JSON schema.
+
+## `MemorySpec`
+
+```python
+from agentdeck.agents import MemorySpec
+```
+
+| Field | Type | Default | Effect |
+|---|---|---|---|
+| `layout` | `dict[str, Any]` | `{}` | forwarded to `agents.sandbox.config.MemoryLayoutConfig(**layout)` |
+| `read` | `dict[str, Any] \| None` | `{}` | forwarded to `MemoryReadConfig(**read)`; `None` opts read config out entirely |
+| `generate` | `dict[str, Any] \| None` | `None` | forwarded to `MemoryGenerateConfig(**generate)` when set; `None` leaves generation on the SDK's own default |
+
+Each field maps one-to-one onto an SDK config dataclass — this spec is a pass-through, not a
+reinterpretation, so any keyword the installed SDK's config classes accept works here too.
+
+## `CompactionSpec`
+
+```python
+from agentdeck.agents import CompactionSpec
+```
+
+| Field | Type | Default | Effect |
+|---|---|---|---|
+| `threshold` | `int \| float \| None` | `None` | see below |
+| `model` | `str \| None` | `None` | model to look up in the dynamic-policy table when `threshold` is a fraction; falls back to the agent's own `model` attribute |
+
+`threshold` picks the policy: `None` leaves compaction on the SDK's runtime default; an `int > 1`
+is an absolute token cap (`StaticCompactionPolicy`); a `float` in `(0, 1]` is a fraction of the
+model's context window (`DynamicCompactionPolicy`), which requires the model to appear in the
+SDK's `CompactionModelInfo` table — an unlisted model raises `ConfigError` naming the problem
+rather than silently falling back to no compaction. A `bool` is rejected explicitly (`isinstance`
+would otherwise accept it as an `int`), and an out-of-range `int` or `float` raises too.
+
+Built compaction always strips the Responses-API `context_management` sampling parameter before
+it reaches the model call: the base SDK capability injects it, and a chat-completions endpoint
+forwards whatever it is given and gets a rejection back from the server. This spec's `build()`
+returns a capability that keeps compaction's instructions and `process_context` behavior active
+while sending nothing on the wire that a chat-completions model would reject.
+
+## Skills
+
+Skills have no dedicated spec class — `skills` and `skills_dir` on `CapabilitiesSpec` are the
+whole surface. A name in `skills` that is not a bundle under `skills_dir` raises `ConfigError`
+listing the bundles that are actually there, at build time rather than the first time the agent
+tries to use one. The directory itself is auto-granted to the sandbox as a read-only path, so
+resolution works even when the sandbox process's own working directory is outside the skills
+tree — the agent author already approved that directory by naming it as `skills_dir`.
