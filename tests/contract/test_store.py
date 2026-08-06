@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from collections import Counter
 from datetime import UTC, datetime, timedelta
+from time import monotonic
 from typing import TYPE_CHECKING, Any
 
 import live_stores
@@ -44,7 +46,7 @@ from agentdeck.core.status import RunStatus
 from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Coroutine
+    from collections.abc import AsyncIterator, Callable, Coroutine, Iterable
     from pathlib import Path
 
     from agentdeck.core.ports import EventStorePort
@@ -58,6 +60,13 @@ async def event_store(request: pytest.FixtureRequest) -> AsyncIterator[EventStor
     skip with a reason naming the env var when there is none (``live_stores``)."""
     async with live_stores.event_store(request.param) as store:
         yield store
+
+
+@pytest.fixture(params=live_stores.BACKENDS)
+async def two_event_stores(request: pytest.FixtureRequest) -> AsyncIterator[tuple[EventStorePort, EventStorePort]]:
+    """Two handles on one keyspace, for the promises that only hold between two writers."""
+    async with live_stores.two_event_stores(request.param) as pair:
+        yield pair
 
 
 def _ctx(tenant: str = "acme") -> RunContext:
@@ -545,9 +554,9 @@ async def test_a_page_already_read_does_not_shift_when_the_log_grows(event_store
     can slot in front of — or that published its ordering out of the order it assigned it —
     would move an unread event behind the cursor and deliver its neighbour twice.
 
-    Sequential here, which is all one store instance can show; the concurrent version of the
-    same invariant, where a write commits past an in-flight claim, needs two connections and
-    lives in ``tests/test_postgres_store.py``.
+    Sequential here, which is all one store instance can show, and it passes on all four with
+    the concurrent half of the promise broken: that half — a write committing while another
+    writer's batch is still in flight — is the case below, on two handles.
     """
     ctx = _ctx()
     await event_store.append("s-1", [_event(0, _started()), _event(1, RunResumed(reason=None))], ctx)
@@ -557,6 +566,95 @@ async def test_a_page_already_read_does_not_shift_when_the_log_grows(event_store
 
     assert await event_store.read("s-1", ctx, offset=0, limit=2) == first_page
     assert [event.seq for event in await event_store.read("s-1", ctx, offset=2)] == [2]
+
+
+# One row would give a second writer nowhere to land: a batch this wide takes long enough to
+# insert that a peer writing throughout it is inside it, rather than before or after.
+_INTERLEAVED_BATCH = 200
+
+# And several peer writes rather than one, for the half of the interleave a head start cannot
+# arrange: which of two writes that begin together reaches the store first is the machine's
+# choice, so one write can lose the race to be *behind* the batch. Five cannot all lose it.
+_TRAILING_WRITES = 5
+
+# A bound on a broken run, never part of an assertion: a reader that has lost an event to a
+# shift will never reach its count, and has to stop asking at some point.
+_PAGING_DEADLINE = 10.0
+
+
+def _keys(events: Iterable[Event]) -> list[tuple[str, int]]:
+    """Each event as its identity — one ``(run, seq)`` per event, ever."""
+    return [(event.run_id, event.seq) for event in events]
+
+
+async def _append_each(store: EventStorePort, ctx: RunContext, events: Iterable[Event]) -> None:
+    """One committed write per event, so a run of them straddles whatever a peer has open."""
+    for event in events:
+        await store.append("s-1", [event], ctx)
+
+
+async def _page_the_log(store: EventStorePort, ctx: RunContext, until: int) -> list[Event]:
+    """Page a log the way the port says is safe — a plain counter as the cursor — until
+    ``until`` events have come back or the deadline gives up on them.
+
+    The cursor being the count delivered so far is the whole point: an event that lands
+    *behind* it is never delivered, and whatever it displaced is delivered twice.
+    """
+    delivered: list[Event] = []
+    deadline = monotonic() + _PAGING_DEADLINE
+    while len(delivered) < until and monotonic() < deadline:
+        page = await store.read("s-1", ctx, offset=len(delivered))
+        delivered.extend(page)
+        if not page:
+            await asyncio.sleep(0.001)  # nothing new committed yet, so let the writer get on with it
+    return delivered
+
+
+async def test_a_page_already_read_does_not_shift_when_a_second_writer_commits(
+    two_event_stores: tuple[EventStorePort, EventStorePort],
+) -> None:
+    """The promise above in the shape one instance cannot show: a second writer commits while
+    the first's batch is still in flight, and a reader pages across both.
+
+    Every event is delivered exactly once and in one order, or paging is not safe to do with a
+    counter. What can break it is a store that orders by a number assigned at insert and
+    published at commit — Postgres's ``BIGSERIAL`` — because the peer's row can be given a
+    *later* number and still be published *first*: the reader takes it at an offset it then
+    leaves behind, so the batch's first event is never delivered and the peer's arrives twice.
+    Serializing a log's writes is what keeps it growing only at its end.
+
+    Memory and SQLite pass this by construction rather than by luck, and are here because a
+    backend added later gets asked the same question before it is trusted.
+    """
+    batching, peer = two_event_stores
+    ctx = _ctx()
+    batch = [_event(seq, TextDelta(message_id="m1", text=str(seq))) for seq in range(_INTERLEAVED_BATCH)]
+    # A run of their own: a seq the batch also holds would be refused, and prove the unique
+    # index works rather than anything about the log's order.
+    trailing = [_event(seq, TextDelta(message_id="m2", text=str(seq)), run_id="r-2") for seq in range(_TRAILING_WRITES)]
+    # Both handles connected and set up before the race — a cold one spends its first call
+    # creating a schema, which is a lap the other does not run.
+    await batching.read("s-1", ctx)
+    await peer.read("s-1", ctx)
+
+    writing = asyncio.create_task(batching.append("s-1", batch, ctx))
+    await asyncio.sleep(0)  # into its write before the peer opens one, so the peer's rows are numbered behind it
+    behind = asyncio.create_task(_append_each(peer, ctx, trailing))
+
+    # Reads go through the writing peer's own handle, so every page is taken between two of its
+    # commits — the moment a shift would be visible in — and never inside one.
+    delivered = await _page_the_log(peer, ctx, until=len(batch) + len(trailing))
+    await asyncio.gather(writing, behind)
+    settled = _keys(await peer.read("s-1", ctx))
+
+    seen = _keys(delivered)
+    twice = [key for key, times in Counter(seen).items() if times > 1]
+    never = [key for key in settled if key not in set(seen)]
+    assert not twice and not never, (
+        f"paging a log of {len(settled)} delivered {len(seen)}: {twice} twice, {never} never — "
+        "a write landed behind the reader's cursor"
+    )
+    assert seen == settled, "the reader's order is not the order the log settled into"
 
 
 async def test_paginated_read_zero_limit_is_an_empty_page(event_store: EventStorePort) -> None:
