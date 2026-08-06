@@ -114,9 +114,15 @@ def test_nested_run_does_not_repropagate_identity(spy):
 
 
 async def test_app_chat_turn_produces_root_trace_with_chat_session_id(spy, tmp_path, monkeypatch):
-    """End-to-end: App.chat(..., session_id=...) reaches the root trace via HeadlessRunner."""
+    """End-to-end: App.chat(..., session_id=...) reaches the root trace via the Runtime's
+    V1CompatEngine. Stubs the SDK boundary the same way tests/test_app.py does (a scripted
+    model behind v1's own ``OpenAIProvider``) rather than a runner method, because the
+    Runtime always drives ``Runner.run_streamed`` — never the non-streamed ``Runner.run`` —
+    regardless of whether the caller wants a stream.
+    """
     import sys
-    from types import SimpleNamespace
+
+    from scripted_model import ScriptedModel, provider_of
 
     root = tmp_path / ".agentdeck"
     (root / "agents" / "greeter").mkdir(parents=True)
@@ -126,14 +132,11 @@ async def test_app_chat_turn_produces_root_trace_with_chat_session_id(spy, tmp_p
         del sys.modules[mod]
     from agentdeck import App
 
-    async def fake_run(agent, message, **kwargs):
-        return SimpleNamespace(final_output=f"echo:{message}", context_wrapper=None)
-
-    monkeypatch.setattr("agentdeck.agents.runners.headless.Runner.run", fake_run)
+    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel(deltas=("echo:hi",))))
 
     app = App()
     result = await app.chat("Greeter", "wa-123", "hi")
 
-    assert result.final_output == "echo:hi"
+    assert result.output == "echo:hi"
     (span,) = spy.spans
     assert _attr(span, "session.id") == "wa-123"
