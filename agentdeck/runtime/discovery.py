@@ -60,8 +60,8 @@ class InvocableRegistry:
         return specs
 
     def _add(self, specs: dict[str, InvocableSpec], name: str, kind: InvocableKind, native: Any) -> None:
-        # Only catches a collision across kinds: two bundles of one kind exporting the same
-        # class name were already collapsed into one entry by the v1 scan that fed this.
+        # Only catches a collision across kinds; a collision within one kind (two agent
+        # bundles exporting the same class name) already raised inside the v1 scan that fed this.
         if name in specs:
             raise ConfigError(
                 f"two bundles are both named {name!r} (kinds: {specs[name].kind.value} and {kind.value}); "
