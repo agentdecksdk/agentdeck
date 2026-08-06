@@ -6,10 +6,11 @@ checkpointer is its own working memory, never shared with or read by an outer ri
 nothing outside this directory ever sees a ``StateGraph``, a checkpointer, or a
 ``thread_id``'s raw graph state. ``astream(..., stream_mode=["updates", "custom", "values"])``
 maps onto the payloads this adapter yields: a ``{node: patch}`` update becomes
-``node.updated``, a ``{"__interrupt__": (...)}`` update becomes ``run.interrupted`` and ends
-the stream (the graph suspends there; resuming re-enters the same ``astream`` call with a
-``Command(resume=value)``), a ``get_stream_writer()`` write becomes one namespaced ``custom``
-event, and the stream simply ending means the graph reached ``END``.
+``node.updated`` (an update langgraph reports as ``None``, which is what a node that returned
+nothing looks like, becomes an empty patch), a ``{"__interrupt__": (...)}`` update becomes
+``run.interrupted`` and ends the stream (the graph suspends there; resuming re-enters the same
+``astream`` call with a ``Command(resume=value)``), a ``get_stream_writer()`` write becomes one
+namespaced ``custom`` event, and the stream simply ending means the graph reached ``END``.
 
 Both ends of a run are the graph's state: a ``DataBlock`` in is the initial state as posted,
 and the final state leaves as a ``DataBlock`` on ``run.completed`` — structured going in,
@@ -165,10 +166,21 @@ class LangGraphEngine(EnginePort):
             else:
                 interrupted = chunk.get(_INTERRUPT_KEY)
                 if interrupted is not None:
-                    yield self._interrupted(interrupted[0], thread_id)
+                    pause = self._interrupted(interrupted[0], thread_id)
+                    # Let langgraph finish before reporting the pause. Returning here instead
+                    # abandons ``astream`` mid-flight, and with an *async* checkpointer the
+                    # pause is then not written: the resume finds the checkpoint from before
+                    # the interrupt, re-runs the node and interrupts all over again, so a
+                    # durable workflow silently never resumes. The in-memory saver hides it,
+                    # having nothing to await. Draining first also orders the two records the
+                    # only safe way round — the engine's checkpoint is durable before the
+                    # canonical log says the run is waiting on a human.
+                    async for _ in stream:
+                        pass
+                    yield pause
                     return  # the graph suspended; its terminal event arrives on resume
                 for node, patch in chunk.items():
-                    yield NodeUpdated(node=node, state_patch=self._as_data(patch, node))
+                    yield NodeUpdated(node=node, state_patch=self._as_patch(patch, node))
         yield RunCompleted(
             output=[DataBlock(data=self._as_data(state, "final state"))],
             usage=Usage(input_tokens=0, output_tokens=0),
@@ -183,6 +195,15 @@ class LangGraphEngine(EnginePort):
             payload=self._as_data(value, "interrupt"),
             thread_id=thread_id,
         )
+
+    def _as_patch(self, patch: Any, node: str) -> dict[str, Any]:
+        """One node's state update, where *no* update is a legitimate answer.
+
+        langgraph reports a node that changed nothing — the side-effect-only node that logs or
+        notifies and returns ``None``, and equally one returning ``{}`` — as ``{node: None}``.
+        An absent patch is not a malformed one, so it is the empty patch rather than a refusal.
+        """
+        return {} if patch is None else self._as_data(patch, node)
 
     def _as_data(self, value: Any, source: str) -> dict[str, Any]:
         """One node update / interrupt payload / graph state as the JSON object an event

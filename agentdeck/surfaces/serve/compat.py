@@ -163,18 +163,26 @@ async def workflow_frames(events: AsyncGenerator[Event, None]) -> AsyncIterator[
 async def workflow_result(events: AsyncGenerator[Event, None]) -> Any:
     """v1's non-streamed workflow body: the final state, or the interrupt the run paused on.
 
-    ``None`` means the run produced neither — which for a resume is how a lost claim reads:
-    the run had already been answered, so this caller has nothing to report.
+    ``None`` means the run produced neither, which is the empty stream of a claim somebody
+    else won.
     """
-    result: Any = None
-    async with aclosing(events):
-        async for event in events:
-            payload = event.payload
-            if isinstance(payload, RunInterrupted):
-                result = _interrupt(payload)
-            elif isinstance(payload, RunCompleted):
-                result = _final_state(payload)
+    result, _ = await _terminal(events)
     return result
+
+
+async def resume_result(events: AsyncGenerator[Event, None]) -> Any:
+    """v1's non-streamed resume body — or ``None`` when this caller's answer changed nothing.
+
+    There are two ways for a resume to change nothing, and neither may be reported as success.
+    The claim went to another caller, so nothing was read from the engine at all; or the thread
+    had already reached ``END`` — langgraph replays such a thread happily, handing back its
+    stale final state while dropping the resume value on the floor, which is the worst answer
+    available. A resume that really landed re-runs the node that paused, so one ``node.updated``
+    (or the ``run.interrupted`` of a node that paused again before completing) is what proves
+    the answer was applied.
+    """
+    result, applied = await _terminal(events)
+    return result if applied else None
 
 
 def interrupt_inbox(pending: Sequence[PendingRun], invocable: str) -> list[dict[str, Any]]:
@@ -187,12 +195,32 @@ def interrupt_inbox(pending: Sequence[PendingRun], invocable: str) -> list[dict[
     return [_pending(run) for run in sorted(pending, key=lambda run: run.thread_id) if run.invocable == invocable]
 
 
+async def _terminal(events: AsyncGenerator[Event, None]) -> tuple[Any, bool]:
+    """v1's terminal body for this run, plus whether the graph ran anything at all for it."""
+    result: Any = None
+    applied = False
+    async with aclosing(events):
+        async for event in events:
+            payload = event.payload
+            if isinstance(payload, RunInterrupted):
+                result, applied = _interrupt(payload), True
+            elif isinstance(payload, NodeUpdated):
+                applied = True
+            elif isinstance(payload, RunCompleted):
+                result = _final_state(payload)
+    return result, applied
+
+
 def _workflow_frame(payload: Any) -> str | None:
     """One v1 frame for this payload, or ``None`` for an event v1's wire has no frame for
     (``run.started``, ``run.resumed``, and the ``run.failed`` whose report is the ``error``
     frame the exception itself produces)."""
     if isinstance(payload, NodeUpdated):
-        return _data({"type": "node_update", "node": payload.node, "delta": payload.state_patch})
+        # v1's wire showed ``"delta": null`` for a node that changed nothing, and
+        # ``state_patch`` is a dict that cannot carry null — so an empty patch renders back as
+        # null. Nothing else is flattened by that: langgraph reports a node returning ``{}``
+        # and one returning ``None`` identically, and v1 showed null for both.
+        return _data({"type": "node_update", "node": payload.node, "delta": payload.state_patch or None})
     if isinstance(payload, Custom) and payload.name == STREAM_WRITE:
         return _data({"type": "custom", "data": payload.data.get(STREAM_WRITE_KEY)})
     if isinstance(payload, RunInterrupted):
@@ -230,6 +258,7 @@ __all__ = [
     "chat_result",
     "interrupt_inbox",
     "resume_context",
+    "resume_result",
     "run_context",
     "workflow_frames",
     "workflow_result",

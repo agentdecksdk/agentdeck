@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import logging
 import os
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.app import App
@@ -45,15 +45,18 @@ from agentdeck.surfaces.serve.compat import (
     chat_result,
     interrupt_inbox,
     resume_context,
+    resume_result,
     run_context,
     workflow_frames,
     workflow_result,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator, AsyncIterator
 
     from fastapi import FastAPI
+
+    from agentdeck.core.events import Event
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +138,7 @@ def create_app() -> Any:
         run = app.runtime.run(name, content, run_context(session_id))
         if stream:
             return StreamingResponse(
-                chat_frames(run),
+                chat_frames(await _opened(run)),
                 media_type="text/event-stream",
                 # Proxies buffer streamed responses by default; nginx needs X-Accel-Buffering.
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -153,7 +156,7 @@ def create_app() -> Any:
         run = app.runtime.run(name, [DataBlock(data=state)], run_context(thread_id))
         if stream:
             return StreamingResponse(
-                workflow_frames(run),
+                workflow_frames(await _opened(run)),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
@@ -181,14 +184,41 @@ def create_app() -> Any:
         )
         if paused is None:
             raise NotFoundError(f"No paused run of {name!r} on thread {thread_id!r}.")
-        result = await workflow_result(app.runtime.resume(name, thread_id, body["value"], resume_context(paused)))
+        result = await resume_result(app.runtime.resume(name, thread_id, body["value"], resume_context(paused)))
         if result is None:
-            # The claim went to another caller between the listing and the resume, so this
-            # request answered nothing — the same "there is no paused run here" as above.
+            # This caller's answer changed nothing: either the claim went to somebody else
+            # between the listing and the resume, or the log's entry was a ghost — a thread
+            # already answered through the Python API, whose inbox is the checkpointer rather
+            # than the log. Either way there is no paused run here, and saying so beats handing
+            # back the stale final state a replayed thread produces while dropping the answer.
             raise NotFoundError(f"No paused run of {name!r} on thread {thread_id!r}.")
         return result
 
     return api
+
+
+async def _opened(run: AsyncGenerator[Event, None]) -> AsyncGenerator[Event, None]:
+    """``run`` with its opening event already pulled, so a refusal is still an answer.
+
+    A run is claimed on its first event, so a generator handed straight to
+    ``StreamingResponse`` has committed ``200`` and ``text/event-stream`` before the claim is
+    even attempted — and a ``SessionBusyError`` then reaches the client in-band as a body that
+    stops, indistinguishable from a run that produced nothing. Pulling the opening event here
+    lets the refusal reach the exception handler that answers it **409**. The wire is unchanged:
+    ``run.started`` renders to no v1 frame, streamed or not.
+    """
+    opening = await anext(run)
+
+    async def replayed() -> AsyncGenerator[Event, None]:
+        # Closing this generator does not close the one it delegates to — a consumer that walks
+        # away must still land as a ``GeneratorExit`` inside the run, which is what closes it in
+        # the log.
+        async with aclosing(run):
+            yield opening
+            async for event in run:
+                yield event
+
+    return replayed()
 
 
 def _warn_if_event_log_is_in_memory(deck: App) -> None:

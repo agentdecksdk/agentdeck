@@ -42,6 +42,12 @@ def capture(client) -> dict[str, bytes]:
         "11_pending_after_resume.http": _record(client.get("/workflows/ApprovalFlow/pending")),
         "12_workflow_error.http": _record(client.post("/workflows/BoomFlow", json={"text": "x"})),
         "13_workflow_error_stream.http": _record(client.post("/workflows/BoomFlow?stream=true", json={"text": "x"})),
+        # A node that only has side effects reports no update at all, which v1's wire showed as
+        # `"delta": null` — the commonest node shape there is, and unpinned until now.
+        "14_side_effect.http": _record(client.post("/workflows/SideEffectFlow", json={"request": "x"})),
+        "15_side_effect_stream.http": _record(
+            client.post("/workflows/SideEffectFlow?stream=true", json={"request": "x"})
+        ),
     }
 
 
