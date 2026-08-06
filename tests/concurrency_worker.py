@@ -158,6 +158,11 @@ def session_run_id(trial: int, tag: str) -> str:
     return f"session-{trial}-{tag}"
 
 
+def attempted_file(sync: Path, log_key: str, tag: str) -> Path:
+    """Marks that this peer's claim on ``log_key`` has been answered, win or refusal."""
+    return sync / f"attempted.{log_key}.{tag}"
+
+
 def session_key(trial: int) -> str:
     """The SDK session key the engine keeps this session's execution state under."""
     return f"{TENANT}:{session_log_key(trial)}"
@@ -277,20 +282,37 @@ class ClaimTimingStore(SqliteEventStore):
 
 
 class ClaimStartTimingStore(SqliteEventStore):
-    """``ClaimTimingStore``'s twin for the session claim, recording the window each attempt
-    occupied so the test can tell two overlapping claims from two that merely both happened."""
+    """``ClaimTimingStore``'s twin for the session claim: it holds each peer at a barrier in the
+    one instant before the claim, and records the window the attempt then occupied.
 
-    def __init__(self, path: Path, windows: Path) -> None:
+    The barrier belongs *here* rather than before the turn, because "exactly one turn ran" has to
+    be a fact about the claim and not about who was faster. Released earlier, the two peers drift
+    apart over a store read apiece — and on a loaded box the winner's whole run can be over before
+    the loser asks, which is a legal pair of sequential turns and proves nothing about the claim.
+    Meeting at the claim itself, the loser always asks while the winner's claim is in flight.
+
+    The window is still recorded, because a barrier says the peers arrived together and only the
+    two windows say they were genuinely inside the claim at the same moment. Wall-clock
+    nanoseconds, not a monotonic count: only the wall clock means the same thing in two processes.
+    """
+
+    def __init__(self, path: Path, windows: Path, sync: Path, tag: str) -> None:
         super().__init__(path)
         self._windows = windows
+        self._sync = sync
+        self._tag = tag
 
     async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
+        await _barrier(self._sync, f"claim.{log_key}", self._tag)
         started = time.time_ns()
         try:
             return await super().claim_start(log_key, event, ctx, stale_before)
         finally:
             with self._windows.open("a") as handle:
                 handle.write(f"{log_key} {started} {time.time_ns()}\n")
+            # Whatever it answered, this peer has now asked — which is what the winner's own run
+            # waits for before it is allowed to finish.
+            attempted_file(self._sync, log_key, self._tag).touch()
 
 
 class FileSessions(ExecutionStore):
@@ -339,6 +361,29 @@ class StallingStore(SqliteEventStore):
             self._mid.touch()
             while True:  # a SIGKILL from the test is the only way out, which is the point
                 await asyncio.sleep(0.05)
+
+
+class PeerClaimModel(Model):
+    """Streams a fixed script but refuses to finish until the peer's claim has been answered.
+
+    Without it, "exactly one turn ran" is only true when the loser asks while the winner is still
+    running, and nothing guarantees that: on a box with one usable core the winner's whole run can
+    be over before the loser is scheduled at all, which is a legal pair of *sequential* turns and
+    says nothing about the claim. Waiting for the peer's mark makes the overlap a property of the
+    fixture instead of a hope about the scheduler.
+    """
+
+    def __init__(self, attempted: Path) -> None:
+        self._attempted = attempted
+
+    async def stream_response(self, *_args: Any, **_kwargs: Any) -> AsyncIterator[Any]:
+        for index in range(CHUNK_COUNT):
+            yield _delta(index)
+        await _await_file(self._attempted)
+        yield _completed()
+
+    async def get_response(self, *_args: Any, **_kwargs: Any) -> Any:
+        raise NotImplementedError("this fixture only streams")
 
 
 class BarrierModel(Model):
@@ -472,7 +517,8 @@ async def _race_cancel(tag: str, trials: int, root: Path) -> None:
 
 
 async def _race_session(tag: str, trials: int, root: Path) -> None:
-    """Both peers start a turn on one session at the same instant; the store picks the winner.
+    """Both peers start a turn on one session, meeting inside the claim itself; the store picks
+    the winner. The barrier lives in ``ClaimStartTimingStore`` for the reason its docstring gives.
 
     A real engine with its execution state in a file, not the stub: the reason one turn per
     session is a rule at all is that the loser would otherwise be handing the same SDK session
@@ -480,15 +526,16 @@ async def _race_session(tag: str, trials: int, root: Path) -> None:
     after both processes are gone.
     """
     sync = root / "sync"
-    store = ClaimStartTimingStore(events_db(root), windows_file(root))
+    store = ClaimStartTimingStore(events_db(root), windows_file(root), sync, tag)
     engine = OpenAIAgentsEngine(FileSessions(session_db(root)))
     for trial in range(trials):
         async with asyncio.timeout(TRIAL_TIMEOUT):
-            agent = Agent(name=CHATTY, instructions="stream", model=BarrierModel(sync, "unused", tag, None))
+            log_key = session_log_key(trial)
+            model = PeerClaimModel(attempted_file(sync, log_key, PEER[tag]))
+            agent = Agent(name=CHATTY, instructions="stream", model=model)
             spec = InvocableSpec(name=CHATTY, kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
             runtime = Runtime([engine], store, {CHATTY: spec})
-            ctx = context(session_run_id(trial, tag), session_log_key(trial))
-            await _barrier(sync, f"session-{trial}", tag)
+            ctx = context(session_run_id(trial, tag), log_key)
             try:
                 events = [event async for event in runtime.run(CHATTY, coerce_input(turn_input(tag)), ctx)]
             except SessionBusyError as refusal:

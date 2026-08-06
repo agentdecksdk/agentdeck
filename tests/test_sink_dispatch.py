@@ -138,6 +138,111 @@ class SelfCancelOnce(Recorder):
         await super().emit(event)
 
 
+class Buffering(EventSinkPort):
+    """Holds every event and writes the lot out only when closed.
+
+    The shape the emit contract pushes a real sink into: ``emit`` does in-memory work, and the
+    buffer reaches wherever it is going on a schedule of the sink's own — of which shutdown is
+    the last one. ``written`` is what actually left; ``buffered`` is what would be lost.
+    """
+
+    def __init__(self) -> None:
+        self.buffered: list[Event] = []
+        self.written: list[int] = []
+        self.closes = 0
+        self.emits_after_close = 0
+
+    async def emit(self, event: Event) -> None:
+        if self.closes:
+            # Recorded rather than raised: a raise here would be caught by the dispatch and
+            # counted as one more failed emit, which is not what went wrong.
+            self.emits_after_close += 1
+        self.buffered.append(event)
+
+    async def close(self) -> None:
+        self.closes += 1
+        self.written.extend(event.seq for event in self.buffered)
+        self.buffered.clear()
+
+
+class FailsAfterOne(Buffering):
+    """Buffers its first event and fails every one after it.
+
+    The awkward case the breaker creates: by the time it is disabled it is still holding an
+    event that a flush would get out.
+    """
+
+    async def emit(self, event: Event) -> None:
+        if self.buffered or self.written:
+            raise RuntimeError("collector is down")
+        await super().emit(event)
+
+
+class CloseWedged(Buffering):
+    """Never returns from ``close``, the way a final flush to a dead endpoint does not."""
+
+    async def close(self) -> None:
+        self.closes += 1
+        await asyncio.Event().wait()  # nobody holds it: only the deadline ends this
+
+
+class CloseBroken(Buffering):
+    """Raises out of ``close`` — a shutdown is not the place to find out about it the hard way."""
+
+    async def close(self) -> None:
+        self.closes += 1
+        raise RuntimeError("collector rejected the flush")
+
+
+class Stubborn(Buffering):
+    """Keeps working inside ``emit`` after swallowing a cancellation, instead of dying of one.
+
+    Not malicious and not wedged — a finite emit that outlives the reap's deadline, which is the
+    one shape that leaves a consumer alive *inside* ``emit`` when the deadline fires. ``CloseDeaf``
+    swallows its first cancel and then returns, so the next one lands in ``queue.get()`` and kills
+    it; this one is still in the sink when the reap gives up on it.
+    """
+
+    def __init__(self, slices: int = 5) -> None:
+        super().__init__()
+        self._slices = slices
+
+    async def emit(self, event: Event) -> None:
+        for _ in range(self._slices):
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.sleep(0.02)
+        await super().emit(event)
+
+
+class CloseCancels(Buffering):
+    """Leaks a ``CancelledError`` out of ``close``, the way a timeout scope of its own does.
+
+    Nobody cancelled anything, so a shutdown that took it for a real cancellation would abandon
+    the rest of its work over a sink's bug.
+    """
+
+    async def close(self) -> None:
+        self.closes += 1
+        raise asyncio.CancelledError
+
+
+class CloseDeaf(Buffering):
+    """Swallows the cancellation the reap sends, then carries on taking events.
+
+    The one way an event can still reach a sink after its ``close``: its consumer outlived the
+    cancel meant to retire it, so cancelling is not what makes the promise hold.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.release = asyncio.Event()
+
+    async def emit(self, event: Event) -> None:
+        with contextlib.suppress(asyncio.CancelledError):
+            await self.release.wait()  # never set: the reap's cancel is the only way out
+        await super().emit(event)
+
+
 def _errors(caplog: pytest.LogCaptureFixture) -> list[str]:
     return [record.getMessage() for record in caplog.records if record.levelno >= logging.ERROR]
 
@@ -380,35 +485,46 @@ async def test_the_cancellation_close_sends_is_not_counted_as_the_sink_misbehavi
     assert dispatch.dropped == 1
 
 
-async def test_close_gives_up_on_a_consumer_that_refuses_to_be_cancelled(
+async def test_a_consumer_that_ate_its_cancellation_still_retires_at_its_next_turn(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """A sink that eats the cancellation keeps its consumer, so cancelling is not an exit condition
-    either. Shutdown ends anyway, and says what it walked away from."""
+    """A sink that eats the cancellation is not an exit condition on its own, so the consumer has a
+    second way out that does not depend on one landing: once the dispatch is closed, its own loop
+    ends. Only a consumer still *inside* such an ``emit`` when the deadline passes is abandoned.
+    """
     caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
     monkeypatch.setattr("agentdeck.runtime.dispatch.REAP_TIMEOUT", 0.05)  # the bound, shrunk
     sink = CancelDeaf()
     dispatch = SinkDispatch(sink)
+    before = len(asyncio.all_tasks())
     await dispatch.submit(_event(0))
 
     async with asyncio.timeout(5):  # the hang this bound exists for, not a measurement
         await dispatch.close(timeout=0.05)
 
     assert sink.seqs() == []
-    assert "sink CancelDeaf did not release its consumer within 0.05s; abandoning the task" in [
-        record.getMessage() for record in caplog.records
-    ]
+    assert len(asyncio.all_tasks()) == before  # ended, and by its own loop rather than the cancel
+    assert [record.getMessage() for record in caplog.records if "did not release" in record.getMessage()] == []
 
 
 async def test_close_does_not_swallow_a_cancellation_aimed_at_its_caller() -> None:
     """The reap's own deadline must not become a cancellation shield: a caller cancelled mid-close
-    and handed a clean return carries on as if it had never been asked to stop."""
-    dispatch = SinkDispatch(CancelDeaf())
+    and handed a clean return carries on as if it had never been asked to stop.
+
+    Needs a sink whose consumer is still inside ``emit`` when the caller's deadline lands, since
+    that is the only state in which the reap is still waiting on anything.
+    """
+    sink = Stubborn(slices=20)  # 0.4s of cancellation-proof work, against a 0.2s caller deadline
+    dispatch = SinkDispatch(sink)
+    before = len(asyncio.all_tasks())
     await dispatch.submit(_event(0))
 
     with pytest.raises(TimeoutError):  # the caller's deadline, delivered as a cancel into close
         async with asyncio.timeout(0.2):
             await dispatch.close(timeout=0.1)
+
+    await asyncio.sleep(0.5)
+    assert len(asyncio.all_tasks()) == before  # the abandoned consumer retires itself, not leaks
 
 
 async def test_a_cancelled_error_leaked_by_a_sink_is_a_failure_not_a_lost_event() -> None:
@@ -483,6 +599,219 @@ async def test_closing_twice_counts_nothing_twice_and_raises_no_second_alarm(
     assert dispatch.dropped == 3
     assert (dispatch.dropped, len(caplog.records)) == after_first
     assert _errors(caplog) == []
+
+
+async def test_a_buffering_sink_writes_its_buffer_out_when_the_dispatch_closes() -> None:
+    """Draining the queue is only half a shutdown: a sink that answers every emit in memory has
+    delivered nothing until something tells it the stream is over."""
+    sink = Buffering()
+    dispatch = SinkDispatch(sink)
+    async with asyncio.timeout(10):  # a hang guard, not a measurement
+        for seq in range(5):
+            await dispatch.submit(_event(seq))
+        await dispatch.flush()
+
+        assert (sink.written, [event.seq for event in sink.buffered]) == ([], [0, 1, 2, 3, 4])
+        await dispatch.close()
+
+    assert sink.written == [0, 1, 2, 3, 4]
+    assert (sink.closes, sink.emits_after_close) == (1, 0)
+    assert (dispatch.dropped, dispatch.failed, dispatch.close_failed) == (0, 0, False)
+
+
+async def test_a_sink_that_defines_no_close_is_closed_without_one() -> None:
+    """The hook is optional: every sink written before it existed goes on working untouched, which
+    is what the port's default is for."""
+    sink = Recorder()
+    assert type(sink).close is EventSinkPort.close  # nothing in its MRO overrides it
+
+    dispatch = SinkDispatch(sink)
+    async with asyncio.timeout(10):
+        await dispatch.submit(_event(0))
+        await dispatch.close()
+
+    assert (sink.seqs(), dispatch.close_failed) == ([0], False)
+
+
+async def test_a_closed_sink_is_never_handed_another_event(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """What a sink may assume, and the case that makes it worth stating: a consumer that ate the
+    cancellation retiring it is still alive, and must reach no sink that has already let go of its
+    buffer — so it takes nothing further, rather than taking events and discarding them."""
+    caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
+    monkeypatch.setattr("agentdeck.runtime.dispatch.REAP_TIMEOUT", 0.05)
+    sink = CloseDeaf()
+    dispatch = SinkDispatch(sink)
+    await dispatch.submit(_event(0))  # the consumer wedges inside this one
+    await dispatch.submit(_event(1))  # what it would take next, if anything still could
+
+    async with asyncio.timeout(5):  # the hang this bound exists for, not a measurement
+        await dispatch.close(timeout=0.05)
+
+    assert sink.emits_after_close == 0
+    assert (sink.closes, sink.written) == (1, [0])  # the event it did take still got written out
+    assert dispatch.dropped == 1  # seq 1 was never taken: the consumer retired at its loop condition
+    assert dispatch.depth == 1  # and it is still in the queue, which is where close counted it
+
+
+async def test_a_sink_that_hangs_in_its_close_does_not_hold_shutdown_open(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The hook is a wait on a sink like any other, so it gets a deadline like any other —
+    a flush to a dead endpoint must cost a shutdown a few seconds, not the process."""
+    caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
+    monkeypatch.setattr("agentdeck.runtime.dispatch.CLOSE_TIMEOUT", 0.05)  # the bound, shrunk
+    sink = CloseWedged()
+    dispatch = SinkDispatch(sink)
+    before = len(asyncio.all_tasks())
+    await dispatch.submit(_event(0))
+
+    async with asyncio.timeout(5):  # the hang this bound exists for, not a measurement
+        await dispatch.close()
+
+    assert (sink.closes, dispatch.close_failed) == (1, True)
+    assert "sink CloseWedged did not finish its close within 0.05s; whatever it still held is lost" in [
+        record.getMessage() for record in caplog.records
+    ]
+    assert len(asyncio.all_tasks()) == before  # the abandoned flush is not left running either
+
+
+async def test_a_sink_that_raises_in_its_close_never_breaks_the_shutdown(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A failed flush is lost telemetry; a shutdown that raises out of ``drain`` is a lost
+    process. The event log holds the record either way."""
+    caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
+    sink = CloseBroken()
+    dispatch = SinkDispatch(sink)
+    async with asyncio.timeout(10):
+        await dispatch.submit(_event(0))
+        await dispatch.close()
+
+    assert dispatch.close_failed is True
+    assert dispatch.failed == 0  # its emits were fine; only the flush was not
+    tracebacks = [record for record in caplog.records if record.exc_info is not None]
+    assert len(tracebacks) == 1
+    assert "failed in its close" in tracebacks[0].getMessage()
+
+
+async def test_a_consumer_still_inside_emit_when_the_reap_gives_up_does_not_hold_shutdown_open(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The reap's deadline cannot be a deadline *around* ``await consumer``: one fires by cancelling
+    the waiting task, which forwards it straight into the sink that just swallowed the last one —
+    spending the deadline on the sink instead of ending the wait, with nothing left to fire again.
+
+    Then the close hook is never reached at all, which is the shape of hang this asserts against:
+    the sink's flush is behind this wait.
+    """
+    caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
+    monkeypatch.setattr("agentdeck.runtime.dispatch.REAP_TIMEOUT", 0.01)
+    sink = Stubborn(slices=20)  # 0.4s of cancellation-proof work, against a 0.01s reap deadline
+    dispatch = SinkDispatch(sink)
+    before = len(asyncio.all_tasks())
+    await dispatch.submit(_event(0))
+    for _ in range(3):
+        await asyncio.sleep(0)  # the consumer gets inside emit, where the cancel will find it
+
+    # No ``asyncio.timeout`` guard here, unlike every other test in this file: a guard fires by
+    # cancelling this task, whose innermost await would be the very wait under test, so it would be
+    # forwarded into the sink and swallowed too. The state below is the assertion instead.
+    await dispatch.close(timeout=0.01)
+
+    # Closed while that emit was still running: the sink had buffered nothing yet, so an empty
+    # ``written`` is proof the flush did not sit behind the 0.4s of work — and ``closes`` is proof
+    # it was reached at all, which is what the unbounded wait prevented outright.
+    assert (sink.closes, sink.written) == (1, [])
+    assert "sink Stubborn did not release its consumer within 0.01s; abandoning the task" in [
+        record.getMessage() for record in caplog.records
+    ]
+    await asyncio.sleep(0.5)
+    assert len(asyncio.all_tasks()) == before  # and the consumer it walked away from retires itself
+
+
+async def test_a_backlog_written_off_by_close_is_not_counted_again_by_a_surviving_consumer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A consumer abandoned mid-``emit`` keeps running, and draining on would count events the
+    close already reported as lost — inflating the only number an operator has for how much a
+    shutdown cost. It retires at its next turn instead."""
+    monkeypatch.setattr("agentdeck.runtime.dispatch.REAP_TIMEOUT", 0.01)
+    sink = Stubborn()
+    dispatch = SinkDispatch(sink, capacity=4)
+    async with asyncio.timeout(5):
+        for seq in range(3):
+            await dispatch.submit(_event(seq))
+        await dispatch.close(timeout=0.01)
+
+        assert dispatch.dropped == 3  # the one in flight and the two behind it
+        await asyncio.sleep(0.3)  # long enough for the abandoned consumer to finish its emit
+
+    assert dispatch.dropped == 3  # and it took no further event, so nothing is counted twice
+    # The one caveat the port documents, and the reason it does: the emit already in flight
+    # finished after the close, so this sink appended to a buffer its own close had emptied.
+    assert (sink.emits_after_close, sink.written) == (1, [])
+    assert [event.seq for event in sink.buffered] == [0]  # seq 0 only: 1 and 2 were never handed over
+
+
+async def test_a_cancelled_error_leaked_by_a_sink_s_close_is_counted_like_any_other_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The same sink bug ``emit`` already guards against, one method along: a bare
+    ``CancelledError`` with nobody cancelling anything must not read as a real cancellation."""
+    caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
+    sink = CloseCancels()
+    dispatch = SinkDispatch(sink)
+    async with asyncio.timeout(10):
+        await dispatch.submit(_event(0))
+        await dispatch.close()
+
+    assert (sink.closes, dispatch.close_failed, dispatch.failed) == (1, True, 0)
+    assert any("CancelledError from its close" in record.getMessage() for record in caplog.records)
+
+
+async def test_the_close_hook_does_not_swallow_a_cancellation_aimed_at_its_caller() -> None:
+    """The hook's own deadline must not become a cancellation shield: a caller cancelled while a
+    sink is still flushing and handed a clean return carries on as if it had never asked to stop."""
+    dispatch = SinkDispatch(CloseWedged())
+
+    with pytest.raises(TimeoutError):  # the caller's deadline, delivered as a cancel into close
+        async with asyncio.timeout(0.1):
+            await dispatch.close()
+
+
+async def test_a_sink_is_closed_once_however_many_times_shutdown_reaches_it() -> None:
+    """Shutdown paths overlap in real processes, and a second close would hand a sink that has
+    already written its buffer out a second flush of nothing."""
+    sink = Buffering()
+    dispatch = SinkDispatch(sink)
+    untouched = Buffering()  # never submitted to: a sink with no consumer is still closed
+    async with asyncio.timeout(10):
+        await dispatch.submit(_event(0))
+        await dispatch.close()
+        await dispatch.close()
+        await SinkDispatch(untouched).close()
+
+    assert (sink.closes, sink.written) == (1, [0])
+    assert (untouched.closes, untouched.written) == (1, [])
+
+
+async def test_a_disabled_sink_is_still_closed_so_what_it_buffered_before_survives() -> None:
+    """The breaker's verdict is about taking events, not about writing out the ones already
+    taken — a sink disabled halfway through a run is exactly the one holding a buffer nobody
+    else can flush."""
+    sink = FailsAfterOne()
+    dispatch = SinkDispatch(sink, failure_limit=2)
+    async with asyncio.timeout(10):
+        for seq in range(5):
+            await dispatch.submit(_event(seq))
+        await dispatch.close()
+
+    assert dispatch.disabled is True
+    assert (sink.closes, sink.written) == (1, [0])  # the one event it took reached its endpoint
+    assert (sink.emits_after_close, dispatch.close_failed) == (0, False)
+    assert (dispatch.failed, dispatch.dropped) == (2, 2)
 
 
 def test_a_dispatch_that_could_not_bound_anything_is_rejected() -> None:

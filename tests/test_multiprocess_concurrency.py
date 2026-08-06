@@ -43,9 +43,12 @@ if TYPE_CHECKING:
 WORKER = Path(__file__).parent / "concurrency_worker.py"
 TAGS = ("a", "b")
 
-# The one knob the staleness half of this file drives, by the name an operator would use. The
-# window must be positive — at zero a run's own opening event is stale to the next caller a
-# moment later — so the takeover half shortens it to a millisecond instead of switching it off.
+# The one knob the staleness half of this file drives, by the name an operator would use. A
+# millisecond is sound *there* and nowhere else: that race has no live holder at all — its victim
+# was SIGKILLed before the successor started — so the only thing the window decides is whether the
+# dead run still blocks. Where a live turn is involved, as in the mutual-exclusion race below, a
+# window this short would let one turn take the session from another, so that race deliberately
+# runs with the real default and this knob stays out of its environment.
 _STALE_ENV = "AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS"
 _NO_WAIT = "0.001"
 
@@ -266,6 +269,12 @@ def test_two_processes_starting_a_turn_on_one_session_leave_one_run_and_one_conv
     name — and the engine's own session must end up holding that one turn's conversation, with
     no trace of the refused one. That last assertion is the point of the rule: the log could
     survive two turns, a conversation cannot.
+
+    The peers meet inside the claim, and the winner's engine cannot finish its run until the
+    other's claim has been answered — so the second turn is always asked for while the first is
+    still in flight, which is checked below against the recorded claim windows rather than assumed.
+    Two turns of one session that do *not* overlap are simply two sequential turns, and would say
+    nothing about the claim.
     """
     reported = _run_peers("session", SESSION_TRIALS, tmp_path)
     attempts = _claim_windows(tmp_path)
@@ -278,6 +287,12 @@ def test_two_processes_starting_a_turn_on_one_session_leave_one_run_and_one_conv
         windows = attempts[worker.session_log_key(trial)]
         assert len(windows) == len(TAGS), f"trial {trial}: {len(windows)} claims, both peers must attempt one"
         raced += _overlap(windows)
+        # Both claims were made while the winning run was still going: the later of the two began
+        # before the run's last event was stamped. This is what makes the trial a race at all.
+        latest_claim = max(start for start, _ in windows)
+        assert latest_claim < log[-1].ts.timestamp() * 1e9, (
+            f"trial {trial}: a claim only arrived after the running turn had ended\n{_dump(log)}"
+        )
         outcome = {tag: _kinds(reported, tag, trial) for tag in TAGS}
         winners = [tag for tag, kinds in outcome.items() if kinds != [worker.REFUSED]]
 
@@ -288,6 +303,10 @@ def test_two_processes_starting_a_turn_on_one_session_leave_one_run_and_one_conv
         assert outcome[winner][-1] == "run.completed", f"trial {trial}: {outcome}\n{_dump(log)}"
 
         assert {event.run_id for event in log} == {worker.session_run_id(trial, winner)}, _dump(log)
+        # Nothing here may reach the staleness path: these peers run with the real window, so a
+        # closed-as-failed run would mean a live turn was taken over rather than merely refused —
+        # a different defect from two turns racing, and this is where the two are told apart.
+        assert "run.failed" not in [event.kind for event in log], f"trial {trial}: a takeover\n{_dump(log)}"
         _assert_run_is_coherent(log, f"trial {trial}")
         assert [event.kind for event in log] == outcome[winner], f"trial {trial}\n{_dump(log)}"
 
@@ -296,12 +315,10 @@ def test_two_processes_starting_a_turn_on_one_session_leave_one_run_and_one_conv
         assert worker.turn_input(loser) not in state, f"trial {trial}: the refused turn reached the session\n{state}"
         assert state.count(worker.chunk_text()) == 1, f"trial {trial}: one answer, once: {state}"
 
-    # As in the resume race: overlapping claims are what says this contended, not the split.
-    assert raced, (
-        f"no trial had both peers inside claim_start at once ({dict(won)} won): the barrier "
-        "released them apart, so nothing here contended"
-    )
-    print(f"one-turn-per-session over {SESSION_TRIALS} trials: winners {dict(won)}, {raced} genuinely overlapping")
+    # Reported, not asserted, unlike the resume race: two processes sharing one usable core cannot
+    # be inside the claim at the same instant however they were released, so an empty count is a
+    # fact about the machine. What makes every trial contend is asserted per trial above.
+    print(f"one-turn-per-session over {SESSION_TRIALS} trials: winners {dict(won)}, {raced} claims overlapping")
 
 
 def test_two_processes_appending_two_runs_into_one_log_keep_each_runs_seq_its_own(tmp_path: Path) -> None:
