@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import get_args
 
 import pytest
 from pydantic import ValidationError
@@ -11,11 +12,15 @@ from agentdeck.core import (
     KNOWN_KINDS,
     RESULT_PREVIEW_MAX,
     TERMINAL_KINDS,
+    ControlObserved,
+    ControlRequested,
+    ControlVerb,
     Custom,
     DataBlock,
     Event,
     RunCompleted,
     RunFailed,
+    RunResumed,
     TextBlock,
     TextDelta,
     ToolCallCompleted,
@@ -25,6 +30,7 @@ from agentdeck.core import (
     check_terminal,
     parse_event,
 )
+from agentdeck.core.status import LIFECYCLE_KINDS, RunStatus, status_of
 
 TS = "2026-01-01T12:00:00+00:00"
 
@@ -280,3 +286,74 @@ def test_a_resumed_run_keeps_its_run_id_and_continues_its_seq(examples, make_eve
     assert {event.run_id for event in run} == {"run_1"}
     assert check_contiguous(run) == []
     assert check_terminal(run) is None
+
+
+# --- the control lifecycle -------------------------------------------------------------
+
+
+@pytest.mark.parametrize("verb", get_args(ControlVerb))
+def test_one_pair_of_kinds_carries_every_control_verb(verb):
+    """Designed once rather than per verb: pause and steering reuse these two kinds, so they
+    need no schema PR of their own — and no reader has to learn a new kind to follow them."""
+    requested = parse_event(_wire("control.requested", {"verb": verb}))
+    observed = parse_event(_wire("control.observed", {"verb": verb, "safe_point": "stream_item"}))
+    assert (requested.payload.verb, observed.payload.verb) == (verb, verb)
+
+
+def test_a_verb_or_a_safe_point_outside_its_closed_set_is_refused():
+    with pytest.raises(ValidationError):
+        ControlRequested(verb="teleport")
+    with pytest.raises(ValidationError):
+        ControlObserved(verb="cancel", safe_point="whenever")
+
+
+def test_a_request_is_not_a_transition_and_observing_one_is_not_the_effect(examples, make_event):
+    """The distinction the lifecycle exists for. A request that counted as a transition would
+    report a run cancelled while it was still spending tokens inside a tool call."""
+    asked = _run(examples, make_event, "run.started", "control.requested", "control.observed")
+    assert status_of(asked) is RunStatus.RUNNING
+    assert check_terminal(asked) == "no terminal event"
+
+    stopped = [*asked, make_event(examples["run.cancelled"].payload, 3)]
+    assert status_of(stopped) is RunStatus.CANCELLED
+    assert check_terminal(stopped) is None
+
+    assert not {"control.requested", "control.observed"} & (LIFECYCLE_KINDS | TERMINAL_KINDS)
+
+
+def test_an_observation_says_which_safe_point_the_run_was_at(examples):
+    """Because "cancel took eight seconds" and "the tool call did" are different answers."""
+    observed = examples["control.observed"].payload
+    assert (observed.verb, observed.safe_point) == ("cancel", "tool_dispatch")
+
+
+# --- the resume value ------------------------------------------------------------------
+
+
+def test_a_resume_answer_is_carried_in_full_not_as_a_preview():
+    """Full storage is the whole point: a truncated answer cannot be replayed into an engine
+    that never received it, which is the repair this field exists to make possible."""
+    answer = {"approved": True, "amount": 240, "note": "x" * 5000}
+    event = parse_event(_wire("run.resumed", {"reason": None, "value": [{"type": "data", "data": answer}]}))
+    assert event.payload == RunResumed(reason=None, value=[DataBlock(data=answer)])
+    block = event.payload.value[0]
+    assert isinstance(block, DataBlock) and block.data == answer
+
+
+def test_a_resume_recorded_before_this_field_existed_still_parses():
+    """The compatibility direction a new field is usually tested in the wrong one: a reader
+    that demanded a value could not read its own store's older rows."""
+    event = parse_event(_wire("run.resumed", {"reason": "approved"}))
+    assert event.payload == RunResumed(reason="approved")
+    assert event.payload.value is None
+
+
+def test_a_resume_that_cannot_be_carried_through_returns_the_run_to_waiting(examples, make_event):
+    """The stranding half of #94, answered in vocabulary that already exists: status is a fold
+    over an append-only log, so recording the interrupt again is the entire rollback."""
+    stranded = _run(examples, make_event, "run.started", "run.interrupted", "run.resumed")
+    assert status_of(stranded) is RunStatus.RUNNING
+
+    repaired = [*stranded, make_event(examples["run.interrupted"].payload, 3)]
+    assert status_of(repaired) is RunStatus.WAITING_HUMAN
+    assert check_terminal(repaired) == "no terminal event"

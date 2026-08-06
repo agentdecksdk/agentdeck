@@ -431,7 +431,9 @@ async def test_a_disabled_sink_is_offered_a_probe_after_the_cooldown_and_re_enab
     assert (dispatch.dropped, dispatch.failed) == (8, 2)  # every event the open breaker lost, counted
     # Said as loudly as the disable was, and with the gap it left: an operator who was told a sink
     # went away has to be told it came back, or the log ends on the alarm.
-    recovery = "sink Unyielding took its probe event and is taking events again (8 events lost while it was disabled)"
+    recovery = (
+        "sink Unyielding took its probe event and is taking events again (8 events dropped while it was disabled)"
+    )
     assert recovery in [record.getMessage() for record in caplog.records]
 
 
@@ -470,8 +472,8 @@ async def test_a_second_outage_reports_what_it_cost_and_not_the_run_s_running_to
 
     recoveries = [message for message in (record.getMessage() for record in caplog.records) if "again" in message]
     assert len(recoveries) == 2
-    assert "(4 events lost while it was disabled)" in recoveries[0]
-    assert "(1 events lost while it was disabled)" in recoveries[1]
+    assert "(4 events dropped while it was disabled)" in recoveries[0]
+    assert "(1 events dropped while it was disabled)" in recoveries[1]
 
 
 async def test_a_probe_that_fails_costs_one_event_per_cooldown_and_no_second_alarm(

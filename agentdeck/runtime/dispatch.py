@@ -352,7 +352,7 @@ class SinkDispatch:
                 # Announced as loudly as the outage was, and with what it cost: a stream that
                 # resumes mid-run is otherwise a gap an operator has no line to explain.
                 logger.warning(
-                    "sink %s took its probe event and is taking events again (%d events lost while it was disabled)",
+                    "sink %s took its probe event and is taking events again (%d events dropped while it was disabled)",
                     self._name,
                     self.dropped - self._dropped_when_disabled,
                 )
