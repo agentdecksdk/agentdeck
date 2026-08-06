@@ -8,6 +8,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Removed
+- **`agentdeck.runtime.REPO_ROOT` / `agentdeck.runtime.settings.REPO_ROOT`** — it only
+  ever pointed at the repo root in a source checkout and at the installed package's
+  `site-packages` directory otherwise; nothing in agentdeck needs that path, and
+  nothing outside it should have depended on it either. (#16)
+- **`agentdeck.runtime.ENV_FILE` / `agentdeck.runtime.settings.ENV_FILE`** — was a path
+  frozen at import time (see Fixed below for why that was itself unsafe); replaced by
+  `resolve_env_file()`, resolved fresh every time `get_settings()` actually builds a
+  `Settings` object. (#16)
+
 ### Fixed
 - **`.env` and `config.yaml` now resolve from the project's current working
   directory, not from wherever `agentdeck` itself is installed.** Previously
@@ -19,7 +29,10 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   project. **If you were exporting the same values as real shell/CI
   environment variables to work around this, nothing changes** — a real env
   var still outranks the file. But if you have a `.env` sitting unused next
-  to an installed `agentdeck`, it will now take effect. (#16)
+  to an installed `agentdeck`, it will now take effect. `.env` is also now read
+  at first use rather than at `import agentdeck` time, so a `chdir` between
+  importing the package and first building settings still resolves against the
+  right project. (#16)
 
 ## [2.0.0b4] - 2026-08-06
 

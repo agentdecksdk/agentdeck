@@ -17,7 +17,10 @@ from pathlib import Path
 AGENTDECK_PKG = Path(__file__).resolve().parents[1] / "agentdeck"
 _SUBPROCESS_TIMEOUT = 30
 
-_PROBE = "from agentdeck.runtime.settings import get_settings; print(get_settings().openai.model)"
+_PROBE = (
+    "import agentdeck; from agentdeck.runtime.settings import get_settings; "
+    "print(agentdeck.__file__); print(get_settings().openai.model)"
+)
 
 
 def _fake_site_packages_install(root: Path) -> Path:
@@ -29,14 +32,14 @@ def _fake_site_packages_install(root: Path) -> Path:
     return site_packages
 
 
-def _run_probe(cwd: Path, site_packages: Path, extra_env: dict[str, str] | None = None) -> str:
+def _run(script: str, cwd: Path, site_packages: Path, extra_env: dict[str, str] | None = None) -> str:
     env = dict(os.environ)
     env["PYTHONPATH"] = str(site_packages)
     for key in ("OPENAI_MODEL", "OPENAI_API_KEY", "OPENAI_BASE_URL", "APP_CONFIG_PATH"):
         env.pop(key, None)
     env.update(extra_env or {})
     result = subprocess.run(
-        [sys.executable, "-c", _PROBE],
+        [sys.executable, "-c", script],
         cwd=cwd,
         env=env,
         capture_output=True,
@@ -44,7 +47,19 @@ def _run_probe(cwd: Path, site_packages: Path, extra_env: dict[str, str] | None 
         timeout=_SUBPROCESS_TIMEOUT,
     )
     assert result.returncode == 0, result.stderr
-    return result.stdout.strip()
+    file_line, model_line = result.stdout.strip().splitlines()
+    # A strict setuptools editable install puts a `__editable___..._finder` on
+    # `sys.meta_path`, which resolves `import agentdeck` before PYTHONPATH is ever
+    # consulted — silently defeating the fake install below and passing vacuously.
+    assert file_line.startswith(str(site_packages)), (
+        f"agentdeck imported from {file_line!r}, not the fake site-packages install at "
+        f"{site_packages!r} — this test proves nothing about the real bug."
+    )
+    return model_line
+
+
+def _run_probe(cwd: Path, site_packages: Path, extra_env: dict[str, str] | None = None) -> str:
+    return _run(_PROBE, cwd, site_packages, extra_env)
 
 
 def test_dotenv_in_project_cwd_wins_over_a_stray_env_file_inside_site_packages(tmp_path):
@@ -93,3 +108,46 @@ def test_real_env_var_still_outranks_the_dotenv_file(tmp_path):
     model = _run_probe(project_dir, site_packages, extra_env={"OPENAI_MODEL": "from-real-env"})
 
     assert model == "from-real-env"
+
+
+def test_missing_project_dotenv_does_not_fall_back_to_a_file_near_the_package(tmp_path):
+    """No second chance: a decoy `.env` sitting exactly where the old `REPO_ROOT` logic
+    would have found one must stay ignored when the project itself has none — the
+    packaged default wins, not the site-packages file.
+    """
+    site_packages = _fake_site_packages_install(tmp_path)
+    (site_packages / ".env").write_text("OPENAI_MODEL=from-site-packages\n")
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+
+    model = _run_probe(project_dir, site_packages)
+
+    assert model == "gpt-4.1-mini"
+
+
+def test_settings_resolve_cwd_at_first_use_not_at_import(tmp_path):
+    """A `chdir` between `import agentdeck` and the first `get_settings()` call must
+    still land on the project — the same failure mode `mount_project_dir` never has,
+    since it always runs after any `chdir` a caller does. Binding `.env`'s path once at
+    import time (the pre-fix shape) would freeze whatever cwd was current at import,
+    a stale "launch directory" the process may since have left behind.
+    """
+    site_packages = _fake_site_packages_install(tmp_path)
+
+    launch_dir = tmp_path / "launch"
+    launch_dir.mkdir()
+    (launch_dir / ".env").write_text("OPENAI_MODEL=from-launch-dir\n")
+
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (project_dir / ".env").write_text("OPENAI_MODEL=from-project\n")
+
+    script = (
+        "import os, agentdeck; from agentdeck.runtime.settings import get_settings; "
+        f"os.chdir({str(project_dir)!r}); "
+        "print(agentdeck.__file__); print(get_settings().openai.model)"
+    )
+    model = _run(script, launch_dir, site_packages)
+
+    assert model == "from-project"
