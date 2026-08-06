@@ -140,7 +140,6 @@ def test_workflow_stream_endpoint_emits_an_interrupt_event_instead_of_done(clien
     assert client.post("/workflows/ApprovalFlow/t-sse/resume", json={"value": "no"}).json()["outcome"] == "dropped"
 
 
-<<<<<<< HEAD
 def test_run_control_endpoints_record_a_request_and_answer_at_once(client):
     """Pause and cancel answer before the run has done anything about them — that is the whole
     point of the request/observation split — so the body says ``recorded``, never "stopped".
@@ -170,7 +169,8 @@ def test_a_control_reason_that_is_not_a_string_is_refused_at_the_boundary(client
     """The reason is recorded in the log and read by whoever asks why a run stopped, so it is
     validated where it arrives — 422 from the edge, not a 500 out of a payload class later."""
     assert client.post("/runs/r-http/pause", json={"reason": 7}).status_code == 422
-=======
+
+
 @pytest.mark.parametrize(
     ("query", "thread"), [("", "t-busy-body"), ("&stream=true", "t-busy-sse")], ids=["body", "streamed"]
 )
@@ -217,4 +217,3 @@ def test_resuming_a_thread_already_answered_out_of_band_is_a_404_not_a_dropped_v
     assert set(ghost.json()) == {"detail"}
     # The ghost is gone from the inbox too, because the refused resume closed its run in the log.
     assert _inbox(client, "t-ghost") == []
->>>>>>> origin/dev

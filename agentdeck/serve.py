@@ -29,8 +29,8 @@ Endpoints:
                                          an "error" event replaces either if the run fails
     GET  /workflows/{name}/pending   -> [{"type": "interrupt", "payload", "thread_id"}, ...]
     POST /workflows/{name}/{thread_id}/resume
-<<<<<<< HEAD
-                                      -> {"value": ...} -> final state, or the next interrupt
+                                      -> {"value": ...} -> final state, or the next interrupt;
+                                         404 when the thread has no paused run to answer
     POST /runs/{run_id}/pause        -> {"reason": ...}? -> {"run_id", "verb", "recorded": true}
     POST /runs/{run_id}/cancel       -> {"reason": ...}? -> {"run_id", "verb", "recorded": true}
                                         Recorded, not applied: the run stops at its next safe
@@ -39,14 +39,10 @@ Endpoints:
     POST /runs/{run_id}/resume       -> {"reason": ...}? -> {"run_id", "status", "events"} for
                                         the continuation this call played — 409 if the run is
                                         not paused
-=======
-                                      -> {"value": ...} -> final state, or the next interrupt;
-                                         404 when the thread has no paused run to answer
 
 The workflow inbox above reads the event log, while ``App.pending_interrupts()`` still reads
 the graph's checkpointer — so the two disagree once approvals are driven through both doors
 (see the CHANGELOG; #120 joins them).
->>>>>>> origin/dev
 """
 
 from __future__ import annotations
@@ -57,17 +53,8 @@ from contextlib import aclosing, asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.app import App
-<<<<<<< HEAD
-from agentdeck.core.content import coerce_input
-from agentdeck.core.status import status_of
-from agentdeck.errors import AgentdeckError, NotFoundError
-from agentdeck.surfaces.serve.compat import chat_frames, chat_result, run_context
-from agentdeck.workflows.state import json_default
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable
-=======
 from agentdeck.core.content import DataBlock, coerce_input
+from agentdeck.core.status import status_of
 from agentdeck.errors import AgentdeckError, NotFoundError, SessionBusyError
 from agentdeck.surfaces.serve.compat import (
     chat_frames,
@@ -81,8 +68,7 @@ from agentdeck.surfaces.serve.compat import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, AsyncIterator
->>>>>>> origin/dev
+    from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 
     from fastapi import FastAPI
 
