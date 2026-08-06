@@ -129,6 +129,7 @@ class SinkDispatch:
         self._consecutive_failures = 0
         self._retry_at = 0.0
         self._probing = False
+        self._dropped_when_disabled = 0
         self._log_next = 0.0
         self._unlogged = 0
         self._inflight: Event | None = None
@@ -348,7 +349,13 @@ class SinkDispatch:
             if self.disabled:
                 self.disabled = False
                 self._probing = False
-                logger.info("sink %s took its probe event and is taking events again", self._name)
+                # Announced as loudly as the outage was, and with what it cost: a stream that
+                # resumes mid-run is otherwise a gap an operator has no line to explain.
+                logger.warning(
+                    "sink %s took its probe event and is taking events again (%d events lost while it was disabled)",
+                    self._name,
+                    self.dropped - self._dropped_when_disabled,
+                )
 
     def _probe_due(self) -> bool:
         """True when one event may pass an open breaker to find out whether the sink is back.
@@ -402,9 +409,10 @@ class SinkDispatch:
             self._retry_at = now + BREAKER_COOLDOWN
             if not self.disabled:
                 self.disabled = True
+                self._dropped_when_disabled = self.dropped
                 logger.error(
                     "sink %s disabled after %d consecutive failures; its events are dropped until it"
-                    " takes a probe event, offered every %ss",
+                    " takes a probe event, offered every %gs",
                     self._name,
                     self._consecutive_failures,
                     BREAKER_COOLDOWN,

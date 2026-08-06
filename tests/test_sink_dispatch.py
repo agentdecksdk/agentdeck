@@ -2,8 +2,9 @@
 drops, and when it gives up on the sink entirely. What it never does is wait for it.
 
 Every assertion is on counts and queue depth rather than on elapsed time — a bound that only
-shows up as "fast enough" is not a bound. The breaker's cooldown is held to the same standard:
-what it does is asserted against a clock the test moves, never one it waits for.
+shows up as "fast enough" is not a bound. The breaker's cooldown and the failure log's window are
+held to the same standard: every dispatch whose behavior turns on time is given a clock the test
+moves, never one it waits for — a deadline appears here only to fail a wait that should not exist.
 """
 
 from __future__ import annotations
@@ -115,6 +116,25 @@ class Unyielding(EventSinkPort):
         if not self.healthy:
             raise RuntimeError("collector is down")
         self.taken.append(event.seq)
+
+
+class WedgesAfterFailing(EventSinkPort):
+    """Refuses its first two events, then stops answering altogether inside ``emit``.
+
+    The state the probe path is most exposed in: a breaker that has just opened its gate for one
+    event, and an endpoint that takes it and goes quiet. Nothing releases it — only a cancellation
+    or the emit deadline ends that emit.
+    """
+
+    def __init__(self, failures: int = 2) -> None:
+        self._failures = failures
+        self.calls = 0
+
+    async def emit(self, event: Event) -> None:
+        self.calls += 1
+        if self.calls <= self._failures:
+            raise RuntimeError("collector is down")
+        await asyncio.Event().wait()  # nobody holds it: this emit never returns on its own
 
 
 class CancelOnce(Recorder):
@@ -375,9 +395,12 @@ async def test_a_sink_that_recovers_between_failures_is_never_disabled() -> None
     assert dispatch.dropped == 0
 
 
-async def test_a_disabled_sink_is_offered_a_probe_after_the_cooldown_and_re_enabled_if_it_takes_it() -> None:
+async def test_a_disabled_sink_is_offered_a_probe_after_the_cooldown_and_re_enabled_if_it_takes_it(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """A blip of six events used to cost a sink the rest of the process. Recovery is the common
     case, so the breaker holds the sink at arm's length instead of writing it off."""
+    caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
     clock = FakeClock()
     sink = Unyielding()
     dispatch = SinkDispatch(sink, failure_limit=2, clock=clock)
@@ -406,6 +429,49 @@ async def test_a_disabled_sink_is_offered_a_probe_after_the_cooldown_and_re_enab
 
     assert sink.taken == [10, 11, 12, 13]  # taking the probe re-opened the stream, not one event
     assert (dispatch.dropped, dispatch.failed) == (8, 2)  # every event the open breaker lost, counted
+    # Said as loudly as the disable was, and with the gap it left: an operator who was told a sink
+    # went away has to be told it came back, or the log ends on the alarm.
+    recovery = "sink Unyielding took its probe event and is taking events again (8 events lost while it was disabled)"
+    assert recovery in [record.getMessage() for record in caplog.records]
+
+
+async def test_a_second_outage_reports_what_it_cost_and_not_the_run_s_running_total(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The recovery line is what an operator sizes the gap by, so the count has to be this outage's.
+    One that never resets makes the second blip of a long run look like it lost everything since
+    the first — and a sink that comes back twice in a day is the ordinary case, not the odd one."""
+    caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
+    clock = FakeClock()
+    sink = Unyielding()
+    dispatch = SinkDispatch(sink, failure_limit=2, clock=clock)
+    async with asyncio.timeout(10):
+        for seq in range(6):  # two failed emits, then four events dropped at an open breaker
+            await dispatch.submit(_event(seq))
+        await dispatch.flush()
+
+        clock.advance(BREAKER_COOLDOWN)
+        sink.healthy = True
+        await dispatch.submit(_event(6))
+        await dispatch.flush()
+
+        assert (dispatch.disabled, dispatch.dropped) == (False, 4)
+        sink.healthy = False  # down again, this time costing two failures and one drop
+        for seq in range(7, 10):
+            await dispatch.submit(_event(seq))
+        await dispatch.flush()
+
+        assert (dispatch.disabled, dispatch.dropped) == (True, 5)
+        clock.advance(BREAKER_COOLDOWN)
+        sink.healthy = True
+        await dispatch.submit(_event(10))
+        await dispatch.flush()
+        await dispatch.close()
+
+    recoveries = [message for message in (record.getMessage() for record in caplog.records) if "again" in message]
+    assert len(recoveries) == 2
+    assert "(4 events lost while it was disabled)" in recoveries[0]
+    assert "(1 events lost while it was disabled)" in recoveries[1]
 
 
 async def test_a_probe_that_fails_costs_one_event_per_cooldown_and_no_second_alarm(
@@ -426,6 +492,11 @@ async def test_a_probe_that_fails_costs_one_event_per_cooldown_and_no_second_ala
         clock.advance(BREAKER_COOLDOWN)
         for seq in range(4, 24):
             await dispatch.submit(_event(seq))
+
+        # One event was admitted, not twenty: the rest are dropped at the gate rather than queued
+        # behind a probe that has already answered the only question there was to ask. Queueing
+        # them all would put the eviction path in the way of every submit during the outage.
+        assert dispatch.depth == 1
         await dispatch.flush()
 
         assert sink.calls == 3  # one probe, however many events came after it
@@ -473,6 +544,42 @@ async def test_the_breaker_cooldown_is_never_something_a_submit_waits_on() -> No
     assert len(asyncio.all_tasks()) == before
 
 
+async def test_a_probe_wedged_inside_emit_does_not_hold_up_the_submit_behind_it() -> None:
+    """The probe is an emit like any other, so a run is no more attached to its verdict than to any
+    other — and a sink that goes quiet rather than refusing is how that attachment would show. A
+    submit that waited for the answer would park the Runtime's fan-out for a whole ``EMIT_TIMEOUT``.
+
+    Needs a sink that hangs, not one that fails: a failing probe answers within the submit that
+    admitted it, so a dispatch that waited for its verdict would look identical to one that did not.
+    """
+    clock = FakeClock()
+    sink = WedgesAfterFailing()
+    dispatch = SinkDispatch(sink, failure_limit=2, clock=clock)  # the default 5s emit timeout
+    async with asyncio.timeout(10):
+        for seq in range(2):
+            await dispatch.submit(_event(seq))
+        await dispatch.flush()
+
+    assert (dispatch.disabled, sink.calls) == (True, 2)
+    clock.advance(BREAKER_COOLDOWN)
+
+    # Both submits inside one deadline well under ``EMIT_TIMEOUT``, which is how long a submit
+    # attached to the probe's verdict would park for: the submit that admitted the probe must not
+    # wait for the answer it just asked for, and neither must the next one.
+    async with asyncio.timeout(2):  # the wait this law exists against, not a measurement
+        await dispatch.submit(_event(2))
+        for _ in range(3):
+            await asyncio.sleep(0)  # the consumer takes the probe and stops inside it
+        assert sink.calls == 3
+        await dispatch.submit(_event(3))
+
+    assert dispatch.dropped == 1  # seq 3 met a breaker still open, its probe unanswered
+    async with asyncio.timeout(5):
+        await dispatch.close(timeout=0.05)
+
+    assert (dispatch.dropped, dispatch.failed) == (2, 2)  # the probe stranded in emit is a loss too
+
+
 async def test_dropped_events_are_logged_not_only_counted(caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
     sink = Gated()
@@ -496,7 +603,9 @@ async def test_a_sink_failing_on_every_event_logs_one_traceback_not_one_per_even
 ) -> None:
     """A thousand copies of one stack trace is how a real incident gets missed."""
     caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
-    dispatch = SinkDispatch(Broken(), failure_limit=LOG_INTERVAL * 2)
+    # On a clock the test holds still, so what bounds the tracebacks is the throttle and not the
+    # test finishing inside a window — the latter is a stopwatch wearing an invariant's clothes.
+    dispatch = SinkDispatch(Broken(), failure_limit=LOG_INTERVAL * 2, clock=FakeClock())
     async with asyncio.timeout(10):
         for seq in range(LOG_INTERVAL + 5):
             await dispatch.submit(_event(seq))
@@ -534,7 +643,12 @@ async def test_the_failures_a_throttled_traceback_stood_in_for_are_counted_in_th
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A bounded log that hides how much it left out is a bound that misleads: the count is the
-    difference between one bad event and a sink that has been failing all along."""
+    difference between one bad event and a sink that has been failing all along.
+
+    Three windows rather than two, because two cannot tell the count from a running total — the
+    first traceback reports nothing either way, so only a third proves the count is reset when it
+    is reported and means *since the last traceback* rather than *since the run began*.
+    """
     caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
     clock = FakeClock()
     dispatch = SinkDispatch(Flaky(), clock=clock)
@@ -544,14 +658,20 @@ async def test_the_failures_a_throttled_traceback_stood_in_for_are_counted_in_th
         await dispatch.flush()
 
         clock.advance(LOG_WINDOW)
-        for seq in range(20, 22):
+        for seq in range(20, 40):  # ten more: the first is logged, carrying the nine before it
+            await dispatch.submit(_event(seq))
+        await dispatch.flush()
+
+        clock.advance(LOG_WINDOW)
+        for seq in range(40, 42):
             await dispatch.submit(_event(seq))
         await dispatch.close()
 
     tracebacks = [record.getMessage() for record in caplog.records if record.exc_info is not None]
-    assert len(tracebacks) == 2
-    assert "0 unlogged since the last traceback" in tracebacks[0]
+    assert len(tracebacks) == 3
+    assert "1 in all, 1 in a row, 0 unlogged since the last traceback" in tracebacks[0]
     assert "11 in all, 1 in a row, 9 unlogged since the last traceback" in tracebacks[1]
+    assert "21 in all, 1 in a row, 9 unlogged since the last traceback" in tracebacks[2]
 
 
 async def test_a_consumer_killed_by_a_real_cancellation_is_replaced() -> None:

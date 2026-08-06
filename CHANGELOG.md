@@ -15,8 +15,10 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   see whether it is back. A sink that takes that event starts receiving the
   stream again; one that fails it keeps its events dropped and is offered
   another event 30 seconds later, so a genuinely dead endpoint costs two emit
-  attempts a minute rather than one per event. The cooldown is a deadline read
-  off a clock and never a wait — a run is not slowed by a sink's outage or by
+  attempts a minute rather than one per event. Coming back is logged as loudly as
+  going away was, and says how many events the outage cost, so a stream that
+  resumes mid-run is not a gap with nothing to explain it. The cooldown is a
+  deadline read off a clock and never a wait — a run is not slowed by a sink's outage or by
   its recovery — and nothing is replayed: the events the outage covered are
   still lost, and still counted as drops. A sink therefore needs no retry logic
   of its own for a transient outage, and one that cannot lose events reads the
