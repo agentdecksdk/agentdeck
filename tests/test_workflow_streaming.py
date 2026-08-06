@@ -1,6 +1,10 @@
 """``run_workflow_stream`` (issue #9): ``node_update``/``custom`` events per LangGraph's
 ``astream(stream_mode=["updates", "custom"])``, then one terminal ``done`` event carrying the
 final state — plus ``AgentNode`` forwarding its nested agent's deltas into the custom stream.
+
+The two endpoint tests at the bottom drive the whole real path instead of stubbing
+``App.run_workflow_stream``, which the streamed endpoint no longer calls (#102): it renders
+v1's frames from the canonical events of a Runtime run.
 """
 
 import json
@@ -16,6 +20,52 @@ from agentdeck.agents import BaseAgent
 
 class Greeter(BaseAgent):
     instructions = "Greet the user."
+"""
+
+WRITER_WORKFLOW_PY = """
+from langgraph.config import get_stream_writer
+from pydantic import BaseModel
+from agentdeck.errors import SkillError
+from agentdeck.workflows import END, BaseWorkflow, StateGraph
+
+SECRET = "stderr: AGENTDECK_TOKEN=sk-do-not-leak"
+
+class State(BaseModel):
+    text: str = ""
+    count: int = 0
+
+def _write(state):
+    get_stream_writer()("chunk")
+    return {"count": 1}
+
+class WriterFlow(BaseWorkflow):
+    state = State
+
+    @classmethod
+    def build_graph(cls):
+        g = StateGraph(cls.state)
+        g.add_node("shout", lambda s: {"text": s.text.upper()})
+        g.add_node("write", _write)
+        g.set_entry_point("shout")
+        g.add_edge("shout", "write")
+        g.add_edge("write", END)
+        return g
+
+def _explode(state):
+    raise SkillError(SECRET)
+
+class HalfwayFlow(BaseWorkflow):
+    state = State
+
+    @classmethod
+    def build_graph(cls):
+        g = StateGraph(cls.state)
+        g.add_node("shout", lambda s: {"text": s.text.upper()})
+        g.add_node("explode", _explode)
+        g.set_entry_point("shout")
+        g.add_edge("shout", "explode")
+        g.add_edge("explode", END)
+        return g
 """
 
 TWO_STEP_WORKFLOW_PY = """
@@ -71,6 +121,8 @@ def project(tmp_path, monkeypatch):
     (root / "workflows" / "two_step" / "workflow.py").write_text(textwrap.dedent(TWO_STEP_WORKFLOW_PY))
     (root / "workflows" / "agent_flow").mkdir(parents=True)
     (root / "workflows" / "agent_flow" / "workflow.py").write_text(textwrap.dedent(AGENT_FLOW_WORKFLOW_PY))
+    (root / "workflows" / "writer").mkdir(parents=True)
+    (root / "workflows" / "writer" / "workflow.py").write_text(textwrap.dedent(WRITER_WORKFLOW_PY))
     monkeypatch.chdir(tmp_path)
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
@@ -215,38 +267,33 @@ def client(project):
         yield c
 
 
-def test_workflow_stream_endpoint_emits_updates_then_done(client, monkeypatch):
-    async def fake_run_workflow_stream(self, name, state, **_):
-        yield {"type": "node_update", "node": "shout", "delta": {"text": "HI"}}
-        yield {"type": "custom", "data": "chunk"}
-        yield {"type": "done", "state": {"text": "HI", "count": 1}}
-
-    monkeypatch.setattr("agentdeck.app.App.run_workflow_stream", fake_run_workflow_stream)
-
-    response = client.post("/workflows/TwoStepFlow?stream=true", json={"text": "hi"})
+def test_workflow_stream_endpoint_emits_updates_then_done(client):
+    """A ``get_stream_writer()`` write is what v1's ``custom`` frame carries, so the workflow
+    here makes one: nothing else on the wire distinguishes a rendered ``custom`` event from a
+    frame that was never emitted at all."""
+    response = client.post("/workflows/WriterFlow?stream=true", json={"text": "hi"})
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-cache"
     assert _sse_frames(response.text) == [
         ("message", {"type": "node_update", "node": "shout", "delta": {"text": "HI"}}),
         ("message", {"type": "custom", "data": "chunk"}),
+        ("message", {"type": "node_update", "node": "write", "delta": {"count": 1}}),
         ("done", {"text": "HI", "count": 1}),
     ]
 
 
-def test_workflow_stream_endpoint_reports_mid_stream_failure(client, monkeypatch):
-    async def exploding_run_workflow_stream(self, name, state, **_):
-        yield {"type": "node_update", "node": "shout", "delta": {"text": "HI"}}
-        raise RuntimeError("secret internal detail")
+def test_workflow_stream_endpoint_reports_mid_stream_failure(client):
+    """The status code is already on the wire, so the failure arrives in-band — as the
+    exception's type name, never its message."""
+    from agentdeck_project.workflows.writer.workflow import SECRET
 
-    monkeypatch.setattr("agentdeck.app.App.run_workflow_stream", exploding_run_workflow_stream)
-
-    response = client.post("/workflows/TwoStepFlow?stream=true", json={"text": "hi"})
+    response = client.post("/workflows/HalfwayFlow?stream=true", json={"text": "hi"})
 
     frames = _sse_frames(response.text)
     assert frames[0] == ("message", {"type": "node_update", "node": "shout", "delta": {"text": "HI"}})
-    assert frames[-1] == ("error", {"error": "RuntimeError"})
-    assert "secret internal detail" not in response.text
+    assert frames[-1] == ("error", {"error": "SkillError"})
+    assert SECRET not in response.text
 
 
 def test_run_workflow_endpoint_unchanged_when_not_streamed(client):
