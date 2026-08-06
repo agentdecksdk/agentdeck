@@ -3,5 +3,6 @@ export default {
   agents: 'Agents',
   capabilities: 'Capabilities',
   skills: 'Skills',
-  workflows: 'Workflows'
+  workflows: 'Workflows',
+  'run-control': 'Run Control'
 }

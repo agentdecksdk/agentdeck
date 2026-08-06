@@ -14,11 +14,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from agentdeck.adapters.control.memory import MemoryControlPort
+from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
-from agentdeck.runtime.settings import EventsSettings, get_settings
+from agentdeck.runtime.settings import ControlSettings, EventsSettings, get_settings
 from agentdeck.v1bridge import V1CompatEngine, V1CompatWorkflowEngine
 
 if TYPE_CHECKING:
@@ -44,12 +46,13 @@ def build_runtime(
     """Wire ``engines`` into a Runtime over the project's invocables.
 
     ``invocables`` defaults to discovery over ``./.agentdeck`` — pass a mapping to run
-    specs built in code instead. ``store`` defaults to the configured event store, and
-    ``clock`` to wall time.
+    specs built in code instead. ``store`` defaults to the configured event store,
+    ``control`` to the configured control port, and ``clock`` to wall time.
     """
     engines = tuple(engines)
     specs = InvocableRegistry(engines).load() if invocables is None else invocables
     store = store or resolve_event_store()
+    control = control or resolve_control_port()
     if clock is None:
         return Runtime(engines, store, specs, sinks=sinks, control=control)
     return Runtime(engines, store, specs, sinks=sinks, clock=clock, control=control)
@@ -68,6 +71,24 @@ def v1_engines(
     and a durable workflow still resumes on the real thing.
     """
     return (V1CompatEngine(session_for), V1CompatWorkflowEngine(workflow_for))
+
+
+def resolve_control_port(settings: ControlSettings | None = None) -> ControlPort:
+    """Build the control port named by ``backend``: ``memory`` (default) or ``sqlite``.
+
+    Always built, never left off: a Runtime without one cannot pause or cancel anything, and a
+    caller finding that out from an endpoint that silently did nothing is worse than the
+    in-memory port's own limit — which is that only this process can reach the run.
+    """
+    control = settings if settings is not None else get_settings().control
+    backend = control.backend.strip().lower()
+    if backend == "memory":
+        return MemoryControlPort()
+    if backend == "sqlite":
+        if not control.url:
+            raise ValueError("the sqlite control port needs a file path: set AGENTDECK_CONTROL_URL")
+        return SqliteControlPort(control.url)
+    raise ValueError(f"unknown control backend {control.backend!r}; expected memory or sqlite")
 
 
 def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePort:
@@ -106,4 +127,4 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
     raise ValueError(f"unknown event store backend {events.backend!r}; expected memory, sqlite, redis or postgres")
 
 
-__all__ = ["build_runtime", "resolve_event_store", "v1_engines"]
+__all__ = ["build_runtime", "resolve_control_port", "resolve_event_store", "v1_engines"]

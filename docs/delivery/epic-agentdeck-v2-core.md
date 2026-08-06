@@ -183,11 +183,11 @@ ship steering: `Runtime.send(run_id, Input, ctx)`, `POST /runs/{id}/messages`, a
 
 **Acceptance criteria**
 
-- [ ] Contract tests: pause honored at next safe point; resume continues with full history; cancel raises cooperatively and emits `run.cancelled`; signals on terminal runs are no-ops — identical semantics across both engines
-- [ ] Redis ControlPort: pause issued from process A stops a run executing in process B (integration test with two workers)
-- [ ] Documented safe-point contract in the repo (`docs/`): what pause means, what resume replays, side-effect rules referencing `idempotency_key`
-- [ ] `WAITING_HUMAN` vs `PAUSED` distinguished in status endpoint and events
-- [ ] Approvals inbox (`/pending`) still works and now also lists operator-paused runs separately
+- [x] Contract tests: pause honored at next safe point; resume continues with full history; cancel raises cooperatively and emits `run.cancelled`; signals on terminal runs are no-ops — identical semantics across both engines *(#45: `tests/contract/test_control.py`, parametrized over the stub and openai-agents engines. The langgraph engine makes no gate checkpoint, so a workflow run has no safe point yet — #128, split out because deciding what resuming a checkpointed graph replays is its own slice.)*
+- [ ] Redis ControlPort: pause issued from process A stops a run executing in process B (integration test with two workers) *(#45 shipped the cross-process path over the SQLite control port, wired from settings and proven by `test_uc3_cross_process_cancel`; a Redis control port is still unbuilt, which is what one file behind more than one machine needs.)*
+- [x] Documented safe-point contract in the repo (`docs/`): what pause means, what resume replays, side-effect rules referencing `idempotency_key` *(#45: `docs-site/content/concepts/run-control.mdx` — user-facing, and it carries #85's cancel-latency bound.)*
+- [x] `WAITING_HUMAN` vs `PAUSED` distinguished in events, and in `can_resume`'s two resume shapes (a value, or nothing) *(#45. A status *endpoint* is #116's.)*
+- [ ] Approvals inbox (`/pending`) still works and now also lists operator-paused runs separately *(#45 left `pending()` on `WAITING_HUMAN` alone — an operator's pause is not an approval waiting on an answer, and no "Done when" in #45 asked for the listing.)*
 
 **Estimate:** M. **Risk:** medium — the semantics are the work; the wiring is small.
 Depends on Stories 1–2.

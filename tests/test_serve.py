@@ -55,6 +55,9 @@ def test_endpoints_503_before_startup():
     assert client.post("/workflows/HelloFlow", json={}).status_code == 503
     assert client.get("/workflows/HelloFlow/pending").status_code == 503
     assert client.post("/workflows/HelloFlow/t1/resume", json={"value": "yes"}).status_code == 503
+    assert client.post("/runs/r-1/pause").status_code == 503
+    assert client.post("/runs/r-1/cancel").status_code == 503
+    assert client.post("/runs/r-1/resume").status_code == 503
 
 
 @pytest.fixture(params=["memory", "sqlite"])
@@ -135,6 +138,37 @@ def test_workflow_stream_endpoint_emits_an_interrupt_event_instead_of_done(clien
     ]
     assert _inbox(client, "t-sse")  # the streamed pause is a real checkpoint, waiting in the inbox
     assert client.post("/workflows/ApprovalFlow/t-sse/resume", json={"value": "no"}).json()["outcome"] == "dropped"
+
+
+def test_run_control_endpoints_record_a_request_and_answer_at_once(client):
+    """Pause and cancel answer before the run has done anything about them — that is the whole
+    point of the request/observation split — so the body says ``recorded``, never "stopped".
+
+    An unknown ``run_id`` is accepted for the same reason a signal against a finished run is a
+    no-op: from here, a run in another process, a run that just ended and a run that never
+    existed are the same thing, and refusing one would mean guessing which.
+    """
+    paused = client.post("/runs/r-http/pause", json={"reason": "operator stepped away"})
+    cancelled = client.post("/runs/r-http/cancel")
+
+    assert paused.status_code == 200
+    assert paused.json() == {"run_id": "r-http", "verb": "pause", "recorded": True}
+    assert cancelled.json() == {"run_id": "r-http", "verb": "cancel", "recorded": True}
+
+
+def test_resuming_a_run_that_is_not_paused_is_a_conflict_not_a_success(client):
+    """409 rather than an empty 200: "nothing to resume" is an answer a caller has to see, and a
+    body that just looked like a short run would hide it."""
+    response = client.post("/runs/r-not-paused/resume")
+
+    assert response.status_code == 409
+    assert "not paused" in response.json()["detail"]
+
+
+def test_a_control_reason_that_is_not_a_string_is_refused_at_the_boundary(client):
+    """The reason is recorded in the log and read by whoever asks why a run stopped, so it is
+    validated where it arrives — 422 from the edge, not a 500 out of a payload class later."""
+    assert client.post("/runs/r-http/pause", json={"reason": 7}).status_code == 422
 
 
 @pytest.mark.parametrize(

@@ -12,7 +12,7 @@ from contextlib import suppress
 from functools import partial
 from typing import TYPE_CHECKING
 
-from agentdeck.core.ports.control import ControlPort, Signal
+from agentdeck.core.ports.control import ControlPort, ControlSignal, Signal
 from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
@@ -21,7 +21,11 @@ if TYPE_CHECKING:
 
 # ponytail: the signals table grows one row per signaled run, never pruned — add a
 # prune-on-terminal or TTL sweep when signal volume matters.
-_SCHEMA = "CREATE TABLE IF NOT EXISTS signals (run_id TEXT PRIMARY KEY, signal TEXT NOT NULL);"
+_SCHEMA = "CREATE TABLE IF NOT EXISTS signals (run_id TEXT PRIMARY KEY, signal TEXT NOT NULL, reason TEXT);"
+
+# A file written before signals carried a reason has no such column, and reading one is how
+# the caller finds out. Added in place instead: a pending cancel is state worth keeping.
+_ADD_REASON = "ALTER TABLE signals ADD COLUMN reason TEXT"
 
 # Same as the event log's: long enough to wait a peer's write out, short enough that a wedged
 # holder surfaces as an error rather than a hang.
@@ -48,6 +52,8 @@ def _connect(db_path: str) -> sqlite3.Connection:
             with suppress(sqlite3.OperationalError):
                 conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(_SCHEMA)
+        if not any(row[1] == "reason" for row in conn.execute("PRAGMA table_info(signals)")):
+            conn.execute(_ADD_REASON)
         conn.commit()
     except sqlite3.Error as exc:
         raise StoreError(f"cannot open the control signals at {db_path!r}: {exc}") from exc
@@ -75,23 +81,24 @@ class SqliteControlPort(ControlPort):
             except sqlite3.Error as exc:
                 raise StoreError(f"control signal {op} failed: {exc}") from exc
 
-    async def signal(self, run_id: str, sig: Signal) -> None:
-        await self._run(partial(self._write, run_id, sig.value), "signal")
+    async def signal(self, run_id: str, sig: Signal, reason: str | None = None) -> None:
+        await self._run(partial(self._write, run_id, sig.value, reason), "signal")
 
-    async def poll(self, run_id: str) -> Signal | None:
+    async def poll(self, run_id: str) -> ControlSignal | None:
         row = await self._run(partial(self._read, run_id), "poll")
-        return Signal(row) if row is not None else None
+        return ControlSignal(verb=Signal(row[0]), reason=row[1]) if row is not None else None
 
-    def _write(self, run_id: str, sig: str) -> None:
+    def _write(self, run_id: str, sig: str, reason: str | None) -> None:
         self._conn.execute(
-            "INSERT INTO signals (run_id, signal) VALUES (?, ?) ON CONFLICT(run_id) DO UPDATE SET signal = excluded.signal",
-            (run_id, sig),
+            "INSERT INTO signals (run_id, signal, reason) VALUES (?, ?, ?) "
+            "ON CONFLICT(run_id) DO UPDATE SET signal = excluded.signal, reason = excluded.reason",
+            (run_id, sig, reason),
         )
         self._conn.commit()
 
-    def _read(self, run_id: str) -> str | None:
-        row = self._conn.execute("SELECT signal FROM signals WHERE run_id = ?", (run_id,)).fetchone()
-        return row[0] if row else None
+    def _read(self, run_id: str) -> tuple[str, str | None] | None:
+        row = self._conn.execute("SELECT signal, reason FROM signals WHERE run_id = ?", (run_id,)).fetchone()
+        return (row[0], row[1]) if row else None
 
     def close(self) -> None:
         try:

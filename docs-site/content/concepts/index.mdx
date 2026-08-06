@@ -67,3 +67,6 @@ Agents, workflows, and skills compose in any direction: an agent can be a workfl
 ([`AgentNode`](/concepts/workflows)), a workflow can be an agent's tool
 (`BaseWorkflow.as_tool()`), and a skill can be both a workflow node and an agent
 capability.
+
+Whatever the shape, a run in flight stays governable: it can be paused, resumed and cancelled
+by its id, at documented safe points — see [Run Control](/concepts/run-control).

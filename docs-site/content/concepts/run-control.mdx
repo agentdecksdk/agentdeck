@@ -1,0 +1,125 @@
+---
+title: Run Control
+description: Pause, resume and cancel an active run — what a safe point is, how long it takes, and what a resume replays.
+---
+
+# Run Control
+
+A run in flight can be paused, resumed, or cancelled by its `run_id` — from the process
+running it, from a second process, or over HTTP.
+
+```python no-test reason="needs a live run_id from a run this process is streaming"
+await app.pause_run(run_id, reason="operator stepped away")
+events = await app.resume_run(run_id)
+await app.cancel_run(run_id, reason="user closed the tab")
+```
+
+```
+POST /runs/{run_id}/pause    {"reason": "..."}   -> {"run_id", "verb", "recorded": true}
+POST /runs/{run_id}/cancel   {"reason": "..."}   -> {"run_id", "verb", "recorded": true}
+POST /runs/{run_id}/resume   {"reason": "..."}   -> {"run_id", "status", "events"}  (409 if not paused)
+```
+
+## Asking is not stopping
+
+`pause_run` and `cancel_run` **record a request** and return. They do not wait for the run to
+stop, because at the moment you ask, nobody can know when it will: the run may be halfway
+through a tool call that has to finish first.
+
+That is why a controlled run writes three things to its log rather than one:
+
+| Event | Means |
+| --- | --- |
+| `control.requested` | the signal is recorded — `{verb, reason?}` |
+| `control.observed` | the run reached a safe point and is acting on it — `{verb, safe_point}` |
+| `run.paused` / `run.cancelled` / `run.resumed` | the effect |
+
+A request is **not** a status change. A run stays `running` after `control.requested`; only the
+effect moves it to `paused` or `cancelled`. So "did it stop?" is answered by watching the run's
+events for the effect — not by the response to your request.
+
+A signal that arrives after the run already ended does nothing, and says nothing: a terminal
+event is a run's last event, so there is nowhere for a rejection to land. Sending the same
+pause twice records one request. Neither is an error.
+
+## Safe points
+
+A signal is acted on at the next **safe point**, never mid-token and never by killing anything:
+
+- `stream_item` — between two items of the model's stream. The chunk in flight is always
+  delivered whole.
+- `tool_dispatch` — before a tool call is dispatched.
+- `node_boundary` — between two graph nodes.
+
+Agent runs today honor `stream_item`. A workflow (LangGraph) run has no safe point yet, so
+pause and cancel do not reach one — see [issue #128](https://github.com/sagi5060/agentdeck/issues/128).
+
+**A tool call that is already running is never interrupted.** If you pause while a tool is
+executing, the call runs to completion and the run stops before the step that would have used
+its result. The `safe_point` on `control.observed` is what tells "cancel took eight seconds"
+from "cancel took eight seconds *because a tool call did*".
+
+### How long a pause or cancel takes to land
+
+Two things add up, and both are bounded:
+
+1. **Up to 200ms** before the run notices the request. The run re-reads pending control at most
+   once per 200ms, so a long answer costs a handful of reads instead of one per token — a
+   400-chunk answer streaming for 12 seconds costs 58 reads, not 400. This is a latency bound,
+   not a correctness one: nothing is ever missed, only noticed a moment later.
+2. **However long the current step takes to reach a safe point** — the rest of a streamed chunk,
+   or all of a tool call that is already in flight. This one is your run's shape, not ours.
+
+For a streaming answer that is typically well under half a second. For a run inside a 30-second
+tool call it is 30 seconds, and no setting can change that without killing the call.
+
+Both of those are about a run that is *live*. Cancelling a run that is already **paused** is the
+one case with no bound on it, because a paused run has no loop reaching safe points: the request
+is recorded, and the next `resume_run` honours it — ending the run `cancelled` instead of playing
+it on. So the cancel is never lost and can never be overridden by a resume, but it becomes an
+effect only when somebody next touches the run. A paused run that nobody ever picks up stays
+paused, holding its session until `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` takes it over.
+
+## What resume replays
+
+A paused run is suspended **in the log**, not parked in memory: the process is free to exit, and
+any worker holding the same event store can lift the pause. There is no stack to return to, so
+resuming re-enters the engine with the run's original input and the log as history — the run
+keeps its `run_id`, and `seq` carries on from where it stopped.
+
+The consequence to design for: **work the paused turn had already done can happen again.** The
+model is asked again, and a tool it had already called may be called a second time. Keep tools
+idempotent, put side effects behind `ctx.idempotency_key`, and treat a resumed turn the way you
+treat a resumed LangGraph interrupt node.
+
+`resume_run` returns the events the continuation produced — an empty list means there was
+nothing to resume (the run finished, was cancelled, is still running, or another worker got
+there first). Exactly one caller can resume a paused run: the transition is a conditional append
+to the log, so two racing resumes cannot both play the turn.
+
+**Cancel is terminal.** A cancelled run cannot be resumed, and a cancel cannot un-do what a tool
+already did — an email that was sent stays sent. That holds for a run cancelled *while paused*
+too: `resume_run` finds the pending cancel and ends the run rather than continuing it, so asking
+to resume does not quietly override whoever cancelled.
+
+`paused` is also not `waiting_human`: a run stopped on an `interrupt()` is waiting for an answer
+and resumes *with a value*; a paused run is waiting for an operator and resumes with nothing.
+
+## Reaching a run in another process
+
+The pending signal lives in the control port, which is in-process by default — fine for one
+worker, invisible to a second one. For a signal that crosses processes, point it at a file:
+
+```bash
+AGENTDECK_CONTROL_BACKEND=sqlite
+AGENTDECK_CONTROL_URL=./.agentdeck/control.sqlite3
+```
+
+Then a second terminal can reach a run by id alone:
+
+```bash
+agentdeck runs signal <run_id> cancel --control-db ./.agentdeck/control.sqlite3 --reason "typo"
+```
+
+A paused run's *resume* is not a signal — continuing it needs the event log — so lifting a pause
+belongs to a process holding a Runtime: `app.resume_run(run_id)` or `POST /runs/{id}/resume`.

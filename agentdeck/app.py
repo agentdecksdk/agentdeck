@@ -41,11 +41,13 @@ from agentdeck.agents.mcp.lifecycle import MCPLifecycle
 from agentdeck.agents.registry import AgentRegistry
 from agentdeck.agents.runners import HeadlessRunner, StreamDone
 from agentdeck.composition import build_runtime, v1_engines
+from agentdeck.core.ports import Signal
 from agentdeck.errors import ConfigError
 from agentdeck.runtime.registry import PROJECT_DIR, _package_dir, mount_project_dir
 from agentdeck.runtime.sessions import SessionFactory
 from agentdeck.runtime.settings import Settings, get_settings
 from agentdeck.skills.bundle import SkillRegistry
+from agentdeck.surfaces.serve.compat import run_context
 from agentdeck.workflows.registry import WorkflowRegistry
 from agentdeck.workflows.timers import wake_at_of
 
@@ -54,6 +56,7 @@ if TYPE_CHECKING:
 
     from agents.memory.session import Session
 
+    from agentdeck.core.events import Event
     from agentdeck.runtime.service import Runtime
     from agentdeck.workflows.interrupts import InterruptResult
 
@@ -226,6 +229,39 @@ class App:
         if self.session_factory is not None:
             return self.session_factory.session_for(session_id)
         return self._local_sessions.setdefault(session_id, SQLiteSession(session_id))
+
+    async def pause_run(self, run_id: str, reason: str | None = None) -> bool:
+        """Ask the run to stop at its next safe point, and record why.
+
+        Returns whether the request was recorded — not whether the run has stopped, which at
+        the moment of asking nobody can know: the run may be inside a tool call that has to
+        return first. Watch the run's own events for ``run.paused`` to learn that it did. Both
+        idempotent and race-free by construction: asking twice records one request, and asking
+        after the run ended does nothing at all.
+        """
+        return await self.runtime.signal(run_id, Signal.PAUSE, reason)
+
+    async def cancel_run(self, run_id: str, reason: str | None = None) -> bool:
+        """Ask the run to stop for good at its next safe point. Same answer as
+        :meth:`pause_run`, and the same reason for it; the run's ``run.cancelled`` is what says
+        it happened. Cancellation is terminal — a cancelled run cannot be resumed.
+
+        Cancelling a run that is already **paused** is honored by the next :meth:`resume_run`,
+        which ends it instead of continuing it: a paused run has no loop reaching safe points, so
+        nothing else can turn the request into an effect. The cancel is never lost and never
+        overridden, but a paused run nobody picks up again stays paused.
+        """
+        return await self.runtime.signal(run_id, Signal.CANCEL, reason)
+
+    async def resume_run(self, run_id: str, reason: str | None = None) -> list[Event]:
+        """Continue a paused run, returning every event the continuation produced.
+
+        Empty means nothing was resumed: this run is not paused — finished, cancelled, still
+        running, or already picked up by somebody else. Unlike pause and cancel, resuming is
+        not a signal a live run notices, because a paused run has no loop left to notice
+        anything: this call plays it on, so it returns when the run does.
+        """
+        return [event async for event in self.runtime.resume_run(run_id, run_context(), reason)]
 
     async def chat(self, name: str, session_id: str, message: Any, **runner_options: Any) -> Any:
         """One conversational turn: same ``session_id`` → same history across calls."""

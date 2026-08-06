@@ -360,6 +360,27 @@ class EventsSettings(LayeredSettings):
     url: str = ""
 
 
+class ControlSettings(LayeredSettings):
+    """Where a run's pending control signals live — what pause and cancel are written to.
+
+    ``memory`` (the default) keeps them in the process, which is all a single worker needs and
+    all it can use: a signal written in one process is invisible to another, so with the
+    default backend the ``agentdeck runs signal`` CLI and a second web worker cannot reach a
+    run at all. Point ``url`` at a file and set ``backend: sqlite`` for signals that cross
+    process boundaries — the same file the CLI's ``--control-db`` names. SQLite's cross-process
+    story rests on shared memory, so one file behind more than one *machine* is unsupported;
+    that one waits for a Redis control port.
+
+    This is a tiny table of pending intent, not a log: nothing here is a record of what
+    happened to a run — that is the event store's job, and the control events in it.
+    """
+
+    model_config = settings_config("AGENTDECK_CONTROL_")
+
+    backend: str = "memory"
+    url: str = ""
+
+
 class SessionSettings(LayeredSettings):
     """Configuration for Redis-backed agent conversation memory.
 
@@ -439,6 +460,7 @@ class Settings(BaseModel):
     runtime: RuntimeSettings = Field(default_factory=lambda: RuntimeSettings.model_validate({}))
     checkpoint: CheckpointSettings = Field(default_factory=lambda: CheckpointSettings.model_validate({}))
     events: EventsSettings = Field(default_factory=lambda: EventsSettings.model_validate({}))
+    control: ControlSettings = Field(default_factory=lambda: ControlSettings.model_validate({}))
     session: SessionSettings = Field(default_factory=lambda: SessionSettings.model_validate({}))
     skills: SkillsSettings = Field(default_factory=lambda: SkillsSettings.model_validate({}))
     langfuse: LangfuseSettings = Field(default_factory=lambda: LangfuseSettings.model_validate({}))
@@ -465,6 +487,7 @@ def reset_settings_cache() -> None:
 __all__ = [
     "PACKAGED_DEFAULT_YAML",
     "CheckpointSettings",
+    "ControlSettings",
     "EventsSettings",
     "LangfuseSettings",
     "McpServerSettings",

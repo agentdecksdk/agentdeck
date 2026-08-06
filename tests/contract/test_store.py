@@ -36,6 +36,7 @@ from agentdeck.core.events import (
     RunCompleted,
     RunFailed,
     RunInterrupted,
+    RunPaused,
     RunResumed,
     RunStarted,
     TextDelta,
@@ -386,12 +387,34 @@ async def test_a_second_claim_on_the_same_run_loses_and_writes_nothing(event_sto
     assert [event.seq for event in stored] == [0, 1, 2]
 
 
-@pytest.mark.parametrize("kind", ["pending", "running", "completed"])
-async def test_claim_resume_refuses_a_run_that_is_not_waiting_on_a_human(
-    event_store: EventStorePort, kind: str
-) -> None:
-    """A resume against any other status is a no-op, not an error — including a run this
-    store has never heard of, which is indistinguishable from one that never started."""
+async def test_claim_resume_wins_on_a_paused_run_too(event_store: EventStorePort) -> None:
+    """``PAUSED`` is the other *suspended* status, and one claim serves both: a paused run is
+    owed a terminal event just as a parked approval is, and only one caller may continue it.
+
+    This is the positive half of the guard below — without it, a store could refuse every
+    status but ``WAITING_HUMAN`` and no test would notice that pause had stopped resuming.
+    """
+    ctx = _ctx()
+    await event_store.append("s-1", [_event(0, _started()), _event(1, RunPaused(reason="operator"))], ctx)
+    assert await event_store.run_status("s-1", "r-1", ctx) is RunStatus.PAUSED
+
+    assert await event_store.claim_resume("s-1", "r-1", _resumed(2), ctx) is True
+    assert await event_store.run_status("s-1", "r-1", ctx) is RunStatus.RUNNING
+
+
+@pytest.mark.parametrize("kind", ["pending", "running", "completed", "cancelled"])
+async def test_claim_resume_refuses_a_run_that_is_not_suspended(event_store: EventStorePort, kind: str) -> None:
+    """A resume against any status that is not suspended is a no-op, not an error — including a
+    run this store has never heard of, which is indistinguishable from one that never started.
+
+    ``cancelled`` is the one that carries a promise rather than just a rule: cancel is terminal,
+    so this guard is what makes "a cancelled run cannot be resumed" true across processes, where
+    a caller's own status check could always go stale between reading and appending.
+
+    The claimed event carries the run's *real* next ``seq``, read from the store. A claim with
+    the wrong seq is refused whatever the status, so hardcoding one would let this pass on the
+    seq guard and assert nothing about status at all.
+    """
     ctx = _ctx()
     if kind == "running":
         await event_store.append("s-1", [_event(0, _started())], ctx)
@@ -401,8 +424,13 @@ async def test_claim_resume_refuses_a_run_that_is_not_waiting_on_a_human(
             [_event(0, _started()), _event(1, RunCompleted(output=[], usage={"input_tokens": 1, "output_tokens": 1}))],
             ctx,
         )
+    elif kind == "cancelled":
+        await event_store.append(
+            "s-1", [_event(0, _started()), _event(1, RunCancelled(reason="user closed the tab"))], ctx
+        )
+    next_seq = await event_store.last_seq("s-1", "r-1", ctx) + 1
 
-    assert await event_store.claim_resume("s-1", "r-1", _resumed(9), ctx) is False
+    assert await event_store.claim_resume("s-1", "r-1", _resumed(next_seq), ctx) is False
     assert [event.kind for event in await event_store.read_run("s-1", "r-1", ctx)].count("run.resumed") == 0
 
 

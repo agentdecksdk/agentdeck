@@ -9,6 +9,66 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 ## [Unreleased]
 
 ### Added
+- **Pause, resume and cancel a run that is already in flight**, by `run_id`, from
+  Python or over HTTP:
+
+  ```python
+  await app.pause_run(run_id, reason="operator stepped away")
+  events = await app.resume_run(run_id)
+  await app.cancel_run(run_id, reason="user closed the tab")
+  ```
+
+  ```
+  POST /runs/{run_id}/pause    {"reason": "..."}  -> {"run_id", "verb", "recorded": true}
+  POST /runs/{run_id}/cancel   {"reason": "..."}  -> {"run_id", "verb", "recorded": true}
+  POST /runs/{run_id}/resume   {"reason": "..."}  -> {"run_id", "status", "events"}, 409 if not paused
+  ```
+
+  **Asking is not stopping, and the log says both.** `pause_run` and `cancel_run`
+  record a request and return; they cannot tell you when the run will stop, because
+  it may be halfway through a tool call. So a controlled run writes
+  `control.requested`, then `control.observed(safe_point)` once it reached a safe
+  point, then the effect — `run.paused` / `run.cancelled` / `run.resumed`. Watch the
+  events for the effect to learn that it stopped. A request leaves the run
+  `running`; only the effect moves it.
+
+  **Nothing is force-killed.** A signal is honored at the next safe point — between
+  two stream items, so the chunk in flight is always delivered whole — and a tool
+  call already running is never interrupted: the call finishes and the run stops
+  before the step that would have used its result. `safe_point` on
+  `control.observed` is what distinguishes "cancel took eight seconds" from "cancel
+  took eight seconds *because a tool call did*".
+
+  **A paused run is suspended in the log, not parked in a process.** The worker is
+  free to exit, and any worker sharing the event store can lift the pause. Because
+  there is no stack to return to, resuming re-enters the engine with the run's own
+  input and the log as history: same `run_id`, `seq` carrying on. **Work the paused
+  turn had already done can therefore happen again** — the model is asked again, and
+  a tool it had already called may be called a second time, so keep tools idempotent
+  and put side effects behind `ctx.idempotency_key`. Exactly one caller can resume a
+  paused run; a second gets nothing rather than a second turn. Cancel is terminal
+  and cannot be resumed, and `paused` stays distinct from `waiting_human` (that one
+  resumes *with* a value).
+
+  **Cancelling a paused run works, with one caveat worth knowing.** Pause, think,
+  give up is the ordinary path, and a cancel recorded against a paused run is
+  honored by the next resume — which ends the run `cancelled` rather than playing it
+  on, so a resume can never quietly override whoever cancelled. But a paused run has
+  no loop reaching safe points, so nothing else can turn that request into an effect:
+  a paused run that nobody ever resumes stays paused, holding its session until
+  `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` takes it over.
+
+  **Races are no-ops, never errors.** A signal that arrives after the run ended does
+  nothing and records nothing; the same pause sent twice is one request; resuming a
+  run that is not paused returns nothing (409 over HTTP).
+
+  Pending signals live in a control port, which is **in-process by default** — one
+  worker can control its own runs, a second worker cannot see them. Set
+  `AGENTDECK_CONTROL_BACKEND=sqlite` and `AGENTDECK_CONTROL_URL=<file>` for signals
+  that cross processes, which is also the file
+  `agentdeck runs signal <run_id> <cancel|pause|resume> --control-db <file>
+  [--reason ...]` writes to. Agent runs honor safe points today; a workflow
+  (LangGraph) run has none yet, so pause and cancel do not reach one.
 - **A run can say what it is doing** — two new event kinds, `status.reported` (a
   human-readable line: `"Searching GitHub"`) and `progress.reported` (a named stage,
   optionally counted: `step="Reviewing issues", current=2, total=4`), so a client can
@@ -50,9 +110,10 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `steer` — so pause/resume and mid-run steering add no further vocabulary when
   they ship. Neither kind is a status transition: a request leaves a run `RUNNING`
   until its terminal event says otherwise, and neither is terminal.
-  This release ships the vocabulary and the consumers, not producers: nothing
-  emits either kind yet, so no existing stream changes shape. The CLI renderer
-  prints both phases and the Langfuse sink puts them on the run's timeline.
+  The vocabulary landed first and the producers followed in the same release (see
+  the pause/resume/cancel entry above): a run that is signaled now emits both
+  kinds. The CLI renderer prints both phases and the Langfuse sink puts them on the
+  run's timeline.
 - `run.resumed` now carries **the answer it was resumed with**, as content
   (`value: list[ContentBlock] | None`) — content passes through as sent, a string
   arrives as a `TextBlock`, any other JSON answer as a `DataBlock`, and lifting an
@@ -78,6 +139,18 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   dropping implies: only a process new enough to *see* `value` can use it to
   repair a resume, so upgrade the workers that reconcile before relying on it.
 ### Changed
+- **A run reads its pending control signal at most once every 200ms**, instead of
+  once per streamed item. A 500-chunk answer used to cost 500 control reads whose
+  answer was "no" 499 times — one file read each with the SQLite control port, and a
+  network round trip each once the port is shared. Measured at a real model's pace
+  (~30ms a chunk), a 400-chunk answer now costs 58 reads instead of 400.
+  What this trades is **latency, not correctness**: a cancel is noticed up to 200ms
+  after it is recorded, and still acted on *at* a safe point, never mid-token. The
+  first safe point of a run always reads, so a signal that beat the run out of the
+  gate is honored immediately. Anyone who was relying on the previous
+  read-every-item behavior — a test asserting a cancel lands within a stream shorter
+  than 200ms, for instance — can pass `Runtime(..., control_poll_interval=0)` to get
+  it back at the old read cost.
 - **A sink the breaker disables is no longer disabled for good.** A telemetry
   endpoint that failed five events in a row used to be dead for the rest of the
   process; now the dispatch waits 30 seconds and then lets one event through to
@@ -140,15 +213,6 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `ainvoke`) now reports a final state for a graph compiled **without** a
   checkpointer, which it previously could not: the terminal state is read from the
   run's own event stream instead of from a checkpoint that never existed.
-### Removed
-- **`agentdeck.runtime.REPO_ROOT` / `agentdeck.runtime.settings.REPO_ROOT`** — it only
-  ever pointed at the repo root in a source checkout and at the installed package's
-  `site-packages` directory otherwise; nothing in agentdeck needs that path, and
-  nothing outside it should have depended on it either. (#16)
-- **`agentdeck.runtime.ENV_FILE` / `agentdeck.runtime.settings.ENV_FILE`** — was a path
-  frozen at import time (see Fixed below for why that was itself unsafe); replaced by
-  `resolve_env_file()`, resolved fresh every time `get_settings()` actually builds a
-  `Settings` object. (#16)
 
 ### Removed
 - **`agentdeck.runtime.REPO_ROOT` / `agentdeck.runtime.settings.REPO_ROOT`** — it only
