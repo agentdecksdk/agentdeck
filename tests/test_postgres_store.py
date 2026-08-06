@@ -77,6 +77,18 @@ async def keyspace() -> AsyncIterator[tuple[str, str]]:
         yield pair
 
 
+async def _warm(first: PostgresEventStore, second: PostgresEventStore, log_key: str, ctx: RunContext) -> None:
+    """Connect and set both stores up *before* the race, so neither starts one behind.
+
+    A cold store's first call connects, waits the schema-setup lock and runs four DDL
+    statements. Gathering two cold ones races a lap against three, so the second peer arrives
+    after the first has finished — the contention the test exists to create only sometimes
+    happens. With both warm it happens every time.
+    """
+    await first.read(log_key, ctx)
+    await second.read(log_key, ctx)
+
+
 # Every method of the port, so one added later without the boundary wrapper is a missing case
 # here rather than a psycopg exception surfacing to a caller that catches ``StoreError``.
 _CALLS = [
@@ -126,6 +138,7 @@ async def test_two_connections_settle_a_resume_claim_on_one_winner(keyspace: tup
         await seeder.aclose()
 
         first, second = PostgresEventStore(dsn, schema=schema), PostgresEventStore(dsn, schema=schema)
+        await _warm(first, second, log_key, ctx)
         claim = _event(2, RunResumed(reason=None))
         try:
             outcomes = await asyncio.gather(
@@ -149,6 +162,7 @@ async def test_two_connections_settle_a_session_claim_on_one_winner(keyspace: tu
     for trial in range(10):
         log_key = f"s-{trial}"
         first, second = PostgresEventStore(dsn, schema=schema), PostgresEventStore(dsn, schema=schema)
+        await _warm(first, second, log_key, ctx)
         try:
             claims = await asyncio.gather(
                 first.claim_start(log_key, _event(0, _started(), run_id="r-a"), ctx, BEFORE_ANY_EVENT),
@@ -192,6 +206,38 @@ async def test_a_log_lock_held_past_the_timeout_is_a_store_error_not_a_lost_clai
         await peer.rollback()
         await peer.close()
         await store.aclose()
+
+
+async def test_a_plain_append_cannot_commit_past_a_held_log_lock(
+    keyspace: tuple[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The port's paging guarantee, on the one store that could break it.
+
+    Row order is `BIGSERIAL` — assigned at insert, published at commit — so an append outside
+    the log's lock can be given a *later* number than a claim's in-flight insert and still
+    commit *first*. The claim's event then appears at an offset a reader has already gone
+    past, so that event is never delivered and one of its neighbours is delivered twice. The
+    fix is that a write is not allowed to commit while somebody holds this log's lock: with
+    the lock held, an append waits and then fails, exactly as a claim does, and writes nothing.
+    """
+    monkeypatch.setattr(store_module, "_LOCK_TIMEOUT_MS", 50)
+    dsn, schema = keyspace
+    ctx = _ctx()
+    store = PostgresEventStore(dsn, schema=schema)
+    await store.read("s-1", ctx)  # connect and create the schema before the lock is taken
+
+    peer = await psycopg.AsyncConnection.connect(dsn)
+    try:
+        await peer.execute("SELECT pg_advisory_xact_lock(%s)", (store_module._advisory_key("acme\x00s-1"),))
+        with pytest.raises(StoreError) as raised:
+            await store.append("s-1", [_event(0, _started())], ctx)
+        assert isinstance(raised.value.__cause__, psycopg.errors.LockNotAvailable)
+    finally:
+        await peer.rollback()
+        await peer.close()
+
+    assert await store.read("s-1", ctx) == []
+    await store.aclose()
 
 
 async def test_a_claim_still_reads_the_winners_rows_on_a_server_that_defaults_to_serializable(

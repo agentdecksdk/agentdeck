@@ -324,6 +324,13 @@ class EventsSettings(LayeredSettings):
     install needs no configuration and no writable project dir — at the cost of a log that
     grows for as long as the process lives and is gone when it exits. Point ``url`` at a
     file and set ``backend: sqlite`` for a log that survives a restart.
+
+    ``redis`` (``url`` is a Redis URL) and ``postgres`` (``url`` is a DSN, and needs the
+    ``[durability]`` extra) are the two that several workers can share: SQLite's durability
+    rests on cross-process shared memory, so one file behind more than one machine is
+    unsupported. Each keeps to its own keyspace, so an instance already holding LangGraph
+    checkpoints or agent conversations is fine to reuse. A Redis instance used as the record
+    wants ``appendonly yes`` and ``maxmemory-policy noeviction`` — this is a log, not a cache.
     """
 
     model_config = settings_config("AGENTDECK_EVENTS_")

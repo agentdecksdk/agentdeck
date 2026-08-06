@@ -520,6 +520,26 @@ async def test_paginated_read_past_the_end_is_empty(event_store: EventStorePort)
     assert await event_store.read("s-1", ctx, offset=10) == []
 
 
+async def test_a_page_already_read_does_not_shift_when_the_log_grows(event_store: EventStorePort) -> None:
+    """The promise paging rests on: a log only ever grows at its end, so an offset a reader
+    has passed keeps meaning the same event. A store that ordered by anything a later write
+    can slot in front of — or that published its ordering out of the order it assigned it —
+    would move an unread event behind the cursor and deliver its neighbour twice.
+
+    Sequential here, which is all one store instance can show; the concurrent version of the
+    same invariant, where a write commits past an in-flight claim, needs two connections and
+    lives in ``tests/test_postgres_store.py``.
+    """
+    ctx = _ctx()
+    await event_store.append("s-1", [_event(0, _started()), _event(1, RunResumed(reason=None))], ctx)
+    first_page = await event_store.read("s-1", ctx, offset=0, limit=2)
+
+    await event_store.append("s-1", [_event(2, TextDelta(message_id="m1", text="later"))], ctx)
+
+    assert await event_store.read("s-1", ctx, offset=0, limit=2) == first_page
+    assert [event.seq for event in await event_store.read("s-1", ctx, offset=2)] == [2]
+
+
 async def test_paginated_read_zero_limit_is_an_empty_page(event_store: EventStorePort) -> None:
     ctx = _ctx()
     await event_store.append("s-1", [_event(0, _started())], ctx)

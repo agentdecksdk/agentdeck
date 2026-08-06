@@ -64,16 +64,21 @@ class PostgresEventStore(EventStorePort):
     One connection per store instance, serialized by a lock — ``psycopg``'s async
     connection is not safe to drive from two coroutines at once, and a single writer per
     log is the shape the Runtime already assumes. Consequence to know when operating it:
-    a claim waiting on a peer's transaction holds this process's only connection, so its
-    reads queue behind it. The wait is bounded by ``lock_timeout`` for exactly that reason.
+    anything waiting on a peer's transaction holds this process's only connection, so every
+    other call queues behind it. On the write and claim paths that wait is bounded by
+    ``lock_timeout``; the one place it is not is first-use schema setup, whose lock is
+    session-scoped and taken before any transaction exists, so a peer wedged midway through
+    creating the schema blocks this instance until it finishes or its connection drops.
 
-    Both conditional appends decide *and* write inside one transaction that first takes a
-    per-log advisory lock, so two servers agree through Postgres and not through Python.
-    ``READ COMMITTED`` is load-bearing there, not incidental: the loser has to see the
-    winner's committed rows after the lock is handed over, and a snapshot taken at the
-    transaction's first statement — what ``REPEATABLE READ`` would give it — was taken
-    before the winner committed. The connection pins the level so a server configured
-    otherwise cannot quietly break the claim.
+    Every write — both conditional appends and the plain one — takes a per-log advisory lock
+    before reading or inserting anything, so two servers agree through Postgres and not
+    through Python. ``READ COMMITTED`` is load-bearing for the claims, not incidental: the
+    loser has to see the winner's committed rows after the lock is handed over, and a
+    snapshot taken at the transaction's first statement — what ``REPEATABLE READ`` would
+    give it — was taken before the winner committed. Since that first statement is the
+    ``lock_timeout`` setting rather than the lock itself, the pin is the whole defence and
+    not a second layer of one; the connection pins it so a server configured otherwise
+    cannot quietly break the claim.
 
     A ``psycopg`` exception never crosses the port: everything funnels through ``_run``
     and reaches the caller as ``StoreError``.
@@ -100,7 +105,11 @@ class PostgresEventStore(EventStorePort):
                 " data JSONB NOT NULL)"
             ).format(table=table),
             sql.SQL("CREATE INDEX IF NOT EXISTS events_by_log ON {table} (tenant, log_key, id)").format(table=table),
-            sql.SQL("CREATE INDEX IF NOT EXISTS events_by_run ON {table} (tenant, log_key, run_id, seq)").format(
+            # UNIQUE is the guard, not just the index: one seq per run is the promise consumers
+            # refetch a gap with, and a duplicate is the one corruption a gap check cannot see.
+            # ponytail: only schemas this build creates get the constraint — one from an earlier
+            # beta keeps its non-unique index, and v2 has no migration story yet.
+            sql.SQL("CREATE UNIQUE INDEX IF NOT EXISTS events_by_run ON {table} (tenant, log_key, run_id, seq)").format(
                 table=table
             ),
         )
@@ -173,13 +182,25 @@ class PostgresEventStore(EventStorePort):
         return self._conn
 
     async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
+        """Writes take the log's lock too, for the port's paging guarantee: a page already
+        read must never shift under a later one.
+
+        Row order is `BIGSERIAL`, assigned at insert and published at commit, so an
+        unlocked append can be given a *later* number than a claim's in-flight insert and
+        still commit *first* — the claim's event then appears at an offset a reader has
+        already gone past, and one of its neighbours is delivered twice. Serializing writes
+        per log is what keeps the log growing only at its end. It also makes a batch atomic,
+        so a row the unique index rejects takes the whole batch with it.
+        """
         foreign = {event.tenant for event in events} - {ctx.tenant}
         if foreign:
             raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
         rows = [_row(ctx.tenant, log_key, event) for event in events]
 
         async def _work(conn: Connection) -> None:
-            await conn.cursor().executemany(self._insert, rows)
+            async with conn.transaction():
+                await self._lock_log(conn, ctx.tenant, log_key)
+                await conn.cursor().executemany(self._insert, rows)
 
         await self._run(_work, "append")
 
@@ -277,12 +298,12 @@ class PostgresEventStore(EventStorePort):
         return [summary for summary in summaries if status is None or summary.status is status]
 
     async def _lock_log(self, conn: Connection, tenant: str, log_key: str) -> None:
-        """Serialize this log's claims, and bound the wait.
+        """Serialize this log's writes, and bound the wait.
 
         The lock is per (tenant, log key) and transaction-scoped, so it is released by the
-        commit that publishes the claim and never outlives a crashed worker. It is taken
-        before any read, which is the whole point: a lock acquired after the decision would
-        leave the same check-then-write window a plain read has.
+        commit that publishes the write and never outlives a crashed worker. It is taken
+        before any read the decision depends on, which is the whole point: a lock acquired
+        afterwards would leave the same check-then-write window a plain read has.
         """
         await conn.execute("SELECT set_config('lock_timeout', %s, true)", (f"{_LOCK_TIMEOUT_MS}ms",))
         await conn.execute("SELECT pg_advisory_xact_lock(%s)", (_advisory_key(f"{tenant}\x00{log_key}"),))

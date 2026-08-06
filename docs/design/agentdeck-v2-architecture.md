@@ -401,37 +401,55 @@ implement the same port, so the sentences above about "two servers sharing a sto
 a deployment that does not share a filesystem. Both claims are atomic per backend, by the
 mechanism that backend actually has, and neither reimplements the status projection:*
 
-- ***Postgres** decides and writes inside one transaction whose **first** statement takes a
-  transaction-scoped advisory lock on `(tenant, log_key)`. Lock first, then read: a lock taken
-  after the decision would leave exactly the check-then-write window it exists to close. The
-  isolation level is **pinned to `READ COMMITTED`** rather than inherited, and that is
+- ***Postgres** decides and writes inside one transaction that takes a transaction-scoped
+  advisory lock on `(tenant, log_key)` before reading anything. Lock first, then read: a lock
+  taken after the decision would leave exactly the check-then-write window it exists to close.
+  The isolation level is **pinned to `READ COMMITTED`** rather than inherited, and that is
   load-bearing — under a snapshot taken at the transaction's first statement (`REPEATABLE READ`
   or stricter) the loser's reads predate the winner's commit even though it waited for the lock,
-  so it decides on a log that no longer exists. `lock_timeout` is Postgres's spelling of the
-  SQLite busy timeout, same 5 seconds and same reasoning: wait a peer out, but surface a wedged
-  holder as `StoreError` rather than hanging. The alternatives were considered and rejected:
-  `SELECT ... FOR UPDATE` has no row to lock on an idle session's empty log, and a conditional
-  `INSERT ... WHERE NOT EXISTS` would have to express `status_of` in SQL — a second copy of the
-  status machine, which is the thing ADR-D5 forbids.*
+  so it decides on a log that no longer exists. The pin is the *whole* defence rather than a
+  second layer of one, because the transaction's literal first statement is the `lock_timeout`
+  setting, not the lock. That timeout is Postgres's spelling of the SQLite busy timeout, same 5
+  seconds and same reasoning: wait a peer out, but surface a wedged holder as `StoreError` rather
+  than hanging — with one gap, first-use schema setup, whose lock is session-scoped and taken
+  before any transaction exists. The alternatives were considered and rejected: `SELECT ... FOR
+  UPDATE` has no row to lock on an idle session's empty log, and a conditional `INSERT ... WHERE
+  NOT EXISTS` would have to express `status_of` in SQL — a second copy of the status machine,
+  which is the thing ADR-D5 forbids.*
+- **The plain `append` is under that same lock**, which the design doc's paging guarantee turns
+  out to require: row order is `BIGSERIAL`, assigned at insert and published at commit, so an
+  unlocked append can take a *later* number than a claim's in-flight insert and still commit
+  *first*. The claim's event then appears at an offset a reader has already passed — never
+  delivered, while a neighbour is delivered twice. "The log only ever grows at the end" is a
+  promise about commit order, not insert order, and only serializing writes per log keeps it.*
 - ***Redis** uses `WATCH`/`MULTI`/`EXEC`, not a Lua script, for that same reason: the decision
   runs in Python so `core/status.py` stays the one place a status is derived, and `EXEC` refuses
   the write if any key the decision read moved under it. A losing round re-reads and answers from
   what the peer actually wrote. Bounded rounds, then `StoreError` — an unbounded optimistic retry
-  is a hang. The log carries its own indexes (per-log and per-run lists, a `seq` sorted set, the
-  run's latest lifecycle **event**, and the run sets each log and tenant own) written in one
-  `MULTI` with the event, so no reader sees a log entry missing from its run's index; what is
-  stored is always an event, never a status.*
+  is a hang. **Its plain `append` goes through the same machinery**, because one `seq` per run is
+  the other thing a store has to enforce and Redis has no unique index to enforce it with: the
+  run's `seq` index is watched and each `(run_id, seq)` checked, so a peer that spends a `seq`
+  under this write aborts it. The log carries its own indexes (per-log and per-run lists, that
+  `seq` sorted set, the run's latest lifecycle **event**, and the run sets each log and tenant
+  own) written in one `MULTI` with the event, so no reader sees a log entry missing from its run's
+  index; what is stored is always an event, never a status. `MULTI` is atomic against other
+  clients, not against a queued command of its own failing — which on this store's own keys and
+  types cannot happen on well-formed input.*
 
 *ADR-D5's operational separation is expressed as the one thing each backend can enforce: a
 Postgres **schema** (`agentdeck_events`) and a Redis **key prefix** (`agentdeck:events`), so a
 database holding LangGraph checkpoint tables or an instance holding the openai-agents adapter's
-`RedisSession` conversations shares nothing with the log. Two things the design doc did not say:
-`append` on Redis is only as durable as the instance, so a deployment using it as its record
-wants `appendonly yes`; and Postgres adds `psycopg[binary]` to the `[durability]` extra, which
-until now meant checkpointer savers only. The cross-store contract suite is the merge gate for
-all of this and runs every case against all four backends on **real servers** — service
-containers on the gate job, skipping with a named env var locally, and the gate's skip-count
-ceiling is what turns "the containers quietly went away" red.)*
+`RedisSession` conversations shares nothing with the log. Three things the design doc did not
+say: Redis is only as durable as the instance is configured to be, so a deployment using it as
+its record wants `appendonly yes` **and** `maxmemory-policy noeviction` — an evicted lifecycle
+key makes a live run stop looking like it holds its session; Postgres adds `psycopg[binary]` to
+the `[durability]` extra, which until now meant checkpointer savers only, and is imported inside
+`resolve_event_store`'s own branch so selecting any other backend does not need it; and both
+backends are reachable as `AGENTDECK_EVENTS_BACKEND=redis|postgres` through the composition root
+(#74). The cross-store contract suite is the merge gate for all of this and runs every case
+against all four backends on **real servers** — service containers on the gate job, skipping with
+a named env var locally, and the gate's skip-count ceiling is what turns "the containers quietly
+went away" red.)*
 
 ```python
 # core/ports/engine.py — the lifecycle/event boundary

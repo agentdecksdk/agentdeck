@@ -51,7 +51,9 @@ hands it to whatever is serving. A chat served over HTTP — `POST /agents/{name
 or not — is played by that runtime, which records the turn as an event log: the run opening,
 text deltas, tool calls, token usage per model call, then the result. The log is in memory by
 default; point `AGENTDECK_EVENTS_BACKEND=sqlite` and `AGENTDECK_EVENTS_URL` at a file to keep it
-across restarts. The Python API (`App.chat`, `App.chat_stream`) still runs the turn directly and
+across restarts, or `redis` / `postgres` (a URL or a DSN in the same variable) for a log that
+several workers can share — SQLite needs shared memory between processes, so one file behind more
+than one machine is not supported. The Python API (`App.chat`, `App.chat_stream`) still runs the turn directly and
 returns the SDK's own result object, so it keeps no event log — same agent, same session, same
 answer.
 

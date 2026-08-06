@@ -15,11 +15,15 @@ openai-agents adapter's ``RedisSession`` conversations (``agents:session``) keep
 platform record and the engine's private execution state in disjoint keyspaces, and either
 can be dropped without touching the other.
 
-**Operating note:** ``append`` returning means Redis acknowledged the write, which is only
+**Operating notes.** ``append`` returning means Redis acknowledged the write, which is only
 as durable as the instance is configured to be. The port promises an event a consumer has
 seen is already in the store, so a deployment that uses this store as its record wants
 ``appendonly yes``; with the default snapshot-only persistence a crash can lose the last
-seconds of a log.
+seconds of a log. It also wants ``maxmemory-policy noeviction``: this is a record, not a
+cache, and an evicted key does not merely disappear — a run whose latest lifecycle event was
+evicted stops being seen as holding its session, so a live turn can have its session taken
+from under it. Both settings belong to the whole instance, which is another reason to give
+the log its own rather than share a cache's.
 """
 
 from __future__ import annotations
@@ -66,12 +70,13 @@ def _segment(value: str) -> str:
 class RedisEventStore(EventStorePort):
     """Append-only lists and their indexes under one Redis key prefix.
 
-    Both conditional appends use ``WATCH``/``MULTI``/``EXEC``: the keys the decision reads
-    are watched, the decision itself runs here in Python — so ``core.status`` stays the one
-    place a status is derived — and ``EXEC`` refuses to apply the write if any of those keys
-    moved in between. A peer that got there first therefore never loses to a stale read; the
-    claim re-reads and answers from what the peer actually wrote. That is what makes this
-    hold between two servers and not merely between two tasks.
+    Every write goes through ``WATCH``/``MULTI``/``EXEC`` — the two claims and the plain
+    append, which is conditional on one ``seq`` per run: the keys the decision reads are
+    watched, the decision itself runs here in Python — so ``core.status`` stays the one place
+    a status is derived — and ``EXEC`` refuses to apply the write if any of those keys moved
+    in between. A peer that got there first therefore never loses to a stale read; the write
+    re-reads and answers from what the peer actually wrote. That is what makes this hold
+    between two servers and not merely between two tasks.
 
     A ``redis`` exception never crosses the port: everything reaches the caller as
     ``StoreError``.
@@ -102,7 +107,15 @@ class RedisEventStore(EventStorePort):
 
     def _queue_writes(self, pipe: Pipeline, tenant: str, log_key: str, events: Iterable[Event]) -> None:
         """Buffer one batch's writes — the log, the run's slice and every index — onto a
-        pipeline already in ``MULTI``, so they land together or not at all."""
+        pipeline already in ``MULTI``, so no concurrent reader sees part of them.
+
+        ``MULTI`` is atomic against *other clients*, not against a command of its own
+        failing: Redis runs the queued commands back to back and reports per-command errors
+        without rolling the rest back. Nothing here can fail on well-formed input — the keys
+        are this store's own and each command matches the type it created — so the case that
+        remains is a keyspace somebody else has written incompatible types into, which is
+        unrecoverable by any means this store has.
+        """
         for event in events:
             data = event.model_dump_json()
             pipe.rpush(self._log_key(tenant, log_key), data)
@@ -114,15 +127,36 @@ class RedisEventStore(EventStorePort):
                 pipe.sadd(self._tenant_runs_key(tenant), _member(log_key, event.run_id))
 
     async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
+        """A plain append is a conditional one too: **one ``seq`` per run, ever**.
+
+        The durable stores get that from a unique index; here it is the same
+        ``WATCH``/``MULTI``/``EXEC`` the claims use, watching each run's ``seq`` index so a
+        peer that takes a ``seq`` between this check and this write aborts it rather than
+        doubling it. Two writers only ever share a run when one was presumed dead and came
+        back, and the second event at one ``seq`` would make every consumer's refetch of it a
+        coin toss — the corruption a gap check cannot see, since ``check_contiguous`` looks
+        for holes and this leaves none.
+        """
         foreign = {event.tenant for event in events} - {ctx.tenant}
         if foreign:
             raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
-        try:
-            async with self._client.pipeline(transaction=True) as pipe:
-                self._queue_writes(pipe, ctx.tenant, log_key, events)
-                await pipe.execute()
-        except RedisError as exc:
-            raise StoreError(f"event log append failed: {exc}") from exc
+        if not events:
+            return
+
+        async def _attempt(pipe: Pipeline) -> None:
+            await pipe.watch(*{self._seq_key(ctx.tenant, log_key, event.run_id) for event in events})
+            taken: set[tuple[str, int]] = set()
+            for event in events:
+                spent = await pipe.zscore(self._seq_key(ctx.tenant, log_key, event.run_id), str(event.seq))
+                if spent is not None or (event.run_id, event.seq) in taken:
+                    # Before anything is queued, so a refused batch leaves no half of itself.
+                    raise StoreError(f"seq {event.seq} of run {event.run_id!r} is already in log {log_key!r}")
+                taken.add((event.run_id, event.seq))
+            pipe.multi()
+            self._queue_writes(pipe, ctx.tenant, log_key, events)
+            await pipe.execute()
+
+        await self._watched(_attempt, "append")
 
     async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
         if limit is not None and limit < 0:
@@ -179,9 +213,12 @@ class RedisEventStore(EventStorePort):
             overridden: list[str] = []
             for run_id in run_ids:
                 life = await pipe.get(self._life_key(ctx.tenant, log_key, run_id))
-                # A key the same MULTI filled in coming back empty means the keyspace lost
-                # it — eviction, or an operator's DEL. Read it as a run that holds nothing
-                # rather than crash the claim of a session that is now demonstrably idle.
+                # A key the same MULTI filled in coming back empty means the keyspace lost it
+                # — eviction, or an operator's DEL. Read as a run holding nothing rather than
+                # crashing the claim, and note what that costs: a *live* run whose lifecycle
+                # key went missing silently loses its session hold, and is not even reported
+                # in `overridden` for the winner to close. Hence `noeviction` up top; there is
+                # no answer a store can give here that is better than not evicting the record.
                 if life is None or status_of([parse_event(json.loads(life))]) in TERMINAL_STATUSES:
                     continue
                 last = await pipe.lindex(self._run_key(ctx.tenant, log_key, run_id), -1)
@@ -193,7 +230,7 @@ class RedisEventStore(EventStorePort):
             await pipe.execute()
             return SessionClaim(overridden=tuple(overridden))
 
-        return await self._claim(_attempt, "claim_start")
+        return await self._watched(_attempt, "claim_start")
 
     async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
         """The port's conditional append over ``WATCH``/``MULTI``/``EXEC``: the run's status
@@ -225,7 +262,7 @@ class RedisEventStore(EventStorePort):
             await pipe.execute()
             return True
 
-        return await self._claim(_attempt, "claim_resume")
+        return await self._watched(_attempt, "claim_resume")
 
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
         """Overrides the port's per-run fold: the tenant's runs come off one set and each
@@ -247,10 +284,12 @@ class RedisEventStore(EventStorePort):
         ]
         return [summary for summary in summaries if status is None or summary.status is status]
 
-    async def _claim[T](self, attempt: Callable[[Pipeline], Awaitable[T]], op: str) -> T:
-        """Run one optimistic claim until ``EXEC`` is not aborted by a concurrent write.
+    async def _watched[T](self, attempt: Callable[[Pipeline], Awaitable[T]], op: str) -> T:
+        """Run one optimistic write until ``EXEC`` is not aborted by a concurrent one.
 
-        A fresh pipeline per round, so a round that lost its watch leaves nothing behind.
+        Every write this store does goes through here — the two claims and the plain append,
+        which is conditional on one ``seq`` per run. A fresh pipeline per round, so a round
+        that lost its watch leaves nothing behind.
         """
         try:
             for _ in range(_CLAIM_ATTEMPTS):

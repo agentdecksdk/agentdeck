@@ -177,7 +177,8 @@ def _warn_if_event_log_is_in_memory(deck: App) -> None:
     if deck.settings.events.backend.strip().lower() == "memory":
         logger.warning(
             "event log backend is 'memory': it never evicts and is lost on restart. "
-            "Set AGENTDECK_EVENTS_BACKEND=sqlite and AGENTDECK_EVENTS_URL=<file> for a durable log."
+            "Set AGENTDECK_EVENTS_BACKEND=sqlite and AGENTDECK_EVENTS_URL=<file> for a durable log, "
+            "or redis/postgres for one several workers can share."
         )
 
 
