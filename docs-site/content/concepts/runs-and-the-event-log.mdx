@@ -1,0 +1,127 @@
+---
+title: Runs and the Event Log
+description: The one ordered record every turn appends to, and why a run's status is read from it instead of stored anywhere else.
+---
+
+# Runs and the Event Log
+
+Every turn — a chat message or a workflow invocation — appends events to one ordered log for
+that run. This log, not anything an engine keeps for itself, is what every consumer of a run
+reads: replay, audit, the HTTP surface, pause and resume.
+
+Every way of starting a turn writes here, and they all write the same thing. `run_agent`,
+`chat`, `chat_stream`, `run_workflow` and `resume_workflow` record a run exactly as
+`POST /agents/{name}/chat` and `POST /workflows/{name}` do, because all of them play the turn
+on the same Runtime. So a run you started from a script is as readable afterwards as one a
+client started over HTTP — same events, same order, same store. `app.store` is the log itself
+when you want to read one back.
+
+```python file=.agentdeck/agents/greeter/agent.py
+from agentdeck.agents import BaseAgent
+
+
+class Greeter(BaseAgent):
+    instructions = "You are a friendly scheduling assistant. Keep replies to one short sentence."
+```
+
+```python run
+import asyncio
+import os
+import uuid
+
+os.environ["AGENTDECK_EVENTS_BACKEND"] = "sqlite"
+os.environ["AGENTDECK_EVENTS_URL"] = "./events.sqlite3"
+
+from agentdeck import App
+from agentdeck.composition import resolve_event_store
+from agentdeck.core import RunContext, check_contiguous, coerce_input
+from agentdeck.core.status import status_of
+
+
+async def main() -> None:
+    run_id = str(uuid.uuid4())
+    ctx = RunContext(tenant="acme", principal="user:sagi", run_id=run_id, trace_id=str(uuid.uuid4()), session_id="sess-1")
+
+    async with App.open() as app:
+        async for _event in app.runtime.run("Greeter", coerce_input("book me a slot Tuesday"), ctx):
+            pass  # already durable — every event is appended before it is yielded
+
+    # A second, independent handle on the same store: what a later process, or a
+    # dashboard, reads back.
+    store = resolve_event_store()
+    events = await store.read_run(ctx.log_key, run_id, ctx)
+    for event in events:
+        print(event.seq, event.kind)
+    print("gaps:", check_contiguous(events))
+    print("status:", status_of(events))
+
+
+asyncio.run(main())
+```
+
+```text
+0 run.started
+1 text.delta
+2 text.delta
+3 usage.reported
+4 message.completed
+5 run.completed
+gaps: []
+status: completed
+```
+
+The two calls to `App.open()` and `resolve_event_store()` never touch each other directly — the
+second one is a fresh store handle, built the same way the Runtime built its own. What comes
+back is whatever the first call actually wrote, nothing cached in between. There's no `app.store`
+accessor and no built-in helper for reading a run back by id; `resolve_event_store()` plus a
+`RunContext` you build yourself, as above, are what today's public surface gives you.
+
+The exact kinds in between `run.started` and `run.completed` depend on what the run did, not on
+a fixed shape: a `text.delta` per streamed chunk, a `tool.call.started`/`tool.call.completed`
+pair per tool call, `usage.reported` per model call, `message.completed` once a full reply is
+in. This run made no tool call, so none of those appear above.
+
+## seq is the order, and the loss check
+
+`seq` is per-run and contiguous from zero — `0, 1, 2, …` with no gaps — which is what makes it
+the ordering authority rather than `ts`, the wall-clock timestamp carried alongside it for
+information only. `check_contiguous`, used above, is that check made concrete: it returns the
+missing numbers in one run's events, `[]` when there are none. A consumer that gets events out
+of order, or suspects one went missing, refetches the run and runs this over the result instead
+of guessing from timing.
+
+## Status is a fold, not a field
+
+A run's status — `pending`, `running`, `paused`, `waiting_human`, `completed`, `failed`, or
+`cancelled` — is not written anywhere as its own row. `status_of` derives it by folding the
+run's own lifecycle events in order and taking the last transition; a log with none of those
+folds to `pending`, and a log ending in `run.completed` folds to `completed` every time it's
+asked, with no cache to go stale after a restart. `paused` and `waiting_human` differ in what
+resuming them takes — nothing for a pause, an answer for an interrupt — which [Run
+Control](/concepts/run-control) covers in full.
+
+## The log is not the engine's memory
+
+This log is the only thing any surface, protocol adapter, or dashboard is allowed to read — but
+it is not what feeds the model on the next turn. Each engine keeps its own execution state
+privately: the OpenAI Agents SDK's session, LangGraph's checkpointer. That state is what a run
+actually resumes from; this log is a record of what happened, kept for everyone else.
+
+The trade that follows is real, not a technicality: this log gives you every input, every tool
+call, and every completed message, at the message level — never a byte-exact replay of what the
+model itself saw. A tool result here is a capped preview, size, and hash, not the tool's actual
+output; a model's internal reasoning between messages isn't recorded here at all. Build an audit
+trail on this log and it will tell you truthfully what happened and in what order. It will not
+hand you back the exact context an engine fed the model to produce it.
+
+## Where the log lives
+
+`AGENTDECK_EVENTS_BACKEND` picks the store: `memory` (the default) keeps it in the process and
+loses it on exit; `sqlite` (with `AGENTDECK_EVENTS_URL` a file path, as above) survives a
+restart; `redis` and `postgres` (a URL or DSN in the same variable) are the two several workers
+can share. SQLite's cross-process story rests on shared memory between processes on one machine
+— one file behind more than one *machine* is not supported, which is exactly why `redis` and
+`postgres` exist as separate options rather than "just point everyone at the same file."
+
+Next: [Run Control](/concepts/run-control) covers what a run in flight can be asked to do, and
+how those requests land in this same log.

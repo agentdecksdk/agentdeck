@@ -4,5 +4,6 @@ export default {
   capabilities: 'Capabilities',
   skills: 'Skills',
   workflows: 'Workflows',
+  'runs-and-the-event-log': 'Runs and the Event Log',
   'run-control': 'Run Control'
 }
