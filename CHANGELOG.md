@@ -8,6 +8,25 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-08-06
+
+The release where agentdeck becomes a platform rather than a harness. Every turn — chat
+or workflow — now runs on one Runtime and leaves one canonical event log behind, which is
+what makes the rest of this list possible: a run you can pause, resume or cancel from
+another process; an approvals inbox that survives a restart; a log you can point at
+Postgres or Redis and share between workers; status and progress a client can render
+instead of inferring. The v1 Python API, the `.agentdeck/` layout and the SSE wire are
+unchanged and verified against recorded baselines, so a v1.2.1 project keeps working.
+
+Known limits worth reading before you upgrade, each with an issue rather than a footnote:
+run control covers **agent** runs — a workflow run has no safe point yet, so it pauses
+through its own interrupt/resume instead (#128). Telemetry still flows through v1's
+tracer, not the event-stream sink, so the b4 note claiming Langfuse covered workflow runs
+described a sink nothing had wired (#124). The HTTP approvals inbox and
+`App.pending_interrupts()` read different sources and will disagree if you drive
+approvals through both (#120). There is still no auth on the endpoints (#25) and no
+tenancy — one tenant, one principal.
+
 ### Added
 - **Pause, resume and cancel a run that is already in flight**, by `run_id`, from
   Python or over HTTP:
@@ -936,7 +955,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b4...HEAD
+[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b4...v2.0.0
 [2.0.0b4]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b3...v2.0.0b4
 [2.0.0b3]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b2...v2.0.0b3
 [2.0.0b2]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b1...v2.0.0b2
