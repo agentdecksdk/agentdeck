@@ -50,6 +50,12 @@ EMIT_TIMEOUT = 5.0
 # to finish even against a sink that never returns, and the store already has every event.
 SHUTDOWN_TIMEOUT = 10.0
 
+# The longest a shutdown waits for a sink's own ``close`` — its last chance to write out what
+# it buffered. A budget of its own rather than a share of the one above, because a sink whose
+# backlog just timed out is exactly the one holding something worth flushing, and it would
+# reach this with nothing left to spend.
+CLOSE_TIMEOUT = 5.0
+
 # The longest a shutdown then waits for the cancelled consumer task to actually end. Short
 # because by this point nothing is expected of it: a sink whose emit swallows the
 # cancellation keeps its consumer alive through it, and waiting unbounded on a task that has
@@ -103,8 +109,10 @@ class SinkDispatch:
         self._consecutive_failures = 0
         self._inflight: Event | None = None
         self._closed = False
+        self._quiesced = False
         self.dropped = 0
         self.failed = 0
+        self.close_failed = False
         self.disabled = False
 
     @property
@@ -175,22 +183,29 @@ class SinkDispatch:
                 raise
 
     async def close(self, timeout: float = SHUTDOWN_TIMEOUT) -> None:
-        """Flush what the sink has not taken, stop its consumer, and count what is left.
+        """Flush what the sink has not taken, stop its consumer, close the sink, count the rest.
 
-        Returns in bounded time whatever the sink does: both waits it makes have deadlines, so a
-        sink that neither takes an event nor lets go of its consumer can delay a shutdown but
-        never prevent one.
+        Returns in bounded time whatever the sink does: every wait it makes has a deadline, so a
+        sink that neither takes an event, nor lets go of its consumer, nor finishes its own
+        ``close`` can delay a shutdown but never prevent one.
 
         Terminal and idempotent: closing marks the dispatch shut before it waits for anything,
         so an event submitted by a run still winding down is counted as lost instead of landing
         in a queue nobody will read again — the window between "backlog flushed" and "consumer
         cancelled" is exactly where an event would otherwise be stranded or resurrect a
-        consumer this call just retired.
+        consumer this call just retired. The sink's ``close`` therefore happens exactly once,
+        and after the consumer is reaped rather than beside it: a sink is never inside ``emit``
+        and ``close`` at the same time, which is the whole point of a hook a buffer is flushed
+        from.
         """
         if self._closed:
             return
         self._closed = True
         await self.flush(timeout)
+        # Nothing reaches the sink's ``emit`` from here on, whichever way the flush ended: the
+        # cancel below does not always land (a sink can swallow it and keep its consumer), and a
+        # sink told its stream is over must not then be handed one more event.
+        self._quiesced = True
         consumer = self._consumer
         self._consumer = None
         if consumer is not None:
@@ -210,12 +225,39 @@ class SinkDispatch:
             except asyncio.CancelledError:
                 if _cancelling_ourselves():
                     raise
+        await self._close_sink()
         # Cancelling the consumer strands its queue and whatever emit it was inside; both are
         # losses, and counters that disagree with the log line below are how a lost tail turns
         # into a mystery.
         self.dropped += self.depth + (1 if self._inflight is not None else 0)
         if self.dropped or self.failed:
             logger.warning("sink %s lost %d events and failed %d emits", self._name, self.dropped, self.failed)
+
+    async def _close_sink(self) -> None:
+        """Give the sink its one chance to write out what it buffered, bounded and non-fatal.
+
+        A shutdown that a sink's flush could hang, or fail, would be a worse bargain than the
+        lost telemetry it is trying to save — the event log is still the complete record either
+        way, so everything that can go wrong here is counted and logged instead.
+        """
+        try:
+            async with asyncio.timeout(CLOSE_TIMEOUT):
+                await self._sink.close()
+        except TimeoutError:
+            self.close_failed = True
+            logger.warning(
+                "sink %s did not finish its close within %ss; whatever it still held is lost",
+                self._name,
+                CLOSE_TIMEOUT,
+            )
+        except asyncio.CancelledError:
+            if _cancelling_ourselves():
+                raise
+            self.close_failed = True
+            logger.exception("sink %s raised CancelledError from its close", self._name)
+        except Exception:
+            self.close_failed = True
+            logger.exception("sink %s failed in its close; whatever it still held is lost", self._name)
 
     def _ensure_consumer(self) -> None:
         # Started on first use, not in __init__: a Runtime is usually built before the loop runs.
@@ -231,13 +273,15 @@ class SinkDispatch:
         """Take the queue one event at a time, for as long as the sink is worth calling.
 
         A disabled sink's queue is still emptied rather than abandoned, so the backlog it
-        leaves behind is counted as lost instead of just quietly sitting there.
+        leaves behind is counted as lost instead of just quietly sitting there. The same goes
+        for a consumer that outlived the close that cancelled it: it keeps draining, but a sink
+        already told its stream ended never sees another event.
         """
         while True:
             event = await self._queue.get()
             self._inflight = event
             try:
-                if self.disabled:
+                if self.disabled or self._quiesced:
                     self._count_drop(event)
                 else:
                     await self._emit(event)
@@ -301,6 +345,7 @@ class SinkDispatch:
 
 
 __all__ = [
+    "CLOSE_TIMEOUT",
     "EMIT_TIMEOUT",
     "FAILURE_LIMIT",
     "LOG_INTERVAL",

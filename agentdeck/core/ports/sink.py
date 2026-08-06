@@ -18,7 +18,8 @@ class EventSinkPort(ABC):
 
     An ``emit`` must therefore return promptly — a sink whose work is slow buffers internally
     and flushes on its own schedule, because the dispatch feeding it times out a blocking emit
-    and eventually disables a sink that keeps doing it.
+    and eventually disables a sink that keeps doing it. Since that pushes every non-trivial
+    sink into buffering, ``close`` is where a buffer gets written out for the last time.
     """
 
     @abstractmethod
@@ -30,6 +31,21 @@ class EventSinkPort(ABC):
         that cannot keep up sees gaps in that order rather than delaying the run: that is not
         negotiable, and a sink that needs every event reads the store, which is the ordered,
         complete copy.
+        """
+
+    async def close(self) -> None:  # noqa: B027 — no-op on purpose: a stateless sink has nothing to flush
+        """The stream has ended: write out whatever is still buffered. Does nothing by default.
+
+        Called once at shutdown, and only after the last ``emit`` has returned — so a sink may
+        release what it was holding here without guarding the rest of itself against a further
+        event. A sink whose failures got it disabled is closed too: the events it buffered
+        before that are still worth writing out, and being bad at taking events says nothing
+        about being able to flush the ones already taken.
+
+        Bounded and non-fatal, like every other wait on a sink: one that takes too long is
+        abandoned mid-flush, and anything raised here is logged and counted rather than
+        allowed to break a shutdown. A sink that needs its flush to be certain is asking for
+        delivery guarantees, which belong to the store, not here.
         """
 
 

@@ -5,8 +5,9 @@ Two jobs. :func:`langfuse_sink` answers "is Langfuse configured?" with a sink or
 unconfigured process pays for none of this. :class:`LangfuseTracer` is the SDK-backed
 ``Tracer``: it opens observations and hands back handles, and every call it makes is
 in-memory. Delivery belongs to the SDK's batching span processor, which ships from a
-background thread and flushes at interpreter exit, so ``emit`` never waits on the network
-and a run's last observations still reach Langfuse after the Runtime has drained its sinks.
+background thread, so ``emit`` never waits on the network; the sink's ``close`` is what makes
+that buffer leave the process at shutdown, instead of trusting an ``atexit`` a killed process
+never runs.
 """
 
 from __future__ import annotations
@@ -94,6 +95,11 @@ class LangfuseTracer:
                     input=input,
                 )
             )
+
+    def flush(self) -> None:
+        """Hand the SDK's buffer to Langfuse now, rather than hoping the process exits cleanly
+        enough for its ``atexit`` to do it."""
+        self._client.flush()
 
 
 class _LangfuseObservation:
