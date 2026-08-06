@@ -100,8 +100,6 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   one reports how many failures went unlogged since the last, so a throttled
   log still says how much it is standing in for. The breaker's disable decision
   is unchanged by this.
-
-### Changed
 - **The workflow HTTP endpoints run on the v2 Runtime.** `POST
   /workflows/{name}/run`, `GET /workflows/{name}/pending` and `POST
   /workflows/{name}/{thread_id}/resume` were the last surface still calling v1's
@@ -143,7 +141,31 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   checkpointer, which it previously could not: the terminal state is read from the
   run's own event stream instead of from a checkpoint that never existed.
 
+### Removed
+- **`agentdeck.runtime.REPO_ROOT` / `agentdeck.runtime.settings.REPO_ROOT`** — it only
+  ever pointed at the repo root in a source checkout and at the installed package's
+  `site-packages` directory otherwise; nothing in agentdeck needs that path, and
+  nothing outside it should have depended on it either. (#16)
+- **`agentdeck.runtime.ENV_FILE` / `agentdeck.runtime.settings.ENV_FILE`** — was a path
+  frozen at import time (see Fixed below for why that was itself unsafe); replaced by
+  `resolve_env_file()`, resolved fresh every time `get_settings()` actually builds a
+  `Settings` object. (#16)
+
 ### Fixed
+- **`.env` and `config.yaml` now resolve from the project's current working
+  directory, not from wherever `agentdeck` itself is installed.** Previously
+  both were located relative to `runtime/settings.py`'s own file path, which
+  is the repo root in a source checkout but lands inside `site-packages` once
+  `agentdeck` is `pip install`ed as a dependency — so a consumer project's
+  `.env` (API keys, `OPENAI_MODEL`, …) was silently ignored, typically
+  surfacing as `OPENAI_API_KEY ... must be set` despite a valid `.env` in the
+  project. **If you were exporting the same values as real shell/CI
+  environment variables to work around this, nothing changes** — a real env
+  var still outranks the file. But if you have a `.env` sitting unused next
+  to an installed `agentdeck`, it will now take effect. `.env` is also now read
+  at first use rather than at `import agentdeck` time, so a `chdir` between
+  importing the package and first building settings still resolves against the
+  right project. (#16)
 - Two bundles of the **same kind** (two agents, or two workflows) exporting a
   class of the same name used to collapse silently into one invocable, in
   sorted bundle order — copying `agents/greeter/` to `agents/greeter-v2/` to

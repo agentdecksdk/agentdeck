@@ -1,11 +1,13 @@
 """Layered runtime settings (OpenAI, Runner, Skills) backed by env + shared YAML.
 
-A single ``config.yaml`` (resolved via ``APP_CONFIG_PATH`` → repo-root →
+A single ``config.yaml`` (resolved via ``APP_CONFIG_PATH`` → cwd →
 packaged default) hosts every settings group keyed by section: ``openai:``,
 ``runner:``, ``session:``, ``shell:``, ``skill:``, ``mcp:``. Each :class:`BaseSettings` subclass reads only its section; shell
 env vars (prefix-bound, e.g. ``OPENAI_BASE_URL``) override the file. The
-repo-root ``.env`` is loaded once at import (process env wins) so local
-``uv run`` invocations see the same overrides Docker Compose injects.
+project's ``.env`` (found from ``Path.cwd()``, never from this module's own
+location) is loaded the first time :func:`get_settings` builds a
+:class:`Settings` — not at import — so a ``chdir`` between ``import agentdeck``
+and first use still lands on the right project (process env wins either way).
 """
 
 from __future__ import annotations
@@ -23,29 +25,41 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.sources import YamlConfigSettingsSource
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 PACKAGED_DEFAULT_YAML = Path(__file__).resolve().parent / "config.default.yaml"
 _CONFIG_PATH_ENV = "APP_CONFIG_PATH"
-
-ENV_FILE = REPO_ROOT / ".env"
-# Load repo-root .env once at import. Existing process env wins (override=False)
-# so docker-compose / CI exports keep priority over the file.
-load_dotenv(ENV_FILE, override=False)
 
 _SKILL_PREFIX = "skill_"
 
 
+def resolve_env_file() -> Path:
+    """The project's ``.env``: ``Path.cwd() / ".env"`` — no upward directory search
+    (unlike ``dotenv.find_dotenv()``, which would just as silently load an unrelated
+    ancestor's ``.env`` instead of the project's own).
+
+    Resolved fresh by :func:`get_settings` on every call it actually builds, never at
+    import time: cwd is what "my project" means for `agentdeck serve`, an installed
+    package, and Compose alike, matching how ``mount_project_dir`` locates
+    ``./.agentdeck`` (never module-relative, which lands in site-packages for an
+    installed package — issue #16); binding it once at import would instead freeze
+    whatever cwd happened to be current the moment ``agentdeck`` was first imported,
+    which a caller is free to ``chdir`` away from before ever building `Settings`.
+    """
+    return Path.cwd() / ".env"
+
+
 def resolve_config_path(explicit: str | Path | None = None) -> Path:
-    """Resolve the shared YAML: explicit arg → ``APP_CONFIG_PATH`` → repo-root → packaged default.
+    """Resolve the shared YAML: explicit arg → ``APP_CONFIG_PATH`` → cwd → packaged default.
 
     Returning a path that doesn't exist is fine — the YAML source treats a
     missing file as empty, which lets env vars alone drive a fully-defaulted
-    config.
+    config. Resolved from ``Path.cwd()`` on every call, matching
+    :func:`resolve_env_file` and how ``App`` locates ``./.agentdeck`` — never
+    module-relative (issue #16).
     """
     chosen = explicit or os.environ.get(_CONFIG_PATH_ENV)
     if chosen:
         return Path(str(chosen)).expanduser()
-    local = REPO_ROOT / "config.yaml"
+    local = Path.cwd() / "config.yaml"
     return local if local.is_file() else PACKAGED_DEFAULT_YAML
 
 
@@ -438,6 +452,9 @@ class Settings(BaseModel):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    # Existing process env wins (override=False) so docker-compose / CI exports keep
+    # priority over the file; a missing file is a silent no-op.
+    load_dotenv(resolve_env_file(), override=False)
     return Settings()
 
 
@@ -446,9 +463,7 @@ def reset_settings_cache() -> None:
 
 
 __all__ = [
-    "ENV_FILE",
     "PACKAGED_DEFAULT_YAML",
-    "REPO_ROOT",
     "CheckpointSettings",
     "EventsSettings",
     "LangfuseSettings",
@@ -465,4 +480,5 @@ __all__ = [
     "get_settings",
     "reset_settings_cache",
     "resolve_config_path",
+    "resolve_env_file",
 ]
