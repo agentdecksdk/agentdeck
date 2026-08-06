@@ -43,8 +43,8 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   HTTP listing. Answering such a leftover entry over HTTP is a **404** rather than
   the stale final state a replayed thread would otherwise hand back, so no answer
   is silently dropped — but a deployment that drives approvals through both doors
-  will see the two listings disagree. Routing the Python API's inbox through the
-  Runtime is tracked separately.
+  will see the two listings disagree. Joining them — routing the Python API's inbox
+  through the Runtime too — is tracked in #120.
 - The v2 `LangGraphEngine` (not v1's endpoints, whose final state always came from
   `ainvoke`) now reports a final state for a graph compiled **without** a
   checkpointer, which it previously could not: the terminal state is read from the
