@@ -138,6 +138,19 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   new kinds arrive as unknown kinds a consumer skips. The one caveat is what that
   dropping implies: only a process new enough to *see* `value` can use it to
   repair a resume, so upgrade the workers that reconcile before relying on it.
+- **`UnknownBlock`** (`agentdeck.core`): a content block of a type this version
+  doesn't recognize now falls back to `UnknownBlock(type, raw_block)` — keeping the
+  raw block for a store to hold and a consumer to skip — instead of rejecting the
+  whole event, mirroring how an unknown event `kind` already becomes `UnknownEvent`.
+  Closes the one asymmetry `DataBlock` (#101) exposed: `ContentBlock` was a strict
+  discriminated union, so a reader older than a new block type raised on the entire
+  event rather than skipping the block, and because `SqliteEventStore.list_runs`
+  deserializes a run's last lifecycle row in one comprehension, one such event in a
+  shared store could fail a whole tenant's listing. A malformed *known* block still
+  raises. Measured against `origin/dev`'s own `ContentBlock`, not asserted: that
+  reader really does reject a block type this addition introduces, and this tree's
+  reader parses the same wire event, keeps the raw block, and leaves `status_of` and
+  the terminal invariant unchanged (`tests/core/test_old_reader_block_compat.py`).
 ### Changed
 - **A run reads its pending control signal at most once every 200ms**, instead of
   once per streamed item. A 500-chunk answer used to cost 500 control reads whose
