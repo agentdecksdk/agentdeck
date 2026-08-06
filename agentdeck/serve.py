@@ -61,6 +61,7 @@ def create_app() -> Any:
         # App.open() closes the Redis session client + MCP servers on shutdown
         # (including SIGTERM from `compose stop`), so no connection is leaked.
         async with App.open() as deck:
+            _warn_if_event_log_is_in_memory(deck)
             api.state.deck = deck
             yield
             api.state.deck = None
@@ -96,18 +97,26 @@ def create_app() -> Any:
 
     @api.post("/agents/{name}/chat")
     async def chat(name: str, body: dict[str, Any], stream: bool = False) -> Any:
-        # Read the body up front: inside the generator a KeyError would surface as a
-        # 200 that just stops, since the response headers are already on the wire.
+        # Read and validate the body up front: inside the generator either failure would
+        # surface as a 200 that just stops, since the response headers are already on the wire.
         try:
             session_id, message = body["session_id"], body["message"]
         except KeyError as exc:
             raise HTTPException(status_code=422, detail=f"missing field: {exc.args[0]}") from exc
+        try:
+            content = coerce_input(message)
+        except TypeError as exc:
+            # A shape this endpoint cannot run is the client's mistake, not a server fault:
+            # 4xx like every other bad body here, never a 500 in somebody's alerting.
+            raise HTTPException(
+                status_code=422, detail=f"message must be a string, got {type(message).__name__}"
+            ) from exc
         app = deck()  # resolve before streaming so a pre-startup 503 keeps its status code
         # Resolved against the agent registry, not the Runtime's invocables: this route is
         # agents-only (a workflow name must still 404 here), and the registry's message is
         # the one v1 answers with.
         app.agents.get(name)
-        run = app.runtime.run(name, coerce_input(message), run_context(session_id))
+        run = app.runtime.run(name, content, run_context(session_id))
         if stream:
             return StreamingResponse(
                 chat_frames(run),
@@ -154,6 +163,19 @@ def create_app() -> Any:
         return _jsonable(await deck().resume_workflow(name, thread_id, body["value"]))
 
     return api
+
+
+def _warn_if_event_log_is_in_memory(deck: App) -> None:
+    """Say so once at startup: the default event store is fine for a session and wrong for a
+    server. It never evicts, every v1 request shares one tenant, and a run reads its whole
+    log before it starts — so one long conversation costs quadratic reads and the process
+    keeps every event it ever saw. A warning, not a refusal: dev servers want this default.
+    """
+    if deck.settings.events.backend.strip().lower() == "memory":
+        logger.warning(
+            "event log backend is 'memory': it never evicts and is lost on restart. "
+            "Set AGENTDECK_EVENTS_BACKEND=sqlite and AGENTDECK_EVENTS_URL=<file> for a durable log."
+        )
 
 
 def _jsonable(value: Any) -> Any:

@@ -6,9 +6,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentdeck.adapters.engines.openai_agents.compat import V1CompatEngine
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
+from agentdeck.compat import V1CompatEngine
 from agentdeck.composition import build_runtime, resolve_event_store, v1_engines
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext

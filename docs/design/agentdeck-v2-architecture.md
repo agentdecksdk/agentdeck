@@ -481,14 +481,24 @@ And the event store defaults to `memory` — the log an operator wants to keep i
 `AGENTDECK_EVENTS_BACKEND=sqlite`, because no default file path is safe when `.agentdeck/` is
 mounted read-only.)*
 
-*(Amended 2026-08-06, #74 — the openai-agents adapter now has two `EnginePort`
-implementations under one engine name, and a composition root registers exactly one:
-`OpenAIAgentsEngine` builds a minimal `RunConfig` of its own, and `compat.V1CompatEngine`
-resolves the run the way v1's `HeadlessRunner` does — settings-driven provider, temperature,
-`max_turns` and CA bundle, v1's sandbox scope, v1's Langfuse observation, and v1's own session
-lookup — so a turn served through the v1 surface is configured and traced exactly as before.
-The compat engine is what `v1_engines()` registers. Folding the two together is the pre-stable
-cleanup's job, once v1's runner glue is deleted.)*
+*(Amended 2026-08-06, #74 — there are now two `EnginePort` implementations under the one
+`openai-agents` engine name, and a composition root registers exactly one.
+`OpenAIAgentsEngine` (the adapter) builds a minimal `RunConfig` of its own.
+`agentdeck/compat/engine.py::V1CompatEngine` resolves the run the way v1's `HeadlessRunner`
+does — settings-driven provider, temperature, `max_turns` and CA bundle, v1's sandbox scope,
+v1's Langfuse observation, and v1's own session lookup — so a turn served through the v1
+surface is configured and traced exactly as before, and it is what `v1_engines()` registers.*
+
+*It lives in a new top-level `compat/` rather than beside the adapter it subclasses, and the
+import law is why: it reaches into v1's runner glue and v1's Langfuse integration, and an
+engine adapter may do neither (`langfuse-is-telemetry-private` fails on the indirect chain
+through `agents/runners/base.py`). Keeping the bridge outside `adapters/` is what keeps the
+adapter honest about depending on one external system. A contract
+(`compat-is-composition-root-only`) now forbids every ring from importing it, so the
+pre-stable cleanup deletes one directory rather than unpicking dependencies. The engine's own
+override seams — `_session`, `_launch`, `_translate`, `_terminal`, and the `Launch` handle
+whose `finished` flag is the only trustworthy "this run reached its terminal event" signal —
+are the adapter's public-to-subclasses surface.)*
 
 ---
 

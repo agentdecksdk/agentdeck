@@ -51,12 +51,16 @@ class ScriptedModel(Model):
         self,
         deltas: Sequence[str] = ("hi",),
         *,
+        final_text: str | None = None,
         tool_name: str | None = None,
         raises: BaseException | None = None,
         input_tokens: int = 3,
         output_tokens: int = 4,
     ) -> None:
         self.deltas = tuple(deltas)
+        # The completed message, when it must differ from the joined deltas — which is how a
+        # test tells "the SDK's final_output" apart from "the deltas, re-joined".
+        self.final_text = final_text
         self.tool_name = tool_name
         self.raises = raises
         self.calls = 0
@@ -109,7 +113,7 @@ class ScriptedModel(Model):
             )
         if self.raises is not None:
             raise self.raises
-        text = "".join(self.deltas)
+        text = self.final_text if self.final_text is not None else "".join(self.deltas)
         yield ResponseCompletedEvent(
             response=self._response(
                 [
@@ -129,7 +133,7 @@ class ScriptedModel(Model):
     async def get_response(self, _instructions: Any = None, input: Any = None, *_a: Any, **_k: Any) -> ModelResponse:
         self.calls += 1
         self.inputs.append(input)
-        text = "".join(self.deltas)
+        text = self.final_text if self.final_text is not None else "".join(self.deltas)
         return ModelResponse(
             output=[
                 ResponseOutputMessage(

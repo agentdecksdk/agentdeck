@@ -1,5 +1,6 @@
-"""The engine v1's own surface runs on: an ``EnginePort`` whose runs are configured
-exactly the way ``agents/runners/headless.py`` configures them.
+"""The engine v1's own surface runs on: an ``EnginePort`` whose runs are configured exactly
+the way ``agents/runners/headless.py`` configures them — v1's runner *is* what configures
+them, called rather than reimplemented.
 
 The M0 engine builds a minimal ``RunConfig`` of its own, which is right for a v2 caller
 and wrong for a v1 one: v1's chat resolves the model provider, temperature, ``max_turns``
@@ -27,7 +28,7 @@ from typing import TYPE_CHECKING, Any
 from agents import Runner
 from pydantic import BaseModel
 
-from agentdeck.adapters.engines.openai_agents.engine import OpenAIAgentsEngine
+from agentdeck.adapters.engines.openai_agents.engine import Launch, OpenAIAgentsEngine
 from agentdeck.agents.runners import HeadlessRunner
 from agentdeck.core.content import coerce_input
 from agentdeck.core.events import Custom, RunCompleted, Usage, UsageReported
@@ -74,21 +75,32 @@ class V1CompatEngine(OpenAIAgentsEngine):
     @asynccontextmanager
     async def _launch(
         self, agent: Agent[Any], message: str, ctx: RunContext, session: Session | None
-    ) -> AsyncIterator[RunResultStreaming]:
+    ) -> AsyncIterator[Launch]:
         runner = HeadlessRunner.from_agent(agent)
         with trace_run(
             current_capture(), name=agent.name, kind="agent", input=message, session_id=ctx.session_id
         ) as tr:
             async with runner.attach_sandbox():
-                result = Runner.run_streamed(
-                    agent, message, run_config=runner.run_config, max_turns=runner.max_turns, session=session
+                launch = Launch(
+                    Runner.run_streamed(
+                        agent, message, run_config=runner.run_config, max_turns=runner.max_turns, session=session
+                    )
                 )
                 try:
-                    yield result
+                    yield launch
+                except GeneratorExit:
+                    # How a *successful* run ends, not a failure — the Runtime stops reading at
+                    # the terminal event, which closes the generator suspended here. Reporting
+                    # this as an error is what made every completed turn look failed.
+                    if launch.finished:
+                        tr.set_output(launch.result.final_output)
+                    else:
+                        tr.set_output(error="GeneratorExit: consumer stopped reading")
+                    raise
                 except BaseException as exc:
                     tr.set_output(error=f"{type(exc).__name__}: {exc}")
                     raise
-                tr.set_output(result.final_output)
+                tr.set_output(launch.result.final_output)
 
     def _translate(self, event: Any, tool_names: dict[str, str]) -> KnownPayload | None:
         payload = super()._translate(event, tool_names)

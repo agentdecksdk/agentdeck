@@ -189,3 +189,21 @@ forbidden_modules =
     agentdeck.surfaces
     agentdeck.serve
     agentdeck.app
+
+# The v1 bridge (#74) is deliberately the one place that reaches across the line: it imports
+# v1's runner glue and v1's Langfuse integration, which is why it is not an adapter. Only the
+# composition root may wire it, so nothing in the rings depends on code the pre-stable cleanup
+# deletes — that is what makes deleting the whole directory a one-line change.
+[importlinter:contract:compat-is-composition-root-only]
+name = only the composition root wires the v1 compat engine
+type = forbidden
+source_modules =
+    agentdeck.core
+    agentdeck.runtime
+    agentdeck.adapters
+    agentdeck.surfaces
+    agentdeck.agents
+    agentdeck.workflows
+    agentdeck.skills
+forbidden_modules =
+    agentdeck.compat

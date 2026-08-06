@@ -36,9 +36,10 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 - `AGENTDECK_EVENTS_BACKEND` / `AGENTDECK_EVENTS_URL` (YAML: `events:`) choose
   where the canonical event log goes: `memory` (the default — no configuration,
   no files, and a log that lives and dies with the process) or `sqlite` with
-  `url` pointing at a file, for a log that survives a restart. A long-lived
-  server on the default keeps its log in memory for as long as it runs; set the
-  sqlite backend if that matters to you.
+  `url` pointing at a file, for a log that survives a restart. The default never
+  evicts and is lost on restart, so a long-lived server keeps every event it saw
+  and re-reads the whole conversation each turn — `agentdeck-serve` says so once
+  at startup rather than leaving you to find out.
 - Langfuse tracing for **workflow** runs, not only agent runs
   (`agentdeck.adapters.telemetry.langfuse`). `langfuse_sink()` hands back an
   event sink — or `None` when Langfuse has no keys — to register where you build
@@ -89,9 +90,9 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 - `POST /agents/{name}/chat` now answers **422** for a `message` that is not a
   string, where the SDK used to accept two more shapes: a message object
   (`{"role": ..., "content": ...}`) and a list of SDK input items. Both used to
-  work and now fail the request with `{"detail": "message must be a string: ..."}`
-  rather than a server error. Multi-part input (images, resources) returns as
-  typed content blocks in a later release; a plain string is unaffected.
+  work and now fail the request with `{"detail": "message must be a string, got
+  dict"}` rather than a server error. Multi-part input (images, resources) returns
+  as typed content blocks in a later release; a plain string is unaffected.
 - A project where an agent class and a workflow class share one name now fails at
   `App.load()` with a message naming both, instead of loading two invocables that
   the HTTP surface could not tell apart. Two bundles of the same kind exporting

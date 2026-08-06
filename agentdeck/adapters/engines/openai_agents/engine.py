@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 from contextlib import aclosing, asynccontextmanager
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from agents import Agent, RunConfig, Runner
@@ -36,6 +37,22 @@ if TYPE_CHECKING:
     from agentdeck.core.context import RunContext
     from agentdeck.core.events import Event, KnownPayload
     from agentdeck.core.invocable import InvocableSpec
+
+
+@dataclass(slots=True)
+class Launch:
+    """One run's SDK handle, plus whether this engine reached its terminal payload.
+
+    ``finished`` exists because nothing on the SDK result can answer that question at the
+    moment it is asked: a run abandoned mid-stream and a run that ended normally both arrive
+    at ``_launch``'s exit already cancelled, so ``is_complete`` is true either way, and
+    ``final_output`` is only *usually* absent from the abandoned one (the SDK's run loop is
+    detached, so it may well have finished while nobody was reading). The engine's own control
+    flow is the authority, and this is how it says so.
+    """
+
+    result: RunResultStreaming
+    finished: bool = False
 
 
 class OpenAIAgentsEngine(EnginePort):
@@ -67,7 +84,8 @@ class OpenAIAgentsEngine(EnginePort):
                 # Two stores disagreeing is worth a place in the record, not just a log line;
                 # the run itself still has the session it needs and plays on.
                 yield diverged
-        async with self._launch(agent, _to_sdk_input(input), ctx, session) as result:
+        async with self._launch(agent, _to_sdk_input(input), ctx, session) as launch:
+            result = launch.result
             tool_names: dict[str, str] = {}
             # The SDK's run loop is a detached task; an abandoned generator must cancel it
             # explicitly (mirrors agents/runners/headless.py's run_streamed, same reason).
@@ -91,7 +109,11 @@ class OpenAIAgentsEngine(EnginePort):
                 result.cancel()
                 raise
             result.cancel()
-            for payload in self._terminal(result):
+            terminal = self._terminal(result)
+            # Set before the yields, not after them: the Runtime breaks on the terminal event,
+            # so the line after this loop never runs.
+            launch.finished = True
+            for payload in terminal:
                 yield payload
 
     def _session(self, ctx: RunContext) -> Session | None:
@@ -101,13 +123,22 @@ class OpenAIAgentsEngine(EnginePort):
     @asynccontextmanager
     async def _launch(
         self, agent: Agent[Any], message: str, ctx: RunContext, session: Session | None
-    ) -> AsyncIterator[RunResultStreaming]:
-        """Start the run and hold whatever scope it needs open until the stream is drained."""
-        yield Runner.run_streamed(
-            agent,
-            message,
-            session=session,
-            run_config=RunConfig(tracing_disabled=not _tracing_enabled()),
+    ) -> AsyncIterator[Launch]:
+        """Start the run and hold whatever scope it needs open until the stream is drained.
+
+        Lifecycle an override must respect: **code after the ``yield`` may never run.** A
+        successful run ends with the Runtime breaking on the terminal event, which closes this
+        generator — the ``yield`` raises ``GeneratorExit`` and the lines below it are skipped.
+        Anything that must happen once per finished run therefore belongs in the
+        ``GeneratorExit`` path, keyed on ``Launch.finished``, never only after the ``yield``.
+        """
+        yield Launch(
+            Runner.run_streamed(
+                agent,
+                message,
+                session=session,
+                run_config=RunConfig(tracing_disabled=not _tracing_enabled()),
+            )
         )
 
     def _translate(self, event: Any, tool_names: dict[str, str]) -> KnownPayload | None:
@@ -172,4 +203,4 @@ def _usage_of(result: RunResultStreaming) -> Usage:
     return Usage(input_tokens=usage.input_tokens, output_tokens=usage.output_tokens)
 
 
-__all__ = ["OpenAIAgentsEngine"]
+__all__ = ["Launch", "OpenAIAgentsEngine"]

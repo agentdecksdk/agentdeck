@@ -1,6 +1,7 @@
 """The composition root: the one place adapters are built and handed to a ``Runtime``.
 
-Everything above this module takes ports; everything below it is an adapter. ``App`` calls
+Everything above this module takes ports; everything below it is an adapter — or, until v1's
+runner glue is deleted, the `compat/` engine that stands in for one. ``App`` calls
 :func:`build_runtime` and so does every other entry point that needs a real Runtime — the
 demo script, the compat surface's tests — so a Runtime is assembled the same way
 everywhere instead of hand-wired per caller. A second front door (a code-first ``Deck()``)
@@ -14,9 +15,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agentdeck.adapters.engines.langgraph import LangGraphEngine
-from agentdeck.adapters.engines.openai_agents.compat import V1CompatEngine
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
+from agentdeck.compat import V1CompatEngine
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import EventsSettings, get_settings

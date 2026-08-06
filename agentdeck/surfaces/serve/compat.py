@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from contextlib import aclosing
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.core.content import TextBlock
@@ -21,7 +22,7 @@ from agentdeck.core.context import RunContext
 from agentdeck.core.events import Custom, RunCompleted, TextDelta, UsageReported
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator, AsyncIterator
 
     from agentdeck.core.events import Event
 
@@ -72,35 +73,43 @@ class _Turn:
             }
 
 
-async def chat_frames(events: AsyncIterator[Event]) -> AsyncIterator[str]:
+async def chat_frames(events: AsyncGenerator[Event, None]) -> AsyncIterator[str]:
     """v1's chat SSE: one ``delta`` frame per text delta, then one ``done`` frame.
 
     A mid-stream failure ends the run with ``error`` instead of ``done``, carrying the
     exception's type name and never its message — the same in-band report v1 makes once
     the status code is already on the wire.
+
+    ``aclosing`` is what makes a disconnect a *closed* run: an ASGI server abandons a
+    response body without closing it, and an unclosed run stays open in the log forever
+    (its cancellation is recorded by the Runtime only when this generator is closed) while
+    the SDK's detached run loop keeps going.
     """
     turn = _Turn()
     try:
-        async for event in events:
-            turn.observe(event)
-            if isinstance(event.payload, TextDelta):
-                yield f"data: {json.dumps({'delta': event.payload.text})}\n\n"
-            elif isinstance(event.payload, RunCompleted):
-                done = {"output": turn.output, "usage": turn.usage}
-                yield f"event: done\ndata: {json.dumps(done, default=str)}\n\n"
+        async with aclosing(events):
+            async for event in events:
+                turn.observe(event)
+                if isinstance(event.payload, TextDelta):
+                    yield f"data: {json.dumps({'delta': event.payload.text})}\n\n"
+                elif isinstance(event.payload, RunCompleted):
+                    done = {"output": turn.output, "usage": turn.usage}
+                    yield f"event: done\ndata: {json.dumps(done, default=str)}\n\n"
     except Exception as exc:
         yield f"event: error\ndata: {json.dumps({'error': type(exc).__name__})}\n\n"
 
 
-async def chat_result(events: AsyncIterator[Event]) -> dict[str, Any]:
+async def chat_result(events: AsyncGenerator[Event, None]) -> dict[str, Any]:
     """v1's non-streamed chat body: the run's output, once it has one.
 
     The engine's exception reaches the caller unchanged, so a failed turn is still the
-    500 (or the 404/422) v1 answered with, decided by the exception's own type.
+    500 (or the 404/422) v1 answered with, decided by the exception's own type. Closed the
+    same way as the streamed path, so an abandoned request closes its run too.
     """
     turn = _Turn()
-    async for event in events:
-        turn.observe(event)
+    async with aclosing(events):
+        async for event in events:
+            turn.observe(event)
     return {"output": turn.output}
 
 

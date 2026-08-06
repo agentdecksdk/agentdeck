@@ -9,16 +9,19 @@ import asyncio
 import json
 import sys
 import textwrap
+from contextlib import aclosing, contextmanager
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from scripted_model import ScriptedModel, provider_of
 
-from agentdeck.adapters.engines.openai_agents import compat as engine_compat
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
+from agentdeck.compat import engine as compat_engine
 from agentdeck.composition import build_runtime, v1_engines
 from agentdeck.core.content import coerce_input
+from agentdeck.core.events import check_terminal
 from agentdeck.runtime.settings import reset_settings_cache
 from agentdeck.serve import create_app
 from agentdeck.surfaces.serve import compat as surface_compat
@@ -79,6 +82,31 @@ def project(tmp_path, monkeypatch):
     return tmp_path
 
 
+class RecordingTrace:
+    """Stands in for the Langfuse observation v1 opens around a turn, recording what the run
+    reported about itself — the difference between a trace that reads as succeeded and one that
+    reads as errored, without needing the ``[observability]`` extra installed."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[Any, str | None]] = []
+
+    def set_output(self, output: Any = None, *, error: str | None = None) -> None:
+        self.calls.append((output, error))
+
+
+@pytest.fixture
+def recorded_trace(monkeypatch):
+    """Swap v1's Langfuse observation for one that records what the run reported into it."""
+    trace = RecordingTrace()
+
+    @contextmanager
+    def _trace_run(_capture, **_kwargs):
+        yield trace
+
+    monkeypatch.setattr("agentdeck.compat.engine.trace_run", _trace_run)
+    return trace
+
+
 @pytest.fixture
 def scripted(monkeypatch):
     """Patch v1's provider and hand back a (runtime, store, model) triple over the project."""
@@ -93,9 +121,9 @@ def scripted(monkeypatch):
 
 
 def test_the_surface_and_the_engine_agree_on_the_structured_output_carrier():
-    """The surface spells the engine's custom-event name out rather than importing the
-    adapter, so this is what keeps the two from drifting apart."""
-    assert surface_compat.STRUCTURED_OUTPUT == engine_compat.STRUCTURED_OUTPUT
+    """The surface spells the engine's custom-event name out rather than importing it, so this
+    is what keeps the two from drifting apart."""
+    assert surface_compat.STRUCTURED_OUTPUT == compat_engine.STRUCTURED_OUTPUT
 
 
 async def test_chat_frames_render_deltas_then_done_from_canonical_events(project, scripted):
@@ -133,6 +161,57 @@ async def test_a_failed_turn_ends_with_an_error_frame_while_the_log_keeps_the_fa
     assert "secret detail" not in "".join(frames)
     # v1's wire has no frame for a recorded failure, but the log must still hold one.
     assert [event.kind for event in await store.read("s1", ctx)][-1] == "run.failed"
+
+
+async def test_a_completed_turn_reports_its_output_to_the_trace_not_a_failure(project, scripted, recorded_trace):
+    """A successful run ends by the Runtime closing the engine's generator, which is not an
+    abandoned run: the trace must carry the output and no error, or every chat turn shows up
+    in Langfuse as errored."""
+    runtime, _, _ = scripted(ScriptedModel(deltas=("Hello",)))
+
+    frames = [frame async for frame in chat_frames(runtime.run("Greeter", coerce_input("hi"), run_context("s1")))]
+
+    assert frames[-1].startswith("event: done")
+    assert recorded_trace.calls == [("Hello", None)]
+
+
+async def test_an_abandoned_turn_reports_the_abandonment_to_the_trace(project, scripted, recorded_trace):
+    """Walking away before the engine reached its terminal event is the one case that *is* a
+    failed observation. Deterministic without a sleep: the engine says whether it finished,
+    rather than the test racing the SDK's detached run loop."""
+    runtime, _, _ = scripted(ScriptedModel(deltas=("one", "two", "three")))
+
+    events = runtime.run("Greeter", coerce_input("hi"), run_context("s1"))
+    async with aclosing(chat_frames(events)) as frames:
+        await anext(frames)  # one delta, then walk away mid-run
+
+    assert [error for _, error in recorded_trace.calls] == ["GeneratorExit: consumer stopped reading"]
+
+
+async def test_an_abandoned_stream_closes_its_run_in_the_log(project, scripted):
+    """An ASGI server abandons a response body without closing it, so the surface has to
+    close the run itself — an unterminated run in the log is indistinguishable from one still
+    in flight."""
+    runtime, store, _ = scripted(ScriptedModel(deltas=("one", "two", "three")))
+    ctx = run_context("s1")
+
+    events = runtime.run("Greeter", coerce_input("hi"), ctx)
+    async with aclosing(chat_frames(events)) as frames:
+        await anext(frames)
+
+    logged = [event.kind for event in await store.read("s1", ctx)]
+    assert logged[-1] == "run.cancelled", logged
+    assert check_terminal(await store.read("s1", ctx)) is None
+
+
+async def test_the_done_output_is_the_sdks_final_output_not_the_rejoined_deltas(project, scripted):
+    """v1's ``done`` carried the SDK's own ``final_output``, which disagrees with the deltas
+    for a tool-using or output-shaping agent."""
+    runtime, _, _ = scripted(ScriptedModel(deltas=("Hel", "lo"), final_text="Hello, from the SDK."))
+
+    frames = [frame async for frame in chat_frames(runtime.run("Greeter", coerce_input("hi"), run_context("s1")))]
+
+    assert '"output": "Hello, from the SDK."' in frames[-1]
 
 
 async def test_chat_result_returns_v1s_output_body(project, scripted):
@@ -180,9 +259,12 @@ def test_the_endpoint_answers_a_structured_agent_with_its_object(project, monkey
     assert response.json() == {"output": {"greeting": "Hi"}}
 
 
-def test_the_endpoint_logs_its_run_to_the_configured_event_store(project, monkeypatch, tmp_path):
+@pytest.mark.parametrize("query", ["", "?stream=true"], ids=["body", "streamed"])
+def test_the_endpoint_logs_its_run_to_the_configured_event_store(project, monkeypatch, tmp_path, query):
     """The wire is v1's, so this is what tells the two apart: a chat served by the Runtime
-    leaves its canonical run in the store the composition root resolved from settings."""
+    leaves its canonical run in the store the composition root resolved from settings. Both
+    endpoints are checked — one of them silently falling back to v1 glue would otherwise pass
+    every other test in the suite, goldens included."""
     db = tmp_path / "events.sqlite3"
     monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTDECK_EVENTS_URL", str(db))
@@ -190,7 +272,9 @@ def test_the_endpoint_logs_its_run_to_the_configured_event_store(project, monkey
     reset_settings_cache()
     try:
         with TestClient(create_app()) as client:
-            assert client.post("/agents/Greeter/chat", json={"session_id": "s1", "message": "hi"}).status_code == 200
+            response = client.post(f"/agents/Greeter/chat{query}", json={"session_id": "s1", "message": "hi"})
+            assert response.status_code == 200
+            assert response.text  # the streamed body is only produced while the client reads it
     finally:
         reset_settings_cache()
 
@@ -200,6 +284,24 @@ def test_the_endpoint_logs_its_run_to_the_configured_event_store(project, monkey
     store.close()
     assert kinds[0] == "run.started"
     assert kinds[-1] == "run.completed"
+
+
+@pytest.mark.parametrize("query", ["", "?stream=true"], ids=["body", "streamed"])
+@pytest.mark.parametrize(
+    "message",
+    [{"role": "user", "content": "hi"}, [{"role": "user", "content": "hi"}], 7],
+    ids=["object", "input-items", "number"],
+)
+def test_a_message_that_is_not_a_string_is_a_422(project, monkeypatch, message, query):
+    """A shape the endpoint cannot run is a client error with a body like every other one it
+    emits — never an unhandled server exception in somebody's 5xx alerting."""
+    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel()))
+
+    with TestClient(create_app()) as client:
+        response = client.post(f"/agents/Greeter/chat{query}", json={"session_id": "s1", "message": message})
+
+    assert response.status_code == 422
+    assert response.json()["detail"].startswith("message must be a string")
 
 
 def test_a_workflow_is_not_reachable_through_the_agents_route(project, monkeypatch):
