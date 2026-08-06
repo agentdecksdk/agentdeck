@@ -4,6 +4,11 @@ engine cases are. Ordering/tenancy/round-trip invariants for ``append``, ``read`
 ``read_run`` already live in ``tests/test_memory_store.py`` and ``tests/test_sqlite_store.py``;
 this file covers only the newer focused ops.
 
+Parametrized over all four stores: memory, SQLite, and — on real servers, skipping with a
+reason when there is none — Redis and Postgres (``live_stores``). Backend-specific evidence
+that needs no second store lives beside each one instead: ``tests/test_sqlite_store.py``,
+``tests/test_redis_store.py``, ``tests/test_postgres_store.py``.
+
 The last case is a boundary invariant rather than a query one, and covers both SQLite-backed
 ports by shape: whatever fails underneath, callers see the harness's own error type.
 """
@@ -14,10 +19,10 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+import live_stores
 import pytest
 
 from agentdeck.adapters.control.sqlite import SqliteControlPort
-from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.adapters.stores.sqlite import store as sqlite_store
 from agentdeck.core.context import RunContext
@@ -38,7 +43,7 @@ from agentdeck.core.status import RunStatus
 from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
+    from collections.abc import AsyncIterator, Callable, Coroutine
     from pathlib import Path
 
     from agentdeck.core.ports import EventStorePort
@@ -46,9 +51,12 @@ if TYPE_CHECKING:
 TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 
-@pytest.fixture(params=[MemoryEventStore, SqliteEventStore], ids=["memory", "sqlite"])
-def event_store(request: pytest.FixtureRequest) -> EventStorePort:
-    return request.param()
+@pytest.fixture(params=live_stores.BACKENDS)
+async def event_store(request: pytest.FixtureRequest) -> AsyncIterator[EventStorePort]:
+    """Every case against every store — including Redis and Postgres on real servers, which
+    skip with a reason naming the env var when there is none (``live_stores``)."""
+    async with live_stores.event_store(request.param) as store:
+        yield store
 
 
 def _ctx(tenant: str = "acme") -> RunContext:
