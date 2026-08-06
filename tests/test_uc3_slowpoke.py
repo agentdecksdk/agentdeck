@@ -121,8 +121,18 @@ def _spec() -> InvocableSpec:
 
 
 def _build(control: ControlPort) -> tuple[Runtime, EventStorePort]:
+    """A run that polls control at every safe point, which is not the shipped default.
+
+    SlowPoke's whole answer is 30 chunks of 5ms — shorter than the 200ms a gate may reuse an
+    answer for (``CONTROL_POLL_INTERVAL``), so a signal sent mid-stream here would be noticed
+    after the run had already finished. What these tests are about is *where* a cancel lands
+    and what the log looks like afterwards, not how soon the gate hears about it; the read
+    bound itself is asserted off an injected clock in ``tests/test_run_control.py``, and the
+    default interval runs end to end in ``test_uc3_cross_process_cancel``, whose subprocess
+    streams for six seconds.
+    """
     store = MemoryEventStore()
-    runtime = Runtime([OpenAIAgentsEngine()], store, {"SlowPoke": _spec()}, control=control)
+    runtime = Runtime([OpenAIAgentsEngine()], store, {"SlowPoke": _spec()}, control=control, control_poll_interval=0.0)
     return runtime, store
 
 

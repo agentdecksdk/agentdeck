@@ -1,7 +1,11 @@
-"""``agentdeck runs signal <run_id> cancel`` — the second terminal's way to reach a run's
-``ControlPort`` from a different OS process than the one streaming it.
+"""``agentdeck runs signal <run_id> <cancel|pause|resume>`` — the second terminal's way to
+reach a run's ``ControlPort`` from a different OS process than the one streaming it.
 
-    agentdeck runs signal <run_id> cancel --control-db path/to/control.sqlite3
+    agentdeck runs signal <run_id> cancel --control-db path/to/control.sqlite3 --reason "typo"
+
+A recorded ``resume`` here only lifts a pause that has not landed yet: continuing a run that
+already stopped means playing it on, which needs the event log and so belongs to a process
+holding a Runtime (``App.resume_run``, ``POST /runs/{id}/resume``), not to this file.
 
 A top-level composition root, like ``serve.py``: it wires the SQLite ``ControlPort``
 adapter directly, which is why it lives outside ``surfaces/`` — surfaces never import an
@@ -28,10 +32,11 @@ def main(argv: list[str] | None = None) -> int:
     signal_cmd.add_argument("run_id")
     signal_cmd.add_argument("signal", choices=[sig.value for sig in Signal])
     signal_cmd.add_argument("--control-db", required=True, help="path to the ControlPort's SQLite file")
+    signal_cmd.add_argument("--reason", help="why, recorded in the run's log with the request")
 
     args = parser.parse_args(argv)
     control = SqliteControlPort(args.control_db)
-    asyncio.run(control.signal(args.run_id, Signal(args.signal)))
+    asyncio.run(control.signal(args.run_id, Signal(args.signal), args.reason))
     return 0
 
 

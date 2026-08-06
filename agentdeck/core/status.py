@@ -32,6 +32,10 @@ class RunStatus(StrEnum):
 
 TERMINAL_STATUSES = frozenset({RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED})
 
+# Suspended, not finished: a run in one of these has an engine to re-enter and a terminal
+# event still owed. Cancelled is deliberately absent — terminal is terminal.
+RESUMABLE_STATUSES = frozenset({RunStatus.WAITING_HUMAN, RunStatus.PAUSED})
+
 # Only these kinds move the needle; everything else (deltas, tool calls, node.updated, ...)
 # leaves status exactly where it was.
 _KIND_TO_STATUS: dict[str, RunStatus] = {
@@ -59,10 +63,20 @@ def status_of(events: Sequence[Event]) -> RunStatus:
 
 
 def can_resume(status: RunStatus) -> bool:
-    """Only a run waiting on a human answer can be resumed with a value. A signal against
-    any other status — including a race that already resumed it — is a no-op, not an
-    error: the caller checks this instead of raising."""
-    return status is RunStatus.WAITING_HUMAN
+    """A run is resumable while it is suspended: waiting on a human answer, or paused by an
+    operator. Both continue under the same ``run_id`` and the same append that flips them back
+    to ``RUNNING``; what differs is what the resume carries (a value, or nothing).
+
+    A resume against any other status — a run still running, a race that already resumed it,
+    anything terminal — is a no-op, not an error: the caller checks this instead of raising."""
+    return status in RESUMABLE_STATUSES
 
 
-__all__ = ["LIFECYCLE_KINDS", "TERMINAL_STATUSES", "RunStatus", "can_resume", "status_of"]
+__all__ = [
+    "LIFECYCLE_KINDS",
+    "RESUMABLE_STATUSES",
+    "TERMINAL_STATUSES",
+    "RunStatus",
+    "can_resume",
+    "status_of",
+]

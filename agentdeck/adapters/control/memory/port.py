@@ -4,20 +4,20 @@ only — process exit loses every pending signal, same posture as ``stores.memor
 
 from __future__ import annotations
 
-from agentdeck.core.ports.control import ControlPort, Signal
+from agentdeck.core.ports.control import ControlPort, ControlSignal, Signal
 
 
 class MemoryControlPort(ControlPort):
-    """One signal per run, held in memory. Overwriting a run's signal is intentional:
-    only the latest one matters, and M0 has exactly one (``CANCEL``) to overwrite with."""
+    """One signal per run, held in memory. Overwriting a run's signal is intentional: only
+    the latest one matters, which is also how ``RESUME`` lifts a pending ``PAUSE``."""
 
     def __init__(self) -> None:
-        self._signals: dict[str, Signal] = {}
+        self._signals: dict[str, ControlSignal] = {}
 
-    async def signal(self, run_id: str, sig: Signal) -> None:
-        self._signals[run_id] = sig
+    async def signal(self, run_id: str, sig: Signal, reason: str | None = None) -> None:
+        self._signals[run_id] = ControlSignal(verb=sig, reason=reason)
 
-    async def poll(self, run_id: str) -> Signal | None:
+    async def poll(self, run_id: str) -> ControlSignal | None:
         return self._signals.get(run_id)
 
 

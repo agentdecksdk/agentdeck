@@ -30,7 +30,8 @@ from agentdeck.core.events import (
     RunResumed,
     RunStarted,
 )
-from agentdeck.core.ports import Gate
+from agentdeck.core.ports import Gate, Signal
+from agentdeck.core.ports.control import CONTROL_POLL_INTERVAL
 from agentdeck.core.status import RunStatus
 from agentdeck.errors import NotFoundError, SessionBusyError, StoreError
 from agentdeck.runtime.dispatch import SinkDispatch
@@ -75,7 +76,9 @@ class Runtime:
     pinned to one; ``clock`` is injected so tests need no wall clock. ``stale_run_after`` is
     how long a run may go silent before it stops holding its session, defaulted from
     ``AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`` and passed explicitly by tests that would
-    otherwise have to wait it out.
+    otherwise have to wait it out. ``control_poll_interval`` is how long a run may reuse the
+    control answer it already has: it trades cancel latency against the read rate a run costs
+    a shared ``ControlPort``, and ``0`` buys the tightest latency at one read per safe point.
     """
 
     def __init__(
@@ -87,6 +90,7 @@ class Runtime:
         clock: Callable[[], datetime] = _now,
         control: ControlPort | None = None,
         stale_run_after: timedelta | None = None,
+        control_poll_interval: float = CONTROL_POLL_INTERVAL,
     ) -> None:
         self._engines = {engine.engine: engine for engine in engines}
         self._store = store
@@ -95,6 +99,7 @@ class Runtime:
         self._clock = clock
         self._control = control
         self._stale_run_after = get_settings().runtime.stale_run_after if stale_run_after is None else stale_run_after
+        self._control_poll_interval = control_poll_interval
 
     async def run(self, name: str, input: Input, ctx: RunContext) -> AsyncGenerator[Event, None]:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
@@ -127,7 +132,6 @@ class Runtime:
                 triggered_by=ctx.triggered_by,
             ),
         )
-        last = opening.kind
         try:
             claimed = await self._claim_session(opening, spec, ctx, next(seq))
         except asyncio.CancelledError:
@@ -139,10 +143,109 @@ class Runtime:
                 await self._close_cancelled(spec, ctx, next(seq), "cancelled during the claim")
             raise
 
+        async with aclosing(
+            self._play(claimed, engine.start(spec, input, history, ctx), spec, ctx, seq, engine)
+        ) as run:
+            async for event in run:
+                yield event
+
+    async def resume(self, name: str, thread_id: str, value: Any, ctx: RunContext) -> AsyncGenerator[Event, None]:
+        """Continue a run this Runtime suspended earlier.
+
+        The store's conditional append makes the ``WAITING_HUMAN`` -> ``RUNNING`` transition
+        atomic, so exactly one caller wins even when the callers are separate processes; the
+        winner opens the run with ``run.resumed``, seq recovered from the log's own
+        ``max(seq)`` so it stays contiguous across a process restart — never reset to 0.
+        From there the engine plays on exactly like ``run()`` plays an opening: same
+        terminal/suspended/exception handling.
+
+        A stray resume — wrong status, already resumed by a racing caller, or a completed
+        run — is a no-op: nothing is read from the engine, nothing is yielded.
+        """
+        spec, engine = self._resolve(name)
+        ctx = self._with_gate(ctx)
+        claimed = await self._claim_resume(spec, ctx, value)
+        if claimed is None:
+            return
+        opening, seq = claimed
+        stream = engine.resume(spec, thread_id, value, ctx)
+        async with aclosing(self._play(opening, stream, spec, ctx, seq, engine)) as resumed:
+            async for event in resumed:
+                yield event
+
+    async def resume_run(self, run_id: str, ctx: RunContext, reason: str | None = None) -> AsyncGenerator[Event, None]:
+        """Continue a run that paused at a safe point: same ``run_id``, same log, ``seq``
+        counting on from where it stopped.
+
+        The engine is re-entered rather than un-suspended, because a paused turn left no stack
+        to return to: the log is the checkpoint, so the run is played again from its own
+        ``run.started`` input with the log as history. What that means for a caller is stated
+        where the safe points are — a step the paused turn already took can be taken twice, so
+        a tool with side effects has to tolerate being called again.
+
+        A run that is not paused is a no-op: nothing is claimed, nothing is yielded. That
+        covers the ordinary races — a run that finished, was cancelled, or was already resumed
+        by another worker — without a second answer for a caller to branch on.
+        """
+        found = await self._paused(run_id, ctx)
+        if found is None:
+            return
+        log_key, started, session_id = found
+        spec, engine = self._resolve(started.invocable)
+        run_ctx = self._with_gate(replace(ctx, run_id=run_id, session_id=session_id))
+        claimed = await self._claim_resume(spec, run_ctx, None, reason)
+        if claimed is None:
+            return
+        opening, seq = claimed
+        if self._control is not None:
+            # Only the winner touches control state, and it does so before the engine reaches
+            # its first safe point — a pause still pending there would stop the run again at it.
+            await self._control.signal(run_id, Signal.RESUME, reason)
+        history = await self._store.read(log_key, run_ctx)
+        stream = engine.start(spec, started.input, history, run_ctx)
+        async with aclosing(self._play(opening, stream, spec, run_ctx, seq, engine)) as resumed:
+            async for event in resumed:
+                yield event
+
+    async def signal(self, run_id: str, verb: Signal, reason: str | None = None) -> bool:
+        """Record a control request for ``run_id``, wherever it is running.
+
+        ``False`` means this Runtime has no ``ControlPort`` and nothing was recorded — the one
+        answer a caller has to act on. Everything else is deliberately not an answer here: the
+        run may be inside a tool call, in another process, or already over, and which of those
+        it is cannot be known at the moment a caller asks. A signal that loses the race with a
+        terminal event is a no-op, since nothing polls the gate once the run loop has exited.
+
+        Not for lifting a pause: a paused run has no loop left to notice anything, so
+        :meth:`resume_run` is what continues it (and writes ``RESUME`` itself).
+        """
+        if self._control is None:
+            logger.warning("no ControlPort is wired: %s for run %s was not recorded", verb.value, run_id)
+            return False
+        await self._control.signal(run_id, verb, reason)
+        return True
+
+    async def _play(
+        self,
+        opening: Event,
+        stream: AsyncGenerator[KnownPayload, None],
+        spec: InvocableSpec,
+        ctx: RunContext,
+        seq: Iterator[int],
+        engine: EnginePort,
+    ) -> AsyncGenerator[Event, None]:
+        """Yield ``opening``, then everything ``stream`` produces — and close the run in the
+        log whichever way it ends.
+
+        One body for all three openings (a start, a resumed interrupt, a lifted pause) because
+        every one of them owes the log the same four endings: a terminal event, a suspension, a
+        consumer that walked away, or an exception.
+        """
+        last = opening.kind
         try:
-            yield claimed
-            async with aclosing(engine.start(spec, input, history, ctx)) as stream:
-                async for payload in stream:
+            yield opening
+            async with aclosing(stream) as payloads:
+                async for payload in payloads:
                     yield await self._record(payload, spec, ctx, next(seq))
                     last = payload.kind
                     if last in TERMINAL_KINDS:
@@ -177,53 +280,22 @@ class Runtime:
                 _engine_failed(f"engine {engine.engine!r} ended after {last!r}"), spec, ctx, next(seq)
             )
 
-    async def resume(self, name: str, thread_id: str, value: Any, ctx: RunContext) -> AsyncGenerator[Event, None]:
-        """Continue a run this Runtime suspended earlier.
+    async def _paused(self, run_id: str, ctx: RunContext) -> tuple[str, RunStarted, str | None] | None:
+        """Where a paused run lives, what it was asked to do, and whose session it holds.
 
-        The store's conditional append makes the ``WAITING_HUMAN`` -> ``RUNNING`` transition
-        atomic, so exactly one caller wins even when the callers are separate processes; the
-        winner opens the run with ``run.resumed``, seq recovered from the log's own
-        ``max(seq)`` so it stays contiguous across a process restart — never reset to 0.
-        From there the engine plays on exactly like ``run()`` plays an opening: same
-        terminal/suspended/exception handling.
-
-        A stray resume — wrong status, already resumed by a racing caller, or a completed
-        run — is a no-op: nothing is read from the engine, nothing is yielded.
+        Addressed by ``run_id`` alone, like every other control operation, so the store's own
+        status projection is what locates it — a caller holding a ``run_id`` from a stream it
+        was watching has neither the log key nor the invocable's name. ``None`` means no paused
+        run of this tenant answers to that id, which is the same answer a resumed, finished or
+        cancelled run gives.
         """
-        spec, engine = self._resolve(name)
-        ctx = self._with_gate(ctx)
-        claimed = await self._claim_resume(spec, ctx, value)
-        if claimed is None:
-            return
-        opening, seq = claimed
-        yield opening
-        last = opening.kind
-
-        try:
-            async with aclosing(engine.resume(spec, thread_id, value, ctx)) as stream:
-                async for payload in stream:
-                    yield await self._record(payload, spec, ctx, next(seq))
-                    last = payload.kind
-                    if last in TERMINAL_KINDS:
-                        break
-        except GeneratorExit:
-            logger.info("run %s abandoned by its consumer after %r", ctx.run_id, last)
-            await self._record(RunCancelled(reason="consumer stopped reading"), spec, ctx, next(seq))
-            raise
-        except asyncio.CancelledError:
-            logger.info("run %s cancelled after %r", ctx.run_id, last)
-            await self._close_cancelled(spec, ctx, next(seq), "consumer cancelled")
-            raise
-        except Exception as exc:
-            logger.exception("run %s failed in engine %r", ctx.run_id, engine.engine)
-            yield await self._record(_failed(exc, engine.engine), spec, ctx, next(seq))
-            raise
-
-        if last not in TERMINAL_KINDS and last not in SUSPENDED_KINDS:
-            logger.error("engine %r ended run %s after %r, not a terminal event", engine.engine, ctx.run_id, last)
-            yield await self._record(
-                _engine_failed(f"engine {engine.engine!r} ended after {last!r}"), spec, ctx, next(seq)
-            )
+        for summary in await self._store.list_runs(ctx, status=RunStatus.PAUSED):
+            if summary.run_id != run_id:
+                continue
+            for event in await self._store.read_run(summary.log_key, run_id, ctx):
+                if isinstance(event.payload, RunStarted):
+                    return summary.log_key, event.payload, event.session_id
+        return None
 
     async def _claim_session(self, opening: RunStarted, spec: InvocableSpec, ctx: RunContext, seq: int) -> Event:
         """Open this run, or refuse the turn: the store decides, in one conditional append.
@@ -312,15 +384,17 @@ class Runtime:
             await asyncio.shield(recording)
 
     async def _claim_resume(
-        self, spec: InvocableSpec, ctx: RunContext, value: Any
+        self, spec: InvocableSpec, ctx: RunContext, value: Any, reason: str | None = None
     ) -> tuple[Event, Iterator[int]] | None:
-        """Take the run's ``WAITING_HUMAN`` -> ``RUNNING`` transition, or ``None`` if someone
-        else already has it.
+        """Take the run's suspended -> ``RUNNING`` transition, or ``None`` if someone else
+        already has it. Suspended is ``WAITING_HUMAN`` or ``PAUSED``: the same claim serves
+        both, because both are one run owed a terminal event and only one caller may continue
+        it (``can_resume``).
 
         The store decides, in one conditional append: whoever's ``run.resumed`` lands is the
         one caller that gets to play the run on. That holds across processes, where a check
         followed by a separate append never could — two servers sharing a store would both
-        read ``WAITING_HUMAN`` and both write. A loser reads nothing from the engine and
+        read the suspended status and both write. A loser reads nothing from the engine and
         yields nothing, so a stray resume stays a no-op rather than an error.
 
         The claim carries the answer, not just the fact of it: this one append is what flips
@@ -335,7 +409,8 @@ class Runtime:
         loses rather than reusing a ``seq`` somebody already wrote.
         """
         seq = count(await self._store.last_seq(ctx.log_key, ctx.run_id, ctx) + 1)
-        event = self._stamp(RunResumed(reason=None, value=_as_content(value, ctx.run_id)), spec, ctx, next(seq))
+        resumed = RunResumed(reason=reason, value=_as_content(value, ctx.run_id))
+        event = self._stamp(resumed, spec, ctx, next(seq))
         if not await self._store.claim_resume(ctx.log_key, ctx.run_id, event, ctx):
             return None
         await self._fan_out(event)
@@ -390,7 +465,7 @@ class Runtime:
         """
         if self._control is None:
             return ctx
-        return replace(ctx, gate=Gate(self._control, ctx.run_id))
+        return replace(ctx, gate=Gate(self._control, ctx.run_id, poll_interval=self._control_poll_interval))
 
     def _resolve(self, name: str) -> tuple[InvocableSpec, EnginePort]:
         spec = self._invocables.get(name)

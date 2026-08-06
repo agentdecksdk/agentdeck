@@ -28,6 +28,14 @@ Endpoints:
     GET  /workflows/{name}/pending   -> [{"type": "interrupt", "payload", "thread_id"}, ...]
     POST /workflows/{name}/{thread_id}/resume
                                       -> {"value": ...} -> final state, or the next interrupt
+    POST /runs/{run_id}/pause        -> {"reason": ...}? -> {"run_id", "verb", "recorded": true}
+    POST /runs/{run_id}/cancel       -> {"reason": ...}? -> {"run_id", "verb", "recorded": true}
+                                        Recorded, not applied: the run stops at its next safe
+                                        point, and its own run.paused / run.cancelled event is
+                                        what says it did
+    POST /runs/{run_id}/resume       -> {"reason": ...}? -> {"run_id", "status", "events"} for
+                                        the continuation this call played — 409 if the run is
+                                        not paused
 """
 
 from __future__ import annotations
@@ -40,12 +48,13 @@ from typing import TYPE_CHECKING, Any
 
 from agentdeck.app import App
 from agentdeck.core.content import coerce_input
+from agentdeck.core.status import status_of
 from agentdeck.errors import AgentdeckError, NotFoundError
 from agentdeck.surfaces.serve.compat import chat_frames, chat_result, run_context
 from agentdeck.workflows.state import json_default
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
     from fastapi import FastAPI
 
@@ -154,6 +163,46 @@ def create_app() -> Any:
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
         return _jsonable(await app.run_workflow(name, state, thread_id=thread_id))
+
+    @api.post("/runs/{run_id}/pause")
+    async def pause_run(run_id: str, body: dict[str, Any] | None = None) -> Any:
+        return await _control(deck().pause_run, run_id, body, "pause")
+
+    @api.post("/runs/{run_id}/cancel")
+    async def cancel_run(run_id: str, body: dict[str, Any] | None = None) -> Any:
+        return await _control(deck().cancel_run, run_id, body, "cancel")
+
+    @api.post("/runs/{run_id}/resume")
+    async def resume_run(run_id: str, body: dict[str, Any] | None = None) -> Any:
+        events = await deck().resume_run(run_id, _reason(body))
+        if not events:
+            # 409, not 404: the run may well exist and simply not be paused — running,
+            # finished, cancelled, or already picked up by another worker. All of those are the
+            # same answer to this request, and none of them is an error the caller should retry.
+            raise HTTPException(status_code=409, detail=f"run {run_id!r} is not paused")
+        return {"run_id": run_id, "status": status_of(events).value, "events": len(events)}
+
+    def _reason(body: dict[str, Any] | None) -> str | None:
+        """The optional ``reason`` a control request carries, validated at the trust boundary:
+        it is recorded in the log and read by whoever asks why a run stopped."""
+        reason = (body or {}).get("reason")
+        if reason is not None and not isinstance(reason, str):
+            raise HTTPException(status_code=422, detail=f"reason must be a string, got {type(reason).__name__}")
+        return reason
+
+    async def _control(
+        operation: Callable[[str, str | None], Awaitable[bool]], run_id: str, body: dict[str, Any] | None, verb: str
+    ) -> Any:
+        """Pause and cancel are the same request: record intent for a ``run_id``, answer at once.
+
+        ``recorded`` says the request is written down, never that the run has stopped — a run
+        inside a tool call stops at its next safe point, and the run's own ``run.paused`` /
+        ``run.cancelled`` event is what reports that. Runs that already ended are accepted and
+        do nothing, which is what makes a double-clicked cancel harmless.
+        """
+        if not await operation(run_id, _reason(body)):
+            raise HTTPException(status_code=503, detail="run control is unavailable: no control backend is configured")
+        return {"run_id": run_id, "verb": verb, "recorded": True}
 
     @api.get("/workflows/{name}/pending")
     async def pending_interrupts(name: str) -> Any:

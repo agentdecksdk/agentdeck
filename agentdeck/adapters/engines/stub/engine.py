@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from agentdeck.core.events import RunInterrupted
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
-from agentdeck.core.ports import EnginePort
+from agentdeck.core.ports import ControlSignalled, EnginePort
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
@@ -32,7 +32,11 @@ type Step = KnownPayload | Exception
 
 
 class StubEngine(EnginePort):
-    """Plays ``spec.native`` back as a run. Scripts are reusable: payloads are immutable."""
+    """Plays ``spec.native`` back as a run. Scripts are reusable: payloads are immutable.
+
+    Honors the gate between steps, so run control is part of what this engine models rather
+    than something only a real one can be tested against.
+    """
 
     engine: ClassVar[str] = "stub"
 
@@ -49,6 +53,15 @@ class StubEngine(EnginePort):
             yield step
             if isinstance(step, RunInterrupted):
                 return  # suspend here; resume() plays whatever the script has after this
+            try:
+                await ctx.gate.checkpoint()
+            except ControlSignalled as signalled:
+                # Between two steps is this engine's stream_item boundary — the same safe
+                # point a real engine has between two translated items, which is what lets
+                # the contract suite hold both to one control contract.
+                for payload in signalled.payloads:
+                    yield payload
+                return
 
     async def resume(
         self,
