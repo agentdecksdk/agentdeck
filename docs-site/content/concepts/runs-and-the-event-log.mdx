@@ -9,11 +9,12 @@ Every turn — a chat message or a workflow invocation — appends events to one
 that run. This log, not anything an engine keeps for itself, is what every consumer of a run
 reads: replay, audit, the HTTP surface, pause and resume.
 
-Only one call writes to it today: `app.runtime.run(...)`, the same call the HTTP surface makes
-for you on every `POST /agents/{name}/chat` and `POST /workflows/{name}`. `App`'s other
-conveniences — `run_agent`, `chat`, `chat_stream`, `run_workflow`, `resume_workflow` — run the
-turn directly against the SDK or LangGraph and hand back their own result object; none of them
-write here. Call one of those and there is nothing in this log to read back.
+Every way of starting a turn writes here, and they all write the same thing. `run_agent`,
+`chat`, `chat_stream`, `run_workflow` and `resume_workflow` record a run exactly as
+`POST /agents/{name}/chat` and `POST /workflows/{name}` do, because all of them play the turn
+on the same Runtime. So a run you started from a script is as readable afterwards as one a
+client started over HTTP — same events, same order, same store. `app.store` is the log itself
+when you want to read one back.
 
 ```python file=.agentdeck/agents/greeter/agent.py
 from agentdeck.agents import BaseAgent
