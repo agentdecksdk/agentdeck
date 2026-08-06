@@ -21,17 +21,34 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   inspection.
   Three consequences worth knowing before upgrading. A workflow's `thread_id` is
   now its **session**, and a session runs one turn at a time, so posting a second
-  run to a thread whose turn is still in flight answers **409** instead of
-  interleaving two turns over one graph state. A resume against a thread with no
-  paused run answers **404** where it previously surfaced v1's runner error. And a
-  `get_stream_writer()` write now reaches the log as a namespaced `custom` event
-  (`langgraph.stream_write`) on its way to the unchanged `custom` frame.
+  run to a thread whose previous turn has not finished answers **409** instead of
+  interleaving two turns over one graph state. Read "not finished" broadly: a
+  thread sitting *idle* on an unanswered approval is not finished either, and holds
+  its session until somebody answers it — so the case an approval UI actually hits
+  is a 409, for as long as the approval goes unanswered (or until that run has been
+  silent for `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`, one hour by default,
+  after which the next turn takes the session over). A resume against a thread with
+  no paused run answers **404** where it previously surfaced v1's runner error.
+  And a `get_stream_writer()` write now reaches the log as a namespaced `custom`
+  event (`langgraph.stream_write`) on its way to the unchanged `custom` frame.
   A `durable = True` workflow still resumes on the configured checkpointer — the
   bridge plays v1's own compiled graph, which carries it — and the `[durability]`
   extra stays optional for a project that only chats.
-- A graph compiled **without** a checkpointer now reports its final state, which
-  it previously could not: the terminal state is read from the run's own event
-  stream instead of from a checkpoint that never existed.
+- **The HTTP approval inbox and `App.pending_interrupts()` are now separate sources
+  of truth**, and will be until they are joined. `GET /workflows/{name}/pending`
+  and the HTTP resume project the event log; `App.pending_interrupts()`,
+  `App.due_resumes()` and `App.tick()` still read the graph's checkpointer. They
+  agree only as long as one of them is used: an interrupt created headlessly is
+  invisible over HTTP, and one answered headlessly leaves an entry behind in the
+  HTTP listing. Answering such a leftover entry over HTTP is a **404** rather than
+  the stale final state a replayed thread would otherwise hand back, so no answer
+  is silently dropped — but a deployment that drives approvals through both doors
+  will see the two listings disagree. Routing the Python API's inbox through the
+  Runtime is tracked separately.
+- The v2 `LangGraphEngine` (not v1's endpoints, whose final state always came from
+  `ainvoke`) now reports a final state for a graph compiled **without** a
+  checkpointer, which it previously could not: the terminal state is read from the
+  run's own event stream instead of from a checkpoint that never existed.
 
 ## [2.0.0b4] - 2026-08-06
 
