@@ -8,6 +8,52 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+v2.0.0 shipped with an explicit compatibility promise for v1's Python API; this entry
+starts retiring it, one PR at a time (#137). First slice: `App`'s turn-starting methods
+now play on the same Runtime the HTTP surface always has, so a Python caller's turn is
+recorded — every bit of it — in the same event log a running server would show, instead
+of vanishing the moment the call returns.
+
+### Changed
+
+- **Breaking:** `App.run_agent` and `App.chat` no longer return the OpenAI Agents SDK's
+  `RunResult`. Both return a `TurnResult` (`output`, `usage`, `run_id`, `session_id`) built
+  from the run's own `run.completed` event. Update `result.final_output` to `result.output`;
+  `result.usage` is now a `Usage` model (`.input_tokens` / `.output_tokens` / `.usd`), not a
+  dict. A validated `output_type` result now arrives as plain JSON data (a `dict`/`list`),
+  not the SDK's validated model instance.
+- **Breaking:** `App.chat_stream` no longer yields raw text deltas followed by a
+  `StreamDone` sentinel. It yields the run's own canonical `Event`s (`text.delta` per token,
+  `run.completed` last, `run.failed` in place of both if the turn raises).
+- **Breaking:** `run_agent`, `chat`, `chat_stream`, `run_workflow` and `resume_workflow` no
+  longer take arbitrary `**runner_options`. Configure a run on the agent/workflow class or
+  through settings instead of per call.
+- `App.run_workflow` and `App.resume_workflow` keep their return shapes (the final state, or
+  an `InterruptResult` while paused) but now play on the Runtime instead of driving the
+  compiled graph directly — every workflow turn is recorded, and a second concurrent call on
+  the same `thread_id` now raises `SessionBusyError` instead of racing the first. A workflow
+  with no `state` argument keeps defaulting to no updates.
+- `App.run_agent`, `App.chat`, `App.chat_stream`, `App.run_workflow` and
+  `App.resume_workflow` compose the Runtime on first use (calling `load()` themselves) if
+  `App.load()` was never called by hand.
+
+### Added
+
+- **`App.store`**: the event log every recorded turn appends to. Read a turn back with
+  `await app.store.read(log_key, ctx)`, where `log_key` is a `TurnResult`'s `session_id` (or
+  `run_id`, for a session-less run).
+
+### Known limits
+
+- `App.run_workflow_stream` is unchanged: it still drives the compiled graph directly and
+  writes nothing to the event log, so a run started there cannot be found — and so cannot be
+  resumed — by the now-Runtime-backed `resume_workflow`. Start on `run_workflow` (or
+  `resume_workflow`) instead if one thread needs both the log and a live stream.
+- `App.tick()` and `App.due_resumes()` still resume a paused workflow through its LangGraph
+  checkpointer rather than the Runtime (#120), so a timer-paused run started through the new
+  `run_workflow` is resumed outside the log: its own log entry stays `WAITING_HUMAN` until
+  `stale_run_after` reclaims it.
+
 ## [2.0.0] - 2026-08-06
 
 The release where agentdeck becomes a platform rather than a harness. Every turn — chat

@@ -104,6 +104,14 @@ class Runtime:
         self._stale_run_after = get_settings().runtime.stale_run_after if stale_run_after is None else stale_run_after
         self._control_poll_interval = control_poll_interval
 
+    @property
+    def store(self) -> EventStorePort:
+        """The event log this Runtime plays every run against — the read side of what
+        :meth:`run`, :meth:`resume` and :meth:`resume_run` write to, for a caller that wants
+        to read a run back directly (e.g. ``App.store``) rather than only watching it live.
+        """
+        return self._store
+
     async def run(self, name: str, input: Input, ctx: RunContext) -> AsyncGenerator[Event, None]:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
 

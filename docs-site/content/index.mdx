@@ -37,7 +37,7 @@ from agentdeck import App
 async def main() -> None:
     async with App.open() as app:
         result = await app.run_agent("Greeter", "hello")
-        print(result.final_output)
+        print(result.output)
 
 
 asyncio.run(main())

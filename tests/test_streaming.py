@@ -140,59 +140,38 @@ async def test_run_streamed_cancels_sdk_run_on_abandonment(project, monkeypatch)
     assert fake_result.cancelled == 1
 
 
-async def test_chat_unchanged_when_not_streamed(project, monkeypatch):
-    calls = []
-
-    class StubRunner:
-        def __init__(self, session_factory):
-            self._session_factory = session_factory
-
-        async def run(self, message, *, session=None):
-            calls.append(("run", session))
-            return SimpleNamespace(final_output=f"echo:{message}")
-
-        async def run_streamed(self, message, *, session=None):
-            calls.append(("run_streamed", session))
-            for chunk in f"echo:{message}":
-                yield chunk
-
-    monkeypatch.setattr(
-        "agentdeck.app.HeadlessRunner.from_agent",
-        classmethod(lambda cls, agent, **_: StubRunner(None)),
-    )
+async def test_chat_returns_a_turn_result_not_the_sdks_runresult(project, monkeypatch):
+    """``chat`` used to hand back the SDK's own ``RunResult``; it now plays on the Runtime
+    (issue #137) and returns a :class:`~agentdeck.app.TurnResult` assembled from the run's
+    own ``run.completed`` — a caller depends on agentdeck's event schema, never on the SDK.
+    """
+    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel(deltas=("echo:hi",))))
 
     result = await project.chat("Greeter", "s1", "hi")
-    assert result.final_output == "echo:hi"
-    assert calls == [("run", project.session_for("s1"))]
+
+    assert result.output == "echo:hi"
+    assert result.session_id == "s1"
 
 
 async def test_chat_stream_uses_same_session_as_chat(project, monkeypatch):
-    seen_sessions = []
+    """One ``session_id`` is one conversation whichever App method ran the turn — the same
+    guarantee the old ``HeadlessRunner``-backed methods gave, now proven at the SDK boundary
+    instead of by stubbing ``HeadlessRunner.from_agent`` directly (which ``chat``/``chat_stream``
+    no longer call: both play on the Runtime)."""
+    from agentdeck.core.events import RunCompleted
 
-    class StubRunner:
-        async def run(self, message, *, session=None):
-            seen_sessions.append(("run", session))
-            return SimpleNamespace(final_output=f"echo:{message}")
+    model = ScriptedModel(deltas=("echo:hi",))
+    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(model))
 
-        async def run_streamed(self, message, *, session=None):
-            seen_sessions.append(("run_streamed", session))
-            for chunk in f"echo:{message}":
-                yield chunk
+    events = [event async for event in project.chat_stream("Greeter", "s1", "first")]
+    result = await project.chat("Greeter", "s1", "second")
 
-    monkeypatch.setattr(
-        "agentdeck.app.HeadlessRunner.from_agent",
-        classmethod(lambda cls, agent, **_: StubRunner()),
-    )
-
-    deltas = [d async for d in project.chat_stream("Greeter", "s1", "hi")]
-    result = await project.chat("Greeter", "s1", "hi")
-
-    assert "".join(deltas) == "echo:hi" == result.final_output
-    # Both paths resolve session_for("s1") — same object — so history stays identical
-    # whether the turn was streamed or not.
-    run_streamed_session = seen_sessions[0][1]
-    run_session = seen_sessions[1][1]
-    assert run_streamed_session is run_session is project.session_for("s1")
+    streamed_output = next(e.payload.output[0].text for e in events if isinstance(e.payload, RunCompleted))
+    assert streamed_output == "echo:hi" == result.output
+    # two model calls, and the second turn's input carries the first turn's own message —
+    # proof the two App methods shared one `session_for("s1")` rather than each starting fresh.
+    assert model.calls == 2
+    assert "first" in str(model.inputs[-1])
 
 
 def _sse_frames(text: str) -> list[tuple[str, dict]]:

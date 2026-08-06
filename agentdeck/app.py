@@ -10,13 +10,15 @@ agents, workflows, and skills.
     app.workflows.get("TranslateAndSummarize")        # BaseWorkflow subclass
     app.skills.get("md-segment-translate")            # SkillBundle
 
-    result = await app.run_agent("FileAgent", "hello")
+    result = await app.run_agent("FileAgent", "hello")   # TurnResult: .output, .usage
     state  = await app.run_workflow("TranslateAndSummarize", {"source_path": p})
 
 ``load()`` eagerly imports every bundle, builds every agent, and compiles
 every workflow graph, so configuration errors surface at startup instead of
-mid-conversation. Everything else stays lazy and delegates to the existing
-registries and runners.
+mid-conversation; the turn-starting methods below call it themselves on first
+use, so skipping it by hand costs nothing. Every turn any of them runs plays on
+the same Runtime the HTTP surface does, and is recorded the same way — read it
+back with :attr:`App.store`.
 
 For anything long-running — and for every deployment using Redis sessions or
 MCP servers — prefer ``App.open()``: it runs ``load()``, starts the MCP
@@ -29,7 +31,8 @@ servers are never leaked::
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import uuid
+from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,32 +42,155 @@ from agents import SQLiteSession
 
 from agentdeck.agents.mcp.lifecycle import MCPLifecycle
 from agentdeck.agents.registry import AgentRegistry
-from agentdeck.agents.runners import HeadlessRunner, StreamDone
 from agentdeck.composition import build_runtime, v1_engines
+from agentdeck.core.content import DataBlock, TextBlock, coerce_input
+from agentdeck.core.context import RunContext
+from agentdeck.core.events import Custom, NodeUpdated, RunCompleted, RunInterrupted
 from agentdeck.core.ports import Signal
-from agentdeck.errors import ConfigError
+from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.runtime.registry import PROJECT_DIR, _package_dir, mount_project_dir
 from agentdeck.runtime.sessions import SessionFactory
 from agentdeck.runtime.settings import Settings, get_settings
 from agentdeck.skills.bundle import SkillRegistry
-from agentdeck.surfaces.serve.compat import run_context
+from agentdeck.workflows.interrupts import interrupt_result
 from agentdeck.workflows.registry import WorkflowRegistry
 from agentdeck.workflows.timers import wake_at_of
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator, AsyncIterator
 
     from agents.memory.session import Session
 
-    from agentdeck.core.events import Event
-    from agentdeck.runtime.service import Runtime
+    from agentdeck.core.events import Event, Usage
+    from agentdeck.core.ports import EventStorePort
+    from agentdeck.runtime.service import PendingRun, Runtime
     from agentdeck.workflows.interrupts import InterruptResult
+
+# Every Python call through App mints its own context: one tenant/principal, since this
+# facade has no auth story of its own yet — a real per-caller principal arrives with a real
+# auth layer, not here. Mirrors what v1's HTTP compat layer does for the same reason
+# (``surfaces/serve/compat.py``'s ``V1_TENANT``/``V1_PRINCIPAL``), duplicated rather than
+# imported so `App` depends on nothing under `surfaces/`; a pinned test keeps the two equal,
+# because the store buckets its log by ``(tenant, log_key)`` and a drift here would split one
+# session's history into two logs depending on which entry point ran the turn.
+_TENANT = "local"
+_PRINCIPAL = "user:local"
+
+# v1's compat engine (``agentdeck/v1bridge/engine.py``) namespaces a validated
+# ``output_type`` result here instead of putting it on ``RunCompleted.output`` as a
+# ``DataBlock`` (what the canonical engine does), because v1's own wire can only carry text.
+# Spelled out rather than imported, the same reason ``surfaces/serve/compat.py`` spells out
+# its own copy: this fallback, and the pin test next to it, go away with v1bridge.
+_LEGACY_STRUCTURED_OUTPUT = "openai_agents.structured_output"
 
 
 def _require_aware(now: datetime) -> datetime:
     if now.tzinfo is None:
         raise ValueError(f"due_resumes/tick require a timezone-aware `now`; got naive {now!r}.")
     return now
+
+
+@dataclass(frozen=True, slots=True)
+class TurnResult:
+    """One agent turn's outcome, assembled from its own ``run.completed`` — never the SDK's
+    own result object, so a caller depends on agentdeck's event schema rather than on
+    whichever engine ran the turn.
+
+    ``run_id`` (and ``session_id``, for a conversational turn) name the run this came from,
+    so a caller who wants more than ``output`` and ``usage`` can read the rest of it back
+    with :attr:`App.store` instead of this object growing a field for everything the log
+    already carries.
+    """
+
+    output: Any
+    usage: Usage
+    run_id: str
+    session_id: str | None = None
+
+
+def _new_context(session_id: str | None = None) -> RunContext:
+    return RunContext(
+        tenant=_TENANT,
+        principal=_PRINCIPAL,
+        run_id=str(uuid.uuid4()),
+        trace_id=str(uuid.uuid4()),
+        session_id=session_id,
+    )
+
+
+def _resume_context(paused: PendingRun) -> RunContext:
+    """The context that continues an already-open run: its ``run_id`` is the paused run's
+    own, because that is the run whose ``WAITING_HUMAN`` -> ``RUNNING`` claim the resume has
+    to win — a fresh id would name a run the log has never heard of."""
+    return RunContext(
+        tenant=_TENANT,
+        principal=_PRINCIPAL,
+        run_id=paused.run_id,
+        trace_id=str(uuid.uuid4()),
+        session_id=paused.session_id,
+    )
+
+
+async def _turn_result(events: AsyncGenerator[Event, None], ctx: RunContext) -> TurnResult:
+    """A run's own ``run.completed`` (plus whatever it names, en route), as a :class:`TurnResult`.
+
+    Drains ``events`` to its natural end rather than returning the moment ``run.completed``
+    is seen: closing the Runtime's generator any earlier throws ``GeneratorExit`` into it one
+    line before it notices its own terminal event, which is what the Runtime's own "abandoned
+    mid-stream" handling is for — and it would record a spurious ``run.cancelled`` right
+    after the real ``run.completed``, over a run that in fact finished cleanly.
+
+    Raises if the stream ends without one: the engine's own exception already reached the
+    caller in that case (the Runtime records ``run.failed`` before re-raising), so the only
+    way this is actually hit is a run suspended by a pause or a cancel racing this call —
+    genuinely new once a Python turn plays on the Runtime, since nothing outside HTTP could
+    signal one before.
+    """
+    structured: Any = None
+    result: TurnResult | None = None
+    async with aclosing(events):
+        async for event in events:
+            payload = event.payload
+            if isinstance(payload, Custom) and payload.name == _LEGACY_STRUCTURED_OUTPUT:
+                structured = payload.data.get("output")
+            elif isinstance(payload, RunCompleted):
+                data = next((block.data for block in payload.output if isinstance(block, DataBlock)), None)
+                if data is not None:
+                    output = data
+                elif structured is not None:
+                    output = structured
+                else:
+                    output = "".join(block.text for block in payload.output if isinstance(block, TextBlock))
+                result = TurnResult(output=output, usage=payload.usage, run_id=ctx.run_id, session_id=ctx.session_id)
+    if result is None:
+        raise RuntimeError(
+            f"run {ctx.run_id!r} ended without completing (paused or cancelled) — resume it with "
+            "App.resume_run, or inspect App.store for what happened."
+        )
+    return result
+
+
+async def _workflow_result(events: AsyncGenerator[Event, None]) -> tuple[Any, bool]:
+    """A workflow run's final state (or the interrupt it paused on), plus whether the graph
+    actually did anything for this call.
+
+    Mirrors ``surfaces/serve/compat.py``'s own ``_terminal`` (duplicated rather than
+    imported, for the same reason the context above is): a lost resume claim or a thread
+    already at ``END`` both produce an empty or update-free stream, and ``applied`` is what
+    keeps that from reading as the stale success langgraph would otherwise hand back.
+    """
+    result: Any = None
+    applied = False
+    async with aclosing(events):
+        async for event in events:
+            payload = event.payload
+            if isinstance(payload, RunInterrupted):
+                result, applied = interrupt_result(payload.payload, payload.thread_id or ""), True
+            elif isinstance(payload, NodeUpdated):
+                applied = True
+            elif isinstance(payload, RunCompleted):
+                result = next((block.data for block in payload.output if isinstance(block, DataBlock)), None)
+    return result, applied
 
 
 @dataclass(slots=True)
@@ -110,6 +236,19 @@ class App:
             raise ConfigError("no Runtime yet: call App.load() (or use App.open()) first.")
         return self._runtime
 
+    @property
+    def store(self) -> EventStorePort:
+        """The event log every recorded turn appends to — the read side of what
+        :meth:`run_agent`, :meth:`chat`, :meth:`run_workflow` and :meth:`resume_workflow`
+        write to. Read a turn back with ``await app.store.read(log_key, ctx)``, where
+        ``log_key`` is a :class:`TurnResult`'s ``session_id`` (or ``run_id``, for a
+        session-less run) and ``ctx`` is any :class:`~agentdeck.core.context.RunContext`
+        of this App's tenant.
+
+        Same lifetime rule as :attr:`runtime`: composed by :meth:`load`.
+        """
+        return self.runtime.store
+
     def load(self) -> dict[str, list[str]]:
         """Discover and *instantiate* everything; raises on the first broken bundle.
 
@@ -136,40 +275,75 @@ class App:
         self._runtime = build_runtime(engines=v1_engines(self.session_for, self.workflows.get))
         return self.inventory
 
-    async def run_agent(self, name: str, message: Any = None, **runner_options: Any) -> Any:
-        """One-shot headless run of a discovered agent; returns the SDK ``RunResult``."""
-        agent_cls = self.agents.get(name)
-        runner = HeadlessRunner.from_agent(agent_cls.build(), **runner_options)
-        return await runner.run(message)
+    def _ensure_runtime(self) -> Runtime:
+        """The Runtime a turn-starting method plays on, composed via :meth:`load` on first
+        use — so ``App().chat(...)`` without an explicit ``load()`` still gets a fully
+        discovered project instead of :attr:`runtime`'s ``ConfigError``. The recorded path
+        has to be at least as convenient as the one it replaces, or the old shape survives
+        by being easier.
+        """
+        if self._runtime is None:
+            self.load()
+        return self.runtime
 
-    async def run_workflow(
-        self,
-        name: str,
-        state: Any = None,
-        *,
-        thread_id: str | None = None,
-        **runner_options: Any,
-    ) -> Any:
-        """Single ``ainvoke`` of a discovered workflow; returns the final state.
+    async def run_agent(self, name: str, message: Any = None) -> TurnResult:
+        """One-shot run of a discovered agent, recorded on the Runtime like every other
+        turn — read it back with :attr:`store`.
+        """
+        self.agents.get(name)  # v1's message ("No agent named ...") if it doesn't exist
+        runtime = self._ensure_runtime()
+        ctx = _new_context()
+        return await _turn_result(runtime.run(name, coerce_input(message), ctx), ctx)
 
-        ``thread_id`` scopes LangGraph checkpointed state — required for a
-        ``durable=True`` workflow (so a later call with the same id resumes it),
-        ignored otherwise.
+    async def run_workflow(self, name: str, state: Any = None, *, thread_id: str | None = None) -> Any:
+        """One run of a discovered workflow, recorded on the Runtime; returns the final state.
+
+        ``thread_id`` scopes the run's session — required for a ``durable=True`` workflow
+        (so a later call with the same id resumes it), ignored otherwise.
 
         A run that stops on ``langgraph.types.interrupt()`` returns an
         :class:`~agentdeck.workflows.interrupts.InterruptResult`
         (``{"type": "interrupt", "payload": ..., "thread_id": ...}``) instead of a final
         state; feed the human's answer back with :meth:`resume_workflow`.
         """
-        return await self.workflows.get(name).run(state, thread_id=thread_id, **runner_options)
+        self.workflows.get(name)  # v1's message ("No workflow named ...") if it doesn't exist
+        runtime = self._ensure_runtime()
+        # `None`'s default meaning here is "no updates", which a data block can only carry
+        # as `{}` — `DataBlock(data=None)` would reach the langgraph engine as a null state
+        # and fail its own "must be a JSON object" check.
+        run = runtime.run(name, [DataBlock(data=state if state is not None else {})], _new_context(thread_id))
+        result, _ = await _workflow_result(run)
+        return result
 
-    async def resume_workflow(self, name: str, thread_id: str, value: Any, **runner_options: Any) -> Any:
+    async def resume_workflow(self, name: str, thread_id: str, value: Any) -> Any:
         """Answer the interrupt paused on ``thread_id``; returns the final state or the next interrupt.
 
         The interrupted node re-runs from its start with ``interrupt()`` returning ``value``,
         so anything it did before pausing happens twice — keep interrupt nodes pure.
         """
-        return await self.workflows.get(name).resume(thread_id, value, **runner_options)
+        self.workflows.get(name)
+        runtime = self._ensure_runtime()
+        paused = await self._paused_workflow_run(runtime, name, thread_id)
+        result, applied = await _workflow_result(runtime.resume(name, thread_id, value, _resume_context(paused)))
+        if not applied:
+            # Either the claim went to somebody else between the listing above and this
+            # resume, or the thread was already at `END` and langgraph replayed its stale
+            # final state without ever touching `value` — neither may be reported as success.
+            raise NotFoundError(f"No paused run of {name!r} on thread {thread_id!r}.")
+        return result
+
+    async def _paused_workflow_run(self, runtime: Runtime, name: str, thread_id: str) -> PendingRun:
+        paused = next(
+            (
+                run
+                for run in await runtime.pending(_new_context())
+                if run.invocable == name and run.thread_id == thread_id
+            ),
+            None,
+        )
+        if paused is None:
+            raise NotFoundError(f"No paused run of {name!r} on thread {thread_id!r}.")
+        return paused
 
     async def pending_interrupts(self, name: str | None = None) -> list[InterruptResult]:
         """Approval inbox: every thread paused on an interrupt, for one workflow or all of them."""
@@ -218,6 +392,11 @@ class App:
         A run that pauses on ``langgraph.types.interrupt()`` ends with an
         :class:`~agentdeck.workflows.interrupts.InterruptResult` event instead of ``done``;
         answer it with :meth:`resume_workflow`.
+
+        Unlike ``run_workflow``, this does not yet play on the Runtime: it drives the graph
+        directly, so a run started here writes nothing to the event log and cannot be found
+        by :meth:`resume_workflow`'s own lookup — start on :meth:`run_workflow` (or
+        :meth:`resume_workflow`) for one thread if you need both the log and this stream.
         """
         async for event in self.workflows.get(name).run_stream(state, thread_id=thread_id, **runner_options):
             yield event
@@ -261,26 +440,27 @@ class App:
         not a signal a live run notices, because a paused run has no loop left to notice
         anything: this call plays it on, so it returns when the run does.
         """
-        return [event async for event in self.runtime.resume_run(run_id, run_context(), reason)]
+        return [event async for event in self.runtime.resume_run(run_id, _new_context(), reason)]
 
-    async def chat(self, name: str, session_id: str, message: Any, **runner_options: Any) -> Any:
-        """One conversational turn: same ``session_id`` → same history across calls."""
-        agent_cls = self.agents.get(name)
-        runner = HeadlessRunner.from_agent(agent_cls.build(), **runner_options)
-        return await runner.run(message, session=self.session_for(session_id))
-
-    async def chat_stream(
-        self, name: str, session_id: str, message: Any, **runner_options: Any
-    ) -> AsyncIterator[str | StreamDone]:
-        """Streaming counterpart to :meth:`chat`: same session, text deltas followed by one
-        :class:`~agentdeck.agents.runners.StreamDone` instead of a single ``RunResult`` — the
-        session is passed identically, so history ends up the same whether a turn was streamed
-        or not.
+    async def chat(self, name: str, session_id: str, message: Any) -> TurnResult:
+        """One conversational turn: same ``session_id`` → same history across calls, recorded
+        on the Runtime like every other turn — read it back with :attr:`store`.
         """
-        agent_cls = self.agents.get(name)
-        runner = HeadlessRunner.from_agent(agent_cls.build(), **runner_options)
-        async for delta in runner.run_streamed(message, session=self.session_for(session_id)):
-            yield delta
+        self.agents.get(name)
+        runtime = self._ensure_runtime()
+        ctx = _new_context(session_id)
+        return await _turn_result(runtime.run(name, coerce_input(message), ctx), ctx)
+
+    async def chat_stream(self, name: str, session_id: str, message: Any) -> AsyncIterator[Event]:
+        """Streaming counterpart to :meth:`chat`: yields the run's own canonical
+        :class:`~agentdeck.core.events.Event`\\ s (``text.delta`` for each token, ``run.completed``
+        last) instead of raw text and a :class:`~agentdeck.agents.runners.StreamDone` sentinel —
+        the same events :attr:`store` would hand back after the fact, live as they're recorded.
+        """
+        self.agents.get(name)
+        runtime = self._ensure_runtime()
+        async for event in runtime.run(name, coerce_input(message), _new_context(session_id)):
+            yield event
 
     @classmethod
     @asynccontextmanager
@@ -323,4 +503,4 @@ class App:
                 await MCPLifecycle.shutdown()
 
 
-__all__ = ["App"]
+__all__ = ["App", "TurnResult"]

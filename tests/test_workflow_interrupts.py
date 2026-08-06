@@ -12,7 +12,7 @@ import textwrap
 import pytest
 from pydantic import BaseModel
 
-from agentdeck.errors import ConfigError
+from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.runtime.settings import reset_settings_cache
 from agentdeck.workflows import END, BaseWorkflow, StateGraph, interrupt
 
@@ -221,7 +221,7 @@ def app_project(tmp_path, monkeypatch):
     return App()
 
 
-async def test_streamed_run_ends_with_an_interrupt_event_and_still_resumes(app_project):
+async def test_streamed_run_ends_with_an_interrupt_event(app_project):
     """The streaming surface: node updates, then an interrupt event *instead of* ``done``."""
     events = [
         event
@@ -235,9 +235,20 @@ async def test_streamed_run_ends_with_an_interrupt_event_and_still_resumes(app_p
     inbox = await app_project.pending_interrupts("ApprovalFlow")
     assert [p for p in inbox if p["thread_id"] == "t-stream"] == [events[-1]]
 
-    resumed = await app_project.resume_workflow("ApprovalFlow", "t-stream", "yes")
 
-    assert resumed["outcome"] == "booked"  # a streamed pause resumes like any other
+async def test_a_run_started_via_run_workflow_stream_cannot_be_resumed_via_resume_workflow(app_project):
+    """A pause used to resume the same way regardless of which App method started the run,
+    because both read and wrote the same checkpointer. That symmetry breaks once
+    ``resume_workflow`` plays on the Runtime (issue #137): it looks the paused run up in the
+    event log, and ``run_workflow_stream`` — left out of that reroute — writes nothing there.
+    A caller needing both the log and a live stream on one thread starts on ``run_workflow``
+    (or ``resume_workflow``) instead, the way ``test_app_surface_pauses_lists_and_resumes`` does.
+    """
+    async for _ in app_project.run_workflow_stream("ApprovalFlow", {"request": "tue 9am"}, thread_id="t-stream-2"):
+        pass
+
+    with pytest.raises(NotFoundError, match="t-stream-2"):
+        await app_project.resume_workflow("ApprovalFlow", "t-stream-2", "yes")
 
 
 async def test_streamed_durable_run_without_an_interrupt_still_ends_with_done(app_project):

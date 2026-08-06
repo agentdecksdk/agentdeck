@@ -36,8 +36,8 @@ async def main() -> None:
     async with App.open() as app:
         await app.run_agent("Support", "where is my order?")              # one-shot
         await app.chat("Support", "wa-123", "where is my order?")          # remembers
-        async for chunk in app.chat_stream("Support", "wa-123", "and now?"):  # streams
-            print(chunk)
+        async for event in app.chat_stream("Support", "wa-123", "and now?"):  # streams
+            print(event)
 
 
 asyncio.run(main())

@@ -65,7 +65,7 @@ from agentdeck import App
 async def main() -> None:
     async with App.open() as app:
         result = await app.run_agent("Greeter", "hello")
-        print(result.final_output)
+        print(result.output)
 
 
 asyncio.run(main())
@@ -83,7 +83,7 @@ async def main() -> None:
     async with App.open() as app:
         await app.chat("Greeter", "sess-1", "book me a slot Tuesday")
         second = await app.chat("Greeter", "sess-1", "actually, make it Wednesday")
-        print(second.final_output)
+        print(second.output)
 
 
 asyncio.run(main())
