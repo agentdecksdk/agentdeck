@@ -200,8 +200,12 @@ async def test_run_workflow_stream_agent_node_forwards_deltas_via_custom_stream(
     assert node_updates == [{"type": "node_update", "node": "greet", "delta": {"output": "Hello!"}}]
 
 
-async def test_run_workflow_unchanged_when_not_streamed(project, monkeypatch):
-    """``run_workflow`` still drives the graph through a single ``ainvoke`` call."""
+async def test_run_workflow_now_drives_the_graph_through_the_runtimes_stream(project, monkeypatch):
+    """``run_workflow`` used to call the compiled graph's ``ainvoke`` once; now that it plays
+    on the Runtime (issue #137) it drives the same ``astream`` every other invocable does,
+    consumed to its end rather than left for a caller to iterate — ``ainvoke`` is never
+    touched at all.
+    """
     calls = []
     real_ainvoke = project.workflows.get("TwoStepFlow").build().ainvoke
 
@@ -214,13 +218,16 @@ async def test_run_workflow_unchanged_when_not_streamed(project, monkeypatch):
     out = await project.run_workflow("TwoStepFlow", {"text": "hi"})
 
     assert out == {"text": "HI", "count": 1}
-    assert len(calls) == 1  # a single ainvoke, exactly as before this feature existed
+    assert calls == []  # astream, not ainvoke — the Runtime's own path for every invocable
 
 
-async def test_agent_node_uses_plain_run_when_workflow_is_not_streamed(project, monkeypatch):
-    """The substantive guarantee: an AgentNode inside a plain run_workflow() call must go
-    through Runner.run, never Runner.run_streamed — a detached streaming task has different
-    cancellation/exception-timing semantics, so get_stream_writer() no-op-ing alone isn't enough.
+async def test_agent_node_now_uses_run_streamed_even_via_plain_run_workflow(project, monkeypatch):
+    """The invariant this used to guarantee — a plain ``run_workflow()`` call never touches
+    ``Runner.run_streamed`` — no longer holds once workflows play on the Runtime: v1's compat
+    engine turns nested-agent streaming on unconditionally, because one Runtime run produces
+    one canonical stream regardless of whether the caller asked to see it. A caller wanting
+    the old cancellation/exception-timing semantics of a bare ``Runner.run`` has none of
+    agentdeck's turn-starting methods left to reach for.
     """
     run_calls = []
     run_streamed_calls = []
@@ -231,7 +238,7 @@ async def test_agent_node_uses_plain_run_when_workflow_is_not_streamed(project, 
 
     def fake_run_streamed(agent, message, **kwargs):
         run_streamed_calls.append((agent, message))
-        raise AssertionError("run_workflow() must not touch Runner.run_streamed")
+        return FakeRunResultStreaming(events=[], final_output="Hello!")
 
     monkeypatch.setattr("agentdeck.agents.runners.headless.Runner.run", fake_run)
     monkeypatch.setattr("agentdeck.agents.runners.headless.Runner.run_streamed", fake_run_streamed)
@@ -239,8 +246,8 @@ async def test_agent_node_uses_plain_run_when_workflow_is_not_streamed(project, 
     out = await project.run_workflow("ChatFlow", {"input": "hi"})
 
     assert out == {"input": "hi", "output": "Hello!"}
-    assert len(run_calls) == 1
-    assert run_streamed_calls == []
+    assert run_calls == []
+    assert len(run_streamed_calls) == 1
 
 
 def _sse_frames(text: str) -> list[tuple[str, dict]]:
