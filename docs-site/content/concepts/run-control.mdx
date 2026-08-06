@@ -1,23 +1,18 @@
 ---
 title: Run Control
-description: Pause, resume and cancel an active run — what a safe point is, how long it takes, and what a resume replays.
+description: What a safe point is, why asking a run to stop is not the same fact as it stopping, and what a resume replays.
 ---
 
 # Run Control
 
-A run in flight can be paused, resumed, or cancelled by its `run_id` — from the process
-running it, from a second process, or over HTTP.
+A run in flight can be paused, resumed, or cancelled by its `run_id`, from the process
+running it or from another one entirely — see [Pause, Resume, Cancel](/operating/pause-resume-cancel)
+for how to reach one from outside the process. In your own code it looks like this:
 
 ```python no-test reason="needs a live run_id from a run this process is streaming"
 await app.pause_run(run_id, reason="operator stepped away")
 events = await app.resume_run(run_id)
 await app.cancel_run(run_id, reason="user closed the tab")
-```
-
-```
-POST /runs/{run_id}/pause    {"reason": "..."}   -> {"run_id", "verb", "recorded": true}
-POST /runs/{run_id}/cancel   {"reason": "..."}   -> {"run_id", "verb", "recorded": true}
-POST /runs/{run_id}/resume   {"reason": "..."}   -> {"run_id", "status", "events"}  (409 if not paused)
 ```
 
 ## Asking is not stopping
@@ -104,22 +99,3 @@ to resume does not quietly override whoever cancelled.
 
 `paused` is also not `waiting_human`: a run stopped on an `interrupt()` is waiting for an answer
 and resumes *with a value*; a paused run is waiting for an operator and resumes with nothing.
-
-## Reaching a run in another process
-
-The pending signal lives in the control port, which is in-process by default — fine for one
-worker, invisible to a second one. For a signal that crosses processes, point it at a file:
-
-```bash
-AGENTDECK_CONTROL_BACKEND=sqlite
-AGENTDECK_CONTROL_URL=./.agentdeck/control.sqlite3
-```
-
-Then a second terminal can reach a run by id alone:
-
-```bash
-agentdeck runs signal <run_id> cancel --control-db ./.agentdeck/control.sqlite3 --reason "typo"
-```
-
-A paused run's *resume* is not a signal — continuing it needs the event log — so lifting a pause
-belongs to a process holding a Runtime: `app.resume_run(run_id)` or `POST /runs/{id}/resume`.
