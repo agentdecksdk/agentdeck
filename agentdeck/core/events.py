@@ -7,6 +7,14 @@ both the ordering authority and a loss check; ``ts`` is informational.
 Unknown kinds parse instead of raising (:func:`parse_event`) and unknown fields inside a
 known payload are dropped, so an old reader survives a newer writer. Adding a kind or an
 optional field stays compatible; renaming or removing one means bumping ``v``.
+
+Run control is three phases rather than one event: ``control.requested`` records that a
+signal was written, ``control.observed`` records that the run reached a safe point and acted
+on it, and the verb's own kind records the effect (``run.cancelled``, ``run.paused``,
+``run.resumed``, ``input.appended``). One pair of kinds carries every verb, so pause and
+steering need no vocabulary of their own — and a caller can finally tell "the signal is
+recorded" from "the run actually stopped", which is the whole difference between cooperative
+control and control.
 """
 
 from __future__ import annotations
@@ -99,10 +107,25 @@ class RunPaused(CoreModel):
 
 
 class RunResumed(CoreModel):
-    """The run continues: same ``run_id``, ``seq`` keeps counting."""
+    """The run continues: same ``run_id``, ``seq`` keeps counting.
+
+    ``value`` is the answer this resume carries, stored in full like ``run.started.input``
+    because it is the caller's own input and a truncated one cannot be replayed. It rides on
+    this event rather than on one of its own so that the write which flips ``WAITING_HUMAN``
+    to ``RUNNING`` is the same write that stores the answer: two writes leave a window where
+    the log says a run was answered and no longer holds what the answer was, and a run whose
+    engine never got the value is stranded — running in the log, parked at its interrupt in
+    the engine, every later resume refused as stray. ``None`` is a resume that answers
+    nothing, which is what lifting an operator's pause looks like.
+
+    A resume is not irreversible: the log is append-only and status is a fold over it, so a
+    resume that cannot be carried through returns the run to ``WAITING_HUMAN`` by recording
+    its interrupt again — no rollback, and no further vocabulary needed.
+    """
 
     kind: Literal["run.resumed"] = "run.resumed"
     reason: str | None = None
+    value: Input | None = None
 
 
 class RunCancelled(CoreModel):
@@ -121,6 +144,49 @@ class RunInterrupted(CoreModel):
     payload: dict[str, Any]
     thread_id: str | None = None
     expected_resume: str | None = None
+
+
+ControlVerb = Literal["cancel", "pause", "resume", "steer"]
+"""Every verb run control has, including the ones whose behavior isn't built yet.
+
+Complete at birth deliberately: a member added later is not additive for a *reader*, which
+rejects the whole event rather than skipping it the way it can with an unknown kind. An unused
+member costs nothing; a missing one costs a broken consumer.
+"""
+
+SafePoint = Literal["stream_item", "tool_dispatch", "node_boundary"]
+"""Where a run can notice a signal: between two streamed items, before a tool is dispatched,
+or at a graph node boundary. Closed for the same reason ``ControlVerb`` is."""
+
+
+class ControlRequested(CoreModel):
+    """A control signal was recorded for this run — not that the run has acted on it.
+
+    Under cooperative control those are two different facts, and at the moment a caller asks
+    only this one is knowable: the run may be inside a tool call that has to return first.
+    Which is why a request is never a status transition — a run stays ``RUNNING`` until
+    ``run.paused`` or ``run.cancelled`` says otherwise.
+
+    A signal that lost the race with a terminal event records nothing at all: a terminal event
+    is a run's last event by invariant, so the no-op has nowhere to land.
+    """
+
+    kind: Literal["control.requested"] = "control.requested"
+    verb: ControlVerb
+    reason: str | None = None
+
+
+class ControlObserved(CoreModel):
+    """The run reached a safe point, found the signal, and is acting on it.
+
+    ``safe_point`` names where, because "cancel took eight seconds" and "cancel took eight
+    seconds because a tool call did" are different answers to the same complaint. The verb's
+    own kind still records the effect: this event says the run noticed, not that it stopped.
+    """
+
+    kind: Literal["control.observed"] = "control.observed"
+    verb: ControlVerb
+    safe_point: SafePoint
 
 
 class TextDelta(CoreModel):
@@ -286,6 +352,8 @@ KnownPayload = Annotated[
     | RunResumed
     | RunCancelled
     | RunInterrupted
+    | ControlRequested
+    | ControlObserved
     | TextDelta
     | ThoughtDelta
     | MessageCompleted
@@ -377,6 +445,9 @@ __all__ = [
     "TERMINAL_KINDS",
     "ArtifactCreated",
     "Budget",
+    "ControlObserved",
+    "ControlRequested",
+    "ControlVerb",
     "Custom",
     "Event",
     "InputAppended",
@@ -392,6 +463,7 @@ __all__ = [
     "RunPaused",
     "RunResumed",
     "RunStarted",
+    "SafePoint",
     "StatusReported",
     "TextDelta",
     "ThoughtDelta",

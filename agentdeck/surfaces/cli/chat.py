@@ -13,6 +13,8 @@ import json
 from typing import TYPE_CHECKING
 
 from agentdeck.core.events import (
+    ControlObserved,
+    ControlRequested,
     MessageCompleted,
     ProgressReported,
     RunCancelled,
@@ -32,9 +34,9 @@ if TYPE_CHECKING:
 
 
 async def render(lines: AsyncIterator[str]) -> None:
-    """Print one line per bubble: a user turn, a tool notice, a completed message, or the
-    run's close. Everything else (deltas, ``custom``, ``node.updated``, ...) is skipped by
-    design, per this module's docstring — the ``case _`` default below."""
+    """Print one line per bubble: a user turn, a tool notice, a completed message, a control
+    notice, or the run's close. Everything else (deltas, ``custom``, ``node.updated``, ...)
+    is skipped by design, per this module's docstring — the ``case _`` default below."""
     async for line in lines:
         if not line.startswith("data: "):
             continue  # blank keep-alives and any `event: ...` framing line
@@ -53,6 +55,12 @@ async def render(lines: AsyncIterator[str]) -> None:
                 print(f"[progress] {step}{_counted(current, total)}")
             case MessageCompleted(message_id=message_id, text=text):
                 print(f"{event.origin} [{message_id}]: {text}")
+            case ControlRequested(verb=verb, reason=reason):
+                # Between a request and the run acting on it there can be a whole tool call,
+                # so a reader watching a stream that has gone quiet is told which it is.
+                print(f"[control] {verb} requested" + (f": {reason}" if reason else ""))
+            case ControlObserved(verb=verb, safe_point=safe_point):
+                print(f"[control] {verb} observed at {safe_point}")
             case RunCompleted() | RunFailed() | RunCancelled():
                 print(f"-- {event.kind} --")
             case _:

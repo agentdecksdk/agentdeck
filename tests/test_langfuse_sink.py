@@ -26,6 +26,8 @@ from agentdeck.core.content import DataBlock, ImageBlock, TextBlock
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
     Budget,
+    ControlObserved,
+    ControlRequested,
     Event,
     NodeUpdated,
     RunCancelled,
@@ -449,6 +451,48 @@ async def test_a_process_that_only_saw_the_resume_still_traces_it_under_the_run_
 
     assert (root.trace_key, root.kind, root.user_id) == ("r-1", "span", None)
     assert root.metadata["resumed"] is True
+    assert root.input is None  # a resume that answered nothing has no input to show
+
+
+async def test_a_continuation_shows_the_answer_the_run_was_resumed_with() -> None:
+    """A trace of an approval flow that doesn't say what was approved is a trace of the wrong
+    half of the story — and the answer is content, so it is media-described like any other."""
+    sink = LangfuseSink(collector := Collector())
+    await sink.emit(
+        _event(RunResumed(reason="approved", value=[TextBlock(text=DATA_URI), DataBlock(data={"approved": True})]))
+    )
+
+    assert collector.only().input == [DESCRIBED, '{"approved": true}']
+
+
+async def test_both_control_phases_land_on_the_run_s_timeline() -> None:
+    """The gap between them is the number an operator actually asks about: "I pressed cancel
+    and it kept going" is answered by when the run reached a safe point."""
+    sink = LangfuseSink(collector := Collector())
+    await sink.emit(_started())
+    await sink.emit(_event(ControlRequested(verb="cancel", reason="operator asked"), seq=1))
+    await sink.emit(_event(ControlObserved(verb="cancel", safe_point="tool_dispatch"), seq=2))
+    trace = collector.only()
+
+    assert trace.shape() == [("control.requested", "span"), ("control.observed", "span")]
+    assert (trace.named("control.requested").output, trace.named("control.requested").status) == (
+        "cancel requested",
+        "operator asked",
+    )
+    assert (trace.named("control.observed").output, trace.named("control.observed").status) == (
+        "cancel observed",
+        "at tool_dispatch",
+    )
+    assert [observed.finishes for observed in collector.everything()] == [0, 1, 1]
+
+
+async def test_a_control_signal_with_no_trace_open_is_left_to_the_process_that_has_one() -> None:
+    """A signal can be written by a process that never saw the run open — the same position a
+    tool result whose dispatch this sink missed is in."""
+    sink = LangfuseSink(collector := Collector())
+    await sink.emit(_event(ControlRequested(verb="pause")))
+
+    assert collector.traces == []
 
 
 async def test_a_tool_call_whose_completion_never_arrives_is_closed_when_the_run_ends() -> None:
@@ -559,8 +603,12 @@ async def test_no_arm_of_the_mapping_ever_suspends_so_none_can_spend_the_dispatc
             await sink.emit(_started())
             await sink.emit(_event(ending, seq=1))
         resumed = LangfuseSink(Collector())
-        await resumed.emit(_event(RunResumed(reason=None)))
+        await resumed.emit(_event(RunResumed(reason="approved", value=[TextBlock(text="approved")])))
         await resumed.emit(unknown)
+        controlled = LangfuseSink(Collector())
+        await controlled.emit(_started())
+        await controlled.emit(_event(ControlRequested(verb="pause", reason="operator"), seq=1))
+        await controlled.emit(_event(ControlObserved(verb="pause", safe_point="node_boundary"), seq=2))
         evicting = LangfuseSink(Collector(), max_open_runs=1, max_open_calls=1)
         await evicting.emit(_started("r-1"))
         await evicting.emit(_event(ToolCallStarted(call_id="c1", tool="search", args={}), run_id="r-1", seq=1))
