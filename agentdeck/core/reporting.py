@@ -9,7 +9,9 @@ Runtime, which owns the stream, is the only thing that turns one into an event.
 Buffered rather than delivered: a report is appended to a bounded buffer the Runtime drains at
 its next event. That is what keeps an advisory update from ever failing a tool call — an emitter
 is never charged for a store append, and a store that refuses one cannot surface as an exception
-inside somebody's tool. What it costs is timeliness, stated on :class:`Reporter`.
+inside somebody's tool. The Runtime holds the other half of that bargain: a report the store
+refuses is dropped and logged, never turned into a failed run. What it costs is timeliness,
+stated on :class:`Reporter`.
 """
 
 from __future__ import annotations

@@ -412,9 +412,19 @@ class Runtime:
 
         The count is taken once. A report arriving while these are being written belongs to the
         next payload's batch, so an emitter in a loop cannot starve the engine's own event.
+
+        A store that refuses a report costs the report, never the run: an advisory event is not
+        worth a run, and the alternative is a store that dislikes one *kind* turning a run that
+        would have completed into ``run.failed``. The ``seq`` that report consumed stays spent,
+        so the log shows a gap — the same gap any failed ``_record`` leaves, for any kind, and
+        not this arm's to close.
         """
         for _ in range(len(reports)):
-            yield await self._record(reports.popleft(), spec, ctx, next(seq))
+            payload = reports.popleft()
+            try:
+                yield await self._record(payload, spec, ctx, next(seq))
+            except StoreError:
+                logger.warning("run %s could not record its %s; dropping the report", ctx.run_id, payload.kind)
 
     def _resolve(self, name: str) -> tuple[InvocableSpec, EnginePort]:
         spec = self._invocables.get(name)

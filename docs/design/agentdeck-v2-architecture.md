@@ -304,9 +304,11 @@ tool six frames inside an engine cannot yield an event and must not import a Run
 default to doing nothing, so a `RunContext` built outside a run stays a value object: the
 reporter validates its arguments and drops the result. `Runtime.run`/`resume` bind both, and the
 reporter's buffer is per run and returned to the run, never held on the Runtime, so two
-concurrent runs cannot drain into each other. What that costs is stated on `Reporter`: reports
+concurrent runs cannot drain into each other. The bargain runs both ways: the emitter never
+awaits the store, and the Runtime drops a report the store refuses rather than failing the run
+over it — an advisory event is not worth a run. What that costs is stated on `Reporter`: reports
 are drained at the engine's next payload, so one made inside a single long tool call surfaces
-when the call ends. The alternative considered and rejected was a `ContextVar` — no threading at
+when the call ends and not while it runs. The alternative considered and rejected was a `ContextVar` — no threading at
 all, but a context var set inside an async generator leaks into the task that resumes it, so two
 runs iterated from one task would report into each other's logs, and a report is tenant-scoped
 data.

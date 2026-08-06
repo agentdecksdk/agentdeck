@@ -28,10 +28,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `current` past `total` raises immediately, at the call, whether or not a Runtime is
   listening. Reports are recorded in order, always before the run's terminal event, and
   the CLI reference renderer prints them (`[status] …` / `[progress] … (2/4)`).
-  Two honest limits: a report is written at the engine's next event, so one emitted
-  inside a single long tool call surfaces when that call ends rather than while it runs;
-  and reports are best-effort — more than 64 waiting at once are dropped with a warning
-  rather than growing without bound.
+  Three honest limits. A report is written at the engine's next event, so one emitted
+  inside a single long tool call surfaces when that call **ends** rather than while it
+  runs — enough for a client to show what a run has been doing, not enough to narrate a
+  single slow call as it happens. Reports are best-effort: more than 64 waiting at once
+  are dropped with a warning rather than growing without bound, and a report the event
+  log refuses is dropped too, because an advisory event is never worth failing a run
+  that would otherwise have completed.
   Reading a stream that contains them needs no change: a reader older than this release
   parses both as `UnknownEvent` and skips them, and because neither is a lifecycle kind
   a mixed-version deployment folds status identically on both sides.

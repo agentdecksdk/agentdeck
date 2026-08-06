@@ -857,6 +857,39 @@ async def test_a_caller_built_context_reports_into_nothing() -> None:
     assert [event.kind for event in events] == ["run.started", "run.completed"]
 
 
+async def test_a_store_that_refuses_a_report_costs_the_report_not_the_run(caplog) -> None:
+    """An advisory event is not worth a run. Every store today keeps events as opaque JSON, so a
+    store that dislikes one *kind* is a future rather than a bug — but it is the future this
+    change's own ledger cites (#101), and without this arm it turns a run that would have
+    completed into ``run.failed``.
+
+    The ``seq`` the refused report consumed stays spent, so the log has a gap. That is what any
+    failed ``_record`` leaves for any kind, and closing it is not this arm's job.
+    """
+
+    class _RefusesReports(MemoryEventStore):
+        async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
+            if any(event.kind == "status.reported" for event in events):
+                raise StoreError("this store has never heard of status.reported")
+            await super().append(log_key, events, ctx)
+
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = _RefusesReports()
+    runtime = Runtime([_Reporting()], store, {spec.name: spec}, clock=lambda: TS)
+
+    with caplog.at_level(logging.WARNING):
+        events = [event async for event in runtime.run("Greeter", INPUT, CTX)]
+
+    # The run is untouched: it completes, and the report that survived is still in it.
+    assert [event.kind for event in events] == ["run.started", "text.delta", "progress.reported", "run.completed"]
+    assert check_terminal(events) is None
+    assert status_of(await store.read(CTX.log_key, CTX)) is RunStatus.COMPLETED
+    assert "could not record its status.reported" in caplog.text
+    # The gap the dropped report leaves — recorded here so it is a known consequence, not a
+    # surprise, and identical in shape to a failed append of any other kind.
+    assert check_contiguous(await store.read(CTX.log_key, CTX)) == [2]
+
+
 def _approver() -> tuple[Runtime, MemoryEventStore]:
     """A workflow that suspends once, so a resume can be claimed against it."""
     spec = stub_spec(
