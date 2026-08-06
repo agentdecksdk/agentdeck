@@ -27,6 +27,17 @@ class Greeter(BaseAgent):
     instructions = "Greet the user, v2."
 """
 
+# One bundle, one class, bound under a second name — an alias kept after a rename. Not a
+# collision: it is the same class object claiming its own name twice, not two classes.
+ALIASED_AGENT_PY = """
+from agentdeck.agents import BaseAgent
+
+class Greeter(BaseAgent):
+    instructions = "Greet the user."
+
+GreeterAgent = Greeter
+"""
+
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
@@ -46,6 +57,16 @@ def duplicate_class_name_project(tmp_path, monkeypatch):
     (root / "agents" / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
     (root / "agents" / "greeter-v2").mkdir(parents=True)
     (root / "agents" / "greeter-v2" / "agent.py").write_text(textwrap.dedent(GREETER_V2_AGENT_PY))
+    monkeypatch.chdir(tmp_path)
+    for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
+        del sys.modules[mod]
+
+
+@pytest.fixture
+def aliased_class_project(tmp_path, monkeypatch):
+    root = tmp_path / ".agentdeck"
+    (root / "agents" / "greeter").mkdir(parents=True)
+    (root / "agents" / "greeter" / "agent.py").write_text(textwrap.dedent(ALIASED_AGENT_PY))
     monkeypatch.chdir(tmp_path)
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
@@ -88,9 +109,24 @@ def test_two_same_kind_bundles_sharing_a_class_name_raise_naming_both(duplicate_
     with pytest.raises(ConfigError) as excinfo:
         App().load()
     message = str(excinfo.value)
-    assert "agents/greeter" in message
-    assert "agents/greeter-v2" in message
-    assert "Greeter" in message
+    # Quoted, not bare substrings: "agents/greeter" is itself a substring of
+    # "agents/greeter-v2", so a bare-substring check passes even if the message only
+    # ever named the second bundle — pin the exact quoted forms the message emits.
+    assert "'agents/greeter'" in message
+    assert "'agents/greeter-v2'" in message
+    assert message.count("Greeter") >= 1
+
+
+def test_one_bundle_aliasing_its_own_class_is_not_a_collision(aliased_class_project):
+    """A bundle binding one class under two names (an alias kept after a rename) must still load.
+
+    ``vars(module)`` yields one entry per *binding*, not per class — ``GreeterAgent = Greeter``
+    must not trip the same-name guard against itself.
+    """
+    from agentdeck import App
+
+    inventory = App().load()
+    assert inventory["agents"] == ["Greeter"]
 
 
 def test_bundle_import_failure_is_wrapped_with_its_path(tmp_path, monkeypatch):

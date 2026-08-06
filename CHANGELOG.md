@@ -151,7 +151,8 @@ is unchanged and still runs its own path.
   Adding an agent or a workflow to a project no longer means editing wiring code.
   An agent and a workflow claiming one name, and a project whose bundles need an
   engine the Runtime wasn't given, both fail at load with a message naming the
-  offender, rather than at the moment somebody runs it.
+  offender, rather than at the moment somebody runs it. (Two bundles of the same
+  kind exporting one class name still collapse to a single invocable, as in v1.)
   Skills are not discovered as invocables yet — no engine runs a `SKILL.md`
   bundle. v1's `App` and its discovery are unchanged.
 - `ToolSourcePort` (`agentdeck.core.ports`): tools now arrive from a source
@@ -217,7 +218,8 @@ is unchanged and still runs its own path.
   string in both fields is unaffected.
 - A project where an agent class and a workflow class share one name now fails at
   `App.load()` with a message naming both, instead of loading two invocables that
-  the HTTP surface could not tell apart.
+  the HTTP surface could not tell apart. Two bundles of the same kind exporting
+  one class name still collapse to a single invocable, as before.
 - The streamed `done` frame serializes a structured `output_type` result the same
   way the non-streamed body always has, so the two agree. Only nested values
   whose JSON form differs from `str()` change: a `datetime` in a structured output

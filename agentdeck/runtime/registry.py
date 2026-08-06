@@ -24,7 +24,11 @@ class PluginRegistry(Generic[T]):
     """Discover ``T`` subclasses in ``<package>/<type_dir>/<bundle>/<module_name>.py``.
 
     Lazy: discovery runs on the first :meth:`list` call and is cached on
-    the instance. Pass ``refresh=True`` to force a re-scan.
+    the instance. Pass ``refresh=True`` to force a re-scan. Two *different* bundles
+    that define a class of the same name raise ``ConfigError`` naming both bundle
+    paths — one name is one invocable, never a silent shadow in bundle-sort order.
+    A single bundle binding one class under two names (e.g. an alias kept after a
+    rename) is not a collision: it is the same object claiming its name twice.
     """
 
     package: str
@@ -77,11 +81,16 @@ class PluginRegistry(Generic[T]):
                     and attr is not self.base_class
                     and attr.__module__ == module.__name__
                 ):
-                    if attr.__name__ in found:
+                    # Identity, not name: ``vars(module)`` yields one entry per *binding*, so a
+                    # bundle aliasing its own class under a second name (kept after a rename)
+                    # must not trip this against itself — only a second, different class
+                    # claiming a name already taken is the collision.
+                    claimant = found.get(attr.__name__)
+                    if claimant is not None and claimant is not attr:
                         raise ConfigError(
-                            f"two {self.type_dir} bundles both define {self.label} class {attr.__name__!r}: "
-                            f"'{self.type_dir}/{bundle_of[attr.__name__]}' and '{self.type_dir}/{child.name}'. "
-                            "One name must be one invocable — rename one of the classes."
+                            f"two bundles under '{self.type_dir}/' both define the {self.label} class "
+                            f"{attr.__name__!r}: '{self.type_dir}/{bundle_of[attr.__name__]}' and "
+                            f"'{self.type_dir}/{child.name}'; one name is one invocable — rename one of the classes."
                         )
                     found[attr.__name__] = attr
                     bundle_of[attr.__name__] = child.name
