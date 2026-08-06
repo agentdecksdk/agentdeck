@@ -194,6 +194,23 @@ async def test_an_inline_data_uri_in_tool_args_never_reaches_the_langfuse_media_
     assert spy.media_queued() > 0
 
 
+def test_the_tracer_s_flush_is_the_sdk_client_s_own() -> None:
+    """One line of delegation, and the line the sink's close rests on: without it, everything the
+    SDK has batched leaves the process only if its exit hook gets to run."""
+
+    class Client:
+        def __init__(self) -> None:
+            self.flushes = 0
+
+        def flush(self) -> None:
+            self.flushes += 1
+
+    client = Client()
+    LangfuseTracer(client).flush()
+
+    assert client.flushes == 1
+
+
 def test_configured_keys_yield_a_sink_over_the_real_sdk(spy) -> None:  # noqa: ANN001
     """The unconfigured half lives in ``test_langfuse_sink.py``; this is the other branch."""
     sink = langfuse_sink(

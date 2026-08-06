@@ -10,6 +10,7 @@ actually hand this sink.
 from __future__ import annotations
 
 import asyncio
+import logging
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -48,6 +49,8 @@ from agentdeck.runtime.settings import LangfuseSettings
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
+
+    import pytest
 
     from agentdeck.adapters.telemetry.langfuse.trace import Level, ObservationKind
     from agentdeck.core.events import KnownPayload
@@ -145,6 +148,8 @@ class Collector:
     """Stands in for Langfuse: every trace opened, in memory, in the order it was opened."""
 
     traces: list[Observed] = field(default_factory=list)
+    flushes: int = 0
+    unfinished_at_flush: list[int] = field(default_factory=list)
 
     def root(
         self,
@@ -168,6 +173,12 @@ class Collector:
         )
         self.traces.append(recorded)
         return recorded
+
+    def flush(self) -> None:
+        """Stands in for the SDK's blocking flush, and records what a real one could not ship:
+        an observation nobody finished is not in the buffer being flushed."""
+        self.flushes += 1
+        self.unfinished_at_flush.append(sum(1 for observed in self.everything() if not observed.finishes))
 
     def only(self) -> Observed:
         assert len(self.traces) == 1, f"expected one trace, got {[trace.name for trace in self.traces]}"
@@ -555,6 +566,36 @@ async def test_no_arm_of_the_mapping_ever_suspends_so_none_can_spend_the_dispatc
         await evicting.emit(_event(ToolCallStarted(call_id="c1", tool="search", args={}), run_id="r-1", seq=1))
         await evicting.emit(_event(ToolCallStarted(call_id="c2", tool="search", args={}), run_id="r-1", seq=2))
         await evicting.emit(_started("r-2"))
+
+
+async def test_a_shutdown_ships_the_buffer_instead_of_leaving_it_to_the_sdk_s_atexit() -> None:
+    """The SDK batches and ships from its own thread, so a run that finishes seconds before the
+    process dies is only in that buffer — and the exit hook meant to flush it never runs when the
+    process is killed outright."""
+    collector = await _traced(*WORKFLOW)
+
+    assert collector.flushes == 1  # once, at the close, not once per event
+    assert collector.only().finishes == 1
+
+
+async def test_a_run_still_open_at_shutdown_is_closed_so_its_trace_can_be_shipped(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An observation nobody finished is never shipped at all, so flushing is not enough on its
+    own: a run the shutdown cut short has to end as interrupted rather than vanish."""
+    caplog.set_level(logging.WARNING, logger="agentdeck.adapters.telemetry.langfuse.sink")
+    sink = LangfuseSink(collector := Collector())
+    await sink.emit(_started())
+    await sink.emit(_event(ToolCallStarted(call_id="c1", tool="search", args={}), seq=1))
+
+    await sink.close()
+
+    trace = collector.only()
+    assert (trace.finishes, trace.level) == (1, "WARNING")
+    assert trace.status == "the process shut down before the run ended"
+    assert trace.named("search").finishes == 1
+    assert collector.unfinished_at_flush == [0]  # everything was closed before the buffer shipped
+    assert "1 langfuse traces were still open at shutdown" in [record.getMessage() for record in caplog.records]
 
 
 def test_langfuse_without_keys_yields_no_sink_to_register() -> None:

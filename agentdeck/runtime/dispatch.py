@@ -50,6 +50,12 @@ EMIT_TIMEOUT = 5.0
 # to finish even against a sink that never returns, and the store already has every event.
 SHUTDOWN_TIMEOUT = 10.0
 
+# The longest a shutdown waits for a sink's own ``close`` — its last chance to write out what
+# it buffered. A budget of its own rather than a share of the one above, because a sink whose
+# backlog just timed out is exactly the one holding something worth flushing, and it would
+# reach this with nothing left to spend.
+CLOSE_TIMEOUT = 5.0
+
 # The longest a shutdown then waits for the cancelled consumer task to actually end. Short
 # because by this point nothing is expected of it: a sink whose emit swallows the
 # cancellation keeps its consumer alive through it, and waiting unbounded on a task that has
@@ -103,8 +109,10 @@ class SinkDispatch:
         self._consecutive_failures = 0
         self._inflight: Event | None = None
         self._closed = False
+        self._quiesced = False
         self.dropped = 0
         self.failed = 0
+        self.close_failed = False
         self.disabled = False
 
     @property
@@ -175,22 +183,29 @@ class SinkDispatch:
                 raise
 
     async def close(self, timeout: float = SHUTDOWN_TIMEOUT) -> None:
-        """Flush what the sink has not taken, stop its consumer, and count what is left.
+        """Flush what the sink has not taken, stop its consumer, close the sink, count the rest.
 
-        Returns in bounded time whatever the sink does: both waits it makes have deadlines, so a
-        sink that neither takes an event nor lets go of its consumer can delay a shutdown but
-        never prevent one.
+        Returns in bounded time whatever the sink does: every wait it makes has a deadline, so a
+        sink that neither takes an event, nor lets go of its consumer, nor finishes its own
+        ``close`` can delay a shutdown but never prevent one.
 
         Terminal and idempotent: closing marks the dispatch shut before it waits for anything,
         so an event submitted by a run still winding down is counted as lost instead of landing
         in a queue nobody will read again — the window between "backlog flushed" and "consumer
         cancelled" is exactly where an event would otherwise be stranded or resurrect a
-        consumer this call just retired.
+        consumer this call just retired. The sink's ``close`` happens exactly once, and after the
+        consumer is reaped rather than beside it: cancelling the consumer first is what gets a
+        sink out of an ``emit`` before it is asked to flush — for every sink that honours a
+        cancellation, which is as far as a shutdown can go with the ones that do not.
         """
         if self._closed:
             return
         self._closed = True
         await self.flush(timeout)
+        # Nothing reaches the sink's ``emit`` from here on, whichever way the flush ended: the
+        # cancel below does not always land (a sink can swallow it and keep its consumer), and a
+        # sink told its stream is over must not then be handed one more event.
+        self._quiesced = True
         consumer = self._consumer
         self._consumer = None
         if consumer is not None:
@@ -198,24 +213,60 @@ class SinkDispatch:
                 logger.error("sink %s has no consumer left; %d queued events go undelivered", self._name, self.depth)
             consumer.cancel()
             try:
-                async with asyncio.timeout(REAP_TIMEOUT):
+                # Waited on from the outside, never as a deadline wrapped around ``await consumer``:
+                # a deadline fires by cancelling *this* task, and a task suspended on another one
+                # hands that cancel straight to it — into the very sink that just proved it
+                # swallows them, leaving the deadline spent and nothing left to fire again.
+                reaped, _ = await asyncio.wait({consumer}, timeout=REAP_TIMEOUT)
+                if reaped:
+                    # Done, so this cannot suspend and no cancel can be forwarded into it; awaiting
+                    # is only how the task's outcome gets collected instead of logged by the loop.
                     await consumer
-            except TimeoutError:
-                # A sink that swallows the cancellation inside its own emit keeps the consumer
-                # running, and shutdown is not the place to argue with it: whether the task dies
-                # later is the sink's business, not ours, and this call has to end either way.
-                logger.warning(
-                    "sink %s did not release its consumer within %ss; abandoning the task", self._name, REAP_TIMEOUT
-                )
+                else:
+                    # A sink that swallows the cancellation inside its own emit keeps the consumer
+                    # running, and shutdown is not the place to argue with it: whether the task dies
+                    # later is the sink's business, not ours, and this call has to end either way.
+                    logger.warning(
+                        "sink %s did not release its consumer within %ss; abandoning the task",
+                        self._name,
+                        REAP_TIMEOUT,
+                    )
             except asyncio.CancelledError:
                 if _cancelling_ourselves():
                     raise
+        await self._close_sink()
         # Cancelling the consumer strands its queue and whatever emit it was inside; both are
         # losses, and counters that disagree with the log line below are how a lost tail turns
         # into a mystery.
         self.dropped += self.depth + (1 if self._inflight is not None else 0)
         if self.dropped or self.failed:
             logger.warning("sink %s lost %d events and failed %d emits", self._name, self.dropped, self.failed)
+
+    async def _close_sink(self) -> None:
+        """Give the sink its one chance to write out what it buffered, bounded and non-fatal.
+
+        A shutdown that a sink's flush could hang, or fail, would be a worse bargain than the
+        lost telemetry it is trying to save — the event log is still the complete record either
+        way, so everything that can go wrong here is counted and logged instead.
+        """
+        try:
+            async with asyncio.timeout(CLOSE_TIMEOUT):
+                await self._sink.close()
+        except TimeoutError:
+            self.close_failed = True
+            logger.warning(
+                "sink %s did not finish its close within %ss; whatever it still held is lost",
+                self._name,
+                CLOSE_TIMEOUT,
+            )
+        except asyncio.CancelledError:
+            if _cancelling_ourselves():
+                raise
+            self.close_failed = True
+            logger.exception("sink %s raised CancelledError from its close", self._name)
+        except Exception:
+            self.close_failed = True
+            logger.exception("sink %s failed in its close; whatever it still held is lost", self._name)
 
     def _ensure_consumer(self) -> None:
         # Started on first use, not in __init__: a Runtime is usually built before the loop runs.
@@ -231,13 +282,20 @@ class SinkDispatch:
         """Take the queue one event at a time, for as long as the sink is worth calling.
 
         A disabled sink's queue is still emptied rather than abandoned, so the backlog it
-        leaves behind is counted as lost instead of just quietly sitting there.
+        leaves behind is counted as lost instead of just quietly sitting there. A close is the
+        opposite case and ends the loop: a consumer that outlived the cancellation retiring it
+        would otherwise drain a backlog the close already wrote off, counting every event in it
+        a second time — and hand a closed sink events besides.
         """
-        while True:
+        while not self._quiesced:
             event = await self._queue.get()
             self._inflight = event
             try:
-                if self.disabled:
+                # ``_quiesced`` here is belt and braces: unreachable today, because the loop
+                # condition above already saw it and nothing suspends between it being set and the
+                # consumer being cancelled. It stays as the emit gate proper — an await appearing
+                # in that window would otherwise silently start handing a closed sink events.
+                if self.disabled or self._quiesced:
                     self._count_drop(event)
                 else:
                     await self._emit(event)
@@ -301,6 +359,7 @@ class SinkDispatch:
 
 
 __all__ = [
+    "CLOSE_TIMEOUT",
     "EMIT_TIMEOUT",
     "FAILURE_LIMIT",
     "LOG_INTERVAL",

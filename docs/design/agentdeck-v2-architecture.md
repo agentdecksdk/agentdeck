@@ -354,6 +354,8 @@ class EventStorePort(ABC):
 # amendment: fed from a queue that drops rather than wait, so a sink is a lossy tap)
 class EventSinkPort(ABC):
     async def emit(self, event: Event) -> None: ...
+    async def close(self) -> None: ...  # optional, default no-op (#99): a buffering sink's
+                                        # one bounded chance to flush at shutdown
 
 # core/ports/control.py
 class Signal(StrEnum): PAUSE = "pause"; RESUME = "resume"; CANCEL = "cancel"
@@ -596,10 +598,16 @@ same trace. A suspended run closes its root observation and its resume opens a s
 under that same trace id, because a span held open until a human answers is a trace nobody
 can see while it waits. And the run's token total from `run.completed` becomes a
 `run.usage` generation, since Langfuse accounts usage on generations only. Buffering and
-delivery are the Langfuse SDK's batching processor, which is also what flushes at exit —
-`SinkDispatch.close()` has no hook back into a sink, so anything still buffered when a
-process is killed outright is lost, and the event log stays the complete record. Like
-`tools/mcp/`, the adapter reads `runtime.settings` for its own config group.)*
+delivery are the Langfuse SDK's batching processor. Like `tools/mcp/`, the adapter reads
+`runtime.settings` for its own config group.)*
+*(Amended 2026-08-06, #99 — that buffer no longer depends on the SDK's exit hook:
+`EventSinkPort` grew an optional `close()`, called once per sink by `SinkDispatch.close()`
+after the backlog is handed over and the consumer reaped, and the Langfuse sink uses it to
+finish the traces still open — an unfinished observation is never shipped — and flush the SDK
+itself. Bounded by `CLOSE_TIMEOUT` and non-fatal, like every other wait on that path, so the
+worst a sink's flush can cost a shutdown is one more deadline. A disabled sink is closed too:
+the breaker's verdict is about taking events, not about writing out the ones already taken.
+The event log stays the complete record regardless.)*
 **`protocols/`** hosts the
 per-protocol serializers: `sse` (extracted from `serve.py`), `acp` (§11), later `ag-ui`
 and `a2a`.
