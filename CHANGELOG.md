@@ -116,9 +116,12 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   is called at most once, and no `emit` is ever started after it, not even by a
   consumer that outlived the cancellation retiring it. It is also called on a sink
   that never saw an event, since a process can shut down without running anything.
-  One caveat worth knowing if your sink both buffers *and* swallows cancellation:
-  such a sink can still be inside an `emit` while its `close` runs, because nothing
-  short of ending the process gets it out of one. Bounded and non-fatal like every
+  One caveat worth knowing if your sink buffers: an `emit` that has not *finished*
+  when the dispatch stops waiting for it still overlaps `close` — whether it
+  swallowed the cancellation sent to end it, or simply awaits something while
+  unwinding (an `await` in a `finally` or an `except`, such as salvaging a partial
+  result). Read-`await`-clear inside `close` can therefore drop what that emit adds
+  in between; guard the buffer instead. Bounded and non-fatal like every
   other wait on the sink path: a `close` still running after `CLOSE_TIMEOUT` (5s) is
   abandoned, anything it raises is logged and flagged (`SinkDispatch.close_failed`),
   and neither can delay a shutdown further or break it. A sink the failure breaker

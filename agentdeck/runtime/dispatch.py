@@ -291,6 +291,10 @@ class SinkDispatch:
             event = await self._queue.get()
             self._inflight = event
             try:
+                # ``_quiesced`` here is belt and braces: unreachable today, because the loop
+                # condition above already saw it and nothing suspends between it being set and the
+                # consumer being cancelled. It stays as the emit gate proper — an await appearing
+                # in that window would otherwise silently start handing a closed sink events.
                 if self.disabled or self._quiesced:
                     self._count_drop(event)
                 else:

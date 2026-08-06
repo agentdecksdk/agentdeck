@@ -38,11 +38,12 @@ class EventSinkPort(ABC):
 
         Called once at shutdown, after the dispatch has stopped feeding the sink: no ``emit``
         begins after this, so a sink may release what it was holding without guarding the rest of
-        itself against a further event. One exception, and the only one — a sink that swallows the
-        cancellation sent to retire its consumer can still be *inside* an ``emit`` while this
-        runs, because nothing short of ending the process gets it out of one. A sink that both
-        eats cancellations and buffers must therefore keep that buffer safe to touch from two
-        places; every other sink may treat this as running alone.
+        itself against a further event. One that already began can still be running, though — an
+        ``emit`` that has not finished by the time the dispatch stops waiting for it, whether
+        because it swallowed the cancellation sent to end it or because it does async work while
+        unwinding (an ``await`` in a ``finally`` or an ``except``), overlaps this call. So a
+        buffering sink must keep its buffer safe to touch from two places: read-``await``-clear
+        here can drop whatever a still-unwinding ``emit`` adds in between.
 
         Called even on a sink that never saw an event, since a process can shut down without
         having run anything: a flush that costs something should tolerate having nothing to flush.
@@ -52,7 +53,7 @@ class EventSinkPort(ABC):
         about being able to flush the ones already taken.
 
         Bounded and non-fatal, like every other wait on a sink: one that takes too long is
-        abandoned mid-flush, and anything raised here is logged and counted rather than
+        abandoned mid-flush, and anything raised here is logged and flagged rather than
         allowed to break a shutdown. A sink that needs its flush to be certain is asking for
         delivery guarantees, which belong to the store, not here.
         """

@@ -637,8 +637,8 @@ async def test_a_closed_sink_is_never_handed_another_event(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """What a sink may assume, and the case that makes it worth stating: a consumer that ate the
-    cancellation retiring it is still there, still reading, and must not reach a sink that has
-    already let go of its buffer."""
+    cancellation retiring it is still alive, and must reach no sink that has already let go of its
+    buffer — so it takes nothing further, rather than taking events and discarding them."""
     caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
     monkeypatch.setattr("agentdeck.runtime.dispatch.REAP_TIMEOUT", 0.05)
     sink = CloseDeaf()
@@ -651,7 +651,8 @@ async def test_a_closed_sink_is_never_handed_another_event(
 
     assert sink.emits_after_close == 0
     assert (sink.closes, sink.written) == (1, [0])  # the event it did take still got written out
-    assert dispatch.dropped == 1  # seq 1 reached a consumer that was no longer allowed to emit
+    assert dispatch.dropped == 1  # seq 1 was never taken: the consumer retired at its loop condition
+    assert dispatch.depth == 1  # and it is still in the queue, which is where close counted it
 
 
 async def test_a_sink_that_hangs_in_its_close_does_not_hold_shutdown_open(
