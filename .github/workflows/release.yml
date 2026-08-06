@@ -16,6 +16,34 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Same service containers as ci.yml (#75): without them the Redis and Postgres store
+    # tests skip, and a release gate that skips ~80 tests a merge gate ran is a narrower
+    # gate — which is the thing this job's own comment below forbids.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: agentdeck_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      AGENTDECK_TEST_REDIS_URL: redis://127.0.0.1:6379/15
+      AGENTDECK_TEST_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/agentdeck_test
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5

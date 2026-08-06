@@ -252,3 +252,46 @@ def test_run_sync_propagates_exceptions_from_inside_a_loop():
             _run_sync(_boom())
 
     asyncio.run(_inside_loop())
+
+
+def test_a_sqlite_checkpointer_is_rebuilt_for_each_event_loop_that_asks_for_one(tmp_path):
+    """One process, two loops, one checkpoint file: the second loop must not be handed the
+    first's saver.
+
+    The async savers hold asyncio primitives — a ``Lock``, and under it a connection — that
+    bind to the first loop to *contend* for them, so an uncontended saver crosses loops by
+    luck and a busy one raises "bound to a different event loop". Contention is therefore
+    created here on purpose, which is also the only condition under which a server would
+    ever have noticed.
+    """
+    pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
+    from agentdeck.adapters.engines.langgraph import resolve_checkpointer
+
+    path = str(tmp_path / "checkpoints.sqlite3")
+    config = {"configurable": {"thread_id": "t-1", "checkpoint_ns": ""}}
+
+    async def _resolve_and_use():
+        saver = resolve_checkpointer("sqlite", path)
+        await asyncio.gather(*(saver.aget_tuple(config) for _ in range(4)))
+        return saver
+
+    first = asyncio.run(_resolve_and_use())
+    second = asyncio.run(_resolve_and_use())
+
+    assert second is not first
+
+
+def test_one_loop_still_gets_one_checkpointer_however_often_it_asks(tmp_path):
+    """The per-loop rebuild is not "stop caching": a server compiling several durable graphs
+    on its own loop still shares the one connection, which is what the cache is for."""
+    pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
+    from agentdeck.adapters.engines.langgraph import resolve_checkpointer
+
+    path = str(tmp_path / "checkpoints.sqlite3")
+
+    async def _resolve_twice():
+        return resolve_checkpointer("sqlite", path), resolve_checkpointer("sqlite", path)
+
+    first, second = asyncio.run(_resolve_twice())
+
+    assert first is second

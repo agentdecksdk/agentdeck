@@ -69,7 +69,13 @@ def v1_engines(session_for: Callable[[str], Session] | None = None) -> tuple[Eng
 
 
 def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePort:
-    """Build the event store named by ``backend``: ``memory`` (default) or ``sqlite``."""
+    """Build the event store named by ``backend``: ``memory`` (default), ``sqlite``,
+    ``redis`` or ``postgres``.
+
+    The last two are imported inside their own branch, not at module scope: this module is on
+    the import path of every entry point, and Postgres needs the ``[durability]`` extra, so a
+    top-level import would make that extra mandatory for anyone who only chats.
+    """
     events = settings if settings is not None else get_settings().events
     backend = events.backend.strip().lower()
     if backend == "memory":
@@ -78,7 +84,24 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
         if not events.url:
             raise ValueError("the sqlite event store needs a file path: set AGENTDECK_EVENTS_URL")
         return SqliteEventStore(events.url)
-    raise ValueError(f"unknown event store backend {events.backend!r}; expected memory or sqlite")
+    if backend == "redis":
+        if not events.url:
+            raise ValueError("the redis event store needs a URL: set AGENTDECK_EVENTS_URL")
+        from agentdeck.adapters.stores.redis import RedisEventStore
+
+        return RedisEventStore(events.url)
+    if backend == "postgres":
+        if not events.url:
+            raise ValueError("the postgres event store needs a DSN: set AGENTDECK_EVENTS_URL")
+        try:
+            from agentdeck.adapters.stores.postgres import PostgresEventStore
+        except ImportError as exc:
+            raise ImportError(
+                'the postgres event store needs psycopg — install the "durability" extra: '
+                'pip install "agentdeck[durability]"'
+            ) from exc
+        return PostgresEventStore(events.url)
+    raise ValueError(f"unknown event store backend {events.backend!r}; expected memory, sqlite, redis or postgres")
 
 
 __all__ = ["build_runtime", "resolve_event_store", "v1_engines"]

@@ -9,6 +9,34 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 ## [Unreleased]
 
 ### Added
+- **Redis and Postgres event logs** — `AGENTDECK_EVENTS_BACKEND=redis` or
+  `=postgres`, with `AGENTDECK_EVENTS_URL` as the Redis URL or the Postgres DSN,
+  puts the canonical event log somewhere **several workers can share**. That was
+  not possible before: SQLite's durability rests on cross-process shared memory,
+  so one events file behind more than one machine is unsupported. The store
+  classes are `RedisEventStore(url)` (`agentdeck.adapters.stores.redis`) and
+  `PostgresEventStore(dsn)` (`agentdeck.adapters.stores.postgres`) for anyone
+  wiring a `Runtime` directly.
+  Both implement the whole store port, including the two atomic claims that keep
+  one resume and one turn per session correct *between processes* and not merely
+  between tasks: Postgres decides and writes inside one transaction holding that
+  log's lock, Redis over `WATCH`/`MULTI`/`EXEC`. Every case in the cross-store
+  contract suite runs against all four backends on real servers, so the four
+  answer identically — one `seq` per run refused a second time included.
+  Each keeps to its own keyspace — a Postgres schema (`agentdeck_events` by
+  default, overridable with `schema=`) and a Redis key prefix
+  (`agentdeck:events`, overridable with `prefix=`) — so a database or instance
+  shared with LangGraph checkpoints or the agent-conversation store keeps the
+  log separate, and either side can be dropped without touching the other.
+  Redis needs no new dependency; Postgres needs the `[durability]` extra, which
+  now also installs `psycopg[binary]` (nothing else pays for it — the driver is
+  imported only when you select that backend). Three things to know when
+  operating them: a Redis instance used as the record wants `appendonly yes`
+  (the port promises an event a consumer has seen is already stored, and the
+  default snapshot-only persistence can lose the last seconds of a log) **and**
+  `maxmemory-policy noeviction` (this is a log, not a cache — an evicted key can
+  cost a live run its session); and a store call that cannot reach its server
+  raises `StoreError` rather than reporting a claim somebody else won.
 - `DataBlock` (`agentdeck.core`): structured data is now content, alongside
   `TextBlock`, `ImageBlock` and `ResourceBlock`. `DataBlock(data=...)` carries any
   JSON value, so anywhere the v2 API takes or returns content blocks —
@@ -60,10 +88,11 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 - `AGENTDECK_EVENTS_BACKEND` / `AGENTDECK_EVENTS_URL` (YAML: `events:`) choose
   where the canonical event log goes: `memory` (the default — no configuration,
   no files, and a log that lives and dies with the process) or `sqlite` with
-  `url` pointing at a file, for a log that survives a restart. The default never
-  evicts and is lost on restart, so a long-lived server keeps every event it saw
-  and re-reads the whole conversation each turn — `agentdeck-serve` says so once
-  at startup rather than leaving you to find out.
+  `url` pointing at a file, for a log that survives a restart, or `redis` /
+  `postgres` for one several workers can share (see the entry above). The default
+  never evicts and is lost on restart, so a long-lived server keeps every event it
+  saw and re-reads the whole conversation each turn — `agentdeck-serve` says so
+  once at startup rather than leaving you to find out.
 - Langfuse tracing for **workflow** runs, not only agent runs
   (`agentdeck.adapters.telemetry.langfuse`). `langfuse_sink()` hands back an
   event sink — or `None` when Langfuse has no keys — to register where you build
@@ -255,6 +284,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   between them for the same reason, so keep them on NTP and leave headroom.
 
 ### Fixed
+- A durable LangGraph checkpointer can now be used by more than one event loop in
+  one process. The sqlite and postgres savers were cached for the process
+  lifetime, and each holds an internal lock that binds to the first event loop to
+  contend for it — so a script or test that called `asyncio.run()` twice against
+  the same durable graph failed the second time with `RuntimeError: ... is bound
+  to a different event loop`, usually only once real concurrency showed up. Each
+  loop now gets its own saver, and a loop that asks repeatedly still shares one
+  connection. The in-memory saver is unchanged and still shared, so
+  `durable = True` on the memory backend keeps resuming across `asyncio.run`
+  calls as before.
 - An `output_type` agent run through the v2 `Runtime` no longer fails at its last
   step. The openai-agents engine refused any non-`str` final output, which turned
   a documented feature into a failed run; the validated result (pydantic model,

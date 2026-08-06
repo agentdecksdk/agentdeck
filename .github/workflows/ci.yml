@@ -9,6 +9,37 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+    # The Redis and Postgres event logs are contract-tested against real servers (#75) —
+    # a store proved only against a mock is not proved. Service containers rather than
+    # testcontainers: the gate already installs one dependency set and runs one command,
+    # and this keeps the servers out of the Python environment entirely.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: agentdeck_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    # Spelled out rather than left to the harness's own defaults, so the addresses the
+    # gate runs against are visible next to the containers that serve them.
+    env:
+      AGENTDECK_TEST_REDIS_URL: redis://127.0.0.1:6379/15
+      AGENTDECK_TEST_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/agentdeck_test
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -28,11 +59,15 @@ jobs:
       - name: Test
         run: .venv/bin/pytest tests/ -q --junit-xml=/tmp/pytest-results.xml
       # Guard against a whole subsystem silently dropping out of the gate again (#33): a
-      # full run with [dev,serve,durability] skips ~43 tests today (parametrized
+      # full run with [dev,serve,durability] skips ~44 tests today (parametrized
       # "only applies to X" contract cases, plus the unrelated [observability] extra).
       # If durability's importorskip guards ever start firing again, the count jumps to
       # ~50 — the ceiling below has just enough headroom for incidental new skips to not
       # false-positive, while still catching that jump. Bump it only with a stated reason.
+      # The ceiling is deliberately unchanged for the Redis/Postgres stores (#75): with the
+      # services above they add ~80 running tests and no skips, and if a container fails to
+      # come up they skip instead — which takes the count to ~120 and fails here, exactly
+      # the "proved nothing and went green" outcome this guard is for.
       - name: Guard against silently-skipped durability tests
         run: |
           ceiling=46

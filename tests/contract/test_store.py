@@ -4,6 +4,11 @@ engine cases are. Ordering/tenancy/round-trip invariants for ``append``, ``read`
 ``read_run`` already live in ``tests/test_memory_store.py`` and ``tests/test_sqlite_store.py``;
 this file covers only the newer focused ops.
 
+Parametrized over all four stores: memory, SQLite, and — on real servers, skipping with a
+reason when there is none — Redis and Postgres (``live_stores``). Backend-specific evidence
+that needs no second store lives beside each one instead: ``tests/test_sqlite_store.py``,
+``tests/test_redis_store.py``, ``tests/test_postgres_store.py``.
+
 The last case is a boundary invariant rather than a query one, and covers both SQLite-backed
 ports by shape: whatever fails underneath, callers see the harness's own error type.
 """
@@ -15,10 +20,10 @@ import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+import live_stores
 import pytest
 
 from agentdeck.adapters.control.sqlite import SqliteControlPort
-from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.adapters.stores.sqlite import store as sqlite_store
 from agentdeck.core.context import RunContext
@@ -39,7 +44,7 @@ from agentdeck.core.status import RunStatus
 from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Coroutine
+    from collections.abc import AsyncIterator, Callable, Coroutine
     from pathlib import Path
 
     from agentdeck.core.ports import EventStorePort
@@ -47,9 +52,12 @@ if TYPE_CHECKING:
 TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 
-@pytest.fixture(params=[MemoryEventStore, SqliteEventStore], ids=["memory", "sqlite"])
-def event_store(request: pytest.FixtureRequest) -> EventStorePort:
-    return request.param()
+@pytest.fixture(params=live_stores.BACKENDS)
+async def event_store(request: pytest.FixtureRequest) -> AsyncIterator[EventStorePort]:
+    """Every case against every store — including Redis and Postgres on real servers, which
+    skip with a reason naming the env var when there is none (``live_stores``)."""
+    async with live_stores.event_store(request.param) as store:
+        yield store
 
 
 def _ctx(tenant: str = "acme") -> RunContext:
@@ -318,6 +326,25 @@ async def test_one_seq_per_run_does_not_stop_two_runs_sharing_a_seq_in_one_log(
     assert [event.seq for event in await event_store.read("s-1", ctx)] == [0, 0]
 
 
+async def test_one_seq_per_run_holds_on_the_claim_paths_too(event_store: EventStorePort) -> None:
+    """The same guarantee, asked of ``claim_start`` rather than ``append``.
+
+    A conditional append is still an append, and its refusal of a *busy session* is a different
+    answer from its refusal of a *spent seq*: the first is data (``held_by``), the second is a
+    store error, because a duplicate is corruption rather than a race somebody lost. A store
+    that enforced one seq per run only on the plain path would let this one through, and the log
+    would hold two different events at ``(r-1, 0)`` with nothing to reveal it — a gap check sees
+    no hole, and ``last_seq`` reads the same either way.
+    """
+    ctx = _ctx()
+    closing = RunCompleted(output=[], usage={"input_tokens": 1, "output_tokens": 1})
+    await event_store.append("s-1", [_opening(run_id="r-1"), _event(1, closing, run_id="r-1")], ctx)
+
+    with pytest.raises(StoreError):
+        await event_store.claim_start("s-1", _opening(run_id="r-1"), ctx, BEFORE_ANY_EVENT)
+    assert [(event.run_id, event.seq) for event in await event_store.read("s-1", ctx)] == [("r-1", 0), ("r-1", 1)]
+
+
 async def _interrupt(event_store: EventStorePort, ctx: RunContext, run_id: str = "r-1") -> None:
     """Leave one run parked in ``WAITING_HUMAN`` — the only status a resume may claim."""
     interrupted = RunInterrupted(interrupt_id="i-1", reason="human", payload={"q": "ok?"}, thread_id="t-1")
@@ -510,6 +537,26 @@ async def test_paginated_read_past_the_end_is_empty(event_store: EventStorePort)
     ctx = _ctx()
     await event_store.append("s-1", [_event(0, _started())], ctx)
     assert await event_store.read("s-1", ctx, offset=10) == []
+
+
+async def test_a_page_already_read_does_not_shift_when_the_log_grows(event_store: EventStorePort) -> None:
+    """The promise paging rests on: a log only ever grows at its end, so an offset a reader
+    has passed keeps meaning the same event. A store that ordered by anything a later write
+    can slot in front of — or that published its ordering out of the order it assigned it —
+    would move an unread event behind the cursor and deliver its neighbour twice.
+
+    Sequential here, which is all one store instance can show; the concurrent version of the
+    same invariant, where a write commits past an in-flight claim, needs two connections and
+    lives in ``tests/test_postgres_store.py``.
+    """
+    ctx = _ctx()
+    await event_store.append("s-1", [_event(0, _started()), _event(1, RunResumed(reason=None))], ctx)
+    first_page = await event_store.read("s-1", ctx, offset=0, limit=2)
+
+    await event_store.append("s-1", [_event(2, TextDelta(message_id="m1", text="later"))], ctx)
+
+    assert await event_store.read("s-1", ctx, offset=0, limit=2) == first_page
+    assert [event.seq for event in await event_store.read("s-1", ctx, offset=2)] == [2]
 
 
 async def test_paginated_read_zero_limit_is_an_empty_page(event_store: EventStorePort) -> None:

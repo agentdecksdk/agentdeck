@@ -1,5 +1,6 @@
 """The assembly seam: one function builds every Runtime, and App is one of its callers."""
 
+import subprocess
 import sys
 import textwrap
 from datetime import UTC, datetime
@@ -116,7 +117,41 @@ def test_resolve_event_store_rejects_sqlite_without_a_path():
 
 def test_resolve_event_store_rejects_an_unknown_backend():
     with pytest.raises(ValueError, match="unknown event store backend"):
-        resolve_event_store(EventsSettings(backend="postgres"))
+        resolve_event_store(EventsSettings(backend="not-a-backend"))
+
+
+def test_resolve_event_store_builds_redis_from_a_url():
+    """No server needed: the client connects lazily, so wiring is checkable without one."""
+    from agentdeck.adapters.stores.redis import RedisEventStore
+
+    store = resolve_event_store(EventsSettings(backend="redis", url="redis://localhost:6379/0"))
+
+    assert isinstance(store, RedisEventStore)
+
+
+def test_resolve_event_store_builds_postgres_from_a_dsn():
+    pytest.importorskip("psycopg", reason="the Postgres event log needs the [durability] extra")
+    from agentdeck.adapters.stores.postgres import PostgresEventStore
+
+    store = resolve_event_store(EventsSettings(backend="postgres", url="postgresql://localhost/whatever"))
+
+    assert isinstance(store, PostgresEventStore)
+
+
+@pytest.mark.parametrize("backend", ["redis", "postgres"])
+def test_resolve_event_store_rejects_a_shared_backend_without_a_url(backend):
+    with pytest.raises(ValueError, match="AGENTDECK_EVENTS_URL"):
+        resolve_event_store(EventsSettings(backend=backend))
+
+
+def test_choosing_a_store_does_not_make_the_durability_extra_mandatory():
+    """``composition`` is on every entry point's import path and ``psycopg`` is an optional
+    extra, so its import has to stay inside the branch that asks for it. A fresh interpreter,
+    because this one has already imported half the world."""
+    probe = "import agentdeck.composition, sys; print('psycopg' in sys.modules)"
+    done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=120, check=True)
+
+    assert done.stdout.strip() == "False"
 
 
 def test_app_has_no_runtime_before_load(project):

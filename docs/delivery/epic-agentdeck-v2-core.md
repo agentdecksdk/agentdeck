@@ -122,6 +122,12 @@ estimate stays **L**, but the composition of that L changes:
   bind to the event loop that first constructed them — fine for a server's one long-lived
   loop, a real constraint for anything else. Story 2's redis/postgres store work and this
   checkpointer behavior are coupled in a way the original story text didn't anticipate.
+  *(Resolved 2026-08-06, #75: the savers are cached per event loop, and the Redis and Postgres
+  event logs landed with them, wired to `AGENTDECK_EVENTS_BACKEND` through #74's
+  `resolve_event_store`. The coupling was real but shallow — the two shared a PR, not a design.
+  Known ceiling recorded in the code rather than here: the per-loop cache does not free a
+  finished loop's saver, so a process that runs many loops in a row accumulates one connection
+  each. No effect on a server, which is one loop for its lifetime.)*
 - **A test-infrastructure finding for Story 3, not Story 2:** `httpx.ASGITransport` cannot
   interleave a live control signal into an in-flight SSE response (it runs a request's
   whole ASGI call before returning any bytes) — Story 3's "pause honored at next safe
