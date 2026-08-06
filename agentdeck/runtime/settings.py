@@ -200,11 +200,20 @@ class RuntimeSettings(LayeredSettings):
     tuning it: a session a killed process left claimed is refused until it elapses, and a run
     waiting on a human answer for longer than it is closed as failed the next time somebody
     starts a turn on that session.
+
+    Set it well above the longest stretch a healthy turn can go without writing an event — a
+    slow tool call, a long model call, a human thinking — and mind the clock. Each worker
+    compares *its own* clock against timestamps its peers stamped, so on several machines the
+    effective window is this value minus the worst skew between them; a worker running more than
+    a window fast would take over live sessions on sight. Keep the fleet on NTP, and treat the
+    window as a budget that skew eats into. It must be positive: at or near zero, a run's own
+    opening event is already "stale" to the next caller a moment later, which turns one turn per
+    session back into a race.
     """
 
     model_config = settings_config("AGENTDECK_RUNTIME_")
 
-    stale_run_after_seconds: float = Field(default=60.0 * 60.0, ge=0)
+    stale_run_after_seconds: float = Field(default=60.0 * 60.0, gt=0)
 
     @property
     def stale_run_after(self) -> timedelta:

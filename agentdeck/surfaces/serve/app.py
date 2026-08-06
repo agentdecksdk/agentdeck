@@ -6,18 +6,21 @@ untouched. No auth, no discovery: the composition root hands in an already-wired
 from __future__ import annotations
 
 import uuid
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
+from agentdeck.errors import SessionBusyError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from agentdeck.core.events import Event
     from agentdeck.runtime.service import Runtime
 
 # M0 fakes auth away entirely — every run shares one tenant/principal.
@@ -37,7 +40,8 @@ def build_app(runtime: Runtime) -> FastAPI:
     """The whole surface: one route, streaming ``Event.model_dump_json()`` lines.
 
     No ``_jsonable`` reshaping like v1's ``serve.py`` — the wire *is* the canonical event,
-    which is the point of having one.
+    which is the point of having one. A turn asked for on a session that already has one gets
+    **409** with the holding run named, because that answer has to arrive before the stream does.
     """
     api = FastAPI()
 
@@ -51,13 +55,28 @@ def build_app(runtime: Runtime) -> FastAPI:
             session_id=body.session_id,
         )
 
+        stream = runtime.run(name, coerce_input(body.message), ctx)
+        try:
+            # The turn is claimed on the first event, so it has to be pulled here: once a
+            # StreamingResponse has committed 200 and `text/event-stream`, a refusal can only
+            # reach the client as a body that stops, which is indistinguishable from a run that
+            # produced nothing — the one outcome raising instead of yielding exists to avoid.
+            opening = await anext(stream)
+        except SessionBusyError as busy:
+            return JSONResponse(status_code=HTTPStatus.CONFLICT, content={"detail": str(busy)})
+
         async def frames() -> AsyncIterator[str]:
-            async for event in runtime.run(name, coerce_input(body.message), ctx):
-                yield f"data: {event.model_dump_json()}\n\n"
+            yield _frame(opening)
+            async for event in stream:
+                yield _frame(event)
 
         return StreamingResponse(frames(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
     return api
+
+
+def _frame(event: Event) -> str:
+    return f"data: {event.model_dump_json()}\n\n"
 
 
 __all__ = ["build_app"]

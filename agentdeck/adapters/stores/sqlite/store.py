@@ -38,8 +38,13 @@ CREATE TABLE IF NOT EXISTS events (
     data TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS events_by_log ON events (tenant, log_key, id);
-CREATE INDEX IF NOT EXISTS events_by_run ON events (tenant, log_key, run_id, seq);
+CREATE UNIQUE INDEX IF NOT EXISTS events_by_run ON events (tenant, log_key, run_id, seq);
 """
+# UNIQUE is the guard, not just the index: one seq per run is the promise consumers refetch a
+# gap with, and a duplicate is the one corruption a gap check cannot see. A run whose process
+# was presumed dead and then wrote again fails loudly here instead of putting two events at one
+# seq. ponytail: only files this build creates get the constraint — a database from an earlier
+# beta keeps its non-unique index, and v2 has no migration story yet.
 
 _INSERT = "INSERT INTO events (tenant, log_key, run_id, seq, data) VALUES (?, ?, ?, ?, ?)"
 
@@ -179,8 +184,10 @@ class SqliteEventStore(EventStorePort):
         return [summary for summary in summaries if status is None or summary.status is status]
 
     def _insert(self, rows: list[tuple[str, str, str, int, str]]) -> None:
-        self._conn.executemany(_INSERT, rows)
-        self._conn.commit()
+        # One transaction for the batch, so a row the unique index rejects takes its whole batch
+        # with it rather than leaving half of it behind for the next commit to pick up.
+        with self._conn:
+            self._conn.executemany(_INSERT, rows)
 
     def _claim_start(self, row: tuple[str, str, str, int, str], stale_before: datetime) -> SessionClaim:
         tenant, log_key, _run_id, _seq, _data = row

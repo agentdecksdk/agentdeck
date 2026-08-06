@@ -29,7 +29,7 @@ from agentdeck.core.events import (
 )
 from agentdeck.core.ports import Gate
 from agentdeck.core.status import RunStatus
-from agentdeck.errors import NotFoundError, SessionBusyError
+from agentdeck.errors import NotFoundError, SessionBusyError, StoreError
 from agentdeck.runtime.dispatch import SinkDispatch
 from agentdeck.runtime.settings import get_settings
 
@@ -216,7 +216,8 @@ class Runtime:
         graceful exit closes its run, so this is the process that was killed outright. Such a
         run stops holding the session once it has been silent for ``stale_run_after``, and this
         turn closes it — loudly, and accepting that a takeover can be premature, because a
-        session wedged forever is the worse failure.
+        session wedged forever is the worse failure. Failing to close it is not worth failing
+        this turn over: the next one meets the same stale run and tries again.
         """
         event = self._stamp(opening, spec, ctx, seq)
         claim = await self._store.claim_start(ctx.log_key, event, ctx, self._clock() - self._stale_run_after)
@@ -226,7 +227,14 @@ class Runtime:
                 f"so run {ctx.run_id!r} cannot start on it"
             )
         for run_id in claim.overridden:
-            await self._close_abandoned(run_id, ctx)
+            try:
+                await self._close_abandoned(run_id, ctx)
+            except StoreError:
+                # This run is already open in the log, so letting a failed piece of bookkeeping
+                # out here would leave it with no terminal event and wedge the session for a
+                # whole window. The abandoned run stays open instead, and the next turn — which
+                # finds it just as stale — closes it then.
+                logger.exception("could not close abandoned run %s; leaving it for the next turn", run_id)
         await self._fan_out(event)
         return event
 

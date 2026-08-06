@@ -10,6 +10,7 @@ ports by shape: whatever fails underneath, callers see the harness's own error t
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -265,6 +266,56 @@ async def test_one_live_run_refuses_a_claim_even_beside_an_abandoned_one(event_s
     claim = await event_store.claim_start("s-1", _opening(run_id="r-2"), ctx, TS + timedelta(minutes=1))
     assert claim == SessionClaim(held_by="r-live")
     assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-dead", "r-live"]
+
+
+async def test_two_claims_gathered_on_one_session_have_exactly_one_winner(event_store: EventStorePort) -> None:
+    """The claim's own atomicity, not the Runtime's use of it: an ``await`` slipped between the
+    scan and the append would let both of these find the session idle, and every other test here
+    would still pass."""
+    ctx = _ctx()
+    claims = await asyncio.gather(
+        event_store.claim_start("s-1", _opening(run_id="r-1"), ctx, BEFORE_ANY_EVENT),
+        event_store.claim_start("s-1", _opening(run_id="r-2"), ctx, BEFORE_ANY_EVENT),
+    )
+
+    assert [claim.held_by is None for claim in claims].count(True) == 1, claims
+    assert len(await event_store.read("s-1", ctx)) == 1
+
+
+async def test_one_seq_per_run_is_refused_a_second_time(event_store: EventStorePort) -> None:
+    """The corruption a gap check cannot see. Two writers only ever share a run when one of them
+    was presumed dead and came back, and the second event at that ``seq`` would make every
+    consumer's refetch of it a coin toss — so the store refuses it, and says so as a
+    ``StoreError`` rather than a silent write."""
+    ctx = _ctx()
+    await event_store.append("s-1", [_opening()], ctx)
+
+    with pytest.raises(StoreError):
+        await event_store.append("s-1", [_event(0, TextDelta(message_id="m1", text="not yours"))], ctx)
+    assert [event.kind for event in await event_store.read("s-1", ctx)] == ["run.started"]
+
+
+async def test_a_batch_holding_its_own_duplicate_seq_is_refused_whole(event_store: EventStorePort) -> None:
+    """All or nothing: a rejected batch must not leave the events before the duplicate behind,
+    or the log would hold a partial write nobody asked for."""
+    ctx = _ctx()
+    delta = TextDelta(message_id="m1", text="hi")
+    with pytest.raises(StoreError):
+        await event_store.append("s-1", [_opening(), _event(1, delta), _event(1, delta)], ctx)
+    assert await event_store.read("s-1", ctx) == []
+
+
+async def test_one_seq_per_run_does_not_stop_two_runs_sharing_a_seq_in_one_log(
+    event_store: EventStorePort,
+) -> None:
+    """``seq`` is per run, so every run in a session log counts from 0 — the constraint is on the
+    pair, and a store that keyed it on the log alone would refuse the second run's opening event."""
+    ctx = _ctx()
+    await event_store.append("s-1", [_opening(run_id="r-1")], ctx)
+    await event_store.append("s-1", [_opening(run_id="r-2")], ctx)
+
+    assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-1", "r-2"]
+    assert [event.seq for event in await event_store.read("s-1", ctx)] == [0, 0]
 
 
 async def _interrupt(event_store: EventStorePort, ctx: RunContext, run_id: str = "r-1") -> None:

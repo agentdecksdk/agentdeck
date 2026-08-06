@@ -102,7 +102,18 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   never contend. This holds across processes, because the check and the write that
   opens the run are one store operation, so it is not defeated by a second worker.
   What a caller should do with the refusal is retry or report it; the losing turn
-  is not queued (that is deliberately deferred, not forgotten).
+  is not queued (that is deliberately deferred, not forgotten). Over HTTP the v2
+  chat route answers **409 Conflict** with the holding run named in `detail`,
+  before the event stream starts.
+- The event log now enforces **one `seq` per run**: `(tenant, session, run, seq)`
+  is unique in the SQLite store and refused by the in-memory one, so a write that
+  would put a second event at a `seq` a run has already used fails with
+  `StoreError` instead of landing. A duplicate is the one corruption a gap check
+  cannot see, and it would make refetching that `seq` — the whole point of
+  contiguous `seq` — return whichever copy came back first. `seq` is still per
+  run, so runs sharing a session log all count from 0 as before. Note for existing
+  installations: only event databases created by this version carry the
+  constraint, since v2 has no schema migration yet.
 - A run whose process was killed outright — the one exit that cannot close its own
   run in the log — no longer holds its session for good. An open run that has
   written nothing for `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` (one hour by
@@ -112,7 +123,9 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   same setting: a session a crashed process left claimed is refused until the
   window elapses, and an approval that has been waiting on a human for longer than
   the window is closed as failed when somebody starts a new turn on that session —
-  installations with slower approvals should raise it.
+  installations with slower approvals should raise it. The window must be positive,
+  and running several workers on machines whose clocks disagree shortens it by the
+  worst skew between them, so keep them on NTP and leave headroom.
 
 ### Fixed
 - Shutdown no longer hangs forever on a wedged sink: every wait on the sink

@@ -371,15 +371,15 @@ async def test_a_turn_a_killed_process_never_wrote_to_its_session_survives_the_r
     assert worker.transcript_of(await worker.durable_session(tmp_path).get_items()) == FIRST_EXCHANGE
 
     # The killed turn is still open in the log, and an open run holds its session. A restart
-    # takes it over by shortening the staleness window to nothing instead of waiting an hour
-    # for it — which is also the whole setting under test, driven the way an operator sets it.
+    # takes it over by shortening the staleness window to a millisecond instead of waiting an
+    # hour out — which is also the setting itself under test, driven the way an operator sets it.
     successor = subprocess.run(
         [sys.executable, "-u", str(WORKER), "successor", str(tmp_path)],
         capture_output=True,
         text=True,
         timeout=WORKER_TIMEOUT,
         check=False,
-        env={**os.environ, "AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS": "0"},
+        env={**os.environ, "AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS": "0.001"},
     )
     assert successor.returncode == 0, successor.stderr
     assert "took it over and closed it as failed" in successor.stderr, successor.stderr
