@@ -9,7 +9,7 @@ single entry point that discovers and instantiates a project's agents,
 workflows, and skills.
 """
 
-from agentdeck.app import App
+from agentdeck.app import App, TurnResult
 from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, SessionBusyError, SkillError, StoreError
 
 __all__ = [
@@ -20,4 +20,5 @@ __all__ = [
     "SessionBusyError",
     "SkillError",
     "StoreError",
+    "TurnResult",
 ]
