@@ -166,20 +166,23 @@ class OpenAISettings(LayeredSettings):
     model: str = Field(description="Model name passed to the host Agents SDK runner. No default — always required.")
     api_key: str = Field(
         default="",
-        description="API key for the endpoint. Empty is not the same as omitted: the OpenAI client still "
-        "resolves its own default (the `OPENAI_API_KEY` process env var, then none) and errors on the first "
-        "model call if that resolves to nothing — self-hosted servers that don't check the key still need a "
-        "placeholder value set somewhere.",
+        description="API key for the endpoint. What empty does depends on `ca_bundle`: unset (the common "
+        "case), the OpenAI client falls through to its own `OPENAI_API_KEY` process-env lookup and errors on "
+        "the first model call if that's empty too; with `ca_bundle` set, the empty value is passed straight "
+        "through instead and just sends no Authorization header — the self-hosted/corporate-CA case doesn't "
+        "need a placeholder value the way the common path does.",
     )
     base_url: str = Field(
         default="", description="OpenAI-compatible endpoint base URL. Empty uses the SDK default, api.openai.com."
     )
-    # Legacy OpenAI-native tracing key; only surfaced by the CLI `info` backend now that
-    # host tracing runs through Langfuse/OpenInference (see runtime.observability).
+    # Legacy OpenAI-native tracing key. Not read anywhere in the current codebase — host
+    # tracing runs through Langfuse/OpenInference (see runtime.observability) instead;
+    # kept as a config-file field for backward compatibility with anything still setting it.
     tracing_api_key: str | None = Field(
         default=None,
-        description="Legacy OpenAI-native tracing key, surfaced only by the CLI `info` backend. Host tracing "
-        "itself runs through Langfuse/OpenInference, not this key.",
+        description="Legacy OpenAI-native tracing key. Not read anywhere in the current codebase — host "
+        "tracing runs through Langfuse/OpenInference (`agentdeck.runtime.observability`) instead; kept as a "
+        "field for backward compatibility with any config still setting it.",
     )
     # Path to a CA/cert bundle used to verify the endpoint's TLS cert. Point it at a
     # corporate CA or a self-signed cert to reach an internal OpenAI-compatible server
@@ -217,13 +220,11 @@ class RunnerSettings(LayeredSettings):
         default=30, description="Maximum turns `Runner.run`/`run_streamed` may take before giving up."
     )
     # Cap on tokens per response for the HOST agent loop (Agents SDK ``ModelSettings``).
-    # Independent of the in-sandbox skill cap ``OPENAI_MAX_TOKENS`` (``skill_runtime``
-    # ``resolve_max_tokens``) — the same two-layer split as ``temperature``, not a mirror
-    # of it. ``None`` = model default (uncapped).
+    # ``None`` = model default (uncapped).
     max_tokens: int | None = Field(
         default=None,
-        description="Cap on tokens per response for the host agent loop. Independent of the in-sandbox skill "
-        "cap `OPENAI_MAX_TOKENS`. `None` means the model's own default (uncapped).",
+        description="Cap on tokens per response for the host agent loop's `ModelSettings`. `None` means the "
+        "model's own default (uncapped).",
     )
 
 
@@ -475,8 +476,9 @@ class SessionSettings(LayeredSettings):
 
     redis_url: str | None = Field(
         default=None,
-        description="Redis URL for `RedisSession`-backed agent conversation memory. `None` falls back to the "
-        "SDK's in-process SQLite session (dev only) — required by the ChatKit backend.",
+        description="Redis URL for `RedisSession`-backed agent conversation memory "
+        "(`agentdeck.adapters.engines.openai_agents.sessions.SessionFactory`). `None` falls back to one "
+        "in-process `SQLiteSession` per session key — no persistence across a restart, no sharing across workers.",
     )
     redis_key_prefix: str = Field(
         default="agents:session", description="Key prefix under which `RedisSession` stores conversations in Redis."
