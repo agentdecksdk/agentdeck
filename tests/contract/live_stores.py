@@ -11,6 +11,8 @@ A silent skip is the failure mode that guard exists to catch: CI's skip-count ce
 
 Every case gets its own keyspace — a fresh Redis prefix, a fresh Postgres schema — so tests
 never see each other's events and never touch anything else living in a dev's local server.
+The keyspace context managers are exported too, for the per-backend suites that need several
+stores over *one* keyspace to race each other.
 """
 
 from __future__ import annotations
@@ -67,21 +69,32 @@ async def event_store(backend: str) -> AsyncIterator[EventStorePort]:
         finally:
             sqlite.close()
     elif backend == "redis":
-        async with _redis_store() as store:
-            yield store
+        from agentdeck.adapters.stores.redis import RedisEventStore
+
+        async with redis_keyspace() as (url, prefix):
+            store = RedisEventStore(url, prefix=prefix)
+            try:
+                yield store
+            finally:
+                await store.aclose()
     elif backend == "postgres":
-        async with _postgres_store() as store:
-            yield store
+        from agentdeck.adapters.stores.postgres import PostgresEventStore
+
+        async with postgres_schema() as (dsn, schema):
+            postgres = PostgresEventStore(dsn, schema=schema)
+            try:
+                yield postgres
+            finally:
+                await postgres.aclose()
     else:
         raise ValueError(f"unknown store backend {backend!r}; expected one of {BACKENDS}")
 
 
 @asynccontextmanager
-async def _redis_store() -> AsyncIterator[EventStorePort]:
+async def redis_keyspace() -> AsyncIterator[tuple[str, str]]:
+    """A live Redis and a key prefix nothing else is using, emptied on the way out."""
     from redis.asyncio import Redis
     from redis.exceptions import RedisError
-
-    from agentdeck.adapters.stores.redis import RedisEventStore
 
     url = redis_url()
     _skip_if_known_bad(url)
@@ -94,11 +107,9 @@ async def _redis_store() -> AsyncIterator[EventStorePort]:
         except RedisError as exc:
             _record_unavailable(url, f"no Redis at {url} ({exc}) — set {REDIS_URL_ENV} to point at one")
         prefix = f"agentdeck:test:{next(_names)}"
-        store = RedisEventStore(url, prefix=prefix)
         try:
-            yield store
+            yield url, prefix
         finally:
-            await store.aclose()
             keys = [key async for key in admin.scan_iter(match=f"{prefix}:*")]
             if keys:
                 await admin.delete(*keys)
@@ -107,10 +118,9 @@ async def _redis_store() -> AsyncIterator[EventStorePort]:
 
 
 @asynccontextmanager
-async def _postgres_store() -> AsyncIterator[EventStorePort]:
+async def postgres_schema() -> AsyncIterator[tuple[str, str]]:
+    """A live Postgres and a schema name nothing else is using, dropped on the way out."""
     psycopg = pytest.importorskip("psycopg", reason="the Postgres event log needs the [durability] extra")
-
-    from agentdeck.adapters.stores.postgres import PostgresEventStore
 
     dsn = postgres_dsn()
     _skip_if_known_bad(dsn)
@@ -119,11 +129,9 @@ async def _postgres_store() -> AsyncIterator[EventStorePort]:
     except psycopg.Error as exc:
         _record_unavailable(dsn, f"no Postgres at {dsn} ({exc}) — set {POSTGRES_DSN_ENV} to point at one")
     schema = f"agentdeck_test_{next(_names)}"
-    store = PostgresEventStore(dsn, schema=schema)
     try:
-        yield store
+        yield dsn, schema
     finally:
-        await store.aclose()
         await admin.execute(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE')
         await admin.close()
 
