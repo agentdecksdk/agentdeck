@@ -1,0 +1,100 @@
+---
+title: Human Approval
+description: Pause a workflow for a person's decision, and answer it from wherever that person is.
+---
+
+# Human Approval
+
+Some steps should not happen until a person says yes. A workflow node can pause for exactly
+that — durably, so the process asking does not have to be the process answering.
+
+```python file=.agentdeck/workflows/quote_approval/workflow.py
+from pydantic import BaseModel
+
+from agentdeck.workflows import BaseWorkflow, StateGraph, interrupt
+
+
+class QuoteState(BaseModel):
+    request: str
+    quote: str = ""
+    approved: bool = False
+
+
+class QuoteApproval(BaseWorkflow):
+    state = QuoteState
+    durable = True
+
+    @classmethod
+    def build_graph(cls) -> StateGraph:
+        graph = StateGraph(cls.state)
+        graph.add_node("quote", cls.quote)
+        graph.add_node("confirm", cls.confirm)
+        graph.set_entry_point("quote")
+        graph.add_edge("quote", "confirm")
+        return graph
+
+    @staticmethod
+    def quote(state: QuoteState) -> dict:
+        return {"quote": f"EUR 420 for {state.request}"}
+
+    @staticmethod
+    def confirm(state: QuoteState) -> dict:
+        decision = interrupt({"question": f"Send quote: {state.quote}?"})
+        return {"approved": decision == "yes"}
+```
+
+`quote` runs once and does its work before anything pauses. `confirm` is the node that
+interrupts — keep it to the question itself, because [it re-runs from its start on
+resume](/concepts/workflows#durability-and-human-approval).
+
+Starting the run returns the question instead of a final state. A second process — the one
+with the person in front of it — finds it in the approval inbox and answers by thread id:
+
+```python run
+import asyncio
+
+from agentdeck import App
+
+
+async def main() -> None:
+    async with App.open() as app:
+        paused = await app.run_workflow("QuoteApproval", {"request": "Berlin -> Munich"}, thread_id="quote-42")
+        print(paused)  # {"type": "interrupt", "payload": {"question": ...}, "thread_id": "quote-42"}
+
+        inbox = await app.pending_interrupts("QuoteApproval")
+        print(inbox)  # what a second process, or a later call in this one, would see
+
+        final = await app.resume_workflow("QuoteApproval", "quote-42", "yes")
+        print(final)  # {"request": ..., "quote": ..., "approved": True}
+
+
+asyncio.run(main())
+```
+
+## The same thing over HTTP
+
+A caller outside the process uses three endpoints instead of three method calls — same
+inbox, same thread id:
+
+```bash illustrative reason="needs a live agentdeck-serve process"
+curl -X POST "http://localhost:8000/workflows/QuoteApproval?thread_id=quote-42" -d '{"request": "Berlin -> Munich"}'
+curl http://localhost:8000/workflows/QuoteApproval/pending
+curl -X POST http://localhost:8000/workflows/QuoteApproval/quote-42/resume -d '{"value": "yes"}'
+```
+
+`resume` on a thread that is not paused — wrong id, already answered, never started — answers
+**404**, not a stale state: there is nothing there to apply the value to.
+
+## Limits
+
+A workflow's `thread_id` is its session: one turn on it at a time, so a second `POST` to the
+same thread while the approval is outstanding answers **409**, the same as talking over an
+agent conversation that is still mid-turn. The approval holds the session until someone
+answers it or until `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` decides nobody is coming back.
+
+Pausing or cancelling a run by `run_id` — [Run Control](/concepts/run-control) — does not
+reach a workflow run today: a workflow has no safe point of its own, so `interrupt()` is the
+only way one of these pauses, and answering it is the only way it continues.
+
+Next: [Workflows](/concepts/workflows) covers timers (`sleep_until`) — the other thing
+`interrupt()` is used for — and what `as_tool()` does with the whole graph.
