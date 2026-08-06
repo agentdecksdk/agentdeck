@@ -17,7 +17,7 @@ from pydantic import ValidationError
 
 from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
-from agentdeck.core.content import TextBlock
+from agentdeck.core.content import DataBlock, TextBlock
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
     Event,
@@ -34,6 +34,7 @@ from agentdeck.core.events import (
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports import EventSinkPort, SessionClaim
+from agentdeck.core.status import RunStatus, status_of
 from agentdeck.errors import ConfigError, NotFoundError, SessionBusyError, StoreError
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import RuntimeSettings, reset_settings_cache
@@ -708,3 +709,81 @@ async def test_the_staleness_window_comes_from_settings_when_it_is_not_passed_in
 
     assert events[-1].kind == "run.completed"
     assert [event.kind for event in await store.read_run(CTX.log_key, "r-0", CTX)] == ["run.started", "run.failed"]
+
+
+def _approver() -> tuple[Runtime, MemoryEventStore]:
+    """A workflow that suspends once, so a resume can be claimed against it."""
+    spec = stub_spec(
+        "Approver",
+        RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1"),
+        DONE,
+        kind=InvocableKind.WORKFLOW,
+    )
+    store = MemoryEventStore()
+    return Runtime([StubEngine()], store, {spec.name: spec}, clock=lambda: TS), store
+
+
+async def test_the_answer_is_in_the_log_before_the_engine_has_been_asked_for_anything() -> None:
+    """The window that used to lose a resume value for good: the claim is committed, the run
+    reads ``RUNNING``, and the engine has not been started yet — which is the instant a process
+    dies. What the log holds here is all a successor gets, so it has to hold the answer.
+    """
+    runtime, store = _approver()
+    async for _ in runtime.run("Approver", INPUT, CTX):
+        pass
+
+    resuming = runtime.resume("Approver", "t1", {"approved": True, "note": "ship it"}, CTX)
+    claim = await anext(resuming)  # the engine is only started after this is yielded
+
+    logged = await store.read(CTX.log_key, CTX)
+    assert status_of(logged) is RunStatus.RUNNING
+    assert logged[-1] == claim
+    assert claim.payload.value == [DataBlock(data={"approved": True, "note": "ship it"})]
+    await resuming.aclose()
+
+
+async def test_a_text_answer_is_recorded_the_way_a_turn_s_own_input_is() -> None:
+    runtime, store = _approver()
+    async for _ in runtime.run("Approver", INPUT, CTX):
+        pass
+    async for _ in runtime.resume("Approver", "t1", "approved", CTX):
+        pass
+
+    resumed = next(event for event in await store.read(CTX.log_key, CTX) if event.kind == "run.resumed")
+    assert resumed.payload.value == [TextBlock(text="approved")]
+
+
+async def test_a_resume_with_nothing_to_answer_records_no_value() -> None:
+    """Lifting an operator's pause answers no question, and an empty content list would claim
+    that an answer arrived and was blank."""
+    runtime, store = _approver()
+    async for _ in runtime.run("Approver", INPUT, CTX):
+        pass
+    async for _ in runtime.resume("Approver", "t1", None, CTX):
+        pass
+
+    resumed = next(event for event in await store.read(CTX.log_key, CTX) if event.kind == "run.resumed")
+    assert resumed.payload.value is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [pytest.param(object(), id="not-json"), pytest.param({"ratio": float("nan")}, id="non-finite-float")],
+)
+async def test_an_answer_the_log_cannot_hold_is_reported_rather_than_failing_the_resume(
+    value: object,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The declared ceiling: JSON is what the log can carry, so a value outside it records
+    nothing — and says which run, because a silent skip leaves the log looking exactly like the
+    bug this field fixed."""
+    runtime, store = _approver()
+    async for _ in runtime.run("Approver", INPUT, CTX):
+        pass
+    with caplog.at_level(logging.WARNING):
+        events = [event async for event in runtime.resume("Approver", "t1", value, CTX)]
+
+    assert [event.kind for event in events] == ["run.resumed", "run.completed"]
+    resumed = next(event for event in await store.read(CTX.log_key, CTX) if event.kind == "run.resumed")
+    assert resumed.payload.value is None
+    assert "run r-1 resumed with a" in caplog.text
