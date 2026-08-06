@@ -158,9 +158,9 @@ def session_run_id(trial: int, tag: str) -> str:
     return f"session-{trial}-{tag}"
 
 
-def attempted_file(sync: Path, log_key: str, tag: str) -> Path:
-    """Marks that this peer's claim on ``log_key`` has been answered, win or refusal."""
-    return sync / f"attempted.{log_key}.{tag}"
+def attempted_file(sync: Path, key: str, tag: str) -> Path:
+    """Marks that this peer's claim on ``key`` has been answered, win or refusal."""
+    return sync / f"attempted.{key}.{tag}"
 
 
 def session_key(trial: int) -> str:
@@ -242,43 +242,67 @@ def chatty_spec(tag: str) -> InvocableSpec:
 class MarkingStub(StubEngine):
     """Appends a line every time ``resume`` is entered, so "node B ran exactly once" is a
     fact about which process reached the engine and not only about what the log ended up
-    holding."""
+    holding.
 
-    def __init__(self, marks: Path) -> None:
+    Also refuses to yield its last (terminal) event until the peer's ``claim_resume`` has been
+    answered — the resume race's version of ``PeerClaimModel``, at the engine boundary rather
+    than the model's, so the winner's run cannot finish before the loser has asked.
+    """
+
+    def __init__(self, marks: Path, sync: Path, tag: str) -> None:
         self._marks = marks
+        self._sync = sync
+        self._tag = tag
 
     async def resume(
         self, spec: InvocableSpec, thread_id: str, value: Any, ctx: RunContext
     ) -> AsyncGenerator[KnownPayload, None]:
         with self._marks.open("a") as handle:
             handle.write(f"{ctx.run_id}\n")
+        pending: KnownPayload | None = None
         async for payload in super().resume(spec, thread_id, value, ctx):
-            yield payload
+            if pending is not None:
+                yield pending
+            pending = payload
+        if pending is not None:
+            await _await_file(attempted_file(self._sync, ctx.run_id, PEER[self._tag]))
+            yield pending
 
 
 class ClaimTimingStore(SqliteEventStore):
-    """Records the window each ``claim_resume`` attempt occupied, both peers appending to
-    one file.
+    """Records the window each ``claim_resume`` attempt occupied, holding both peers at a
+    barrier in the one instant before the claim itself.
 
-    What this buys the test is the difference between two claims that overlapped and two
-    that merely both happened: only the first is a race, and only the first can catch a
-    claim that checks before it appends. Which peer wins cannot answer that — one peer
-    winning every trial is a plausible outcome of a real race on a loaded box. Wall-clock
-    nanoseconds, not a monotonic count, because only the wall clock means the same thing in
-    two processes.
+    The barrier belongs *here* rather than before the ``resume`` call, for the same reason
+    ``ClaimStartTimingStore`` puts its own barrier inside ``claim_start``: released earlier, the
+    two peers drift apart over whatever runs ahead of the store, and on a loaded box the
+    winner's whole run can be over before the loser asks — a legal pair of sequential resumes
+    that proves nothing about the claim. Meeting at the claim itself, the loser always asks
+    while the winner's claim is in flight.
+
+    The window is still recorded, because a barrier says the peers arrived together and only
+    the two windows say they were genuinely inside the claim at the same moment. Wall-clock
+    nanoseconds, not a monotonic count: only the wall clock means the same thing in two
+    processes.
     """
 
-    def __init__(self, path: Path, windows: Path) -> None:
+    def __init__(self, path: Path, windows: Path, sync: Path, tag: str) -> None:
         super().__init__(path)
         self._windows = windows
+        self._sync = sync
+        self._tag = tag
 
     async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
+        await _barrier(self._sync, f"resumeclaim.{run_id}", self._tag)
         started = time.time_ns()
         try:
             return await super().claim_resume(log_key, run_id, event, ctx)
         finally:
             with self._windows.open("a") as handle:
                 handle.write(f"{run_id} {started} {time.time_ns()}\n")
+            # Whatever it answered, this peer has now asked — which is what the winner's own
+            # run waits for before it is allowed to finish.
+            attempted_file(self._sync, run_id, self._tag).touch()
 
 
 class ClaimStartTimingStore(SqliteEventStore):
@@ -464,10 +488,15 @@ def _completed() -> ResponseCompletedEvent:
 
 
 async def _race_resume(tag: str, trials: int, root: Path) -> None:
-    """Both peers answer one interrupt at the same instant; the store picks the winner."""
+    """Both peers answer one interrupt at the same instant, meeting inside the claim itself; the
+    store picks the winner. The barrier lives in ``ClaimTimingStore`` for the reason its
+    docstring gives, and ``MarkingStub`` holds the winner's run open until the loser's claim has
+    been answered — the same shape ``ClaimStartTimingStore``/``PeerClaimModel`` use for the
+    session race, moved from the model boundary to the engine's.
+    """
     sync = root / "sync"
-    store = ClaimTimingStore(events_db(root), windows_file(root))
-    runtime = Runtime([MarkingStub(marks_file(root))], store, {APPROVER: approver_spec()})
+    store = ClaimTimingStore(events_db(root), windows_file(root), sync, tag)
+    runtime = Runtime([MarkingStub(marks_file(root), sync, tag)], store, {APPROVER: approver_spec()})
     for trial in range(trials):
         async with asyncio.timeout(TRIAL_TIMEOUT):
             ctx = context(resume_run_id(trial), resume_log_key(trial))
@@ -478,7 +507,6 @@ async def _race_resume(tag: str, trials: int, root: Path) -> None:
                 opened.touch()
             else:
                 await _await_file(opened)
-            await _barrier(sync, f"resume-{trial}", tag)
             resumed = [event async for event in runtime.resume(APPROVER, THREAD_ID, "approved", ctx)]
             _report(trial, tag, [event.kind for event in resumed])
 
