@@ -632,6 +632,18 @@ raises from its own `emit` is now a counted failure rather than a silently dead 
 a genuine cancellation (`close`, loop shutdown) still ends a consumer, and that path replaces
 it on the next submit as before.)*
 
+*(Amended 2026-08-06, #89/#90 — the breaker is no longer one-way, and the failure log is no
+longer rate-limited by streak. A disabled sink is offered one event once `BREAKER_COOLDOWN`
+(30s) has passed; taking it re-enables the sink, failing it re-arms the cooldown from that
+failure, so a dead endpoint costs two emit attempts a minute instead of one per event. The
+probe is a real event, not a synthetic one, and the events the open breaker covered are still
+counted as drops — nothing is replayed. The cooldown is a deadline compared against a
+monotonic clock rather than anything slept on, so no wait on a sink is added anywhere and the
+sink's recovery is noticed by whichever submit happens to arrive after it. Stack traces are
+capped at one per sink per `LOG_WINDOW` (60s) with the unlogged failures counted in the next
+one: the per-streak limit bounded nothing for a sink failing every other event, which builds
+no streak and trips no breaker either. The disable decision is untouched by that change.)*
+
 *(A sink with guaranteed delivery is a deliberate non-goal today. A blocking/backpressure
 policy was built and then removed before merge: no sink implementation needs it, and the only
 ways to keep it were a producer that waits forever or an amendment to NFR-6. Sinks are a lossy
