@@ -205,12 +205,6 @@ def test_two_processes_resuming_one_interrupt_leave_one_winner_and_one_node_b_ex
         windows = attempts[worker.resume_run_id(trial)]
         assert len(windows) == len(TAGS), f"trial {trial}: {len(windows)} claims, both peers must attempt one"
         raced += _overlap(windows)
-        # Both claims were made while the winning run was still going: the later of the two began
-        # before the run's last event was stamped. This is what makes the trial a race at all.
-        latest_claim = max(start for start, _ in windows)
-        assert latest_claim < log[-1].ts.timestamp() * 1e9, (
-            f"trial {trial}: a claim only arrived after the running turn had ended\n{_dump(log)}"
-        )
         yielded = {tag: _kinds(reported, tag, trial) for tag in TAGS}
         winners = [tag for tag, kinds in yielded.items() if kinds]
 
@@ -228,6 +222,15 @@ def test_two_processes_resuming_one_interrupt_leave_one_winner_and_one_node_b_ex
             "run.interrupted",
             *worker.APPROVED_KINDS,
         ], f"trial {trial}\n{_dump(log)}"
+
+        # Both claims were made while the winning run was still going: the later of the two began
+        # before the run's last event was stamped. This is what makes the trial a race at all, and
+        # it comes after the shape above so that a trial nobody won reports that rather than an
+        # IndexError on the log it never wrote.
+        latest_claim = max(start for start, _ in windows)
+        assert latest_claim < log[-1].ts.timestamp() * 1e9, (
+            f"trial {trial}: a claim only arrived after the running turn had ended\n{_dump(log)}"
+        )
 
     # Reported, not asserted: two processes sharing one usable core cannot be inside the claim at
     # the same instant however they were released, so an empty count is a fact about the machine.

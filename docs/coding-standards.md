@@ -154,15 +154,12 @@ model. A flaky test is a P1 bug, not an annoyance. Structure:
 - Race and crash paths are tested on purpose (double-resume, kill-mid-stream,
   crash-between-writes) — "hard to test" is a design smell to report, not a reason to
   skip.
-- **Assert the promise, not the timing:** a concurrency test asserts what the code
-  guarantees — an ordering, a single winner, two effects that cannot both land — never that
-  two peers were inside the critical section at the same instant. Overlap is a property of
-  the core count and the scheduler rather than of the code: two peers sharing one core cannot
-  overlap however they are released, so gating on it reds a correct implementation on a
-  loaded runner, and a fast one goes green having contended by luck. Force the contention
-  structurally instead — meet the peers inside the call, keep the winner from finishing until
-  the loser has asked — assert the ordering that follows from it, and report the overlap
-  observed rather than gating on it.
+- **Assert the promise, not the timing:** assert what the code guarantees — an ordering, one
+  winner, two effects that cannot both land — not that two peers were inside the critical
+  section at once, which peers on one core are not guaranteed to be and in practice are not.
+  Arrange the contention deliberately, assert the ordering it produces, and *report* the
+  timing you observed — including when it shows the contention did not happen, so a run that
+  proved nothing cannot read as a passing one.
 - Test names state the invariant: `test_terminal_event_is_last_after_restart`, not
   `test_workflow_2`.
 

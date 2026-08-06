@@ -568,13 +568,15 @@ async def test_a_page_already_read_does_not_shift_when_the_log_grows(event_store
     assert [event.seq for event in await event_store.read("s-1", ctx, offset=2)] == [2]
 
 
-# One row would give a second writer nowhere to land: a batch this wide takes long enough to
-# insert that a peer writing throughout it is inside it, rather than before or after.
+# Wide enough that inserting it takes far longer than the peer's round trip, so the peer writes
+# while it is still open. That margin is what reproduces the hazard, and it is a margin and not
+# a guarantee: nothing here forces the peer's write to be numbered inside the batch. A machine
+# that closes the gap loses the hazard, which is why the report below says whether it happened —
+# a lost hazard must never read as a passing store.
 _INTERLEAVED_BATCH = 200
 
-# And several peer writes rather than one, for the half of the interleave a head start cannot
-# arrange: which of two writes that begin together reaches the store first is the machine's
-# choice, so one write can lose the race to be *behind* the batch. Five cannot all lose it.
+# Five peer writes rather than one, spread through that window instead of betting on one moment.
+# Cheap insurance rather than a fix for anything measured: one write reproduces the hazard too.
 _TRAILING_WRITES = 5
 
 # A bound on a broken run, never part of an assertion: a reader that has lost an event to a
@@ -593,21 +595,26 @@ async def _append_each(store: EventStorePort, ctx: RunContext, events: Iterable[
         await store.append("s-1", [event], ctx)
 
 
-async def _page_the_log(store: EventStorePort, ctx: RunContext, until: int) -> list[Event]:
+async def _page_the_log(store: EventStorePort, ctx: RunContext, until: int) -> list[list[Event]]:
     """Page a log the way the port says is safe — a plain counter as the cursor — until
     ``until`` events have come back or the deadline gives up on them.
 
     The cursor being the count delivered so far is the whole point: an event that lands
-    *behind* it is never delivered, and whatever it displaced is delivered twice.
+    *behind* it is never delivered, and whatever it displaced is delivered twice. Returns the
+    pages rather than the events, because how the delivery was split across them is the
+    evidence that anything was read while the log was still being written.
     """
-    delivered: list[Event] = []
+    pages: list[list[Event]] = []
+    delivered = 0
     deadline = monotonic() + _PAGING_DEADLINE
-    while len(delivered) < until and monotonic() < deadline:
-        page = await store.read("s-1", ctx, offset=len(delivered))
-        delivered.extend(page)
+    while delivered < until and monotonic() < deadline:
+        page = await store.read("s-1", ctx, offset=delivered)
         if not page:
             await asyncio.sleep(0.001)  # nothing new committed yet, so let the writer get on with it
-    return delivered
+            continue
+        pages.append(page)
+        delivered += len(page)
+    return pages
 
 
 async def test_a_page_already_read_does_not_shift_when_a_second_writer_commits(
@@ -625,6 +632,11 @@ async def test_a_page_already_read_does_not_shift_when_a_second_writer_commits(
 
     Memory and SQLite pass this by construction rather than by luck, and are here because a
     backend added later gets asked the same question before it is trusted.
+
+    The interleave is arranged with a margin, not forced: the batch takes far longer to insert
+    than the peer takes to commit, which is why the peer lands inside it. So the report at the
+    end says how the delivery was split — a machine that closes that margin delivers the whole
+    settled log in one page, and this case would then pass without having asked anything.
     """
     batching, peer = two_event_stores
     ctx = _ctx()
@@ -643,11 +655,28 @@ async def test_a_page_already_read_does_not_shift_when_a_second_writer_commits(
 
     # Reads go through the writing peer's own handle, so every page is taken between two of its
     # commits — the moment a shift would be visible in — and never inside one.
-    delivered = await _page_the_log(peer, ctx, until=len(batch) + len(trailing))
-    await asyncio.gather(writing, behind)
+    pages = await _page_the_log(peer, ctx, until=len(batch) + len(trailing))
+    # Bounded like the reader: a wedged writer must fail this case, not hang the suite in a
+    # gather nothing ever returns from.
+    async with asyncio.timeout(_PAGING_DEADLINE):
+        await asyncio.gather(writing, behind)
     settled = _keys(await peer.read("s-1", ctx))
 
-    seen = _keys(delivered)
+    seen = _keys(event for page in pages for event in page)
+
+    # Reported, not asserted, for the same reason the resume race reports its overlap: the split
+    # is this machine's timing. A store that keeps the promise holds the peer's writes behind the
+    # open batch, so delivering them last *is* the promise being kept, and the broken one shows
+    # the opposite — the peer's writes first, at an offset the batch then takes. What the report
+    # is for is neither: one page holding the settled log means the batch was never open long
+    # enough to be interleaved with, and the case passed without asking anything. Printed before
+    # the assertions, so a failing run carries it too.
+    first_trailing = next((offset for offset, (run_id, _) in enumerate(seen) if run_id == "r-2"), None)
+    print(
+        f"interleaved paging on {type(peer).__name__}: pages {[len(page) for page in pages]}, "
+        f"the peer's first write delivered at offset {first_trailing} of {len(seen)}"
+    )
+
     twice = [key for key, times in Counter(seen).items() if times > 1]
     never = [key for key in settled if key not in set(seen)]
     assert not twice and not never, (
