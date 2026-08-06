@@ -1,0 +1,64 @@
+---
+title: Add a Tool
+description: Give an agent a plain Python function it can call.
+---
+
+# Add a Tool
+
+An agent that can only talk cannot check anything real. Give it a Python function, and the
+Agents SDK turns it into something the model can call mid-conversation, reads the result of,
+and answers from.
+
+```python file=.agentdeck/agents/scheduler/agent.py
+from agents import function_tool
+
+from agentdeck.agents import BaseAgent
+
+
+@function_tool
+def lookup_slot(day: str) -> str:
+    """Return the fixed free slot for a day."""
+    return f"{day} 09:00"
+
+
+class Scheduler(BaseAgent):
+    instructions = "Help the user book a slot. Use lookup_slot to check availability."
+    tools = [lookup_slot]
+```
+
+`tools` takes already-built SDK tools — `@function_tool` is how you build one from a plain
+function. Run the agent the same way as any other:
+
+```python run
+import asyncio
+
+from agentdeck import App
+
+
+async def main() -> None:
+    async with App.open() as app:
+        result = await app.run_agent("Scheduler", "is Tuesday free?")
+        print(result.output)
+
+
+asyncio.run(main())
+```
+
+## What you did not write
+
+A JSON schema for the tool's parameters, the code that parses the model's call arguments
+against it, and the loop that feeds the result back for another turn. `function_tool` builds
+the schema from the type hints and reads the description from the docstring; the Agents SDK
+runner drives the call-then-continue loop once the model decides to use it. Nothing in
+`agentdeck` sits between the two — `tools` just hands the SDK's `Agent` constructor a list it
+already knows how to run.
+
+## Tools vs. capabilities
+
+`tools` is for exactly this: a function that runs in the host process and returns a value.
+Sandbox powers — running shell commands, editing files, using a [skill](/concepts/skills) —
+are a different thing declared through [`capabilities`](/concepts/capabilities) instead,
+because those need a sandbox session to run in, not just an SDK wrapper.
+
+Next: the full attribute table, including `handoffs` and `output_type`, is on
+[Agents](/concepts/agents).
