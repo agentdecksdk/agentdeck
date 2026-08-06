@@ -36,6 +36,10 @@ durability = [
     # checkpointing) — kept optional rather than in core deps for that reason.
     "langgraph-checkpoint-sqlite>=2.0",
     "langgraph-checkpoint-postgres>=2.0",
+    # the Postgres event log's driver. `[binary]` explicitly: the postgres checkpointer
+    # already pulls plain `psycopg` in, which needs a system libpq that a fresh CI runner
+    # or dev box does not have, so the transitive dependency imports and then fails.
+    "psycopg[binary]>=3.2",
 ]
 dev = [
     "pytest>=8.0",

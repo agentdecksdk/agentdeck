@@ -14,6 +14,7 @@ forbidden_modules =
     langgraph
     fastapi
     redis
+    psycopg
 
 # Activated by PR #1 (the events schema). core is the innermost ring: stdlib and
 # pydantic only, so the outer rings are also forbidden — importing one would invert the
@@ -28,6 +29,7 @@ forbidden_modules =
     langgraph
     fastapi
     redis
+    psycopg
     agentdeck.agents
     agentdeck.workflows
     agentdeck.skills
@@ -50,6 +52,7 @@ forbidden_modules =
     langgraph
     fastapi
     redis
+    psycopg
     agentdeck.adapters
     agentdeck.agents
     agentdeck.workflows
@@ -76,6 +79,7 @@ forbidden_modules =
     langgraph
     fastapi
     redis
+    psycopg
     agentdeck.runtime
     agentdeck.agents
     agentdeck.workflows
@@ -94,6 +98,7 @@ forbidden_modules =
     agents
     langgraph
     redis
+    psycopg
     agentdeck.adapters
 
 # Checkpointer relocation (#53): langgraph is now the langgraph adapter's business, the
@@ -111,6 +116,8 @@ source_modules =
     agentdeck.runtime.dispatch
     agentdeck.adapters.stores.memory
     agentdeck.adapters.stores.sqlite
+    agentdeck.adapters.stores.redis
+    agentdeck.adapters.stores.postgres
     agentdeck.adapters.engines.stub
     agentdeck.adapters.engines.openai_agents
     agentdeck.adapters.control.memory
@@ -119,6 +126,43 @@ source_modules =
     agentdeck.surfaces
 forbidden_modules =
     langgraph
+
+# Redis and Postgres event logs (#75): one external system each, which is the rule that
+# keeps "delete any adapter directory and nothing outside it breaks" true. Two contracts
+# rather than one because each store's own driver is the only one it may name — the pair
+# forbids the other's, so a shared helper reaching for both would have to be a third
+# module somewhere neither contract covers, and there is no such place.
+[importlinter:contract:redis-store-takes-only-redis]
+name = the Redis event log imports core and the Redis client only
+type = forbidden
+source_modules =
+    agentdeck.adapters.stores.redis
+forbidden_modules =
+    agents
+    fastapi
+    psycopg
+    agentdeck.runtime
+    agentdeck.agents
+    agentdeck.workflows
+    agentdeck.skills
+    agentdeck.serve
+    agentdeck.app
+
+[importlinter:contract:postgres-store-takes-only-psycopg]
+name = the Postgres event log imports core and psycopg only
+type = forbidden
+source_modules =
+    agentdeck.adapters.stores.postgres
+forbidden_modules =
+    agents
+    fastapi
+    redis
+    agentdeck.runtime
+    agentdeck.agents
+    agentdeck.workflows
+    agentdeck.skills
+    agentdeck.serve
+    agentdeck.app
 
 # MCP relocation (#78): the raw MCP protocol SDK is the tool adapter's alone, so a second
 # client can't quietly appear next to an engine or a surface. The list is everything except
@@ -179,6 +223,7 @@ forbidden_modules =
     langgraph
     fastapi
     redis
+    psycopg
     agentdeck.adapters.control
     agentdeck.adapters.engines
     agentdeck.adapters.stores
