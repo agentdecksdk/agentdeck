@@ -33,6 +33,37 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   old code cannot read. Do not run mixed agentdeck versions against one event
   store across this change: upgrade every reader first, then start producing
   `data` blocks.
+- The chat endpoints now run on the v2 Runtime. `POST /agents/{name}/chat` and
+  `?stream=true` are served by the same Runtime, event schema, and event log the
+  `/v2/...` routes use, with the v1 wire format rendered at the surface: the
+  `delta` / `done` / `error` frames, the `{"output", "usage"}` payloads and the
+  404/422/500 bodies are byte-for-byte what 1.2.x sent (the golden replay suite
+  is unchanged, and is what enforces that). Nothing to change in a client. What
+  you gain is what the Runtime keeps: every turn is now recorded as a canonical
+  event log — `run.started`, text deltas, tool calls, per-model-call
+  `usage.reported`, `run.completed` — so a chat turn is finally as inspectable as
+  a `/v2` one. Sessions, Langfuse traces, sandboxes, `max_turns`, the model
+  provider and every other setting resolve exactly as they did before, and a
+  conversation is still one conversation whether the turn arrived through
+  `App.chat` or over HTTP. The workflow endpoints still run on v1's workflow
+  runner, unchanged.
+- `App` is the composition root, and the wiring behind it is one function:
+  `build_runtime(engines=...)` (`agentdeck.composition`) takes the parts — the
+  invocable mapping, engines, event store, sinks, control port — and returns a
+  wired `Runtime`, defaulting the mapping to discovery over `./.agentdeck` and
+  the store to your settings. `App.load()` calls it and exposes the result as
+  `App.runtime`, so an application that wants the canonical event stream for a
+  project no longer has to assemble a Runtime by hand. `App.aclose()` drains the
+  Runtime before closing Redis and MCP, so a sink registered through the seam
+  flushes at shutdown instead of dying with the event loop — `App` registers none
+  of its own yet, so today that drain is a no-op that keeps its own promise.
+- `AGENTDECK_EVENTS_BACKEND` / `AGENTDECK_EVENTS_URL` (YAML: `events:`) choose
+  where the canonical event log goes: `memory` (the default — no configuration,
+  no files, and a log that lives and dies with the process) or `sqlite` with
+  `url` pointing at a file, for a log that survives a restart. The default never
+  evicts and is lost on restart, so a long-lived server keeps every event it saw
+  and re-reads the whole conversation each turn — `agentdeck-serve` says so once
+  at startup rather than leaving you to find out.
 - Langfuse tracing for **workflow** runs, not only agent runs
   (`agentdeck.adapters.telemetry.langfuse`). `langfuse_sink()` hands back an
   event sink — or `None` when Langfuse has no keys — to register where you build
@@ -90,6 +121,31 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   is not JSON still becomes its `str()`, exactly as before, so no workflow that
   completed before now fails. v1's `/workflows/*` endpoints and Python API are
   untouched.
+- `POST /agents/{name}/chat` now answers **422** for a `message` or a `session_id`
+  that is not a string. `message` used to accept two more shapes — a message object
+  (`{"role": ..., "content": ...}`) and a list of SDK input items — and a
+  non-string `session_id` (say the integer `7`) used to be passed through as a
+  session key; both now fail the request with `{"detail": "message must be a
+  string, got dict"}` / `{"detail": "session_id must be a string, got int"}`
+  instead of a server error. Coercing the id instead would have quietly moved that
+  caller's conversation to a new session, so it is a 4xx you can see. Multi-part
+  input (images, resources) returns as typed content blocks in a later release; a
+  string in both fields is unaffected.
+- A project where an agent class and a workflow class share one name now fails at
+  `App.load()` with a message naming both, instead of loading two invocables that
+  the HTTP surface could not tell apart. Two bundles of the same kind exporting
+  one class name still collapse to a single invocable, as before.
+- The streamed `done` frame serializes a structured `output_type` result the same
+  way the non-streamed body always has, so the two agree. Only nested values
+  whose JSON form differs from `str()` change: a `datetime` in a structured output
+  is now `"2026-08-06T12:34:56Z"` on the streamed frame, where it used to be
+  `"2026-08-06 12:34:56+00:00"`. Text output — the overwhelming majority — is
+  byte-identical.
+- `POST /agents/{name}/chat` without `?stream=true` drives the SDK's streaming
+  API internally (the streamed and non-streamed endpoints are now one code path
+  that differs only in how it answers). Same model, same settings, same result;
+  worth knowing if your provider behaves differently between its streaming and
+  non-streaming endpoints, or gates streaming behind account verification.
 - `MemoryEventStore.append` now yields one scheduling turn (`await asyncio.sleep(0)`)
   before returning, matching what every durable store already does (SQLite's own
   `to_thread`). Fidelity, not correctness: a caller whose liveness secretly depended
@@ -128,6 +184,15 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   a documented feature into a failed run; the validated result (pydantic model,
   dataclass, or plain JSON) now arrives as a `DataBlock` on `run.completed`.
   v1's `App.chat` / `run_agent` never had this problem and are unchanged.
+- A run whose consumer goes away is now closed in the event log even when the
+  consumer was *cancelled* rather than closed — which is what a real ASGI server
+  does when a client disconnects mid-stream. `Runtime.run` and `Runtime.resume`
+  caught `GeneratorExit` and `Exception`, and `CancelledError` is neither, so a
+  disconnected stream used to leave a run with no terminal event: indistinguishable
+  from one still in flight, for status projections, `pending()` and anything
+  reading the log. Both now record `run.cancelled` (shielded, so the write is not
+  itself cancelled) and re-raise. A process that dies with the request still leaves
+  the run open — no in-process write can outlive its own event loop.
 - Shutdown no longer hangs forever on a wedged sink: every wait on the sink
   path has a deadline, including the last one — the wait for the sink's
   consumer to stop. A sink whose `emit` swallows cancellation can delay a

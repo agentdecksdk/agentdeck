@@ -2,6 +2,12 @@
 
     agentdeck-serve                  # console script; HOST / PORT env override
 
+The chat endpoints run on the v2 ``Runtime`` that ``App`` composes: the handler builds a
+``RunContext``, calls ``Runtime.run``, and hands the canonical events to
+``surfaces/serve/compat.py``, which renders v1's frames. The workflow endpoints still run
+on v1's workflow runner. The wire below is unchanged either way — that is the point, and
+``tests/golden/`` is what proves it.
+
 Endpoints:
     GET  /health                     -> {"status": "ok", agents, workflows, skills}
                                         503 {"status": "starting"} before the lifespan runs
@@ -32,9 +38,10 @@ import os
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from agentdeck.agents.runners import StreamDone
 from agentdeck.app import App
+from agentdeck.core.content import coerce_input
 from agentdeck.errors import AgentdeckError, NotFoundError
+from agentdeck.surfaces.serve.compat import chat_frames, chat_result, run_context
 from agentdeck.workflows.state import json_default
 
 if TYPE_CHECKING:
@@ -54,6 +61,7 @@ def create_app() -> Any:
         # App.open() closes the Redis session client + MCP servers on shutdown
         # (including SIGTERM from `compose stop`), so no connection is leaked.
         async with App.open() as deck:
+            _warn_if_event_log_is_in_memory(deck)
             api.state.deck = deck
             yield
             api.state.deck = None
@@ -89,39 +97,37 @@ def create_app() -> Any:
 
     @api.post("/agents/{name}/chat")
     async def chat(name: str, body: dict[str, Any], stream: bool = False) -> Any:
-        # Read the body up front: inside the generator a KeyError would surface as a
-        # 200 that just stops, since the response headers are already on the wire.
+        # Read and validate the body up front: inside the generator either failure would
+        # surface as a 200 that just stops, since the response headers are already on the wire.
         try:
             session_id, message = body["session_id"], body["message"]
         except KeyError as exc:
             raise HTTPException(status_code=422, detail=f"missing field: {exc.args[0]}") from exc
+        # A body shape this endpoint cannot run is the client's mistake, not a server fault: 4xx
+        # like every other bad body here, never a 500 in somebody's alerting. Both fields are
+        # checked, because both reach a model that only accepts a string.
+        if not isinstance(session_id, str):
+            raise HTTPException(status_code=422, detail=f"session_id must be a string, got {type(session_id).__name__}")
+        try:
+            content = coerce_input(message)
+        except TypeError as exc:
+            raise HTTPException(
+                status_code=422, detail=f"message must be a string, got {type(message).__name__}"
+            ) from exc
         app = deck()  # resolve before streaming so a pre-startup 503 keeps its status code
+        # Resolved against the agent registry, not the Runtime's invocables: this route is
+        # agents-only (a workflow name must still 404 here), and the registry's message is
+        # the one v1 answers with.
+        app.agents.get(name)
+        run = app.runtime.run(name, content, run_context(session_id))
         if stream:
-
-            async def events() -> AsyncIterator[str]:
-                try:
-                    async for chunk in app.chat_stream(name, session_id, message):
-                        if isinstance(chunk, StreamDone):
-                            # The SDK's own final_output — validated model for an output_type
-                            # agent, last assistant message otherwise — not the re-joined
-                            # deltas, which disagree for tool-using agents.
-                            done = {"output": chunk.final_output, "usage": chunk.usage}
-                            yield f"event: done\ndata: {json.dumps(done, default=json_default)}\n\n"
-                        else:
-                            yield f"data: {json.dumps({'delta': chunk})}\n\n"
-                except Exception as exc:
-                    # Mid-stream failures (max turns, guardrail trip, model error) can't change
-                    # the status code any more; report them in-band without leaking internals.
-                    yield f"event: error\ndata: {json.dumps({'error': type(exc).__name__})}\n\n"
-
             return StreamingResponse(
-                events(),
+                chat_frames(run),
                 media_type="text/event-stream",
                 # Proxies buffer streamed responses by default; nginx needs X-Accel-Buffering.
                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
             )
-        result = await app.chat(name, session_id, message)
-        return {"output": result.final_output}
+        return await chat_result(run)
 
     @api.post("/workflows/{name}")
     async def run_workflow(name: str, state: dict[str, Any], stream: bool = False, thread_id: str | None = None) -> Any:
@@ -160,6 +166,19 @@ def create_app() -> Any:
         return _jsonable(await deck().resume_workflow(name, thread_id, body["value"]))
 
     return api
+
+
+def _warn_if_event_log_is_in_memory(deck: App) -> None:
+    """Say so once at startup: the default event store is fine for a session and wrong for a
+    server. It never evicts, every v1 request shares one tenant, and a run reads its whole
+    log before it starts — so one long conversation costs quadratic reads and the process
+    keeps every event it ever saw. A warning, not a refusal: dev servers want this default.
+    """
+    if deck.settings.events.backend.strip().lower() == "memory":
+        logger.warning(
+            "event log backend is 'memory': it never evicts and is lost on restart. "
+            "Set AGENTDECK_EVENTS_BACKEND=sqlite and AGENTDECK_EVENTS_URL=<file> for a durable log."
+        )
 
 
 def _jsonable(value: Any) -> Any:

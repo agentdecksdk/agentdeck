@@ -283,6 +283,21 @@ class CheckpointSettings(LayeredSettings):
     url: str = ""
 
 
+class EventsSettings(LayeredSettings):
+    """Where the Runtime's canonical event log is written.
+
+    ``memory`` (the default) keeps it in the process and never touches disk, so a plain
+    install needs no configuration and no writable project dir — at the cost of a log that
+    grows for as long as the process lives and is gone when it exits. Point ``url`` at a
+    file and set ``backend: sqlite`` for a log that survives a restart.
+    """
+
+    model_config = settings_config("AGENTDECK_EVENTS_")
+
+    backend: str = "memory"
+    url: str = ""
+
+
 class SessionSettings(LayeredSettings):
     """Configuration for Redis-backed agent conversation memory.
 
@@ -360,6 +375,7 @@ class Settings(BaseModel):
     openai: OpenAISettings = Field(default_factory=lambda: OpenAISettings.model_validate({}))
     runner: RunnerSettings = Field(default_factory=lambda: RunnerSettings.model_validate({}))
     checkpoint: CheckpointSettings = Field(default_factory=lambda: CheckpointSettings.model_validate({}))
+    events: EventsSettings = Field(default_factory=lambda: EventsSettings.model_validate({}))
     session: SessionSettings = Field(default_factory=lambda: SessionSettings.model_validate({}))
     skills: SkillsSettings = Field(default_factory=lambda: SkillsSettings.model_validate({}))
     langfuse: LangfuseSettings = Field(default_factory=lambda: LangfuseSettings.model_validate({}))
@@ -385,6 +401,7 @@ __all__ = [
     "PACKAGED_DEFAULT_YAML",
     "REPO_ROOT",
     "CheckpointSettings",
+    "EventsSettings",
     "LangfuseSettings",
     "McpServerSettings",
     "McpSettings",

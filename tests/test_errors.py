@@ -5,8 +5,8 @@ import textwrap
 
 import pytest
 from fastapi.testclient import TestClient
+from scripted_model import ScriptedModel, provider_of
 
-from agentdeck.app import App
 from agentdeck.errors import AgentdeckError, NotFoundError, SkillError
 from agentdeck.runtime.registry import PluginRegistry
 from agentdeck.skills.executor import SkillEnvError, SkillExecutionError
@@ -64,13 +64,13 @@ def test_skill_error_returns_500_without_leaking_stderr(project, monkeypatch):
     from agentdeck.serve import create_app
 
     secret = "Traceback: AWS_SECRET_ACCESS_KEY=hunter2"
+    # The turn fails at the SDK boundary, so the error travels the whole real path — engine,
+    # Runtime, surface — the way a failing tool or skill inside a turn does.
+    model = ScriptedModel(raises=SkillExecutionError("greeter", 1, secret))
+    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(model))
 
-    async def boom(self, *_args, **_kwargs):
-        raise SkillExecutionError("greeter", 1, secret)
-
-    monkeypatch.setattr(App, "chat", boom)
     with TestClient(create_app()) as client:
-        response = client.post("/agents/greeter/chat", json={"session_id": "s", "message": "hi"})
+        response = client.post("/agents/Greeter/chat", json={"session_id": "s", "message": "hi"})
     assert response.status_code == 500
     assert response.json() == {"detail": "internal error"}
     assert "hunter2" not in response.text
