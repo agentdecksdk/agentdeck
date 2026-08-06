@@ -1,17 +1,25 @@
-"""D8, measured rather than asserted: `origin/dev`'s own parser reading this branch's events.
+"""D8, measured rather than asserted: the released parser reading this branch's events.
 
 A schema change is called additive by *arguing* that an old reader tolerates it. #107 shipped a
 break of exactly that class because the argument was never run. So this loads the released
-reader — `agentdeck/core/events.py` and `core/status.py` as they stand on `origin/dev`, straight
-out of git — and hands it the new kinds. The bar is the promise the schema makes: an unknown kind
-parses as `UnknownEvent`, keeps its raw payload, and moves nothing.
+reader — `agentdeck/core/events.py` and `core/status.py` as they stand at :data:`BASELINE`,
+straight out of git — and hands it every kind this tree can write. Two bars: a kind that reader
+has never heard of parses as `UnknownEvent`, keeps its raw payload and moves nothing; every kind
+it *does* know still parses as the payload class it knows.
 
-`core/content.py` resolves to *this* branch's copy, because the old modules import it by name.
-That is exactly the coverage wanted: this PR does not touch content, so the only difference
-between the two readers is the schema change under test.
+A **tag**, not a branch. `origin/dev`'s copies of all three schema modules are byte-identical to
+this tag's, so the two are the same reader today — but a test measured against a moving branch
+falsifies itself the moment it merges into that branch, and the honest baseline is "the newest
+reader anybody is running" anyway. Bumping :data:`BASELINE` past a release that *contains* the
+kinds under test will fail the first check below, which is the intended signal: that measurement
+is then history, and the assertions belong to whatever the next schema PR added.
 
-Skipped, loudly, when `origin/dev` is not fetched — a shallow CI clone has no other ref to
-compare against, and a test that quietly invents one would measure nothing.
+`core/content.py` resolves to *this* tree's copy, because the old modules import it by name. That
+is the coverage wanted: nothing here changed content, so the only difference between the two
+readers is the schema change under test.
+
+Skipped, loudly, when the baseline is not fetched — a depth-1 clone has no such ref, and a test
+that quietly invented one would measure nothing. CI checks out full history for this reason.
 """
 
 from __future__ import annotations
@@ -27,7 +35,8 @@ import pytest
 if TYPE_CHECKING:
     from types import ModuleType
 
-OLD_REF = "origin/dev"
+BASELINE = "v2.0.0b4"
+"""The newest released reader. Bump it at a release, deliberately, never to make a test pass."""
 
 
 def _module_from(ref: str, path: str, name: str, tmp_path) -> ModuleType:
@@ -57,8 +66,8 @@ def _module_from(ref: str, path: str, name: str, tmp_path) -> ModuleType:
 @pytest.fixture(scope="module")
 def old_reader(tmp_path_factory) -> tuple[ModuleType, ModuleType]:
     tmp_path = tmp_path_factory.mktemp("old_reader")
-    events = _module_from(OLD_REF, "agentdeck/core/events.py", "old_core_events", tmp_path)
-    status = _module_from(OLD_REF, "agentdeck/core/status.py", "old_core_status", tmp_path)
+    events = _module_from(BASELINE, "agentdeck/core/events.py", "old_core_events", tmp_path)
+    status = _module_from(BASELINE, "agentdeck/core/status.py", "old_core_status", tmp_path)
     return events, status
 
 
@@ -68,9 +77,22 @@ def _wire(event) -> dict[str, Any]:
 
 def test_the_old_reader_does_not_already_know_these_kinds(old_reader) -> None:
     """The measurement only means something if the reader really is older. If this fails, the
-    ref moved and the kinds landed — rebase, don't relax it."""
+    baseline was moved past the release that carries these kinds — retire the measurement, don't
+    relax it."""
     events, _ = old_reader
     assert {"status.reported", "progress.reported"}.isdisjoint(events.KNOWN_KINDS)
+
+
+def test_the_old_reader_still_reads_every_kind_it_already_knew(old_reader, examples) -> None:
+    """The other half of additive, and the half #107 lost: adding a kind must not disturb the
+    wire shape of any kind that shipped before it. Every one of the baseline's own kinds, as this
+    tree writes it, must still arrive as the payload class the baseline knows — not as an
+    ``UnknownEvent`` and not as a ``ValidationError``."""
+    events, _ = old_reader
+    for kind in sorted(events.KNOWN_KINDS):
+        parsed = events.parse_event(_wire(examples[kind]))
+        assert parsed.kind == kind
+        assert not isinstance(parsed.payload, events.UnknownEvent), f"{kind} stopped parsing for the old reader"
 
 
 @pytest.mark.parametrize("kind", ["status.reported", "progress.reported"])

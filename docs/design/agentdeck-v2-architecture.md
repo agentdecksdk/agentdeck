@@ -223,10 +223,13 @@ gated on the v2.0.0 stable tag**, since after it every released reader is the ol
 *(Amended 2026-08-06, issue #47.)* Two **reporting** kinds joined the table above,
 `status.reported` and `progress.reported`, so a run can say what it is doing instead of leaving
 every client to infer it from tool calls. Additive under D8 — two kinds, nothing renamed, removed
-or redefined — and measured against `origin/dev`'s own parser rather than argued:
-`tests/core/test_old_reader_compat.py` loads the released `core/events.py` and `core/status.py`
-out of git and asserts that reader reads both as `UnknownEvent`, keeps their payloads, folds the
-same status, and still sees the run as open. The deliberate line: **neither is a lifecycle kind**,
+or redefined — and measured against the released parser rather than argued:
+`tests/core/test_old_reader_compat.py` loads `core/events.py` and `core/status.py` out of git at
+the newest released tag (`v2.0.0b4`, whose schema modules are byte-identical to `origin/dev`'s)
+and asserts that reader reads both new kinds as `UnknownEvent`, keeps their payloads, folds the
+same status, still sees the run as open, and *still parses every kind it already knew*. A tag
+rather than a branch, because a measurement against `dev` falsifies itself the moment it merges
+into `dev`; CI checks out full history so this gate runs rather than skips. The deliberate line: **neither is a lifecycle kind**,
 so `LIFECYCLE_KINDS` and `TERMINAL_KINDS` are unchanged and a store that indexes by kind — the
 thing #101 showed can fail a whole tenant's listing — has nothing new to deserialize. The naming
 departs from the issue's suggested `agent.status`/`agent.progress` on purpose: a workflow node and
