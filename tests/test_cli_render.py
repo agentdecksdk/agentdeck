@@ -61,7 +61,7 @@ async def test_both_control_phases_are_reported_with_the_safe_point(
     )
 
     assert capsys.readouterr().out.splitlines() == [
-        "[control] cancel requested",
+        "[control] cancel requested: operator",
         "[control] cancel observed at tool_dispatch",
         "-- run.cancelled --",
     ]

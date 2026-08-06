@@ -25,19 +25,22 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   emits either kind yet, so no existing stream changes shape. The CLI renderer
   prints both phases and the Langfuse sink puts them on the run's timeline.
 - `run.resumed` now carries **the answer it was resumed with**, as content
-  (`value: list[ContentBlock] | None`) — a string arrives as a `TextBlock`, any
-  JSON answer as a `DataBlock`, and lifting an operator's pause carries nothing.
-  Stored **in full**, like a run's own input, because a truncated answer cannot be
-  replayed. This closes a hole that could strand a run for good: the single write
-  that moved a run from `waiting_human` to `running` recorded *that* it was
-  answered and not *what* the answer was, so a process dying between that write
-  and the engine consuming the value left the log saying `running` while the
-  engine was still parked at its interrupt — every later resume then rejected as
-  stray, with no recovery but a manual one. The answer is now in the log at the
-  instant the claim commits, before the engine is asked for anything, so a
-  successor process has what it needs. An answer JSON cannot carry (an arbitrary
-  object, `NaN`) is logged as a warning and recorded as no value rather than
-  failing a resume that would otherwise work.
+  (`value: list[ContentBlock] | None`) — content passes through as sent, a string
+  arrives as a `TextBlock`, any other JSON answer as a `DataBlock`, and lifting an
+  operator's pause carries nothing. Stored **in full**, like a run's own input,
+  because a truncated answer cannot be replayed. This is what makes a
+  previously unrecoverable window *repairable*: the single write that moved a run
+  from `waiting_human` to `running` recorded *that* it was answered and not *what*
+  the answer was, so a process dying between that write and the engine consuming
+  the value left the log saying `running` while the engine was still parked at its
+  interrupt — every later resume then rejected as stray, with no recovery but a
+  manual one. The answer is now in the log at the instant the claim commits, before
+  the engine is asked for anything, so a successor process has what it needs. **The
+  repair itself is not built here** — nothing yet reads `value` back to bring an
+  engine into line — so treat this as the prerequisite, not the fix. An answer JSON
+  cannot carry (an arbitrary object, a `datetime`, `NaN`) is logged as a warning and
+  recorded as no value rather than failing a resume that would otherwise work; such
+  a run keeps the old stranding risk.
   Compatible in both directions, and measured rather than assumed: a `run.resumed`
   written before this release still parses (no `value` means none), and a 2.0.0b4
   reader handed one of the new events parses it and drops the field it does not

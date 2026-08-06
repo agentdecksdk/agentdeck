@@ -753,6 +753,19 @@ async def test_a_text_answer_is_recorded_the_way_a_turn_s_own_input_is() -> None
     assert resumed.payload.value == [TextBlock(text="approved")]
 
 
+async def test_an_answer_already_in_blocks_is_recorded_as_those_blocks() -> None:
+    """A caller answering an inbox in the field's own type must not have it wrapped in a data
+    block: the same approval would then be two shapes depending on how it was spelled."""
+    runtime, store = _approver()
+    async for _ in runtime.run("Approver", INPUT, CTX):
+        pass
+    async for _ in runtime.resume("Approver", "t1", [TextBlock(text="approved")], CTX):
+        pass
+
+    resumed = next(event for event in await store.read(CTX.log_key, CTX) if event.kind == "run.resumed")
+    assert resumed.payload.value == [TextBlock(text="approved")]
+
+
 async def test_a_resume_with_nothing_to_answer_records_no_value() -> None:
     """Lifting an operator's pause answers no question, and an empty content list would claim
     that an answer arrived and was blank."""
@@ -768,7 +781,11 @@ async def test_a_resume_with_nothing_to_answer_records_no_value() -> None:
 
 @pytest.mark.parametrize(
     "value",
-    [pytest.param(object(), id="not-json"), pytest.param({"ratio": float("nan")}, id="non-finite-float")],
+    [
+        pytest.param(object(), id="not-json"),
+        pytest.param({"ratio": float("nan")}, id="non-finite-float"),
+        pytest.param(datetime(2026, 8, 6, tzinfo=UTC), id="datetime"),
+    ],
 )
 async def test_an_answer_the_log_cannot_hold_is_reported_rather_than_failing_the_resume(
     value: object,
@@ -786,4 +803,4 @@ async def test_an_answer_the_log_cannot_hold_is_reported_rather_than_failing_the
     assert [event.kind for event in events] == ["run.resumed", "run.completed"]
     resumed = next(event for event in await store.read(CTX.log_key, CTX) if event.kind == "run.resumed")
     assert resumed.payload.value is None
-    assert "run r-1 resumed with a" in caplog.text
+    assert "the answer for run r-1 is a" in caplog.text

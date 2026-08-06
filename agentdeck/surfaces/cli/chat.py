@@ -49,10 +49,10 @@ async def render(lines: AsyncIterator[str]) -> None:
                 print(f"[tool] {tool} -> {preview}")
             case MessageCompleted(message_id=message_id, text=text):
                 print(f"{event.origin} [{message_id}]: {text}")
-            case ControlRequested(verb=verb):
+            case ControlRequested(verb=verb, reason=reason):
                 # Between a request and the run acting on it there can be a whole tool call,
                 # so a reader watching a stream that has gone quiet is told which it is.
-                print(f"[control] {verb} requested")
+                print(f"[control] {verb} requested" + (f": {reason}" if reason else ""))
             case ControlObserved(verb=verb, safe_point=safe_point):
                 print(f"[control] {verb} observed at {safe_point}")
             case RunCompleted() | RunFailed() | RunCancelled():

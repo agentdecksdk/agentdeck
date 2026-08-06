@@ -437,19 +437,24 @@ def _as_content(value: Any, run_id: str) -> Input | None:
     """A resume answer as content blocks, so the log holds the input and not merely the fact
     that one arrived.
 
-    Text is text; anything else is JSON data, which is what a caller answering over HTTP or a
-    graph resuming with a state object actually sends. A value JSON cannot carry is the one
-    case that still records nothing: losing the answer is better than failing a resume that
-    would otherwise work, and the warning says which run to go and look at.
+    Content stays content — the field's own type, so an approval typed at an inbox is the
+    ``TextBlock`` it was sent as rather than a data block wrapping one. Everything else is
+    JSON data, which is what a caller answering over HTTP or a graph resuming with a state
+    object actually sends. A value JSON cannot carry is the one case that records nothing:
+    losing the answer is better than failing a resume that would otherwise work, and the
+    warning says which run to go and look at.
     """
     if value is None:
         return None
-    if isinstance(value, str):
+    try:
         return coerce_input(value)
+    except TypeError:
+        pass
     try:
         return [DataBlock(data=value)]
     except ValidationError:
-        logger.warning("run %s resumed with a %s, which the log cannot hold", run_id, type(value).__name__)
+        # Not "was resumed": this runs before the claim, so the caller may still lose it.
+        logger.warning("the answer for run %s is a %s, which the log cannot hold", run_id, type(value).__name__)
         return None
 
 
