@@ -73,6 +73,13 @@ Two things add up, and both are bounded:
 For a streaming answer that is typically well under half a second. For a run inside a 30-second
 tool call it is 30 seconds, and no setting can change that without killing the call.
 
+Both of those are about a run that is *live*. Cancelling a run that is already **paused** is the
+one case with no bound on it, because a paused run has no loop reaching safe points: the request
+is recorded, and the next `resume_run` honours it — ending the run `cancelled` instead of playing
+it on. So the cancel is never lost and can never be overridden by a resume, but it becomes an
+effect only when somebody next touches the run. A paused run that nobody ever picks up stays
+paused, holding its session until `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` takes it over.
+
 ## What resume replays
 
 A paused run is suspended **in the log**, not parked in memory: the process is free to exit, and
@@ -91,7 +98,9 @@ there first). Exactly one caller can resume a paused run: the transition is a co
 to the log, so two racing resumes cannot both play the turn.
 
 **Cancel is terminal.** A cancelled run cannot be resumed, and a cancel cannot un-do what a tool
-already did — an email that was sent stays sent.
+already did — an email that was sent stays sent. That holds for a run cancelled *while paused*
+too: `resume_run` finds the pending cancel and ends the run rather than continuing it, so asking
+to resume does not quietly override whoever cancelled.
 
 `paused` is also not `waiting_human`: a run stopped on an `interrupt()` is waiting for an answer
 and resumes *with a value*; a paused run is waiting for an operator and resumes with nothing.

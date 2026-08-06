@@ -244,7 +244,13 @@ class App:
     async def cancel_run(self, run_id: str, reason: str | None = None) -> bool:
         """Ask the run to stop for good at its next safe point. Same answer as
         :meth:`pause_run`, and the same reason for it; the run's ``run.cancelled`` is what says
-        it happened. Cancellation is terminal — a cancelled run cannot be resumed."""
+        it happened. Cancellation is terminal — a cancelled run cannot be resumed.
+
+        Cancelling a run that is already **paused** is honored by the next :meth:`resume_run`,
+        which ends it instead of continuing it: a paused run has no loop reaching safe points, so
+        nothing else can turn the request into an effect. The cancel is never lost and never
+        overridden, but a paused run nobody picks up again stays paused.
+        """
         return await self.runtime.signal(run_id, Signal.CANCEL, reason)
 
     async def resume_run(self, run_id: str, reason: str | None = None) -> list[Event]:

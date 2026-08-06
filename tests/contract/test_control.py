@@ -210,6 +210,33 @@ async def test_a_cancelled_run_is_terminal_and_cannot_be_resumed(harness: Harnes
     assert await harness.log() == before
 
 
+async def test_cancelling_a_paused_run_ends_it_rather_than_resuming_it(harness: Harness) -> None:
+    """The abandoned-pause path: pause, think, give up. A paused run has no loop polling the
+    gate, so nothing turns that cancel into an effect on its own — the next resume attempt is
+    the only thing that will ever look, and it must honor the cancel instead of playing the run
+    on. Otherwise the request is silently dropped and the run completes as if nobody asked.
+
+    No ``control.observed`` here, unlike a cancel served at a safe point: this run reached none.
+    """
+    await harness.control.signal(harness.ctx.run_id, Signal.PAUSE)
+    await harness.play()
+    await harness.runtime.signal(harness.ctx.run_id, Signal.CANCEL, "user closed the tab")
+
+    resumed = await harness.resume()
+    log = await harness.log()
+
+    assert _kinds(resumed) == ["run.resumed", "control.requested", "run.cancelled"]
+    assert _payload(resumed, "control.requested").verb == "cancel"
+    assert _payload(resumed, "run.cancelled").reason == "user closed the tab"
+    assert status_of(log) is RunStatus.CANCELLED
+    assert check_terminal(log) is None
+    assert check_contiguous(log) == []
+    # No text.delta after the pause: the run was never played on.
+    assert _kinds(log).count("run.completed") == 0
+    # And cancel stayed terminal — a second attempt finds nothing to resume.
+    assert await harness.resume() == []
+
+
 @pytest.mark.parametrize("verb", [Signal.PAUSE, Signal.CANCEL])
 async def test_a_signal_that_lost_the_race_with_a_terminal_event_records_nothing(
     harness: Harness, verb: Signal

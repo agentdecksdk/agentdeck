@@ -34,6 +34,7 @@ from agentdeck.core.events import RunCompleted, TextDelta, Usage, check_contiguo
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports.control import CONTROL_POLL_INTERVAL, ControlSignal, Gate, RunPausedError, Signal
 from agentdeck.core.status import RunStatus, status_of
+from agentdeck.errors import SessionBusyError
 from agentdeck.runtime.service import Runtime
 
 if TYPE_CHECKING:
@@ -127,6 +128,34 @@ async def test_a_signal_recorded_inside_an_interval_is_honored_at_the_first_safe
     assert control.reads == 2
 
 
+async def test_the_cooldown_is_a_deadline_and_never_a_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The liveness law, made executable: a run reusing the answer it already has must not be
+    parked while the interval runs out.
+
+    ``asyncio.sleep`` is an error for the duration of this test, so a cooldown written as a wait
+    fails here instead of quietly turning every safe point into a stall. Nothing else catches
+    that: the read *counts* are identical either way, and an elapsed-time assertion is exactly
+    what ``docs/coding-standards.md`` §8 forbids. The interval is an hour to make the point
+    unmissable — a waiting implementation would park this run for an hour per safe point.
+    """
+
+    async def never(*args: object, **kwargs: object) -> None:
+        raise AssertionError("the gate slept: the cooldown is a deadline off the clock, never a wait")
+
+    monkeypatch.setattr(asyncio, "sleep", never)
+    control = CountingControlPort()
+    clock = FakeClock()
+    gate = Gate(control, "r-1", poll_interval=3_600.0, clock=clock)
+
+    await gate.checkpoint()  # the branch that reads
+    for _ in range(100):
+        await gate.checkpoint()  # the branch that reuses — an hour of them, at no wait
+    clock.advance(3_600.0)
+    await gate.checkpoint()  # the deadline passed, so it asks again
+
+    assert control.reads == 2
+
+
 async def test_a_gate_with_no_control_port_never_reads_and_never_raises() -> None:
     """The default: a run nobody wired control for behaves exactly as it did before this
     feature existed, at no cost per safe point."""
@@ -154,9 +183,25 @@ def test_a_negative_poll_interval_is_refused_rather_than_treated_as_zero() -> No
 
 async def test_the_shipped_default_bound_is_the_one_the_docs_state() -> None:
     """The number is user-facing — it is the cancel-latency bound written on the run-control
-    page — so it is pinned here rather than left to drift silently."""
+    page — so it is pinned here rather than left to drift silently.
+
+    Asserted through a gate built the way a run's gate is built (no ``poll_interval`` passed),
+    so this also holds the *default* to the constant: a gate that ignored it would still read
+    once inside the interval and twice across it, and the count is what says which one it used.
+    """
     assert CONTROL_POLL_INTERVAL == 0.2
-    assert Gate(MemoryControlPort(), "r-1")._poll_interval == CONTROL_POLL_INTERVAL
+    control = CountingControlPort()
+    clock = FakeClock()
+    gate = Gate(control, "r-1", clock=clock)
+
+    await gate.checkpoint()
+    clock.advance(CONTROL_POLL_INTERVAL * 0.99)
+    await gate.checkpoint()
+    assert control.reads == 1  # still inside the default interval
+
+    clock.advance(CONTROL_POLL_INTERVAL)
+    await gate.checkpoint()
+    assert control.reads == 2
 
 
 async def test_a_long_answer_pays_one_read_per_interval_where_it_used_to_pay_one_per_item() -> None:
@@ -369,8 +414,6 @@ async def test_resuming_a_run_that_is_not_paused_is_a_noop() -> None:
 async def test_a_paused_run_keeps_holding_its_session_so_no_second_turn_starts_on_it() -> None:
     """A pause suspends a turn, it does not end it: the conversation stays claimed, and a turn
     asked for meanwhile is refused rather than interleaved with the one that is coming back."""
-    from agentdeck.errors import SessionBusyError
-
     control = MemoryControlPort()
     spec = stub_spec(
         "Chatty",

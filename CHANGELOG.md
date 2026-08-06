@@ -50,6 +50,14 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   and cannot be resumed, and `paused` stays distinct from `waiting_human` (that one
   resumes *with* a value).
 
+  **Cancelling a paused run works, with one caveat worth knowing.** Pause, think,
+  give up is the ordinary path, and a cancel recorded against a paused run is
+  honored by the next resume — which ends the run `cancelled` rather than playing it
+  on, so a resume can never quietly override whoever cancelled. But a paused run has
+  no loop reaching safe points, so nothing else can turn that request into an effect:
+  a paused run that nobody ever resumes stays paused, holding its session until
+  `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` takes it over.
+
   **Races are no-ops, never errors.** A signal that arrives after the run ended does
   nothing and records nothing; the same pause sent twice is one request; resuming a
   run that is not paused returns nothing (409 over HTTP).

@@ -23,6 +23,7 @@ from pydantic import ValidationError
 from agentdeck.core.content import DataBlock, coerce_input
 from agentdeck.core.events import (
     TERMINAL_KINDS,
+    ControlRequested,
     Event,
     RunCancelled,
     RunContextSnapshot,
@@ -188,6 +189,12 @@ class Runtime:
         A run that is not paused is a no-op: nothing is claimed, nothing is yielded. That
         covers the ordinary races — a run that finished, was cancelled, or was already resumed
         by another worker — without a second answer for a caller to branch on.
+
+        A **cancel** recorded while the run was paused is honored here instead of resuming it,
+        because this claim is the only thing that will ever look for it: a paused run has no
+        loop reaching safe points, so nothing else can turn that request into an effect. The
+        run ends ``cancelled`` and is never played on — cancel stays terminal, and asking to
+        resume a run somebody cancelled does not quietly override them.
         """
         found = await self._paused(run_id, ctx)
         if found is None:
@@ -199,9 +206,22 @@ class Runtime:
         if claimed is None:
             return
         opening, seq = claimed
-        if self._control is not None:
-            # Only the winner touches control state, and it does so before the engine reaches
-            # its first safe point — a pause still pending there would stop the run again at it.
+        # Read control only after the claim: the claim is what makes this caller the one actor
+        # on the run, so an answer read before it could belong to somebody else's turn.
+        pending = None if self._control is None else await self._control.poll(run_id)
+        if pending is not None and pending.verb is Signal.CANCEL:
+            yield opening
+            # No ``control.observed``: that event says the run reached a safe point and acted
+            # there, and this run reached none — it was already stopped when the cancel landed.
+            # The request and the effect are the whole honest story of a cancel served here.
+            yield await self._record(ControlRequested(verb="cancel", reason=pending.reason), spec, run_ctx, next(seq))
+            yield await self._record(RunCancelled(reason=pending.reason), spec, run_ctx, next(seq))
+            return
+        if pending is not None and pending.verb is Signal.PAUSE and self._control is not None:
+            # Lift the pause this resume answers, so the run does not stop again at its first
+            # safe point. Written only when a pause is what is actually pending: an unconditional
+            # RESUME here would overwrite — and silently destroy — a cancel that arrived while
+            # the run was suspended, which is the one signal nothing else will ever notice.
             await self._control.signal(run_id, Signal.RESUME, reason)
         history = await self._store.read(log_key, run_ctx)
         stream = engine.start(spec, started.input, history, run_ctx)
@@ -220,6 +240,13 @@ class Runtime:
 
         Not for lifting a pause: a paused run has no loop left to notice anything, so
         :meth:`resume_run` is what continues it (and writes ``RESUME`` itself).
+
+        Cancelling a run that is already **paused** is recorded here like any other signal, and
+        honored by the next :meth:`resume_run` — which ends the run ``cancelled`` rather than
+        playing it on. So the request is never lost, but it does become an effect later than a
+        cancel against a live run does: a paused run nobody ever picks up stays paused, holding
+        its session until ``stale_run_after`` takes it over. Turning that into an immediate
+        terminal event needs a store-side conditional append, which is #45's follow-up, not this.
         """
         if self._control is None:
             logger.warning("no ControlPort is wired: %s for run %s was not recorded", verb.value, run_id)
