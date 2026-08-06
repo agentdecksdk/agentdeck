@@ -11,8 +11,9 @@ A silent skip is the failure mode that guard exists to catch: CI's skip-count ce
 
 Every case gets its own keyspace — a fresh Redis prefix, a fresh Postgres schema — so tests
 never see each other's events and never touch anything else living in a dev's local server.
-The keyspace context managers are exported too, for the per-backend suites that need several
-stores over *one* keyspace to race each other.
+``two_event_stores`` hands one case two handles on one such keyspace, for the promises a
+single instance cannot be asked about; the keyspace context managers are exported too, for
+the per-backend suites that build their own peers.
 """
 
 from __future__ import annotations
@@ -20,6 +21,8 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from itertools import count
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, NoReturn
 
 import pytest
@@ -103,6 +106,56 @@ async def event_store(backend: str) -> AsyncIterator[EventStorePort]:
                 yield postgres
             finally:
                 await postgres.aclose()
+    else:
+        raise ValueError(f"unknown store backend {backend!r}; expected one of {BACKENDS}")
+
+
+@asynccontextmanager
+async def two_event_stores(backend: str) -> AsyncIterator[tuple[EventStorePort, EventStorePort]]:
+    """Two handles on one keyspace for ``backend``, torn down afterwards.
+
+    The position two servers are in: two connections sharing no transaction, no cache and no
+    ``asyncio.Lock``, so what they agree on they agree on through the store. Separate from
+    ``event_store`` rather than layered on it because the shape differs per backend — SQLite
+    needs a file, since two handles on ``:memory:`` get two unrelated databases.
+
+    Memory yields one store twice, which is not a shortcut: its keyspace *is* the instance's
+    dict and it holds nothing else, so two objects sharing that dict would be the same thing
+    with more words. Two tasks on one instance is all "two writers" can mean in one process.
+    """
+    if backend == "memory":
+        store = MemoryEventStore()
+        yield store, store
+    elif backend == "sqlite":
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "events.sqlite3"
+            first, second = SqliteEventStore(path), SqliteEventStore(path)
+            try:
+                yield first, second
+            finally:
+                first.close()
+                second.close()
+    elif backend == "redis":
+        from agentdeck.adapters.stores.redis import RedisEventStore
+
+        async with redis_keyspace() as (url, prefix):
+            redis_pair = (RedisEventStore(url, prefix=prefix), RedisEventStore(url, prefix=prefix))
+            try:
+                yield redis_pair
+            finally:
+                for redis_store in redis_pair:
+                    await redis_store.aclose()
+    elif backend == "postgres":
+        require_psycopg()  # before the adapter import, which is what pulls libpq in
+        from agentdeck.adapters.stores.postgres import PostgresEventStore
+
+        async with postgres_schema() as (dsn, schema):
+            postgres_pair = (PostgresEventStore(dsn, schema=schema), PostgresEventStore(dsn, schema=schema))
+            try:
+                yield postgres_pair
+            finally:
+                for postgres_store in postgres_pair:
+                    await postgres_store.aclose()
     else:
         raise ValueError(f"unknown store backend {backend!r}; expected one of {BACKENDS}")
 

@@ -164,6 +164,8 @@ def test_injected_session_factory_is_used_and_closed_once(project, monkeypatch):
 
 def test_injected_session_factory_closed_when_load_fails(tmp_path, monkeypatch):
     """A failure inside open() (broken bundle) must still close the injected factory."""
+    from agentdeck.errors import ConfigError
+
     root = tmp_path / ".agentdeck"
     (root / "agents" / "broken").mkdir(parents=True)
     (root / "agents" / "broken" / "agent.py").write_text("raise RuntimeError('broken bundle')\n")
@@ -178,7 +180,8 @@ def test_injected_session_factory_closed_when_load_fails(tmp_path, monkeypatch):
         async with App.open(session_factory=fake):
             pass
 
-    with pytest.raises(RuntimeError):
+    # the raw RuntimeError is now wrapped in a ConfigError naming the offending bundle path
+    with pytest.raises(ConfigError, match="agents/broken/agent.py"):
         asyncio.run(scenario())
     assert fake.closed == 1
 
