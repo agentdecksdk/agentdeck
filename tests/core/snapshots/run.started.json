@@ -21,6 +21,16 @@
         "type": "image",
         "media_type": "image/png",
         "data_b64": "iVBORw0="
+      },
+      {
+        "type": "data",
+        "data": {
+          "calendar_id": "cal_9",
+          "attendees": [
+            "sagi",
+            "dana"
+          ]
+        }
       }
     ],
     "context": {

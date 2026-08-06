@@ -14,12 +14,14 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.telemetry.langfuse import LangfuseSink, langfuse_sink
-from agentdeck.core.content import ImageBlock, TextBlock
+from agentdeck.adapters.telemetry.langfuse.sink import _render
+from agentdeck.core.content import DataBlock, ImageBlock, TextBlock
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
     Budget,
@@ -315,6 +317,45 @@ async def test_an_inline_data_uri_in_tool_arguments_is_described_never_handed_ov
 
     assert call.input == {"img": DESCRIBED, "seen": [{"again": DESCRIBED}]}
     assert call.output == f"got {DESCRIBED}"
+    assert PAYLOAD not in repr(collector.everything())
+
+
+def test_a_block_kind_this_version_cannot_render_is_still_mentioned() -> None:
+    """The default case earns its keep: a newer writer's block type must not make a run read
+    as one with no input at all. A stand-in stands in because ``ContentBlock`` is strict —
+    there is no unknown block type to construct until core grows the fallback."""
+    # the ignore is the shim for that: no value of type Input can carry an unknown block
+    assert _render([SimpleNamespace(type="audio")]) == ["<audio block>"]  # ty: ignore[invalid-argument-type]
+
+
+async def test_structured_data_reaches_the_trace_as_json_on_both_ends() -> None:
+    """A workflow's state is the run's real input and output — a trace that dropped the block
+    would read as a run with nothing to say."""
+    collector = Collector()
+    final = {"claim_id": "7777", "decision": "approved"}
+    runtime = _runtime(
+        collector,
+        RunCompleted(output=[DataBlock(data=final)], usage=TOTAL),
+        kind=InvocableKind.WORKFLOW,
+        name="Pipeline",
+    )
+    async for _ in runtime.run("Pipeline", [DataBlock(data={"input": "claim 7777"})], CTX):
+        pass
+    await runtime.drain()
+
+    trace = collector.only()
+    assert trace.input == ['{"input": "claim 7777"}']
+    assert trace.output == ['{"claim_id": "7777", "decision": "approved"}']
+
+
+async def test_an_inline_data_uri_inside_structured_data_is_described_too() -> None:
+    collector = Collector()
+    runtime = _runtime(collector, RunCompleted(output=INPUT, usage=TOTAL), kind=InvocableKind.AGENT, name="Viewer")
+    async for _ in runtime.run("Viewer", [DataBlock(data={"page": {"img": DATA_URI}})], CTX):
+        pass
+    await runtime.drain()
+
+    assert collector.only().input == [f'{{"page": {{"img": "{DESCRIBED}"}}}}']
     assert PAYLOAD not in repr(collector.everything())
 
 

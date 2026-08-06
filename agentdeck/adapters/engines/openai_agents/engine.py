@@ -10,17 +10,20 @@ crash between the log write and the session write.
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import os
 from contextlib import aclosing, asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 from agents import Agent, RunConfig, Runner
+from pydantic import BaseModel
 
 from agentdeck.adapters.engines.openai_agents.reconcile import reconcile
 from agentdeck.adapters.engines.openai_agents.sessions import ExecutionStore
 from agentdeck.adapters.engines.openai_agents.translate import translate
-from agentdeck.core.content import TextBlock, coerce_input
+from agentdeck.core.content import DataBlock, TextBlock, coerce_input
 from agentdeck.core.events import RunCancelled, RunCompleted, Usage
 from agentdeck.core.ports import EnginePort
 from agentdeck.core.ports.control import RunCancelledError
@@ -197,9 +200,31 @@ def _to_sdk_input(input: Input) -> str:
 
 def _run_completed(result: RunResultStreaming) -> RunCompleted:
     output = result.final_output
-    if not isinstance(output, str):
-        raise ConfigError(f"openai-agents engine (M0) only supports str final_output, got {type(output)}")
-    return RunCompleted(output=coerce_input(output), usage=_usage_of(result))
+    if isinstance(output, str):
+        return RunCompleted(output=coerce_input(output), usage=_usage_of(result))
+    return RunCompleted(output=[DataBlock(data=_structured(output))], usage=_usage_of(result))
+
+
+def _structured(output: Any) -> Any:
+    """An ``output_type`` agent's validated result as JSON data.
+
+    It travels as a ``DataBlock``, which is why this no longer raises: refusing a non-``str``
+    final output turned a documented feature into a failed run. The ceiling, and it applies to
+    every branch below: a leaf JSON cannot carry becomes its ``str()`` — a non-finite float
+    included, since ``null`` would claim it was absent — rather than failing the run at its
+    last event.
+    """
+    if isinstance(output, BaseModel):
+        try:
+            output = output.model_dump(mode="json")
+        except ValueError:
+            # PydanticSerializationError, which is a ValueError: one leaf pydantic cannot
+            # render as JSON. The python dump keeps the rest and the net below takes that
+            # leaf, so only its fidelity is lost — not the whole run's terminal event.
+            output = output.model_dump()
+    elif dataclasses.is_dataclass(output) and not isinstance(output, type):
+        output = dataclasses.asdict(output)
+    return json.loads(json.dumps(output, default=str), parse_constant=str)
 
 
 def _usage_of(result: RunResultStreaming) -> Usage:
