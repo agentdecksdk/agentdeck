@@ -446,10 +446,13 @@ def _as_content(value: Any, run_id: str) -> Input | None:
     """
     if value is None:
         return None
-    try:
-        return coerce_input(value)
-    except TypeError:
-        pass
+    # `[]` reaches coerce_input's list branch vacuously, and recording it as content with no
+    # blocks would say an answer arrived and was blank. It is the empty JSON array: an answer.
+    if value != []:
+        try:
+            return coerce_input(value)
+        except TypeError:
+            pass
     try:
         return [DataBlock(data=value)]
     except ValidationError:

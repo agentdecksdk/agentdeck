@@ -766,6 +766,19 @@ async def test_an_answer_already_in_blocks_is_recorded_as_those_blocks() -> None
     assert resumed.payload.value == [TextBlock(text="approved")]
 
 
+async def test_an_empty_array_answer_is_data_not_content_with_no_blocks() -> None:
+    """ "Nothing selected" is an answer. Recorded as content it would read as no blocks at all,
+    which is indistinguishable from a resume that answered nothing — and unreconstructable."""
+    runtime, store = _approver()
+    async for _ in runtime.run("Approver", INPUT, CTX):
+        pass
+    async for _ in runtime.resume("Approver", "t1", [], CTX):
+        pass
+
+    resumed = next(event for event in await store.read(CTX.log_key, CTX) if event.kind == "run.resumed")
+    assert resumed.payload.value == [DataBlock(data=[])]
+
+
 async def test_a_resume_with_nothing_to_answer_records_no_value() -> None:
     """Lifting an operator's pause answers no question, and an empty content list would claim
     that an answer arrived and was blank."""
