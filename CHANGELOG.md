@@ -77,6 +77,46 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   new kinds arrive as unknown kinds a consumer skips. The one caveat is what that
   dropping implies: only a process new enough to *see* `value` can use it to
   repair a resume, so upgrade the workers that reconcile before relying on it.
+### Changed
+- **A sink the breaker disables is no longer disabled for good.** A telemetry
+  endpoint that failed five events in a row used to be dead for the rest of the
+  process; now the dispatch waits 30 seconds and then lets one event through to
+  see whether it is back. A sink that takes that event starts receiving the
+  stream again; one that fails it keeps its events dropped and is offered
+  another event 30 seconds later, so a genuinely dead endpoint costs two emit
+  attempts a minute rather than one per event. Coming back is logged as loudly as
+  going away was, and says how many events the outage dropped, so a stream that
+  resumes mid-run is not a gap with nothing to explain it. The cooldown is a
+  deadline read off a clock and never a wait — a run is not slowed by a sink's outage or by
+  its recovery — and nothing is replayed: the events the outage covered are
+  still lost, and still counted as drops. A sink therefore needs no retry logic
+  of its own for a transient outage, and one that cannot lose events reads the
+  event log, which is the complete copy.
+- **A flapping sink can no longer flood the log with stack traces.** Failure
+  logging was rate-limited per failure *streak*, which bounded nothing for a
+  sink that fails every other event — each success reset the streak, so every
+  failure printed a fresh traceback and the run's length decided the log
+  volume. Tracebacks are now limited to one per sink per 60 seconds, and each
+  one reports how many failures went unlogged since the last, so a throttled
+  log still says how much it is standing in for. The breaker's disable decision
+  is unchanged by this.
+
+### Fixed
+- Two bundles of the **same kind** (two agents, or two workflows) exporting a
+  class of the same name used to collapse silently into one invocable, in
+  sorted bundle order — copying `agents/greeter/` to `agents/greeter-v2/` to
+  iterate and forgetting to rename the class made the original vanish from the
+  registry with no error, no warning, no log line. `App.load()` (and anything
+  that discovers a project, including `InvocableRegistry`) now raises
+  `ConfigError` naming both bundle paths and the class name they share. A
+  project relying on the old shadowing to hide one bundle behind another now
+  fails at load instead of routing requests to the wrong agent; rename one of
+  the classes to fix it.
+- A bundle whose `agent.py` or `workflow.py` raises while importing (a
+  `SyntaxError`, a missing dependency, anything at module scope) used to
+  surface as a raw traceback through the import machinery. It's now a
+  `ConfigError` naming the offending bundle path, with the original exception
+  chained as the cause.
 
 ## [2.0.0b4] - 2026-08-06
 
