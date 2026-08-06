@@ -12,9 +12,9 @@ pytest.importorskip("fastapi")
 
 FIXTURE_PROJECT = Path(__file__).parent / "fixture_project"
 
-# Env that must not leak in from a developer's shell or the repo-root .env: Redis
-# sessions, Langfuse export and the sqlite checkpointer would all reach outside the test,
-# and max_turns below the scripted two would truncate the recorded turn.
+# Env that must not leak in from a developer's shell or a stray .env: Redis sessions,
+# Langfuse export and the sqlite checkpointer would all reach outside the test, and
+# max_turns below the scripted two would truncate the recorded turn.
 _PINNED_ENV = {
     "AGENTDECK_CHECKPOINT_BACKEND": "memory",
     "AGENTDECK_CHECKPOINT_URL": "",
@@ -43,8 +43,10 @@ def make_client(monkeypatch):
 
     for key, value in _PINNED_ENV.items():
         monkeypatch.setenv(key, value)
-    # .env and config.yaml resolve from the *package's* repo root, not the cwd, so chdir
-    # alone can't neutralize them — pin the YAML source to the shipped defaults.
+    # .env and config.yaml resolve from cwd at settings-build time, and chdir below puts
+    # that at fixture_project (neither file lives there) — APP_CONFIG_PATH is still
+    # pinned to the shipped defaults as a belt-and-suspenders guard against either
+    # appearing there later.
     monkeypatch.setenv("APP_CONFIG_PATH", str(PACKAGED_DEFAULT_YAML))
     monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", ScriptedProvider)
     monkeypatch.chdir(FIXTURE_PROJECT)
