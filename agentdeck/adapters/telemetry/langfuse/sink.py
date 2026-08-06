@@ -301,8 +301,10 @@ def _render(blocks: Input) -> list[str]:
             case DataBlock():
                 out.append(json.dumps(_without_media(block.data), sort_keys=True))
             case _:
-                # A block kind this version doesn't render is still worth a place in the
-                # trace: a silent drop reads as "the run had no input".
+                # Unreachable while ``ContentBlock`` is a strict union — it rejects a block
+                # type it doesn't know rather than handing one here. Kept because the cost is
+                # a line and the alternative failure is silent: a dropped block reads as "the
+                # run had no input", which is worse than a placeholder saying what was lost.
                 out.append(f"<{getattr(block, 'type', 'unknown')} block>")
     return out
 

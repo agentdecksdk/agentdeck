@@ -140,7 +140,11 @@ the *input* direction too (a workflow's initial state is posted JSON), which a f
 `run.completed` could not serve, so the block won: it fits `Input` everywhere `Input`
 already appears, in both directions, and the terminal event gets it for free. `JsonValue` is
 the type, so a value that could not survive the wire is rejected at construction rather than
-failing later in a store. **Content policy:** text and data blocks are stored **in full** —
+failing later in a store — plus a validator for the one class of value `JsonValue` itself
+lets through: `NaN` and `±Infinity` have no JSON literal and serialize as `null`, which would
+make a consumer's copy of an event differ, silently, from the store's. Producers degrade such
+a leaf to text under their own declared ceiling instead. **Content policy:** text and data
+blocks are stored **in full** —
 they are the caller's own input and the run's own declared result, and a truncated one
 cannot be replayed or reconciled; the preview + size + hash treatment stays specific to
 *tool* results, where the bytes are unbounded and engine-chosen. **D8: additive minor**, no
@@ -202,13 +206,18 @@ sub-agent-level attribution.
 *(Amended 2026-08-06, issue #101.)* A **structured result** is a `DataBlock` in
 `run.completed.output` (§4.1) — a validated `output_type` result, a workflow's final state —
 not a namespaced `custom` event and not a stringified dict. No payload class changed and no
-kind was added, so this is D8-additive; the two golden snapshots that carry an `Input`
-(`run.started`, `run.completed`) gained a `data` block to freeze its wire shape. One honest
-asymmetry: `parse_event` tolerates an unknown *kind*, but `ContentBlock` is a strict
-discriminated union, so a reader older than a new block type rejects the event rather than
-skipping the block. Bumping `v` would not help that reader (nothing branches on `v` yet); the
-upgrade, if a cross-version reader ever ships, is an `UnknownBlock` fallback mirroring
-`UnknownEvent`, and it is deliberately not built for a single-version system.
+kind was added, so this is D8-additive; of the three golden snapshots that carry an `Input`
+(`run.started`, `run.completed`, `input.appended`), the first two gained a `data` block to
+freeze its wire shape on both the input and the result channel. One honest asymmetry:
+`parse_event` tolerates an unknown *kind*, but `ContentBlock` is a strict discriminated
+union, so a reader older than a new block type rejects the event rather than skipping the
+block. Measured, the blast radius is wider than one event: `SqliteEventStore.list_runs`
+deserializes each run's last lifecycle row in one comprehension, so one structured
+`run.completed` in a shared store makes an older process's listing fail for the whole tenant,
+runs it wrote itself included. Mixed-version readers against one event store are therefore
+unsupported across this change. Bumping `v` would not help that reader (nothing branches on
+`v` yet); the upgrade is an `UnknownBlock` fallback mirroring `UnknownEvent` — **issue #109,
+gated on the v2.0.0 stable tag**, since after it every released reader is the old reader.
 
 ### 4.3 RunContext — thread it everywhere, today
 

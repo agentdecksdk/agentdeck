@@ -15,13 +15,24 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `Runtime.run(...)`, `run.started.input`, `run.completed.output`,
   `input.appended` — a validated `output_type` result or a workflow's state
   travels as itself instead of being squeezed through text. Data that could not
-  survive the wire (a `datetime`, a `set`, an arbitrary object) is refused at
-  construction rather than failing later in a store or a trace. Text and data
-  blocks are stored **in full**: they are the caller's own input and the run's own
-  declared result, and a truncated copy cannot be replayed — only *tool* results
-  stay bounded to a preview, size and hash. Additive: no existing block, payload
-  or field changed, and readers of the previous three block types are unaffected
-  until something actually sends them a `data` block.
+  survive the wire (a `datetime`, a `set`, an arbitrary object, and `NaN` /
+  `±Infinity` — floats with no JSON literal, which would otherwise be written as
+  `null`) is refused at construction rather than failing later, or silently
+  changing value, in a store or a trace. Text and data blocks are stored **in
+  full**: they are the caller's own input and the run's own declared result, and a
+  truncated copy cannot be replayed — only *tool* results stay bounded to a
+  preview, size and hash.
+  Additive for writers: no existing block, payload or field changed. **Not
+  backward-compatible for readers, and wider than one event** — content blocks are
+  a strict discriminated union, so a process running an older agentdeck cannot
+  parse an event containing a `data` block at all. Because a run listing parses
+  each run's last lifecycle event, one structured `run.completed` in a shared
+  event store makes the older process's `list_runs` fail *for the whole tenant*,
+  including runs it wrote itself — a listing or dashboard outage on the old half
+  of a fleet, and a rollback after the first structured run lands in a state the
+  old code cannot read. Do not run mixed agentdeck versions against one event
+  store across this change: upgrade every reader first, then start producing
+  `data` blocks.
 - Langfuse tracing for **workflow** runs, not only agent runs
   (`agentdeck.adapters.telemetry.langfuse`). `langfuse_sink()` hands back an
   event sink — or `None` when Langfuse has no keys — to register where you build

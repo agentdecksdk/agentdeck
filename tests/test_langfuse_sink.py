@@ -322,7 +322,9 @@ async def test_an_inline_data_uri_in_tool_arguments_is_described_never_handed_ov
 
 def test_a_block_kind_this_version_cannot_render_is_still_mentioned() -> None:
     """The default case earns its keep: a newer writer's block type must not make a run read
-    as one with no input at all."""
+    as one with no input at all. A stand-in stands in because ``ContentBlock`` is strict —
+    there is no unknown block type to construct until core grows the fallback."""
+    # the ignore is the shim for that: no value of type Input can carry an unknown block
     assert _render([SimpleNamespace(type="audio")]) == ["<audio block>"]  # ty: ignore[invalid-argument-type]
 
 

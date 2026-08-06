@@ -169,11 +169,13 @@ def _jsonable(value: Any, source: str) -> dict[str, Any]:
 def _state_data(values: Any) -> Any:
     """The graph's final state as JSON data, which is what ``RunCompleted`` now carries.
 
-    A leaf that isn't JSON becomes its ``str()``: the same fidelity ceiling the previous
-    ``str(dict(values))`` had for the whole state, so no workflow that completed before
-    starts failing here. Typed leaves need a per-graph serializer, which no caller has asked for.
+    A leaf that isn't JSON becomes its ``str()``, non-finite floats included (``parse_constant``
+    catches the ``NaN``/``Infinity`` tokens that ``default`` never sees, because those leaves
+    *are* floats): the same fidelity ceiling the previous ``str(dict(values))`` had for the
+    whole state, so a graph that completed before does not start failing here. Typed leaves
+    need a per-graph serializer, which no caller has asked for.
     """
-    return json.loads(json.dumps(_jsonable(values, "final state"), default=str))
+    return json.loads(json.dumps(_jsonable(values, "final state"), default=str), parse_constant=str)
 
 
 __all__ = ["LangGraphEngine"]

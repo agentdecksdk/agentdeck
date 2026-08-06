@@ -88,6 +88,30 @@ def test_a_value_that_could_not_survive_the_wire_is_rejected(data):
         DataBlock(data=data)
 
 
+@pytest.mark.parametrize(
+    "data",
+    [
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        {"ratio": float("nan")},
+        [1.0, float("inf")],
+        {"deep": [{"ratio": float("nan")}]},
+    ],
+)
+def test_a_non_finite_float_is_rejected_rather_than_serialized_as_null(data):
+    """The one value JSON has no literal for. Accepting it would write ``null`` while the
+    consumer that was handed the block saw a float — a yielded event diverging from its own
+    record, silently."""
+    with pytest.raises(ValidationError, match="non-finite float"):
+        DataBlock(data=data)
+
+
+def test_finite_floats_at_the_edges_are_still_fine():
+    for value in (0.0, -0.0, 1e308, -1e308, 5e-324):
+        assert DataBlock(data={"v": value}).data == {"v": value}
+
+
 def test_a_data_block_does_not_mutate():
     block = DataBlock(data={"k": 1})
     with pytest.raises(ValidationError):

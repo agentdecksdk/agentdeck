@@ -143,14 +143,22 @@ def _structured(output: Any) -> Any:
     """An ``output_type`` agent's validated result as JSON data.
 
     It travels as a ``DataBlock``, which is why this no longer raises: refusing a non-``str``
-    final output turned a documented feature into a failed run. A value neither pydantic nor
-    dataclass nor JSON becomes its ``str()`` rather than failing the run at its last event.
+    final output turned a documented feature into a failed run. The ceiling, and it applies to
+    every branch below: a leaf JSON cannot carry becomes its ``str()`` — a non-finite float
+    included, since ``null`` would claim it was absent — rather than failing the run at its
+    last event.
     """
     if isinstance(output, BaseModel):
-        return output.model_dump(mode="json")
-    if dataclasses.is_dataclass(output) and not isinstance(output, type):
+        try:
+            output = output.model_dump(mode="json")
+        except ValueError:
+            # PydanticSerializationError, which is a ValueError: one leaf pydantic cannot
+            # render as JSON. The python dump keeps the rest and the net below takes that
+            # leaf, so only its fidelity is lost — not the whole run's terminal event.
+            output = output.model_dump()
+    elif dataclasses.is_dataclass(output) and not isinstance(output, type):
         output = dataclasses.asdict(output)
-    return json.loads(json.dumps(output, default=str))
+    return json.loads(json.dumps(output, default=str), parse_constant=str)
 
 
 def _usage_of(result: RunResultStreaming) -> Usage:

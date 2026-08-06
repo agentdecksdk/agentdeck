@@ -13,11 +13,12 @@ the result, regardless of how the stream plays out.
 from __future__ import annotations
 
 import dataclasses
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from agents import Agent, RunConfig
 from agents.models.interface import Model
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
 from agentdeck.adapters.engines.openai_agents import engine as engine_module
@@ -151,3 +152,46 @@ async def test_an_output_the_sdk_cannot_json_becomes_its_string(monkeypatch: pyt
     """The declared ceiling: a run reports its answer rather than failing at its last event."""
     terminal = await _terminal(monkeypatch, _NeverCalledModel)
     assert terminal.output == [DataBlock(data=str(_NeverCalledModel))]
+
+
+async def test_a_validated_result_with_an_unrenderable_leaf_keeps_the_rest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ceiling covers the pydantic branch too: ``model_dump(mode="json")`` raises on a leaf
+    it cannot render, and that raise is what would kill the run at ``run.completed``."""
+
+    class _Mixed(BaseModel):
+        model_config = ConfigDict(arbitrary_types_allowed=True)
+
+        day: str
+        opaque: Any
+
+    opaque = object()
+    terminal = await _terminal(monkeypatch, _Mixed(day="tuesday", opaque=opaque))
+    assert terminal.output == [DataBlock(data={"day": "tuesday", "opaque": str(opaque)})]
+
+
+async def test_a_validated_result_keeps_json_fidelity_for_the_leaves_pydantic_knows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Why the pydantic branch stays on ``mode="json"`` instead of dumping in python mode: a
+    ``datetime`` leaf is ISO-8601 there, and ``str()`` of one is not."""
+
+    class _Booking(BaseModel):
+        at: datetime
+
+    terminal = await _terminal(monkeypatch, _Booking(at=datetime(2026, 1, 6, 9, 0, tzinfo=UTC)))
+    assert terminal.output == [DataBlock(data={"at": "2026-01-06T09:00:00Z"})]
+
+
+async def test_a_non_finite_float_in_a_result_becomes_its_token_not_null(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``NaN`` is refused by ``DataBlock`` (it would serialize as ``null``), so the adapter
+    degrades it under its own ceiling rather than failing the run."""
+
+    class _Score(BaseModel):
+        ratio: float
+
+    terminal = await _terminal(monkeypatch, _Score(ratio=float("nan")))
+    assert terminal.output == [DataBlock(data={"ratio": "NaN"})]

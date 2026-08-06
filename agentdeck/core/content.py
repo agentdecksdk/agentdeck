@@ -12,9 +12,10 @@ bytes are unbounded and engine-chosen rather than caller-chosen.
 
 from __future__ import annotations
 
+from math import isfinite
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 
 class CoreModel(BaseModel):
@@ -52,6 +53,30 @@ class DataBlock(CoreModel):
 
     type: Literal["data"] = "data"
     data: JsonValue
+
+    @field_validator("data")
+    @classmethod
+    def _floats_are_finite(cls, value: JsonValue) -> JsonValue:
+        """``NaN`` and ``±Infinity`` pass ``JsonValue``'s float branch but have no JSON
+        literal: they serialize as ``null``, so a consumer would see a number that the store
+        does not hold — the one silent divergence between a yielded event and its record.
+        A producer meaning "no value" says so with ``null``; one meaning "not a number" says
+        so with a string.
+
+        The walk is iterative: a payload deep enough to recurse is already rejected by
+        ``JsonValue`` itself, and this must not be the thing that turns that into a
+        ``RecursionError``.
+        """
+        stack: list[JsonValue] = [value]
+        while stack:
+            item = stack.pop()
+            if isinstance(item, float) and not isfinite(item):
+                raise ValueError(f"data holds a non-finite float ({item}), which JSON cannot carry")
+            if isinstance(item, dict):
+                stack.extend(item.values())
+            elif isinstance(item, list):
+                stack.extend(item)
+        return value
 
 
 ContentBlock = Annotated[TextBlock | ImageBlock | ResourceBlock | DataBlock, Field(discriminator="type")]

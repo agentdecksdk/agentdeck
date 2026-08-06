@@ -87,6 +87,28 @@ async def test_a_data_block_that_is_not_an_object_is_refused() -> None:
         await _completed([DataBlock(data=["order 41"])])
 
 
+async def test_a_non_finite_float_in_the_state_becomes_its_token_not_null() -> None:
+    """A node returning ``float("nan")`` is ordinary Python and would have serialized as
+    ``null``: the consumer would read "no ratio" off an event whose store row says the same,
+    with nothing anywhere recording that a number was lost."""
+
+    class RatioState(TypedDict, total=False):
+        input: str
+        ratio: float
+
+    def _rate(_state: RatioState) -> RatioState:
+        return {"ratio": float("nan")}
+
+    graph: StateGraph[Any] = StateGraph(RatioState)
+    graph.add_node("rate", _rate)
+    graph.add_edge(START, "rate")
+    graph.add_edge("rate", END)
+    spec = InvocableSpec(name="Rater", kind=InvocableKind.WORKFLOW, engine=LangGraphEngine.engine, native=graph)
+
+    completed = await _completed(coerce_input("order 41"), spec)
+    assert completed.output == [DataBlock(data={"input": "order 41", "ratio": "NaN"})]
+
+
 async def test_a_state_leaf_that_is_not_json_becomes_its_string() -> None:
     """The declared ceiling: the old ``str(dict(values))`` stringified the whole state, so a
     graph that completed before still completes — it does not fail at its last event."""
