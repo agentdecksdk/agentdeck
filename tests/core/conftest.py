@@ -14,6 +14,7 @@ from agentdeck.core import (
     ArtifactCreated,
     Budget,
     Custom,
+    DataBlock,
     Event,
     ImageBlock,
     InputAppended,
@@ -45,7 +46,11 @@ PAYLOADS = (
         invocable="Greeter",
         kind_of_invocable="agent",
         parent_run_id=None,
-        input=[TextBlock(text="any slot tuesday?"), ImageBlock(media_type="image/png", data_b64="iVBORw0=")],
+        input=[
+            TextBlock(text="any slot tuesday?"),
+            ImageBlock(media_type="image/png", data_b64="iVBORw0="),
+            DataBlock(data={"calendar_id": "cal_9", "attendees": ["sagi", "dana"]}),
+        ],
         context=RunContextSnapshot(
             principal="user:sagi",
             trace_id="trace_1",
@@ -53,7 +58,13 @@ PAYLOADS = (
             triggered_by="http",
         ),
     ),
-    RunCompleted(output=[TextBlock(text="Tuesday at 9am works.")], usage=USAGE),
+    RunCompleted(
+        output=[
+            TextBlock(text="Tuesday at 9am works."),
+            DataBlock(data={"slot": "2026-01-06T09:00:00Z", "confirmed": True}),
+        ],
+        usage=USAGE,
+    ),
     RunFailed(error_code="tool_error", message="lookup_slot exited 1", retryable=True),
     RunPaused(reason="awaiting approval"),
     RunResumed(reason="approved"),

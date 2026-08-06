@@ -6,6 +6,7 @@ import-linter contract enforces it.
 
 from agentdeck.core.content import (
     ContentBlock,
+    DataBlock,
     ImageBlock,
     Input,
     ResourceBlock,
@@ -54,6 +55,7 @@ __all__ = [
     "Budget",
     "ContentBlock",
     "Custom",
+    "DataBlock",
     "Event",
     "ImageBlock",
     "Input",

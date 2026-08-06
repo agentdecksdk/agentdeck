@@ -1,10 +1,16 @@
-"""``coerce_input`` — the one place a bare string becomes an ``Input``."""
+"""``coerce_input`` — the one place a bare string becomes an ``Input`` — and ``DataBlock``,
+the one place structured data becomes content."""
 
 from __future__ import annotations
 
-import pytest
+from datetime import UTC, datetime
 
-from agentdeck.core import ImageBlock, ResourceBlock, TextBlock, coerce_input
+import pytest
+from pydantic import TypeAdapter, ValidationError
+
+from agentdeck.core import ContentBlock, DataBlock, ImageBlock, ResourceBlock, TextBlock, coerce_input
+
+BLOCKS = TypeAdapter(list[ContentBlock])
 
 
 def test_string_becomes_one_text_block():
@@ -12,7 +18,12 @@ def test_string_becomes_one_text_block():
 
 
 def test_input_passes_through_unchanged():
-    blocks = [TextBlock(text="hi"), ImageBlock(media_type="image/png", data_b64="AA=="), ResourceBlock(uri="s3://b/k")]
+    blocks = [
+        TextBlock(text="hi"),
+        ImageBlock(media_type="image/png", data_b64="AA=="),
+        ResourceBlock(uri="s3://b/k"),
+        DataBlock(data={"claim": 7777}),
+    ]
     assert coerce_input(blocks) == blocks
 
 
@@ -29,3 +40,79 @@ def test_empty_list_is_valid_input():
 def test_anything_else_raises(value):
     with pytest.raises(TypeError):
         coerce_input(value)
+
+
+# --- DataBlock -------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"claim_id": "7777", "decision": "approved", "amount": 12.5},
+        {"nested": {"deep": [1, 2, {"deeper": None}]}},
+        [{"id": 1}, {"id": 2}],
+        "already a string",
+        42,
+        True,
+        None,
+    ],
+)
+def test_a_data_block_round_trips_every_json_shape(data):
+    block = DataBlock(data=data)
+    assert BLOCKS.validate_json(BLOCKS.dump_json([block])) == [block]
+
+
+def test_the_discriminator_routes_data_to_a_data_block():
+    assert BLOCKS.validate_python([{"type": "data", "data": {"k": 1}}]) == [DataBlock(data={"k": 1})]
+
+
+def test_an_unknown_field_inside_a_data_block_is_dropped():
+    assert BLOCKS.validate_python([{"type": "data", "data": {"k": 1}, "encoding": "cbor"}]) == [
+        DataBlock(data={"k": 1})
+    ]
+
+
+def test_data_is_stored_in_full_never_previewed_or_hashed():
+    """The content policy: caller input and a run's declared result survive whole, so a
+    replay sees what the run saw. Only tool results are bounded."""
+    big = {"rows": [{"i": i, "note": "x" * 100} for i in range(500)]}
+    block = DataBlock(data=big)
+    assert block.data == big
+    assert BLOCKS.validate_json(BLOCKS.dump_json([block]))[0].data == big
+    assert set(DataBlock.model_fields) == {"type", "data"}  # no preview, no size, no sha256
+
+
+@pytest.mark.parametrize("data", [{"when": datetime(2026, 1, 1, tzinfo=UTC)}, {"tags": {"a", "b"}}, object()])
+def test_a_value_that_could_not_survive_the_wire_is_rejected(data):
+    with pytest.raises(ValidationError):
+        DataBlock(data=data)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        float("nan"),
+        float("inf"),
+        float("-inf"),
+        {"ratio": float("nan")},
+        [1.0, float("inf")],
+        {"deep": [{"ratio": float("nan")}]},
+    ],
+)
+def test_a_non_finite_float_is_rejected_rather_than_serialized_as_null(data):
+    """The one value JSON has no literal for. Accepting it would write ``null`` while the
+    consumer that was handed the block saw a float — a yielded event diverging from its own
+    record, silently."""
+    with pytest.raises(ValidationError, match="non-finite float"):
+        DataBlock(data=data)
+
+
+def test_finite_floats_at_the_edges_are_still_fine():
+    for value in (0.0, -0.0, 1e308, -1e308, 5e-324):
+        assert DataBlock(data={"v": value}).data == {"v": value}
+
+
+def test_a_data_block_does_not_mutate():
+    block = DataBlock(data={"k": 1})
+    with pytest.raises(ValidationError):
+        block.data = {"k": 2}

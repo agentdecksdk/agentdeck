@@ -33,7 +33,7 @@ from agentdeck.core.events import (
     check_terminal,
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
-from agentdeck.core.ports import EventSinkPort
+from agentdeck.core.ports import EventSinkPort, SessionClaim
 from agentdeck.errors import ConfigError, NotFoundError, SessionBusyError, StoreError
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import RuntimeSettings, reset_settings_cache
@@ -597,10 +597,56 @@ async def test_a_run_that_writes_again_after_being_taken_over_fails_instead_of_r
     assert seqs == sorted(set(seqs)), f"a seq was written twice: {[(e.seq, e.kind) for e in resurrected]}"
     assert check_contiguous(resurrected) == []
     assert [event.kind for event in resurrected] == ["run.started", "text.delta", "run.failed", "run.failed"]
+    # A refused write is the log's doing, and the record must not put it on the engine.
+    assert resurrected[-1].payload.message == "StoreError recording this run"
 
 
 async def _collect(runtime: Runtime, run_id: str) -> list[Event]:
     return [event async for event in runtime.run("Greeter", INPUT, replace(CTX, run_id=run_id))]
+
+
+async def test_a_cancellation_during_the_claim_closes_the_run_and_frees_the_session() -> None:
+    """The gap between committing a run and having anything to yield. The claim is awaited in the
+    caller's own coroutine — the one an ASGI server cancels when a client disconnects before the
+    response starts — and a cancellation there used to leave the run open, holding its session for
+    a whole staleness window with no terminal event to explain why.
+    """
+
+    class _SlowClaim(MemoryEventStore):
+        """Commits the claim and then hangs, so a cancellation can land in exactly that gap."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.committed = asyncio.Event()
+
+        async def claim_start(
+            self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime
+        ) -> SessionClaim:
+            claim = await super().claim_start(log_key, event, ctx, stale_before)
+            if event.run_id == "r-1":
+                self.committed.set()
+                await asyncio.Event().wait()  # a cancellation is the only way out, which is the point
+            return claim
+
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = _SlowClaim()
+    runtime = Runtime([StubEngine()], store, {spec.name: spec}, clock=lambda: TS)
+
+    turn = asyncio.create_task(_collect(runtime, "r-1"))
+    async with asyncio.timeout(WEDGE_TIMEOUT):
+        await store.committed.wait()
+        turn.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await turn
+
+        stored = await store.read(CTX.log_key, CTX)
+        assert [event.kind for event in stored] == ["run.started", "run.cancelled"]
+        assert check_terminal(stored) is None
+        assert stored[-1].payload.reason == "cancelled during the claim"
+
+        # And the session is free again — the point of closing it rather than waiting the window out.
+        next_turn = [event async for event in runtime.run("Greeter", INPUT, replace(CTX, run_id="r-2"))]
+        assert next_turn[-1].kind == "run.completed"
 
 
 async def test_a_takeover_whose_bookkeeping_fails_still_leaves_this_turn_runnable(
