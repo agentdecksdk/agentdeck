@@ -5,5 +5,7 @@ export default {
   skills: 'Skills',
   workflows: 'Workflows',
   'runs-and-the-event-log': 'Runs and the Event Log',
-  'run-control': 'Run Control'
+  'sessions-and-memory': 'Sessions and Memory',
+  'run-control': 'Run Control',
+  'protocols-and-surfaces': 'Protocols and Surfaces'
 }
