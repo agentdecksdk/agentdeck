@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from contextlib import aclosing
+from contextlib import aclosing, suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from itertools import count
@@ -102,7 +102,8 @@ class Runtime:
 
         The engine's exception, if any, reaches the caller — but ``run.failed`` is recorded
         first, so the log tells the whole story even when nobody was listening. Every exit
-        closes the run in the log: a consumer that walks away gets ``run.cancelled``.
+        closes the run in the log: a consumer that walks away gets ``run.cancelled``, whether it
+        closed this generator or had its own task cancelled under it.
         """
         spec, engine = self._resolve(name)
         ctx = self._with_gate(ctx)
@@ -141,6 +142,14 @@ class Runtime:
             # run in the log is indistinguishable from one still in flight.
             logger.info("run %s abandoned by its consumer after %r", ctx.run_id, last)
             await self._record(RunCancelled(reason="consumer stopped reading"), spec, ctx, next(seq))
+            raise
+        except asyncio.CancelledError:
+            # The other way a consumer walks away, and the one a real ASGI server delivers: it
+            # cancels the task streaming the response rather than closing the generator. This
+            # arm exists because ``CancelledError`` is a BaseException, so the one below never
+            # saw it and the run stayed open in the log forever.
+            logger.info("run %s cancelled after %r", ctx.run_id, last)
+            await self._close_cancelled(spec, ctx, next(seq), "consumer cancelled")
             raise
         except Exception as exc:
             # The exception is the caller's, the event is the record — both, always. The type
@@ -189,6 +198,10 @@ class Runtime:
         except GeneratorExit:
             logger.info("run %s abandoned by its consumer after %r", ctx.run_id, last)
             await self._record(RunCancelled(reason="consumer stopped reading"), spec, ctx, next(seq))
+            raise
+        except asyncio.CancelledError:
+            logger.info("run %s cancelled after %r", ctx.run_id, last)
+            await self._close_cancelled(spec, ctx, next(seq), "consumer cancelled")
             raise
         except Exception as exc:
             logger.exception("run %s failed in engine %r", ctx.run_id, engine.engine)
@@ -266,6 +279,19 @@ class Runtime:
         )
         await self._store.append(ctx.log_key, [event], ctx)
         await self._fan_out(event)
+
+    async def _close_cancelled(self, spec: InvocableSpec, ctx: RunContext, seq: int, reason: str) -> None:
+        """Write the closing ``run.cancelled`` while this task is already being cancelled.
+
+        Shielded because the append suspends — a durable store hands it to a thread, and the
+        in-memory one yields a turn — and an unshielded await inside a cancelled task is
+        re-cancelled before the write can land. Best effort by construction: the write survives
+        the cancellation, but not the event loop, so a process dying with the request leaves the
+        run open in the log for whatever reconciles it later.
+        """
+        recording = asyncio.ensure_future(self._record(RunCancelled(reason=reason), spec, ctx, seq))
+        with suppress(asyncio.CancelledError):
+            await asyncio.shield(recording)
 
     async def _claim_resume(self, spec: InvocableSpec, ctx: RunContext) -> tuple[Event, Iterator[int]] | None:
         """Take the run's ``WAITING_HUMAN`` -> ``RUNNING`` transition, or ``None`` if someone

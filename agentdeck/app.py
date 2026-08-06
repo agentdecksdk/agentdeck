@@ -40,6 +40,8 @@ from agents import SQLiteSession
 from agentdeck.agents.mcp.lifecycle import MCPLifecycle
 from agentdeck.agents.registry import AgentRegistry
 from agentdeck.agents.runners import HeadlessRunner, StreamDone
+from agentdeck.composition import build_runtime, v1_engines
+from agentdeck.errors import ConfigError
 from agentdeck.runtime.registry import PROJECT_DIR, _package_dir, mount_project_dir
 from agentdeck.runtime.sessions import SessionFactory
 from agentdeck.runtime.settings import Settings, get_settings
@@ -52,6 +54,7 @@ if TYPE_CHECKING:
 
     from agents.memory.session import Session
 
+    from agentdeck.runtime.service import Runtime
     from agentdeck.workflows.interrupts import InterruptResult
 
 
@@ -79,6 +82,7 @@ class App:
     _local_sessions: dict[str, Session] = field(init=False, default_factory=dict)
     _closed: bool = field(init=False, default=False)
     _started_mcp: bool = field(init=False, default=False)
+    _runtime: Runtime | None = field(init=False, default=None)
 
     def __post_init__(self) -> None:
         package = mount_project_dir()
@@ -92,11 +96,23 @@ class App:
     def settings(self) -> Settings:
         return get_settings()
 
+    @property
+    def runtime(self) -> Runtime:
+        """The wired Runtime this App composed — what the HTTP surface runs chats on.
+
+        Built by :meth:`load`, because a Runtime over a project that cannot be discovered
+        is not something to hand a surface.
+        """
+        if self._runtime is None:
+            raise ConfigError("no Runtime yet: call App.load() (or use App.open()) first.")
+        return self._runtime
+
     def load(self) -> dict[str, list[str]]:
         """Discover and *instantiate* everything; raises on the first broken bundle.
 
         Returns ``{"agents": [...], "workflows": [...], "skills": [...]}`` and stashes
-        it on ``self.inventory`` so callers don't have to re-run the compile pass.
+        it on ``self.inventory`` so callers don't have to re-run the compile pass, and
+        composes the Runtime the HTTP surface serves from.
         """
         agents = self.agents.list(refresh=True)
         workflows = self.workflows.list(refresh=True)
@@ -112,6 +128,9 @@ class App:
             "workflows": sorted(workflows),
             "skills": sorted(skills),
         }
+        # One assembly seam, one caller: everything this App hands a surface comes from
+        # `build_runtime`, so a second front door adds a caller instead of a second wiring.
+        self._runtime = build_runtime(engines=v1_engines(self.session_for))
         return self.inventory
 
     async def run_agent(self, name: str, message: Any = None, **runner_options: Any) -> Any:
@@ -247,11 +266,18 @@ class App:
             await app.aclose()
 
     async def aclose(self) -> None:
-        """Close the Redis session client and MCP servers. Idempotent — safe to call twice."""
+        """Flush the Runtime's sinks, then close the Redis session client and MCP servers.
+
+        Idempotent — safe to call twice.
+        """
         if self._closed:
             return
         self._closed = True
         try:
+            if self._runtime is not None:
+                # queued sink emits die with the event loop otherwise, losing the last
+                # few audit/cost events of the process
+                await self._runtime.drain()
             if self.session_factory is not None:
                 await self.session_factory.aclose()
         finally:

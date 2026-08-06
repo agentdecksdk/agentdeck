@@ -234,3 +234,24 @@ forbidden_modules =
     agentdeck.surfaces
     agentdeck.serve
     agentdeck.app
+
+# The v1 bridge (#74) is deliberately the one place that reaches across the line: it imports
+# v1's runner glue and v1's Langfuse integration, which is why it is not an adapter. Only the
+# composition root may wire it, so nothing in the rings depends on code the pre-stable cleanup
+# deletes — that is what makes deleting the whole directory a one-line change. Nothing else
+# earns this exemption by resembling it. `errors` is in the list for the same reason it has a
+# contract of its own: it is the one module every layer imports.
+[importlinter:contract:v1bridge-is-composition-root-only]
+name = only the composition root wires the v1 bridge
+type = forbidden
+source_modules =
+    agentdeck.errors
+    agentdeck.core
+    agentdeck.runtime
+    agentdeck.adapters
+    agentdeck.surfaces
+    agentdeck.agents
+    agentdeck.workflows
+    agentdeck.skills
+forbidden_modules =
+    agentdeck.v1bridge
