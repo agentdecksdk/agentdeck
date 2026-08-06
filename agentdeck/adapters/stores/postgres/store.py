@@ -153,16 +153,22 @@ class PostgresEventStore(EventStorePort):
         this store is not I/O and a composition root can wire one without a live server."""
         if self._conn is None:
             conn: Connection = await psycopg.AsyncConnection.connect(self._dsn, autocommit=True)
-            await conn.set_isolation_level(psycopg.IsolationLevel.READ_COMMITTED)
-            # Two workers starting together would otherwise race their own CREATEs: the
-            # IF NOT EXISTS checks are not atomic against each other, and the loser gets a
-            # duplicate-object error rather than the table it asked for.
-            await conn.execute("SELECT pg_advisory_lock(%s)", (self._setup_key,))
+            # Closed rather than abandoned if setup fails: this is the retried path, and a
+            # connection nothing holds a reference to holds a server backend regardless.
             try:
-                for statement in self._ddl:
-                    await conn.execute(statement)
-            finally:
-                await conn.execute("SELECT pg_advisory_unlock(%s)", (self._setup_key,))
+                await conn.set_isolation_level(psycopg.IsolationLevel.READ_COMMITTED)
+                # Two workers starting together would otherwise race their own CREATEs: the
+                # IF NOT EXISTS checks are not atomic against each other, and the loser gets
+                # a duplicate-object error rather than the table it asked for.
+                await conn.execute("SELECT pg_advisory_lock(%s)", (self._setup_key,))
+                try:
+                    for statement in self._ddl:
+                        await conn.execute(statement)
+                finally:
+                    await conn.execute("SELECT pg_advisory_unlock(%s)", (self._setup_key,))
+            except BaseException:
+                await conn.close()
+                raise
             self._conn = conn
         return self._conn
 
