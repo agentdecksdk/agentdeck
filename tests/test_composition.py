@@ -5,6 +5,7 @@ import sys
 import textwrap
 from datetime import UTC, datetime
 
+import live_stores
 import pytest
 
 from agentdeck.adapters.stores.memory import MemoryEventStore
@@ -130,7 +131,7 @@ def test_resolve_event_store_builds_redis_from_a_url():
 
 
 def test_resolve_event_store_builds_postgres_from_a_dsn():
-    pytest.importorskip("psycopg", reason="the Postgres event log needs the [durability] extra")
+    live_stores.require_psycopg()
     from agentdeck.adapters.stores.postgres import PostgresEventStore
 
     store = resolve_event_store(EventsSettings(backend="postgres", url="postgresql://localhost/whatever"))

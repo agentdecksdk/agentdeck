@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from itertools import count
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import pytest
 
@@ -39,6 +39,22 @@ POSTGRES_DSN_ENV = "AGENTDECK_TEST_POSTGRES_DSN"
 
 _DEFAULT_REDIS_URL = "redis://127.0.0.1:6379/15"
 _DEFAULT_POSTGRES_DSN = "postgresql://postgres:postgres@127.0.0.1:5432/agentdeck_test"
+
+
+def require_psycopg(*, module_level: bool = False) -> Any:
+    """Skip rather than error when psycopg is installed but its libpq is missing.
+
+    Not `importorskip`: that skips a module which is absent and re-raises one which is present
+    and broken — a deliberate distinction on its side, and `pip install psycopg` without the
+    binary wheel lands squarely in the second case, where an error would take the whole
+    collection down with it. Pass `module_level` when calling this while a module is importing.
+    """
+    try:
+        import psycopg
+    except ImportError as exc:
+        pytest.skip(f"the Postgres event log needs psycopg with libpq: {exc}", allow_module_level=module_level)
+    return psycopg
+
 
 # Unique per case so two of them never share a prefix or a schema. A counter rather than a
 # uuid: a failing case's keyspace is then something a reader can find in the output.
@@ -78,6 +94,7 @@ async def event_store(backend: str) -> AsyncIterator[EventStorePort]:
             finally:
                 await store.aclose()
     elif backend == "postgres":
+        require_psycopg()  # before the adapter import, which is what pulls libpq in
         from agentdeck.adapters.stores.postgres import PostgresEventStore
 
         async with postgres_schema() as (dsn, schema):
@@ -120,7 +137,7 @@ async def redis_keyspace() -> AsyncIterator[tuple[str, str]]:
 @asynccontextmanager
 async def postgres_schema() -> AsyncIterator[tuple[str, str]]:
     """A live Postgres and a schema name nothing else is using, dropped on the way out."""
-    psycopg = pytest.importorskip("psycopg", reason="the Postgres event log needs the [durability] extra")
+    psycopg = require_psycopg()
 
     dsn = postgres_dsn()
     _skip_if_known_bad(dsn)

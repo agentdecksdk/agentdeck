@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
     from agentdeck.adapters.stores.postgres import PostgresEventStore
 
-psycopg = pytest.importorskip("psycopg", reason="the Postgres event log needs the [durability] extra")
+psycopg = live_stores.require_psycopg(module_level=True)
 
 from agentdeck.adapters.stores.postgres import PostgresEventStore  # noqa: E402 — needs psycopg above
 from agentdeck.adapters.stores.postgres import store as store_module  # noqa: E402 — needs psycopg above
