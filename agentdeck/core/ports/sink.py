@@ -20,6 +20,12 @@ class EventSinkPort(ABC):
     and flushes on its own schedule, because the dispatch feeding it times out a blocking emit
     and eventually disables a sink that keeps doing it. Since that pushes every non-trivial
     sink into buffering, ``close`` is where a buffer gets written out for the last time.
+
+    Being disabled is not the end of it: after a cooldown the dispatch offers a disabled sink one
+    event, and one that takes it goes back to receiving the stream — so an outage a sink cannot
+    do anything about needs no retry logic of its own, and a sink that raises rather than blocks
+    while its endpoint is down is behaving correctly. What none of that recovers is the events the
+    outage covered: nothing is replayed, and a sink that cannot lose any reads the store instead.
     """
 
     @abstractmethod

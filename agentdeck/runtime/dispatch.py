@@ -22,9 +22,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from agentdeck.core.events import Event
     from agentdeck.core.ports import EventSinkPort
 
@@ -40,6 +43,16 @@ FAILURE_LIMIT = 5
 # Every drop and every failure is counted; one in this many is also logged, so a bad sink
 # stays visible without turning one bad tap into a log flood of its own.
 LOG_INTERVAL = 100
+
+# At most one stack trace per sink per this many seconds, whatever shape its failures take. A
+# per-streak limit is no limit for a sink failing every other event — it never builds a streak,
+# so every failure is the first of one — and the run's speed then decides the log volume.
+LOG_WINDOW = 60.0
+
+# How long a disabled sink is left alone before one event is let through to see if it is back.
+# A blip lasts seconds and this costs the sink nothing but the events it was losing anyway; the
+# recovery it buys is worth more than the two probes a minute a dead endpoint pays for it.
+BREAKER_COOLDOWN = 30.0
 
 # Generous for a slow HTTP round trip, finite for one that will never come back: an emit
 # that outlives this is indistinguishable from a hung one, and waiting on it forever would
@@ -78,9 +91,14 @@ class SinkDispatch:
     """One sink's bounded queue, the consumer task that empties it, and what it lost.
 
     Not shared between sinks: each has its own queue, so a stalled sink's backlog can
-    neither displace another sink's events nor slow them down. A sink the breaker disables
-    stays disabled for this dispatch's lifetime — retrying belongs to the sink, which knows
-    what it is talking to, while the dispatch only knows it stopped working.
+    neither displace another sink's events nor slow them down. A sink the breaker disables is
+    not written off for good: once ``BREAKER_COOLDOWN`` has passed, the next event is let
+    through as a probe, and a sink that takes it is enabled again. The cooldown is a deadline
+    read off a clock and never a wait, so nothing here — least of all a run — is ever parked
+    on a sink coming back; a sink still down at the probe simply keeps its cooldown.
+
+    ``clock`` is a monotonic source, injected so tests can assert the cooldown as a fact
+    rather than sit through one.
     """
 
     def __init__(
@@ -90,6 +108,7 @@ class SinkDispatch:
         capacity: int = QUEUE_CAPACITY,
         failure_limit: int = FAILURE_LIMIT,
         emit_timeout: float = EMIT_TIMEOUT,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         # Rejected rather than clamped: `asyncio.Queue(0)` is an unbounded queue, the exact
         # opposite of what a caller asking for zero capacity meant, and a bound that quietly
@@ -105,8 +124,13 @@ class SinkDispatch:
         self._queue: asyncio.Queue[Event] = asyncio.Queue(capacity)
         self._failure_limit = failure_limit
         self._emit_timeout = emit_timeout
+        self._clock = clock
         self._consumer: asyncio.Task[None] | None = None
         self._consecutive_failures = 0
+        self._retry_at = 0.0
+        self._probing = False
+        self._log_next = 0.0
+        self._unlogged = 0
         self._inflight: Event | None = None
         self._closed = False
         self._quiesced = False
@@ -127,7 +151,7 @@ class SinkDispatch:
         the turn is what tells a sink that is keeping up apart from one that is not, and only
         then is the stalest event dropped.
         """
-        if self.disabled or self._closed:
+        if self._closed or (self.disabled and not self._probe_due()):
             self._count_drop(event)
             return
         self._ensure_consumer()
@@ -282,7 +306,8 @@ class SinkDispatch:
         """Take the queue one event at a time, for as long as the sink is worth calling.
 
         A disabled sink's queue is still emptied rather than abandoned, so the backlog it
-        leaves behind is counted as lost instead of just quietly sitting there. A close is the
+        leaves behind is counted as lost instead of just quietly sitting there — bar the one
+        event a due probe let in, which is here to be emitted. A close is the
         opposite case and ends the loop: a consumer that outlived the cancellation retiring it
         would otherwise drain a backlog the close already wrote off, counting every event in it
         a second time — and hand a closed sink events besides.
@@ -295,7 +320,7 @@ class SinkDispatch:
                 # condition above already saw it and nothing suspends between it being set and the
                 # consumer being cancelled. It stays as the emit gate proper — an await appearing
                 # in that window would otherwise silently start handing a closed sink events.
-                if self.disabled or self._quiesced:
+                if self._quiesced or (self.disabled and not self._probing):
                     self._count_drop(event)
                 else:
                     await self._emit(event)
@@ -320,6 +345,23 @@ class SinkDispatch:
             self._count_failure(f"failed on {event.kind} seq={event.seq}")
         else:
             self._consecutive_failures = 0
+            if self.disabled:
+                self.disabled = False
+                self._probing = False
+                logger.info("sink %s took its probe event and is taking events again", self._name)
+
+    def _probe_due(self) -> bool:
+        """True when one event may pass an open breaker to find out whether the sink is back.
+
+        Read from the clock, never waited on: a cooldown that anything slept through would be a
+        wait on a sink by another name, and this one is checked by whoever happens to submit next.
+        Exactly one event at a time is spent on it — the rest are dropped as before, and until the
+        probe resolves there is nothing to learn from spending another.
+        """
+        if self._probing or self._clock() < self._retry_at:
+            return False
+        self._probing = True
+        return True
 
     def _count_failure(self, reason: str) -> None:
         """Book one failed emit, however it failed: a raise, a timeout, a leaked cancellation.
@@ -330,25 +372,43 @@ class SinkDispatch:
         """
         self.failed += 1
         self._consecutive_failures += 1
-        if self._consecutive_failures == 1:
-            # One traceback per streak: a sink failing on every event of a long run would
-            # otherwise bury the log in a thousand copies of the same stack.
-            logger.exception("sink %s %s", self._name, reason)
-        elif self.failed % LOG_INTERVAL == 0:
-            logger.warning(
-                "sink %s has failed %d emits, %d of them in a row",
+        self._probing = False
+        now = self._clock()
+        if now >= self._log_next:
+            # Throttled by time rather than by streak: a sink failing every other event resets the
+            # streak on every success, so a per-streak stack trace is one per failure forever.
+            self._log_next = now + LOG_WINDOW
+            logger.exception(
+                "sink %s %s (failed emits: %d in all, %d in a row, %d unlogged since the last traceback)",
                 self._name,
+                reason,
                 self.failed,
                 self._consecutive_failures,
+                self._unlogged,
             )
+            self._unlogged = 0
+        else:
+            self._unlogged += 1
+            if self.failed % LOG_INTERVAL == 0:
+                logger.warning(
+                    "sink %s has failed %d emits, %d of them in a row",
+                    self._name,
+                    self.failed,
+                    self._consecutive_failures,
+                )
         if self._consecutive_failures >= self._failure_limit:
-            # TODO(sagi): #89 — a cooldown and a half-open retry, if permanent is too blunt.
-            self.disabled = True
-            logger.error(
-                "sink %s disabled after %d consecutive failures; its events are dropped from here on",
-                self._name,
-                self._consecutive_failures,
-            )
+            # Re-armed on every failure past the limit, so a failed probe buys the sink another
+            # cooldown; the alarm below is raised once, because it is still the same outage.
+            self._retry_at = now + BREAKER_COOLDOWN
+            if not self.disabled:
+                self.disabled = True
+                logger.error(
+                    "sink %s disabled after %d consecutive failures; its events are dropped until it"
+                    " takes a probe event, offered every %ss",
+                    self._name,
+                    self._consecutive_failures,
+                    BREAKER_COOLDOWN,
+                )
 
     def _count_drop(self, event: Event) -> None:
         self.dropped += 1
@@ -359,10 +419,12 @@ class SinkDispatch:
 
 
 __all__ = [
+    "BREAKER_COOLDOWN",
     "CLOSE_TIMEOUT",
     "EMIT_TIMEOUT",
     "FAILURE_LIMIT",
     "LOG_INTERVAL",
+    "LOG_WINDOW",
     "QUEUE_CAPACITY",
     "REAP_TIMEOUT",
     "SHUTDOWN_TIMEOUT",
