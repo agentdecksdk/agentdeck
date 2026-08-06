@@ -21,7 +21,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Any, Literal, get_args
 
-from pydantic import AwareDatetime, ConfigDict, Field, NonNegativeInt, ValidationError, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    ConfigDict,
+    Field,
+    NonNegativeInt,
+    PositiveInt,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from agentdeck.core.content import CoreModel, Input
 
@@ -267,6 +276,38 @@ class InputAppended(CoreModel):
     source: str
 
 
+class StatusReported(CoreModel):
+    """Advisory: what the run is doing right now, in words a person can read.
+
+    Not a lifecycle event and not a transition. A run's status is folded from its lifecycle
+    kinds (``core/status.py``); a run reporting ``"Searching GitHub"`` is still ``RUNNING``,
+    and a log full of these folds to exactly the status a log with none of them does.
+    """
+
+    kind: Literal["status.reported"] = "status.reported"
+    message: str = Field(min_length=1)
+
+
+class ProgressReported(CoreModel):
+    """Advisory: which named stage the run is on, optionally counted.
+
+    ``step`` is the point of the event and is required; the counts are not, because a run that
+    knows its current stage often does not know how many there are. Never a percentage — a
+    consumer that wants one divides, and only when ``total`` is actually present.
+    """
+
+    kind: Literal["progress.reported"] = "progress.reported"
+    step: str = Field(min_length=1)
+    current: NonNegativeInt | None = None
+    total: PositiveInt | None = None
+
+    @model_validator(mode="after")
+    def _current_within_total(self) -> ProgressReported:
+        if self.current is not None and self.total is not None and self.current > self.total:
+            raise ValueError(f"progress current={self.current} is past total={self.total}")
+        return self
+
+
 class Custom(CoreModel):
     """Engine-specific event; ``name`` must be namespaced."""
 
@@ -322,6 +363,8 @@ KnownPayload = Annotated[
     | ArtifactCreated
     | UsageReported
     | InputAppended
+    | StatusReported
+    | ProgressReported
     | Custom,
     Field(discriminator="kind"),
 ]
@@ -411,6 +454,7 @@ __all__ = [
     "KnownPayload",
     "MessageCompleted",
     "NodeUpdated",
+    "ProgressReported",
     "RunCancelled",
     "RunCompleted",
     "RunContextSnapshot",
@@ -420,6 +464,7 @@ __all__ = [
     "RunResumed",
     "RunStarted",
     "SafePoint",
+    "StatusReported",
     "TextDelta",
     "ThoughtDelta",
     "ToolCallCompleted",

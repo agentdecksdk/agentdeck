@@ -187,6 +187,7 @@ class Event(BaseModel):
 | Workflow   | `node.updated`, `custom` | `node.updated`: `node`, `state_patch` (shallow merge); `custom` payloads carry a namespaced `name` — per D10, kinds are minted only in core; engines translate into existing kinds or use `custom`, and recurring `custom` usage is a promotion signal, not a precedent |
 | Control    | `run.interrupted`, `input.appended`, `control.requested`, `control.observed` | interrupt: `interrupt_id`, `reason: "human" \| "pause" \| "approval"`, typed `payload`, `thread_id` — the approvals inbox is a filter on this kind; `input.appended` records mid-turn steering; the two `control.*` kinds are the request and the safe-point observation for **any** verb (`cancel`, `pause`, `resume`, `steer`), with the effect staying the verb's own kind |
 | Data       | `artifact.created`, `usage.reported` | artifacts by reference (id, media type, uri, size); `usage.reported` is per-model-call and advisory — the terminal aggregate wins |
+| Reporting  | `status.reported`, `progress.reported` | what the run says it is doing: `status.reported` carries a non-empty human-readable `message`, `progress.reported` a required `step` plus optional `current`/`total` (never a percentage). Advisory in the same sense `usage.reported` is — neither is a lifecycle kind, neither is terminal, and status still folds from lifecycle kinds alone |
 
 Engines emit payloads; the `Runtime` stamps the envelope (`seq`, `tenant`, `ts`,
 `origin` as reported by the adapter). Engines therefore cannot lie about ordering or
@@ -250,6 +251,23 @@ still open: a future *block* type inside `value` would be rejected by a reader t
 field but not the block, and because `run.resumed` is a lifecycle kind that is again the
 tenant-wide listing failure — the same `UnknownBlock` gap (#109), not a new one.
 
+*(Amended 2026-08-06, issue #47.)* Two **reporting** kinds joined the table above,
+`status.reported` and `progress.reported`, so a run can say what it is doing instead of leaving
+every client to infer it from tool calls. Additive under D8 — two kinds, nothing renamed, removed
+or redefined — and measured against the released parser rather than argued:
+`tests/core/test_old_reader_compat.py` loads `core/events.py` and `core/status.py` out of git at
+the newest released tag (`v2.0.0b4`) and asserts that reader reads both new kinds as
+`UnknownEvent`, keeps their payloads, folds the same status, still sees the run as open, and
+*still parses every kind it already knew*. A tag rather than a branch: a measurement pinned to
+`dev` falsifies itself the moment it merges into `dev`, which #112 landing between this branch's
+first push and its merge would already have demonstrated. CI checks out full history so this gate
+runs rather than skips. The deliberate line: **neither is a lifecycle kind**, so `LIFECYCLE_KINDS`
+and `TERMINAL_KINDS` are unchanged and a store that indexes by kind — the thing #101 showed can
+fail a whole tenant's listing — has nothing new to deserialize. The naming departs from the
+issue's suggested `agent.status`/`agent.progress` on purpose: a workflow node and a tool emit
+these too, and `origin` already names the invocable, so the kind names what the event is about.
+The emitter side is §4.3's `reporter`.
+
 ### 4.3 RunContext — thread it everywhere, today
 
 ```python
@@ -277,6 +295,23 @@ exceptions, no "we'll add it when we need it."
 `triggered_by` so `run.started` can be filled from the context alone; `principal` is a `str`
 until an auth story needs more. `gate` and `caps` are the two fields that are behavior rather
 than data — they wait for Story 3 and Story 4, which build the things they would point at.)*
+
+*(Amended 2026-08-06, issue #47.)* A third behavior field: `reporter: Reporter`
+(`core/reporting.py`), the mirror image of `gate` and here for the same reason. A cooperative
+seam has to reach code the Runtime never sees — control flows *in* through the gate, status and
+progress flow *out* through the reporter — and neither can be threaded any other way, because a
+tool six frames inside an engine cannot yield an event and must not import a Runtime. Both
+default to doing nothing, so a `RunContext` built outside a run stays a value object: the
+reporter validates its arguments and drops the result. `Runtime.run`/`resume` bind both, and the
+reporter's buffer is per run and returned to the run, never held on the Runtime, so two
+concurrent runs cannot drain into each other. The bargain runs both ways: the emitter never
+awaits the store, and the Runtime drops a report the store refuses rather than failing the run
+over it — an advisory event is not worth a run. What that costs is stated on `Reporter`: reports
+are drained at the engine's next payload, so one made inside a single long tool call surfaces
+when the call ends and not while it runs. The alternative considered and rejected was a `ContextVar` — no threading at
+all, but a context var set inside an async generator leaks into the task that resumes it, so two
+runs iterated from one task would report into each other's logs, and a report is tenant-scoped
+data.
 
 ### 4.4 Run lifecycle
 

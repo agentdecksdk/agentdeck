@@ -83,7 +83,14 @@ class V1CompatEngine(OpenAIAgentsEngine):
             async with runner.attach_sandbox():
                 launch = Launch(
                     Runner.run_streamed(
-                        agent, message, run_config=runner.run_config, max_turns=runner.max_turns, session=session
+                        agent,
+                        message,
+                        # Same reach a v2 run gives its tools (``openai_agents/engine.py``): a
+                        # v1 tool that wants to report status must not have to be a v2 tool.
+                        context=ctx,
+                        run_config=runner.run_config,
+                        max_turns=runner.max_turns,
+                        session=session,
                     )
                 )
                 try:

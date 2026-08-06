@@ -55,6 +55,20 @@ if TYPE_CHECKING:
 
 _INTERRUPT_KEY = "__interrupt__"
 _KNOWN_REASONS = frozenset({"human", "pause", "approval"})
+
+REPORTER_KEY = "reporter"
+"""Where a node finds this run's ``Reporter``: ``config["configurable"]["reporter"]``.
+
+langgraph's own injection channel, used rather than a channel of our own: a node that declares
+a ``config: RunnableConfig`` parameter reaches the reporter there, so reporting costs the graph
+schema nothing and a workflow that never reports is written exactly as before. Non-scalar
+``configurable`` values are excluded from checkpoint metadata by langgraph itself, so a durable
+graph does not try to serialize it.
+
+Distinct from ``STREAM_WRITE`` below on purpose: a ``get_stream_writer()`` payload is whatever a
+node felt like writing, so it travels as a namespaced ``custom``, while status and progress are
+canonical kinds every consumer already understands — D10's promotion, taken.
+"""
 # A list, not a tuple: langgraph switches to ``(mode, chunk)`` chunks on a list specifically,
 # and a tuple of the same modes streams the bare single-mode shape instead.
 _STREAM_MODES: list[StreamMode] = ["updates", "custom", "values"]
@@ -126,8 +140,12 @@ class LangGraphEngine(EnginePort):
         ctx: RunContext,
     ) -> AsyncGenerator[KnownPayload, None]:
         """Play ``graph_input`` on ``spec``'s graph — the seam v1's bridge wraps to add the
-        sandbox scope and trace span v1 runs a workflow inside."""
-        config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+        sandbox scope and trace span v1 runs a workflow inside.
+
+        The one place the config is built, so ``start``, ``resume`` and v1's bridge all hand a
+        node the same reporter without any of them mentioning it.
+        """
+        config: RunnableConfig = {"configurable": {"thread_id": thread_id, REPORTER_KEY: ctx.reporter}}
         async with aclosing(self._play(self._graph_for(spec), graph_input, config)) as stream:
             async for payload in stream:
                 yield payload
@@ -253,4 +271,4 @@ def _to_graph_input(input: Input) -> dict[str, Any]:
     return {"input": "\n".join(texts)}
 
 
-__all__ = ["STREAM_WRITE", "STREAM_WRITE_KEY", "LangGraphEngine"]
+__all__ = ["REPORTER_KEY", "STREAM_WRITE", "STREAM_WRITE_KEY", "LangGraphEngine"]

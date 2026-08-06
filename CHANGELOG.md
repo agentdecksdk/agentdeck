@@ -9,6 +9,35 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 ## [Unreleased]
 
 ### Added
+- **A run can say what it is doing** — two new event kinds, `status.reported` (a
+  human-readable line: `"Searching GitHub"`) and `progress.reported` (a named stage,
+  optionally counted: `step="Reviewing issues", current=2, total=4`), so a client can
+  show a long run's activity instead of inferring it from tool calls. Both are
+  **advisory**: they carry no meaning for the platform, and a run's status still
+  folds from its lifecycle events alone — a run that reports is still `RUNNING`, and
+  neither kind is terminal.
+  Emitters reach the stream through the run context, which they already have:
+  `await ctx.reporter.status("Searching GitHub")` and
+  `await ctx.reporter.progress("Reviewing issues", current=2, total=4)`. An
+  openai-agents function tool gets that context as the SDK's own — declare a first
+  parameter of type `RunContextWrapper[RunContext]` and use `wrapper.context.reporter`.
+  A langgraph node declares a `config: RunnableConfig` parameter and reads
+  `config["configurable"]["reporter"]` (the key is
+  `agentdeck.adapters.engines.langgraph.REPORTER_KEY`). Nothing imports the Runtime, and
+  a `RunContext` built outside a run has a reporter that validates and drops.
+  `current` past `total` raises immediately, at the call, whether or not a Runtime is
+  listening. Reports are recorded in order, always before the run's terminal event, and
+  the CLI reference renderer prints them (`[status] …` / `[progress] … (2/4)`).
+  Three honest limits. A report is written at the engine's next event, so one emitted
+  inside a single long tool call surfaces when that call **ends** rather than while it
+  runs — enough for a client to show what a run has been doing, not enough to narrate a
+  single slow call as it happens. Reports are best-effort: more than 64 waiting at once
+  are dropped with a warning rather than growing without bound, and a report the event
+  log refuses is dropped too, because an advisory event is never worth failing a run
+  that would otherwise have completed.
+  Reading a stream that contains them needs no change: a reader older than this release
+  parses both as `UnknownEvent` and skips them, and because neither is a lifecycle kind
+  a mixed-version deployment folds status identically on both sides.
 - **`control.requested` and `control.observed`** (`agentdeck.core`): run control
   is now three events, not one. `control.requested(verb, reason=None)` records
   that a signal was written; `control.observed(verb, safe_point)` records that the
@@ -111,6 +140,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `ainvoke`) now reports a final state for a graph compiled **without** a
   checkpointer, which it previously could not: the terminal state is read from the
   run's own event stream instead of from a checkpoint that never existed.
+### Removed
+- **`agentdeck.runtime.REPO_ROOT` / `agentdeck.runtime.settings.REPO_ROOT`** — it only
+  ever pointed at the repo root in a source checkout and at the installed package's
+  `site-packages` directory otherwise; nothing in agentdeck needs that path, and
+  nothing outside it should have depended on it either. (#16)
+- **`agentdeck.runtime.ENV_FILE` / `agentdeck.runtime.settings.ENV_FILE`** — was a path
+  frozen at import time (see Fixed below for why that was itself unsafe); replaced by
+  `resolve_env_file()`, resolved fresh every time `get_settings()` actually builds a
+  `Settings` object. (#16)
+
 ### Removed
 - **`agentdeck.runtime.REPO_ROOT` / `agentdeck.runtime.settings.REPO_ROOT`** — it only
   ever pointed at the repo root in a source checkout and at the installed package's

@@ -22,6 +22,7 @@ from agentdeck.core import (
     InputAppended,
     MessageCompleted,
     NodeUpdated,
+    ProgressReported,
     ResourceBlock,
     RunCancelled,
     RunCompleted,
@@ -31,6 +32,7 @@ from agentdeck.core import (
     RunPaused,
     RunResumed,
     RunStarted,
+    StatusReported,
     TextBlock,
     TextDelta,
     ThoughtDelta,
@@ -99,10 +101,14 @@ PAYLOADS = (
         source="operator",
     ),
     Custom(name="langgraph.checkpoint_written", data={"thread_id": "t-1"}),
-    # Appended rather than filed with the lifecycle payloads above: ``seq`` is this tuple's
-    # index, so inserting mid-list rewrites every later snapshot for no schema reason.
+    # Appended rather than filed with the payloads they belong beside: ``seq`` is this tuple's
+    # index, so inserting mid-list rewrites every later snapshot for no schema reason. Appending
+    # is not free either — two PRs appending at once shift each other's indices, which is what
+    # moved the two reporting snapshots below when #112 landed first (#121 decouples the two).
     ControlRequested(verb="cancel", reason="operator pressed cancel"),
     ControlObserved(verb="cancel", safe_point="tool_dispatch"),
+    StatusReported(message="Searching GitHub"),
+    ProgressReported(step="Reviewing issues", current=2, total=4),
 )
 
 

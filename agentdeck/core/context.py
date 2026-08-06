@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from agentdeck.core.ports.control import Gate
+from agentdeck.core.reporting import Reporter
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -26,6 +27,11 @@ class RunContext:
     from the caller at the edge or the run should not start. ``gate`` defaults to a no-op
     (no ``ControlPort`` behind it) — the Runtime is what rebinds it to a real one, never
     the caller building this context.
+
+    ``gate`` and ``reporter`` are the two fields that are not values, and they are here for the
+    same reason: a cooperative seam has to reach code the Runtime never sees. Control flows in
+    through the gate, updates flow out through the reporter, and both default to doing nothing,
+    so a context built outside a run is still a plain value object.
     """
 
     tenant: str
@@ -39,6 +45,7 @@ class RunContext:
     idempotency_key: str | None = None
     triggered_by: str | None = None
     gate: Gate = field(default_factory=Gate)
+    reporter: Reporter = field(default_factory=Reporter)
 
     @property
     def log_key(self) -> str:
