@@ -1,4 +1,4 @@
-.PHONY: install build test lint typecheck lint-imports golden fmt clean check
+.PHONY: install build test lint typecheck lint-imports golden docs-reference fmt clean check
 
 install:        ## editable install with dev extras
 	uv pip install -e ".[dev]"
@@ -20,6 +20,9 @@ lint-imports:   ## import-linter contracts (.importlinter)
 
 golden:         ## re-record the wire + schema snapshots — deliberate, never automatic
 	AGENTDECK_GOLDEN_UPDATE=1 .venv/bin/pytest tests/golden tests/core -q
+
+docs-reference: ## regenerate docs-site/content/reference/{settings,cli}.mdx from the code
+	.venv/bin/python scripts/generate_docs_reference.py
 
 check: lint typecheck lint-imports test   ## full gate
 

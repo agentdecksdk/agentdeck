@@ -52,4 +52,11 @@ checked opts out with a reason:
 ```python no-test reason="illustrative fragment"
 ````
 
+`content/reference/settings.mdx` and `content/reference/cli.mdx` are generated, not
+hand-written — `scripts/generate_docs_reference.py` renders them from
+`agentdeck/runtime/settings.py`'s `LayeredSettings` subclasses and `agentdeck/cli.py`'s
+argparse tree. `tests/test_generated_reference.py` (part of `make check`) regenerates both
+in memory and fails if they differ from the committed pages; run `make docs-reference` to
+refresh them after a settings or CLI change.
+
 Plan and phases: `docs/delivery/docs-site-plan.md`.

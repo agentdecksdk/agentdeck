@@ -23,18 +23,27 @@ from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.core.ports.control import Signal
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The command tree, split out from :func:`main` so ``scripts/generate_docs_reference.py``
+    can walk it (subparsers, arguments, help text) without also running ``main``'s side effect
+    of dispatching a real control signal.
+    """
     parser = argparse.ArgumentParser(prog="agentdeck")
     subcommands = parser.add_subparsers(dest="resource", required=True)
     runs = subcommands.add_parser("runs")
     runs_commands = runs.add_subparsers(dest="action", required=True)
     signal_cmd = runs_commands.add_parser("signal")
-    signal_cmd.add_argument("run_id")
-    signal_cmd.add_argument("signal", choices=[sig.value for sig in Signal])
+    signal_cmd.add_argument("run_id", help="the run to signal")
+    signal_cmd.add_argument(
+        "signal", choices=[sig.value for sig in Signal], help="the verb — see Run Control for what each does"
+    )
     signal_cmd.add_argument("--control-db", required=True, help="path to the ControlPort's SQLite file")
     signal_cmd.add_argument("--reason", help="why, recorded in the run's log with the request")
+    return parser
 
-    args = parser.parse_args(argv)
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     control = SqliteControlPort(args.control_db)
     asyncio.run(control.signal(args.run_id, Signal(args.signal), args.reason))
     return 0
@@ -44,4 +53,4 @@ if __name__ == "__main__":
     raise SystemExit(main())
 
 
-__all__ = ["main"]
+__all__ = ["build_parser", "main"]
