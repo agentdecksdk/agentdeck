@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from scripted_model import ScriptedModel, provider_of
 
-from agentdeck.errors import AgentdeckError, NotFoundError, SkillError
+from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, SkillError
 from agentdeck.runtime.registry import PluginRegistry
 from agentdeck.skills.executor import SkillEnvError, SkillExecutionError
 
@@ -18,6 +18,15 @@ class Greeter(BaseAgent):
     instructions = "Greet the user."
 """
 
+# Same class name as AGENT_PY's, authored under a second bundle — the "copied greeter/,
+# forgot to rename the class" repro from #82.
+GREETER_V2_AGENT_PY = """
+from agentdeck.agents import BaseAgent
+
+class Greeter(BaseAgent):
+    instructions = "Greet the user, v2."
+"""
+
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
@@ -26,6 +35,18 @@ def project(tmp_path, monkeypatch):
     (root / "agents" / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
     monkeypatch.chdir(tmp_path)
     # the project alias is process-global; drop stale mounts from other tests
+    for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
+        del sys.modules[mod]
+
+
+@pytest.fixture
+def duplicate_class_name_project(tmp_path, monkeypatch):
+    root = tmp_path / ".agentdeck"
+    (root / "agents" / "greeter").mkdir(parents=True)
+    (root / "agents" / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
+    (root / "agents" / "greeter-v2").mkdir(parents=True)
+    (root / "agents" / "greeter-v2" / "agent.py").write_text(textwrap.dedent(GREETER_V2_AGENT_PY))
+    monkeypatch.chdir(tmp_path)
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
 
@@ -58,6 +79,33 @@ def test_unknown_agent_chat_returns_404_with_body(project):
         response = client.post("/agents/unknown/chat", json={"session_id": "s", "message": "hi"})
     assert response.status_code == 404
     assert response.json()["detail"].startswith("No agent named 'unknown'.")
+
+
+def test_two_same_kind_bundles_sharing_a_class_name_raise_naming_both(duplicate_class_name_project):
+    """#82: a copied bundle that forgot to rename its class must not silently shadow the original."""
+    from agentdeck import App
+
+    with pytest.raises(ConfigError) as excinfo:
+        App().load()
+    message = str(excinfo.value)
+    assert "agents/greeter" in message
+    assert "agents/greeter-v2" in message
+    assert "Greeter" in message
+
+
+def test_bundle_import_failure_is_wrapped_with_its_path(tmp_path, monkeypatch):
+    """A bundle that raises at import (SyntaxError, missing dep) used to surface a raw traceback."""
+    root = tmp_path / ".agentdeck"
+    (root / "agents" / "broken").mkdir(parents=True)
+    (root / "agents" / "broken" / "agent.py").write_text("raise RuntimeError('boom')\n")
+    monkeypatch.chdir(tmp_path)
+    for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
+        del sys.modules[mod]
+    from agentdeck import App
+
+    with pytest.raises(ConfigError, match="agents/broken/agent.py") as excinfo:
+        App().load()
+    assert isinstance(excinfo.value.__cause__, RuntimeError)
 
 
 def test_skill_error_returns_500_without_leaking_stderr(project, monkeypatch):

@@ -8,6 +8,23 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+- Two bundles of the **same kind** (two agents, or two workflows) exporting a
+  class of the same name used to collapse silently into one invocable, in
+  sorted bundle order — copying `agents/greeter/` to `agents/greeter-v2/` to
+  iterate and forgetting to rename the class made the original vanish from the
+  registry with no error, no warning, no log line. `App.load()` (and anything
+  that discovers a project, including `InvocableRegistry`) now raises
+  `ConfigError` naming both bundle paths and the class name they share. A
+  project relying on the old shadowing to hide one bundle behind another now
+  fails at load instead of routing requests to the wrong agent; rename one of
+  the classes to fix it.
+- A bundle whose `agent.py` or `workflow.py` raises while importing (a
+  `SyntaxError`, a missing dependency, anything at module scope) used to
+  surface as a raw traceback through the import machinery. It's now a
+  `ConfigError` naming the offending bundle path, with the original exception
+  chained as the cause.
+
 ## [2.0.0b4] - 2026-08-06
 
 The release where v1 starts running on v2. `App` is now the composition root and
@@ -134,8 +151,7 @@ is unchanged and still runs its own path.
   Adding an agent or a workflow to a project no longer means editing wiring code.
   An agent and a workflow claiming one name, and a project whose bundles need an
   engine the Runtime wasn't given, both fail at load with a message naming the
-  offender, rather than at the moment somebody runs it. (Two bundles of the same
-  kind exporting one class name still collapse to a single invocable, as in v1.)
+  offender, rather than at the moment somebody runs it.
   Skills are not discovered as invocables yet — no engine runs a `SKILL.md`
   bundle. v1's `App` and its discovery are unchanged.
 - `ToolSourcePort` (`agentdeck.core.ports`): tools now arrive from a source
@@ -201,8 +217,7 @@ is unchanged and still runs its own path.
   string in both fields is unaffected.
 - A project where an agent class and a workflow class share one name now fails at
   `App.load()` with a message naming both, instead of loading two invocables that
-  the HTTP surface could not tell apart. Two bundles of the same kind exporting
-  one class name still collapse to a single invocable, as before.
+  the HTTP surface could not tell apart.
 - The streamed `done` frame serializes a structured `output_type` result the same
   way the non-streamed body always has, so the two agree. Only nested values
   whose JSON form differs from `str()` change: a `datetime` in a structured output

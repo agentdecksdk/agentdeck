@@ -58,10 +58,16 @@ class PluginRegistry(Generic[T]):
             self._reject_legacy_layout(project_root)
             return {}
         found: dict[str, type[T]] = {}
+        bundle_of: dict[str, str] = {}  # class name -> bundle dir that claimed it, for the collision message
         for child in sorted(root.iterdir()):
             if not self._is_bundle(child):
                 continue
-            module = importlib.import_module(f"{self.package}.{self.type_dir}.{child.name}.{self.module_name}")
+            module_path = f"{self.package}.{self.type_dir}.{child.name}.{self.module_name}"
+            try:
+                module = importlib.import_module(module_path)
+            except Exception as exc:
+                bundle_file = f"{self.type_dir}/{child.name}/{self.module_name}.py"
+                raise ConfigError(f"{bundle_file} failed to import: {exc}") from exc
             # ``attr.__module__ == module.__name__`` filters re-exports —
             # only classes defined in this module are registered.
             for attr in vars(module).values():
@@ -71,7 +77,14 @@ class PluginRegistry(Generic[T]):
                     and attr is not self.base_class
                     and attr.__module__ == module.__name__
                 ):
+                    if attr.__name__ in found:
+                        raise ConfigError(
+                            f"two {self.type_dir} bundles both define {self.label} class {attr.__name__!r}: "
+                            f"'{self.type_dir}/{bundle_of[attr.__name__]}' and '{self.type_dir}/{child.name}'. "
+                            "One name must be one invocable — rename one of the classes."
+                        )
                     found[attr.__name__] = attr
+                    bundle_of[attr.__name__] = child.name
         return found
 
     def _reject_legacy_layout(self, project_root: Path) -> None:
