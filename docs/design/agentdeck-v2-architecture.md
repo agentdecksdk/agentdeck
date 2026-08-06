@@ -952,6 +952,46 @@ so it cannot interleave a live signal with an in-flight SSE stream — the cross
 (`tests/test_uc3_slowpoke.py`) drives `Runtime` directly and a real `subprocess` for the CLI
 instead of routing through that transport.)*
 
+*(Amended 2026-08-06, #45 and #85 — pause, resume and cancel as built. Four departures from
+the sketch above, all deliberate.)*
+
+**`Gate.checkpoint()` never blocks.** The sketch said "blocks while PAUSED"; it does not. A
+paused run raises out of the gate, unwinds to the Runtime, records `run.paused` and lets the
+process go, because a pause held in a parked coroutine dies with the worker and cannot be lifted
+by any other one. §4.4's `PAUSED` is therefore a suspended status like `WAITING_HUMAN`, and
+`can_resume` admits both: one conditional append (`run.resumed`) serves both transitions, which
+is also what keeps two racing resumes from playing a turn twice. Resume then re-enters the engine
+with the run's own `run.started` input and the log as history — "resume without a stack" applied
+to an operator's pause exactly as this section applies it to an interrupt, replay cost included.
+
+**The run's own loop records `control.requested`, not the caller that asked.** §4.2 says the
+request is in the log; what it cannot be is *written* by the requester, because only the run's
+owner may assign that run's `seq`, and a caller holding a `run_id` from a stream it was watching
+has neither the log key nor the tenant to write with. So the reason travels on the `ControlPort`
+and the request is recorded at the safe point where the run finds it, one append before
+`control.observed`. The ceiling this leaves: the log's own gap between "asked" and "acted" is the
+poll interval, not the true wait, so a run that sat inside a 30-second tool call shows the delay
+as silence before `control.requested` rather than as a gap after it. Upgrade trigger — an
+operator needing "asked but still inside a tool" visible in the log — is a Runtime-owned watcher
+task appending off the run path, which needs a per-run append lock and a merge into the streamed
+generator; neither is needed for anything shipped here.
+
+**Control reads are bounded by time (#85).** The gate polls at most once per
+`CONTROL_POLL_INTERVAL` (200ms), reusing the answer in between, and always reads at a run's first
+safe point so a signal that beat the run out of the gate is honored at once. Cancel still lands
+*at* a safe point — this changes when the gate learns of a signal, never where it acts. Measured
+either way, at a real model's pace (~30ms per chunk): a 400-chunk answer costs 400 control reads
+per-safe-point and 58 under the bound. The resulting user-facing latency bound (one interval,
+plus the time the current step needs to reach a safe point) is stated on the docs-site
+run-control page, which is also where the safe-point contract now lives.
+
+**`tool_dispatch` and `node_boundary` are declared and unproduced.** The openai-agents adapter
+checkpoints between stream items only: the SDK dispatches a tool inside its own loop, so a
+checkpoint the adapter can reach is never honestly "before dispatch". A pause during a tool call
+therefore lands after that call returns — which is the documented behavior either way, and the
+`safe_point` field says which boundary was used. The langgraph adapter makes no checkpoint at
+all, so a workflow run has no safe point yet (#128, with the resume semantics that gap needs).
+
 ---
 
 ## 9. Worked example 3 — supporting ACP

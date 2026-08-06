@@ -77,6 +77,40 @@ def test_sessions_keyed_by_id(project):
     assert project.session_for("a") is not project.session_for("b")
 
 
+def test_pause_and_resume_reach_the_runtime_this_app_composed(project, monkeypatch):
+    """The wiring, end to end and with nothing hand-built: ``App.pause_run`` writes to the very
+    control port ``App.load`` gave its Runtime, the run stops at its own safe point, and
+    ``App.resume_run`` plays it on to completion.
+
+    Signalled before the turn opens on purpose — a signal landing mid-stream is pinned in
+    ``tests/test_run_control.py``, where the model can be held at an exact point. What this adds
+    is that no test wires the port itself: if the composition root stopped building one, or
+    ``App`` reached for a different one, the pause below would go nowhere.
+    """
+    from scripted_model import ScriptedModel, provider_of
+
+    from agentdeck.core.content import coerce_input
+    from agentdeck.surfaces.serve.compat import run_context
+
+    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel(deltas=("hi",))))
+    project.load()
+    ctx = run_context("s-control")  # exactly what the chat route builds for a request
+
+    async def _flow():
+        assert await project.pause_run(ctx.run_id, "operator stepped away") is True
+        paused = [event async for event in project.runtime.run("Greeter", coerce_input("hello"), ctx)]
+        resumed = await project.resume_run(ctx.run_id)
+        return paused, resumed
+
+    paused, resumed = asyncio.run(_flow())
+
+    assert [event.kind for event in paused][-3:] == ["control.requested", "control.observed", "run.paused"]
+    assert next(e.payload.reason for e in paused if e.kind == "run.paused") == "operator stepped away"
+    assert [event.kind for event in resumed][0] == "run.resumed"
+    assert [event.kind for event in resumed][-1] == "run.completed"
+    assert asyncio.run(project.resume_run(ctx.run_id)) == []  # nothing left to resume
+
+
 @pytest.fixture(autouse=True)
 def _reset_mcp_lifecycle():
     from agentdeck.agents.mcp.lifecycle import MCPLifecycle
