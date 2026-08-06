@@ -4,27 +4,51 @@ with neither keeps today's parse-only behavior:
 
 - ``file=<relative-path>`` — write this fence's source verbatim into the page's shared temp
   project, at ``<relative-path>``. Not executed by itself.
-- ``run`` — execute this fence in-process against that same temp project, once per fence.
+- ``run`` — execute this fence as a real subprocess against that same temp project, once
+  per fence.
 
 A third token, ``illustrative reason="..."``, opts a fence *out* of execution on purpose
 (needs a live server, a real DSN) instead of leaving it silently unexecuted — mirrors stage
 1's ``no-test reason="..."`` escape hatch exactly.
+
+A ``run`` fence executes as ``python <script>`` in its own process, cwd'd into the
+assembled project, talking to a scripted OpenAI-Chat-Completions-compatible HTTP server
+(``fake_model_server`` below) via ``OPENAI_BASE_URL`` / ``OPENAI_USE_RESPONSES`` — the same
+knobs getting-started.mdx tells a reader to set for a non-OpenAI endpoint. Nothing in
+``agentdeck`` is patched: this is the path a reader's own shell actually takes, against the
+repo's own already-installed package, and each fence gets a fresh interpreter, so there is
+no in-process state (settings cache, ``sys.modules``) to leak between fences or into the
+rest of the suite.
 """
 
 from __future__ import annotations
 
+import json
+import os
+import subprocess
 import sys
+import threading
 from functools import cache
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING
 
 import pytest
-from scripted_model import ScriptedModel, provider_of
 from test_docs_site import FENCE, REASON, _pages
 
-from agentdeck.runtime.settings import reset_settings_cache
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
-# Mirrors tests/golden/conftest.py::_PINNED_ENV: memory backends and no external services, so
-# an executed example can never reach real Redis, Langfuse, MCP, or a model endpoint.
+_SUBPROCESS_TIMEOUT = 30
+# None of today's run fences branch on what they send — one fixed reply proves the wire
+# round-trip without needing tests/scripted_model.py's per-fence deltas/final_text scripting.
+_REPLY = "hi"
+
+# Mirrors tests/golden/conftest.py::_PINNED_ENV in spirit: memory backends and no external
+# services, so a run fence can never reach real Redis, Langfuse, or MCP. OPENAI_BASE_URL is
+# added per test (once fake_model_server's ephemeral port is known) instead of living here;
+# OPENAI_USE_RESPONSES=false is the same Chat-Completions flag getting-started.mdx documents
+# for a non-OpenAI endpoint.
 _PINNED_ENV = {
     "AGENTDECK_CHECKPOINT_BACKEND": "memory",
     "AGENTDECK_CHECKPOINT_URL": "",
@@ -36,8 +60,51 @@ _PINNED_ENV = {
     "AGENTDECK_MCP_SERVERS": "{}",
     "OPENAI_API_KEY": "docs-example",
     "OPENAI_MODEL": "fake-docs-example",
-    "OPENAI_BASE_URL": "",
+    "OPENAI_USE_RESPONSES": "false",
 }
+
+
+class _ScriptedChatHandler(BaseHTTPRequestHandler):
+    """One canned reply for any ``POST /v1/chat/completions`` — enough to answer the
+    non-streaming ``Runner.run`` call both of today's run fences make.
+    """
+
+    def do_POST(self) -> None:
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        body = json.dumps(
+            {
+                "id": "chatcmpl-docs-example",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "fake-docs-example",
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": _REPLY}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            }
+        ).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args: object) -> None:  # silence BaseHTTPRequestHandler's default access log
+        pass
+
+
+@pytest.fixture(scope="module")
+def fake_model_server() -> Iterator[str]:
+    """One scripted endpoint for the whole module: stateless and canned, so every run
+    fence shares it rather than paying for a server start/stop per fence. Ephemeral port
+    (``:0``) so parallel test runs never collide.
+    """
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _ScriptedChatHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_address[1]}/v1"
+    finally:
+        server.shutdown()
+        thread.join()
 
 
 def _tokens(meta: str) -> list[str]:
@@ -91,23 +158,29 @@ def _write_file(root: Path, page: Path, relpath: str, src: str) -> None:
 
 
 @pytest.mark.parametrize("page,index,src", RUN_CASES, ids=[f"{page.name}::run#{i}" for page, i, _ in RUN_CASES])
-def test_run_fence_executes(page: Path, index: int, src: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_fence_executes(page: Path, index: int, src: str, tmp_path: Path, fake_model_server: str) -> None:
     _, files = _fences_of(page)
     for relpath, file_src in files:
         _write_file(tmp_path, page, relpath, file_src)
-    for key, value in _PINNED_ENV.items():
-        monkeypatch.setenv(key, value)
-    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel(deltas=("hi",))))
-    monkeypatch.chdir(tmp_path)
-    # the project alias is process-global; drop stale mounts from a previous fence/page
-    for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
-        del sys.modules[mod]
-    reset_settings_cache()
-    try:
-        # the compile filename is what makes a traceback name the page and fence
-        exec(compile(src, f"<{page.name}:run#{index}>", "exec"), {"__name__": "__main__"})
-    except Exception as e:
-        raise AssertionError(f"{page.name} run fence #{index}: {e}") from e
+    # a reader would have a file on disk, not a piped stdin script — same as the file= fences
+    script = tmp_path / f"_run_{index}.py"
+    script.write_text(src)
+    env = dict(os.environ)
+    env.update(_PINNED_ENV)
+    env["OPENAI_BASE_URL"] = fake_model_server
+    result = subprocess.run(
+        [sys.executable, str(script)],
+        cwd=tmp_path,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT,
+    )
+    if result.returncode != 0:
+        raise AssertionError(
+            f"{page.name} run fence #{index}: exit {result.returncode}\n"
+            f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
+        )
 
 
 @pytest.mark.parametrize("page,meta", ILLUSTRATIVE_CASES, ids=[p.name for p, _ in ILLUSTRATIVE_CASES])
