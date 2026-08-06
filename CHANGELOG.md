@@ -8,6 +8,19 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+- **`.env` and `config.yaml` now resolve from the project's current working
+  directory, not from wherever `agentdeck` itself is installed.** Previously
+  both were located relative to `runtime/settings.py`'s own file path, which
+  is the repo root in a source checkout but lands inside `site-packages` once
+  `agentdeck` is `pip install`ed as a dependency — so a consumer project's
+  `.env` (API keys, `OPENAI_MODEL`, …) was silently ignored, typically
+  surfacing as `OPENAI_API_KEY ... must be set` despite a valid `.env` in the
+  project. **If you were exporting the same values as real shell/CI
+  environment variables to work around this, nothing changes** — a real env
+  var still outranks the file. But if you have a `.env` sitting unused next
+  to an installed `agentdeck`, it will now take effect. (#16)
+
 ## [2.0.0b4] - 2026-08-06
 
 The release where v1 starts running on v2. `App` is now the composition root and
