@@ -193,10 +193,10 @@ class SinkDispatch:
         so an event submitted by a run still winding down is counted as lost instead of landing
         in a queue nobody will read again — the window between "backlog flushed" and "consumer
         cancelled" is exactly where an event would otherwise be stranded or resurrect a
-        consumer this call just retired. The sink's ``close`` therefore happens exactly once,
-        and after the consumer is reaped rather than beside it: a sink is never inside ``emit``
-        and ``close`` at the same time, which is the whole point of a hook a buffer is flushed
-        from.
+        consumer this call just retired. The sink's ``close`` happens exactly once, and after the
+        consumer is reaped rather than beside it: cancelling the consumer first is what gets a
+        sink out of an ``emit`` before it is asked to flush — for every sink that honours a
+        cancellation, which is as far as a shutdown can go with the ones that do not.
         """
         if self._closed:
             return
@@ -213,15 +213,24 @@ class SinkDispatch:
                 logger.error("sink %s has no consumer left; %d queued events go undelivered", self._name, self.depth)
             consumer.cancel()
             try:
-                async with asyncio.timeout(REAP_TIMEOUT):
+                # Waited on from the outside, never as a deadline wrapped around ``await consumer``:
+                # a deadline fires by cancelling *this* task, and a task suspended on another one
+                # hands that cancel straight to it — into the very sink that just proved it
+                # swallows them, leaving the deadline spent and nothing left to fire again.
+                reaped, _ = await asyncio.wait({consumer}, timeout=REAP_TIMEOUT)
+                if reaped:
+                    # Done, so this cannot suspend and no cancel can be forwarded into it; awaiting
+                    # is only how the task's outcome gets collected instead of logged by the loop.
                     await consumer
-            except TimeoutError:
-                # A sink that swallows the cancellation inside its own emit keeps the consumer
-                # running, and shutdown is not the place to argue with it: whether the task dies
-                # later is the sink's business, not ours, and this call has to end either way.
-                logger.warning(
-                    "sink %s did not release its consumer within %ss; abandoning the task", self._name, REAP_TIMEOUT
-                )
+                else:
+                    # A sink that swallows the cancellation inside its own emit keeps the consumer
+                    # running, and shutdown is not the place to argue with it: whether the task dies
+                    # later is the sink's business, not ours, and this call has to end either way.
+                    logger.warning(
+                        "sink %s did not release its consumer within %ss; abandoning the task",
+                        self._name,
+                        REAP_TIMEOUT,
+                    )
             except asyncio.CancelledError:
                 if _cancelling_ourselves():
                     raise
@@ -273,11 +282,12 @@ class SinkDispatch:
         """Take the queue one event at a time, for as long as the sink is worth calling.
 
         A disabled sink's queue is still emptied rather than abandoned, so the backlog it
-        leaves behind is counted as lost instead of just quietly sitting there. The same goes
-        for a consumer that outlived the close that cancelled it: it keeps draining, but a sink
-        already told its stream ended never sees another event.
+        leaves behind is counted as lost instead of just quietly sitting there. A close is the
+        opposite case and ends the loop: a consumer that outlived the cancellation retiring it
+        would otherwise drain a backlog the close already wrote off, counting every event in it
+        a second time — and hand a closed sink events besides.
         """
-        while True:
+        while not self._quiesced:
             event = await self._queue.get()
             self._inflight = event
             try:

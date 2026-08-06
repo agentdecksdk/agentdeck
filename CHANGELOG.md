@@ -57,13 +57,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   pushes any sink with real work to do into, has a deterministic last chance to
   ship what it holds instead of hoping the process exits cleanly enough for an
   `atexit` hook to run. **Optional**: it defaults to doing nothing, so existing
-  sinks need no change. What a sink may assume is now stated and enforced —
-  `close` is called at most once, never before the last `emit` has returned, and
-  no `emit` ever follows it, not even from a consumer that outlived the
-  cancellation retiring it. Bounded and non-fatal like every other wait on the
-  sink path: a `close` still running after `CLOSE_TIMEOUT` (5s) is abandoned,
-  anything it raises is logged and counted (`SinkDispatch.close_failed`), and
-  neither can delay a shutdown further or break it. A sink the failure breaker
+  sinks need no change. What a sink may assume is now stated and enforced — `close`
+  is called at most once, and no `emit` is ever started after it, not even by a
+  consumer that outlived the cancellation retiring it. It is also called on a sink
+  that never saw an event, since a process can shut down without running anything.
+  One caveat worth knowing if your sink both buffers *and* swallows cancellation:
+  such a sink can still be inside an `emit` while its `close` runs, because nothing
+  short of ending the process gets it out of one. Bounded and non-fatal like every
+  other wait on the sink path: a `close` still running after `CLOSE_TIMEOUT` (5s) is
+  abandoned, anything it raises is logged and flagged (`SinkDispatch.close_failed`),
+  and neither can delay a shutdown further or break it. A sink the failure breaker
   already disabled is closed too — the events it buffered before it started
   failing are still worth writing out, and being bad at *taking* events says
   nothing about being able to flush the ones already taken.
@@ -118,13 +121,25 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   path has a deadline, including the last one — the wait for the sink's
   consumer to stop. A sink whose `emit` swallows cancellation can delay a
   shutdown but no longer block it, and a cancellation aimed at whoever is
-  shutting down is no longer absorbed by the shutdown itself.
+  shutting down is no longer absorbed by the shutdown itself. That last deadline
+  needed a second fix to hold: a deadline fires by cancelling the task that is
+  waiting, and a task waiting *on another task* hands that cancellation straight
+  to it — into the same sink that had just swallowed one, spending the deadline
+  with nothing left to fire again. A sink that ate cancellation from inside a
+  still-running `emit` could therefore keep a shutdown waiting for as long as it
+  kept working, and no outer `wait_for` could end it either. The consumer is now
+  waited on from the outside, so the deadline expires on time whatever the sink
+  does; and the consumer has a second way out that needs no cancellation at all —
+  once the dispatch is closed, its own loop ends.
 - Sink loss counters no longer under-report. Events still queued (and the one
   in flight) when a sink is closed are counted as dropped, so the counters
   agree with the log line that reports them; a sink that raises
   `CancelledError` from its own `emit` is counted as a failure instead of
   silently killing its consumer; and a clean shutdown with an empty queue no
-  longer logs a spurious "queued events go undelivered" error.
+  longer logs a spurious "queued events go undelivered" error. Nor do they
+  over-report: a consumer abandoned mid-`emit` retires at its next turn instead
+  of draining a backlog the shutdown had already written off, which would have
+  counted every event in it a second time.
 - A SQLite failure inside the event log or the control-signal database no longer
   surfaces as a raw `sqlite3` exception: it is raised as `StoreError`, with the
   original chained as its cause. This matters most when two processes answer the

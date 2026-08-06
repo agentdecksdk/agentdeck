@@ -521,8 +521,8 @@ same trace. A suspended run closes its root observation and its resume opens a s
 under that same trace id, because a span held open until a human answers is a trace nobody
 can see while it waits. And the run's token total from `run.completed` becomes a
 `run.usage` generation, since Langfuse accounts usage on generations only. Buffering and
-delivery are the Langfuse SDK's batching processor. Like
-`tools/mcp/`, the adapter reads `runtime.settings` for its own config group.)*
+delivery are the Langfuse SDK's batching processor. Like `tools/mcp/`, the adapter reads
+`runtime.settings` for its own config group.)*
 *(Amended 2026-08-06, #99 — that buffer no longer depends on the SDK's exit hook:
 `EventSinkPort` grew an optional `close()`, called once per sink by `SinkDispatch.close()`
 after the backlog is handed over and the consumer reaped, and the Langfuse sink uses it to

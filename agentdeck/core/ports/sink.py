@@ -36,9 +36,18 @@ class EventSinkPort(ABC):
     async def close(self) -> None:  # noqa: B027 — no-op on purpose: a stateless sink has nothing to flush
         """The stream has ended: write out whatever is still buffered. Does nothing by default.
 
-        Called once at shutdown, and only after the last ``emit`` has returned — so a sink may
-        release what it was holding here without guarding the rest of itself against a further
-        event. A sink whose failures got it disabled is closed too: the events it buffered
+        Called once at shutdown, after the dispatch has stopped feeding the sink: no ``emit``
+        begins after this, so a sink may release what it was holding without guarding the rest of
+        itself against a further event. One exception, and the only one — a sink that swallows the
+        cancellation sent to retire its consumer can still be *inside* an ``emit`` while this
+        runs, because nothing short of ending the process gets it out of one. A sink that both
+        eats cancellations and buffers must therefore keep that buffer safe to touch from two
+        places; every other sink may treat this as running alone.
+
+        Called even on a sink that never saw an event, since a process can shut down without
+        having run anything: a flush that costs something should tolerate having nothing to flush.
+
+        A sink whose failures got it disabled is closed too: the events it buffered
         before that are still worth writing out, and being bad at taking events says nothing
         about being able to flush the ones already taken.
 
