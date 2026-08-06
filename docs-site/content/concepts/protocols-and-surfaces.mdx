@@ -1,0 +1,56 @@
+---
+title: Protocols and Surfaces
+description: What reads the canonical event stream today, and, plainly, what does not exist yet.
+---
+
+# Protocols and Surfaces
+
+A surface is a thin reader over the one canonical event stream [every run
+produces](/concepts/runs-and-the-event-log) — nothing about how a run is played changes with
+who is watching it. The Python API is the base case: no wire, no translation, just the events
+themselves.
+
+```python no-test reason="run_agent, chat and chat_stream are already runnable in concepts/agents"
+async for event in app.chat_stream("Support", "wa-123", "and now?"):
+    ...  # a text.delta per chunk, message.completed once the reply is in, run.completed last
+```
+
+## What exists today
+
+**HTTP and SSE.** `agentdeck-serve` (`agentdeck/serve.py`) runs a FastAPI app wire-compatible
+with v1.2.1: `POST /agents/{name}/chat`, `?stream=true` for an event stream, the same shape for
+`/workflows/{name}`, and `/runs/{run_id}/{pause,cancel,resume}` for [run
+control](/operating/pause-resume-cancel). Every one of those handlers builds a `RunContext` and
+plays it on the same `Runtime` the Python API uses — one canonical log either way.
+
+```bash
+curl -X POST http://localhost:8000/agents/Support/chat -d '{"session_id": "wa-123", "message": "where is my order?"}'
+```
+
+**The CLI.** `agentdeck runs signal <run_id> {pause,cancel,resume}` (see
+[Reference → CLI](/reference/cli)) is the one shipped command, and it is a control surface,
+not a chat client — it writes a pause/cancel/resume request for a run someone else is running.
+There is no shipped command that starts or renders a conversation.
+
+## What is not built
+
+Stated plainly, because a reader deciding whether AgentDeck fits needs it, not a rosier
+version of it:
+
+- **No authentication on any endpoint.** Anyone who can reach the process can call every route
+  above, including run control.
+- **One tenant, one principal.** The HTTP surface stamps every request with the same hardcoded
+  `tenant="local"`, `principal="user:local"` — `RunContext` carries both fields, but nothing
+  today varies them per caller.
+- **A second, native HTTP surface exists but is not reachable.** `agentdeck/surfaces/serve/app.py`
+  builds a FastAPI app over the raw canonical events, with routes under `/v2/invocables/{name}/chat`
+  and none of v1's wire translation. No console script mounts it, so it is exercised only by the
+  test suite (and by a reference terminal renderer, `agentdeck/surfaces/cli/chat.py`, that reads
+  its stream using nothing but `event.origin` and a message's id — proof that a thin reader is
+  enough, not something `pip install agentdeck` gives you to run).
+- **ACP, A2A, an MCP server, and an OpenAI-compatible endpoint do not exist.** The PRD's
+  "any invocable, any surface, zero per-surface code" claim (FR-2, FR-14) holds for the two
+  surfaces above and stops there today.
+
+None of this is scheduled to change quietly — a new surface earns its own page here once it
+ships, not before.
