@@ -14,11 +14,17 @@ neither can drift out from under a settings or CLI change:
 - [CLI](/reference/cli) — the `agentdeck` command tree, from `agentdeck/cli.py`.
 
 The rest of the public surface is behavioral rather than tabular, so it stays hand-written
-prose and isn't part of this generator. Not yet published as pages:
+prose and isn't part of this generator:
 
-- `App`
-- `BaseAgent` and `BaseSandboxAgent`
-- Capability specifications
+- [App](/reference/app) — the single entry point: lifecycle, the turn-starting methods, and
+  what `TurnResult` carries.
+- [Definitions](/reference/definitions) — `BaseAgent`, `BaseSandboxAgent`, and `BaseWorkflow`,
+  the classes a project subclasses.
+- [Capabilities](/reference/capabilities) — `CapabilitiesSpec` and each sandbox capability spec.
+
+Not yet published as pages:
+
 - Skill bundles and typed outputs
-- `BaseWorkflow` and workflow nodes
+- Workflow nodes (`AgentNode`, `SandboxAgentNode`, `SkillNode`, `LoadFileNode`) — covered today
+  in [Workflows](/concepts/workflows)
 - HTTP endpoints
