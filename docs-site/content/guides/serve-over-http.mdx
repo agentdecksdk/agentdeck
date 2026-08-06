@@ -1,0 +1,62 @@
+---
+title: Serve Over HTTP
+description: Run agentdeck behind FastAPI, and talk to an agent from outside the process.
+---
+
+# Serve Over HTTP
+
+`app.run_agent(...)` is a script talking to itself. A real deployment has a client in one
+process and agentdeck in another — `agentdeck-serve` is a FastAPI app wrapping the same
+Runtime that call would have used, so a turn started over HTTP lands in the same event log a
+Python caller's turn would.
+
+```bash illustrative reason="starts a long-running server; nothing to assert on here"
+uv pip install "agentdeck[serve]"
+HOST=0.0.0.0 PORT=8000 agentdeck-serve
+```
+
+`HOST` and `PORT` default to `0.0.0.0` and `8000`. `GET /health` answers `503` until the
+lifespan has opened the project, then `{"status": "ok", "agents": [...], "workflows": [...],
+"skills": [...]}`.
+
+## Talking to an agent
+
+```bash illustrative reason="needs a live agentdeck-serve process"
+curl -X POST http://localhost:8000/agents/Scheduler/chat \
+  -d '{"session_id": "sess-1", "message": "is Tuesday free?"}'
+# {"output": "..."}
+```
+
+`session_id` is the conversation: the same id on a later call continues it, and a second
+concurrent call on the same id while the first is still running answers **409** — one turn
+per session at a time, whether that session belongs to an agent or, as in
+[Human Approval](/guides/human-approval), a workflow thread.
+
+Add `?stream=true` for Server-Sent Events instead of a single body: a `data: {"delta": "..."}`
+line per chunk of text, then one `event: done` line carrying `{"output", "usage"}` — or
+`event: error` with `{"error": "<exception type>"}` in `done`'s place if the turn fails
+partway through.
+
+```bash illustrative reason="needs a live agentdeck-serve process"
+curl -N -X POST "http://localhost:8000/agents/Scheduler/chat?stream=true" \
+  -d '{"session_id": "sess-2", "message": "and Wednesday?"}'
+```
+
+## Workflows on the same server
+
+`POST /workflows/{name}` and its `?stream=true`, `/pending`, and `/{thread_id}/resume`
+counterparts run on this same server and the same Runtime — [Human
+Approval](/guides/human-approval) walks the full round trip, including the interrupt shape
+and the 404 a stale resume gets. Pausing, resuming, or cancelling a run you didn't start —
+by `run_id` rather than by session — is [Pause, Resume,
+Cancel](/operating/pause-resume-cancel).
+
+## What is not here
+
+There is no `GET /runs/{run_id}` to poll a run's status by id alone. Watching a live run
+means holding its stream; checking on one you are not holding means calling `resume` and
+reading whether it answers 200 or 409 — [Pause, Resume, Cancel](/operating/pause-resume-cancel)
+covers both paths since they apply the same way to a paused agent run.
+
+Next: [Human Approval](/guides/human-approval) is the same server used for a workflow that
+needs a person's answer instead of a client's.
