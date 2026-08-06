@@ -148,6 +148,11 @@ class OpenAIAgentsEngine(EnginePort):
             Runner.run_streamed(
                 agent,
                 message,
+                # The run context travels as the SDK's own context object, which is the one thing
+                # the SDK hands a function tool: a tool declaring ``RunContextWrapper[RunContext]``
+                # reaches ``wrapper.context.reporter`` (and the gate) without importing a Runtime.
+                # Nothing in the SDK reads it — it is opaque to the run loop by design.
+                context=ctx,
                 session=session,
                 run_config=RunConfig(tracing_disabled=not _tracing_enabled()),
             )

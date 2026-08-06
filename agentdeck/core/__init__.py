@@ -29,6 +29,7 @@ from agentdeck.core.events import (
     KnownPayload,
     MessageCompleted,
     NodeUpdated,
+    ProgressReported,
     RunCancelled,
     RunCompleted,
     RunContextSnapshot,
@@ -38,6 +39,7 @@ from agentdeck.core.events import (
     RunResumed,
     RunStarted,
     SafePoint,
+    StatusReported,
     TextDelta,
     ThoughtDelta,
     ToolCallCompleted,
@@ -50,6 +52,7 @@ from agentdeck.core.events import (
     parse_event,
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
+from agentdeck.core.reporting import Reporter
 
 __all__ = [
     "KNOWN_KINDS",
@@ -72,6 +75,8 @@ __all__ = [
     "KnownPayload",
     "MessageCompleted",
     "NodeUpdated",
+    "ProgressReported",
+    "Reporter",
     "ResourceBlock",
     "RunCancelled",
     "RunCompleted",
@@ -83,6 +88,7 @@ __all__ = [
     "RunResumed",
     "RunStarted",
     "SafePoint",
+    "StatusReported",
     "TextBlock",
     "TextDelta",
     "ThoughtDelta",

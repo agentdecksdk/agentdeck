@@ -6,7 +6,7 @@ is detected by its ``seq`` gap and recovered from the store.
 Every test below drives ``Runtime`` directly — nothing in the CLI renderer
 (``surfaces/cli/chat.py``) changes for this file; it is fed a truncated replay as-is in
 ``test_uc3_replay_is_truncated_but_coherent_and_the_renderer_copes``. The cancel wiring
-lives entirely in ``Runtime._with_gate``: a ``Runtime`` built with a ``ControlPort``
+lives entirely in ``Runtime._bind``: a ``Runtime`` built with a ``ControlPort``
 rebinds ``ctx.gate`` itself, so a caller building a plain ``RunContext`` — including
 ``surfaces/serve/app.py``'s chat route, also untouched — never has to know a control port
 exists. (The chat route's own cancellability isn't exercised here: ``httpx.ASGITransport``

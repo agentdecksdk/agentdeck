@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from contextlib import aclosing, suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -32,6 +33,7 @@ from agentdeck.core.events import (
 )
 from agentdeck.core.ports import Gate, Signal
 from agentdeck.core.ports.control import CONTROL_POLL_INTERVAL
+from agentdeck.core.reporting import Reporter
 from agentdeck.core.status import RunStatus
 from agentdeck.errors import NotFoundError, SessionBusyError, StoreError
 from agentdeck.runtime.dispatch import SinkDispatch
@@ -114,7 +116,7 @@ class Runtime:
         closed this generator or had its own task cancelled under it.
         """
         spec, engine = self._resolve(name)
-        ctx = self._with_gate(ctx)
+        ctx, reports = self._bind(ctx)
         # ponytail: whole log per run — window it (or hand the engine a summary) once a
         # session's history outgrows one read, which a real store will notice long before this does
         history = await self._store.read(ctx.log_key, ctx)
@@ -144,7 +146,7 @@ class Runtime:
             raise
 
         async with aclosing(
-            self._play(claimed, engine.start(spec, input, history, ctx), spec, ctx, seq, engine)
+            self._play(claimed, engine.start(spec, input, history, ctx), spec, ctx, seq, engine, reports)
         ) as run:
             async for event in run:
                 yield event
@@ -163,13 +165,13 @@ class Runtime:
         run — is a no-op: nothing is read from the engine, nothing is yielded.
         """
         spec, engine = self._resolve(name)
-        ctx = self._with_gate(ctx)
+        ctx, reports = self._bind(ctx)
         claimed = await self._claim_resume(spec, ctx, value)
         if claimed is None:
             return
         opening, seq = claimed
         stream = engine.resume(spec, thread_id, value, ctx)
-        async with aclosing(self._play(opening, stream, spec, ctx, seq, engine)) as resumed:
+        async with aclosing(self._play(opening, stream, spec, ctx, seq, engine, reports)) as resumed:
             async for event in resumed:
                 yield event
 
@@ -192,7 +194,7 @@ class Runtime:
             return
         log_key, started, session_id = found
         spec, engine = self._resolve(started.invocable)
-        run_ctx = self._with_gate(replace(ctx, run_id=run_id, session_id=session_id))
+        run_ctx, reports = self._bind(replace(ctx, run_id=run_id, session_id=session_id))
         claimed = await self._claim_resume(spec, run_ctx, None, reason)
         if claimed is None:
             return
@@ -203,7 +205,7 @@ class Runtime:
             await self._control.signal(run_id, Signal.RESUME, reason)
         history = await self._store.read(log_key, run_ctx)
         stream = engine.start(spec, started.input, history, run_ctx)
-        async with aclosing(self._play(opening, stream, spec, run_ctx, seq, engine)) as resumed:
+        async with aclosing(self._play(opening, stream, spec, run_ctx, seq, engine, reports)) as resumed:
             async for event in resumed:
                 yield event
 
@@ -233,19 +235,23 @@ class Runtime:
         ctx: RunContext,
         seq: Iterator[int],
         engine: EnginePort,
+        reports: deque[KnownPayload],
     ) -> AsyncGenerator[Event, None]:
         """Yield ``opening``, then everything ``stream`` produces — and close the run in the
         log whichever way it ends.
 
         One body for all three openings (a start, a resumed interrupt, a lifted pause) because
         every one of them owes the log the same four endings: a terminal event, a suspension, a
-        consumer that walked away, or an exception.
+        consumer that walked away, or an exception. ``reports`` is drained the same way for all
+        three, and for the same reason there is one body at all.
         """
         last = opening.kind
         try:
             yield opening
             async with aclosing(stream) as payloads:
                 async for payload in payloads:
+                    async for report in self._drain(reports, spec, ctx, seq):
+                        yield report
                     yield await self._record(payload, spec, ctx, next(seq))
                     last = payload.kind
                     if last in TERMINAL_KINDS:
@@ -462,15 +468,47 @@ class Runtime:
         """
         await asyncio.gather(*(dispatch.close() for dispatch in self._sinks), return_exceptions=True)
 
-    def _with_gate(self, ctx: RunContext) -> RunContext:
-        """Bind ``ctx.gate`` to this Runtime's ``ControlPort``, if it has one.
+    def _bind(self, ctx: RunContext) -> tuple[RunContext, deque[KnownPayload]]:
+        """Give this run its control gate and its report buffer, and hand back both.
 
-        The Runtime, not the caller, decides whether a run is cancellable — a caller
-        builds a plain ``RunContext`` and never has to know a ``ControlPort`` exists.
+        The Runtime, not the caller, decides whether a run is cancellable and where its status
+        and progress reports go — a caller builds a plain ``RunContext`` and never has to know
+        that a ``ControlPort`` or a buffer exists. The buffer is per run and returned rather than
+        stored, so two concurrent runs on one Runtime can never drain into each other.
         """
-        if self._control is None:
-            return ctx
-        return replace(ctx, gate=Gate(self._control, ctx.run_id, poll_interval=self._control_poll_interval))
+        reports: deque[KnownPayload] = deque()
+        gate = (
+            ctx.gate
+            if self._control is None
+            else Gate(self._control, ctx.run_id, poll_interval=self._control_poll_interval)
+        )
+        return replace(ctx, gate=gate, reporter=Reporter(reports)), reports
+
+    async def _drain(
+        self, reports: deque[KnownPayload], spec: InvocableSpec, ctx: RunContext, seq: Iterator[int]
+    ) -> AsyncGenerator[Event, None]:
+        """Record whatever the run reported about itself since the last event.
+
+        Called just *before* each engine payload, never after: that payload may be terminal, and
+        nothing may follow a terminal event into the log. So a report is always in order and
+        always inside the run, and one emitted after the engine's final payload is dropped — the
+        ceiling ``core/reporting.py`` states.
+
+        The count is taken once. A report arriving while these are being written belongs to the
+        next payload's batch, so an emitter in a loop cannot starve the engine's own event.
+
+        A store that refuses a report costs the report, never the run: an advisory event is not
+        worth a run, and the alternative is a store that dislikes one *kind* turning a run that
+        would have completed into ``run.failed``. The ``seq`` that report consumed stays spent,
+        so the log shows a gap — the same gap any failed ``_record`` leaves, for any kind, and
+        not this arm's to close.
+        """
+        for _ in range(len(reports)):
+            payload = reports.popleft()
+            try:
+                yield await self._record(payload, spec, ctx, next(seq))
+            except StoreError:
+                logger.warning("run %s could not record its %s; dropping the report", ctx.run_id, payload.kind)
 
     def _resolve(self, name: str) -> tuple[InvocableSpec, EnginePort]:
         spec = self._invocables.get(name)

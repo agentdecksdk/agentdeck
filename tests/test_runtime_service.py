@@ -711,6 +711,185 @@ async def test_the_staleness_window_comes_from_settings_when_it_is_not_passed_in
     assert [event.kind for event in await store.read_run(CTX.log_key, "r-0", CTX)] == ["run.started", "run.failed"]
 
 
+class _Reporting(StubEngine):
+    """An engine whose run reports on itself between payloads — a stand-in for a tool or a node,
+    which report from inside an engine and have no way to yield an event of their own."""
+
+    def __init__(self, before: int = 1) -> None:
+        self._before = before
+
+    async def start(
+        self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
+    ) -> AsyncGenerator[KnownPayload, None]:
+        played = 0
+        async for payload in super().start(spec, input, history, ctx):
+            if played == self._before:
+                await ctx.reporter.status("Searching GitHub")
+                await ctx.reporter.progress("Reviewing issues", current=2, total=4)
+            played += 1
+            yield payload
+
+    async def resume(
+        self, spec: InvocableSpec, thread_id: str, value: object, ctx: RunContext
+    ) -> AsyncGenerator[KnownPayload, None]:
+        await ctx.reporter.status("Searching GitHub")
+        await ctx.reporter.progress("Reviewing issues", current=2, total=4)
+        async for payload in super().resume(spec, thread_id, value, ctx):
+            yield payload
+
+
+async def test_a_run_that_reports_gets_its_reports_in_the_stream_in_order() -> None:
+    """The feature at the Runtime: a report made from inside the engine becomes an event on the
+    run's own stream, in the order it was made, ahead of the payload that followed it."""
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = MemoryEventStore()
+    runtime = Runtime([_Reporting()], store, {spec.name: spec}, clock=lambda: TS)
+
+    events = [event async for event in runtime.run("Greeter", INPUT, CTX)]
+
+    assert [event.kind for event in events] == [
+        "run.started",
+        "text.delta",
+        "status.reported",
+        "progress.reported",
+        "run.completed",
+    ]
+    assert events[2].payload.message == "Searching GitHub"
+    assert (events[3].payload.step, events[3].payload.current, events[3].payload.total) == ("Reviewing issues", 2, 4)
+    # Stamped like every other event — same run, same origin, contiguous seq — and persisted
+    # before it was yielded, which is what lets a consumer refetch one it missed.
+    assert {event.origin for event in events} == {"Greeter"}
+    assert check_contiguous(events) == [] and check_terminal(events) is None
+    assert await store.read(CTX.log_key, CTX) == events
+
+
+async def test_a_report_made_during_the_last_thing_a_run_did_lands_before_the_terminal_event() -> None:
+    """Nothing may follow a terminal event into the log, so a report races it or loses: it goes
+    in front of ``run.completed``, never after."""
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = MemoryEventStore()
+    runtime = Runtime([_Reporting(before=1)], store, {spec.name: spec}, clock=lambda: TS)
+
+    events = [event async for event in runtime.run("Greeter", INPUT, CTX)]
+
+    assert [event.kind for event in events[-2:]] == ["progress.reported", "run.completed"]
+    assert check_terminal(await store.read(CTX.log_key, CTX)) is None
+
+
+async def test_a_reporting_run_still_folds_to_the_status_its_lifecycle_says() -> None:
+    """What the two kinds not being lifecycle kinds buys, on a real run: the store's own status
+    projection — the thing a listing and a resume claim both read — is unmoved by them."""
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = MemoryEventStore()
+    runtime = Runtime([_Reporting()], store, {spec.name: spec}, clock=lambda: TS)
+
+    async for _ in runtime.run("Greeter", INPUT, CTX):
+        pass
+
+    log = await store.read(CTX.log_key, CTX)
+    assert [event.kind for event in log if event.kind.endswith(".reported")] != []  # it did report
+    assert status_of(log) is RunStatus.COMPLETED
+    assert [summary.run_id for summary in await store.list_runs(CTX, status=RunStatus.COMPLETED)] == ["r-1"]
+
+
+async def test_two_concurrent_runs_never_drain_each_others_reports() -> None:
+    """One buffer per run, bound by the Runtime: a report belongs to the run that made it, which
+    is exactly the isolation a Runtime-wide buffer would silently lose."""
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    class _Interleaved(StubEngine):
+        async def start(
+            self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
+        ) -> AsyncGenerator[KnownPayload, None]:
+            await ctx.reporter.status(f"working on {ctx.run_id}")
+            if ctx.run_id == "r-1":
+                entered.set()
+                await release.wait()
+            yield DONE
+
+    spec = stub_spec("Greeter")
+    store = MemoryEventStore()
+    runtime = Runtime([_Interleaved()], store, {spec.name: spec}, clock=lambda: TS)
+
+    async def drive(run_id: str, session_id: str) -> list[Event]:
+        ctx = replace(CTX, run_id=run_id, session_id=session_id)
+        return [event async for event in runtime.run("Greeter", INPUT, ctx)]
+
+    first = asyncio.create_task(drive("r-1", "s-1"))
+    await asyncio.wait_for(entered.wait(), WEDGE_TIMEOUT)
+    second = await drive("r-2", "s-2")
+    release.set()
+    reported = await asyncio.wait_for(first, WEDGE_TIMEOUT)
+
+    assert [event.payload.message for event in reported if event.kind == "status.reported"] == ["working on r-1"]
+    assert [event.payload.message for event in second if event.kind == "status.reported"] == ["working on r-2"]
+
+
+async def test_a_resumed_run_can_report_too() -> None:
+    """``resume`` binds the same channel ``run`` does — otherwise the second half of an
+    interrupted run would go quiet for no reason a caller could see."""
+    interrupt = RunInterrupted(interrupt_id="i-1", reason="human", payload={"q": "ok?"}, thread_id="t-1")
+    spec = stub_spec("Asker", interrupt, DONE)
+    store = MemoryEventStore()
+    runtime = Runtime([_Reporting()], store, {spec.name: spec}, clock=lambda: TS)
+
+    async for _ in runtime.run("Asker", INPUT, CTX):
+        pass
+    resumed = [event async for event in runtime.resume("Asker", "t-1", "yes", CTX)]
+
+    assert [event.kind for event in resumed] == ["run.resumed", "status.reported", "progress.reported", "run.completed"]
+    log = await store.read(CTX.log_key, CTX)
+    assert check_contiguous(log) == [] and check_terminal(log) is None
+
+
+async def test_a_caller_built_context_reports_into_nothing() -> None:
+    """Existing runs behave unchanged when no updates are emitted: a context nobody bound
+    still accepts a report, drops it, and produces exactly the run it produced before."""
+    ctx = replace(CTX, run_id="r-9")
+    await ctx.reporter.status("into the void")
+
+    spec = stub_spec("Greeter", DONE)
+    store = MemoryEventStore()
+    runtime = Runtime([StubEngine()], store, {spec.name: spec}, clock=lambda: TS)
+    events = [event async for event in runtime.run("Greeter", INPUT, ctx)]
+
+    assert [event.kind for event in events] == ["run.started", "run.completed"]
+
+
+async def test_a_store_that_refuses_a_report_costs_the_report_not_the_run(caplog) -> None:
+    """An advisory event is not worth a run. Every store today keeps events as opaque JSON, so a
+    store that dislikes one *kind* is a future rather than a bug — but it is the future this
+    change's own ledger cites (#101), and without this arm it turns a run that would have
+    completed into ``run.failed``.
+
+    The ``seq`` the refused report consumed stays spent, so the log has a gap. That is what any
+    failed ``_record`` leaves for any kind, and closing it is not this arm's job.
+    """
+
+    class _RefusesReports(MemoryEventStore):
+        async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
+            if any(event.kind == "status.reported" for event in events):
+                raise StoreError("this store has never heard of status.reported")
+            await super().append(log_key, events, ctx)
+
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = _RefusesReports()
+    runtime = Runtime([_Reporting()], store, {spec.name: spec}, clock=lambda: TS)
+
+    with caplog.at_level(logging.WARNING):
+        events = [event async for event in runtime.run("Greeter", INPUT, CTX)]
+
+    # The run is untouched: it completes, and the report that survived is still in it.
+    assert [event.kind for event in events] == ["run.started", "text.delta", "progress.reported", "run.completed"]
+    assert check_terminal(events) is None
+    assert status_of(await store.read(CTX.log_key, CTX)) is RunStatus.COMPLETED
+    assert "could not record its status.reported" in caplog.text
+    # The gap the dropped report leaves — recorded here so it is a known consequence, not a
+    # surprise, and identical in shape to a failed append of any other kind.
+    assert check_contiguous(await store.read(CTX.log_key, CTX)) == [2]
+
+
 def _approver() -> tuple[Runtime, MemoryEventStore]:
     """A workflow that suspends once, so a resume can be claimed against it."""
     spec = stub_spec(
