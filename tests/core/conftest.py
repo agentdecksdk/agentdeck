@@ -20,6 +20,7 @@ from agentdeck.core import (
     InputAppended,
     MessageCompleted,
     NodeUpdated,
+    ProgressReported,
     ResourceBlock,
     RunCancelled,
     RunCompleted,
@@ -29,6 +30,7 @@ from agentdeck.core import (
     RunPaused,
     RunResumed,
     RunStarted,
+    StatusReported,
     TextBlock,
     TextDelta,
     ThoughtDelta,
@@ -97,6 +99,10 @@ PAYLOADS = (
         source="operator",
     ),
     Custom(name="langgraph.checkpoint_written", data={"thread_id": "t-1"}),
+    # Appended, not slotted in beside the other advisory kinds: ``seq`` here is the tuple index,
+    # so inserting one would rewrite an unrelated snapshot for no schema reason.
+    StatusReported(message="Searching GitHub"),
+    ProgressReported(step="Reviewing issues", current=2, total=4),
 )
 
 

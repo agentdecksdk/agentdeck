@@ -14,10 +14,12 @@ from typing import TYPE_CHECKING
 
 from agentdeck.core.events import (
     MessageCompleted,
+    ProgressReported,
     RunCancelled,
     RunCompleted,
     RunFailed,
     RunStarted,
+    StatusReported,
     ToolCallCompleted,
     ToolCallStarted,
     parse_event,
@@ -45,12 +47,24 @@ async def render(lines: AsyncIterator[str]) -> None:
                 print(f"[tool] {tool} called")
             case ToolCallCompleted(tool=tool, result_preview=preview):
                 print(f"[tool] {tool} -> {preview}")
+            case StatusReported(message=message):
+                print(f"[status] {message}")
+            case ProgressReported(step=step, current=current, total=total):
+                print(f"[progress] {step}{_counted(current, total)}")
             case MessageCompleted(message_id=message_id, text=text):
                 print(f"{event.origin} [{message_id}]: {text}")
             case RunCompleted() | RunFailed() | RunCancelled():
                 print(f"-- {event.kind} --")
             case _:
                 pass
+
+
+def _counted(current: int | None, total: int | None) -> str:
+    """``" (2/4)"`` when counted, ``""`` when the stage has no numbers — and never a
+    percentage, which a missing ``total`` would make up."""
+    if current is None and total is None:
+        return ""
+    return f" ({'?' if current is None else current}/{'?' if total is None else total})"
 
 
 async def stream_chat(client: httpx.AsyncClient, name: str, session_id: str, message: str) -> None:

@@ -8,6 +8,34 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+- **A run can say what it is doing** — two new event kinds, `status.reported` (a
+  human-readable line: `"Searching GitHub"`) and `progress.reported` (a named stage,
+  optionally counted: `step="Reviewing issues", current=2, total=4`), so a client can
+  show a long run's activity instead of inferring it from tool calls. Both are
+  **advisory**: they carry no meaning for the platform, and a run's status still
+  folds from its lifecycle events alone — a run that reports is still `RUNNING`, and
+  neither kind is terminal.
+  Emitters reach the stream through the run context, which they already have:
+  `await ctx.reporter.status("Searching GitHub")` and
+  `await ctx.reporter.progress("Reviewing issues", current=2, total=4)`. An
+  openai-agents function tool gets that context as the SDK's own — declare a first
+  parameter of type `RunContextWrapper[RunContext]` and use `wrapper.context.reporter`.
+  A langgraph node declares a `config: RunnableConfig` parameter and reads
+  `config["configurable"]["reporter"]` (the key is
+  `agentdeck.adapters.engines.langgraph.REPORTER_KEY`). Nothing imports the Runtime, and
+  a `RunContext` built outside a run has a reporter that validates and drops.
+  `current` past `total` raises immediately, at the call, whether or not a Runtime is
+  listening. Reports are recorded in order, always before the run's terminal event, and
+  the CLI reference renderer prints them (`[status] …` / `[progress] … (2/4)`).
+  Two honest limits: a report is written at the engine's next event, so one emitted
+  inside a single long tool call surfaces when that call ends rather than while it runs;
+  and reports are best-effort — more than 64 waiting at once are dropped with a warning
+  rather than growing without bound.
+  Reading a stream that contains them needs no change: a reader older than this release
+  parses both as `UnknownEvent` and skips them, and because neither is a lifecycle kind
+  a mixed-version deployment folds status identically on both sides.
+
 ## [2.0.0b4] - 2026-08-06
 
 The release where v1 starts running on v2. `App` is now the composition root and

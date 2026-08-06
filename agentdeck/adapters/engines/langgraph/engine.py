@@ -50,6 +50,16 @@ if TYPE_CHECKING:
 _INTERRUPT_KEY = "__interrupt__"
 _KNOWN_REASONS = frozenset({"human", "pause", "approval"})
 
+REPORTER_KEY = "reporter"
+"""Where a node finds this run's ``Reporter``: ``config["configurable"]["reporter"]``.
+
+langgraph's own injection channel, used rather than a channel of our own: a node that declares
+a ``config: RunnableConfig`` parameter reaches the reporter there, so reporting costs the graph
+schema nothing and a workflow that never reports is written exactly as before. Non-scalar
+``configurable`` values are excluded from checkpoint metadata by langgraph itself, so a durable
+graph does not try to serialize it.
+"""
+
 
 class LangGraphEngine(EnginePort):
     """Plays ``spec.native`` (an uncompiled ``StateGraph``) through ``astream``.
@@ -79,7 +89,7 @@ class LangGraphEngine(EnginePort):
         # The langgraph thread is scoped to this run: a resume always names the same
         # run_id's thread back via the RunInterrupted it got, so reusing ctx.run_id here
         # needs no separate id-minting step.
-        config: RunnableConfig = {"configurable": {"thread_id": ctx.run_id}}
+        config: RunnableConfig = {"configurable": {"thread_id": ctx.run_id, REPORTER_KEY: ctx.reporter}}
         async for payload in self._play(graph, _to_graph_input(input), config):
             yield payload
 
@@ -91,7 +101,7 @@ class LangGraphEngine(EnginePort):
         ctx: RunContext,
     ) -> AsyncGenerator[KnownPayload, None]:
         graph = self._graph_for(spec)
-        config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+        config: RunnableConfig = {"configurable": {"thread_id": thread_id, REPORTER_KEY: ctx.reporter}}
         async for payload in self._play(graph, Command(resume=value), config):
             yield payload
 
@@ -178,4 +188,4 @@ def _state_data(values: Any) -> Any:
     return json.loads(json.dumps(_jsonable(values, "final state"), default=str), parse_constant=str)
 
 
-__all__ = ["LangGraphEngine"]
+__all__ = ["REPORTER_KEY", "LangGraphEngine"]
