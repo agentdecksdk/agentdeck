@@ -45,7 +45,7 @@ registration — there is no catalog file.
 
 One file is a complete agent:
 
-```python
+```python file=.agentdeck/agents/greeter/agent.py
 # .agentdeck/agents/greeter/agent.py
 from agentdeck.agents import BaseAgent
 
@@ -56,7 +56,7 @@ class Greeter(BaseAgent):
 
 ## Run it
 
-```python
+```python run
 import asyncio
 
 from agentdeck import App
@@ -73,7 +73,7 @@ asyncio.run(main())
 
 For a conversation that remembers across turns, use `chat()` with a session id instead:
 
-```python
+```python run
 import asyncio
 
 from agentdeck import App
