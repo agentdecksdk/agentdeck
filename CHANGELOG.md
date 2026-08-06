@@ -8,6 +8,18 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [2.0.0b4] - 2026-08-06
+
+The release where v1 starts running on v2. `App` is now the composition root and
+the chat endpoints are served by the v2 Runtime with a byte-identical wire — same
+SSE frames, same JSON bodies, verified against the recorded baselines rather than
+by inspection. Around that: an event log you can point at Redis or Postgres and
+share between workers, a session that runs one turn at a time instead of letting
+two answers overwrite each other, telemetry that covers workflows and flushes
+what it buffered at shutdown, a canonical shape for structured data, and a turn
+that repairs its own history after a crash between two writes. The v1 Python API
+is unchanged and still runs its own path.
+
 ### Added
 - **Redis and Postgres event logs** — `AGENTDECK_EVENTS_BACKEND=redis` or
   `=postgres`, with `AGENTDECK_EVENTS_URL` as the Redis URL or the Postgres DSN,
@@ -664,7 +676,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b3...HEAD
+[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b4...HEAD
+[2.0.0b4]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b3...v2.0.0b4
 [2.0.0b3]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b2...v2.0.0b3
 [2.0.0b2]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b1...v2.0.0b2
 [2.0.0b1]: https://github.com/sagi5060/agentdeck/compare/v1.2.1...v2.0.0b1
