@@ -136,8 +136,71 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   one reports how many failures went unlogged since the last, so a throttled
   log still says how much it is standing in for. The breaker's disable decision
   is unchanged by this.
+- **The workflow HTTP endpoints run on the v2 Runtime.** `POST
+  /workflows/{name}/run`, `GET /workflows/{name}/pending` and `POST
+  /workflows/{name}/{thread_id}/resume` were the last surface still calling v1's
+  runner directly, so a workflow turn left **no event log behind at all** — it
+  streamed to the caller and vanished. Every workflow turn is now recorded like a
+  chat turn: one run in the log, node updates, stream writes, interrupts and the
+  final state, readable by the same listings, replays and dashboards. The wire is
+  unchanged — the same `node_update` / `custom` / `interrupt` / `done` SSE frames
+  and the same JSON bodies, checked against the recorded baselines rather than by
+  inspection.
+  Three consequences worth knowing before upgrading. A workflow's `thread_id` is
+  now its **session**, and a session runs one turn at a time, so posting a second
+  run to a thread whose previous turn has not finished answers **409** instead of
+  interleaving two turns over one graph state. Read "not finished" broadly: a
+  thread sitting *idle* on an unanswered approval is not finished either, and holds
+  its session until somebody answers it — so the case an approval UI actually hits
+  is a 409, for as long as the approval goes unanswered (or until that run has been
+  silent for `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`, one hour by default,
+  after which the next turn takes the session over). A resume against a thread with
+  no paused run answers **404** where it previously surfaced v1's runner error.
+  And a `get_stream_writer()` write now reaches the log as a namespaced `custom`
+  event (`langgraph.stream_write`) on its way to the unchanged `custom` frame.
+  A `durable = True` workflow still resumes on the configured checkpointer — the
+  bridge plays v1's own compiled graph, which carries it — and the `[durability]`
+  extra stays optional for a project that only chats.
+- **The HTTP approval inbox and `App.pending_interrupts()` are now separate sources
+  of truth**, and will be until they are joined. `GET /workflows/{name}/pending`
+  and the HTTP resume project the event log; `App.pending_interrupts()`,
+  `App.due_resumes()` and `App.tick()` still read the graph's checkpointer. They
+  agree only as long as one of them is used: an interrupt created headlessly is
+  invisible over HTTP, and one answered headlessly leaves an entry behind in the
+  HTTP listing. Answering such a leftover entry over HTTP is a **404** rather than
+  the stale final state a replayed thread would otherwise hand back, so no answer
+  is silently dropped — but a deployment that drives approvals through both doors
+  will see the two listings disagree. Joining them — routing the Python API's inbox
+  through the Runtime too — is tracked in #120.
+- The v2 `LangGraphEngine` (not v1's endpoints, whose final state always came from
+  `ainvoke`) now reports a final state for a graph compiled **without** a
+  checkpointer, which it previously could not: the terminal state is read from the
+  run's own event stream instead of from a checkpoint that never existed.
+### Removed
+- **`agentdeck.runtime.REPO_ROOT` / `agentdeck.runtime.settings.REPO_ROOT`** — it only
+  ever pointed at the repo root in a source checkout and at the installed package's
+  `site-packages` directory otherwise; nothing in agentdeck needs that path, and
+  nothing outside it should have depended on it either. (#16)
+- **`agentdeck.runtime.ENV_FILE` / `agentdeck.runtime.settings.ENV_FILE`** — was a path
+  frozen at import time (see Fixed below for why that was itself unsafe); replaced by
+  `resolve_env_file()`, resolved fresh every time `get_settings()` actually builds a
+  `Settings` object. (#16)
 
 ### Fixed
+- **`.env` and `config.yaml` now resolve from the project's current working
+  directory, not from wherever `agentdeck` itself is installed.** Previously
+  both were located relative to `runtime/settings.py`'s own file path, which
+  is the repo root in a source checkout but lands inside `site-packages` once
+  `agentdeck` is `pip install`ed as a dependency — so a consumer project's
+  `.env` (API keys, `OPENAI_MODEL`, …) was silently ignored, typically
+  surfacing as `OPENAI_API_KEY ... must be set` despite a valid `.env` in the
+  project. **If you were exporting the same values as real shell/CI
+  environment variables to work around this, nothing changes** — a real env
+  var still outranks the file. But if you have a `.env` sitting unused next
+  to an installed `agentdeck`, it will now take effect. `.env` is also now read
+  at first use rather than at `import agentdeck` time, so a `chdir` between
+  importing the package and first building settings still resolves against the
+  right project. (#16)
 - Two bundles of the **same kind** (two agents, or two workflows) exporting a
   class of the same name used to collapse silently into one invocable, in
   sorted bundle order — copying `agents/greeter/` to `agents/greeter-v2/` to

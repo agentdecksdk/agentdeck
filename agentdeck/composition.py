@@ -16,13 +16,12 @@ from typing import TYPE_CHECKING
 
 from agentdeck.adapters.control.memory import MemoryControlPort
 from agentdeck.adapters.control.sqlite import SqliteControlPort
-from agentdeck.adapters.engines.langgraph import LangGraphEngine
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import ControlSettings, EventsSettings, get_settings
-from agentdeck.v1bridge import V1CompatEngine
+from agentdeck.v1bridge import V1CompatEngine, V1CompatWorkflowEngine
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -32,6 +31,7 @@ if TYPE_CHECKING:
 
     from agentdeck.core.invocable import InvocableSpec
     from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort
+    from agentdeck.workflows.base import BaseWorkflow
 
 
 def build_runtime(
@@ -58,17 +58,19 @@ def build_runtime(
     return Runtime(engines, store, specs, sinks=sinks, clock=clock, control=control)
 
 
-def v1_engines(session_for: Callable[[str], Session] | None = None) -> tuple[EnginePort, ...]:
-    """The engine set behind v1's public surface: agents configured the way v1 configures
-    them, plus a langgraph engine so discovery can still compile workflow specs.
+def v1_engines(
+    session_for: Callable[[str], Session] | None = None,
+    workflow_for: Callable[[str], type[BaseWorkflow]] | None = None,
+) -> tuple[EnginePort, ...]:
+    """The engine set behind v1's public surface: agents and workflows configured the way v1
+    configures them.
 
-    That langgraph engine keeps its own in-memory checkpointer rather than the configured
-    one, because v1's workflow surface still runs on v1's runner (which resolves the
-    checkpointer per durable workflow) and nothing routes a workflow here yet. Rerouting
-    workflows means resolving it from settings, which needs the ``[durability]`` extra —
-    resolving it here would make that extra mandatory for anyone who only chats.
+    Neither engine resolves anything from settings here. The workflow engine plays v1's own
+    compiled graph, which carries the configured checkpointer only for a ``durable = True``
+    workflow — so the ``[durability]`` extra stays optional for a project that only chats,
+    and a durable workflow still resumes on the real thing.
     """
-    return (V1CompatEngine(session_for), LangGraphEngine())
+    return (V1CompatEngine(session_for), V1CompatWorkflowEngine(workflow_for))
 
 
 def resolve_control_port(settings: ControlSettings | None = None) -> ControlPort:

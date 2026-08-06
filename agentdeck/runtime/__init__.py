@@ -2,8 +2,6 @@
 
 from agentdeck.runtime.registry import PluginRegistry
 from agentdeck.runtime.settings import (
-    ENV_FILE,
-    REPO_ROOT,
     OpenAISettings,
     RunnerSettings,
     Settings,
@@ -14,8 +12,6 @@ from agentdeck.runtime.settings import (
 from agentdeck.runtime.workspace import Workspace
 
 __all__ = [
-    "ENV_FILE",
-    "REPO_ROOT",
     "OpenAISettings",
     "PluginRegistry",
     "RunnerSettings",

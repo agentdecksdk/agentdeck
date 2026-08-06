@@ -17,15 +17,17 @@ import pytest
 from fastapi.testclient import TestClient
 from scripted_model import ScriptedModel, provider_of
 
+from agentdeck.adapters.engines.langgraph import engine as langgraph_engine
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.composition import build_runtime, v1_engines
 from agentdeck.core.content import coerce_input
 from agentdeck.core.events import check_terminal
+from agentdeck.runtime.service import PendingRun
 from agentdeck.runtime.settings import reset_settings_cache
 from agentdeck.serve import create_app
 from agentdeck.surfaces.serve import compat as surface_compat
-from agentdeck.surfaces.serve.compat import chat_frames, chat_result, run_context
+from agentdeck.surfaces.serve.compat import chat_frames, chat_result, interrupt_inbox, run_context
 from agentdeck.v1bridge import engine as compat_engine
 
 AGENT_PY = """
@@ -125,6 +127,29 @@ def test_the_surface_and_the_engine_agree_on_the_structured_output_carrier():
     """The surface spells the engine's custom-event name out rather than importing it, so this
     is what keeps the two from drifting apart."""
     assert surface_compat.STRUCTURED_OUTPUT == compat_engine.STRUCTURED_OUTPUT
+
+
+def test_the_surface_and_the_langgraph_engine_agree_on_the_stream_write_carrier():
+    """Same duplicated-constant bargain, same guard: v1's ``custom`` frame carries a
+    ``get_stream_writer()`` write, and the surface names that carrier itself rather than
+    importing the adapter that mints it."""
+    assert (surface_compat.STREAM_WRITE, surface_compat.STREAM_WRITE_KEY) == (
+        langgraph_engine.STREAM_WRITE,
+        langgraph_engine.STREAM_WRITE_KEY,
+    )
+
+
+def test_the_interrupt_inbox_comes_back_sorted_by_thread_id():
+    """v1 walked the checkpointer's threads sorted, and a client rendering an approval inbox
+    must not see it reshuffle between polls — so the order is asserted, not incidental."""
+    runs = [
+        PendingRun(run_id="r3", session_id="t-c", invocable="Approve", thread_id="t-c", payload={"n": 3}),
+        PendingRun(run_id="r1", session_id="t-a", invocable="Approve", thread_id="t-a", payload={"n": 1}),
+        PendingRun(run_id="r9", session_id="t-z", invocable="Other", thread_id="t-z", payload={"n": 9}),
+        PendingRun(run_id="r2", session_id="t-b", invocable="Approve", thread_id="t-b", payload={"n": 2}),
+    ]
+
+    assert [entry["thread_id"] for entry in interrupt_inbox(runs, "Approve")] == ["t-a", "t-b", "t-c"]
 
 
 async def test_chat_frames_render_deltas_then_done_from_canonical_events(project, scripted):
@@ -301,6 +326,39 @@ def test_the_endpoint_logs_its_run_to_the_configured_event_store(project, monkey
     store.close()
     assert kinds[0] == "run.started"
     assert kinds[-1] == "run.completed"
+
+
+@pytest.mark.parametrize("query", ["", "&stream=true"], ids=["body", "streamed"])
+def test_the_workflow_endpoint_logs_its_run_to_the_configured_event_store(project, monkeypatch, tmp_path, query):
+    """The whole point of rerouting the workflow endpoints, and the one thing no frame assertion
+    can show: a workflow turn now leaves a canonical event log behind. Read back out of the store
+    the composition root resolved, so a bridge that rendered v1's frames while recording nothing
+    fails here and nowhere else.
+
+    The log carries the graph's own shape rather than v1's frame — the node's name and its state
+    patch, and the final state as a data block — which is what makes it replayable.
+    """
+    db = tmp_path / "events.sqlite3"
+    monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "sqlite")
+    monkeypatch.setenv("AGENTDECK_EVENTS_URL", str(db))
+    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel()))
+    reset_settings_cache()
+    try:
+        with TestClient(create_app()) as client:
+            # A named thread, because that is the workflow endpoint's session id and therefore
+            # the log this run is written to.
+            response = client.post(f"/workflows/Shout?thread_id=t1{query}", json={"input": "hi"})
+            assert response.status_code == 200
+            assert response.text  # the streamed body is only produced while the client reads it
+    finally:
+        reset_settings_cache()
+
+    store = SqliteEventStore(str(db))
+    logged = asyncio.run(store.read("t1", run_context("t1")))
+    store.close()
+    assert [event.kind for event in logged] == ["run.started", "node.updated", "run.completed"]
+    assert (logged[1].payload.node, logged[1].payload.state_patch) == ("shout", {"input": "HI"})
+    assert [block.data for block in logged[-1].payload.output] == [{"input": "HI"}]
 
 
 @pytest.mark.parametrize("query", ["", "?stream=true"], ids=["body", "streamed"])

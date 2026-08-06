@@ -70,13 +70,15 @@ is pinned at the source instead:
   literals in `capture`.
 - **Env and config.** `conftest._PINNED_ENV` overrides the settings knobs that would
   otherwise reach outside the test (Redis sessions, Langfuse export, the sqlite
-  checkpointer) or truncate the scripted turn (`AGENTDECK_RUNNER_MAX_TURNS`). Note that
-  `.env` and `config.yaml` resolve from the *installed package's* repo root, not the cwd
-  (`runtime/settings.py`'s `REPO_ROOT`), so `chdir` alone does not neutralize them —
-  `APP_CONFIG_PATH` is therefore pinned to the packaged `config.default.yaml`. Env vars
-  outside `_PINNED_ENV` are still able to reach a capture; add one here rather than
-  normalizing its effect away. The checkpointer is `memory`, and its process-wide cache
-  is cleared per client so `/pending` never sees another capture's threads.
+  checkpointer) or truncate the scripted turn (`AGENTDECK_RUNNER_MAX_TURNS`). `.env` and
+  `config.yaml` resolve from cwd at settings-build time (`runtime/settings.py`'s
+  `resolve_env_file` / `resolve_config_path`), and `make_client` chdirs to
+  `fixture_project` before building settings — that directory has no `config.yaml`, and
+  any `.env` there is overridden for the keys in `_PINNED_ENV`. `APP_CONFIG_PATH` is
+  still pinned to the packaged `config.default.yaml` as a belt-and-suspenders guard.
+  Env vars outside `_PINNED_ENV` are still able to reach a capture; add one here rather
+  than normalizing its effect away. The checkpointer is `memory`, and its process-wide
+  cache is cleared per client so `/pending` never sees another capture's threads.
 - **Timestamps.** Nothing on these endpoints emits one. The fixture workflows are pure
   functions of their input state.
 
