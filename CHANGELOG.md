@@ -109,6 +109,29 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   session that already has one running. It names the session and the run holding
   it, and is an `AgentdeckError` like every other, so `except AgentdeckError`
   already covers it.
+- `EventSinkPort.close()` (`agentdeck.core.ports`): the hook a sink that buffers
+  needs to get its buffer out at shutdown. `Runtime.drain()` now calls it once per
+  sink — after the sink's queued events have been handed over and its consumer
+  retired — so a sink whose `emit` only buffers, which is what the emit contract
+  pushes any sink with real work to do into, has a deterministic last chance to
+  ship what it holds instead of hoping the process exits cleanly enough for an
+  `atexit` hook to run. **Optional**: it defaults to doing nothing, so existing
+  sinks need no change. What a sink may assume is now stated and enforced — `close`
+  is called at most once, and no `emit` is ever started after it, not even by a
+  consumer that outlived the cancellation retiring it. It is also called on a sink
+  that never saw an event, since a process can shut down without running anything.
+  One caveat worth knowing if your sink buffers: an `emit` that has not *finished*
+  when the dispatch stops waiting for it still overlaps `close` — whether it
+  swallowed the cancellation sent to end it, or simply awaits something while
+  unwinding (an `await` in a `finally` or an `except`, such as salvaging a partial
+  result). Read-`await`-clear inside `close` can therefore drop what that emit adds
+  in between; guard the buffer instead. Bounded and non-fatal like every
+  other wait on the sink path: a `close` still running after `CLOSE_TIMEOUT` (5s) is
+  abandoned, anything it raises is logged and flagged (`SinkDispatch.close_failed`),
+  and neither can delay a shutdown further or break it. A sink the failure breaker
+  already disabled is closed too — the events it buffered before it started
+  failing are still worth writing out, and being bad at *taking* events says
+  nothing about being able to flush the ones already taken.
 - `agentdeck.StoreError`: the error a durable store raises when it cannot be
   read or written. `except StoreError` (or `except AgentdeckError`) now covers
   the SQLite event log and the SQLite control-signal database; the underlying
@@ -171,6 +194,14 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 - `Runtime.drain()` is now terminal — it closes each sink rather than
   pausing it, and returns within a bounded time even against a sink whose
   `emit` never returns. Runs after a `drain()` reach no sinks.
+- Langfuse traces no longer depend on the SDK's exit hook to leave the process.
+  `Runtime.drain()` now closes the sink: any trace still open is finished as
+  interrupted by the shutdown — an unfinished observation is never shipped at all,
+  so a run cut short showed up nowhere before — and the SDK's batch is flushed on
+  the spot. A process killed after its `drain` no longer silently loses the last
+  seconds of telemetry. Nothing to configure; a flush that hangs or fails is
+  bounded and logged like any other sink work, and the event log stays the
+  complete record either way.
 - The SQLite event log and the SQLite control-signal database now open in
   **WAL** mode with an explicit 5-second busy timeout. Readers no longer wait
   behind a writer, so a second process tailing or replaying a log costs the one
@@ -242,13 +273,25 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   path has a deadline, including the last one — the wait for the sink's
   consumer to stop. A sink whose `emit` swallows cancellation can delay a
   shutdown but no longer block it, and a cancellation aimed at whoever is
-  shutting down is no longer absorbed by the shutdown itself.
+  shutting down is no longer absorbed by the shutdown itself. That last deadline
+  needed a second fix to hold: a deadline fires by cancelling the task that is
+  waiting, and a task waiting *on another task* hands that cancellation straight
+  to it — into the same sink that had just swallowed one, spending the deadline
+  with nothing left to fire again. A sink that ate cancellation from inside a
+  still-running `emit` could therefore keep a shutdown waiting for as long as it
+  kept working, and no outer `wait_for` could end it either. The consumer is now
+  waited on from the outside, so the deadline expires on time whatever the sink
+  does; and the consumer has a second way out that needs no cancellation at all —
+  once the dispatch is closed, its own loop ends.
 - Sink loss counters no longer under-report. Events still queued (and the one
   in flight) when a sink is closed are counted as dropped, so the counters
   agree with the log line that reports them; a sink that raises
   `CancelledError` from its own `emit` is counted as a failure instead of
   silently killing its consumer; and a clean shutdown with an empty queue no
-  longer logs a spurious "queued events go undelivered" error.
+  longer logs a spurious "queued events go undelivered" error. Nor do they
+  over-report: a consumer abandoned mid-`emit` retires at its next turn instead
+  of draining a backlog the shutdown had already written off, which would have
+  counted every event in it a second time.
 - A SQLite failure inside the event log or the control-signal database no longer
   surfaces as a raw `sqlite3` exception: it is raised as `StoreError`, with the
   original chained as its cause. This matters most when two processes answer the

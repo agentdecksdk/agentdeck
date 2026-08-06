@@ -77,5 +77,13 @@ class Tracer(Protocol):
         than two.
         """
 
+    def flush(self) -> None:
+        """Ship what is still buffered, blocking until it has left or been given up on.
+
+        Called once, when the sink is closed. Blocking because the SDK's own flush is, and
+        pretending otherwise would only hide where the waiting happens: the sink puts this on a
+        worker thread so the deadline bounding it stays honest.
+        """
+
 
 __all__ = ["Level", "Observation", "ObservationKind", "Tracer"]

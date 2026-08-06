@@ -12,10 +12,15 @@ them from its own background thread, and nothing here awaits a round trip. And t
 lossy: any event can be missing, so an observation left open by a lost ``completed`` event
 is closed by the next one that implies it rather than waited for, and a run whose terminal
 event never arrives is eventually evicted instead of leaking its spans forever.
+
+Shutdown is where the buffering is paid for: ``close`` finishes what is still open and flushes
+the SDK's queue itself, because a batch the SDK has not shipped yet leaves the process only if
+something asks it to.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -137,6 +142,25 @@ class LangfuseSink(EventSinkPort):
                 # Deltas, messages, artifacts, custom kinds and anything a newer writer added:
                 # a trace is not a transcript, and the event log is what holds the full record.
                 pass
+
+    async def close(self) -> None:
+        """Close the traces still open and push the SDK's buffer out before the process ends.
+
+        Both halves matter. An observation nobody finished is never shipped at all, so a run the
+        shutdown cut short would otherwise vanish rather than show up as interrupted. And what
+        the SDK has already batched only leaves on a flush — the one it does at interpreter exit
+        never happens to a process that is killed, which is precisely when the telemetry of the
+        last few seconds is worth having.
+        """
+        if self._open:
+            logger.warning("%d langfuse traces were still open at shutdown", len(self._open))
+        for open_trace in self._open.values():
+            self._abandon(open_trace, "the process shut down before the run ended")
+        self._open.clear()
+        self._principals.clear()
+        # On a worker thread because the SDK's flush blocks: on the event loop it would block the
+        # very deadline that is supposed to keep a slow flush from holding shutdown open.
+        await asyncio.to_thread(self._tracer.flush)
 
     def _start(self, event: Event, started: RunStarted) -> None:
         context = started.context
