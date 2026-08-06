@@ -201,14 +201,21 @@ class RuntimeSettings(LayeredSettings):
     waiting on a human answer for longer than it is closed as failed the next time somebody
     starts a turn on that session.
 
-    Set it well above the longest stretch a healthy turn can go without writing an event — a
-    slow tool call, a long model call, a human thinking — and mind the clock. Each worker
-    compares *its own* clock against timestamps its peers stamped, so on several machines the
-    effective window is this value minus the worst skew between them; a worker running more than
-    a window fast would take over live sessions on sight. Keep the fleet on NTP, and treat the
-    window as a budget that skew eats into. It must be positive: at or near zero, a run's own
-    opening event is already "stale" to the next caller a moment later, which turns one turn per
-    session back into a race.
+    **Set it well above the longest stretch a healthy turn can go without writing an event** — a
+    slow tool call, a long model call, a human thinking. This is the one setting here that can
+    cost you the guarantee rather than tune it: shortened far enough, an open run looks abandoned
+    while it is still working, so the next turn takes the session *from a live turn* and both run
+    on one conversation. That is not a premature cleanup, it is one turn per session no longer
+    holding. The lower bound is a property of the deployment, not of the code — how long a turn
+    can be quiet — so it cannot be validated here; positivity is all that is enforced, and at or
+    near zero the failure is immediate, since a run's own opening event is already older than the
+    cutoff a caller computes a moment later.
+
+    Mind the clock too. Each worker compares *its own* clock against timestamps its peers stamped,
+    so across machines the effective window is this value minus the worst skew between them, and a
+    worker running more than a window fast takes over live sessions on sight — the same lost
+    guarantee, arrived at by skew instead of configuration. Keep the fleet on NTP and treat the
+    window as a budget skew eats into.
     """
 
     model_config = settings_config("AGENTDECK_RUNTIME_")

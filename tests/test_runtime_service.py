@@ -688,13 +688,18 @@ async def test_the_staleness_window_comes_from_settings_when_it_is_not_passed_in
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The default lives in settings, not in the Runtime: an operator whose turns are slower — or
-    whose approvals are — changes it without touching a line of code."""
-    monkeypatch.setenv("AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS", "0.001")
+    whose approvals are — changes it without touching a line of code.
+
+    A whole minute, against a run left open ten minutes ago: staleness is forced by the timestamp,
+    never by shrinking the window towards the latency of a claim, which is how a test would come to
+    depend on how loaded the machine is.
+    """
+    monkeypatch.setenv("AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS", "60")
     reset_settings_cache()
     try:
         spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
         store = MemoryEventStore()
-        await store.append(CTX.log_key, [_abandoned("r-0", TS - timedelta(seconds=1))], CTX)
+        await store.append(CTX.log_key, [_abandoned("r-0", TS - timedelta(minutes=10))], CTX)
         runtime = Runtime([StubEngine()], store, {spec.name: spec}, clock=lambda: TS)
 
         events = [event async for event in runtime.run("Greeter", INPUT, CTX)]

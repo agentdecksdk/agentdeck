@@ -215,9 +215,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   same setting: a session a crashed process left claimed is refused until the
   window elapses, and an approval that has been waiting on a human for longer than
   the window is closed as failed when somebody starts a new turn on that session —
-  installations with slower approvals should raise it. The window must be positive,
-  and running several workers on machines whose clocks disagree shortens it by the
-  worst skew between them, so keep them on NTP and leave headroom.
+  installations with slower approvals should raise it. Keep it comfortably above the
+  longest a healthy turn can go without emitting an event: shortened below that, a
+  turn that is merely quiet looks abandoned and the next turn takes its session,
+  which loses the one-turn-per-session guarantee instead of tuning it. Only
+  positivity is checked — the real floor depends on your workload. Running several
+  workers on machines whose clocks disagree shortens the window by the worst skew
+  between them for the same reason, so keep them on NTP and leave headroom.
 
 ### Fixed
 - An `output_type` agent run through the v2 `Runtime` no longer fails at its last

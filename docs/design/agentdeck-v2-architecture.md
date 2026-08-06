@@ -371,13 +371,18 @@ wedged session is the worse failure. Failing to *close* the overridden run is no
 the new turn over either — the claim is already committed, so the close is dropped with a log line
 and the next turn, which meets the same stale run, tries again.*
 
-*Three consequences worth stating for whoever operates this. A session a killed process left
+*Four consequences worth stating for whoever operates this. A session a killed process left
 claimed is refused until the window elapses. A run waiting on a human for longer than the window
 is closed as failed the next time somebody starts a turn on that session, so an installation with
-slower approvals raises the setting. And the window is **not skew-free**: each worker compares its
+slower approvals raises the setting. The window is **not skew-free**: each worker compares its
 own `clock()` against a `ts` a peer stamped, so across machines the effective window is the
 configured one minus the worst clock skew, and a worker running more than a window fast would take
-over live sessions on sight. Keep the fleet on NTP and treat skew as eating into the budget. An
+over live sessions on sight. Keep the fleet on NTP and treat skew as eating into the budget. And
+**the window has a floor the code cannot enforce**: shortened below the longest quiet stretch of a
+healthy turn, an open run looks abandoned while it is still working, so the next turn takes the
+session from a live one and both run on the same conversation — one turn per session stops holding
+altogether, rather than merely cleaning up early. How long a turn may be quiet is a property of the
+deployment, so only positivity is validated; the rest is the setting's docstring and this note. An
 explicit operator "abandon run" route can follow if it is ever asked for.*
 
 *Because a takeover can be premature, the run stepped over may still be alive and write again at
