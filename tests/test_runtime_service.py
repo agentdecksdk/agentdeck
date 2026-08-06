@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 from never_yields import NeverYields
+from pydantic import ValidationError
 
 from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
@@ -28,13 +29,14 @@ from agentdeck.core.events import (
     TextDelta,
     Usage,
     UsageReported,
+    check_contiguous,
     check_terminal,
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
-from agentdeck.core.ports import EventSinkPort
-from agentdeck.errors import ConfigError, NotFoundError, SessionBusyError
+from agentdeck.core.ports import EventSinkPort, SessionClaim
+from agentdeck.errors import ConfigError, NotFoundError, SessionBusyError, StoreError
 from agentdeck.runtime.service import Runtime
-from agentdeck.runtime.settings import reset_settings_cache
+from agentdeck.runtime.settings import RuntimeSettings, reset_settings_cache
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Sequence
@@ -409,6 +411,41 @@ class _Blocking(StubEngine):
             yield payload
 
 
+class _Stalling(StubEngine):
+    """Plays one named run's first payload and then waits to be released: a turn that has gone
+    quiet mid-run, which is the state a staleness window cannot tell from a process that died.
+    Every other run plays straight through, so the turn that takes the session over is not
+    stalled by the same fixture."""
+
+    def __init__(self, quiet_run: str) -> None:
+        self._quiet_run = quiet_run
+        self.quiet = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def start(
+        self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
+    ) -> AsyncGenerator[KnownPayload, None]:
+        stream = super().start(spec, input, history, ctx)
+        if ctx.run_id == self._quiet_run:
+            yield await anext(stream)
+            self.quiet.set()
+            await self.release.wait()
+        async for payload in stream:
+            yield payload
+
+
+class _Ticking:
+    """A clock that moves a second every time it is read, so a run's own events are already old
+    when the next turn asks about them — staleness without a test waiting for a wall clock."""
+
+    def __init__(self) -> None:
+        self._at = TS
+
+    def __call__(self) -> datetime:
+        self._at += timedelta(seconds=1)
+        return self._at
+
+
 def _abandoned(run_id: str, ts: datetime, origin: str = "Ghost") -> Event:
     """A run left open by a process that died: nothing else produces one, because a Runtime that
     exits at all closes its own run in the log."""
@@ -533,17 +570,131 @@ async def test_a_turn_does_not_take_over_a_session_whose_run_is_merely_quiet() -
     assert [event.kind for event in await store.read(CTX.log_key, CTX)] == ["run.started"]
 
 
+async def test_a_run_that_writes_again_after_being_taken_over_fails_instead_of_reusing_a_seq() -> None:
+    """The cost of a takeover that was premature, bounded. The run it stepped over was alive after
+    all and writes its next event at a ``seq`` the closing event already used: one ``seq`` per run
+    is what a consumer refetches a gap with, so the store refuses that write and the run fails
+    loudly. It does end twice in the record — its own failure lands after the takeover's — which is
+    detectable, unlike two different events answering to one ``seq``.
+    """
+    engine = _Stalling("r-1")
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = MemoryEventStore()
+    runtime = Runtime([engine], store, {spec.name: spec}, clock=_Ticking(), stale_run_after=timedelta(seconds=1))
+
+    quiet = asyncio.create_task(_collect(runtime, "r-1"))
+    async with asyncio.timeout(WEDGE_TIMEOUT):
+        await engine.quiet.wait()
+        # The quiet run's last event is older than the window by the ticking clock alone.
+        taken = [event async for event in runtime.run("Greeter", INPUT, replace(CTX, run_id="r-2"))]
+        engine.release.set()
+        with pytest.raises(StoreError, match="already in log"):
+            await quiet
+
+    assert taken[-1].kind == "run.completed"
+    resurrected = await store.read_run(CTX.log_key, "r-1", CTX)
+    seqs = [event.seq for event in resurrected]
+    assert seqs == sorted(set(seqs)), f"a seq was written twice: {[(e.seq, e.kind) for e in resurrected]}"
+    assert check_contiguous(resurrected) == []
+    assert [event.kind for event in resurrected] == ["run.started", "text.delta", "run.failed", "run.failed"]
+    # A refused write is the log's doing, and the record must not put it on the engine.
+    assert resurrected[-1].payload.message == "StoreError recording this run"
+
+
+async def _collect(runtime: Runtime, run_id: str) -> list[Event]:
+    return [event async for event in runtime.run("Greeter", INPUT, replace(CTX, run_id=run_id))]
+
+
+async def test_a_cancellation_during_the_claim_closes_the_run_and_frees_the_session() -> None:
+    """The gap between committing a run and having anything to yield. The claim is awaited in the
+    caller's own coroutine — the one an ASGI server cancels when a client disconnects before the
+    response starts — and a cancellation there used to leave the run open, holding its session for
+    a whole staleness window with no terminal event to explain why.
+    """
+
+    class _SlowClaim(MemoryEventStore):
+        """Commits the claim and then hangs, so a cancellation can land in exactly that gap."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.committed = asyncio.Event()
+
+        async def claim_start(
+            self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime
+        ) -> SessionClaim:
+            claim = await super().claim_start(log_key, event, ctx, stale_before)
+            if event.run_id == "r-1":
+                self.committed.set()
+                await asyncio.Event().wait()  # a cancellation is the only way out, which is the point
+            return claim
+
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = _SlowClaim()
+    runtime = Runtime([StubEngine()], store, {spec.name: spec}, clock=lambda: TS)
+
+    turn = asyncio.create_task(_collect(runtime, "r-1"))
+    async with asyncio.timeout(WEDGE_TIMEOUT):
+        await store.committed.wait()
+        turn.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await turn
+
+        stored = await store.read(CTX.log_key, CTX)
+        assert [event.kind for event in stored] == ["run.started", "run.cancelled"]
+        assert check_terminal(stored) is None
+        assert stored[-1].payload.reason == "cancelled during the claim"
+
+        # And the session is free again — the point of closing it rather than waiting the window out.
+        next_turn = [event async for event in runtime.run("Greeter", INPUT, replace(CTX, run_id="r-2"))]
+        assert next_turn[-1].kind == "run.completed"
+
+
+async def test_a_takeover_whose_bookkeeping_fails_still_leaves_this_turn_runnable(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The claim is committed before the abandoned run is closed, so a store failure in between
+    must not escape: this run would be left open with no terminal event, holding the session it
+    just took for a whole window. The close is dropped, reported, and left to the next turn."""
+
+    class _CannotClose(MemoryEventStore):
+        async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
+            if run_id == "r-0":
+                raise StoreError("the log went away mid-takeover")
+            return await super().last_seq(log_key, run_id, ctx)
+
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = _CannotClose()
+    await store.append(CTX.log_key, [_abandoned("r-0", TS - timedelta(minutes=10))], CTX)
+    runtime = Runtime([StubEngine()], store, {spec.name: spec}, clock=lambda: TS, stale_run_after=timedelta(minutes=5))
+
+    with caplog.at_level(logging.ERROR):
+        events = [event async for event in runtime.run("Greeter", INPUT, CTX)]
+
+    assert [event.kind for event in events][-1] == "run.completed"
+    assert check_terminal(events) is None
+    assert [event.kind for event in await store.read_run(CTX.log_key, "r-0", CTX)] == ["run.started"]
+    assert "could not close abandoned run r-0" in caplog.text
+
+
+def test_a_staleness_window_of_zero_is_refused() -> None:
+    """Zero does not mean "off", it means "every run is abandoned the moment it opens" — the next
+    caller's idea of now is already past the ts on a run.started stamped a moment ago, so one turn
+    per session would go back to being a race. Refused at the boundary rather than documented."""
+    with pytest.raises(ValidationError):
+        RuntimeSettings.model_validate({"stale_run_after_seconds": 0})
+
+
 async def test_the_staleness_window_comes_from_settings_when_it_is_not_passed_in(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The default lives in settings, not in the Runtime: an operator whose turns are slower — or
     whose approvals are — changes it without touching a line of code."""
-    monkeypatch.setenv("AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS", "0")
+    monkeypatch.setenv("AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS", "0.001")
     reset_settings_cache()
     try:
         spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
         store = MemoryEventStore()
-        await store.append(CTX.log_key, [_abandoned("r-0", TS)], CTX)
+        await store.append(CTX.log_key, [_abandoned("r-0", TS - timedelta(seconds=1))], CTX)
         runtime = Runtime([StubEngine()], store, {spec.name: spec}, clock=lambda: TS)
 
         events = [event async for event in runtime.run("Greeter", INPUT, CTX)]

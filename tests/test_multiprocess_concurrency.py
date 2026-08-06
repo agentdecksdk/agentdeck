@@ -1,4 +1,4 @@
-"""Five concurrency races run across two real OS processes sharing one SQLite event store.
+"""Six concurrency races run across two real OS processes sharing one SQLite event store.
 
 Every invariant asserted here is the contract suite's own — ``check_contiguous`` and
 ``check_terminal`` — applied to logs that two processes wrote together. That is the whole
@@ -8,7 +8,7 @@ see the other, so a guarantee that only held because of a process-local lock fai
 
 The workers live in ``concurrency_worker.py``. They synchronize through files rather than
 sleeps, so both sides enter a race at the same instant instead of two timelines being
-hoped to overlap; the three races whose outcome is then decided by timing repeat many
+hoped to overlap; the four races whose outcome is then decided by timing repeat many
 times, UC3-style, because a race that passes once proves nothing. Every process gets a
 subprocess timeout and every trial an ``asyncio.timeout``, so a wedge fails loudly instead
 of hanging CI. Failures print the offending log in full, and the observed split of a race
@@ -25,6 +25,7 @@ import subprocess
 import sys
 import time
 from collections import Counter
+from itertools import groupby
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -42,8 +43,11 @@ if TYPE_CHECKING:
 WORKER = Path(__file__).parent / "concurrency_worker.py"
 TAGS = ("a", "b")
 
-# The one knob the staleness half of this file drives, by the name an operator would use.
+# The one knob the staleness half of this file drives, by the name an operator would use. The
+# window must be positive — at zero a run's own opening event is stale to the next caller a
+# moment later — so the takeover half shortens it to a millisecond instead of switching it off.
 _STALE_ENV = "AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS"
+_NO_WAIT = "0.001"
 
 # Generous on purpose: it is a wedge detector, not a performance budget. Every race below
 # finishes in a couple of seconds when it is behaving.
@@ -52,6 +56,7 @@ WORKER_TIMEOUT = 180.0
 RESUME_TRIALS = 20
 CANCEL_TRIALS = 22  # half raced, half ordered the other way round — see the worker's own note
 SESSION_TRIALS = 10
+CROSSRUN_TRIALS = 10
 
 
 def _dump(events: Sequence[Event]) -> str:
@@ -299,6 +304,45 @@ def test_two_processes_starting_a_turn_on_one_session_leave_one_run_and_one_conv
     print(f"one-turn-per-session over {SESSION_TRIALS} trials: winners {dict(won)}, {raced} genuinely overlapping")
 
 
+def test_two_processes_appending_two_runs_into_one_log_keep_each_runs_seq_its_own(tmp_path: Path) -> None:
+    """One log, two runs, two processes writing into it at once — the shape a takeover leaves
+    behind, and the only way two live runs share a log now that the claim refuses the rest. Each
+    run's ``seq`` must still be contiguous from 0 and closed by exactly one terminal event however
+    the two interleaved in the file, and no ``seq`` of a run may answer to two events: the peers
+    each ask their log to take a spent ``seq`` again and require it to be refused.
+
+    Below the Runtime, because the store is what owes this — it is the same file-level invariant
+    the old two-turns-on-one-session race covered before the claim made that unreachable.
+    """
+    reported = _run_peers("crossrun", CROSSRUN_TRIALS, tmp_path)
+    logs = _read_logs(tmp_path, [worker.crossrun_log_key(trial) for trial in range(CROSSRUN_TRIALS)])
+    interleaved = 0
+
+    for trial in range(CROSSRUN_TRIALS):
+        log = logs[worker.crossrun_log_key(trial)]
+        expected = {worker.crossrun_run_id(trial, tag): _kinds(reported, tag, trial) for tag in TAGS}
+        per_run: dict[str, list[Event]] = {run_id: [] for run_id in expected}
+        for event in log:
+            assert event.run_id in per_run, f"trial {trial}: stray run {event.run_id}\n{_dump(log)}"
+            per_run[event.run_id].append(event)
+
+        for run_id, events in per_run.items():
+            _assert_run_is_coherent(events, f"trial {trial} run {run_id}")
+            assert [event.kind for event in events] == expected[run_id], f"trial {trial} run {run_id}\n{_dump(log)}"
+        assert len(log) == sum(len(events) for events in per_run.values()), f"trial {trial}\n{_dump(log)}"
+
+        # The corruption a gap check cannot see: one (run, seq) may answer to one event only.
+        pairs = [(event.run_id, event.seq) for event in log]
+        assert len(set(pairs)) == len(pairs), f"trial {trial}: a seq answers to two events\n{_dump(log)}"
+
+        # More than two blocks of run_ids means the two processes really were writing into the
+        # file at the same time, rather than one finishing before the other started.
+        if len(list(groupby(event.run_id for event in log))) > 2:
+            interleaved += 1
+
+    assert interleaved, f"no trial interleaved in {CROSSRUN_TRIALS}: the two runs never overlapped"
+
+
 def test_a_session_a_killed_run_left_open_is_refused_until_the_staleness_window_passes(tmp_path: Path) -> None:
     """A SIGKILL is the one exit that leaves a run open — every other closes its run in the
     log — so the session that run holds must neither be lost for good nor handed over the
@@ -326,7 +370,7 @@ def test_a_session_a_killed_run_left_open_is_refused_until_the_staleness_window_
     assert len(still_held) == worker.TAKEOVER_STALL_AFTER, _dump(still_held)
     assert check_terminal(still_held) == "no terminal event", _dump(still_held)
 
-    taken = _takeover_successor(tmp_path, stale_after="0")
+    taken = _takeover_successor(tmp_path, stale_after=_NO_WAIT)
     assert "took it over and closed it as failed" in taken.stderr, taken.stderr
 
     log = _read_logs(tmp_path, [worker.TAKEOVER_LOG])[worker.TAKEOVER_LOG]

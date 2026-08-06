@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
 from agentdeck.core.status import LIFECYCLE_KINDS, TERMINAL_STATUSES, RunStatus, can_resume, status_of
+from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -33,7 +34,9 @@ class MemoryEventStore(EventStorePort):
         foreign = {event.tenant for event in events} - {ctx.tenant}
         if foreign:
             raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
-        self._logs.setdefault((ctx.tenant, log_key), []).extend(events)
+        log = self._logs.setdefault((ctx.tenant, log_key), [])
+        _refuse_a_taken_seq(log, events, log_key)
+        log.extend(events)
         # Fidelity, not correctness (issue #87): every real store suspends here (SQLite's own
         # `to_thread`), so a caller whose liveness secretly depends on that turn is caught by
         # this store too, instead of only by measurement in production. Placed after the
@@ -105,6 +108,21 @@ class MemoryEventStore(EventStorePort):
             for log_key, run_id in dict.fromkeys(runs)
         ]
         return [summary for summary in summaries if status is None or summary.status is status]
+
+
+def _refuse_a_taken_seq(log: Sequence[Event], events: Sequence[Event], log_key: str) -> None:
+    """The durable store's unique index, in a dict: one ``seq`` per run, ever.
+
+    A gap check cannot see a duplicate, so without this a run that was presumed dead and wrote
+    again — the one way two writers can share a run — would put two different events at one
+    ``seq``, and every consumer refetching that ``seq`` would get whichever came back first.
+    Raised before anything is written, so a rejected batch leaves no half of itself behind.
+    """
+    taken = {(stored.run_id, stored.seq) for stored in log}
+    for event in events:
+        if (event.run_id, event.seq) in taken:
+            raise StoreError(f"seq {event.seq} of run {event.run_id!r} is already in log {log_key!r}")
+        taken.add((event.run_id, event.seq))
 
 
 def _by_run(log: Sequence[Event]) -> dict[str, list[Event]]:

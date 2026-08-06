@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -38,23 +39,25 @@ from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import TextBlock, coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
+    Event,
     MessageCompleted,
     NodeUpdated,
     RunCompleted,
+    RunContextSnapshot,
     RunInterrupted,
+    RunStarted,
     TextDelta,
     Usage,
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports.control import Signal
-from agentdeck.errors import SessionBusyError
+from agentdeck.errors import SessionBusyError, StoreError
 from agentdeck.runtime.service import Runtime
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Sequence
-    from datetime import datetime
 
-    from agentdeck.core.events import Event, KnownPayload
+    from agentdeck.core.events import KnownPayload
     from agentdeck.core.ports import SessionClaim
 
 TENANT = "demo"
@@ -121,6 +124,30 @@ def cancel_is_racing(trial: int) -> bool:
     """Whether this trial lets the timing pick the winner, or orders completion ahead of
     the signal so that side of the invariant is checked too."""
     return trial % 2 == 0
+
+
+def crossrun_log_key(trial: int) -> str:
+    return f"crossrun-{trial}"
+
+
+def crossrun_run_id(trial: int, tag: str) -> str:
+    return f"crossrun-{trial}-{tag}"
+
+
+def crossrun_script(tag: str) -> list[KnownPayload]:
+    """One whole run, opening and terminal included, long enough that two of them appended at
+    once really do interleave in the file rather than landing as two tidy blocks."""
+    return [
+        RunStarted(
+            invocable=CHATTY,
+            kind_of_invocable="agent",
+            input=[TextBlock(text="go")],
+            context=RunContextSnapshot(principal=PRINCIPAL, trace_id=f"t-{tag}"),
+        ),
+        *(TextDelta(message_id=f"m-{tag}", text=f"{tag}{index} ") for index in range(CHATTY_DELTAS)),
+        MessageCompleted(message_id=f"m-{tag}", text=f"{tag} done"),
+        RunCompleted(output=[TextBlock(text=f"{tag} done")], usage=Usage(input_tokens=1, output_tokens=1)),
+    ]
 
 
 def session_log_key(trial: int) -> str:
@@ -474,6 +501,53 @@ async def _race_session(tag: str, trials: int, root: Path) -> None:
             _report(trial, tag, [event.kind for event in events])
 
 
+async def _race_crossrun(tag: str, trials: int, root: Path) -> None:
+    """Two different runs of one log, written into by both peers at once, event by event.
+
+    Below the Runtime deliberately: one session admits one turn now, so a log with two live runs
+    in it is what a takeover leaves behind rather than something a caller can ask for. The store
+    still owes both of them the same two things — each run's ``seq`` is its own, and a ``seq`` a
+    run has already spent is refused rather than written twice.
+    """
+    sync = root / "sync"
+    store = SqliteEventStore(events_db(root))
+    for trial in range(trials):
+        async with asyncio.timeout(TRIAL_TIMEOUT):
+            log_key = crossrun_log_key(trial)
+            ctx = context(crossrun_run_id(trial, tag), log_key)
+            script = crossrun_script(tag)
+            await _barrier(sync, f"crossrun-{trial}", tag)
+            for seq, payload in enumerate(script):
+                await store.append(log_key, [_stamped(payload, seq, ctx)], ctx)
+            await _refuse_a_spent_seq(store, log_key, ctx)
+            _report(trial, tag, [payload.kind for payload in script])
+
+
+async def _refuse_a_spent_seq(store: SqliteEventStore, log_key: str, ctx: RunContext) -> None:
+    """Ask the log to take this run's ``seq`` 0 a second time. Asserted in the worker so a store
+    that accepts it fails the trial here, with the peer still writing into the same file."""
+    spent = _stamped(TextDelta(message_id="m-again", text="not yours"), 0, ctx)
+    try:
+        await store.append(log_key, [spent], ctx)
+    except StoreError:
+        return
+    raise AssertionError(f"log {log_key!r} accepted a second event at seq 0 of run {ctx.run_id!r}")
+
+
+def _stamped(payload: KnownPayload, seq: int, ctx: RunContext) -> Event:
+    """The envelope the Runtime would put on — by hand, because this race is the store's own."""
+    return Event(
+        kind=payload.kind,
+        seq=seq,
+        run_id=ctx.run_id,
+        session_id=ctx.session_id,
+        tenant=ctx.tenant,
+        origin=CHATTY,
+        ts=datetime.now(UTC),
+        payload=payload,
+    )
+
+
 async def _takeover_victim(root: Path) -> None:
     """Open a turn on the session and stall mid-stream, waiting to be killed with it open."""
     store = StallingStore(events_db(root), TAKEOVER_KILLED, TAKEOVER_STALL_AFTER, root / "sync" / "mid")
@@ -535,6 +609,8 @@ async def main() -> None:
         await _race_cancel(tag, trials, root)
     elif race == "session":
         await _race_session(tag, trials, root)
+    elif race == "crossrun":
+        await _race_crossrun(tag, trials, root)
     elif race == "takeover" and tag == "victim":
         await _takeover_victim(root)
     elif race == "takeover":
