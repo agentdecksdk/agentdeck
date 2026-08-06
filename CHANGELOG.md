@@ -8,6 +8,31 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Changed
+- **The workflow HTTP endpoints run on the v2 Runtime.** `POST
+  /workflows/{name}/run`, `GET /workflows/{name}/pending` and `POST
+  /workflows/{name}/{thread_id}/resume` were the last surface still calling v1's
+  runner directly, so a workflow turn left **no event log behind at all** — it
+  streamed to the caller and vanished. Every workflow turn is now recorded like a
+  chat turn: one run in the log, node updates, stream writes, interrupts and the
+  final state, readable by the same listings, replays and dashboards. The wire is
+  unchanged — the same `node_update` / `custom` / `interrupt` / `done` SSE frames
+  and the same JSON bodies, checked against the recorded baselines rather than by
+  inspection.
+  Three consequences worth knowing before upgrading. A workflow's `thread_id` is
+  now its **session**, and a session runs one turn at a time, so posting a second
+  run to a thread whose turn is still in flight answers **409** instead of
+  interleaving two turns over one graph state. A resume against a thread with no
+  paused run answers **404** where it previously surfaced v1's runner error. And a
+  `get_stream_writer()` write now reaches the log as a namespaced `custom` event
+  (`langgraph.stream_write`) on its way to the unchanged `custom` frame.
+  A `durable = True` workflow still resumes on the configured checkpointer — the
+  bridge plays v1's own compiled graph, which carries it — and the `[durability]`
+  extra stays optional for a project that only chats.
+- A graph compiled **without** a checkpointer now reports its final state, which
+  it previously could not: the terminal state is read from the run's own event
+  stream instead of from a checkpoint that never existed.
+
 ## [2.0.0b4] - 2026-08-06
 
 The release where v1 starts running on v2. `App` is now the composition root and
