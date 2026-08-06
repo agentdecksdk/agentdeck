@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+from agentdeck.core.content import TextBlock
 from agentdeck.core.events import (
     ControlObserved,
     ControlRequested,
@@ -43,7 +44,7 @@ async def render(lines: AsyncIterator[str]) -> None:
         event = parse_event(json.loads(line.removeprefix("data: ")))
         match event.payload:
             case RunStarted(input=blocks):
-                text = " ".join(block.text for block in blocks if block.type == "text")
+                text = " ".join(block.text for block in blocks if isinstance(block, TextBlock))
                 print(f"You: {text}")
             case ToolCallStarted(tool=tool):
                 print(f"[tool] {tool} called")

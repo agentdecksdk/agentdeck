@@ -8,14 +8,27 @@ Content policy: text and data blocks are stored in full, because they are the ca
 input and the run's own declared result — a truncated one cannot be replayed or reconciled
 against engine state. Only *tool* results are bounded (preview + size + hash), where the
 bytes are unbounded and engine-chosen rather than caller-chosen.
+
+An unfamiliar block ``type`` falls back to :class:`UnknownBlock` instead of rejecting the
+block's whole event, mirroring how :func:`agentdeck.core.events.parse_event` treats an
+unknown ``kind``.
 """
 
 from __future__ import annotations
 
 from math import isfinite
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    ValidationError,
+    ValidatorFunctionWrapHandler,
+    WrapValidator,
+    field_validator,
+)
 
 
 class CoreModel(BaseModel):
@@ -79,10 +92,53 @@ class DataBlock(CoreModel):
         return value
 
 
-ContentBlock = Annotated[TextBlock | ImageBlock | ResourceBlock | DataBlock, Field(discriminator="type")]
+class UnknownBlock(CoreModel):
+    """A block ``type`` this version doesn't know: consumers skip it, stores keep it.
+
+    Strict on purpose — it sits in a union with the known blocks, so anything laxer would
+    let a malformed known block validate here instead of raising.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: str
+    raw_block: dict[str, Any]
+
+    @field_validator("type")
+    @classmethod
+    def _is_not_a_known_type(cls, value: str) -> str:
+        if value in KNOWN_BLOCK_TYPES:
+            raise ValueError(f"{value!r} is a known block type — use its block class")
+        return value
+
+
+KnownBlock = Annotated[TextBlock | ImageBlock | ResourceBlock | DataBlock, Field(discriminator="type")]
+
+# peels the Annotated, then the union — add a block class above and this follows it
+KNOWN_BLOCK_TYPES: frozenset[str] = frozenset(b.model_fields["type"].default for b in get_args(get_args(KnownBlock)[0]))
+
+
+def _fallback_to_unknown_block(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
+    """Reshape an unfamiliar block into :class:`UnknownBlock` instead of failing the union.
+
+    A dict already shaped like a stored ``UnknownBlock`` (``{type, raw_block}``) validates
+    against the union's ``UnknownBlock`` member directly, so ``handler`` succeeds and this
+    never re-wraps it — that ambiguity is what lets a stored ``UnknownBlock`` round-trip.
+    """
+    try:
+        return handler(value)
+    except ValidationError:
+        if isinstance(value, dict):
+            block_type = value.get("type")
+            if isinstance(block_type, str) and block_type not in KNOWN_BLOCK_TYPES:
+                return UnknownBlock(type=block_type, raw_block=value)
+        raise
+
+
+ContentBlock = Annotated[KnownBlock | UnknownBlock, WrapValidator(_fallback_to_unknown_block)]
 Input = list[ContentBlock]
 
-_BLOCK_TYPES = (TextBlock, ImageBlock, ResourceBlock, DataBlock)
+_BLOCK_TYPES = (TextBlock, ImageBlock, ResourceBlock, DataBlock, UnknownBlock)
 
 
 def coerce_input(value: str | Input) -> Input:
@@ -96,12 +152,15 @@ def coerce_input(value: str | Input) -> Input:
 
 
 __all__ = [
+    "KNOWN_BLOCK_TYPES",
     "ContentBlock",
     "CoreModel",
     "DataBlock",
     "ImageBlock",
     "Input",
+    "KnownBlock",
     "ResourceBlock",
     "TextBlock",
+    "UnknownBlock",
     "coerce_input",
 ]

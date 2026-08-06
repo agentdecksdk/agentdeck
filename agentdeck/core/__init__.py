@@ -5,12 +5,15 @@ import-linter contract enforces it.
 """
 
 from agentdeck.core.content import (
+    KNOWN_BLOCK_TYPES,
     ContentBlock,
     DataBlock,
     ImageBlock,
     Input,
+    KnownBlock,
     ResourceBlock,
     TextBlock,
+    UnknownBlock,
     coerce_input,
 )
 from agentdeck.core.context import RunContext
@@ -55,6 +58,7 @@ from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.reporting import Reporter
 
 __all__ = [
+    "KNOWN_BLOCK_TYPES",
     "KNOWN_KINDS",
     "RESULT_PREVIEW_MAX",
     "TERMINAL_KINDS",
@@ -72,6 +76,7 @@ __all__ = [
     "InputAppended",
     "InvocableKind",
     "InvocableSpec",
+    "KnownBlock",
     "KnownPayload",
     "MessageCompleted",
     "NodeUpdated",
@@ -94,6 +99,7 @@ __all__ = [
     "ThoughtDelta",
     "ToolCallCompleted",
     "ToolCallStarted",
+    "UnknownBlock",
     "UnknownEvent",
     "Usage",
     "UsageReported",

@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from agentdeck.core import ContentBlock, DataBlock, ImageBlock, ResourceBlock, TextBlock, coerce_input
+from agentdeck.core import ContentBlock, DataBlock, ImageBlock, ResourceBlock, TextBlock, UnknownBlock, coerce_input
 
 BLOCKS = TypeAdapter(list[ContentBlock])
 
@@ -116,3 +116,52 @@ def test_a_data_block_does_not_mutate():
     block = DataBlock(data={"k": 1})
     with pytest.raises(ValidationError):
         block.data = {"k": 2}
+
+
+# --- UnknownBlock (#109) ----------------------------------------------------------------
+
+
+def test_an_unfamiliar_block_type_parses_as_unknown_block():
+    raw = {"type": "audio", "uri": "s3://clip.mp3", "duration_s": 12}
+    assert BLOCKS.validate_python([raw]) == [UnknownBlock(type="audio", raw_block=raw)]
+
+
+def test_a_malformed_known_block_still_raises():
+    """The union must not swallow a broken known block into UnknownBlock — only a type it
+    genuinely doesn't recognize falls back."""
+    with pytest.raises(ValidationError):
+        BLOCKS.validate_python([{"type": "text"}])  # text requires `text`
+
+
+def test_unknown_block_survives_its_own_round_trip():
+    once = BLOCKS.validate_python([{"type": "audio", "uri": "s3://clip.mp3"}])
+    assert BLOCKS.validate_json(BLOCKS.dump_json(once)) == once  # no double-wrapping
+
+
+def test_a_block_named_raw_block_does_not_slip_past_its_own_schema():
+    """The UnknownBlock arm must not become a bypass for a malformed known block: a known
+    type with a `raw_block` field must still raise, not validate as UnknownBlock."""
+    with pytest.raises(ValidationError):
+        BLOCKS.validate_python([{"type": "text", "raw_block": {"a": 1}}])
+
+
+def test_unknown_block_refuses_a_known_type():
+    with pytest.raises(ValidationError, match="known block type"):
+        UnknownBlock(type="text", raw_block={})
+
+
+def test_a_consumer_skips_unknown_blocks_and_renders_the_rest():
+    blocks = BLOCKS.validate_python(
+        [
+            {"type": "text", "text": "a"},
+            {"type": "audio", "uri": "s3://clip.mp3"},
+            {"type": "text", "text": "b"},
+        ]
+    )
+    assert "".join(b.text for b in blocks if isinstance(b, TextBlock)) == "ab"
+    assert sum(isinstance(b, UnknownBlock) for b in blocks) == 1
+
+
+def test_coerce_input_passes_through_an_unknown_block():
+    blocks = [TextBlock(text="hi"), UnknownBlock(type="audio", raw_block={"type": "audio"})]
+    assert coerce_input(blocks) == blocks

@@ -15,14 +15,13 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.telemetry.langfuse import LangfuseSink, langfuse_sink
 from agentdeck.adapters.telemetry.langfuse.sink import _render
-from agentdeck.core.content import DataBlock, ImageBlock, TextBlock
+from agentdeck.core.content import DataBlock, ImageBlock, TextBlock, UnknownBlock
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
     Budget,
@@ -335,10 +334,10 @@ async def test_an_inline_data_uri_in_tool_arguments_is_described_never_handed_ov
 
 def test_a_block_kind_this_version_cannot_render_is_still_mentioned() -> None:
     """The default case earns its keep: a newer writer's block type must not make a run read
-    as one with no input at all. A stand-in stands in because ``ContentBlock`` is strict —
-    there is no unknown block type to construct until core grows the fallback."""
-    # the ignore is the shim for that: no value of type Input can carry an unknown block
-    assert _render([SimpleNamespace(type="audio")]) == ["<audio block>"]  # ty: ignore[invalid-argument-type]
+    as one with no input at all. Real now that ``UnknownBlock`` (#109) exists — this is no
+    longer a stand-in for a shape ``ContentBlock`` couldn't hold."""
+    block = UnknownBlock(type="audio", raw_block={"type": "audio", "uri": "s3://clip.mp3"})
+    assert _render([block]) == ["<audio block>"]
 
 
 async def test_structured_data_reaches_the_trace_as_json_on_both_ends() -> None:

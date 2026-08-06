@@ -217,8 +217,21 @@ deserializes each run's last lifecycle row in one comprehension, so one structur
 `run.completed` in a shared store makes an older process's listing fail for the whole tenant,
 runs it wrote itself included. Mixed-version readers against one event store are therefore
 unsupported across this change. Bumping `v` would not help that reader (nothing branches on
-`v` yet); the upgrade is an `UnknownBlock` fallback mirroring `UnknownEvent` — **issue #109,
-gated on the v2.0.0 stable tag**, since after it every released reader is the old reader.
+`v` yet); the fix is issue #109, closed below.
+
+*(Amended 2026-08-06, issue #109.)* The asymmetry above is closed, D8-additive, before the
+`v2.0.0` stable tag — the last point where "one version of this schema exists" made the fix
+free. `ContentBlock` in `core/content.py` gained an `UnknownBlock` member
+(`{type: str, raw_block: dict}`), mirroring `UnknownEvent`: a `WrapValidator` on the
+`ContentBlock` annotation falls back to it whenever a block's `type` isn't one of the known
+literals, so the failure is caught at the block itself rather than propagating up through
+whichever payload (`run.started.input`, `run.completed.output`, `run.resumed.value`, …)
+happens to hold it — one mechanism instead of one per call site. A malformed *known* block
+still raises, the same trap `UnknownEvent` closes for a payload named `raw_payload`. Measured
+against `origin/dev`'s own `ContentBlock` (`tests/core/test_old_reader_block_compat.py`): that
+reader really does reject a block type this addition introduces, and this tree's reader
+parses the same wire event, keeps the raw block, and leaves `status_of` and the terminal
+invariant unchanged.
 
 *(Amended 2026-08-06, issues #44 and #94.)* Run control is **three phases, one vocabulary**:
 `control.requested {verb, reason?}` records that a signal was written, `control.observed
