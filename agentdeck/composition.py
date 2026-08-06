@@ -17,10 +17,10 @@ from typing import TYPE_CHECKING
 from agentdeck.adapters.engines.langgraph import LangGraphEngine
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
-from agentdeck.compat import V1CompatEngine
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import EventsSettings, get_settings
+from agentdeck.v1bridge import V1CompatEngine
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence

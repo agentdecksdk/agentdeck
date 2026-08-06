@@ -80,10 +80,12 @@ async def chat_frames(events: AsyncGenerator[Event, None]) -> AsyncIterator[str]
     exception's type name and never its message — the same in-band report v1 makes once
     the status code is already on the wire.
 
-    ``aclosing`` is what makes a disconnect a *closed* run: an ASGI server abandons a
-    response body without closing it, and an unclosed run stays open in the log forever
-    (its cancellation is recorded by the Runtime only when this generator is closed) while
-    the SDK's detached run loop keeps going.
+    ``aclosing`` covers only one of the two shapes a disconnect takes, and not the common one:
+    a server that leaves this generator suspended, whose next reader closes it. What the shipped
+    stack actually does is **cancel** the task streaming the response, and that ``CancelledError``
+    travels into the run itself — closing the run there is the Runtime's job, and it is the
+    Runtime that records the ``run.cancelled``. Neither path is this generator's to guarantee, so
+    do not read this as one.
     """
     turn = _Turn()
     try:
@@ -103,8 +105,8 @@ async def chat_result(events: AsyncGenerator[Event, None]) -> dict[str, Any]:
     """v1's non-streamed chat body: the run's output, once it has one.
 
     The engine's exception reaches the caller unchanged, so a failed turn is still the
-    500 (or the 404/422) v1 answered with, decided by the exception's own type. Closed the
-    same way as the streamed path, so an abandoned request closes its run too.
+    500 (or the 404/422) v1 answered with, decided by the exception's own type. Closed the same
+    way as the streamed path, with the same division of labour over a disconnect.
     """
     turn = _Turn()
     async with aclosing(events):

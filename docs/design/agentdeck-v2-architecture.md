@@ -473,6 +473,14 @@ as `App.runtime`. The split is what keeps a second front door — the deferred c
 `Deck()` — a second caller rather than a rewrite of `App`, and it is why the demo script
 and the composition tests no longer hand-assemble `Runtime(...)`.*
 
+*`App` also registers **no event sinks**, which settles the question the telemetry slice deferred
+to this one: the Langfuse sink reads the canonical stream, and the v1 bridge still opens v1's own
+`trace_run` around every chat turn, so registering both would report each v1 agent run twice.
+While v1's runner glue exists, v1's tracing is the one that runs on the v1 surface; the sink
+becomes `App`'s once the bridge is deleted, at which point workflow runs get traced for free —
+which is the whole reason the sink exists. `agentdeck-serve` therefore ships with no sink, and a
+code-first caller that wants one passes it to `build_runtime(sinks=...)`.*
+
 *Two things `App` was expected to hand the Runtime, it does not yet. The engine set is built
 by `v1_engines()`, whose langgraph engine keeps its own in-memory checkpointer instead of the
 configured one: nothing routes a workflow through the Runtime yet, and resolving the settings
@@ -484,7 +492,7 @@ mounted read-only.)*
 *(Amended 2026-08-06, #74 — there are now two `EnginePort` implementations under the one
 `openai-agents` engine name, and a composition root registers exactly one.
 `OpenAIAgentsEngine` (the adapter) builds a minimal `RunConfig` of its own.
-`agentdeck/compat/engine.py::V1CompatEngine` resolves the run the way v1's `HeadlessRunner`
+`agentdeck/v1bridge/engine.py::V1CompatEngine` resolves the run the way v1's `HeadlessRunner`
 does — settings-driven provider, temperature, `max_turns` and CA bundle, v1's sandbox scope,
 v1's Langfuse observation, and v1's own session lookup — so a turn served through the v1
 surface is configured and traced exactly as before, and it is what `v1_engines()` registers.*
@@ -494,7 +502,7 @@ import law is why: it reaches into v1's runner glue and v1's Langfuse integratio
 engine adapter may do neither (`langfuse-is-telemetry-private` fails on the indirect chain
 through `agents/runners/base.py`). Keeping the bridge outside `adapters/` is what keeps the
 adapter honest about depending on one external system. A contract
-(`compat-is-composition-root-only`) now forbids every ring from importing it, so the
+(`v1bridge-is-composition-root-only`) now forbids every ring from importing it, so the
 pre-stable cleanup deletes one directory rather than unpicking dependencies. The engine's own
 override seams — `_session`, `_launch`, `_translate`, `_terminal`, and the `Launch` handle
 whose `finished` flag is the only trustworthy "this run reached its terminal event" signal —

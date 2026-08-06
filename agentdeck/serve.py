@@ -103,11 +103,14 @@ def create_app() -> Any:
             session_id, message = body["session_id"], body["message"]
         except KeyError as exc:
             raise HTTPException(status_code=422, detail=f"missing field: {exc.args[0]}") from exc
+        # A body shape this endpoint cannot run is the client's mistake, not a server fault: 4xx
+        # like every other bad body here, never a 500 in somebody's alerting. Both fields are
+        # checked, because both reach a model that only accepts a string.
+        if not isinstance(session_id, str):
+            raise HTTPException(status_code=422, detail=f"session_id must be a string, got {type(session_id).__name__}")
         try:
             content = coerce_input(message)
         except TypeError as exc:
-            # A shape this endpoint cannot run is the client's mistake, not a server fault:
-            # 4xx like every other bad body here, never a 500 in somebody's alerting.
             raise HTTPException(
                 status_code=422, detail=f"message must be a string, got {type(message).__name__}"
             ) from exc

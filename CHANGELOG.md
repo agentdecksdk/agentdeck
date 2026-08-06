@@ -87,12 +87,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `sqlite3` exception is kept as the cause for diagnosis.
 
 ### Changed
-- `POST /agents/{name}/chat` now answers **422** for a `message` that is not a
-  string, where the SDK used to accept two more shapes: a message object
-  (`{"role": ..., "content": ...}`) and a list of SDK input items. Both used to
-  work and now fail the request with `{"detail": "message must be a string, got
-  dict"}` rather than a server error. Multi-part input (images, resources) returns
-  as typed content blocks in a later release; a plain string is unaffected.
+- `POST /agents/{name}/chat` now answers **422** for a `message` or a `session_id`
+  that is not a string. `message` used to accept two more shapes — a message object
+  (`{"role": ..., "content": ...}`) and a list of SDK input items — and a
+  non-string `session_id` (say the integer `7`) used to be passed through as a
+  session key; both now fail the request with `{"detail": "message must be a
+  string, got dict"}` / `{"detail": "session_id must be a string, got int"}`
+  instead of a server error. Coercing the id instead would have quietly moved that
+  caller's conversation to a new session, so it is a 4xx you can see. Multi-part
+  input (images, resources) returns as typed content blocks in a later release; a
+  string in both fields is unaffected.
 - A project where an agent class and a workflow class share one name now fails at
   `App.load()` with a message naming both, instead of loading two invocables that
   the HTTP surface could not tell apart. Two bundles of the same kind exporting
@@ -141,6 +145,15 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   keep these databases on local disk. In-memory databases are unaffected.
 
 ### Fixed
+- A run whose consumer goes away is now closed in the event log even when the
+  consumer was *cancelled* rather than closed — which is what a real ASGI server
+  does when a client disconnects mid-stream. `Runtime.run` and `Runtime.resume`
+  caught `GeneratorExit` and `Exception`, and `CancelledError` is neither, so a
+  disconnected stream used to leave a run with no terminal event: indistinguishable
+  from one still in flight, for status projections, `pending()` and anything
+  reading the log. Both now record `run.cancelled` (shielded, so the write is not
+  itself cancelled) and re-raise. A process that dies with the request still leaves
+  the run open — no in-process write can outlive its own event loop.
 - Shutdown no longer hangs forever on a wedged sink: every wait on the sink
   path has a deadline, including the last one — the wait for the sink's
   consumer to stop. A sink whose `emit` swallows cancellation can delay a

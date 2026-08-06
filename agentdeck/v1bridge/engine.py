@@ -95,7 +95,9 @@ class V1CompatEngine(OpenAIAgentsEngine):
                     if launch.finished:
                         tr.set_output(launch.result.final_output)
                     else:
-                        tr.set_output(error="GeneratorExit: consumer stopped reading")
+                        # Not necessarily a consumer walking away: a control-gate cancel ends the
+                        # run here too, and both are "closed before the terminal event".
+                        tr.set_output(error="GeneratorExit: run did not reach its terminal event")
                     raise
                 except BaseException as exc:
                     tr.set_output(error=f"{type(exc).__name__}: {exc}")

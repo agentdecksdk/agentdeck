@@ -8,7 +8,6 @@ import pytest
 
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
-from agentdeck.compat import V1CompatEngine
 from agentdeck.composition import build_runtime, resolve_event_store, v1_engines
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
@@ -16,6 +15,7 @@ from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import EventsSettings
+from agentdeck.v1bridge import V1CompatEngine
 
 AGENT_PY = """
 from agentdeck.agents import BaseAgent

@@ -49,6 +49,12 @@ class Launch:
     ``final_output`` is only *usually* absent from the abandoned one (the SDK's run loop is
     detached, so it may well have finished while nobody was reading). The engine's own control
     flow is the authority, and this is how it says so.
+
+    It is the *engine's* view, not the log's, and cannot be made the log's: it is set before the
+    terminal payload is yielded, because the Runtime breaks on that payload and never returns
+    here. So a store that rejects the terminal append leaves this ``True`` while the log ends in
+    ``run.failed`` — an observability span reporting success for a run the log calls failed. The
+    log is the record; a reader reconciling the two believes the log.
     """
 
     result: RunResultStreaming
@@ -58,7 +64,7 @@ class Launch:
 class OpenAIAgentsEngine(EnginePort):
     """Plays ``spec.native`` (an ``agents.Agent``) through ``Runner.run_streamed``.
 
-    Four protected seams exist for the v1 compat engine in ``compat.py``, which needs a
+    Four protected seams exist for the v1 bridge in ``agentdeck/v1bridge/engine.py``, which needs a
     differently-configured run and a v1-shaped result but the same stream handling:
     :meth:`_session` picks the execution state, :meth:`_launch` starts the SDK run,
     :meth:`_translate` maps one stream event, and :meth:`_terminal` closes the run.

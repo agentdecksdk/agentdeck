@@ -7,6 +7,7 @@ below are the ones the endpoint puts on the wire.
 
 import asyncio
 import json
+import logging
 import sys
 import textwrap
 from contextlib import aclosing, contextmanager
@@ -18,7 +19,6 @@ from scripted_model import ScriptedModel, provider_of
 
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
-from agentdeck.compat import engine as compat_engine
 from agentdeck.composition import build_runtime, v1_engines
 from agentdeck.core.content import coerce_input
 from agentdeck.core.events import check_terminal
@@ -26,6 +26,7 @@ from agentdeck.runtime.settings import reset_settings_cache
 from agentdeck.serve import create_app
 from agentdeck.surfaces.serve import compat as surface_compat
 from agentdeck.surfaces.serve.compat import chat_frames, chat_result, run_context
+from agentdeck.v1bridge import engine as compat_engine
 
 AGENT_PY = """
 from pydantic import BaseModel
@@ -103,7 +104,7 @@ def recorded_trace(monkeypatch):
     def _trace_run(_capture, **_kwargs):
         yield trace
 
-    monkeypatch.setattr("agentdeck.compat.engine.trace_run", _trace_run)
+    monkeypatch.setattr("agentdeck.v1bridge.engine.trace_run", _trace_run)
     return trace
 
 
@@ -185,23 +186,39 @@ async def test_an_abandoned_turn_reports_the_abandonment_to_the_trace(project, s
     async with aclosing(chat_frames(events)) as frames:
         await anext(frames)  # one delta, then walk away mid-run
 
-    assert [error for _, error in recorded_trace.calls] == ["GeneratorExit: consumer stopped reading"]
+    assert [error for _, error in recorded_trace.calls] == ["GeneratorExit: run did not reach its terminal event"]
 
 
-async def test_an_abandoned_stream_closes_its_run_in_the_log(project, scripted):
-    """An ASGI server abandons a response body without closing it, so the surface has to
-    close the run itself — an unterminated run in the log is indistinguishable from one still
-    in flight."""
-    runtime, store, _ = scripted(ScriptedModel(deltas=("one", "two", "three")))
+async def test_a_disconnect_closes_its_run_in_the_log(project, scripted):
+    """A real ASGI server does not close the response body on disconnect — it **cancels** the
+    task streaming it. So the disconnect is modelled as a cancelled consumer task, not as an
+    ``aclose()``: the two arrive as different exceptions, and only one of them used to close the
+    run. An unterminated run in the log is indistinguishable from one still in flight.
+    """
+    hold = asyncio.Event()
+    model = ScriptedModel(deltas=("one", "two"), hold=hold)
+    runtime, store, _ = scripted(model)
     ctx = run_context("s1")
+    frames: list[str] = []
 
-    events = runtime.run("Greeter", coerce_input("hi"), ctx)
-    async with aclosing(chat_frames(events)) as frames:
-        await anext(frames)
+    async def consume() -> None:
+        async for frame in chat_frames(runtime.run("Greeter", coerce_input("hi"), ctx)):
+            frames.append(frame)
 
-    logged = [event.kind for event in await store.read("s1", ctx)]
-    assert logged[-1] == "run.cancelled", logged
-    assert check_terminal(await store.read("s1", ctx)) is None
+    consumer = asyncio.create_task(consume())
+    # The turn stalls after its first delta, so the consumer is parked inside its own await for
+    # the next event — where a streaming response spends nearly all of its life, and where a
+    # server's disconnect cancellation lands.
+    await model.holding.wait()
+    await asyncio.sleep(0)
+    consumer.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await consumer
+
+    assert frames == ['data: {"delta": "one"}\n\n']
+    logged = await store.read("s1", ctx)
+    assert [event.kind for event in logged][-1] == "run.cancelled", [event.kind for event in logged]
+    assert check_terminal(logged) is None
 
 
 async def test_the_done_output_is_the_sdks_final_output_not_the_rejoined_deltas(project, scripted):
@@ -302,6 +319,36 @@ def test_a_message_that_is_not_a_string_is_a_422(project, monkeypatch, message, 
 
     assert response.status_code == 422
     assert response.json()["detail"].startswith("message must be a string")
+
+
+@pytest.mark.parametrize("query", ["", "?stream=true"], ids=["body", "streamed"])
+@pytest.mark.parametrize("session_id", [7, {"a": 1}, None], ids=["number", "object", "null"])
+def test_a_session_id_that_is_not_a_string_is_a_422(project, monkeypatch, session_id, query):
+    """Same class as the message check, and the same reason: it reaches the event envelope, which
+    only takes a string, so an unvalidated one is a 500 for what is a malformed body."""
+    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel()))
+
+    with TestClient(create_app()) as client:
+        response = client.post(f"/agents/Greeter/chat{query}", json={"session_id": session_id, "message": "hi"})
+
+    assert response.status_code == 422
+    assert response.json()["detail"].startswith("session_id must be a string")
+
+
+def test_the_server_warns_once_when_the_event_log_is_in_memory(project, monkeypatch, caplog):
+    """The default store never evicts and dies with the process; an operator should not have to
+    read the source to find that out."""
+    monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "memory")
+    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel()))
+    reset_settings_cache()
+    try:
+        with caplog.at_level(logging.WARNING, logger="agentdeck.serve"), TestClient(create_app()):
+            pass
+    finally:
+        reset_settings_cache()
+
+    warnings = [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING]
+    assert [message for message in warnings if "AGENTDECK_EVENTS_BACKEND=sqlite" in message]
 
 
 def test_a_workflow_is_not_reachable_through_the_agents_route(project, monkeypatch):

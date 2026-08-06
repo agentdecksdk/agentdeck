@@ -8,6 +8,7 @@ compat engine, the Runtime, the surface's frame rendering — is the code under 
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 from agents.items import ModelResponse
@@ -54,6 +55,7 @@ class ScriptedModel(Model):
         final_text: str | None = None,
         tool_name: str | None = None,
         raises: BaseException | None = None,
+        hold: asyncio.Event | None = None,
         input_tokens: int = 3,
         output_tokens: int = 4,
     ) -> None:
@@ -63,6 +65,11 @@ class ScriptedModel(Model):
         self.final_text = final_text
         self.tool_name = tool_name
         self.raises = raises
+        # Stall the turn after its first delta until `hold` is set, announcing it on `holding`.
+        # A test that has to catch a consumer *inside* its next-event await needs the run to
+        # stop where it says, not where a sleep happens to land.
+        self.hold = hold
+        self.holding = asyncio.Event()
         self.calls = 0
         self.inputs: list[Any] = []
         self._input_tokens = input_tokens
@@ -102,6 +109,9 @@ class ScriptedModel(Model):
             )
             return
         for index, delta in enumerate(self.deltas):
+            if index and self.hold is not None:
+                self.holding.set()
+                await self.hold.wait()
             yield ResponseTextDeltaEvent(
                 content_index=0,
                 delta=delta,
