@@ -19,7 +19,9 @@ Return: the headings in order; the single example you will use and where it came
 
 `docs/delivery/docs-site-plan.md` says which pages exist, in what section, and why. Read the DS item you were given and its decisions (DS-D1…DS-D10) before anything else. §9 lists what is out of scope — a page not traceable to a persona and an FR is coverage theatre, so if your assignment is not in the plan, say so in phase 1 rather than inventing a page.
 
-`docs/00-project-index.md` says which doc wins when two disagree. The docs-site owns the *user-facing* contract for run control (safe points, restart survival); `docs/design/` owns internals. Never document `core/` internals here.
+`docs/00-project-index.md` says which doc wins when two disagree.
+
+When your assignment cites a design issue, **read its comments too, not just its body** — a design proposal here is verified after the fact, and the verification supersedes the body where they disagree. Issue #135's measurements, for instance, were corrected by verification; building to the body's numbers would build to the wrong ones. The docs-site owns the *user-facing* contract for run control (safe points, restart survival); `docs/design/` owns internals. Never document `core/` internals here.
 
 ## Every claim is verified, not remembered
 

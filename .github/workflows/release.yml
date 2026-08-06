@@ -8,6 +8,10 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # A dropped tag-push event leaves a tag with no release and no way to recover it
+  # without re-tagging, which the release process forbids. Dispatch against the tag ref
+  # instead: the version check below still gates it, so this cannot publish the wrong thing.
+  workflow_dispatch:
 
 permissions:
   contents: write
