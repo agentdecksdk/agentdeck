@@ -14,8 +14,10 @@ from agentdeck.core import (
     Custom,
     DataBlock,
     Event,
+    ProgressReported,
     RunCompleted,
     RunFailed,
+    StatusReported,
     TextBlock,
     TextDelta,
     ToolCallCompleted,
@@ -25,6 +27,7 @@ from agentdeck.core import (
     check_terminal,
     parse_event,
 )
+from agentdeck.core.status import LIFECYCLE_KINDS, RunStatus, status_of
 
 TS = "2026-01-01T12:00:00+00:00"
 
@@ -226,6 +229,64 @@ def test_usage_usd_is_optional_but_tokens_are_not():
     assert Usage(input_tokens=1, output_tokens=2).usd is None
     with pytest.raises(ValidationError):
         Usage(input_tokens=1)
+
+
+# --- status and progress reports (#47) -------------------------------------------------
+
+
+def test_a_status_message_must_say_something():
+    StatusReported(message="Searching GitHub")
+    with pytest.raises(ValidationError):
+        StatusReported(message="")
+
+
+def test_a_stage_needs_a_name_but_not_a_count():
+    """Named stages alone are valid, per the issue: the counts are the optional half, not the step."""
+    assert ProgressReported(step="Reviewing issues").current is None
+    assert ProgressReported(step="Reviewing issues", current=3).total is None
+    assert ProgressReported(step="Reviewing issues", total=4).current is None
+    with pytest.raises(ValidationError):
+        ProgressReported(step="")
+
+
+def test_progress_past_its_own_total_is_refused():
+    """The one arithmetic a caller can get wrong, caught at the call rather than in a UI
+    rendering "6 of 4"."""
+    ProgressReported(step="Reviewing issues", current=4, total=4)
+    with pytest.raises(ValidationError, match="past total"):
+        ProgressReported(step="Reviewing issues", current=5, total=4)
+
+
+def test_progress_counts_are_refused_below_their_floors():
+    with pytest.raises(ValidationError):
+        ProgressReported(step="Reviewing issues", current=-1)
+    with pytest.raises(ValidationError):
+        ProgressReported(step="Reviewing issues", total=0)  # "2 of 0" is not a count
+
+
+def test_a_report_moves_nothing_and_terminates_nothing(examples, make_event):
+    """The whole reason these are not lifecycle kinds. A run reporting "Searching GitHub" is
+    still RUNNING, and a log of nothing but reports has still not ended."""
+    reporting = _run(examples, make_event, "run.started", "status.reported", "progress.reported")
+    assert status_of(reporting) is RunStatus.RUNNING
+    assert check_terminal(reporting) == "no terminal event"
+
+    done = [*reporting, make_event(examples["run.completed"].payload, 3)]
+    assert status_of(done) is RunStatus.COMPLETED
+    assert check_terminal(done) is None
+
+    assert not {"status.reported", "progress.reported"} & (LIFECYCLE_KINDS | TERMINAL_KINDS)
+
+
+def test_a_run_that_never_reports_folds_to_the_same_status(examples, make_event):
+    """Existing runs behave unchanged when no updates are emitted, as an assertion: the two
+    logs differ only by reports, so any status difference would be the reports' doing."""
+    quiet = _run(examples, make_event, "run.started", "text.delta", "run.completed")
+    noisy = _run(
+        examples, make_event, "run.started", "status.reported", "text.delta", "progress.reported", "run.completed"
+    )
+    assert status_of(quiet) is status_of(noisy)
+    assert check_terminal(quiet) is check_terminal(noisy) is None
 
 
 # --- invariants ------------------------------------------------------------------------

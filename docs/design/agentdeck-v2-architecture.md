@@ -187,6 +187,7 @@ class Event(BaseModel):
 | Workflow   | `node.updated`, `custom` | `node.updated`: `node`, `state_patch` (shallow merge); `custom` payloads carry a namespaced `name` — per D10, kinds are minted only in core; engines translate into existing kinds or use `custom`, and recurring `custom` usage is a promotion signal, not a precedent |
 | Control    | `run.interrupted`, `input.appended` | interrupt: `interrupt_id`, `reason: "human" \| "pause" \| "approval"`, typed `payload`, `thread_id` — the approvals inbox is a filter on this kind; `input.appended` records mid-turn steering |
 | Data       | `artifact.created`, `usage.reported` | artifacts by reference (id, media type, uri, size); `usage.reported` is per-model-call and advisory — the terminal aggregate wins |
+| Reporting  | `status.reported`, `progress.reported` | what the run says it is doing: `status.reported` carries a non-empty human-readable `message`, `progress.reported` a required `step` plus optional `current`/`total` (never a percentage). Advisory in the same sense `usage.reported` is — neither is a lifecycle kind, neither is terminal, and status still folds from lifecycle kinds alone |
 
 Engines emit payloads; the `Runtime` stamps the envelope (`seq`, `tenant`, `ts`,
 `origin` as reported by the adapter). Engines therefore cannot lie about ordering or
@@ -219,6 +220,19 @@ unsupported across this change. Bumping `v` would not help that reader (nothing 
 `v` yet); the upgrade is an `UnknownBlock` fallback mirroring `UnknownEvent` — **issue #109,
 gated on the v2.0.0 stable tag**, since after it every released reader is the old reader.
 
+*(Amended 2026-08-06, issue #47.)* Two **reporting** kinds joined the table above,
+`status.reported` and `progress.reported`, so a run can say what it is doing instead of leaving
+every client to infer it from tool calls. Additive under D8 — two kinds, nothing renamed, removed
+or redefined — and measured against `origin/dev`'s own parser rather than argued:
+`tests/core/test_old_reader_compat.py` loads the released `core/events.py` and `core/status.py`
+out of git and asserts that reader reads both as `UnknownEvent`, keeps their payloads, folds the
+same status, and still sees the run as open. The deliberate line: **neither is a lifecycle kind**,
+so `LIFECYCLE_KINDS` and `TERMINAL_KINDS` are unchanged and a store that indexes by kind — the
+thing #101 showed can fail a whole tenant's listing — has nothing new to deserialize. The naming
+departs from the issue's suggested `agent.status`/`agent.progress` on purpose: a workflow node and
+a tool emit these too, and `origin` already names the invocable, so the kind names what the event
+is about. The emitter side is §4.3's `reporter`.
+
 ### 4.3 RunContext — thread it everywhere, today
 
 ```python
@@ -246,6 +260,21 @@ exceptions, no "we'll add it when we need it."
 `triggered_by` so `run.started` can be filled from the context alone; `principal` is a `str`
 until an auth story needs more. `gate` and `caps` are the two fields that are behavior rather
 than data — they wait for Story 3 and Story 4, which build the things they would point at.)*
+
+*(Amended 2026-08-06, issue #47.)* A third behavior field: `reporter: Reporter`
+(`core/reporting.py`), the mirror image of `gate` and here for the same reason. A cooperative
+seam has to reach code the Runtime never sees — control flows *in* through the gate, status and
+progress flow *out* through the reporter — and neither can be threaded any other way, because a
+tool six frames inside an engine cannot yield an event and must not import a Runtime. Both
+default to doing nothing, so a `RunContext` built outside a run stays a value object: the
+reporter validates its arguments and drops the result. `Runtime.run`/`resume` bind both, and the
+reporter's buffer is per run and returned to the run, never held on the Runtime, so two
+concurrent runs cannot drain into each other. What that costs is stated on `Reporter`: reports
+are drained at the engine's next payload, so one made inside a single long tool call surfaces
+when the call ends. The alternative considered and rejected was a `ContextVar` — no threading at
+all, but a context var set inside an async generator leaks into the task that resumes it, so two
+runs iterated from one task would report into each other's logs, and a report is tenant-scoped
+data.
 
 ### 4.4 Run lifecycle
 
