@@ -465,6 +465,49 @@ from `Settings`, wires the `Runtime`, and re-exposes `run_agent` / `run_workflow
 `chat` / `chat_stream` as thin compatibility wrappers so existing `.agentdeck/` projects
 keep working through the migration.
 
+*(Amended 2026-08-06, #74 — as built, the assembly itself is a separate module,
+`agentdeck/composition.py`, and `App` is one caller of it: `build_runtime(engines=...)`
+takes the parts and returns the wired Runtime, defaulting the invocable mapping to
+discovery and the store to `Settings.events`. `App.load()` calls it and exposes the result
+as `App.runtime`. The split is what keeps a second front door — the deferred code-first
+`Deck()` — a second caller rather than a rewrite of `App`, and it is why the demo script
+and the composition tests no longer hand-assemble `Runtime(...)`.*
+
+*`App` also registers **no event sinks**, which settles the question the telemetry slice deferred
+to this one: the Langfuse sink reads the canonical stream, and the v1 bridge still opens v1's own
+`trace_run` around every chat turn, so registering both would report each v1 agent run twice.
+While v1's runner glue exists, v1's tracing is the one that runs on the v1 surface; the sink
+becomes `App`'s once the bridge is deleted, at which point workflow runs get traced for free —
+which is the whole reason the sink exists. `agentdeck-serve` therefore ships with no sink, and a
+code-first caller that wants one passes it to `build_runtime(sinks=...)`.*
+
+*Two things `App` was expected to hand the Runtime, it does not yet. The engine set is built
+by `v1_engines()`, whose langgraph engine keeps its own in-memory checkpointer instead of the
+configured one: nothing routes a workflow through the Runtime yet, and resolving the settings
+checkpointer eagerly would make the `[durability]` extra mandatory for anyone who only chats.
+And the event store defaults to `memory` — the log an operator wants to keep is opt-in via
+`AGENTDECK_EVENTS_BACKEND=sqlite`, because no default file path is safe when `.agentdeck/` is
+mounted read-only.)*
+
+*(Amended 2026-08-06, #74 — there are now two `EnginePort` implementations under the one
+`openai-agents` engine name, and a composition root registers exactly one.
+`OpenAIAgentsEngine` (the adapter) builds a minimal `RunConfig` of its own.
+`agentdeck/v1bridge/engine.py::V1CompatEngine` resolves the run the way v1's `HeadlessRunner`
+does — settings-driven provider, temperature, `max_turns` and CA bundle, v1's sandbox scope,
+v1's Langfuse observation, and v1's own session lookup — so a turn served through the v1
+surface is configured and traced exactly as before, and it is what `v1_engines()` registers.*
+
+*It lives in a new top-level `compat/` rather than beside the adapter it subclasses, and the
+import law is why: it reaches into v1's runner glue and v1's Langfuse integration, and an
+engine adapter may do neither (`langfuse-is-telemetry-private` fails on the indirect chain
+through `agents/runners/base.py`). Keeping the bridge outside `adapters/` is what keeps the
+adapter honest about depending on one external system. A contract
+(`v1bridge-is-composition-root-only`) now forbids every ring from importing it, so the
+pre-stable cleanup deletes one directory rather than unpicking dependencies. The engine's own
+override seams — `_session`, `_launch`, `_translate`, `_terminal`, and the `Launch` handle
+whose `finished` flag is the only trustworthy "this run reached its terminal event" signal —
+are the adapter's public-to-subclasses surface.)*
+
 ---
 
 ## 5. Ring 2 — adapters
@@ -538,6 +581,27 @@ and `a2a`.
 `_jsonable`/frame-shaping logic in today's `serve.py` disappears into `protocols/sse/`.
 New routes: `POST /runs/{id}/pause|resume|cancel`, `GET /runs/{id}`. `surfaces/acp/` is a
 stdio entrypoint (§11), a sibling of `agentdeck-serve` and roughly the same size.
+
+*(Amended 2026-08-06, #74 — as built, the chat handlers are those four lines and the workflow
+handlers are not. `POST /agents/{name}/chat` (streamed and not) builds a `RunContext`, calls
+`Runtime.run`, and hands the events to `surfaces/serve/compat.py`, which renders v1's `delta`
+/ `done` / `error` frames; the golden suite passes unchanged, so the wire is byte-identical.
+The frame shaping lives in that surface module rather than in `protocols/sse/`, because what
+it encodes is v1's frame vocabulary, not SSE — a generic SSE adapter is worth extracting when
+a second surface needs the same frames, not before.*
+
+*The workflow endpoints still call v1's workflow runner, and the reason is the engine, not the
+surface: v1 posts an arbitrary JSON state and gets the final state back, while the langgraph
+adapter takes `Input` content blocks (text only, mapped to `{"input": text}`) and reports the
+final state as `str(dict)` on `run.completed`. Rerouting `/workflows/*` byte-identically
+therefore needs a state-shaped input channel and a structured final state in the adapter
+first — attempting it here would have meant either changing a golden or regressing every
+existing workflow client. Same root cause as the one thing the chat reroute could not carry
+canonically: `RunCompleted.output` is `Input`, so an `output_type` agent's validated model
+rides alongside as one namespaced `custom` event (`openai_agents.structured_output`) that the
+surface renders. Two recurrences of "core has no shape for structured data" is the promotion
+signal D10 describes; a `DataBlock` (or a structured field on `run.completed`) is the schema
+decision that would retire both the custom event and this note.)*
 `surfaces/cli/` gains `agentdeck run`, `agentdeck sessions replay`, `agentdeck runs
 signal` for free, because they too are event readers.
 
