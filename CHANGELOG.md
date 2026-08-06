@@ -8,6 +8,18 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+
+- Docs: `reference/settings.mdx` and `reference/cli.mdx` are now generated from the code —
+  every `AGENTDECK_*` (and `OPENAI_*`/`TAVILY_*`/`SKILL_*`) setting and the `agentdeck` CLI's
+  own `--help` output — and verified against the code on every `make check`, so the published
+  pages cannot drift from what the package actually does (#133).
+
+### Changed
+
+- Every `LayeredSettings` field in `agentdeck/runtime/settings.py` now carries a
+  `Field(description=...)`, the source the new generated settings reference renders from.
+
 ## [2.0.0] - 2026-08-06
 
 The release where agentdeck becomes a platform rather than a harness. Every turn — chat

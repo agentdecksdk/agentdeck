@@ -163,16 +163,32 @@ class OpenAISettings(LayeredSettings):
     """
 
     model_config = settings_config("OPENAI_", protected_namespaces=())
-    model: str
-    api_key: str = ""
-    base_url: str = ""
+    model: str = Field(description="Model name passed to the host Agents SDK runner. No default — always required.")
+    api_key: str = Field(
+        default="",
+        description="API key for the endpoint. Empty is not the same as omitted: the OpenAI client still "
+        "resolves its own default (the `OPENAI_API_KEY` process env var, then none) and errors on the first "
+        "model call if that resolves to nothing — self-hosted servers that don't check the key still need a "
+        "placeholder value set somewhere.",
+    )
+    base_url: str = Field(
+        default="", description="OpenAI-compatible endpoint base URL. Empty uses the SDK default, api.openai.com."
+    )
     # Legacy OpenAI-native tracing key; only surfaced by the CLI `info` backend now that
     # host tracing runs through Langfuse/OpenInference (see runtime.observability).
-    tracing_api_key: str | None = None
+    tracing_api_key: str | None = Field(
+        default=None,
+        description="Legacy OpenAI-native tracing key, surfaced only by the CLI `info` backend. Host tracing "
+        "itself runs through Langfuse/OpenInference, not this key.",
+    )
     # Path to a CA/cert bundle used to verify the endpoint's TLS cert. Point it at a
     # corporate CA or a self-signed cert to reach an internal OpenAI-compatible server
     # *without* disabling verification. Empty => system default trust store.
-    ca_bundle: str = ""
+    ca_bundle: str = Field(
+        default="",
+        description="Path to a CA/certificate bundle for verifying the endpoint's TLS certificate. Empty uses "
+        "the system's default trust store.",
+    )
 
     def env_dict(self) -> dict[str, str]:
         env = {
@@ -191,14 +207,24 @@ class RunnerSettings(LayeredSettings):
 
     model_config = settings_config("AGENTDECK_RUNNER_")
 
-    workflow_name: str = "local-sandbox-repl"
-    temperature: float = 1.0
-    max_turns: int = 30
+    workflow_name: str = Field(
+        default="local-sandbox-repl",
+        description="Name recorded on the host Agents SDK run (`RunConfig.workflow_name`) — identifies which "
+        "workflow produced a run in tracing/observability.",
+    )
+    temperature: float = Field(default=1.0, description="Sampling temperature for the host agent loop's model.")
+    max_turns: int = Field(
+        default=30, description="Maximum turns `Runner.run`/`run_streamed` may take before giving up."
+    )
     # Cap on tokens per response for the HOST agent loop (Agents SDK ``ModelSettings``).
     # Independent of the in-sandbox skill cap ``OPENAI_MAX_TOKENS`` (``skill_runtime``
     # ``resolve_max_tokens``) — the same two-layer split as ``temperature``, not a mirror
     # of it. ``None`` = model default (uncapped).
-    max_tokens: int | None = None
+    max_tokens: int | None = Field(
+        default=None,
+        description="Cap on tokens per response for the host agent loop. Independent of the in-sandbox skill "
+        "cap `OPENAI_MAX_TOKENS`. `None` means the model's own default (uncapped).",
+    )
 
 
 class RuntimeSettings(LayeredSettings):
@@ -234,7 +260,13 @@ class RuntimeSettings(LayeredSettings):
 
     model_config = settings_config("AGENTDECK_RUNTIME_")
 
-    stale_run_after_seconds: float = Field(default=60.0 * 60.0, gt=0)
+    stale_run_after_seconds: float = Field(
+        default=60.0 * 60.0,
+        gt=0,
+        description="How long, in seconds, an open run may go without writing an event before it is treated "
+        "as abandoned and its session ownership is released for another worker to claim. Must be positive; set "
+        "it above the longest gap a healthy turn can go quiet.",
+    )
 
     @property
     def stale_run_after(self) -> timedelta:
@@ -253,18 +285,31 @@ class LangfuseSettings(LayeredSettings):
 
     model_config = settings_config("AGENTDECK_LANGFUSE_")
 
-    public_key: str = ""
-    secret_key: str = ""
-    host: str = "http://localhost:3000"
+    public_key: str = Field(
+        default="", description="Langfuse public key. Tracing stays off unless this and `secret_key` are both set."
+    )
+    secret_key: str = Field(
+        default="", description="Langfuse secret key. Tracing stays off unless this and `public_key` are both set."
+    )
+    host: str = Field(
+        default="http://localhost:3000",
+        description="Legacy Langfuse endpoint (pre-4.x naming). Overridden by `base_url` when that is set.",
+    )
     # Langfuse 4.x name for the endpoint; wins over ``host`` (kept as the legacy alias) when set.
-    base_url: str = ""
-    environment: str = "local"
-    debug: bool = False
-    sample_rate: float = 1.0
+    base_url: str = Field(
+        default="", description="Langfuse 4.x endpoint. Wins over `host` (kept as the legacy alias) when set."
+    )
+    environment: str = Field(default="local", description="Langfuse `environment` tag attached to every exported span.")
+    debug: bool = Field(default=False, description="Enable the Langfuse SDK's own debug logging.")
+    sample_rate: float = Field(default=1.0, description="Fraction of traces exported to Langfuse, from 0.0 to 1.0.")
     # OTel resource ``service.name`` for every exported span (host + sandboxed skills).
     # Without it OpenTelemetry falls back to ``unknown_service``, leaving traces
     # unattributed in the Langfuse UI.
-    service_name: str = "agentdeck"
+    service_name: str = Field(
+        default="agentdeck",
+        description="OpenTelemetry resource `service.name` for every exported span (host process and sandboxed "
+        "skills). Without it, spans fall back to `unknown_service` and are unattributed in the Langfuse UI.",
+    )
 
     @property
     def enabled(self) -> bool:
@@ -307,7 +352,12 @@ class McpSettings(LayeredSettings):
 
     model_config = settings_config("AGENTDECK_MCP_")
 
-    servers: dict[str, McpServerSettings] = Field(default_factory=dict)
+    servers: dict[str, McpServerSettings] = Field(
+        default_factory=dict,
+        description="Named MCP servers, keyed by the name `BaseAgent.mcp_server_names` references. Set as a "
+        'JSON object (e.g. `{"agentdeck":{"url":"http://host:8765/mcp"}}`) — deep-merged per server over '
+        "the YAML `mcp:` default.",
+    )
 
     def as_config(self) -> dict[str, dict[str, Any]]:
         """``{name: spec}`` in the shape :class:`agentdeck.adapters.tools.mcp.MCPLifecycle` consumes."""
@@ -319,7 +369,11 @@ class TavilySettings(LayeredSettings):
 
     model_config = settings_config("TAVILY_")
 
-    api_key: str = ""
+    api_key: str = Field(
+        default="",
+        description="Tavily web-search API key. Empty makes the `web_search` tool return an `error:` string "
+        "instead of raising — it degrades the same way an unavailable MCP server does, rather than disappearing.",
+    )
 
 
 class CheckpointSettings(LayeredSettings):
@@ -334,8 +388,16 @@ class CheckpointSettings(LayeredSettings):
 
     model_config = settings_config("AGENTDECK_CHECKPOINT_")
 
-    backend: str = "sqlite"
-    url: str = ""
+    backend: str = Field(
+        default="sqlite",
+        description="Which LangGraph checkpointer backend `durable=True` workflows use: `sqlite` for dev, "
+        "`postgres` for prod, or `memory` for tests (never persists past the process).",
+    )
+    url: str = Field(
+        default="",
+        description="Sqlite file path or Postgres DSN for the checkpointer. Empty sqlite falls back to "
+        "`.agentdeck/checkpoints.sqlite3`.",
+    )
 
 
 class EventsSettings(LayeredSettings):
@@ -356,8 +418,16 @@ class EventsSettings(LayeredSettings):
 
     model_config = settings_config("AGENTDECK_EVENTS_")
 
-    backend: str = "memory"
-    url: str = ""
+    backend: str = Field(
+        default="memory",
+        description="Which backend stores the Runtime's canonical event log: `memory` (default, in-process, "
+        "gone when the process exits), `sqlite`, `redis`, or `postgres` (needs the `[durability]` extra).",
+    )
+    url: str = Field(
+        default="",
+        description="File path (sqlite), Redis URL, or Postgres DSN for the event log. Required for every "
+        "backend except `memory`.",
+    )
 
 
 class ControlSettings(LayeredSettings):
@@ -377,8 +447,17 @@ class ControlSettings(LayeredSettings):
 
     model_config = settings_config("AGENTDECK_CONTROL_")
 
-    backend: str = "memory"
-    url: str = ""
+    backend: str = Field(
+        default="memory",
+        description="Which backend stores a run's pending control signals: `memory` (default, reachable only "
+        "from this process) or `sqlite` (crosses process boundaries — required for the `agentdeck runs signal` "
+        "CLI to reach a run).",
+    )
+    url: str = Field(
+        default="",
+        description="Sqlite file path for the control backend. Required when `backend` is `sqlite`; matches "
+        "the CLI's `--control-db`.",
+    )
 
 
 class SessionSettings(LayeredSettings):
@@ -394,10 +473,20 @@ class SessionSettings(LayeredSettings):
 
     model_config = settings_config("AGENTDECK_SESSION_")
 
-    redis_url: str | None = None
-    redis_key_prefix: str = "agents:session"
+    redis_url: str | None = Field(
+        default=None,
+        description="Redis URL for `RedisSession`-backed agent conversation memory. `None` falls back to the "
+        "SDK's in-process SQLite session (dev only) — required by the ChatKit backend.",
+    )
+    redis_key_prefix: str = Field(
+        default="agents:session", description="Key prefix under which `RedisSession` stores conversations in Redis."
+    )
     # Per-session TTL in seconds. ``None`` = sessions persist indefinitely.
-    redis_ttl: int | None = None
+    redis_ttl: int | None = Field(
+        default=None,
+        description="Per-session TTL in seconds for Redis-backed conversations. `None` means sessions persist "
+        "indefinitely.",
+    )
 
 
 class SkillsSettings(LayeredSettings):

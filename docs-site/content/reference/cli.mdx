@@ -1,0 +1,50 @@
+---
+title: CLI
+description: The agentdeck command tree, generated from agentdeck/cli.py's own --help output.
+---
+
+# CLI
+
+Generated from [`agentdeck/cli.py`](https://github.com/sagi5060/agentdeck/blob/main/agentdeck/cli.py) by capturing each subcommand's own `--help` output — the same rendering a terminal would show, not a second hand-written copy of it. `make check` regenerates this page and fails if the result differs (`scripts/generate_docs_reference.py`).
+
+## `agentdeck`
+
+```text
+usage: agentdeck [-h] {runs} ...
+
+positional arguments:
+  {runs}
+
+options:
+  -h, --help  show this help message and exit
+```
+
+## `agentdeck runs`
+
+```text
+usage: agentdeck runs [-h] {signal} ...
+
+positional arguments:
+  {signal}
+
+options:
+  -h, --help  show this help message and exit
+```
+
+## `agentdeck runs signal`
+
+```text
+usage: agentdeck runs signal [-h] --control-db CONTROL_DB [--reason REASON]
+                             run_id {cancel,pause,resume}
+
+positional arguments:
+  run_id                the run to signal
+  {cancel,pause,resume}
+                        the verb — see Run Control for what each does
+
+options:
+  -h, --help            show this help message and exit
+  --control-db CONTROL_DB
+                        path to the ControlPort's SQLite file
+  --reason REASON       why, recorded in the run's log with the request
+```
