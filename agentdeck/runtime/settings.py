@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Self
@@ -184,6 +185,30 @@ class RunnerSettings(LayeredSettings):
     # ``resolve_max_tokens``) — the same two-layer split as ``temperature``, not a mirror
     # of it. ``None`` = model default (uncapped).
     max_tokens: int | None = None
+
+
+class RuntimeSettings(LayeredSettings):
+    """Knobs the Runtime itself reads.
+
+    ``stale_run_after_seconds`` is how long an open run may write nothing before it stops
+    holding its session. One session runs one turn at a time, and a run whose process was
+    killed outright never records its ending — silence is the only thing that separates it
+    from a turn still working, so the session would otherwise stay claimed for good. **One
+    hour** by default: generous next to any real turn, short enough that a crash costs a
+    session an hour rather than forever, and the trade is deliberate — a permanently wedged
+    session is worse than a rare premature takeover. Two consequences worth knowing when
+    tuning it: a session a killed process left claimed is refused until it elapses, and a run
+    waiting on a human answer for longer than it is closed as failed the next time somebody
+    starts a turn on that session.
+    """
+
+    model_config = settings_config("AGENTDECK_RUNTIME_")
+
+    stale_run_after_seconds: float = Field(default=60.0 * 60.0, ge=0)
+
+    @property
+    def stale_run_after(self) -> timedelta:
+        return timedelta(seconds=self.stale_run_after_seconds)
 
 
 class LangfuseSettings(LayeredSettings):
@@ -359,6 +384,7 @@ class Settings(BaseModel):
     # doesn't block strict typing.
     openai: OpenAISettings = Field(default_factory=lambda: OpenAISettings.model_validate({}))
     runner: RunnerSettings = Field(default_factory=lambda: RunnerSettings.model_validate({}))
+    runtime: RuntimeSettings = Field(default_factory=lambda: RuntimeSettings.model_validate({}))
     checkpoint: CheckpointSettings = Field(default_factory=lambda: CheckpointSettings.model_validate({}))
     session: SessionSettings = Field(default_factory=lambda: SessionSettings.model_validate({}))
     skills: SkillsSettings = Field(default_factory=lambda: SkillsSettings.model_validate({}))
@@ -390,6 +416,7 @@ __all__ = [
     "McpSettings",
     "OpenAISettings",
     "RunnerSettings",
+    "RuntimeSettings",
     "SectionedYamlSource",
     "SessionSettings",
     "Settings",

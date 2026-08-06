@@ -5,15 +5,15 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from agentdeck.core.ports import EventStorePort, RunSummary
-from agentdeck.core.status import LIFECYCLE_KINDS, can_resume, status_of
+from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
+from agentdeck.core.status import LIFECYCLE_KINDS, TERMINAL_STATUSES, RunStatus, can_resume, status_of
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import datetime
 
     from agentdeck.core.context import RunContext
     from agentdeck.core.events import Event
-    from agentdeck.core.status import RunStatus
 
 
 class MemoryEventStore(EventStorePort):
@@ -55,6 +55,24 @@ class MemoryEventStore(EventStorePort):
         log = self._logs.get((ctx.tenant, log_key), ())
         return max((event.seq for event in log if event.run_id == run_id), default=-1)
 
+    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
+        """Atomic for free, like ``claim_resume``: the scan and the write inside ``append`` are
+        plain dict work with no suspension point between them, so no other task can open a run
+        in the gap — ``append``'s own yield comes after that write, too late to be one.
+        """
+        if event.tenant != ctx.tenant:
+            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
+        overridden: list[str] = []
+        for run_id, events in _by_run(self._logs.get((ctx.tenant, log_key), ())).items():
+            status = status_of(events)
+            if status is RunStatus.PENDING or status in TERMINAL_STATUSES:
+                continue
+            if events[-1].ts > stale_before:
+                return SessionClaim(held_by=run_id)
+            overridden.append(run_id)
+        await self.append(log_key, [event], ctx)
+        return SessionClaim(overridden=tuple(overridden))
+
     async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
         """Atomic for free: both checks and the write inside ``append`` are plain dict work
         with no suspension point between them, so no other task can slip in and claim the
@@ -87,6 +105,14 @@ class MemoryEventStore(EventStorePort):
             for log_key, run_id in dict.fromkeys(runs)
         ]
         return [summary for summary in summaries if status is None or summary.status is status]
+
+
+def _by_run(log: Sequence[Event]) -> dict[str, list[Event]]:
+    """One log's events split per run, each list still in append order."""
+    runs: dict[str, list[Event]] = {}
+    for event in log:
+        runs.setdefault(event.run_id, []).append(event)
+    return runs
 
 
 __all__ = ["MemoryEventStore"]

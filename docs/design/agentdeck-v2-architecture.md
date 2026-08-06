@@ -292,6 +292,52 @@ or SMB is unsupported — that deployment wants the Redis or Postgres store. Con
 connection that cannot switch the mode keeps the one the file has: slower under contention,
 never wrong, and never a failure to open.)*
 
+*(Amended 2026-08-06, #83 — as built: **one session runs one turn at a time**, and
+`EventStorePort` owns that claim too — `claim_start(log_key, event, ctx, stale_before) ->
+SessionClaim`, the resume claim's sibling. It appends a run's opening `run.started` if and only
+if that log has no open run, indivisibly; SQLite in one `BEGIN IMMEDIATE` transaction, the dict
+store for free. A session is **busy** when one of its runs has recorded a lifecycle transition
+and not a terminal one, `WAITING_HUMAN` included: an interrupted run still owns the engine
+thread it will resume on, and a second run against that thread would overwrite the checkpoints
+the resume needs. A run with no transition at all is `PENDING`, which no store can tell from a
+run it never saw, so it holds nothing — the line `list_runs` already draws.*
+
+*Busy-ness is **derived from the log**; there is no lease table, TTL row or heartbeat, which is
+what keeps §4.4's status a projection rather than a second store. Cross-process holds by
+construction, for the same reason the resume claim does: the condition and the write are one
+store operation, so two servers cannot both find a session idle. The refusal is **data, not a
+store failure** — `SessionClaim.held_by` names the run holding the session and nothing is
+written; only an unreachable store raises (`StoreError`, as above). The Runtime turns that into
+`errors.SessionBusyError` naming the session and the holding run, raised from `run()` before any
+event is yielded: a caller that asked for a turn and got an empty stream could not tell it apart
+from a turn that produced nothing.*
+
+*Queueing the loser is deliberately **not** built. In-process queueing does not survive a second
+worker, and a store-level queue is a lease with ordering — fencing, expiry, stale-entry
+reclamation — which is real distributed machinery for a problem whose usual cause is a
+double-clicked send button. A client retry already is a queue.*
+
+*The one state the log cannot distinguish is a run whose process was **killed outright**: every
+graceful exit closes its run, so silence is all that is left to go on. Hence a **staleness
+window** — `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`, one hour by default, a settings value
+and not a constant. An open run whose own last event (any kind, so a streaming turn keeps
+resetting it) is older than that stops holding its session, comes back in
+`SessionClaim.overridden`, and is closed by the claiming turn as `run.failed` /`cancelled_hard`
+under **its own** `origin` and next `seq` — the store never stamps an event, since the Runtime is
+the only assigner of `seq`. The takeover is logged at WARNING, and it can always be premature:
+that trade is chosen on purpose, because a permanently wedged session is the worse failure. Two
+consequences worth stating for whoever operates this: a session a killed process left claimed is
+refused until the window elapses, and a run that has been waiting on a human for longer than the
+window is closed as failed the next time somebody starts a turn on that session — an installation
+with slower approvals raises the setting. An explicit operator "abandon run" route can follow if
+it is ever asked for.*
+
+*Consequence for tests and for anything that shells a second turn into a live session: two
+concurrent runs in one log are no longer reachable through the Runtime, only through a stale
+takeover. The engine-side lock that protects a session's execution state from two turns at once
+(`adapters/engines/openai_agents/reconcile.py`) is therefore no longer the first line of defence,
+but it is still the last one, and keeps its own test.)*
+
 ```python
 # core/ports/engine.py — the lifecycle/event boundary
 class EnginePort(ABC):

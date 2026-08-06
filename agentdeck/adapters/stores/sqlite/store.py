@@ -15,12 +15,13 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from agentdeck.core.events import parse_event
-from agentdeck.core.ports import EventStorePort, RunSummary
-from agentdeck.core.status import LIFECYCLE_KINDS, can_resume, status_of
+from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
+from agentdeck.core.status import LIFECYCLE_KINDS, TERMINAL_STATUSES, can_resume, status_of
 from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+    from datetime import datetime
     from pathlib import Path
 
     from agentdeck.core.context import RunContext
@@ -136,6 +137,20 @@ class SqliteEventStore(EventStorePort):
     async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
         return await self._run(partial(self._select_last_seq, ctx.tenant, log_key, run_id), "last_seq")
 
+    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
+        """The port's session claim as one ``BEGIN IMMEDIATE`` transaction, for the same reason
+        ``claim_resume`` is one: the file's write lock, not this process, is what two servers
+        agree through, so only one of them can open a run on an idle session.
+
+        A refused claim is still a clean answer — the loser waited out the winner's transaction
+        and then read the run the winner opened. Only a lock held past the busy timeout raises,
+        because that is a store nobody can write to rather than a session somebody else took.
+        """
+        if event.tenant != ctx.tenant:
+            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
+        row = (ctx.tenant, log_key, event.run_id, event.seq, event.model_dump_json())
+        return await self._run(partial(self._claim_start, row, stale_before), "claim_start")
+
     async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
         """The port's conditional append as one ``BEGIN IMMEDIATE`` transaction, so the
         winner is decided by SQLite's own write lock — the file, not this process, is what
@@ -166,6 +181,44 @@ class SqliteEventStore(EventStorePort):
     def _insert(self, rows: list[tuple[str, str, str, int, str]]) -> None:
         self._conn.executemany(_INSERT, rows)
         self._conn.commit()
+
+    def _claim_start(self, row: tuple[str, str, str, int, str], stale_before: datetime) -> SessionClaim:
+        tenant, log_key, _run_id, _seq, _data = row
+        # Same lock-first reasoning as _claim: BEGIN IMMEDIATE takes the write lock before the
+        # reads, so a peer cannot open a run in the gap between finding this session idle and
+        # saying so. A deferred transaction would only lock at the insert, which is too late.
+        self._conn.execute("BEGIN IMMEDIATE")
+        with self._conn:
+            overridden: list[str] = []
+            for run_id, last in self._select_open_runs(tenant, log_key):
+                if last.ts > stale_before:
+                    return SessionClaim(held_by=run_id)
+                overridden.append(run_id)
+            self._conn.execute(_INSERT, row)
+        return SessionClaim(overridden=tuple(overridden))
+
+    def _select_open_runs(self, tenant: str, log_key: str) -> list[tuple[str, Event]]:
+        """Every run in this log that has recorded a transition but not a terminal one, paired
+        with its own last event — whatever kind — because that event is the run's last sign of
+        life, and silence is all that separates an abandoned run from a working one.
+        """
+        cursor = self._conn.execute(
+            "SELECT run_id, data, MAX(id) FROM events "
+            f"WHERE tenant = ? AND log_key = ? AND json_extract(data, '$.kind') IN ({_KIND_SLOTS}) "
+            "GROUP BY run_id",
+            (tenant, log_key, *_SORTED_LIFECYCLE_KINDS),
+        )
+        open_runs = [
+            row[0] for row in cursor.fetchall() if status_of([parse_event(json.loads(row[1]))]) not in TERMINAL_STATUSES
+        ]
+        return [(run_id, self._select_last_event(tenant, log_key, run_id)) for run_id in open_runs]
+
+    def _select_last_event(self, tenant: str, log_key: str, run_id: str) -> Event:
+        cursor = self._conn.execute(
+            "SELECT data, MAX(id) FROM events WHERE tenant = ? AND log_key = ? AND run_id = ?",
+            (tenant, log_key, run_id),
+        )
+        return parse_event(json.loads(cursor.fetchone()[0]))
 
     def _claim(self, row: tuple[str, str, str, int, str], run_id: str) -> bool:
         tenant, log_key, _run_id, seq, _data = row

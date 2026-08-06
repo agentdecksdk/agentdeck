@@ -29,11 +29,13 @@ from agentdeck.core.events import (
 )
 from agentdeck.core.ports import Gate
 from agentdeck.core.status import RunStatus
-from agentdeck.errors import NotFoundError
+from agentdeck.errors import NotFoundError, SessionBusyError
 from agentdeck.runtime.dispatch import SinkDispatch
+from agentdeck.runtime.settings import get_settings
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Iterator, Mapping, Sequence
+    from datetime import timedelta
     from typing import Any
 
     from agentdeck.core.content import Input
@@ -67,7 +69,10 @@ class Runtime:
     """Runs invocables and emits one canonical event stream, whatever engine did the work.
 
     Sinks are optional and buffered — each gets its own bounded queue, so the run is never
-    pinned to one; ``clock`` is injected so tests need no wall clock.
+    pinned to one; ``clock`` is injected so tests need no wall clock. ``stale_run_after`` is
+    how long a run may go silent before it stops holding its session, defaulted from
+    ``AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`` and passed explicitly by tests that would
+    otherwise have to wait it out.
     """
 
     def __init__(
@@ -78,6 +83,7 @@ class Runtime:
         sinks: Sequence[EventSinkPort] = (),
         clock: Callable[[], datetime] = _now,
         control: ControlPort | None = None,
+        stale_run_after: timedelta | None = None,
     ) -> None:
         self._engines = {engine.engine: engine for engine in engines}
         self._store = store
@@ -85,9 +91,14 @@ class Runtime:
         self._sinks = tuple(SinkDispatch(sink) for sink in sinks)
         self._clock = clock
         self._control = control
+        self._stale_run_after = get_settings().runtime.stale_run_after if stale_run_after is None else stale_run_after
 
     async def run(self, name: str, input: Input, ctx: RunContext) -> AsyncGenerator[Event, None]:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
+
+        One turn per session at a time: opening the run is a conditional append that fails if
+        the session already has one in flight, so a second concurrent turn raises
+        ``SessionBusyError`` instead of running against a conversation that is still changing.
 
         The engine's exception, if any, reaches the caller — but ``run.failed`` is recorded
         first, so the log tells the whole story even when nobody was listening. Every exit
@@ -113,9 +124,10 @@ class Runtime:
             ),
         )
         last = opening.kind
+        claimed = await self._claim_session(opening, spec, ctx, next(seq))
 
         try:
-            yield await self._record(opening, spec, ctx, next(seq))
+            yield claimed
             async with aclosing(engine.start(spec, input, history, ctx)) as stream:
                 async for payload in stream:
                     yield await self._record(payload, spec, ctx, next(seq))
@@ -189,6 +201,71 @@ class Runtime:
             yield await self._record(
                 _engine_failed(f"engine {engine.engine!r} ended after {last!r}"), spec, ctx, next(seq)
             )
+
+    async def _claim_session(self, opening: RunStarted, spec: InvocableSpec, ctx: RunContext, seq: int) -> Event:
+        """Open this run, or refuse the turn: the store decides, in one conditional append.
+
+        A session's engine state is one conversation, and only its engine can lock it — so the
+        platform admits one turn at a time and the write that opens a run is the write that
+        tests whether the session is free. A check followed by an append would let two servers
+        both find it idle; here only one ``run.started`` can land, so the loser is told, not
+        interleaved with the winner. Refusing raises rather than yielding nothing, because a
+        caller cannot tell an empty stream apart from a turn that produced no events.
+
+        An open run nobody is coming back for would otherwise hold its session for good: every
+        graceful exit closes its run, so this is the process that was killed outright. Such a
+        run stops holding the session once it has been silent for ``stale_run_after``, and this
+        turn closes it — loudly, and accepting that a takeover can be premature, because a
+        session wedged forever is the worse failure.
+        """
+        event = self._stamp(opening, spec, ctx, seq)
+        claim = await self._store.claim_start(ctx.log_key, event, ctx, self._clock() - self._stale_run_after)
+        if claim.held_by is not None:
+            raise SessionBusyError(
+                f"session {ctx.log_key!r} already has run {claim.held_by!r} in flight, "
+                f"so run {ctx.run_id!r} cannot start on it"
+            )
+        for run_id in claim.overridden:
+            await self._close_abandoned(run_id, ctx)
+        await self._fan_out(event)
+        return event
+
+    async def _close_abandoned(self, run_id: str, ctx: RunContext) -> None:
+        """Close a run this turn took the session from. Nobody else can: its process is gone,
+        and an open run in the log is indistinguishable from one still in flight.
+
+        Stamped with that run's own ``origin`` and next ``seq``, never this turn's — the event
+        belongs to its story, and a reader must not find this invocable blamed for it.
+        """
+        seq = await self._store.last_seq(ctx.log_key, run_id, ctx) + 1
+        # From its last seq, so this reads one event rather than a whole streamed run — all it
+        # is for is the envelope fields the closing event has to inherit.
+        tail = await self._store.read_run(ctx.log_key, run_id, ctx, from_seq=seq - 1)
+        if not tail:
+            return
+        logger.warning(
+            "run %s went silent holding session %s; run %s took it over and closed it as failed",
+            run_id,
+            ctx.log_key,
+            ctx.run_id,
+        )
+        payload = RunFailed(
+            error_code="cancelled_hard",
+            message=f"abandoned: the session was taken over by run {ctx.run_id}",
+            retryable=False,
+        )
+        event = Event(
+            kind=payload.kind,
+            seq=seq,
+            run_id=run_id,
+            session_id=tail[-1].session_id,
+            tenant=ctx.tenant,
+            origin=tail[-1].origin,
+            ts=self._clock(),
+            payload=payload,
+        )
+        await self._store.append(ctx.log_key, [event], ctx)
+        await self._fan_out(event)
 
     async def _claim_resume(self, spec: InvocableSpec, ctx: RunContext) -> tuple[Event, Iterator[int]] | None:
         """Take the run's ``WAITING_HUMAN`` -> ``RUNNING`` transition, or ``None`` if someone

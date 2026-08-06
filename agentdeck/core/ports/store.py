@@ -14,6 +14,7 @@ from agentdeck.core.status import RunStatus, status_of
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import datetime
 
     from agentdeck.core.context import RunContext
     from agentdeck.core.events import Event
@@ -27,6 +28,20 @@ class RunSummary:
     log_key: str
     run_id: str
     status: RunStatus
+
+
+@dataclass(frozen=True, slots=True)
+class SessionClaim:
+    """What one :meth:`EventStorePort.claim_start` decided.
+
+    ``held_by`` names the open run that refused the claim, and is ``None`` when the claim won.
+    ``overridden`` is every run a winning claim stepped over because nobody was coming back
+    for it: the store wrote nothing for those, since closing a run means stamping an event and
+    only the Runtime does that.
+    """
+
+    held_by: str | None = None
+    overridden: tuple[str, ...] = ()
 
 
 class EventStorePort(ABC):
@@ -70,6 +85,35 @@ class EventStorePort(ABC):
 
         What the Runtime recovers its per-run counter from on resume, instead of reading
         every event to fold the same max by hand.
+        """
+
+    @abstractmethod
+    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
+        """Append ``event`` — a run's opening ``run.started`` — if and only if, at that moment,
+        this log has no open run, in one indivisible step. One session runs one turn at a time.
+
+        An **open run** is one that recorded a lifecycle transition and has not recorded a
+        terminal one. ``WAITING_HUMAN`` counts: an interrupted run still owns its engine's
+        thread, and a second run against that thread would write over the checkpoints the
+        first one resumes from. A run with no transition at all is ``PENDING``, which no store
+        can tell from a run it never saw, so it holds nothing — the same line
+        :meth:`list_runs` draws.
+
+        Losing is not an error and never raises: two turns arriving together is a
+        double-clicked send button, not a broken store, so the refusal is data —
+        ``SessionClaim.held_by`` names the run that has the session and nothing is written. A
+        store nobody can reach still raises, for the same reason it does in
+        :meth:`claim_resume`: it cannot know whether anybody holds anything.
+
+        Making the condition and the write one operation is what carries this across
+        processes: two servers sharing a store would both read an idle session and both open a
+        run on it, whereas only one ``run.started`` can land here.
+
+        ``stale_before`` is the cutoff for an abandoned claim. An open run whose own last event
+        is at or before it stops holding the session and comes back in
+        ``SessionClaim.overridden`` for the caller to close — without it a process killed
+        mid-run would wedge its session for good. A store never reads a clock: the caller
+        stamps ``ts``, so the caller is the only one whose idea of "now" can be compared to it.
         """
 
     @abstractmethod
@@ -117,4 +161,4 @@ class EventStorePort(ABC):
         return status_of(await self.read_run(log_key, run_id, ctx))
 
 
-__all__ = ["EventStorePort", "RunSummary"]
+__all__ = ["EventStorePort", "RunSummary", "SessionClaim"]

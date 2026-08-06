@@ -5,9 +5,10 @@ sink fan-out, and where a sessionless run's events land.
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import aclosing
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -18,9 +19,12 @@ from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import TextBlock
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
+    Event,
     RunCompleted,
+    RunContextSnapshot,
     RunFailed,
     RunInterrupted,
+    RunStarted,
     TextDelta,
     Usage,
     UsageReported,
@@ -28,14 +32,15 @@ from agentdeck.core.events import (
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports import EventSinkPort
-from agentdeck.errors import ConfigError, NotFoundError
+from agentdeck.errors import ConfigError, NotFoundError, SessionBusyError
 from agentdeck.runtime.service import Runtime
+from agentdeck.runtime.settings import reset_settings_cache
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Sequence
 
     from agentdeck.core.content import Input
-    from agentdeck.core.events import Event, KnownPayload
+    from agentdeck.core.events import KnownPayload
 
 TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 INPUT = [TextBlock(text="hi")]
@@ -43,6 +48,9 @@ DONE = RunCompleted(output=[TextBlock(text="hi back")], usage=Usage(input_tokens
 
 
 CTX = RunContext(tenant="acme", principal="user:1", run_id="r-1", trace_id="tr-1", session_id="s-1")
+
+# A wedge detector, not a budget: everything here is in-process and takes microseconds.
+WEDGE_TIMEOUT = 5.0
 
 
 def _runtime(*, sinks: list[EventSinkPort] | None = None) -> tuple[Runtime, MemoryEventStore]:
@@ -382,3 +390,165 @@ async def test_an_invocable_with_no_script_is_a_config_error() -> None:
     with pytest.raises(ConfigError, match="no stub script"):
         async for _ in runtime.run("Empty", INPUT, CTX):
             pass
+
+
+class _Blocking(StubEngine):
+    """Holds a run open at its first event until released, so a second turn really does arrive
+    while the first one is in flight rather than after it."""
+
+    def __init__(self) -> None:
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def start(
+        self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
+    ) -> AsyncGenerator[KnownPayload, None]:
+        self.entered.set()
+        await self.release.wait()
+        async for payload in super().start(spec, input, history, ctx):
+            yield payload
+
+
+def _abandoned(run_id: str, ts: datetime, origin: str = "Ghost") -> Event:
+    """A run left open by a process that died: nothing else produces one, because a Runtime that
+    exits at all closes its own run in the log."""
+    context = RunContextSnapshot(principal=CTX.principal, trace_id=CTX.trace_id)
+    opening = RunStarted(invocable=origin, kind_of_invocable="agent", input=INPUT, context=context)
+    return Event(
+        kind=opening.kind,
+        seq=0,
+        run_id=run_id,
+        session_id=CTX.session_id,
+        tenant=CTX.tenant,
+        origin=origin,
+        ts=ts,
+        payload=opening,
+    )
+
+
+async def test_a_turn_arriving_while_another_is_in_flight_is_refused() -> None:
+    """One session, one turn. The refusal names the session and the run holding it, and the turn
+    that already had it runs on untouched."""
+    engine = _Blocking()
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = MemoryEventStore()
+    runtime = Runtime([engine], store, {spec.name: spec}, clock=lambda: TS)
+
+    async def _play(run_id: str) -> list[Event]:
+        return [event async for event in runtime.run("Greeter", INPUT, replace(CTX, run_id=run_id))]
+
+    first = asyncio.create_task(_play("r-1"))
+    try:
+        # Bounded, because the failure mode of a claim that does not refuse is this test waiting
+        # on the engine it blocked: a wedge has to fail rather than hang the suite.
+        async with asyncio.timeout(WEDGE_TIMEOUT):
+            await engine.entered.wait()
+            with pytest.raises(SessionBusyError) as refused:
+                await _play("r-2")
+    finally:
+        engine.release.set()
+
+    assert "'s-1'" in str(refused.value)
+    assert "'r-1'" in str(refused.value)
+    assert [event.kind for event in await first][-1] == "run.completed"
+    assert {event.run_id for event in await store.read(CTX.log_key, CTX)} == {"r-1"}
+
+
+async def test_a_turn_on_a_session_whose_run_is_waiting_on_a_human_is_refused() -> None:
+    """A suspended run has not finished: it still owns the engine thread it will resume on, so a
+    new turn there would run over the state that resume needs."""
+    spec = stub_spec("Approver", RunInterrupted(interrupt_id="i1", reason="approval", payload={}))
+    store = MemoryEventStore()
+    runtime = Runtime([StubEngine()], store, {spec.name: spec}, clock=lambda: TS)
+
+    assert [event async for event in runtime.run("Approver", INPUT, CTX)][-1].kind == "run.interrupted"
+    with pytest.raises(SessionBusyError, match="r-1"):
+        async for _ in runtime.run("Approver", INPUT, replace(CTX, run_id="r-2")):
+            pass
+    assert [event.kind for event in await store.read(CTX.log_key, CTX)] == ["run.started", "run.interrupted"]
+
+
+async def test_a_turn_after_the_previous_one_finished_is_not_refused() -> None:
+    """The ordinary case the claim must leave alone: a conversation is a sequence of turns."""
+    runtime, store = _runtime()
+    first = [event async for event in runtime.run("Greeter", INPUT, CTX)]
+    second = [event async for event in runtime.run("Greeter", INPUT, replace(CTX, run_id="r-2"))]
+
+    assert first[-1].kind == "run.completed"
+    assert second[-1].kind == "run.completed"
+    assert await store.read(CTX.log_key, CTX) == first + second
+
+
+async def test_two_runs_without_a_session_never_contend() -> None:
+    """A sessionless run is its own log, so there is nobody in it to be busy: two at once share
+    no conversation and must both play."""
+    engine = _Blocking()
+    engine.release.set()
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    runtime = Runtime([engine], MemoryEventStore(), {spec.name: spec}, clock=lambda: TS)
+
+    async def _play(run_id: str) -> list[Event]:
+        ctx = replace(CTX, run_id=run_id, session_id=None)
+        return [event async for event in runtime.run("Greeter", INPUT, ctx)]
+
+    both = await asyncio.gather(_play("r-1"), _play("r-2"))
+    assert [events[-1].kind for events in both] == ["run.completed", "run.completed"]
+
+
+async def test_a_turn_takes_over_a_session_whose_run_went_silent_and_closes_it_as_failed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The hard-kill case: the run holding this session stopped writing long enough ago that
+    nothing is coming back for it. The new turn proceeds, the abandoned run is closed under its
+    own name and ``seq``, and the takeover is on the record — it may always be premature."""
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = MemoryEventStore()
+    await store.append(CTX.log_key, [_abandoned("r-0", TS - timedelta(minutes=10))], CTX)
+    runtime = Runtime([StubEngine()], store, {spec.name: spec}, clock=lambda: TS, stale_run_after=timedelta(minutes=5))
+
+    with caplog.at_level(logging.WARNING):
+        events = [event async for event in runtime.run("Greeter", INPUT, CTX)]
+
+    assert events[-1].kind == "run.completed"
+    closed = await store.read_run(CTX.log_key, "r-0", CTX)
+    assert [event.kind for event in closed] == ["run.started", "run.failed"]
+    assert closed[-1].seq == 1
+    assert closed[-1].origin == "Ghost", "the closing event belongs to the abandoned run, not the turn that closed it"
+    assert closed[-1].payload.error_code == "cancelled_hard"
+    assert "r-1" in closed[-1].payload.message
+    assert "took it over and closed it as failed" in caplog.text
+
+
+async def test_a_turn_does_not_take_over_a_session_whose_run_is_merely_quiet() -> None:
+    """The other side of the window, and the reason it is generous: a run silent for less than it
+    keeps its session, so a double-clicked send cannot steal a turn that is still working."""
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    store = MemoryEventStore()
+    await store.append(CTX.log_key, [_abandoned("r-0", TS - timedelta(minutes=1))], CTX)
+    runtime = Runtime([StubEngine()], store, {spec.name: spec}, clock=lambda: TS, stale_run_after=timedelta(minutes=5))
+
+    with pytest.raises(SessionBusyError, match="r-0"):
+        async for _ in runtime.run("Greeter", INPUT, CTX):
+            pass
+    assert [event.kind for event in await store.read(CTX.log_key, CTX)] == ["run.started"]
+
+
+async def test_the_staleness_window_comes_from_settings_when_it_is_not_passed_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default lives in settings, not in the Runtime: an operator whose turns are slower — or
+    whose approvals are — changes it without touching a line of code."""
+    monkeypatch.setenv("AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS", "0")
+    reset_settings_cache()
+    try:
+        spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+        store = MemoryEventStore()
+        await store.append(CTX.log_key, [_abandoned("r-0", TS)], CTX)
+        runtime = Runtime([StubEngine()], store, {spec.name: spec}, clock=lambda: TS)
+
+        events = [event async for event in runtime.run("Greeter", INPUT, CTX)]
+    finally:
+        reset_settings_cache()
+
+    assert events[-1].kind == "run.completed"
+    assert [event.kind for event in await store.read_run(CTX.log_key, "r-0", CTX)] == ["run.started", "run.failed"]

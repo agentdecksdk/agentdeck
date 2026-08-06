@@ -42,8 +42,10 @@ from agentdeck.runtime.service import Runtime
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import datetime
 
     from agentdeck.core.events import Event
+    from agentdeck.core.ports import SessionClaim
 
 TENANT = "demo"
 PRINCIPAL = "user:demo"
@@ -179,6 +181,17 @@ class StallingStore(SqliteEventStore):
 
     async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
         await super().append(log_key, events, ctx)
+        await self._stall_if_written(events)
+
+    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
+        # A turn's opening event is the session claim's own write, never an append, so a
+        # fixture watching for one has to watch both doors.
+        claim = await super().claim_start(log_key, event, ctx, stale_before)
+        if claim.held_by is None:
+            await self._stall_if_written([event])
+        return claim
+
+    async def _stall_if_written(self, events: Sequence[Event]) -> None:
         if any(event.run_id == STALL_RUN and event.kind == STALL_KIND for event in events):
             self._marker.touch()
             while True:
