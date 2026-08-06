@@ -195,6 +195,9 @@ class PostgresEventStore(EventStorePort):
         foreign = {event.tenant for event in events} - {ctx.tenant}
         if foreign:
             raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
+        if not events:
+            # No lock and no transaction for a batch with nothing in it, as in the Redis store.
+            return
         rows = [_row(ctx.tenant, log_key, event) for event in events]
 
         async def _work(conn: Connection) -> None:

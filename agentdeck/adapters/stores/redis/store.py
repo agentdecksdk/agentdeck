@@ -126,17 +126,31 @@ class RedisEventStore(EventStorePort):
                 pipe.sadd(self._log_runs_key(tenant, log_key), event.run_id)
                 pipe.sadd(self._tenant_runs_key(tenant), _member(log_key, event.run_id))
 
-    async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
-        """A plain append is a conditional one too: **one ``seq`` per run, ever**.
+    async def _refuse_a_taken_seq(self, pipe: Pipeline, tenant: str, log_key: str, events: Sequence[Event]) -> None:
+        """One ``seq`` per run, ever — the durable stores' unique index, as a watched check.
 
-        The durable stores get that from a unique index; here it is the same
-        ``WATCH``/``MULTI``/``EXEC`` the claims use, watching each run's ``seq`` index so a
-        peer that takes a ``seq`` between this check and this write aborts it rather than
-        doubling it. Two writers only ever share a run when one was presumed dead and came
-        back, and the second event at one ``seq`` would make every consumer's refetch of it a
-        coin toss — the corruption a gap check cannot see, since ``check_contiguous`` looks
-        for holes and this leaves none.
+        Watches each run's ``seq`` index as well as reading it, so a peer that spends one of
+        these between the check and the write aborts the ``EXEC`` instead of doubling it. Every
+        write goes through here, the conditional ones included: a store that guarded only the
+        plain path would let a claim put two different events at one ``seq``, and nothing in the
+        log would reveal it — ``check_contiguous`` looks for holes and a duplicate leaves none,
+        and ``last_seq`` reads the same either way.
+
+        Raised before anything is queued, so a refused batch leaves no half of itself behind.
+        A ``StoreError`` and not a claim's refusal-as-data: a spent ``seq`` is corruption, not a
+        race somebody lost.
         """
+        await pipe.watch(*{self._seq_key(tenant, log_key, event.run_id) for event in events})
+        taken: set[tuple[str, int]] = set()
+        for event in events:
+            spent = await pipe.zscore(self._seq_key(tenant, log_key, event.run_id), str(event.seq))
+            if spent is not None or (event.run_id, event.seq) in taken:
+                raise StoreError(f"seq {event.seq} of run {event.run_id!r} is already in log {log_key!r}")
+            taken.add((event.run_id, event.seq))
+
+    async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
+        """A plain append is a conditional one too: one ``seq`` per run, over the same
+        ``WATCH``/``MULTI``/``EXEC`` the claims use (see ``_refuse_a_taken_seq``)."""
         foreign = {event.tenant for event in events} - {ctx.tenant}
         if foreign:
             raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
@@ -144,14 +158,7 @@ class RedisEventStore(EventStorePort):
             return
 
         async def _attempt(pipe: Pipeline) -> None:
-            await pipe.watch(*{self._seq_key(ctx.tenant, log_key, event.run_id) for event in events})
-            taken: set[tuple[str, int]] = set()
-            for event in events:
-                spent = await pipe.zscore(self._seq_key(ctx.tenant, log_key, event.run_id), str(event.seq))
-                if spent is not None or (event.run_id, event.seq) in taken:
-                    # Before anything is queued, so a refused batch leaves no half of itself.
-                    raise StoreError(f"seq {event.seq} of run {event.run_id!r} is already in log {log_key!r}")
-                taken.add((event.run_id, event.seq))
+            await self._refuse_a_taken_seq(pipe, ctx.tenant, log_key, events)
             pipe.multi()
             self._queue_writes(pipe, ctx.tenant, log_key, events)
             await pipe.execute()
@@ -196,8 +203,8 @@ class RedisEventStore(EventStorePort):
         decision aborts the write rather than doubling it.
 
         A refusal is data, as the port requires — the losing caller re-reads and names the
-        run that actually holds the session. Only an unreachable or hopelessly contended
-        store raises.
+        run that actually holds the session. Only an unreachable store, a hopelessly contended
+        one, or a ``seq`` this run has already spent raises.
         """
         if event.tenant != ctx.tenant:
             raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
@@ -225,6 +232,7 @@ class RedisEventStore(EventStorePort):
                 if last is not None and parse_event(json.loads(last)).ts > stale_before:
                     return SessionClaim(held_by=run_id)
                 overridden.append(run_id)
+            await self._refuse_a_taken_seq(pipe, ctx.tenant, log_key, [event])
             pipe.multi()
             self._queue_writes(pipe, ctx.tenant, log_key, [event])
             await pipe.execute()

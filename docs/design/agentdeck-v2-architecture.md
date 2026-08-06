@@ -371,13 +371,18 @@ wedged session is the worse failure. Failing to *close* the overridden run is no
 the new turn over either — the claim is already committed, so the close is dropped with a log line
 and the next turn, which meets the same stale run, tries again.*
 
-*Three consequences worth stating for whoever operates this. A session a killed process left
+*Four consequences worth stating for whoever operates this. A session a killed process left
 claimed is refused until the window elapses. A run waiting on a human for longer than the window
 is closed as failed the next time somebody starts a turn on that session, so an installation with
-slower approvals raises the setting. And the window is **not skew-free**: each worker compares its
+slower approvals raises the setting. The window is **not skew-free**: each worker compares its
 own `clock()` against a `ts` a peer stamped, so across machines the effective window is the
 configured one minus the worst clock skew, and a worker running more than a window fast would take
-over live sessions on sight. Keep the fleet on NTP and treat skew as eating into the budget. An
+over live sessions on sight. Keep the fleet on NTP and treat skew as eating into the budget. And
+**the window has a floor the code cannot enforce**: shortened below the longest quiet stretch of a
+healthy turn, an open run looks abandoned while it is still working, so the next turn takes the
+session from a live one and both run on the same conversation — one turn per session stops holding
+altogether, rather than merely cleaning up early. How long a turn may be quiet is a property of the
+deployment, so only positivity is validated; the rest is the setting's docstring and this note. An
 explicit operator "abandon run" route can follow if it is ever asked for.*
 
 *Because a takeover can be premature, the run stepped over may still be alive and write again at
@@ -426,10 +431,14 @@ mechanism that backend actually has, and neither reimplements the status project
   runs in Python so `core/status.py` stays the one place a status is derived, and `EXEC` refuses
   the write if any key the decision read moved under it. A losing round re-reads and answers from
   what the peer actually wrote. Bounded rounds, then `StoreError` — an unbounded optimistic retry
-  is a hang. **Its plain `append` goes through the same machinery**, because one `seq` per run is
-  the other thing a store has to enforce and Redis has no unique index to enforce it with: the
-  run's `seq` index is watched and each `(run_id, seq)` checked, so a peer that spends a `seq`
-  under this write aborts it. The log carries its own indexes (per-log and per-run lists, that
+  is a hang. **Every write goes through the same machinery, `append` included**, because one
+  `seq` per run is the other thing a store has to enforce and Redis has no unique index to
+  enforce it with: the run's `seq` index is watched and each `(run_id, seq)` checked, so a peer
+  that spends a `seq` under this write aborts it. That check belongs to the *conditional* writes
+  too — SQLite and Postgres get it on every path from one blanket UNIQUE index, so a Redis store
+  that guarded only `append` would diverge on the claim paths alone, and a duplicate `seq` is
+  invisible from the log either way. A spent `seq` is a `StoreError` and not a claim's
+  refusal-as-data: it is corruption, not a race somebody lost. The log carries its own indexes (per-log and per-run lists, that
   `seq` sorted set, the run's latest lifecycle **event**, and the run sets each log and tenant
   own) written in one `MULTI` with the event, so no reader sees a log entry missing from its run's
   index; what is stored is always an event, never a status. `MULTI` is atomic against other
@@ -479,6 +488,8 @@ class EventStorePort(ABC):
 # amendment: fed from a queue that drops rather than wait, so a sink is a lossy tap)
 class EventSinkPort(ABC):
     async def emit(self, event: Event) -> None: ...
+    async def close(self) -> None: ...  # optional, default no-op (#99): a buffering sink's
+                                        # one bounded chance to flush at shutdown
 
 # core/ports/control.py
 class Signal(StrEnum): PAUSE = "pause"; RESUME = "resume"; CANCEL = "cancel"
@@ -721,10 +732,16 @@ same trace. A suspended run closes its root observation and its resume opens a s
 under that same trace id, because a span held open until a human answers is a trace nobody
 can see while it waits. And the run's token total from `run.completed` becomes a
 `run.usage` generation, since Langfuse accounts usage on generations only. Buffering and
-delivery are the Langfuse SDK's batching processor, which is also what flushes at exit —
-`SinkDispatch.close()` has no hook back into a sink, so anything still buffered when a
-process is killed outright is lost, and the event log stays the complete record. Like
-`tools/mcp/`, the adapter reads `runtime.settings` for its own config group.)*
+delivery are the Langfuse SDK's batching processor. Like `tools/mcp/`, the adapter reads
+`runtime.settings` for its own config group.)*
+*(Amended 2026-08-06, #99 — that buffer no longer depends on the SDK's exit hook:
+`EventSinkPort` grew an optional `close()`, called once per sink by `SinkDispatch.close()`
+after the backlog is handed over and the consumer reaped, and the Langfuse sink uses it to
+finish the traces still open — an unfinished observation is never shipped — and flush the SDK
+itself. Bounded by `CLOSE_TIMEOUT` and non-fatal, like every other wait on that path, so the
+worst a sink's flush can cost a shutdown is one more deadline. A disabled sink is closed too:
+the breaker's verdict is about taking events, not about writing out the ones already taken.
+The event log stays the complete record regardless.)*
 **`protocols/`** hosts the
 per-protocol serializers: `sse` (extracted from `serve.py`), `acp` (§11), later `ag-ui`
 and `a2a`.

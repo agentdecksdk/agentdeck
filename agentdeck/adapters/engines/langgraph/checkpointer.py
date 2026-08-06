@@ -34,14 +34,6 @@ _DURABILITY_HINT = 'install the "durability" extra: pip install "agentdeck[durab
 
 _T = TypeVar("_T")
 
-# One saver per (backend, url) per loop, weakly keyed. Note what that does *not* buy: a saver
-# ends up referencing the loop it bound to (through its own lock), so the entry keeps its own
-# key alive and nothing is collected until this mapping is. A process that runs many loops
-# therefore accumulates one connection and one aiosqlite thread per loop — which is what the
-# process-wide cache traded for a saver that breaks on the second loop, and the wrong half of
-# the trade. Zero effect on a server (one loop for its lifetime). ponytail: to bound it, the
-# savers would have to be closed at loop shutdown, which means owning their lifecycle —
-# worth doing when something long-lived actually runs loops in a row.
 _savers: MutableMapping[AbstractEventLoop, dict[tuple[str, str], BaseCheckpointSaver]] = WeakKeyDictionary()
 
 
@@ -58,6 +50,14 @@ def _per_loop(backend: str, url: str, build: Callable[[], BaseCheckpointSaver]) 
     nothing is cached: there is no loop to key on, and the saver will bind to whichever one
     first uses it — so caching it is precisely how the same breakage would come back. That
     costs one connection per resolution on a path that resolves once.
+
+    What the weak keying does *not* buy: a saver ends up referencing the loop it bound to
+    (through that same lock), so each entry keeps its own key alive and nothing is collected
+    until ``_savers`` itself is. A process that runs many loops in a row therefore accumulates
+    one connection and one aiosqlite thread per loop — the wrong half of a trade whose right
+    half is a saver that works on the second loop. Zero effect on a server. ponytail: bounding
+    it means closing the savers at loop shutdown, i.e. owning their lifecycle — worth doing
+    when something long-lived actually runs loops in a row.
     """
     try:
         loop = asyncio.get_running_loop()

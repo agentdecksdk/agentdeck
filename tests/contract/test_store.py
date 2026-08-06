@@ -326,6 +326,25 @@ async def test_one_seq_per_run_does_not_stop_two_runs_sharing_a_seq_in_one_log(
     assert [event.seq for event in await event_store.read("s-1", ctx)] == [0, 0]
 
 
+async def test_one_seq_per_run_holds_on_the_claim_paths_too(event_store: EventStorePort) -> None:
+    """The same guarantee, asked of ``claim_start`` rather than ``append``.
+
+    A conditional append is still an append, and its refusal of a *busy session* is a different
+    answer from its refusal of a *spent seq*: the first is data (``held_by``), the second is a
+    store error, because a duplicate is corruption rather than a race somebody lost. A store
+    that enforced one seq per run only on the plain path would let this one through, and the log
+    would hold two different events at ``(r-1, 0)`` with nothing to reveal it — a gap check sees
+    no hole, and ``last_seq`` reads the same either way.
+    """
+    ctx = _ctx()
+    closing = RunCompleted(output=[], usage={"input_tokens": 1, "output_tokens": 1})
+    await event_store.append("s-1", [_opening(run_id="r-1"), _event(1, closing, run_id="r-1")], ctx)
+
+    with pytest.raises(StoreError):
+        await event_store.claim_start("s-1", _opening(run_id="r-1"), ctx, BEFORE_ANY_EVENT)
+    assert [(event.run_id, event.seq) for event in await event_store.read("s-1", ctx)] == [("r-1", 0), ("r-1", 1)]
+
+
 async def _interrupt(event_store: EventStorePort, ctx: RunContext, run_id: str = "r-1") -> None:
     """Leave one run parked in ``WAITING_HUMAN`` — the only status a resume may claim."""
     interrupted = RunInterrupted(interrupt_id="i-1", reason="human", payload={"q": "ok?"}, thread_id="t-1")
