@@ -11,26 +11,57 @@ imports that path. ``memory`` ships with core ``langgraph`` and needs nothing ex
 (``langgraph-checkpoint-sqlite`` / ``langgraph-checkpoint-postgres``) and are imported
 lazily, only when actually requested, with a clear install hint if the extra is missing.
 
-Connection lifecycle is intentionally minimal for now: one saver per process, cached by
-backend+url so repeated calls against the same file reuse the same connection instead of
-opening a new one per compile.
+Connection lifecycle: one saver per backend+url **per event loop**, so repeated calls
+against the same file reuse the same connection instead of opening one per compile, without
+handing a second loop a saver that is bound to the first (see ``_per_loop``).
 """
 
 from __future__ import annotations
 
 import asyncio
 import threading
-from functools import cache
+from functools import cache, partial
 from typing import TYPE_CHECKING, Any, TypeVar
+from weakref import WeakKeyDictionary
 
 if TYPE_CHECKING:
-    from collections.abc import Coroutine
+    from asyncio import AbstractEventLoop
+    from collections.abc import Callable, Coroutine, MutableMapping
 
     from langgraph.checkpoint.base import BaseCheckpointSaver
 
 _DURABILITY_HINT = 'install the "durability" extra: pip install "agentdeck[durability]"'
 
 _T = TypeVar("_T")
+
+# One saver per (backend, url) per loop. Weakly keyed so a finished loop's entry — and the
+# saver it holds — is collectable rather than pinned here for the process lifetime.
+_savers: MutableMapping[AbstractEventLoop, dict[tuple[str, str], BaseCheckpointSaver]] = WeakKeyDictionary()
+
+
+def _per_loop(backend: str, url: str, build: Callable[[], BaseCheckpointSaver]) -> BaseCheckpointSaver:
+    """Cache ``build``'s saver against the running event loop rather than the process.
+
+    The async sqlite and postgres savers hold asyncio primitives — a ``Lock``, and under it a
+    connection — that bind to the first loop to *contend* for them. A process-wide cache
+    therefore hands a second loop a saver the first one owns, and the second loop's first
+    concurrent access dies with "bound to a different event loop": fine for a server, which
+    is one loop for its lifetime, and broken for anything that runs more than one.
+
+    Resolved with no loop running (a script that compiles its graph before ``asyncio.run``),
+    nothing is cached: there is no loop to key on, and the saver will bind to whichever one
+    first uses it — so caching it is precisely how the same breakage would come back. That
+    costs one connection per resolution on a path that resolves once.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return build()
+    per_loop = _savers.setdefault(loop, {})
+    key = (backend, url)
+    if key not in per_loop:
+        per_loop[key] = build()
+    return per_loop[key]
 
 
 def _run_sync(coro: Coroutine[None, None, _T]) -> _T:
@@ -82,22 +113,20 @@ def resolve_checkpointer(backend: str, url: str = "") -> BaseCheckpointSaver:
 
 @cache
 def _memory_saver() -> BaseCheckpointSaver:
+    """Process-wide on purpose, unlike the durable two: ``MemorySaver`` is plain dicts with
+    no loop-bound primitive, and sharing it is what lets ``durable = True`` on the memory
+    backend resume across two ``asyncio.run`` calls at all — its threads live nowhere else."""
     from langgraph.checkpoint.memory import MemorySaver
 
     return MemorySaver()
 
 
-@cache
 def _sqlite_saver(url: str) -> BaseCheckpointSaver:
-    """Cached ``AsyncSqliteSaver`` for ``url`` — one connection for the process lifetime.
+    """``AsyncSqliteSaver`` for ``url``, one connection per event loop (see ``_per_loop``)."""
+    return _per_loop("sqlite", url, partial(_build_sqlite_saver, url))
 
-    Note: the saver holds an internal ``asyncio.Lock`` that binds to whichever event loop
-    first acquires it. That's a non-issue for the intended shape (one long-lived loop per
-    process — a server, or a single top-level ``asyncio.run``), but a script that calls
-    ``asyncio.run()`` more than once against the same durable graph in one process will hit
-    "Lock ... bound to a different event loop" on the second call. Rebuilding per-loop is
-    future work if that pattern shows up.
-    """
+
+def _build_sqlite_saver(url: str) -> BaseCheckpointSaver:
     try:
         import aiosqlite  # ty: ignore[unresolved-import] — [durability] extra
         from langgraph.checkpoint.sqlite import aio as sqlite_aio  # ty: ignore[unresolved-import] — [durability] extra
@@ -111,9 +140,10 @@ def _sqlite_saver(url: str) -> BaseCheckpointSaver:
 
     async def _connect_and_build() -> BaseCheckpointSaver:
         conn = aiosqlite.connect(path)
-        # aiosqlite runs a background worker thread per connection, non-daemon by
-        # default; a process that exits normally (not killed) hangs forever joining it
-        # since this connection is cached for the process lifetime and never closed.
+        # aiosqlite runs a background worker thread per connection, non-daemon by default; a
+        # process that exits normally (not killed) hangs forever joining it, since nothing
+        # ever closes a cached connection. Still required now that the cache is per loop —
+        # more loops means more of these threads, not fewer.
         conn._thread.daemon = True  # noqa: SLF001 — aiosqlite exposes no public way to set this
         await conn
         saver = sqlite_aio.AsyncSqliteSaver(conn)
@@ -124,10 +154,14 @@ def _sqlite_saver(url: str) -> BaseCheckpointSaver:
     return saver
 
 
-@cache
 def _postgres_saver(url: str) -> BaseCheckpointSaver:
+    """``AsyncPostgresSaver`` for ``url``, one connection per event loop (see ``_per_loop``)."""
     if not url:
         raise ValueError("checkpoint backend 'postgres' needs a DSN")
+    return _per_loop("postgres", url, partial(_build_postgres_saver, url))
+
+
+def _build_postgres_saver(url: str) -> BaseCheckpointSaver:
     try:
         from langgraph.checkpoint.postgres.aio import (  # ty: ignore[unresolved-import] — [durability] extra
             AsyncPostgresSaver,
@@ -139,7 +173,7 @@ def _postgres_saver(url: str) -> BaseCheckpointSaver:
 
     # Async saver, same reason as sqlite: the engine always calls ``ainvoke``/``astream``.
     # ``from_conn_string`` is an async contextmanager owning the connection; we enter it
-    # manually and cache the saver, one connection for the process lifetime.
+    # manually and let the caller cache the saver.
     saver: Any = _run_sync(AsyncPostgresSaver.from_conn_string(url).__aenter__())
     _run_sync(saver.setup())
     return saver
