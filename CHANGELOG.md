@@ -9,6 +9,19 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 ## [Unreleased]
 
 ### Added
+- `DataBlock` (`agentdeck.core`): structured data is now content, alongside
+  `TextBlock`, `ImageBlock` and `ResourceBlock`. `DataBlock(data=...)` carries any
+  JSON value, so anywhere the v2 API takes or returns content blocks —
+  `Runtime.run(...)`, `run.started.input`, `run.completed.output`,
+  `input.appended` — a validated `output_type` result or a workflow's state
+  travels as itself instead of being squeezed through text. Data that could not
+  survive the wire (a `datetime`, a `set`, an arbitrary object) is refused at
+  construction rather than failing later in a store or a trace. Text and data
+  blocks are stored **in full**: they are the caller's own input and the run's own
+  declared result, and a truncated copy cannot be replayed — only *tool* results
+  stay bounded to a preview, size and hash. Additive: no existing block, payload
+  or field changed, and readers of the previous three block types are unaffected
+  until something actually sends them a `data` block.
 - Langfuse tracing for **workflow** runs, not only agent runs
   (`agentdeck.adapters.telemetry.langfuse`). `langfuse_sink()` hands back an
   event sink — or `None` when Langfuse has no keys — to register where you build
@@ -56,6 +69,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `sqlite3` exception is kept as the cause for diagnosis.
 
 ### Changed
+- A v2 workflow run's final state is now a `DataBlock` on `run.completed`
+  instead of a stringified Python dict, and a workflow can be *started* from a
+  state-shaped input: pass one `DataBlock` whose data is a JSON object and it
+  becomes the graph's initial state, whole. Plain text still fills the single
+  `{"input": text}` channel, so text-in workflows are unchanged. Anyone reading
+  the canonical stream (the `/v2/*` preview surface, a sink) gets the state as
+  data it can index instead of a repr it would have to parse; a state value that
+  is not JSON still becomes its `str()`, exactly as before, so no workflow that
+  completed before now fails. v1's `/workflows/*` endpoints and Python API are
+  untouched.
 - `MemoryEventStore.append` now yields one scheduling turn (`await asyncio.sleep(0)`)
   before returning, matching what every durable store already does (SQLite's own
   `to_thread`). Fidelity, not correctness: a caller whose liveness secretly depended
@@ -89,6 +112,11 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   keep these databases on local disk. In-memory databases are unaffected.
 
 ### Fixed
+- An `output_type` agent run through the v2 `Runtime` no longer fails at its last
+  step. The openai-agents engine refused any non-`str` final output, which turned
+  a documented feature into a failed run; the validated result (pydantic model,
+  dataclass, or plain JSON) now arrives as a `DataBlock` on `run.completed`.
+  v1's `App.chat` / `run_agent` never had this problem and are unchanged.
 - Shutdown no longer hangs forever on a wedged sink: every wait on the sink
   path has a deadline, including the last one — the wait for the sink's
   consumer to stop. A sink whose `emit` swallows cancellation can delay a

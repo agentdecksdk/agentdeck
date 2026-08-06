@@ -79,7 +79,9 @@ to production quality rather than starting fresh (per M0's keep/harden/discard d
 - **D9** — the envelope is closed (8 fields); new needs go in payloads or `run.started`.
   Stated in PR #1 prompt.
 - **D10** — kinds are minted only in core; engines translate or use namespaced `custom`;
-  recurring `custom` = promotion signal. Stated in PR #1 prompt.
+  recurring `custom` = promotion signal. Stated in PR #1 prompt. *(Fired once, 2026-08-06,
+  issue #101: two engines routing structured data around the schema promoted `DataBlock`
+  into `core/content.py` — design doc §4.1/§4.2, additive under D8.)*
 - **Schema review decisions 1–9 + A + B** — enumerated in the PR #1 prompt (nested
   envelope, UnknownEvent, contiguous Runtime-assigned seq, origin, message_id, usage
   per-call+aggregate, preview+hash results, structured run.failed, naming; A=contiguous,

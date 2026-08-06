@@ -13,6 +13,13 @@
       {
         "type": "text",
         "text": "Tuesday at 9am works."
+      },
+      {
+        "type": "data",
+        "data": {
+          "slot": "2026-01-06T09:00:00Z",
+          "confirmed": true
+        }
       }
     ],
     "usage": {

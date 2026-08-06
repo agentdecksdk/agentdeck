@@ -12,6 +12,7 @@ from agentdeck.core import (
     RESULT_PREVIEW_MAX,
     TERMINAL_KINDS,
     Custom,
+    DataBlock,
     Event,
     RunCompleted,
     RunFailed,
@@ -105,6 +106,39 @@ def test_an_unknown_payload_keeps_every_sibling_field():
         "raw_payload": {"deep": 1},
         "extra": 2,
     }
+
+
+def test_a_structured_result_arrives_typed_off_the_wire():
+    """The recurrence this shape retires: a validated result, canonical rather than a
+    namespaced ``custom`` event with the JSON restated as text."""
+    wire = _wire(
+        "run.completed",
+        {
+            "output": [{"type": "data", "data": {"claim_id": "7777", "decision": "approved"}}],
+            "usage": {"input_tokens": 1, "output_tokens": 2},
+        },
+    )
+    event = parse_event(wire)
+    assert event.payload == RunCompleted(
+        output=[DataBlock(data={"claim_id": "7777", "decision": "approved"})],
+        usage=Usage(input_tokens=1, output_tokens=2),
+    )
+    block = event.payload.output[0]
+    assert isinstance(block, DataBlock) and block.data["decision"] == "approved"
+
+
+def test_an_unknown_field_inside_a_data_block_still_parses():
+    wire = _wire(
+        "run.started",
+        {
+            "invocable": "ClaimPipeline",
+            "kind_of_invocable": "workflow",
+            "parent_run_id": None,
+            "input": [{"type": "data", "data": {"input": "claim 7777"}, "encoding": "cbor"}],
+            "context": {"principal": "user:sagi", "trace_id": "t"},
+        },
+    )
+    assert parse_event(wire).payload.input == [DataBlock(data={"input": "claim 7777"})]
 
 
 def test_unknown_event_refuses_a_known_kind():

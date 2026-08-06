@@ -61,7 +61,12 @@ class RunStarted(CoreModel):
 
 
 class RunCompleted(CoreModel):
-    """Terminal. ``usage`` is the authoritative total for the run."""
+    """Terminal. ``usage`` is the authoritative total for the run.
+
+    A structured result — a validated ``output_type``, a workflow's final state — is a
+    ``DataBlock`` in ``output``, not a namespaced ``custom`` event and not a stringified
+    dict: the result is what the run *returned*, so it belongs on the terminal event.
+    """
 
     kind: Literal["run.completed"] = "run.completed"
     output: Input

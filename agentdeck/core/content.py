@@ -1,14 +1,20 @@
 """Typed content blocks.
 
 ``Input`` is what every boundary passes instead of a bare string: a list of blocks
-discriminated on ``type``, so text, images and references travel the same way.
+discriminated on ``type``, so text, images, references and structured data travel the same
+way — in both directions, since ``run.completed`` carries an ``Input`` too.
+
+Content policy: text and data blocks are stored in full, because they are the caller's own
+input and the run's own declared result — a truncated one cannot be replayed or reconciled
+against engine state. Only *tool* results are bounded (preview + size + hash), where the
+bytes are unbounded and engine-chosen rather than caller-chosen.
 """
 
 from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 
 class CoreModel(BaseModel):
@@ -36,10 +42,22 @@ class ResourceBlock(CoreModel):
     media_type: str | None = None
 
 
-ContentBlock = Annotated[TextBlock | ImageBlock | ResourceBlock, Field(discriminator="type")]
+class DataBlock(CoreModel):
+    """JSON data as content: a validated ``output_type`` result, a workflow's state.
+
+    ``JsonValue`` is the type, so a value that could not survive the wire is rejected here
+    at construction instead of failing later in a store or a sink. An object, an array or a
+    scalar all fit — but prose belongs in a ``TextBlock``, which is what readers render.
+    """
+
+    type: Literal["data"] = "data"
+    data: JsonValue
+
+
+ContentBlock = Annotated[TextBlock | ImageBlock | ResourceBlock | DataBlock, Field(discriminator="type")]
 Input = list[ContentBlock]
 
-_BLOCK_TYPES = (TextBlock, ImageBlock, ResourceBlock)
+_BLOCK_TYPES = (TextBlock, ImageBlock, ResourceBlock, DataBlock)
 
 
 def coerce_input(value: str | Input) -> Input:
@@ -55,6 +73,7 @@ def coerce_input(value: str | Input) -> Input:
 __all__ = [
     "ContentBlock",
     "CoreModel",
+    "DataBlock",
     "ImageBlock",
     "Input",
     "ResourceBlock",
