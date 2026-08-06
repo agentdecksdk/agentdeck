@@ -9,6 +9,27 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 ## [Unreleased]
 
 ### Added
+- **Redis and Postgres event logs** — a deployment can now run more than one
+  worker over one event log. `RedisEventStore(url)`
+  (`agentdeck.adapters.stores.redis`) and `PostgresEventStore(dsn)`
+  (`agentdeck.adapters.stores.postgres`) implement the whole store port,
+  including the two atomic claims that keep one resume and one turn per session
+  correct *between processes* and not merely between tasks: Postgres decides and
+  writes inside one transaction holding that log's lock, Redis over
+  `WATCH`/`MULTI`/`EXEC`. Every case in the cross-store contract suite runs
+  against all four backends on real servers, so the four answer identically.
+  Each keeps to its own keyspace — a Postgres schema (`agentdeck_events` by
+  default, overridable with `schema=`) and a Redis key prefix
+  (`agentdeck:events`, overridable with `prefix=`) — so a database or instance
+  shared with LangGraph checkpoints or the agent-conversation store keeps the
+  log separate, and either side can be dropped without touching the other.
+  Redis needs no new dependency; Postgres needs the `[durability]` extra, which
+  now also installs `psycopg[binary]`. Two things to know when operating them:
+  a Redis deployment using this as its record wants `appendonly yes`, because
+  the port promises an event a consumer has seen is already stored and the
+  default snapshot-only persistence can lose the last seconds of a log; and a
+  store call that cannot reach its server raises `StoreError` rather than
+  reporting a claim somebody else won.
 - Langfuse tracing for **workflow** runs, not only agent runs
   (`agentdeck.adapters.telemetry.langfuse`). `langfuse_sink()` hands back an
   event sink — or `None` when Langfuse has no keys — to register where you build
@@ -115,6 +136,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   installations with slower approvals should raise it.
 
 ### Fixed
+- A durable LangGraph checkpointer can now be used by more than one event loop in
+  one process. The sqlite and postgres savers were cached for the process
+  lifetime, and each holds an internal lock that binds to the first event loop to
+  contend for it — so a script or test that called `asyncio.run()` twice against
+  the same durable graph failed the second time with `RuntimeError: ... is bound
+  to a different event loop`, usually only once real concurrency showed up. Each
+  loop now gets its own saver, and a loop that asks repeatedly still shares one
+  connection. The in-memory saver is unchanged and still shared, so
+  `durable = True` on the memory backend keeps resuming across `asyncio.run`
+  calls as before.
 - Shutdown no longer hangs forever on a wedged sink: every wait on the sink
   path has a deadline, including the last one — the wait for the sink's
   consumer to stop. A sink whose `emit` swallows cancellation can delay a

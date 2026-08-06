@@ -338,6 +338,43 @@ takeover. The engine-side lock that protects a session's execution state from tw
 (`adapters/engines/openai_agents/reconcile.py`) is therefore no longer the first line of defence,
 but it is still the last one, and keeps its own test.)*
 
+*(Amended 2026-08-06, #75 — as built: `adapters/stores/redis/` and `adapters/stores/postgres/`
+implement the same port, so the sentences above about "two servers sharing a store" now describe
+a deployment that does not share a filesystem. Both claims are atomic per backend, by the
+mechanism that backend actually has, and neither reimplements the status projection:*
+
+- ***Postgres** decides and writes inside one transaction whose **first** statement takes a
+  transaction-scoped advisory lock on `(tenant, log_key)`. Lock first, then read: a lock taken
+  after the decision would leave exactly the check-then-write window it exists to close. The
+  isolation level is **pinned to `READ COMMITTED`** rather than inherited, and that is
+  load-bearing — under a snapshot taken at the transaction's first statement (`REPEATABLE READ`
+  or stricter) the loser's reads predate the winner's commit even though it waited for the lock,
+  so it decides on a log that no longer exists. `lock_timeout` is Postgres's spelling of the
+  SQLite busy timeout, same 5 seconds and same reasoning: wait a peer out, but surface a wedged
+  holder as `StoreError` rather than hanging. The alternatives were considered and rejected:
+  `SELECT ... FOR UPDATE` has no row to lock on an idle session's empty log, and a conditional
+  `INSERT ... WHERE NOT EXISTS` would have to express `status_of` in SQL — a second copy of the
+  status machine, which is the thing ADR-D5 forbids.*
+- ***Redis** uses `WATCH`/`MULTI`/`EXEC`, not a Lua script, for that same reason: the decision
+  runs in Python so `core/status.py` stays the one place a status is derived, and `EXEC` refuses
+  the write if any key the decision read moved under it. A losing round re-reads and answers from
+  what the peer actually wrote. Bounded rounds, then `StoreError` — an unbounded optimistic retry
+  is a hang. The log carries its own indexes (per-log and per-run lists, a `seq` sorted set, the
+  run's latest lifecycle **event**, and the run sets each log and tenant own) written in one
+  `MULTI` with the event, so no reader sees a log entry missing from its run's index; what is
+  stored is always an event, never a status.*
+
+*ADR-D5's operational separation is expressed as the one thing each backend can enforce: a
+Postgres **schema** (`agentdeck_events`) and a Redis **key prefix** (`agentdeck:events`), so a
+database holding LangGraph checkpoint tables or an instance holding the openai-agents adapter's
+`RedisSession` conversations shares nothing with the log. Two things the design doc did not say:
+`append` on Redis is only as durable as the instance, so a deployment using it as its record
+wants `appendonly yes`; and Postgres adds `psycopg[binary]` to the `[durability]` extra, which
+until now meant checkpointer savers only. The cross-store contract suite is the merge gate for
+all of this and runs every case against all four backends on **real servers** — service
+containers on the gate job, skipping with a named env var locally, and the gate's skip-count
+ceiling is what turns "the containers quietly went away" red.)*
+
 ```python
 # core/ports/engine.py — the lifecycle/event boundary
 class EnginePort(ABC):
