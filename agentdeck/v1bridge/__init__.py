@@ -8,5 +8,6 @@ away with v1's runner glue in the pre-stable cleanup.
 """
 
 from agentdeck.v1bridge.engine import STRUCTURED_OUTPUT, V1CompatEngine
+from agentdeck.v1bridge.workflow_engine import V1CompatWorkflowEngine
 
-__all__ = ["STRUCTURED_OUTPUT", "V1CompatEngine"]
+__all__ = ["STRUCTURED_OUTPUT", "V1CompatEngine", "V1CompatWorkflowEngine"]
