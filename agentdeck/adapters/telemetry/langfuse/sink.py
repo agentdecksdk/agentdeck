@@ -21,12 +21,13 @@ something asks it to.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from agentdeck.core.content import ImageBlock, ResourceBlock, TextBlock
+from agentdeck.core.content import DataBlock, ImageBlock, ResourceBlock, TextBlock
 from agentdeck.core.events import (
     TERMINAL_KINDS,
     NodeUpdated,
@@ -321,6 +322,14 @@ def _render(blocks: Input) -> list[str]:
                 out.append(f"<image {block.media_type}, {len(block.data_b64)} base64 chars>")
             case ResourceBlock():
                 out.append(f"<resource {block.uri}>")
+            case DataBlock():
+                out.append(json.dumps(_without_media(block.data), sort_keys=True))
+            case _:
+                # Unreachable while ``ContentBlock`` is a strict union — it rejects a block
+                # type it doesn't know rather than handing one here. Kept because the cost is
+                # a line and the alternative failure is silent: a dropped block reads as "the
+                # run had no input", which is worse than a placeholder saying what was lost.
+                out.append(f"<{getattr(block, 'type', 'unknown')} block>")
     return out
 
 

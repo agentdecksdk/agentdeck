@@ -130,6 +130,31 @@ estimate stays **L**, but the composition of that L changes:
   `ASGITransport`. Flagged here so it lands as a known requirement, not a mid-story
   surprise.
 
+*(Amendment 2026-08-06 — #74 closed the composition-root half of that scope.)* `App` is
+now a caller of one assembly seam (`agentdeck/composition.py`), and v1's chat endpoints are
+served by the Runtime with the golden suite unchanged, so **"SSE frames byte-identical to
+1.2.1" is met for `/agents/{name}/chat`** and the compat facade exists as a surface module.
+What the criterion still lacks, and why:
+
+- **`/workflows/*` is still on v1's runner.** The langgraph adapter takes text `Input` and
+  reports its final state as `str(dict)`; v1's endpoints take an arbitrary JSON state and
+  return the final state. Byte-parity there needs the adapter to carry a state-shaped input
+  and a structured final state — engine work, ahead of the surface work.
+- **Structured output has no canonical shape.** `RunCompleted.output` is `Input`, so an
+  `output_type` agent's result travels as a namespaced `custom` event that the surface
+  renders. With the workflow final state, that is the second recurrence — the promotion
+  signal for a `DataBlock`/structured field, which is a schema PR, not a facade PR.
+- **The Runtime's langgraph engine is not the configured one.** `v1_engines()` gives it an
+  in-memory checkpointer, because resolving the settings checkpointer at `App.load()` would
+  make the `[durability]` extra mandatory for chat-only installs. The workflow reroute has to
+  resolve it, and that is where the M0 event-loop-binding constraint above will bite.
+- **The event log is opt-in.** `AGENTDECK_EVENTS_BACKEND` defaults to `memory`, so the
+  rerouted surface keeps a per-process log; a durable default needs a writable path, which
+  `.agentdeck/` (mounted read-only) is not.
+
+Deleting v1's runner glue remains the pre-stable gate's job: this PR rerouted, it deleted
+nothing, and the glue is still what `App.chat` / `chat_stream` / the workflow endpoints use.
+
 ---
 
 ## Story 3 — Run control: pause / resume / cancel (Phase 3)

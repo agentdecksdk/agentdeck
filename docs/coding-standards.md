@@ -46,6 +46,11 @@ broader than the linter's contracts:
 - `surfaces/` import `runtime/` and `core/` (and their own framework, e.g. FastAPI in
   `surfaces/serve/`), never adapters directly.
 - `authoring/` imports `core/` only; user-facing API compiles to `InvocableSpec`.
+- `compat/` is the transition's one licensed border crossing *(added 2026-08-06, #74)*: it
+  implements a port while importing v1's glue and v1's Langfuse integration, which is exactly
+  what an adapter may not do — so it is not one, and it does not live under `adapters/`. Only
+  the composition root imports it (linter-enforced), and the pre-stable cleanup deletes the
+  directory whole. Nothing else earns this exemption by resembling it.
 - Absolute imports only within the package. No wildcard imports. No import-time side
   effects (no I/O, no client construction at module import).
 - `__init__.py` is always just re-exports: a one-line docstring, `from ... import ...`,

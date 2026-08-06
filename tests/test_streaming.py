@@ -7,15 +7,40 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 
 import pytest
+from scripted_model import ScriptedModel, provider_of
 
 from agentdeck.agents.runners.headless import HeadlessRunner, StreamDone
 
 AGENT_PY = """
+from agents import function_tool
+
 from agentdeck.agents import BaseAgent
+
+
+@function_tool
+def lookup_slot(day: str) -> str:
+    "Return the fixed free slot for a day."
+    return f"{day} 09:00"
+
 
 class Greeter(BaseAgent):
     instructions = "Greet the user."
+
+
+class Tooler(BaseAgent):
+    instructions = "Use the tool, then answer."
+    tools = [lookup_slot]
 """
+
+
+def _usage_frame(requests: int, input_tokens: int, output_tokens: int) -> dict[str, int]:
+    """v1's aggregate usage dict, in v1's key order."""
+    return {
+        "requests": requests,
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
+    }
 
 
 @pytest.fixture
@@ -186,26 +211,28 @@ def _sse_frames(text: str) -> list[tuple[str, dict]]:
 
 
 @pytest.fixture
-def client(project):
-    """TestClient over the real FastAPI app; only ``App.chat_stream`` is stubbed per test."""
+def serve_client(project, monkeypatch):
+    """TestClient over the real FastAPI app, with only the model scripted.
+
+    The endpoint runs on the Runtime App composes, so the stub goes at the SDK boundary
+    (v1's resolved provider) rather than at ``App.chat_stream``: everything in between is
+    what these tests are about.
+    """
     from fastapi.testclient import TestClient
 
     from agentdeck.serve import create_app
 
-    # context manager runs the lifespan; without it every endpoint is 503
-    with TestClient(create_app()) as c:
-        yield c
+    def _client(model):
+        monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(model))
+        # context manager runs the lifespan; without it every endpoint is 503
+        return TestClient(create_app())
+
+    return _client
 
 
-def test_stream_endpoint_emits_deltas_then_done(client, monkeypatch):
-    async def fake_chat_stream(self, name, session_id, message, **_):
-        for delta in ("Hel", "lo"):
-            yield delta
-        yield StreamDone(final_output={"greeting": "Hello"}, usage={"total_tokens": 7})
-
-    monkeypatch.setattr("agentdeck.app.App.chat_stream", fake_chat_stream)
-
-    response = client.post("/agents/Greeter/chat?stream=true", json={"session_id": "s1", "message": "hi"})
+def test_stream_endpoint_emits_deltas_then_done(serve_client):
+    with serve_client(ScriptedModel(deltas=("Hel", "lo"), input_tokens=3, output_tokens=4)) as client:
+        response = client.post("/agents/Greeter/chat?stream=true", json={"session_id": "s1", "message": "hi"})
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-cache"
@@ -213,27 +240,34 @@ def test_stream_endpoint_emits_deltas_then_done(client, monkeypatch):
     assert _sse_frames(response.text) == [
         ("message", {"delta": "Hel"}),
         ("message", {"delta": "lo"}),
-        # done carries the SDK's final_output (a validated model here), not "Hello".
-        ("done", {"output": {"greeting": "Hello"}, "usage": {"total_tokens": 7}}),
+        # one model call, so `requests` is 1 and the totals are that call's
+        ("done", {"output": "Hello", "usage": _usage_frame(1, 3, 4)}),
     ]
 
 
-def test_stream_endpoint_rejects_missing_session_id(client):
-    response = client.post("/agents/Greeter/chat?stream=true", json={"message": "hi"})
+def test_stream_endpoint_counts_every_model_call_in_usage(serve_client):
+    """``usage.requests`` is v1's count of model calls — two here, the tool round and the answer."""
+    model = ScriptedModel(deltas=("done",), tool_name="lookup_slot", input_tokens=5, output_tokens=2)
+    with serve_client(model) as client:
+        response = client.post("/agents/Tooler/chat?stream=true", json={"session_id": "s1", "message": "hi"})
+
+    assert model.calls == 2
+    assert _sse_frames(response.text)[-1] == ("done", {"output": "done", "usage": _usage_frame(2, 10, 4)})
+
+
+def test_stream_endpoint_rejects_missing_session_id(serve_client):
+    with serve_client(ScriptedModel()) as client:
+        response = client.post("/agents/Greeter/chat?stream=true", json={"message": "hi"})
 
     # 4xx before any header is sent — not a 200 that streams nothing.
     assert response.status_code == 422
     assert "session_id" in response.json()["detail"]
 
 
-def test_stream_endpoint_reports_mid_stream_failure(client, monkeypatch):
-    async def exploding_chat_stream(self, name, session_id, message, **_):
-        yield "par"
-        raise RuntimeError("secret internal detail")
-
-    monkeypatch.setattr("agentdeck.app.App.chat_stream", exploding_chat_stream)
-
-    response = client.post("/agents/Greeter/chat?stream=true", json={"session_id": "s1", "message": "hi"})
+def test_stream_endpoint_reports_mid_stream_failure(serve_client):
+    model = ScriptedModel(deltas=("par",), raises=RuntimeError("secret internal detail"))
+    with serve_client(model) as client:
+        response = client.post("/agents/Greeter/chat?stream=true", json={"session_id": "s1", "message": "hi"})
 
     frames = _sse_frames(response.text)
     assert frames[0] == ("message", {"delta": "par"})

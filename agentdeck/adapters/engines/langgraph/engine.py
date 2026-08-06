@@ -10,6 +10,10 @@ a ``{"__interrupt__": (...)}`` chunk becomes ``run.interrupted`` and ends the st
 graph suspends there; resuming re-enters the same ``astream`` call with a
 ``Command(resume=value)``), and the stream simply ending means the graph reached ``END``.
 
+Both ends of a run are the graph's state: a ``DataBlock`` in is the initial state as posted,
+and the final state leaves as a ``DataBlock`` on ``run.completed`` — structured going in,
+structured coming out. Text in keeps the single ``{"input": text}`` channel.
+
 The ``StateGraph``'s schema must be a ``TypedDict`` (or pydantic model), never a bare
 ``dict``: langgraph treats a bare ``dict`` as one opaque channel, so a node's return
 replaces the *entire* state instead of merging into it, which would silently break the
@@ -18,6 +22,7 @@ shallow-merge every ``node.updated`` promises its readers.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, ClassVar
 
@@ -25,7 +30,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph.state import StateGraph
 from langgraph.types import Command
 
-from agentdeck.core.content import TextBlock, coerce_input
+from agentdeck.core.content import DataBlock, TextBlock
 from agentdeck.core.events import NodeUpdated, RunCompleted, RunInterrupted, Usage
 from agentdeck.core.ports import EnginePort
 from agentdeck.errors import ConfigError
@@ -116,15 +121,28 @@ class LangGraphEngine(EnginePort):
             for node, patch in chunk.items():
                 yield NodeUpdated(node=node, state_patch=_jsonable(patch, node))
         state = await graph.aget_state(config)
-        yield RunCompleted(output=coerce_input(_dump(state.values)), usage=Usage(input_tokens=0, output_tokens=0))
+        yield RunCompleted(
+            output=[DataBlock(data=_state_data(state.values))],
+            usage=Usage(input_tokens=0, output_tokens=0),
+        )
 
 
 def _to_graph_input(input: Input) -> dict[str, Any]:
-    # M0 scope is UC2's ClaimPipeline fixture, plain text in: images/resources are a
-    # follow-up, not a silent drop — better to raise now than feed a node a blank string.
+    """A graph's input is its state, so a single ``DataBlock`` *is* that state; text keeps
+    the one-channel shape (``{"input": text}``) a text-in workflow was written against."""
+    data = [block for block in input if isinstance(block, DataBlock)]
+    if data:
+        if len(input) != 1:
+            raise ConfigError("langgraph engine: a state-shaped input is one data block and nothing else")
+        state = data[0].data
+        if not isinstance(state, dict):
+            raise ConfigError(f"langgraph engine: a data block input must be a JSON object, got {type(state)}")
+        return dict(state)
+    # Images/resources are a follow-up, not a silent drop — better to raise now than feed a
+    # node a blank string.
     texts = [block.text for block in input if isinstance(block, TextBlock)]
     if len(texts) != len(input):
-        raise ConfigError("langgraph engine (M0) only supports text input blocks")
+        raise ConfigError("langgraph engine only supports text or data input blocks")
     return {"input": "\n".join(texts)}
 
 
@@ -148,8 +166,16 @@ def _jsonable(value: Any, source: str) -> dict[str, Any]:
     raise ConfigError(f"langgraph engine (M0) only supports dict-shaped {source} values, got {type(value)}")
 
 
-def _dump(values: Any) -> str:
-    return str(dict(values)) if isinstance(values, Mapping) else str(values)
+def _state_data(values: Any) -> Any:
+    """The graph's final state as JSON data, which is what ``RunCompleted`` now carries.
+
+    A leaf that isn't JSON becomes its ``str()``, non-finite floats included (``parse_constant``
+    catches the ``NaN``/``Infinity`` tokens that ``default`` never sees, because those leaves
+    *are* floats): the same fidelity ceiling the previous ``str(dict(values))`` had for the
+    whole state, so a graph that completed before does not start failing here. Typed leaves
+    need a per-graph serializer, which no caller has asked for.
+    """
+    return json.loads(json.dumps(_jsonable(values, "final state"), default=str), parse_constant=str)
 
 
 __all__ = ["LangGraphEngine"]

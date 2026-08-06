@@ -31,14 +31,14 @@ No `__init__.py`, no registration — dirs are discovered by convention
 ```python
 from agentdeck import App
 
-app = App()          # mounts ./.agentdeck
-app.load()           # imports, builds, and compiles everything; fails fast
+app = App()  # mounts ./.agentdeck
+app.load()  # imports, builds, and compiles everything; fails fast
 
-result = await app.run_agent("Greeter", "hello")                  # one-shot
-state  = await app.run_workflow("NewBooking", {"request": "..."}) # one ainvoke
-turn   = await app.chat("Greeter", session_id="wa-123", message="hi")  # multi-turn
+result = await app.run_agent("Greeter", "hello")  # one-shot
+state = await app.run_workflow("NewBooking", {"request": "..."})  # one ainvoke
+turn = await app.chat("Greeter", session_id="wa-123", message="hi")  # multi-turn
 
-async for chunk in app.chat_stream("Greeter", "wa-123", "hi"):         # streamed turn
+async for chunk in app.chat_stream("Greeter", "wa-123", "hi"):  # streamed turn
     ...  # text deltas, then a final StreamDone(final_output=..., usage=...)
 ```
 
@@ -84,12 +84,18 @@ docker compose up
 | `GET /workflows/{name}/pending` | threads paused on a human decision — the approval inbox |
 | `POST /workflows/{name}/{thread_id}/resume` | `{"value": ...}` → final state, or the next interrupt |
 
+The chat endpoints are served by the v2 `Runtime` that `App` composes (`App.runtime`), so
+every turn is also recorded as a canonical event log; the frames above are unchanged. The
+workflow endpoints still run on the v1 workflow runner.
+
 ## Configuration
 
 Layered pydantic-settings: process env / `.env` / YAML
 (`agentdeck/runtime/config.default.yaml`). Key vars: `OPENAI_API_KEY`,
 `OPENAI_BASE_URL`, `OPENAI_MODEL`, `AGENTDECK_RUNNER_*`,
-`AGENTDECK_SESSION_*`, `AGENTDECK_SHELL_*`, `AGENTDECK_MCP_SERVERS`.
+`AGENTDECK_SESSION_*`, `AGENTDECK_SHELL_*`, `AGENTDECK_MCP_SERVERS`,
+`AGENTDECK_EVENTS_*` (where the event log goes: `memory` by default, or
+`sqlite` plus a file path to keep it across restarts).
 See `agentdeck/runtime/settings.py`.
 
 ## Development
