@@ -72,9 +72,10 @@ status: completed
 
 The two calls to `App.open()` and `resolve_event_store()` never touch each other directly — the
 second one is a fresh store handle, built the same way the Runtime built its own. What comes
-back is whatever the first call actually wrote, nothing cached in between. There's no `app.store`
-accessor and no built-in helper for reading a run back by id; `resolve_event_store()` plus a
-`RunContext` you build yourself, as above, are what today's public surface gives you.
+back is whatever the first call actually wrote, nothing cached in between. Inside a process that
+already has an `App`, `app.store` is the same log without building a second handle — the separate
+`resolve_event_store()` above is there to show that a later process, or a dashboard, reads exactly
+what this run wrote.
 
 The exact kinds in between `run.started` and `run.completed` depend on what the run did, not on
 a fixed shape: a `text.delta` per streamed chunk, a `tool.call.started`/`tool.call.completed`
