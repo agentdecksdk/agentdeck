@@ -185,7 +185,7 @@ class Event(BaseModel):
 | Content    | `text.delta`, `thought.delta`, `message.completed` | every delta carries `message_id` (runs can hold multiple messages); `message.completed` carries the **full final text** (decision B) — deltas are streaming UX, this event is the record; one `message_id` never spans two origins |
 | Tools      | `tool.call.started`, `tool.call.completed` | `call_id`, `tool`, `args`; results as bounded `result_preview` + `result_size` + `result_sha256` + optional `artifact_id` — never raw bytes inline |
 | Workflow   | `node.updated`, `custom` | `node.updated`: `node`, `state_patch` (shallow merge); `custom` payloads carry a namespaced `name` — per D10, kinds are minted only in core; engines translate into existing kinds or use `custom`, and recurring `custom` usage is a promotion signal, not a precedent |
-| Control    | `run.interrupted`, `input.appended` | interrupt: `interrupt_id`, `reason: "human" \| "pause" \| "approval"`, typed `payload`, `thread_id` — the approvals inbox is a filter on this kind; `input.appended` records mid-turn steering |
+| Control    | `run.interrupted`, `input.appended`, `control.requested`, `control.observed` | interrupt: `interrupt_id`, `reason: "human" \| "pause" \| "approval"`, typed `payload`, `thread_id` — the approvals inbox is a filter on this kind; `input.appended` records mid-turn steering; the two `control.*` kinds are the request and the safe-point observation for **any** verb (`cancel`, `pause`, `resume`, `steer`), with the effect staying the verb's own kind |
 | Data       | `artifact.created`, `usage.reported` | artifacts by reference (id, media type, uri, size); `usage.reported` is per-model-call and advisory — the terminal aggregate wins |
 
 Engines emit payloads; the `Runtime` stamps the envelope (`seq`, `tenant`, `ts`,
@@ -218,6 +218,37 @@ runs it wrote itself included. Mixed-version readers against one event store are
 unsupported across this change. Bumping `v` would not help that reader (nothing branches on
 `v` yet); the upgrade is an `UnknownBlock` fallback mirroring `UnknownEvent` — **issue #109,
 gated on the v2.0.0 stable tag**, since after it every released reader is the old reader.
+
+*(Amended 2026-08-06, issues #44 and #94.)* Run control is **three phases, one vocabulary**:
+`control.requested {verb, reason?}` records that a signal was written, `control.observed
+{verb, safe_point}` records that the run reached a safe point and is acting on it, and the
+effect stays the verb's own kind (`run.cancelled`, `run.paused`, `run.resumed`,
+`input.appended`). Two kinds carry all four verbs — `cancel`, `pause`, `resume`, `steer` —
+because minting them per verb would mean revising the set when Story 3 ships pause and
+steering. Neither is a lifecycle kind: a request leaves §4.4's status exactly where it was,
+which is the distinction the phases exist for, since under cooperative control "recorded" and
+"stopped" can be a whole tool call apart. A request that loses the race with a terminal event
+records nothing at all — the terminal event is a run's last event by invariant, so the no-op
+signal has nowhere to land, and that is why there is no `control.rejected`. Both `verb` and
+`safe_point` (`stream_item`, `tool_dispatch`, `node_boundary`) are **closed and complete at
+birth**: adding a member later is additive for a writer but not for a reader, which raises on
+a known kind rather than skipping it the way it can with an unknown one.
+
+Separately, `run.resumed` gained `value: Input | None` — the answer the resume carried, stored
+in full under §4.1's content policy. It rides on that event because the same append is the
+`WAITING_HUMAN` → `RUNNING` transition: recording the value anywhere else leaves the window
+#94 measured, where the log says a run was answered, no longer holds the answer, and the
+engine parked at its interrupt can never be brought back in line — a run stranded, recoverable
+only by hand. The reverse direction needs no new vocabulary either: status is a fold over an
+append-only log, so a resume that cannot be carried through returns the run to
+`WAITING_HUMAN` by recording its interrupt again. **D8: additive minor**, no `v` bump — two
+new kinds and one new optional field, nothing renamed, removed or redefined. Measured against
+`origin/dev`'s own parser: a v2.0.0b4 reader parses the new `run.resumed` and drops `value` as
+an unknown field, and reads both new kinds as `UnknownEvent` with no status effect — so
+#107's mixed-reader outage does *not* recur here. The analogous edge is one level deeper and
+still open: a future *block* type inside `value` would be rejected by a reader that knows the
+field but not the block, and because `run.resumed` is a lifecycle kind that is again the
+tenant-wide listing failure — the same `UnknownBlock` gap (#109), not a new one.
 
 ### 4.3 RunContext — thread it everywhere, today
 
@@ -260,6 +291,10 @@ than data — they wait for Story 3 and Story 4, which build the things they wou
                ├──→ FAILED         (terminal)
                └──→ CANCELLED      (terminal; reachable from RUNNING, PAUSED, WAITING_HUMAN)
 ```
+
+*(Amended 2026-08-06, issue #44: the two `control.*` kinds are deliberately **not** in this
+machine. A recorded signal moves nothing — a paused run is one that emitted `run.paused`, not
+one somebody asked to pause — so `LIFECYCLE_KINDS` stays the seven kinds it already was.)*
 
 Transitions are guarded in one place (`core/status.py`): a signal arriving after a
 terminal state is a **no-op, not an error** — the race is inherent and the state machine
@@ -596,6 +631,18 @@ the drop count so the counters match the loss reported in the log. A `CancelledE
 raises from its own `emit` is now a counted failure rather than a silently dead consumer; only
 a genuine cancellation (`close`, loop shutdown) still ends a consumer, and that path replaces
 it on the next submit as before.)*
+
+*(Amended 2026-08-06, #89/#90 — the breaker is no longer one-way, and the failure log is no
+longer rate-limited by streak. A disabled sink is offered one event once `BREAKER_COOLDOWN`
+(30s) has passed; taking it re-enables the sink, failing it re-arms the cooldown from that
+failure, so a dead endpoint costs two emit attempts a minute instead of one per event. The
+probe is a real event, not a synthetic one, and the events the open breaker covered are still
+counted as drops — nothing is replayed. The cooldown is a deadline compared against a
+monotonic clock rather than anything slept on, so no wait on a sink is added anywhere and the
+sink's recovery is noticed by whichever submit happens to arrive after it. Stack traces are
+capped at one per sink per `LOG_WINDOW` (60s) with the unlogged failures counted in the next
+one: the per-streak limit bounded nothing for a sink failing every other event, which builds
+no streak and trips no breaker either. The disable decision is untouched by that change.)*
 
 *(A sink with guaranteed delivery is a deliberate non-goal today. A blocking/backpressure
 policy was built and then removed before merge: no sink implementation needs it, and the only

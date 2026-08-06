@@ -8,6 +8,70 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+- **`control.requested` and `control.observed`** (`agentdeck.core`): run control
+  is now three events, not one. `control.requested(verb, reason=None)` records
+  that a signal was written; `control.observed(verb, safe_point)` records that the
+  run reached a safe point and is acting on it; the effect stays the kind it
+  always was (`run.cancelled`, `run.paused`, `run.resumed`, `input.appended`). So
+  "we asked it to stop" and "it stopped" are finally different facts in the log —
+  under cooperative control they can be seconds apart, and `safe_point`
+  (`stream_item`, `tool_dispatch`, `node_boundary`) says what the run was in the
+  middle of. One pair of kinds carries every verb — `cancel`, `pause`, `resume`,
+  `steer` — so pause/resume and mid-run steering add no further vocabulary when
+  they ship. Neither kind is a status transition: a request leaves a run `RUNNING`
+  until its terminal event says otherwise, and neither is terminal.
+  This release ships the vocabulary and the consumers, not producers: nothing
+  emits either kind yet, so no existing stream changes shape. The CLI renderer
+  prints both phases and the Langfuse sink puts them on the run's timeline.
+- `run.resumed` now carries **the answer it was resumed with**, as content
+  (`value: list[ContentBlock] | None`) — content passes through as sent, a string
+  arrives as a `TextBlock`, any other JSON answer as a `DataBlock`, and lifting an
+  operator's pause carries nothing. Stored **in full**, like a run's own input,
+  because a truncated answer cannot be replayed. This is what makes a
+  previously unrecoverable window *repairable*: the single write that moved a run
+  from `waiting_human` to `running` recorded *that* it was answered and not *what*
+  the answer was, so a process dying between that write and the engine consuming
+  the value left the log saying `running` while the engine was still parked at its
+  interrupt — every later resume then rejected as stray, with no recovery but a
+  manual one. The answer is now in the log at the instant the claim commits, before
+  the engine is asked for anything, so a successor process has what it needs. **The
+  repair itself is not built here** — nothing yet reads `value` back to bring an
+  engine into line — so treat this as the prerequisite, not the fix. An answer JSON
+  cannot carry (an arbitrary object, a `datetime`, `NaN`) is logged as a warning and
+  recorded as no value rather than failing a resume that would otherwise work; such
+  a run keeps the old stranding risk.
+  Compatible in both directions, and measured rather than assumed: a `run.resumed`
+  written before this release still parses (no `value` means none), and a 2.0.0b4
+  reader handed one of the new events parses it and drops the field it does not
+  know — no listing or dashboard outage like the one `DataBlock` caused, and the
+  new kinds arrive as unknown kinds a consumer skips. The one caveat is what that
+  dropping implies: only a process new enough to *see* `value` can use it to
+  repair a resume, so upgrade the workers that reconcile before relying on it.
+### Changed
+- **A sink the breaker disables is no longer disabled for good.** A telemetry
+  endpoint that failed five events in a row used to be dead for the rest of the
+  process; now the dispatch waits 30 seconds and then lets one event through to
+  see whether it is back. A sink that takes that event starts receiving the
+  stream again; one that fails it keeps its events dropped and is offered
+  another event 30 seconds later, so a genuinely dead endpoint costs two emit
+  attempts a minute rather than one per event. Coming back is logged as loudly as
+  going away was, and says how many events the outage dropped, so a stream that
+  resumes mid-run is not a gap with nothing to explain it. The cooldown is a
+  deadline read off a clock and never a wait — a run is not slowed by a sink's outage or by
+  its recovery — and nothing is replayed: the events the outage covered are
+  still lost, and still counted as drops. A sink therefore needs no retry logic
+  of its own for a transient outage, and one that cannot lose events reads the
+  event log, which is the complete copy.
+- **A flapping sink can no longer flood the log with stack traces.** Failure
+  logging was rate-limited per failure *streak*, which bounded nothing for a
+  sink that fails every other event — each success reset the streak, so every
+  failure printed a fresh traceback and the run's length decided the log
+  volume. Tracebacks are now limited to one per sink per 60 seconds, and each
+  one reports how many failures went unlogged since the last, so a throttled
+  log still says how much it is standing in for. The breaker's disable decision
+  is unchanged by this.
+
 ### Removed
 - **`agentdeck.runtime.REPO_ROOT` / `agentdeck.runtime.settings.REPO_ROOT`** — it only
   ever pointed at the repo root in a source checkout and at the installed package's
@@ -33,6 +97,21 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   at first use rather than at `import agentdeck` time, so a `chdir` between
   importing the package and first building settings still resolves against the
   right project. (#16)
+- Two bundles of the **same kind** (two agents, or two workflows) exporting a
+  class of the same name used to collapse silently into one invocable, in
+  sorted bundle order — copying `agents/greeter/` to `agents/greeter-v2/` to
+  iterate and forgetting to rename the class made the original vanish from the
+  registry with no error, no warning, no log line. `App.load()` (and anything
+  that discovers a project, including `InvocableRegistry`) now raises
+  `ConfigError` naming both bundle paths and the class name they share. A
+  project relying on the old shadowing to hide one bundle behind another now
+  fails at load instead of routing requests to the wrong agent; rename one of
+  the classes to fix it.
+- A bundle whose `agent.py` or `workflow.py` raises while importing (a
+  `SyntaxError`, a missing dependency, anything at module scope) used to
+  surface as a raw traceback through the import machinery. It's now a
+  `ConfigError` naming the offending bundle path, with the original exception
+  chained as the cause.
 
 ## [2.0.0b4] - 2026-08-06
 
