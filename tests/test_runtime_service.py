@@ -792,12 +792,29 @@ async def test_a_resume_with_nothing_to_answer_records_no_value() -> None:
     assert resumed.payload.value is None
 
 
+class Elementwise:
+    """An array-like answer, the shape a data workflow's state actually carries: comparing it
+    returns per-element results, and asking whether that is true raises."""
+
+    def __eq__(self, other: object) -> Elementwise:  # ty: ignore[invalid-return-type]
+        return self
+
+    def __ne__(self, other: object) -> Elementwise:  # ty: ignore[invalid-return-type]
+        return self
+
+    def __bool__(self) -> bool:
+        raise ValueError("the truth value of an array with more than one element is ambiguous")
+
+    __hash__ = None  # type: ignore[assignment]
+
+
 @pytest.mark.parametrize(
     "value",
     [
         pytest.param(object(), id="not-json"),
         pytest.param({"ratio": float("nan")}, id="non-finite-float"),
         pytest.param(datetime(2026, 8, 6, tzinfo=UTC), id="datetime"),
+        pytest.param(Elementwise(), id="array-like"),
     ],
 )
 async def test_an_answer_the_log_cannot_hold_is_reported_rather_than_failing_the_resume(

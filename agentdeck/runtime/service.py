@@ -448,7 +448,9 @@ def _as_content(value: Any, run_id: str) -> Input | None:
         return None
     # `[]` reaches coerce_input's list branch vacuously, and recording it as content with no
     # blocks would say an answer arrived and was blank. It is the empty JSON array: an answer.
-    if value != []:
+    # A type check, not a comparison: `!=` runs the caller's own `__ne__`, and an array-like
+    # answer (ndarray, Series) returns elementwise and then raises on `bool()`.
+    if not (isinstance(value, list) and not value):
         try:
             return coerce_input(value)
         except TypeError:
