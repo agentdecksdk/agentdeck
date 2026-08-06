@@ -96,6 +96,13 @@ restate them — read that file before writing any non-trivial code.
 
 - Remote: `github.com/sagi5060/agentdeck` (public). **`dev` is the default
   branch** — PRs and day-to-day commits target `dev`. `main` is release-only.
+- **Open the PR as a draft on your first commit, then push as you work.** Not at
+  the end: CI then runs while the slice is still in your hands instead of after a
+  review round, and a run that dies (quota, API error, a removed worktree) leaves
+  a resumable branch rather than work stranded locally. Flip it with `gh pr ready`
+  only once your own `make check` is green and the body — including the judgment
+  ledger — is complete; if you end up blocked, leave it draft and say so. A red
+  draft mid-work is expected and is not a signal.
 - Release: bump `pyproject.toml` version + move Unreleased CHANGELOG entries
   on `dev`, merge to `main`, tag `vX.Y.Z` — release.yml verifies the tag
   matches the version, runs the gate, and publishes a GitHub Release.

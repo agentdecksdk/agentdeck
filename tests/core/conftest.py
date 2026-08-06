@@ -13,6 +13,8 @@ import pytest
 from agentdeck.core import (
     ArtifactCreated,
     Budget,
+    ControlObserved,
+    ControlRequested,
     Custom,
     DataBlock,
     Event,
@@ -67,7 +69,7 @@ PAYLOADS = (
     ),
     RunFailed(error_code="tool_error", message="lookup_slot exited 1", retryable=True),
     RunPaused(reason="awaiting approval"),
-    RunResumed(reason="approved"),
+    RunResumed(reason="approved", value=[DataBlock(data={"approved": True, "note": "book it"})]),
     RunCancelled(reason="operator"),
     RunInterrupted(
         interrupt_id="int_1",
@@ -97,6 +99,10 @@ PAYLOADS = (
         source="operator",
     ),
     Custom(name="langgraph.checkpoint_written", data={"thread_id": "t-1"}),
+    # Appended rather than filed with the lifecycle payloads above: ``seq`` is this tuple's
+    # index, so inserting mid-list rewrites every later snapshot for no schema reason.
+    ControlRequested(verb="cancel", reason="operator pressed cancel"),
+    ControlObserved(verb="cancel", safe_point="tool_dispatch"),
 )
 
 

@@ -17,6 +17,9 @@ from datetime import UTC, datetime
 from itertools import count
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
+from agentdeck.core.content import DataBlock, coerce_input
 from agentdeck.core.events import (
     TERMINAL_KINDS,
     Event,
@@ -189,7 +192,7 @@ class Runtime:
         """
         spec, engine = self._resolve(name)
         ctx = self._with_gate(ctx)
-        claimed = await self._claim_resume(spec, ctx)
+        claimed = await self._claim_resume(spec, ctx, value)
         if claimed is None:
             return
         opening, seq = claimed
@@ -308,7 +311,9 @@ class Runtime:
         with suppress(asyncio.CancelledError):
             await asyncio.shield(recording)
 
-    async def _claim_resume(self, spec: InvocableSpec, ctx: RunContext) -> tuple[Event, Iterator[int]] | None:
+    async def _claim_resume(
+        self, spec: InvocableSpec, ctx: RunContext, value: Any
+    ) -> tuple[Event, Iterator[int]] | None:
         """Take the run's ``WAITING_HUMAN`` -> ``RUNNING`` transition, or ``None`` if someone
         else already has it.
 
@@ -318,6 +323,11 @@ class Runtime:
         read ``WAITING_HUMAN`` and both write. A loser reads nothing from the engine and
         yields nothing, so a stray resume stays a no-op rather than an error.
 
+        The claim carries the answer, not just the fact of it: this one append is what flips
+        the status, so a value written anywhere else would leave a window in which the log
+        says the run was answered and no longer holds what the answer was — and the engine,
+        still parked at its interrupt, could never be brought back in line with it.
+
         ``seq`` comes from the log's own ``max(seq)``, so it continues across a process
         restart instead of resetting. It is read before the claim and can therefore go stale
         — the store refuses a claim whose ``seq`` is no longer the run's next one, so a
@@ -325,7 +335,7 @@ class Runtime:
         loses rather than reusing a ``seq`` somebody already wrote.
         """
         seq = count(await self._store.last_seq(ctx.log_key, ctx.run_id, ctx) + 1)
-        event = self._stamp(RunResumed(reason=None), spec, ctx, next(seq))
+        event = self._stamp(RunResumed(reason=None, value=_as_content(value, ctx.run_id)), spec, ctx, next(seq))
         if not await self._store.claim_resume(ctx.log_key, ctx.run_id, event, ctx):
             return None
         await self._fan_out(event)
@@ -426,6 +436,36 @@ class Runtime:
         """
         for dispatch in self._sinks:
             await dispatch.submit(event)
+
+
+def _as_content(value: Any, run_id: str) -> Input | None:
+    """A resume answer as content blocks, so the log holds the input and not merely the fact
+    that one arrived.
+
+    Content stays content — the field's own type, so an approval typed at an inbox is the
+    ``TextBlock`` it was sent as rather than a data block wrapping one. Everything else is
+    JSON data, which is what a caller answering over HTTP or a graph resuming with a state
+    object actually sends. A value JSON cannot carry is the one case that records nothing:
+    losing the answer is better than failing a resume that would otherwise work, and the
+    warning says which run to go and look at.
+    """
+    if value is None:
+        return None
+    # `[]` reaches coerce_input's list branch vacuously, and recording it as content with no
+    # blocks would say an answer arrived and was blank. It is the empty JSON array: an answer.
+    # A type check, not a comparison: `!=` runs the caller's own `__ne__`, and an array-like
+    # answer (ndarray, Series) returns elementwise and then raises on `bool()`.
+    if not (isinstance(value, list) and not value):
+        try:
+            return coerce_input(value)
+        except TypeError:
+            pass
+    try:
+        return [DataBlock(data=value)]
+    except ValidationError:
+        # Not "was resumed": this runs before the claim, so the caller may still lose it.
+        logger.warning("the answer for run %s is a %s, which the log cannot hold", run_id, type(value).__name__)
+        return None
 
 
 def _failed(exc: Exception, engine: str) -> RunFailed:

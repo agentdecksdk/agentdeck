@@ -30,6 +30,8 @@ from typing import TYPE_CHECKING, Any
 from agentdeck.core.content import DataBlock, ImageBlock, ResourceBlock, TextBlock
 from agentdeck.core.events import (
     TERMINAL_KINDS,
+    ControlObserved,
+    ControlRequested,
     NodeUpdated,
     RunCancelled,
     RunCompleted,
@@ -105,8 +107,12 @@ class LangfuseSink(EventSinkPort):
         match event.payload:
             case RunStarted() as started:
                 self._start(event, started)
-            case RunResumed():
-                self._continue(event)
+            case RunResumed() as resumed:
+                self._continue(event, resumed)
+            case ControlRequested() as requested:
+                self._control(event, f"{requested.verb} requested", requested.reason)
+            case ControlObserved() as observed:
+                self._control(event, f"{observed.verb} observed", f"at {observed.safe_point}")
             case ToolCallStarted() as call:
                 self._tool_started(event, call)
             case ToolCallCompleted() as call:
@@ -190,7 +196,7 @@ class LangfuseSink(EventSinkPort):
             ),
         )
 
-    def _continue(self, event: Event) -> None:
+    def _continue(self, event: Event, resumed: RunResumed) -> None:
         """Reopen the trace of a run that was suspended, as a second root under the same key.
 
         The kind and the run's constants live in ``run.started``, which a process that only
@@ -198,6 +204,10 @@ class LangfuseSink(EventSinkPort):
         belongs to in its metadata. The principal is carried over when this process opened the
         first half; a process that only ever saw the resume has none to stamp, and the trace's
         user then comes from the half that did.
+
+        The answer the resume carried is the continuation's input, media-described like any
+        other content: a trace of an approval flow that does not say what was approved is a
+        trace of the wrong half of the story.
         """
         if event.run_id in self._open:
             return
@@ -209,9 +219,24 @@ class LangfuseSink(EventSinkPort):
                 trace_key=event.run_id,
                 session_id=event.session_id,
                 user_id=self._principals.get(event.run_id),
+                input=_render(resumed.value) if resumed.value is not None else None,
                 metadata={"run_id": event.run_id, "tenant": event.tenant, "resumed": True},
             ),
         )
+
+    def _control(self, event: Event, what: str, detail: str | None) -> None:
+        """A control phase as a point on the run's timeline.
+
+        Both phases are recorded, because the gap between them is the number an operator
+        actually asks about — "I pressed cancel and it kept going" is answered by when the run
+        reached a safe point, not by when the signal was written. A signal that arrives while
+        no trace is open here (another process opened it, or the tap dropped the opening) is
+        left to the process that has one, the same way tool spans are.
+        """
+        open_trace = self._open.get(event.run_id)
+        if open_trace is None:
+            return
+        open_trace.root.child(event.kind, kind="span").finish(output=what, status=detail)
 
     def _tool_started(self, event: Event, call: ToolCallStarted) -> None:
         open_trace = self._open.get(event.run_id)
