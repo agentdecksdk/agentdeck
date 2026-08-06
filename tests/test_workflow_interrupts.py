@@ -263,13 +263,25 @@ async def test_streamed_durable_run_without_an_interrupt_still_ends_with_done(ap
 
 def test_app_surface_pauses_lists_and_resumes(app_project):
     """``App`` is the entry point: run -> pending_interrupts() (no name = every workflow) -> resume."""
+    from agentdeck.surfaces.serve.compat import run_context
+
     app = app_project
 
     async def _scenario():
         paused = await app.run_workflow("ApprovalFlow", {"request": "tue 9am"}, thread_id="t-app")
-        return paused, await app.pending_interrupts(), await app.resume_workflow("ApprovalFlow", "t-app", "no")
+        pending = await app.pending_interrupts()
+        resumed = await app.resume_workflow("ApprovalFlow", "t-app", "no")
+        # both run_workflow and resume_workflow write to the event log now (issue #137) —
+        # read it back rather than trusting each call's own bookkeeping.
+        events = await app.store.read("t-app", run_context("t-app"))
+        return paused, pending, resumed, [event.kind for event in events]
 
-    paused, pending, resumed = asyncio.run(_scenario())
+    paused, pending, resumed, kinds = asyncio.run(_scenario())
+
+    assert kinds[0] == "run.started"
+    assert "run.interrupted" in kinds  # the pause `run_workflow` produced
+    assert "run.resumed" in kinds  # resume_workflow's own claim, not a fresh run
+    assert kinds[-1] == "run.completed"
 
     assert paused == {"type": "interrupt", "payload": {"question": "tue 9am"}, "thread_id": "t-app"}
     # other tests in this process share the cached memory saver, so filter to this thread

@@ -286,7 +286,7 @@ class App:
             self.load()
         return self.runtime
 
-    async def run_agent(self, name: str, message: Any = None) -> TurnResult:
+    async def run_agent(self, name: str, message: Any) -> TurnResult:
         """One-shot run of a discovered agent, recorded on the Runtime like every other
         turn — read it back with :attr:`store`.
         """
@@ -456,11 +456,18 @@ class App:
         :class:`~agentdeck.core.events.Event`\\ s (``text.delta`` for each token, ``run.completed``
         last) instead of raw text and a :class:`~agentdeck.agents.runners.StreamDone` sentinel —
         the same events :attr:`store` would hand back after the fact, live as they're recorded.
+
+        ``aclosing`` the Runtime's own generator, not just this one: a caller that walks away
+        mid-stream throws ``GeneratorExit`` into *this* frame, and closing only it would
+        abandon the Runtime's generator to the GC instead — which finalizes it in a fresh
+        context, and leaves the run open in the log holding its session until
+        ``stale_run_after`` gives it up.
         """
         self.agents.get(name)
         runtime = self._ensure_runtime()
-        async for event in runtime.run(name, coerce_input(message), _new_context(session_id)):
-            yield event
+        async with aclosing(runtime.run(name, coerce_input(message), _new_context(session_id))) as run:
+            async for event in run:
+                yield event
 
     @classmethod
     @asynccontextmanager

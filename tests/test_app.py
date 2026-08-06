@@ -120,6 +120,16 @@ def test_the_apps_structured_output_carrier_matches_the_compat_engines(project):
     assert app_module._LEGACY_STRUCTURED_OUTPUT == compat_engine.STRUCTURED_OUTPUT
 
 
+def test_run_workflow_is_recorded_in_the_log(project):
+    """``run_workflow`` used to drive the compiled graph directly and write nothing to the
+    event log; it now plays on the Runtime like every other turn."""
+    out = asyncio.run(project.run_workflow("HelloFlow", {"text": "hi"}, thread_id="t-hello"))
+    assert out["text"] == "HI"
+
+    events = asyncio.run(project.store.read("t-hello", _ctx("t-hello")))
+    assert [event.kind for event in events] == ["run.started", "node.updated", "run.completed"]
+
+
 def test_run_agent_is_recorded_and_returns_a_turn_result(project, monkeypatch):
     """``run_agent`` used to hand back the SDK's own ``RunResult`` and write nothing to the
     log; it now does neither — read the run back by its own ``run_id`` to prove it landed.
@@ -220,6 +230,30 @@ def test_chat_stream_yields_canonical_events_and_is_recorded(project, monkeypatc
     # rather than the caller having to trust chat_stream's own bookkeeping
     stored = asyncio.run(project.store.read("s1", _ctx("s1")))
     assert [event.kind for event in stored] == [event.kind for event in events]
+
+
+def test_chat_stream_closes_the_runtime_generator_on_abandonment(project, monkeypatch):
+    """A caller that stops mid-stream must not leave the run open in the log holding its
+    session forever: closing only ``chat_stream``'s own frame would abandon the Runtime's
+    generator to the GC instead of closing it, the same trap :func:`_turn_result` (the
+    non-streamed methods) avoids by draining to a natural end rather than returning early."""
+    monkeypatch.setattr(
+        "agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel(deltas=("Hel", "lo")))
+    )
+
+    async def _scenario():
+        stream = project.chat_stream("Greeter", "s1", "hello")
+        first = await anext(stream)
+        second = await anext(stream)
+        await stream.aclose()
+        # read back inside the same loop, right after aclose() — asyncio.run()'s own
+        # asyncgen teardown on exit would close an abandoned inner generator anyway,
+        # which would make this assertion pass regardless of what chat_stream does.
+        return first, second, await project.store.read("s1", _ctx("s1"))
+
+    first, second, events = asyncio.run(_scenario())
+    assert (first.kind, second.kind) == ("run.started", "text.delta")
+    assert [event.kind for event in events] == ["run.started", "text.delta", "run.cancelled"]
 
 
 def test_chat_and_chat_stream_share_one_session(project, monkeypatch):
