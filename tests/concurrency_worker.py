@@ -17,10 +17,11 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from agents import Agent, Model
+from agents import Agent, Model, SQLiteSession
 from openai.types.responses import (
     Response,
     ResponseCompletedEvent,
@@ -32,27 +33,32 @@ from openai.types.responses import (
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
 from agentdeck.adapters.control.sqlite import SqliteControlPort
-from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
+from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
 from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import TextBlock, coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
+    Event,
     MessageCompleted,
     NodeUpdated,
     RunCompleted,
+    RunContextSnapshot,
     RunInterrupted,
+    RunStarted,
     TextDelta,
     Usage,
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports.control import Signal
+from agentdeck.errors import SessionBusyError, StoreError
 from agentdeck.runtime.service import Runtime
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 
-    from agentdeck.core.events import Event, KnownPayload
+    from agentdeck.core.events import KnownPayload
+    from agentdeck.core.ports import SessionClaim
 
 TENANT = "demo"
 PRINCIPAL = "user:demo"
@@ -73,11 +79,21 @@ RESTART_SUSPENDED = "restart-suspended"
 RESTART_KILLED = "restart-killed"
 RESTART_STALL_AFTER = 3
 
+TAKEOVER_LOG = "takeover-log"
+TAKEOVER_KILLED = "takeover-killed"
+TAKEOVER_NEXT = "takeover-next"
+TAKEOVER_STALL_AFTER = 3
+REFUSED = "refused"
+
 APPROVED_KINDS = ["run.resumed", "node.updated", "message.completed", "run.completed"]
 
 
 def events_db(root: Path) -> Path:
     return root / "events.sqlite3"
+
+
+def session_db(root: Path) -> Path:
+    return root / "session.sqlite3"
 
 
 def control_db(root: Path) -> Path:
@@ -110,12 +126,60 @@ def cancel_is_racing(trial: int) -> bool:
     return trial % 2 == 0
 
 
-def interleave_log_key(trial: int) -> str:
-    return f"interleave-{trial}"
+def crossrun_log_key(trial: int) -> str:
+    return f"crossrun-{trial}"
 
 
-def interleave_run_id(trial: int, tag: str) -> str:
-    return f"interleave-{trial}-{tag}"
+def crossrun_run_id(trial: int, tag: str) -> str:
+    return f"crossrun-{trial}-{tag}"
+
+
+def crossrun_script(tag: str) -> list[KnownPayload]:
+    """One whole run, opening and terminal included, long enough that two of them appended at
+    once really do interleave in the file rather than landing as two tidy blocks."""
+    return [
+        RunStarted(
+            invocable=CHATTY,
+            kind_of_invocable="agent",
+            input=[TextBlock(text="go")],
+            context=RunContextSnapshot(principal=PRINCIPAL, trace_id=f"t-{tag}"),
+        ),
+        *(TextDelta(message_id=f"m-{tag}", text=f"{tag}{index} ") for index in range(CHATTY_DELTAS)),
+        MessageCompleted(message_id=f"m-{tag}", text=f"{tag} done"),
+        RunCompleted(output=[TextBlock(text=f"{tag} done")], usage=Usage(input_tokens=1, output_tokens=1)),
+    ]
+
+
+def session_log_key(trial: int) -> str:
+    return f"session-{trial}"
+
+
+def session_run_id(trial: int, tag: str) -> str:
+    return f"session-{trial}-{tag}"
+
+
+def attempted_file(sync: Path, log_key: str, tag: str) -> Path:
+    """Marks that this peer's claim on ``log_key`` has been answered, win or refusal."""
+    return sync / f"attempted.{log_key}.{tag}"
+
+
+def session_key(trial: int) -> str:
+    """The SDK session key the engine keeps this session's execution state under."""
+    return f"{TENANT}:{session_log_key(trial)}"
+
+
+def turn_input(tag: str) -> str:
+    """Each peer's turn says who asked it, so the engine's own session shows whose turn ran."""
+    return f"go {tag}"
+
+
+def session_items(root: Path, trial: int) -> list[Any]:
+    """One trial's engine-private execution state, read from the file both peers shared."""
+    session = SQLiteSession(session_key(trial), session_db(root))
+    try:
+        return asyncio.run(session.get_items())
+    finally:
+        session.close()
 
 
 def context(run_id: str, session_id: str | None = None) -> RunContext:
@@ -217,6 +281,57 @@ class ClaimTimingStore(SqliteEventStore):
                 handle.write(f"{run_id} {started} {time.time_ns()}\n")
 
 
+class ClaimStartTimingStore(SqliteEventStore):
+    """``ClaimTimingStore``'s twin for the session claim: it holds each peer at a barrier in the
+    one instant before the claim, and records the window the attempt then occupied.
+
+    The barrier belongs *here* rather than before the turn, because "exactly one turn ran" has to
+    be a fact about the claim and not about who was faster. Released earlier, the two peers drift
+    apart over a store read apiece — and on a loaded box the winner's whole run can be over before
+    the loser asks, which is a legal pair of sequential turns and proves nothing about the claim.
+    Meeting at the claim itself, the loser always asks while the winner's claim is in flight.
+
+    The window is still recorded, because a barrier says the peers arrived together and only the
+    two windows say they were genuinely inside the claim at the same moment. Wall-clock
+    nanoseconds, not a monotonic count: only the wall clock means the same thing in two processes.
+    """
+
+    def __init__(self, path: Path, windows: Path, sync: Path, tag: str) -> None:
+        super().__init__(path)
+        self._windows = windows
+        self._sync = sync
+        self._tag = tag
+
+    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
+        await _barrier(self._sync, f"claim.{log_key}", self._tag)
+        started = time.time_ns()
+        try:
+            return await super().claim_start(log_key, event, ctx, stale_before)
+        finally:
+            with self._windows.open("a") as handle:
+                handle.write(f"{log_key} {started} {time.time_ns()}\n")
+            # Whatever it answered, this peer has now asked — which is what the winner's own run
+            # waits for before it is allowed to finish.
+            attempted_file(self._sync, log_key, self._tag).touch()
+
+
+class FileSessions(ExecutionStore):
+    """The engine's execution state in a file, so what a turn wrote into the SDK's session
+    outlives the process that wrote it and both peers really share one conversation."""
+
+    def __init__(self, path: Path) -> None:
+        super().__init__()
+        self._path = path
+        self._open: dict[str, SQLiteSession] = {}
+
+    def session_for(self, ctx: RunContext) -> SQLiteSession:
+        key = f"{ctx.tenant}:{ctx.log_key}"
+        session = self._open.get(key)
+        if session is None:
+            session = self._open[key] = SQLiteSession(key, self._path)
+        return session
+
+
 class StallingStore(SqliteEventStore):
     """Blocks forever once ``run_id`` has ``after`` events durable, so the test can kill
     this process with that run genuinely open mid-stream — not tidily between two runs."""
@@ -230,11 +345,45 @@ class StallingStore(SqliteEventStore):
 
     async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
         await super().append(log_key, events, ctx)
+        await self._stall_once_deep_enough(events)
+
+    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
+        # A run's opening event is written by the session claim, not by append, so counting a
+        # run's durable events means counting at both doors.
+        claim = await super().claim_start(log_key, event, ctx, stale_before)
+        if claim.held_by is None:
+            await self._stall_once_deep_enough([event])
+        return claim
+
+    async def _stall_once_deep_enough(self, events: Sequence[Event]) -> None:
         self._written += sum(1 for event in events if event.run_id == self._run_id)
         if self._written >= self._after:
             self._mid.touch()
             while True:  # a SIGKILL from the test is the only way out, which is the point
                 await asyncio.sleep(0.05)
+
+
+class PeerClaimModel(Model):
+    """Streams a fixed script but refuses to finish until the peer's claim has been answered.
+
+    Without it, "exactly one turn ran" is only true when the loser asks while the winner is still
+    running, and nothing guarantees that: on a box with one usable core the winner's whole run can
+    be over before the loser is scheduled at all, which is a legal pair of *sequential* turns and
+    says nothing about the claim. Waiting for the peer's mark makes the overlap a property of the
+    fixture instead of a hope about the scheduler.
+    """
+
+    def __init__(self, attempted: Path) -> None:
+        self._attempted = attempted
+
+    async def stream_response(self, *_args: Any, **_kwargs: Any) -> AsyncIterator[Any]:
+        for index in range(CHUNK_COUNT):
+            yield _delta(index)
+        await _await_file(self._attempted)
+        yield _completed()
+
+    async def get_response(self, *_args: Any, **_kwargs: Any) -> Any:
+        raise NotImplementedError("this fixture only streams")
 
 
 class BarrierModel(Model):
@@ -279,8 +428,13 @@ def _delta(index: int) -> ResponseTextDeltaEvent:
     )
 
 
+def chunk_text() -> str:
+    """The whole answer ``BarrierModel`` streams — what one finished turn leaves in a session."""
+    return "".join(f"chunk{index} " for index in range(CHUNK_COUNT))
+
+
 def _completed() -> ResponseCompletedEvent:
-    text = "".join(f"chunk{index} " for index in range(CHUNK_COUNT))
+    text = chunk_text()
     usage = ResponseUsage(
         input_tokens=1,
         input_tokens_details=InputTokensDetails(cached_tokens=0),
@@ -362,17 +516,111 @@ async def _race_cancel(tag: str, trials: int, root: Path) -> None:
             _report(trial, tag, [event.kind for event in events])
 
 
-async def _race_interleave(tag: str, trials: int, root: Path) -> None:
-    """Two different runs, one session log, both peers writing into it at once."""
+async def _race_session(tag: str, trials: int, root: Path) -> None:
+    """Both peers start a turn on one session, meeting inside the claim itself; the store picks
+    the winner. The barrier lives in ``ClaimStartTimingStore`` for the reason its docstring gives.
+
+    A real engine with its execution state in a file, not the stub: the reason one turn per
+    session is a rule at all is that the loser would otherwise be handing the same SDK session
+    to a second run of the same conversation, and only a file shows what the winner left there
+    after both processes are gone.
+    """
     sync = root / "sync"
-    store = SqliteEventStore(events_db(root))
-    runtime = Runtime([StubEngine()], store, {CHATTY: chatty_spec(tag)})
+    store = ClaimStartTimingStore(events_db(root), windows_file(root), sync, tag)
+    engine = OpenAIAgentsEngine(FileSessions(session_db(root)))
     for trial in range(trials):
         async with asyncio.timeout(TRIAL_TIMEOUT):
-            await _barrier(sync, f"interleave-{trial}", tag)
-            ctx = context(interleave_run_id(trial, tag), interleave_log_key(trial))
-            events = [event async for event in runtime.run(CHATTY, coerce_input("go"), ctx)]
+            log_key = session_log_key(trial)
+            model = PeerClaimModel(attempted_file(sync, log_key, PEER[tag]))
+            agent = Agent(name=CHATTY, instructions="stream", model=model)
+            spec = InvocableSpec(name=CHATTY, kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
+            runtime = Runtime([engine], store, {CHATTY: spec})
+            ctx = context(session_run_id(trial, tag), log_key)
+            try:
+                events = [event async for event in runtime.run(CHATTY, coerce_input(turn_input(tag)), ctx)]
+            except SessionBusyError as refusal:
+                # Asserted here rather than reported outwards: the refusal has to name the
+                # session and the run holding it, and a wrong message must fail the trial.
+                assert session_log_key(trial) in str(refusal), str(refusal)
+                assert session_run_id(trial, PEER[tag]) in str(refusal), str(refusal)
+                _report(trial, tag, [REFUSED])
+                continue
             _report(trial, tag, [event.kind for event in events])
+
+
+async def _race_crossrun(tag: str, trials: int, root: Path) -> None:
+    """Two different runs of one log, written into by both peers at once, event by event.
+
+    Below the Runtime deliberately: one session admits one turn now, so a log with two live runs
+    in it is what a takeover leaves behind rather than something a caller can ask for. The store
+    still owes both of them the same two things — each run's ``seq`` is its own, and a ``seq`` a
+    run has already spent is refused rather than written twice.
+    """
+    sync = root / "sync"
+    store = SqliteEventStore(events_db(root))
+    for trial in range(trials):
+        async with asyncio.timeout(TRIAL_TIMEOUT):
+            log_key = crossrun_log_key(trial)
+            ctx = context(crossrun_run_id(trial, tag), log_key)
+            script = crossrun_script(tag)
+            await _barrier(sync, f"crossrun-{trial}", tag)
+            for seq, payload in enumerate(script):
+                await store.append(log_key, [_stamped(payload, seq, ctx)], ctx)
+            await _refuse_a_spent_seq(store, log_key, ctx)
+            _report(trial, tag, [payload.kind for payload in script])
+
+
+async def _refuse_a_spent_seq(store: SqliteEventStore, log_key: str, ctx: RunContext) -> None:
+    """Ask the log to take this run's ``seq`` 0 a second time. Asserted in the worker so a store
+    that accepts it fails the trial here, with the peer still writing into the same file."""
+    spent = _stamped(TextDelta(message_id="m-again", text="not yours"), 0, ctx)
+    try:
+        await store.append(log_key, [spent], ctx)
+    except StoreError:
+        return
+    raise AssertionError(f"log {log_key!r} accepted a second event at seq 0 of run {ctx.run_id!r}")
+
+
+def _stamped(payload: KnownPayload, seq: int, ctx: RunContext) -> Event:
+    """The envelope the Runtime would put on — by hand, because this race is the store's own."""
+    return Event(
+        kind=payload.kind,
+        seq=seq,
+        run_id=ctx.run_id,
+        session_id=ctx.session_id,
+        tenant=ctx.tenant,
+        origin=CHATTY,
+        ts=datetime.now(UTC),
+        payload=payload,
+    )
+
+
+async def _takeover_victim(root: Path) -> None:
+    """Open a turn on the session and stall mid-stream, waiting to be killed with it open."""
+    store = StallingStore(events_db(root), TAKEOVER_KILLED, TAKEOVER_STALL_AFTER, root / "sync" / "mid")
+    runtime = Runtime([StubEngine()], store, {CHATTY: chatty_spec("killed")})
+    async for _event in runtime.run(CHATTY, coerce_input("go"), context(TAKEOVER_KILLED, TAKEOVER_LOG)):
+        pass  # the store stalls this run partway through and never lets it finish
+
+
+async def _takeover_successor(root: Path) -> None:
+    """A fresh process asking for the next turn of the session the killed run still holds.
+
+    The staleness window is left to the settings on purpose: the test runs this twice, once
+    with the default — which must refuse — and once with the window shortened through the
+    environment, the way an operator would set it, which must get through.
+    """
+    store = SqliteEventStore(events_db(root))
+    runtime = Runtime([StubEngine()], store, {CHATTY: chatty_spec("next")})
+    ctx = context(TAKEOVER_NEXT, TAKEOVER_LOG)
+    try:
+        events = [event async for event in runtime.run(CHATTY, coerce_input("go"), ctx)]
+    except SessionBusyError as refusal:
+        assert TAKEOVER_LOG in str(refusal), str(refusal)
+        assert TAKEOVER_KILLED in str(refusal), str(refusal)
+        _report(0, "successor", [REFUSED])
+        return
+    _report(0, "successor", [event.kind for event in events])
 
 
 async def _restart_victim(root: Path) -> None:
@@ -382,7 +630,9 @@ async def _restart_victim(root: Path) -> None:
     suspended = context(RESTART_SUSPENDED, RESTART_LOG)
     opening = [event async for event in runtime.run(APPROVER, coerce_input("go"), suspended)]
     _report(0, "victim", [event.kind for event in opening])
-    async for _event in runtime.run(CHATTY, coerce_input("go"), context(RESTART_KILLED, RESTART_LOG)):
+    # Its own log, not the suspended run's: that session has an open run, and one session
+    # admits one turn at a time, so a second run there would be refused rather than killed.
+    async for _event in runtime.run(CHATTY, coerce_input("go"), context(RESTART_KILLED)):
         pass  # the store stalls this run partway through and never lets it finish
 
 
@@ -393,7 +643,7 @@ async def _restart_successor(root: Path) -> None:
     suspended = context(RESTART_SUSPENDED, RESTART_LOG)
     resumed = [event async for event in runtime.resume(APPROVER, THREAD_ID, "approved", suspended)]
     _report(0, "successor", [event.kind for event in resumed])
-    killed = context(RESTART_KILLED, RESTART_LOG)
+    killed = context(RESTART_KILLED)
     stray = [event async for event in runtime.resume(CHATTY, THREAD_ID, "approved", killed)]
     _report(1, "successor", [event.kind for event in stray])
 
@@ -404,8 +654,14 @@ async def main() -> None:
         await _race_resume(tag, trials, root)
     elif race == "cancel":
         await _race_cancel(tag, trials, root)
-    elif race == "interleave":
-        await _race_interleave(tag, trials, root)
+    elif race == "session":
+        await _race_session(tag, trials, root)
+    elif race == "crossrun":
+        await _race_crossrun(tag, trials, root)
+    elif race == "takeover" and tag == "victim":
+        await _takeover_victim(root)
+    elif race == "takeover":
+        await _takeover_successor(root)
     elif race == "restart" and tag == "victim":
         await _restart_victim(root)
     elif race == "restart":

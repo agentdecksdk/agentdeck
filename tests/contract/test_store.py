@@ -10,8 +10,9 @@ ports by shape: whatever fails underneath, callers see the harness's own error t
 
 from __future__ import annotations
 
+import asyncio
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -24,12 +25,15 @@ from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
     Event,
     KnownPayload,
+    RunCancelled,
     RunCompleted,
+    RunFailed,
     RunInterrupted,
     RunResumed,
     RunStarted,
     TextDelta,
 )
+from agentdeck.core.ports import SessionClaim
 from agentdeck.core.ports.control import Signal
 from agentdeck.core.status import RunStatus
 from agentdeck.errors import StoreError
@@ -52,7 +56,14 @@ def _ctx(tenant: str = "acme") -> RunContext:
     return RunContext(tenant=tenant, principal="user:1", run_id="r-1", trace_id="tr-1", session_id="s-1")
 
 
-def _event(seq: int, payload: KnownPayload, tenant: str = "acme", run_id: str = "r-1", log_key: str = "s-1") -> Event:
+def _event(
+    seq: int,
+    payload: KnownPayload,
+    tenant: str = "acme",
+    run_id: str = "r-1",
+    log_key: str = "s-1",
+    ts: datetime = TS,
+) -> Event:
     return Event(
         kind=payload.kind,
         seq=seq,
@@ -60,7 +71,7 @@ def _event(seq: int, payload: KnownPayload, tenant: str = "acme", run_id: str = 
         session_id=log_key,
         tenant=tenant,
         origin="Greeter",
-        ts=TS,
+        ts=ts,
         payload=payload,
     )
 
@@ -123,6 +134,188 @@ async def test_run_status_is_scoped_to_one_run_not_the_whole_log(event_store: Ev
     )
     assert await event_store.run_status("s-1", "r-1", ctx) is RunStatus.RUNNING
     assert await event_store.run_status("s-1", "r-2", ctx) is RunStatus.COMPLETED
+
+
+# Cutoffs on either side of every event these tests write, so staleness is decided by the
+# argument and never by how long the test itself took.
+BEFORE_ANY_EVENT = TS - timedelta(hours=1)
+AFTER_EVERY_EVENT = TS + timedelta(hours=1)
+
+
+def _opening(run_id: str = "r-1", log_key: str = "s-1", tenant: str = "acme", ts: datetime = TS) -> Event:
+    return _event(0, _started(), tenant=tenant, run_id=run_id, log_key=log_key, ts=ts)
+
+
+async def test_claim_start_opens_a_run_on_an_idle_session(event_store: EventStorePort) -> None:
+    ctx = _ctx()
+    assert await event_store.claim_start("s-1", _opening(), ctx, BEFORE_ANY_EVENT) == SessionClaim()
+    assert [event.kind for event in await event_store.read("s-1", ctx)] == ["run.started"]
+    assert await event_store.run_status("s-1", "r-1", ctx) is RunStatus.RUNNING
+
+
+async def test_claim_start_refuses_a_session_that_already_has_a_run_going(event_store: EventStorePort) -> None:
+    """The refusal names the run holding the session, and writes nothing: one turn per session,
+    decided by the same write that would have opened the second one."""
+    ctx = _ctx()
+    await event_store.append("s-1", [_opening()], ctx)
+
+    assert await event_store.claim_start("s-1", _opening(run_id="r-2"), ctx, BEFORE_ANY_EVENT) == SessionClaim(
+        held_by="r-1"
+    )
+    assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-1"]
+
+
+async def test_claim_start_refuses_a_session_whose_run_is_waiting_on_a_human(event_store: EventStorePort) -> None:
+    """``WAITING_HUMAN`` is not free: the interrupted run still owns its engine's thread, and a
+    second run against it would write over the checkpoints that run resumes from."""
+    ctx = _ctx()
+    await _interrupt(event_store, ctx)
+
+    claim = await event_store.claim_start("s-1", _opening(run_id="r-2"), ctx, BEFORE_ANY_EVENT)
+    assert claim == SessionClaim(held_by="r-1")
+    assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-1", "r-1"]
+
+
+@pytest.mark.parametrize(
+    "closing",
+    [
+        pytest.param(RunCompleted(output=[], usage={"input_tokens": 1, "output_tokens": 1}), id="completed"),
+        pytest.param(RunFailed(error_code="engine_error", message="boom", retryable=False), id="failed"),
+        pytest.param(RunCancelled(reason="consumer stopped reading"), id="cancelled"),
+    ],
+)
+async def test_claim_start_wins_once_the_previous_run_is_closed(
+    event_store: EventStorePort, closing: KnownPayload
+) -> None:
+    """Every terminal event frees the session — a turn after a failed or cancelled one is the
+    ordinary case, not a special one."""
+    ctx = _ctx()
+    await event_store.append("s-1", [_opening(), _event(1, closing)], ctx)
+
+    assert await event_store.claim_start("s-1", _opening(run_id="r-2"), ctx, BEFORE_ANY_EVENT) == SessionClaim()
+    assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-1", "r-1", "r-2"]
+
+
+async def test_a_run_that_recorded_no_transition_holds_no_session(event_store: EventStorePort) -> None:
+    """``PENDING`` is indistinguishable from a run the store never saw, so it cannot hold
+    anything — the same line ``list_runs`` draws."""
+    ctx = _ctx()
+    await event_store.append("s-1", [_event(0, TextDelta(message_id="m1", text="hi"), run_id="r-0")], ctx)
+
+    assert await event_store.claim_start("s-1", _opening(), ctx, BEFORE_ANY_EVENT) == SessionClaim()
+
+
+async def test_claim_start_is_scoped_to_one_log_not_the_whole_store(event_store: EventStorePort) -> None:
+    """A run going in one session says nothing about another: sessions are the unit that runs
+    one turn at a time."""
+    ctx = _ctx()
+    await event_store.append("s-1", [_opening()], ctx)
+
+    assert await event_store.claim_start("s-2", _opening(run_id="r-2", log_key="s-2"), ctx, BEFORE_ANY_EVENT) == (
+        SessionClaim()
+    )
+
+
+async def test_claim_start_never_sees_another_tenants_open_run(event_store: EventStorePort) -> None:
+    """Two tenants are free to pick the same session id; neither may hold the other's session,
+    and an event stamped for a foreign tenant never lands in this log."""
+    await event_store.append("s-1", [_opening()], _ctx("acme"))
+    intruder = _ctx("globex")
+
+    assert await event_store.claim_start(
+        "s-1", _opening(run_id="r-9", tenant="globex"), intruder, BEFORE_ANY_EVENT
+    ) == (SessionClaim())
+    with pytest.raises(ValueError, match="acme"):
+        await event_store.claim_start("s-1", _opening(run_id="r-8"), intruder, BEFORE_ANY_EVENT)
+
+
+async def test_a_run_silent_past_the_cutoff_stops_holding_its_session(event_store: EventStorePort) -> None:
+    """The hard-kill case: a process that died leaves a run nothing will ever close, so an open
+    run that has gone quiet long enough is stepped over — and reported, because closing it means
+    stamping an event, which is the caller's job and not a store's."""
+    ctx = _ctx()
+    await event_store.append("s-1", [_opening()], ctx)
+
+    claim = await event_store.claim_start("s-1", _opening(run_id="r-2"), ctx, AFTER_EVERY_EVENT)
+    assert claim == SessionClaim(overridden=("r-1",))
+    assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-1", "r-2"]
+    assert [event.kind for event in await event_store.read_run("s-1", "r-1", ctx)] == ["run.started"]
+
+
+async def test_staleness_is_measured_from_the_last_event_of_a_run_not_its_last_transition(
+    event_store: EventStorePort,
+) -> None:
+    """A run streaming for hours has an old ``run.started`` and a very recent delta. Judging it
+    by the transition would take a working turn's session away from it mid-stream."""
+    ctx = _ctx()
+    recent = _event(1, TextDelta(message_id="m1", text="still here"), ts=AFTER_EVERY_EVENT)
+    await event_store.append("s-1", [_opening(), recent], ctx)
+
+    claim = await event_store.claim_start("s-1", _opening(run_id="r-2"), ctx, TS + timedelta(minutes=1))
+    assert claim == SessionClaim(held_by="r-1")
+    assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-1", "r-1"]
+
+
+async def test_one_live_run_refuses_a_claim_even_beside_an_abandoned_one(event_store: EventStorePort) -> None:
+    """A refused claim overrides nothing: a session with one dead run and one live one is busy,
+    and stepping over the dead one anyway would leave a takeover half-done."""
+    ctx = _ctx()
+    await event_store.append("s-1", [_opening(run_id="r-dead")], ctx)
+    await event_store.append("s-1", [_opening(run_id="r-live", ts=AFTER_EVERY_EVENT)], ctx)
+
+    claim = await event_store.claim_start("s-1", _opening(run_id="r-2"), ctx, TS + timedelta(minutes=1))
+    assert claim == SessionClaim(held_by="r-live")
+    assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-dead", "r-live"]
+
+
+async def test_two_claims_gathered_on_one_session_have_exactly_one_winner(event_store: EventStorePort) -> None:
+    """The claim's own atomicity, not the Runtime's use of it: an ``await`` slipped between the
+    scan and the append would let both of these find the session idle, and every other test here
+    would still pass."""
+    ctx = _ctx()
+    claims = await asyncio.gather(
+        event_store.claim_start("s-1", _opening(run_id="r-1"), ctx, BEFORE_ANY_EVENT),
+        event_store.claim_start("s-1", _opening(run_id="r-2"), ctx, BEFORE_ANY_EVENT),
+    )
+
+    assert [claim.held_by is None for claim in claims].count(True) == 1, claims
+    assert len(await event_store.read("s-1", ctx)) == 1
+
+
+async def test_one_seq_per_run_is_refused_a_second_time(event_store: EventStorePort) -> None:
+    """The corruption a gap check cannot see. Two writers only ever share a run when one of them
+    was presumed dead and came back, and the second event at that ``seq`` would make every
+    consumer's refetch of it a coin toss — so the store refuses it, and says so as a
+    ``StoreError`` rather than a silent write."""
+    ctx = _ctx()
+    await event_store.append("s-1", [_opening()], ctx)
+
+    with pytest.raises(StoreError):
+        await event_store.append("s-1", [_event(0, TextDelta(message_id="m1", text="not yours"))], ctx)
+    assert [event.kind for event in await event_store.read("s-1", ctx)] == ["run.started"]
+
+
+async def test_a_batch_holding_its_own_duplicate_seq_is_refused_whole(event_store: EventStorePort) -> None:
+    """All or nothing: a rejected batch must not leave the events before the duplicate behind,
+    or the log would hold a partial write nobody asked for."""
+    ctx = _ctx()
+    delta = TextDelta(message_id="m1", text="hi")
+    with pytest.raises(StoreError):
+        await event_store.append("s-1", [_opening(), _event(1, delta), _event(1, delta)], ctx)
+    assert await event_store.read("s-1", ctx) == []
+
+
+async def test_one_seq_per_run_does_not_stop_two_runs_sharing_a_seq_in_one_log(
+    event_store: EventStorePort,
+) -> None:
+    """``seq`` is per run, so every run in a session log counts from 0 — the constraint is on the
+    pair, and a store that keyed it on the log alone would refuse the second run's opening event."""
+    ctx = _ctx()
+    await event_store.append("s-1", [_opening(run_id="r-1")], ctx)
+    await event_store.append("s-1", [_opening(run_id="r-2")], ctx)
+
+    assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-1", "r-2"]
+    assert [event.seq for event in await event_store.read("s-1", ctx)] == [0, 0]
 
 
 async def _interrupt(event_store: EventStorePort, ctx: RunContext, run_id: str = "r-1") -> None:
@@ -367,6 +560,11 @@ _SQLITE_CALLS = [
     pytest.param(SqliteEventStore, lambda port: port.last_seq("s-1", "r-1", _ctx()), id="last_seq"),
     pytest.param(SqliteEventStore, lambda port: port.run_status("s-1", "r-1", _ctx()), id="run_status"),
     pytest.param(SqliteEventStore, lambda port: port.claim_resume("s-1", "r-1", _resumed(2), _ctx()), id="claim"),
+    pytest.param(
+        SqliteEventStore,
+        lambda port: port.claim_start("s-1", _opening(), _ctx(), BEFORE_ANY_EVENT),
+        id="claim_start",
+    ),
     pytest.param(SqliteEventStore, lambda port: port.list_runs(_ctx()), id="list_runs"),
     pytest.param(SqliteControlPort, lambda port: port.signal("r-1", Signal.CANCEL), id="signal"),
     pytest.param(SqliteControlPort, lambda port: port.poll("r-1"), id="poll"),

@@ -7,7 +7,7 @@ on ``EventSinkPort`` and not on everything the Runtime can do.
 from agentdeck.core.ports.control import ControlPort, Gate, RunCancelledError, Signal
 from agentdeck.core.ports.engine import EnginePort
 from agentdeck.core.ports.sink import EventSinkPort
-from agentdeck.core.ports.store import EventStorePort, RunSummary
+from agentdeck.core.ports.store import EventStorePort, RunSummary, SessionClaim
 from agentdeck.core.ports.tools import ToolSet, ToolSourcePort
 
 __all__ = [
@@ -18,6 +18,7 @@ __all__ = [
     "Gate",
     "RunCancelledError",
     "RunSummary",
+    "SessionClaim",
     "Signal",
     "ToolSet",
     "ToolSourcePort",

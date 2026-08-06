@@ -105,6 +105,10 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   unreachable server still degrades a run instead of failing it, and an agent
   whose servers are all up gets its instructions back byte-for-byte, so upstream
   prompt caches keep hitting.
+- `agentdeck.SessionBusyError`: the error raised when a turn is asked for on a
+  session that already has one running. It names the session and the run holding
+  it, and is an `AgentdeckError` like every other, so `except AgentdeckError`
+  already covers it.
 - `EventSinkPort.close()` (`agentdeck.core.ports`): the hook a sink that buffers
   needs to get its buffer out at shutdown. `Runtime.drain()` now calls it once per
   sink — after the sink's queued events have been handed over and its consumer
@@ -208,6 +212,47 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   and move them together, not the one file on its own — and WAL depends on
   shared memory that network filesystems (NFS, SMB) do not provide reliably, so
   keep these databases on local disk. In-memory databases are unaffected.
+- **One turn per session at a time.** Starting a turn on a session that already
+  has a run in flight now fails immediately with `SessionBusyError`, naming the
+  session and the run that holds it, instead of running the second turn against a
+  conversation the first one is still changing — which silently corrupted the
+  model's context and could lose a message from either turn. A session counts as
+  busy until its run reaches a terminal event, and a run waiting on a human answer
+  is still busy: it owns the thread its resume continues from. Sequential turns,
+  resumes and runs without a session are unaffected, and two different sessions
+  never contend. This holds across processes, because the check and the write that
+  opens the run are one store operation, so it is not defeated by a second worker.
+  What a caller should do with the refusal is retry or report it; the losing turn
+  is not queued (that is deliberately deferred, not forgotten). Over HTTP the v2
+  chat route answers **409 Conflict** with the holding run named in `detail`,
+  before the event stream starts. A client that disconnects in that window — after
+  the turn was admitted but before the first event reached it — has its run closed
+  as cancelled, so the session is free for the retry rather than held.
+- The event log now enforces **one `seq` per run**: `(tenant, session, run, seq)`
+  is unique in the SQLite store and refused by the in-memory one, so a write that
+  would put a second event at a `seq` a run has already used fails with
+  `StoreError` instead of landing. A duplicate is the one corruption a gap check
+  cannot see, and it would make refetching that `seq` — the whole point of
+  contiguous `seq` — return whichever copy came back first. `seq` is still per
+  run, so runs sharing a session log all count from 0 as before. Note for existing
+  installations: only event databases created by this version carry the
+  constraint, since v2 has no schema migration yet.
+- A run whose process was killed outright — the one exit that cannot close its own
+  run in the log — no longer holds its session for good. An open run that has
+  written nothing for `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` (one hour by
+  default) stops blocking new turns; the next turn takes the session over, closes
+  the abandoned run as `run.failed` with error code `cancelled_hard`, and logs the
+  takeover at WARNING. Two things follow from that window, both tunable with the
+  same setting: a session a crashed process left claimed is refused until the
+  window elapses, and an approval that has been waiting on a human for longer than
+  the window is closed as failed when somebody starts a new turn on that session —
+  installations with slower approvals should raise it. Keep it comfortably above the
+  longest a healthy turn can go without emitting an event: shortened below that, a
+  turn that is merely quiet looks abandoned and the next turn takes its session,
+  which loses the one-turn-per-session guarantee instead of tuning it. Only
+  positivity is checked — the real floor depends on your workload. Running several
+  workers on machines whose clocks disagree shortens the window by the worst skew
+  between them for the same reason, so keep them on NTP and leave headroom.
 
 ### Fixed
 - An `output_type` agent run through the v2 `Runtime` no longer fails at its last

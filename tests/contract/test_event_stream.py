@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from agentdeck.core.events import TERMINAL_KINDS, check_contiguous, check_terminal
+from agentdeck.core.events import TERMINAL_KINDS, RunInterrupted, check_contiguous, check_terminal
 from agentdeck.runtime.service import SUSPENDED_KINDS
 
 if TYPE_CHECKING:
@@ -103,7 +103,7 @@ async def test_a_gap_can_be_refetched_from_the_store_by_run(
 ) -> None:
     """What contiguous ``seq`` buys: a consumer that missed events asks the store for that run
     from the gap onward — and gets that run's tail only, even with two runs in the log."""
-    first = [event async for event in _tolerant(runtime.run(case.spec.name, case.input, ctx))]
+    first = await _played_out(case, runtime, ctx)
     later_ctx = replace(ctx, run_id="r-2")
     second = [event async for event in _tolerant(runtime.run(case.spec.name, case.input, later_ctx))]
 
@@ -117,11 +117,24 @@ async def test_a_second_run_in_the_session_counts_its_seq_from_zero_again(
 ) -> None:
     """``seq`` is per run, not per session: two runs in one log each count from 0, and the log
     keeps both stories end to end."""
-    first = [event async for event in _tolerant(runtime.run(case.spec.name, case.input, ctx))]
+    first = await _played_out(case, runtime, ctx)
     second = [event async for event in _tolerant(runtime.run(case.spec.name, case.input, replace(ctx, run_id="r-2")))]
 
-    assert [event.seq for event in second] == [event.seq for event in first]
+    assert [event.seq for event in second] == list(range(len(second)))
     assert await store.read(ctx.log_key, ctx) == first + second
+
+
+async def _played_out(case: Case, runtime: Runtime, ctx: RunContext) -> list[Event]:
+    """One run of the case, resumed if it suspends: every event of a run that is over.
+
+    A session admits one open run at a time, so a test that wants a second run in the log has
+    to finish the first — a case that stops to ask a question is still holding the session.
+    """
+    events = [event async for event in _tolerant(runtime.run(case.spec.name, case.input, ctx))]
+    if not events or not isinstance(events[-1].payload, RunInterrupted):
+        return events
+    thread_id = events[-1].payload.thread_id or ctx.run_id
+    return events + [event async for event in _tolerant(runtime.resume(case.spec.name, thread_id, "approved", ctx))]
 
 
 async def _tolerant(events: AsyncIterator[Event]) -> AsyncGenerator[Event, None]:

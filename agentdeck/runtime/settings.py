@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Self
@@ -184,6 +185,46 @@ class RunnerSettings(LayeredSettings):
     # ``resolve_max_tokens``) — the same two-layer split as ``temperature``, not a mirror
     # of it. ``None`` = model default (uncapped).
     max_tokens: int | None = None
+
+
+class RuntimeSettings(LayeredSettings):
+    """Knobs the Runtime itself reads.
+
+    ``stale_run_after_seconds`` is how long an open run may write nothing before it stops
+    holding its session. One session runs one turn at a time, and a run whose process was
+    killed outright never records its ending — silence is the only thing that separates it
+    from a turn still working, so the session would otherwise stay claimed for good. **One
+    hour** by default: generous next to any real turn, short enough that a crash costs a
+    session an hour rather than forever, and the trade is deliberate — a permanently wedged
+    session is worse than a rare premature takeover. Two consequences worth knowing when
+    tuning it: a session a killed process left claimed is refused until it elapses, and a run
+    waiting on a human answer for longer than it is closed as failed the next time somebody
+    starts a turn on that session.
+
+    **Set it well above the longest stretch a healthy turn can go without writing an event** — a
+    slow tool call, a long model call, a human thinking. This is the one setting here that can
+    cost you the guarantee rather than tune it: shortened far enough, an open run looks abandoned
+    while it is still working, so the next turn takes the session *from a live turn* and both run
+    on one conversation. That is not a premature cleanup, it is one turn per session no longer
+    holding. The lower bound is a property of the deployment, not of the code — how long a turn
+    can be quiet — so it cannot be validated here; positivity is all that is enforced, and at or
+    near zero the failure is immediate, since a run's own opening event is already older than the
+    cutoff a caller computes a moment later.
+
+    Mind the clock too. Each worker compares *its own* clock against timestamps its peers stamped,
+    so across machines the effective window is this value minus the worst skew between them, and a
+    worker running more than a window fast takes over live sessions on sight — the same lost
+    guarantee, arrived at by skew instead of configuration. Keep the fleet on NTP and treat the
+    window as a budget skew eats into.
+    """
+
+    model_config = settings_config("AGENTDECK_RUNTIME_")
+
+    stale_run_after_seconds: float = Field(default=60.0 * 60.0, gt=0)
+
+    @property
+    def stale_run_after(self) -> timedelta:
+        return timedelta(seconds=self.stale_run_after_seconds)
 
 
 class LangfuseSettings(LayeredSettings):
@@ -374,6 +415,7 @@ class Settings(BaseModel):
     # doesn't block strict typing.
     openai: OpenAISettings = Field(default_factory=lambda: OpenAISettings.model_validate({}))
     runner: RunnerSettings = Field(default_factory=lambda: RunnerSettings.model_validate({}))
+    runtime: RuntimeSettings = Field(default_factory=lambda: RuntimeSettings.model_validate({}))
     checkpoint: CheckpointSettings = Field(default_factory=lambda: CheckpointSettings.model_validate({}))
     events: EventsSettings = Field(default_factory=lambda: EventsSettings.model_validate({}))
     session: SessionSettings = Field(default_factory=lambda: SessionSettings.model_validate({}))
@@ -407,6 +449,7 @@ __all__ = [
     "McpSettings",
     "OpenAISettings",
     "RunnerSettings",
+    "RuntimeSettings",
     "SectionedYamlSource",
     "SessionSettings",
     "Settings",
