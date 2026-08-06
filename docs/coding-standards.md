@@ -210,6 +210,15 @@ agenda); test evidence for anything CI can't show (red-tests, two-process runs);
 amendments made. Force-pushes to shared branches: never. A PR that changes behavior and
 a PR that moves code are never the same PR.
 
+**Open the PR as a draft on the first commit, not at the end**, and push as the work
+proceeds. Two reasons, both earned: CI then reports while the slice is still in the
+author's hands rather than after a review round has been spent on it (the session-claim
+race in #104 failed on the runner only after review), and work that dies mid-slice —
+quota, API error, a worktree removed underneath it — survives on the remote instead of
+needing rescue. `gh pr ready` comes after the author's own `make check` is green and the
+ledger is written; blocked work stays draft and says why. A red draft mid-work is the
+expected state and carries no signal.
+
 ## 14. Rules for coding agents (Claude Code et al.)
 
 Handoff prompts cite this file; agents must treat it as binding. Additional agent-
