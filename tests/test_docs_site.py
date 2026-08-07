@@ -68,3 +68,32 @@ def test_nav_keys_match_pages_in_every_section(meta: Path) -> None:
     section = meta.parent
     entries = {p.stem for p in section.glob("*.mdx")} | {d.name for d in section.iterdir() if d.is_dir()}
     assert set(META_KEY.findall(meta.read_text())) == entries, f"{meta.parent.name}/_meta.ts and its pages disagree"
+
+
+# A backticked `Thing.attr` in prose, e.g. `App.chat` or `app.store`. Bare names are skipped:
+# `run` or `output` are ordinary English here, and checking them finds nothing but noise.
+DOTTED = re.compile(r"`([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)`")
+
+
+@cache
+def _package_source() -> str:
+    root = Path(__file__).resolve().parents[1] / "agentdeck"
+    return "\n".join(path.read_text() for path in root.rglob("*.py"))
+
+
+def _prose(page: Path) -> str:
+    return FENCE.sub("", page.read_text())
+
+
+@pytest.mark.parametrize("page", _pages(), ids=lambda p: p.name)
+def test_dotted_names_in_prose_still_exist_in_the_package(page: Path) -> None:
+    """Prose naming something the code no longer has is the site's most repeated defect —
+    a settings description outlived the mechanism it described by eleven days, and two pages
+    outlived an `App` change by one. Fences are already executed; this covers the sentences.
+
+    Only catches names that vanished. A sentence that is wrong *about a name that still
+    exists* reads exactly like a correct one, and nothing here will tell you.
+    """
+    source = _package_source()
+    missing = sorted({name for name in DOTTED.findall(_prose(page)) if name.split(".")[-1] not in source})
+    assert not missing, f"{page.name}: named in prose but absent from agentdeck/: {missing}"
