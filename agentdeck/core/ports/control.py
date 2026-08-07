@@ -30,13 +30,11 @@ if TYPE_CHECKING:
 CONTROL_POLL_INTERVAL = 0.2
 """Seconds a :class:`Gate` may reuse the answer it already has (issue #85).
 
-A run's control reads are bounded by this interval rather than by the rate the model emits
-tokens: a 500-chunk answer polled once per chunk costs 500 reads whose answer is "no" 499
-times, and a network-backed port pays a round trip for each. What it costs is latency, and
-only latency — a signal is still acted on *at* a safe point, up to one interval after it was
-recorded. 200ms is picked against the two things that have to live with it: a human's cancel
-click (a third of a second still reads as instant) and a real token stream (~30ms per chunk,
-so one read stands in for six).
+Bounds control reads by time instead of by token count: a 500-chunk answer polled per chunk
+costs 500 reads answering "no" 499 times, and a network-backed port pays a round trip each. The
+cost is latency only — a signal is still acted on at a safe point, up to one interval late.
+200ms is picked against a human's cancel click (still reads as instant) and a real token stream
+(~30ms per chunk, so one read stands in for six).
 """
 
 
@@ -61,13 +59,12 @@ class ControlPort(ABC):
 
     @abstractmethod
     async def signal(self, run_id: str, sig: Signal, reason: str | None = None) -> None:
-        """Record ``sig`` for ``run_id``, replacing whatever was pending. Idempotent: signaling
-        the same verb twice changes nothing. Signaling a run that already ended is harmless by
-        construction, not by an active check — nothing polls the gate once the run loop has
-        exited, so the signal simply sits unread.
+        """Record ``sig`` for ``run_id``, replacing whatever was pending. Idempotent.
 
-        ``RESUME`` lifts a pause rather than instructing a live run: it replaces the pending
-        ``PAUSE`` so a resumed run does not stop again at its first safe point.
+        Signaling an ended run is harmless by construction, not by a check — nothing polls the
+        gate once the run loop exits, so the signal sits unread. ``RESUME`` lifts a pause rather
+        than instructing a live run: it replaces the pending ``PAUSE`` so a resumed run does not
+        stop again at its first safe point.
         """
 
     @abstractmethod
@@ -78,10 +75,9 @@ class ControlPort(ABC):
 class ControlSignalled(Exception):  # noqa: N818 — not an error: a signal honored exactly as asked
     """Raised by :meth:`Gate.checkpoint` when the run must act on a signal at this safe point.
 
-    :attr:`payloads` is the whole record of that act, built here so every engine adapter tells
-    the same story with the same kinds: the request, the observation, and the verb's own
-    effect. An adapter yields them in order and stops reading its engine — it never mints a
-    kind of its own, and never decides what pausing or cancelling means.
+    :attr:`payloads` is the whole record of that act — request, observation, effect — built here
+    so every engine adapter tells the same story. An adapter yields them in order and stops
+    reading its engine; it never mints a kind, and never decides what pausing means.
     """
 
     verb: ClassVar[ControlVerb]
@@ -126,17 +122,16 @@ class RunPausedError(ControlSignalled):
 class Gate:
     """One run's cooperative safe point.
 
-    With no ``control`` port (the default), ``checkpoint()`` is a no-op — every existing run
-    that never wires a ``ControlPort`` behaves exactly as before. A run that does gets one
-    bound to its own ``run_id``, built by the Runtime, never by the caller.
+    With no ``control`` port (the default) ``checkpoint()`` is a no-op. A run that has one gets a
+    gate bound to its own ``run_id``, built by the Runtime, never by the caller.
 
-    Nothing here ever parks a run: a checkpoint reads at most one pending signal and then
-    either returns or raises. A pause is not a wait *at* the gate — the run unwinds to the
-    Runtime, which records ``run.paused`` and lets the process go, so the pause outlives the
-    process and can be lifted by whichever worker picks the run up.
+    Nothing here ever parks a run: a checkpoint reads at most one pending signal, then returns or
+    raises. A pause is not a wait *at* the gate — the run unwinds to the Runtime, which records
+    ``run.paused`` and lets the process go, so the pause outlives the process and any worker can
+    lift it.
 
-    ``clock`` is a monotonic source, injected so a test can assert the read bound as a fact
-    rather than sit through an interval.
+    ``clock`` is monotonic, injected so a test can assert the read bound instead of sitting
+    through an interval.
     """
 
     def __init__(

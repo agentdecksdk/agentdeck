@@ -81,8 +81,7 @@ class RunCompleted(CoreModel):
     """Terminal. ``usage`` is the authoritative total for the run.
 
     A structured result — a validated ``output_type``, a workflow's final state — is a
-    ``DataBlock`` in ``output``, not a namespaced ``custom`` event and not a stringified
-    dict: the result is what the run *returned*, so it belongs on the terminal event.
+    ``DataBlock`` in ``output``, not a namespaced ``custom`` event and not a stringified dict.
     """
 
     kind: Literal["run.completed"] = "run.completed"
@@ -109,18 +108,14 @@ class RunPaused(CoreModel):
 class RunResumed(CoreModel):
     """The run continues: same ``run_id``, ``seq`` keeps counting.
 
-    ``value`` is the answer this resume carries, stored in full like ``run.started.input``
-    because it is the caller's own input and a truncated one cannot be replayed. It rides on
-    this event rather than on one of its own so that the write which flips ``WAITING_HUMAN``
-    to ``RUNNING`` is the same write that stores the answer: two writes leave a window where
-    the log says a run was answered and no longer holds what the answer was, and a run whose
-    engine never got the value is stranded — running in the log, parked at its interrupt in
-    the engine, every later resume refused as stray. ``None`` is a resume that answers
-    nothing, which is what lifting an operator's pause looks like.
+    ``value`` is the answer this resume carries, stored in full like ``run.started.input``: it is
+    the caller's own input and a truncated one cannot be replayed. It rides on this event so that
+    the write flipping ``WAITING_HUMAN`` to ``RUNNING`` is the same write that stores the answer —
+    two writes leave a window where the log says a run was answered but no longer holds what the
+    answer was. ``None`` is a resume answering nothing, which is what lifting a pause looks like.
 
-    A resume is not irreversible: the log is append-only and status is a fold over it, so a
-    resume that cannot be carried through returns the run to ``WAITING_HUMAN`` by recording
-    its interrupt again — no rollback, and no further vocabulary needed.
+    Not irreversible: the log is append-only and status is a fold over it, so a resume that cannot
+    be carried through returns the run to ``WAITING_HUMAN`` by recording its interrupt again.
     """
 
     kind: Literal["run.resumed"] = "run.resumed"
@@ -150,8 +145,7 @@ ControlVerb = Literal["cancel", "pause", "resume", "steer"]
 """Every verb run control has, including the ones whose behavior isn't built yet.
 
 Complete at birth deliberately: a member added later is not additive for a *reader*, which
-rejects the whole event rather than skipping it the way it can with an unknown kind. An unused
-member costs nothing; a missing one costs a broken consumer.
+rejects the whole event rather than skipping it the way it can an unknown kind.
 """
 
 SafePoint = Literal["stream_item", "tool_dispatch", "node_boundary"]
@@ -162,13 +156,10 @@ or at a graph node boundary. Closed for the same reason ``ControlVerb`` is."""
 class ControlRequested(CoreModel):
     """A control signal was recorded for this run — not that the run has acted on it.
 
-    Under cooperative control those are two different facts, and at the moment a caller asks
-    only this one is knowable: the run may be inside a tool call that has to return first.
-    Which is why a request is never a status transition — a run stays ``RUNNING`` until
-    ``run.paused`` or ``run.cancelled`` says otherwise.
-
-    A signal that lost the race with a terminal event records nothing at all: a terminal event
-    is a run's last event by invariant, so the no-op has nowhere to land.
+    At the moment a caller asks, only this is knowable: the run may be inside a tool call that has
+    to return first. So a request is never a status transition — a run stays ``RUNNING`` until
+    ``run.paused`` or ``run.cancelled`` says otherwise. A signal that lost the race with a
+    terminal event records nothing: a terminal event is a run's last by invariant.
     """
 
     kind: Literal["control.requested"] = "control.requested"
@@ -179,9 +170,9 @@ class ControlRequested(CoreModel):
 class ControlObserved(CoreModel):
     """The run reached a safe point, found the signal, and is acting on it.
 
-    ``safe_point`` names where, because "cancel took eight seconds" and "cancel took eight
-    seconds because a tool call did" are different answers to the same complaint. The verb's
-    own kind still records the effect: this event says the run noticed, not that it stopped.
+    ``safe_point`` names where, because "cancel took eight seconds" and "cancel took eight seconds
+    because a tool call did" are different answers to the same complaint. The verb's own kind
+    records the effect: this event says the run noticed, not that it stopped.
     """
 
     kind: Literal["control.observed"] = "control.observed"
@@ -279,9 +270,9 @@ class InputAppended(CoreModel):
 class StatusReported(CoreModel):
     """Advisory: what the run is doing right now, in words a person can read.
 
-    Not a lifecycle event and not a transition. A run's status is folded from its lifecycle
-    kinds (``core/status.py``); a run reporting ``"Searching GitHub"`` is still ``RUNNING``,
-    and a log full of these folds to exactly the status a log with none of them does.
+    Not a transition. Status is folded from the lifecycle kinds (``core/status.py``), so a run
+    reporting ``"Searching GitHub"`` is still ``RUNNING`` and a log full of these folds to exactly
+    what a log with none of them does.
     """
 
     kind: Literal["status.reported"] = "status.reported"
@@ -291,9 +282,9 @@ class StatusReported(CoreModel):
 class ProgressReported(CoreModel):
     """Advisory: which named stage the run is on, optionally counted.
 
-    ``step`` is the point of the event and is required; the counts are not, because a run that
-    knows its current stage often does not know how many there are. Never a percentage — a
-    consumer that wants one divides, and only when ``total`` is actually present.
+    ``step`` is required; the counts are not, because a run that knows its stage often does not
+    know how many there are. Never a percentage — a consumer that wants one divides, and only
+    when ``total`` is present.
     """
 
     kind: Literal["progress.reported"] = "progress.reported"

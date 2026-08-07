@@ -56,6 +56,7 @@ from agentdeck.core.events import (
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.reporting import Reporter
+from agentdeck.core.status import RunStatus, can_resume, status_of
 
 __all__ = [
     "KNOWN_BLOCK_TYPES",
@@ -92,6 +93,7 @@ __all__ = [
     "RunPaused",
     "RunResumed",
     "RunStarted",
+    "RunStatus",
     "SafePoint",
     "StatusReported",
     "TextBlock",
@@ -103,8 +105,10 @@ __all__ = [
     "UnknownEvent",
     "Usage",
     "UsageReported",
+    "can_resume",
     "check_contiguous",
     "check_terminal",
     "coerce_input",
     "parse_event",
+    "status_of",
 ]

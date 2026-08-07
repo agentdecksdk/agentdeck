@@ -59,9 +59,9 @@ class ResourceBlock(CoreModel):
 class DataBlock(CoreModel):
     """JSON data as content: a validated ``output_type`` result, a workflow's state.
 
-    ``JsonValue`` is the type, so a value that could not survive the wire is rejected here
-    at construction instead of failing later in a store or a sink. An object, an array or a
-    scalar all fit — but prose belongs in a ``TextBlock``, which is what readers render.
+    ``JsonValue`` is the type, so a value that could not survive the wire is rejected at
+    construction instead of failing later in a store or a sink. Prose belongs in a ``TextBlock``,
+    which is what readers render.
     """
 
     type: Literal["data"] = "data"
@@ -70,15 +70,12 @@ class DataBlock(CoreModel):
     @field_validator("data")
     @classmethod
     def _floats_are_finite(cls, value: JsonValue) -> JsonValue:
-        """``NaN`` and ``±Infinity`` pass ``JsonValue``'s float branch but have no JSON
-        literal: they serialize as ``null``, so a consumer would see a number that the store
-        does not hold — the one silent divergence between a yielded event and its record.
-        A producer meaning "no value" says so with ``null``; one meaning "not a number" says
-        so with a string.
+        """``NaN`` and ``±Infinity`` pass ``JsonValue``'s float branch but have no JSON literal:
+        they serialize as ``null``, so a consumer would see a number the store does not hold — the
+        one silent divergence between a yielded event and its record.
 
-        The walk is iterative: a payload deep enough to recurse is already rejected by
-        ``JsonValue`` itself, and this must not be the thing that turns that into a
-        ``RecursionError``.
+        Iterative, not recursive: a payload deep enough to recurse is already rejected by
+        ``JsonValue``, and this must not turn that into a ``RecursionError``.
         """
         stack: list[JsonValue] = [value]
         while stack:
@@ -121,9 +118,9 @@ KNOWN_BLOCK_TYPES: frozenset[str] = frozenset(b.model_fields["type"].default for
 def _fallback_to_unknown_block(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
     """Reshape an unfamiliar block into :class:`UnknownBlock` instead of failing the union.
 
-    A dict already shaped like a stored ``UnknownBlock`` (``{type, raw_block}``) validates
-    against the union's ``UnknownBlock`` member directly, so ``handler`` succeeds and this
-    never re-wraps it — that ambiguity is what lets a stored ``UnknownBlock`` round-trip.
+    A dict already shaped like a stored ``UnknownBlock`` (``{type, raw_block}``) validates against
+    the union member directly, so ``handler`` succeeds and this never re-wraps it — which is what
+    lets a stored ``UnknownBlock`` round-trip.
     """
     try:
         return handler(value)
@@ -138,7 +135,9 @@ def _fallback_to_unknown_block(value: Any, handler: ValidatorFunctionWrapHandler
 ContentBlock = Annotated[KnownBlock | UnknownBlock, WrapValidator(_fallback_to_unknown_block)]
 Input = list[ContentBlock]
 
-_BLOCK_TYPES = (TextBlock, ImageBlock, ResourceBlock, DataBlock, UnknownBlock)
+# derived from the union for the same reason KNOWN_BLOCK_TYPES is: a block class added above
+# has to reach coerce_input's isinstance check without anyone remembering to list it twice
+_BLOCK_TYPES = (*get_args(get_args(KnownBlock)[0]), UnknownBlock)
 
 
 def coerce_input(value: str | Input) -> Input:
