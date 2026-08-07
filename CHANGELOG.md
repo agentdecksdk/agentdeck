@@ -51,6 +51,13 @@ of vanishing the moment the call returns.
 
 - Every `LayeredSettings` field in `agentdeck/runtime/settings.py` now carries a
   `Field(description=...)`, the source the new generated settings reference renders from.
+- The cost and budget fields validate like the token counts always did: `Usage.usd`,
+  `Budget.max_usd` and `Budget.max_tokens` reject negatives, and the two dollar fields also
+  reject `NaN` and `±Infinity`. Those have no JSON literal, so they serialized as `null` — a
+  consumer read *no cost* where the producer wrote nonsense. Nothing in the package produced
+  such a value, so this closes a trap rather than fixing a live bug; a caller that built a
+  `Usage` or `Budget` by hand with one now gets a `ValidationError` at construction. No
+  serialized shape changed.
 
 ### Known limits
 

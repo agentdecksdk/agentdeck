@@ -41,20 +41,26 @@ RESULT_PREVIEW_MAX = 4096
 
 TERMINAL_KINDS = frozenset({"run.completed", "run.failed", "run.cancelled"})
 
+Money = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+"""US dollars. Constrained where the token counts already were, plus one reason of its own:
+``NaN``/``±Infinity`` have no JSON literal, so they serialize as ``null`` and a consumer reads
+*no cost* where the producer wrote nonsense — the divergence ``DataBlock`` rejects for arbitrary
+data, and money is the last field that should be exempt from it."""
+
 
 class Usage(CoreModel):
     """Token and cost accounting. ``usd`` is None when no price is known for the model."""
 
     input_tokens: NonNegativeInt
     output_tokens: NonNegativeInt
-    usd: float | None = None
+    usd: Money | None = None
 
 
 class Budget(CoreModel):
     """The caps the run was admitted under; None means uncapped on that axis."""
 
-    max_usd: float | None = None
-    max_tokens: int | None = None
+    max_usd: Money | None = None
+    max_tokens: NonNegativeInt | None = None
 
 
 class RunContextSnapshot(CoreModel):
@@ -436,6 +442,7 @@ __all__ = [
     "TERMINAL_KINDS",
     "ArtifactCreated",
     "Budget",
+    "Money",
     "ControlObserved",
     "ControlRequested",
     "ControlVerb",

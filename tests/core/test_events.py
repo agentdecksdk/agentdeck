@@ -12,6 +12,7 @@ from agentdeck.core import (
     KNOWN_KINDS,
     RESULT_PREVIEW_MAX,
     TERMINAL_KINDS,
+    Budget,
     ControlObserved,
     ControlRequested,
     ControlVerb,
@@ -234,6 +235,23 @@ def test_usage_usd_is_optional_but_tokens_are_not():
     assert Usage(input_tokens=1, output_tokens=2).usd is None
     with pytest.raises(ValidationError):
         Usage(input_tokens=1)
+
+
+@pytest.mark.parametrize("usd", [float("nan"), float("inf"), float("-inf"), -0.01])
+def test_a_cost_json_cannot_carry_is_refused_at_construction(usd):
+    """The money fields get the rigour the token counts always had. ``NaN``/``±Infinity`` matter
+    most: they serialize as ``null``, so without this a consumer reads *no cost* where the
+    producer wrote nonsense — the divergence ``DataBlock`` already refuses for arbitrary data."""
+    with pytest.raises(ValidationError):
+        Usage(input_tokens=1, output_tokens=2, usd=usd)
+    with pytest.raises(ValidationError):
+        Budget(max_usd=usd)
+
+
+def test_a_budget_cannot_be_negative_on_either_axis():
+    with pytest.raises(ValidationError):
+        Budget(max_tokens=-1)
+    assert Budget(max_usd=0.0, max_tokens=0).max_tokens == 0
 
 
 # --- status and progress reports (#47) -------------------------------------------------
