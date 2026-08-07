@@ -65,12 +65,12 @@ jobs:
         # Same extras and durability skip-count guard as ci.yml (#33) — a release build
         # must run the same gate as a merge, not a narrower one.
         run: |
-          uv pip install -e ".[dev,serve,durability]"
+          uv pip install -e ".[dev,serve,durability,observability]"
           .venv/bin/ruff check agentdeck/ tests/
           .venv/bin/ty check agentdeck
           .venv/bin/lint-imports
           .venv/bin/pytest tests/ -q --junit-xml=/tmp/pytest-results.xml
-          ceiling=46
+          ceiling=34
           # `bash -e` aborts on grep's own exit code before the `-z` check below ever
           # runs; `|| true` keeps a missing/truncated/attribute-less XML falling through
           # to that check instead of failing silently with no diagnostic.

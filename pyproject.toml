@@ -44,6 +44,10 @@ durability = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    # `make coverage`, not part of `make check`: the deletion waves (#71, #131) need
+    # per-module coverage as one evidence stream for "nothing imports and nothing
+    # exercises this". No threshold — it is an audit instrument, not a gate.
+    "pytest-cov>=5.0",
     "ruff>=0.6",
     "ty>=0.0.1a21",
     "pre-commit>=4.0",
