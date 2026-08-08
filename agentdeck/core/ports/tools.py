@@ -14,7 +14,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
-from agentdeck.core.content import CoreModel
+from agentdeck.core.base import CoreModel
 
 if TYPE_CHECKING:
     from agentdeck.core.invocable import InvocableSpec

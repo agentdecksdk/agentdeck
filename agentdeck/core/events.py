@@ -34,7 +34,8 @@ from pydantic import (
     model_validator,
 )
 
-from agentdeck.core.content import CoreModel, Input, JsonData
+from agentdeck.core.base import CoreModel, JsonData
+from agentdeck.core.content import Input  # noqa: TC001 — pydantic resolves field annotations at runtime
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
