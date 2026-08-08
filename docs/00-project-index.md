@@ -20,6 +20,7 @@ Date: 2026-08-04.
 | 8 | `prompts/pr1-event-schema-prompt.md` | Executable handoff: the frozen event schema spec as an author prompt. **Most current schema statement** | coding agent |
 | 9 | `delivery/docs-site-plan.md` | External docs site (`docs-site/`): IA, content rules, anti-rot tests, phases DS-0…DS-4 | delivery, docs |
 | 10 | `delivery/milestone-0-findings.md` | M0's go/no-go checkpoint: falsifier review, schema-as-built diff, learning note, decision log, keep/harden/discard | delivery, engineers |
+| 11 | `design/adr-d11-store-assigns-seq-and-time.md` | Decision record: the store assigns `seq` and `ts` in the same atomic step that persists an event. **Supersedes** `claim_start`'s "a store never reads a clock" and the envelope-stamping split in doc #3 | engineers |
 
 **Reading orders.** New engineer: 1 → 3 (through §9) → 4 → 8 → 6 → 10 → 5. Product/stakeholder:
 1 → 2 → 3 Appendix B. Implementer starting today: 7 → 8 → 6 → 10.
@@ -33,6 +34,10 @@ Documents were written in conversation order and later ones refine earlier ones.
    (it predates several decisions), PR #1 wins.
 2. `design/adr-d5-two-stores.md` **is** the session-state rule. Design doc §5/§11/§12-D5 read
    through the ADR's §5 amendment list until edited.
+2b. `design/adr-d11-store-assigns-seq-and-time.md` **is** the rule for who assigns `seq` and
+   `ts`. It supersedes `EventStorePort.claim_start`'s "a store never reads a clock" and the
+   design doc's envelope-stamping split; ADR-D5 is otherwise untouched, and the engine boundary
+   (engines yield payloads, never envelopes) is unchanged by it.
 3. `delivery/milestone-0-walking-skeleton.md` reorders early delivery: the epic's Phase 1/2 now
    execute *through* the skeleton (see §4 below). Epic story content is unchanged;
    sequencing defers to this index.
