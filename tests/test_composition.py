@@ -10,19 +10,19 @@ from typing import Any
 
 import live_stores
 import pytest
-from scripted_model import ScriptedModel, provider_of
+from project_engines import project_engines
+from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.adapters.telemetry.langfuse import client as langfuse_client
-from agentdeck.composition import build_runtime, resolve_event_store, v1_engines
+from agentdeck.composition import build_runtime, resolve_event_store
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import EventsSettings, reset_settings_cache
-from agentdeck.v1bridge import V1CompatEngine
 
 AGENT_PY = """
 from agentdeck.agents import BaseAgent
@@ -134,15 +134,28 @@ def project(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_v1_engines_covers_both_bundle_shapes():
+def test_the_project_engine_set_covers_both_bundle_shapes():
     """Discovery refuses a project whose workflows have no engine, so both are registered."""
-    engines = v1_engines()
+    engines = project_engines()
     assert sorted(engine.engine for engine in engines) == ["langgraph", "openai-agents"]
-    assert [type(engine) for engine in engines if engine.engine == "openai-agents"] == [V1CompatEngine]
+    assert [type(engine).__name__ for engine in engines] == ["OpenAIAgentsEngine", "LangGraphEngine"]
+
+
+def test_app_wires_the_same_engines_this_suite_builds_by_hand(project):
+    """What keeps ``tests/project_engines.py`` honest: the facade is the only production
+    caller, so a test set that stopped matching its wiring would be testing nothing."""
+    from agentdeck import App
+
+    app = App()
+    app.load()
+
+    assert [type(engine).__name__ for engine in app.runtime._engines.values()] == [
+        type(engine).__name__ for engine in project_engines()
+    ]
 
 
 async def test_build_runtime_discovers_the_project_when_given_no_invocables(project):
-    runtime = build_runtime(engines=v1_engines(), store=MemoryEventStore())
+    runtime = build_runtime(engines=project_engines(), store=MemoryEventStore())
 
     kinds = [event.kind async for event in runtime.run("Shout", coerce_input("hello"), CTX)]
 
@@ -153,7 +166,7 @@ async def test_build_runtime_takes_explicit_specs_and_a_clock(project):
     """A caller with specs in hand skips discovery, and injects a clock instead of waiting
     for wall time to be deterministic."""
     frozen = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
-    engines = v1_engines()
+    engines = project_engines()
     specs = InvocableRegistry(engines).load()
 
     runtime = build_runtime(engines=engines, invocables=specs, store=MemoryEventStore(), clock=lambda: frozen)
@@ -163,7 +176,7 @@ async def test_build_runtime_takes_explicit_specs_and_a_clock(project):
 
 
 async def test_build_runtime_refuses_an_unknown_invocable(project):
-    runtime = build_runtime(engines=v1_engines(), store=MemoryEventStore())
+    runtime = build_runtime(engines=project_engines(), store=MemoryEventStore())
 
     with pytest.raises(NotFoundError):
         [event async for event in runtime.run("Nope", coerce_input("hello"), CTX)]
@@ -231,7 +244,7 @@ async def test_a_configured_langfuse_traces_a_workflow_run_under_its_session(pro
     from its own events — session included, node by node.
     """
     langfuse_keys("pk-lf-test", "sk-lf-test")
-    runtime = build_runtime(engines=v1_engines(), store=MemoryEventStore())
+    runtime = build_runtime(engines=project_engines(), store=MemoryEventStore())
 
     async for _ in runtime.run("Shout", coerce_input("hello"), replace(CTX, session_id="s-1")):
         pass
@@ -246,7 +259,7 @@ async def test_a_chat_turn_reaches_langfuse_under_its_own_session(project, recor
     """The identity ``App.chat`` already gave its trace, kept while its owner changes: the
     engine no longer opens an observation of its own, so if the sink did not carry the session
     across, every chat turn would go anonymous the moment the wrapping span was removed."""
-    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel(deltas=("hi",))))
+    patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("hi",))))
     langfuse_keys("pk-lf-test", "sk-lf-test")
     from agentdeck import App
 
@@ -263,7 +276,7 @@ async def test_an_unconfigured_langfuse_leaves_the_run_untraced(project, recorde
     """Without keys there is no sink in the list at all, so a run never reaches this adapter —
     the same silence v1 kept, and what makes the wiring safe to do unconditionally."""
     langfuse_keys("", "")
-    runtime = build_runtime(engines=v1_engines(), store=MemoryEventStore())
+    runtime = build_runtime(engines=project_engines(), store=MemoryEventStore())
 
     async for _ in runtime.run("Shout", coerce_input("hello"), CTX):
         pass

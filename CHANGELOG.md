@@ -16,6 +16,23 @@ of vanishing the moment the call returns.
 
 ### Changed
 
+- The Runtime now plays every turn on the real engine adapters — `OpenAIAgentsEngine` and
+  `LangGraphEngine` — instead of the v1 compatibility subclasses that stood in for them, and
+  `agentdeck.v1bridge` is removed. What a run is configured with (model provider, CA bundle,
+  temperature, turn and token caps, workflow name) is now resolved at the composition root
+  and handed to the adapter, so a caller can wire a different endpoint without touching
+  process state. Behavior is unchanged: the same settings resolve to the same run config,
+  pinned field by field by `tests/test_run_config_parity.py`.
+- A workflow's `durable = True` now travels to the engine on its spec, and the configured
+  checkpointer is built at the first durable run rather than when a Runtime is assembled —
+  so naming a `sqlite`/`postgres` backend still costs a project that only chats nothing, and
+  the `[durability]` extra stays optional.
+- **Breaking:** `App.session_for(session_id)` now returns the engine's own session for that
+  id, keyed by tenant (`local:<session_id>`) the way every other entry point already keys it.
+  One conversation is now one conversation whether the turn arrived through `App.chat` or
+  through HTTP — and a Redis-backed deployment gets its sessions on the Runtime path, which
+  it silently did not before. Conversations written under an unprefixed Redis key by an
+  earlier version are not read back; start them fresh or re-key them.
 - **Breaking:** `agentdeck.runtime` no longer re-exports `OpenAISettings`, `PluginRegistry`,
   `RunnerSettings`, `Settings`, `SkillsSettings`, `Workspace`, `get_settings` or
   `reset_settings_cache`. Import each from the module that defines it, e.g.

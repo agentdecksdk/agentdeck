@@ -1,14 +1,16 @@
-"""Temporary scaffolding: delete this file together with ``agentdeck/v1bridge/``.
+"""Both places a run gets configured, reduced to one comparable fingerprint.
 
-Every field v1's ``BaseRunner.from_agent`` resolves out of settings, reduced to one
-comparable fingerprint. Run-config resolution is about to move into the openai-agents
-adapter, and a field dropped on the way — the CA bundle, the token cap, the model
-provider's own base URL — is invisible to a fake-model suite: it changes nothing until a
-real endpoint refuses the call. So this fingerprint, not the suite at large, is what
-stands between that move and a regression that only production sees. The expected dicts
-below are therefore the contract the adapter has to meet; when it builds its own run
-config, its fingerprint is asserted against these same values, and when v1's runner glue
-goes, so does this file.
+A field dropped in resolution — the CA bundle, the token cap, the model provider's own
+base URL — is invisible to a fake-model suite: it changes nothing until a real endpoint
+refuses the call. So this fingerprint, not the suite at large, is what stands between the
+move of that resolution into the openai-agents adapter and a regression only production
+sees.
+
+Two resolvers are compared against one expectation, because two paths still build a run
+config: the Runtime plays every recorded turn through the adapter, while a workflow node
+driving an agent of its own still goes through v1's ``BaseRunner.from_agent``. They have to
+agree field for field, or which entry point a turn arrived through decides what the model
+was asked. The v1 half goes when v1's runner glue does.
 """
 
 from __future__ import annotations
@@ -22,16 +24,17 @@ import httpx
 import pytest
 from agents import Agent, OpenAIProvider
 
+from agentdeck.adapters.engines.openai_agents.runconfig import build_run_config
 from agentdeck.agents.runners.headless import HeadlessRunner
+from agentdeck.composition import resolve_run_settings
 from agentdeck.runtime import observability
 from agentdeck.runtime.settings import reset_settings_cache
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
 
+    from agents import RunConfig
     from openai import AsyncOpenAI
-
-    from agentdeck.agents.runners.base import BaseRunner
 
 # Every field the fingerprint asserts is set here explicitly, including the ones whose
 # value is the default: the project's own `.env` is loaded by `get_settings`, so deleting
@@ -87,9 +90,8 @@ def _one_certificate_bundle(tmp_path: Path) -> Path:
     return bundle
 
 
-def _fingerprint(runner: BaseRunner) -> dict[str, object]:
+def _fingerprint(config: RunConfig, max_turns: int) -> dict[str, object]:
     """A resolved run config as plain comparable values, SDK client objects excluded."""
-    config = runner.run_config
     provider = config.model_provider
     assert isinstance(provider, OpenAIProvider)
     client = provider._get_client()
@@ -101,7 +103,7 @@ def _fingerprint(runner: BaseRunner) -> dict[str, object]:
         "temperature": config.model_settings.temperature,
         "max_tokens": config.model_settings.max_tokens,
         "include_usage": config.model_settings.include_usage,
-        "max_turns": runner.max_turns,
+        "max_turns": max_turns,
         "model_provider": type(provider).__name__,
         "use_responses": provider._use_responses,
         "base_url": str(client.base_url),
@@ -129,37 +131,45 @@ def _expected(**overrides: object) -> dict[str, object]:
 
 
 @pytest.fixture
-def resolved_run_config(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[..., dict[str, object]]]:
-    """Fingerprint v1's run config for one explicit set of settings."""
+def resolved_run_configs(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[..., list[dict[str, object]]]]:
+    """Fingerprint both resolvers for one explicit set of settings."""
 
-    def resolve(**env: str) -> dict[str, object]:
+    def resolve(**env: str) -> list[dict[str, object]]:
         for key, value in (_SETTINGS_ENV | env).items():
             monkeypatch.setenv(key, value)
         # `init_observability` latches on a module global, and its answer is what decides
-        # `tracing_disabled` — without this, a test that ran earlier in the process picks
-        # the value asserted here.
+        # v1's `tracing_disabled` — without this, a test that ran earlier in the process
+        # picks the value asserted here.
         monkeypatch.setattr(observability, "_initialized", False)
         reset_settings_cache()
-        return _fingerprint(HeadlessRunner.from_agent(Agent(name="parity")))
+        v1 = HeadlessRunner.from_agent(Agent(name="parity"))
+        settings = resolve_run_settings()
+        return [
+            _fingerprint(v1.run_config, v1.max_turns),
+            _fingerprint(build_run_config(settings), settings.max_turns),
+        ]
 
     yield resolve
     reset_settings_cache()
 
 
-def test_run_config_resolves_every_settings_field(resolved_run_config: Callable[..., dict[str, object]]) -> None:
-    assert resolved_run_config() == _expected()
+def test_both_resolvers_cover_every_settings_field(
+    resolved_run_configs: Callable[..., list[dict[str, object]]],
+) -> None:
+    assert resolved_run_configs() == [_expected(), _expected()]
 
 
 def test_ca_bundle_becomes_the_clients_trust_store(
-    resolved_run_config: Callable[..., dict[str, object]], tmp_path: Path
+    resolved_run_configs: Callable[..., list[dict[str, object]]], tmp_path: Path
 ) -> None:
     bundle = _one_certificate_bundle(tmp_path)
 
-    fingerprint = resolved_run_config(OPENAI_CA_BUNDLE=str(bundle), OPENAI_USE_RESPONSES="false")
+    fingerprints = resolved_run_configs(OPENAI_CA_BUNDLE=str(bundle), OPENAI_USE_RESPONSES="false")
 
     # The CA bundle moves base_url and api_key off the provider and onto a client of its
     # own, so every other field is re-asserted here rather than assumed to have survived.
-    assert fingerprint == _expected(
+    expected = _expected(
         use_responses=False,
         trusted_cas=_ca_subjects(ssl.create_default_context(cafile=str(bundle))),
     )
+    assert fingerprints == [expected, expected]

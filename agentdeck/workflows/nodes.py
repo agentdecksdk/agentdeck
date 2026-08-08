@@ -10,6 +10,7 @@ from typing import Any, cast
 
 from langgraph.config import get_config, get_stream_writer
 
+from agentdeck.adapters.engines.langgraph.engine import STREAM_CONFIGURABLE_KEY
 from agentdeck.agents.base import BaseAgent, BaseSandboxAgent
 from agentdeck.agents.runners.headless import HeadlessRunner, StreamDone
 from agentdeck.runtime.settings import get_settings
@@ -18,8 +19,9 @@ from agentdeck.skills import SkillBundle, SkillExecutionError, SkillExecutor, Sk
 
 logger = logging.getLogger(__name__)
 
-# Set by DevWorkflowRunner.run_stream(); unset under run()/ainvoke(), which stay on Runner.run.
-STREAM_CONFIGURABLE_KEY = "agentdeck_stream"
+# Set by the langgraph engine on every run it drives, and by DevWorkflowRunner.run_stream();
+# unset under run()/ainvoke(), which stay on Runner.run. Imported from the engine that owns it
+# rather than redeclared, so the two cannot name the channel differently.
 
 ArgvBuilder = Callable[[Any], Sequence[str | Path]]
 StateUpdate = Callable[[Any, SkillResult], Awaitable[dict[str, Any]] | dict[str, Any]]
