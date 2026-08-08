@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
@@ -32,7 +32,10 @@ class ChatBody(BaseModel):
     """Validated at the trust boundary instead of a bare ``body["session_id"]`` — a
     missing field is a 422 from FastAPI, not a 500 mid-stream."""
 
-    session_id: str
+    # Non-empty because ``RunContext.log_key`` is ``session_id or run_id``: an empty one is
+    # not an error anywhere downstream, it silently gives the turn a private log of its own,
+    # so the caller's next message finds no history and nothing anywhere says why.
+    session_id: str = Field(min_length=1)
     message: str
 
 

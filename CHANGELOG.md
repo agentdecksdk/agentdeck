@@ -79,6 +79,10 @@ of vanishing the moment the call returns.
   such a value, so this closes a trap rather than fixing a live bug; a caller that built a
   `Usage` or `Budget` by hand with one now gets a `ValidationError` at construction. No
   serialized shape changed.
+- `POST /v2/invocables/{name}/chat` answers **422** to an empty `session_id` instead of
+  accepting it. A run's log key is `session_id or run_id`, so `""` was not an error anywhere
+  downstream — it quietly gave the turn a private log, and the caller's next message found no
+  history with nothing saying why. v1's `POST /agents/{name}/chat` is unchanged.
 
 ### Known limits
 
