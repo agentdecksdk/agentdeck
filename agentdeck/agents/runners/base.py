@@ -13,10 +13,10 @@ from agents import Agent, ModelSettings, OpenAIProvider, RunConfig
 from agents.sandbox import SandboxAgent
 from openai import AsyncOpenAI
 
+from agentdeck.adapters.caps.sandbox import UnixSandbox, open_sandbox
 from agentdeck.agents.base import inner_agent_of, is_sandbox_tool
-from agentdeck.runtime.observability import init_observability
+from agentdeck.runtime.observability import init_observability, sandbox_trace_env
 from agentdeck.runtime.settings import Settings, get_settings
-from agentdeck.runtime.workspace import Workspace
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Mapping, Sequence
@@ -118,22 +118,23 @@ class BaseRunner(ABC):
         self,
         *,
         manifest_root: Path | None = None,
-    ) -> AsyncGenerator[Workspace | None, None]:
-        """Open a workspace and bind it to ``run_config.sandbox`` if needed.
+    ) -> AsyncGenerator[UnixSandbox | None, None]:
+        """Open a sandbox and bind it to ``run_config.sandbox`` if needed.
 
         Opens when the top-level agent OR any direct handoff is a
         :class:`SandboxAgent` — the SDK requires ``run_config.sandbox``
         before any handoff target executes, not just for the first agent
         on the turn. No-op for graphs of plain :class:`Agent` only.
-        Inherits an outer workspace bound to the current async context.
+        Joins an outer sandbox bound to the current async context.
         """
         if not needs_sandbox(self.agent):
             yield None
             return
-        async with Workspace.open(
+        async with open_sandbox(
             environment=dict(self.environment),
             input_files=tuple(self.input_files),
             manifest_root=os.fspath(manifest_root) if manifest_root else None,
+            trace_env=sandbox_trace_env,
         ) as ws:
             self.run_config.sandbox = ws.sandbox_run_config
             yield ws

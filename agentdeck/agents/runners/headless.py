@@ -49,7 +49,7 @@ def _usage_of(result: Any) -> dict[str, int]:
 
 @dataclass(slots=True)
 class HeadlessRunner(BaseRunner):
-    """Single-invocation runner that inherits or opens a :class:`Workspace`."""
+    """Single-invocation runner that joins or opens a sandbox."""
 
     async def run(self, message: Any = None, *, session: Any = None) -> RunResult:
         # One root observation carries the turn's identity + input/output; OpenInference's
