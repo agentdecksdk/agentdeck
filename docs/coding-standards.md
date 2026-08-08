@@ -56,6 +56,15 @@ broader than the linter's contracts:
 - `__init__.py` is always just re-exports: a one-line docstring, `from ... import ...`,
   and `__all__` — never class or function definitions. Implementation lives in named
   modules (`store.py`, `engine.py`, `port.py`), however small the package.
+- **Import from the module that defines a symbol, not from a package `__init__`.**
+  `agentdeck.core.__init__` re-exports 53 names and 263 of the package's own imports bypass
+  it; the six that use it are tests and one docs example. So the list is a published surface
+  for users, not the way this codebase refers to itself, and it has already drifted — all four
+  store adapters import `LIFECYCLE_KINDS` and `TERMINAL_STATUSES`, neither of which is on it.
+  A new symbol in `core/` is **not** added to that `__all__`: removing one later is a breaking
+  change, so the list only ever grows, and every name on it is a promise nothing here relies on.
+  `core/ports/__init__.py` is the counter-example that stays — 30 imports go through it against
+  19 direct, because "the ports" is a set callers genuinely want by the handful.
 
 ## 4. Typing
 
