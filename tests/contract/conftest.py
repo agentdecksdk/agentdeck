@@ -31,13 +31,15 @@ def ctx() -> RunContext:
 
 @pytest.fixture
 def store() -> MemoryEventStore:
-    return MemoryEventStore()
+    """The frozen clock lives here: the store stamps every ``ts`` now (ADR-D11), so this is the
+    only seam left through which a case can hold time still."""
+    return MemoryEventStore(clock=lambda: TS)
 
 
 @pytest.fixture
 def runtime(case: Case, store: MemoryEventStore) -> Runtime:
     """One engine, one store, a frozen clock — nothing else in the loop."""
-    return Runtime([case.engine], store, {case.spec.name: case.spec}, clock=lambda: TS)
+    return Runtime([case.engine], store, {case.spec.name: case.spec})
 
 
 @pytest.fixture

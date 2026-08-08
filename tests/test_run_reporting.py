@@ -144,7 +144,7 @@ async def test_a_function_tool_reports_through_the_sdk_context() -> None:
     agent = Agent(name="Searcher", instructions="use the tool", tools=[search_github], model=_CallsTheToolOnce())
     spec = InvocableSpec(name="Searcher", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
     store = MemoryEventStore()
-    runtime = Runtime([OpenAIAgentsEngine(ExecutionStore())], store, {spec.name: spec}, clock=lambda: TS)
+    runtime = Runtime([OpenAIAgentsEngine(ExecutionStore())], store, {spec.name: spec})
 
     events = [event async for event in runtime.run("Searcher", coerce_input("what is open?"), CTX)]
 
@@ -198,7 +198,7 @@ def _graph() -> StateGraph:
 async def test_a_workflow_node_reports_through_the_graph_config() -> None:
     spec = InvocableSpec(name="Reviewer", kind=InvocableKind.WORKFLOW, engine=LangGraphEngine.engine, native=_graph())
     store = MemoryEventStore()
-    runtime = Runtime([LangGraphEngine()], store, {spec.name: spec}, clock=lambda: TS)
+    runtime = Runtime([LangGraphEngine()], store, {spec.name: spec})
 
     events = [event async for event in runtime.run("Reviewer", coerce_input("review 4412"), CTX)]
 
@@ -237,7 +237,7 @@ class _ReportingStub(StubEngine):
 def _runtime() -> Runtime:
     done = RunCompleted(output=coerce_input("two issues, both open"), usage=Usage(input_tokens=1, output_tokens=1))
     spec = stub_spec("Searcher", done)
-    return Runtime([_ReportingStub()], MemoryEventStore(), {spec.name: spec}, clock=lambda: TS)
+    return Runtime([_ReportingStub()], MemoryEventStore(), {spec.name: spec})
 
 
 async def test_an_sse_client_receives_the_reports_in_order() -> None:

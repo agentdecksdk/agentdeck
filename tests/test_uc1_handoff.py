@@ -196,7 +196,7 @@ def _build() -> tuple[Runtime, ExecutionStore, SqliteEventStore]:
     )
     sessions = ExecutionStore()
     store = SqliteEventStore()
-    runtime = Runtime([OpenAIAgentsEngine(sessions)], store, {"FrontDesk": spec}, clock=lambda: TS)
+    runtime = Runtime([OpenAIAgentsEngine(sessions)], store, {"FrontDesk": spec})
     return runtime, sessions, store
 
 
