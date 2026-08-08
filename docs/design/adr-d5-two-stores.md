@@ -151,6 +151,11 @@ even though it is small.
 adapters have no access to execution state; `Runtime` still stamps and appends every
 event; ACP `session/load` still replays from the log.
 
+> **Amended 2026-08-08 (ADR-D11, #149).** "`Runtime` still stamps and appends every event" no
+> longer holds: the store assigns `seq` and `ts` in the same atomic step that persists the event,
+> and the Runtime hands it payloads. Everything else in this clause stands, and so does this
+> ADR's two-store rule — D11 changes who fills the envelope, not what is stored where.
+
 ---
 
 ## 5. Amendments to the existing documents

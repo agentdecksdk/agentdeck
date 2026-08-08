@@ -13,7 +13,7 @@ the most boring option and record it in the PR's judgment ledger (§13).
 
 These standards apply to all new code under `agentdeck/` and `tests/`. Precedence order
 when rules collide: (1) CI-enforced checks (ruff, ruff-format, import-linter, contract suite),
-(2) architecture decisions D1–D10 and ADR-D5, (3) this document, (4) existing repo
+(2) architecture decisions D1–D10, ADR-D5 and ADR-D11, (3) this document, (4) existing repo
 conventions, (5) general Python idiom. Legacy modules being migrated are brought up to
 standard **when moved**, never via drive-by edits in unrelated PRs.
 
@@ -111,7 +111,9 @@ Runtime → store → consumer) has additional law: **persist-before-yield** (an
 consumer has seen is already in the store); **sinks are fire-and-forget** — a slow or
 failing sink logs and drops, it never stalls or fails the run (NFR-6); the Runtime is
 the **only** assigner of `seq`, one counter per run, recovered from `max(seq)` on
-resume. Engine adapters call `await ctx.gate.checkpoint()` between stream items and
+resume — *superseded by ADR-D11: the store assigns `seq` and `ts` in the same atomic step
+that persists the event. This sentence stands until the port change lands, and goes with
+it.* Engine adapters call `await ctx.gate.checkpoint()` between stream items and
 before every tool dispatch — a new safe point is a documented contract change, not a
 convenience. Use `asyncio.timeout` for deadlines; tasks are created with owners
 (no fire-and-forget `create_task` without a supervision/cleanup story).
