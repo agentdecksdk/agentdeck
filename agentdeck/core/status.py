@@ -48,13 +48,12 @@ _KIND_TO_STATUS: dict[str, RunStatus] = {
     "run.cancelled": RunStatus.CANCELLED,
 }
 
-# A store that can index by kind only has to look at these to answer "what status is this
-# run" — the derivation itself stays here, in ``status_of``.
+# A store indexing by kind reads only these to answer "what status is this run"; the derivation
+# itself stays in ``status_of``.
 LIFECYCLE_KINDS: frozenset[str] = frozenset(_KIND_TO_STATUS)
 
-# Derived, not listed again: "which statuses are terminal" and "which kinds are terminal" are
-# one fact, and two hand-written sets can drift with nothing failing. A terminal kind added to
-# events.py without a transition here raises KeyError at import — loud, and at the right place.
+# Derived, not listed again: which statuses are terminal and which kinds are is one fact. A
+# terminal kind added to events.py without a transition here raises KeyError at import.
 TERMINAL_STATUSES = frozenset(_KIND_TO_STATUS[kind] for kind in TERMINAL_KINDS)
 
 
@@ -71,6 +70,6 @@ def can_resume(status: RunStatus) -> bool:
     """A run is resumable while suspended: waiting on a human answer, or paused by an operator.
     Both continue under the same ``run_id``; what differs is what the resume carries.
 
-    A resume against any other status — still running, already resumed by a race, terminal — is a
-    no-op rather than an error: the caller checks this instead of raising."""
+    Any other status — still running, already resumed by a race, terminal — makes a resume a no-op
+    rather than an error, which is why callers check this instead of raising."""
     return status in RESUMABLE_STATUSES

@@ -62,12 +62,16 @@ of vanishing the moment the call returns.
 - `Event.kind` and `UnknownEvent.kind` now have to look like a kind (`run.started`,
   `a2a.task.started`); `""`, `"Run Started"` and `"run..started"` were accepted before. A
   shape, not a fixed set — an unfamiliar kind from a newer writer still parses.
-- `NodeUpdated.state_patch`, `ToolCallStarted.args` and `RunInterrupted.payload` hold only
-  what a store hands back unchanged. They were `dict[str, Any]`, so a `NaN` reached the log as
-  `null`, a set as a list and a datetime as a string — the divergence `DataBlock` has always
-  refused. All three now carry the same `JsonData` type `DataBlock` does. Every engine adapter
-  already sanitized before constructing these, so nothing the package produces changes; a
-  caller building one by hand from non-JSON values now gets a `ValidationError`.
+- Every free-form JSON field holds only what a store hands back unchanged:
+  `NodeUpdated.state_patch`, `ToolCallStarted.args`, `RunInterrupted.payload`, `Custom.data`,
+  `UnknownEvent.raw_payload` and `UnknownBlock.raw_block`. All six were `dict[str, Any]`, so a
+  `NaN` reached the log as `null`, a set as a list and a datetime as a string — the divergence
+  `DataBlock` has always refused. They now carry the same `JsonData` type `DataBlock` does.
+  The two `raw_*` fields matter most: `UnknownEvent` and `UnknownBlock` exist so this version
+  survives a newer writer, which they cannot do while free to alter that writer's data on the
+  way through. Every engine adapter already sanitized before constructing these, so nothing the
+  package produces changes; a caller building one by hand from non-JSON values now gets a
+  `ValidationError`.
 - The cost and budget fields validate like the token counts always did: `Usage.usd`,
   `Budget.max_usd` and `Budget.max_tokens` reject negatives, and the two dollar fields also
   reject `NaN` and `±Infinity`. Those have no JSON literal, so they serialized as `null` — a
@@ -75,6 +79,10 @@ of vanishing the moment the call returns.
   such a value, so this closes a trap rather than fixing a live bug; a caller that built a
   `Usage` or `Budget` by hand with one now gets a `ValidationError` at construction. No
   serialized shape changed.
+- `POST /v2/invocables/{name}/chat` answers **422** to an empty `session_id` instead of
+  accepting it. A run's log key is `session_id or run_id`, so `""` was not an error anywhere
+  downstream — it quietly gave the turn a private log, and the caller's next message found no
+  history with nothing saying why. v1's `POST /agents/{name}/chat` is unchanged.
 
 ### Known limits
 

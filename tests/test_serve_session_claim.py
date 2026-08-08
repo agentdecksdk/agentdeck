@@ -97,6 +97,20 @@ async def test_a_turn_on_a_busy_session_is_a_409_naming_the_run_that_holds_it() 
     assert {event.run_id for event in await store.read(SESSION_ID, _reader())} == {HOLDER}
 
 
+async def test_an_empty_session_id_is_refused_rather_than_given_a_log_of_its_own() -> None:
+    """``RunContext.log_key`` is ``session_id or run_id``, so ``""`` is not an error anywhere
+    downstream — it quietly gives the turn a private log, and the caller's next message finds
+    no history with nothing anywhere saying why. Caught at the boundary, where it is still a 422."""
+    runtime, store = _runtime()
+    app = build_app(runtime)
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(CHAT, json={"session_id": "", "message": "hi"})
+
+    assert response.status_code == 422
+    assert await store.read(SESSION_ID, _reader()) == []  # and no run was played
+
+
 async def test_a_turn_on_an_idle_session_still_streams_every_event_once() -> None:
     """The other half of pulling the first event before responding: the opening event must reach
     the client exactly once, and the rest of the run behind it."""

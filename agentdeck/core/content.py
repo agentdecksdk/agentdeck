@@ -1,70 +1,27 @@
 """Typed content blocks.
 
-``Input`` is what every boundary passes instead of a bare string: a list of blocks
-discriminated on ``type``, so text, images, references and structured data travel the same
-way — in both directions, since ``run.completed`` carries an ``Input`` too.
+``Input`` is what every boundary passes instead of a bare string, in both directions —
+``run.completed`` carries one too.
 
-Content policy: text and data blocks are stored in full, because they are the caller's own
-input and the run's own declared result — a truncated one cannot be replayed or reconciled
-against engine state. Only *tool* results are bounded (preview + size + hash), where the
-bytes are unbounded and engine-chosen rather than caller-chosen.
-
-An unfamiliar block ``type`` falls back to :class:`UnknownBlock` instead of rejecting the
-block's whole event, the same move :class:`agentdeck.core.events.Event` makes for an unknown
-``kind``.
+Blocks are stored in full: they are the caller's own input and the run's declared result, and a
+truncated one cannot be replayed. Only *tool* results are bounded (preview + size + hash), where
+the bytes are engine-chosen rather than caller-chosen.
 """
 
 from __future__ import annotations
 
-from math import isfinite
 from typing import Annotated, Any, Literal, get_args
 
 from pydantic import (
-    AfterValidator,
-    BaseModel,
     ConfigDict,
     Field,
-    JsonValue,
     ValidationError,
     ValidatorFunctionWrapHandler,
     WrapValidator,
     field_validator,
 )
 
-
-class CoreModel(BaseModel):
-    """Base for the schema models: unknown fields are dropped, and nothing mutates."""
-
-    model_config = ConfigDict(extra="ignore", frozen=True)
-
-
-def _reject_non_finite(value: JsonValue) -> JsonValue:
-    """``NaN`` and ``±Infinity`` pass ``JsonValue``'s float branch but have no JSON literal:
-    they serialize as ``null``, so a consumer would see a number the store does not hold — the
-    one silent divergence between a yielded event and its record.
-
-    Iterative, not recursive: a payload deep enough to recurse is already rejected by
-    ``JsonValue``, and this must not turn that into a ``RecursionError``.
-    """
-    stack: list[JsonValue] = [value]
-    while stack:
-        item = stack.pop()
-        if isinstance(item, float) and not isfinite(item):
-            raise ValueError(f"data holds a non-finite float ({item}), which JSON cannot carry")
-        if isinstance(item, dict):
-            stack.extend(item.values())
-        elif isinstance(item, list):
-            stack.extend(item)
-    return value
-
-
-JsonData = Annotated[JsonValue, AfterValidator(_reject_non_finite)]
-"""JSON a store can hold and hand back unchanged.
-
-``JsonValue`` alone refuses what JSON has no shape for (a set, a datetime) but *accepts*
-``NaN``/``±Infinity``, which serialize to ``null``. Both halves are the same rule — what goes in
-comes back out — so they travel as one type rather than as a type plus a validator each field
-has to remember."""
+from agentdeck.core.base import CoreModel, JsonData
 
 
 class TextBlock(CoreModel):
@@ -108,7 +65,7 @@ class UnknownBlock(CoreModel):
     model_config = ConfigDict(extra="forbid")
 
     type: str
-    raw_block: dict[str, Any]
+    raw_block: dict[str, JsonData]
 
     @field_validator("type")
     @classmethod
@@ -120,16 +77,16 @@ class UnknownBlock(CoreModel):
 
 KnownBlock = Annotated[TextBlock | ImageBlock | ResourceBlock | DataBlock, Field(discriminator="type")]
 
-# peels the Annotated, then the union — add a block class above and this follows it
+# Both derived by peeling the Annotated, then the union: a block class added above reaches the
+# fallback and ``coerce_input`` without anyone remembering to list it twice more.
 KNOWN_BLOCK_TYPES: frozenset[str] = frozenset(b.model_fields["type"].default for b in get_args(get_args(KnownBlock)[0]))
 
 
 def _fallback_to_unknown_block(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
     """Reshape an unfamiliar block into :class:`UnknownBlock` instead of failing the union.
 
-    A dict already shaped like a stored ``UnknownBlock`` (``{type, raw_block}``) validates against
-    the union member directly, so ``handler`` succeeds and this never re-wraps it — which is what
-    lets a stored ``UnknownBlock`` round-trip.
+    A stored ``UnknownBlock`` (``{type, raw_block}``) validates against the union member directly,
+    so ``handler`` succeeds and it is never re-wrapped — which is what lets it round-trip.
     """
     try:
         return handler(value)
@@ -144,8 +101,6 @@ def _fallback_to_unknown_block(value: Any, handler: ValidatorFunctionWrapHandler
 ContentBlock = Annotated[KnownBlock | UnknownBlock, WrapValidator(_fallback_to_unknown_block)]
 Input = list[ContentBlock]
 
-# derived from the union for the same reason KNOWN_BLOCK_TYPES is: a block class added above
-# has to reach coerce_input's isinstance check without anyone remembering to list it twice
 _BLOCK_TYPES = (*get_args(get_args(KnownBlock)[0]), UnknownBlock)
 
 

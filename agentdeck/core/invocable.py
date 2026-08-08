@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import Field
 
-from agentdeck.core.content import CoreModel
+from agentdeck.core.base import CoreModel
 
 
 class InvocableKind(StrEnum):

@@ -126,6 +126,22 @@ def test_an_unfamiliar_block_type_parses_as_unknown_block():
     assert BLOCKS.validate_python([raw]) == [UnknownBlock(type="audio", raw_block=raw)]
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(float("nan"), id="non-finite-float"),
+        pytest.param({1, 2, 3}, id="set"),
+        pytest.param(datetime(2020, 1, 1, tzinfo=UTC), id="datetime"),
+    ],
+)
+def test_an_unknown_block_keeps_a_newer_writer_bytes_exactly(value):
+    """``UnknownBlock`` exists so this version survives a newer one's block types — which it
+    cannot do while it is free to alter that writer's data on the way through. Its
+    ``raw_block`` gets the rule ``DataBlock.data`` already had, for the same reason."""
+    with pytest.raises(ValidationError):
+        UnknownBlock(type="audio", raw_block={"v": value})
+
+
 def test_a_malformed_known_block_still_raises():
     """The union must not swallow a broken known block into UnknownBlock — only a type it
     genuinely doesn't recognize falls back."""
