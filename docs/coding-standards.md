@@ -109,11 +109,11 @@ All I/O-adjacent code is `async`. Forbidden in any async path: `time.sleep`, blo
 file/network calls, CPU-heavy work without `to_thread`. The event hot path (engine →
 Runtime → store → consumer) has additional law: **persist-before-yield** (an event a
 consumer has seen is already in the store); **sinks are fire-and-forget** — a slow or
-failing sink logs and drops, it never stalls or fails the run (NFR-6); the Runtime is
-the **only** assigner of `seq`, one counter per run, recovered from `max(seq)` on
-resume — *superseded by ADR-D11: the store assigns `seq` and `ts` in the same atomic step
-that persists the event. This sentence stands until the port change lands, and goes with
-it.* Engine adapters call `await ctx.gate.checkpoint()` between stream items and
+failing sink logs and drops, it never stalls or fails the run (NFR-6); **the store assigns
+`seq` and `ts`**, in the same indivisible step that persists the event, so nothing outside a
+store holds a sequence counter or decides an event's time (ADR-D11 — a number that cannot be
+allocated without being persisted is what makes a gap mean an event was genuinely lost).
+Engine adapters call `await ctx.gate.checkpoint()` between stream items and
 before every tool dispatch — a new safe point is a documented contract change, not a
 convenience. Use `asyncio.timeout` for deadlines; tasks are created with owners
 (no fire-and-forget `create_task` without a supervision/cleanup story).

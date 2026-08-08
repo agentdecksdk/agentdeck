@@ -1,10 +1,13 @@
 """The Runtime: the one place a run is orchestrated.
 
-Per event, in this order: stamp the envelope, append to the log, fan out to sinks, yield.
-The order is the contract — an event a consumer has seen is already persisted, so a
-consumer that spots a ``seq`` gap can always refetch it.
+Per event, in this order: append to the log, fan out to sinks, yield. The order is the
+contract — an event a consumer has seen is already persisted, so a consumer that spots a
+``seq`` gap can always refetch it.
 
-Engines only yield payloads; ``seq``, ``tenant``, ``origin`` and ``ts`` are stamped here.
+Engines only yield payloads, and so does this: the store stamps the envelope, assigning
+``seq`` and ``ts`` in the same indivisible step that writes the row (ADR-D11). Nothing here
+holds a counter, which is what makes the refetch promise above true — a number that cannot be
+allocated without being persisted cannot leave a hole behind.
 """
 
 from __future__ import annotations
@@ -74,10 +77,13 @@ class Runtime:
     """Runs invocables and emits one canonical event stream, whatever engine did the work.
 
     Sinks are optional and buffered — each gets its own bounded queue, so the run is never
-    pinned to one; ``clock`` is injected so tests need no wall clock. ``stale_run_after`` is
-    how long a run may go silent before it stops holding its session, defaulted from
-    ``AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`` and passed explicitly by tests that would
-    otherwise have to wait it out. ``control_poll_interval`` is how long a run may reuse the
+    pinned to one. ``clock`` no longer decides anything: the store stamps every event's ``ts``
+    in the write that persists it (ADR-D11), so a caller that wants to hold time still injects
+    a clock into the store instead. It is still accepted, and does nothing.
+
+    ``stale_run_after`` is how long a run may go silent before it stops holding its session,
+    defaulted from ``AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`` and passed explicitly by tests
+    that would have to wait it out. ``control_poll_interval`` is how long a run may reuse the
     control answer it already has: it trades cancel latency against the read rate a run costs
     a shared ``ControlPort``, and ``0`` buys the tightest latency at one read per safe point.
     """
@@ -314,9 +320,7 @@ class Runtime:
         if last not in TERMINAL_KINDS and last not in SUSPENDED_KINDS:
             # An engine that just stops leaves consumers waiting forever; close the run for it.
             logger.error("engine %r ended run %s after %r, not a terminal event", engine.engine, ctx.run_id, last)
-            yield await self._record(
-                _engine_failed(f"engine {engine.engine!r} ended after {last!r}"), spec, ctx
-            )
+            yield await self._record(_engine_failed(f"engine {engine.engine!r} ended after {last!r}"), spec, ctx)
 
     async def _paused(self, run_id: str, ctx: RunContext) -> tuple[str, RunStarted, str | None] | None:
         """Where a paused run lives, what it was asked to do, and whose session it holds.
@@ -352,9 +356,7 @@ class Runtime:
         session wedged forever is the worse failure. Failing to close it is not worth failing
         this turn over: the next one meets the same stale run and tries again.
         """
-        claim, event = await self._store.claim_start(
-            ctx.log_key, opening, ctx, spec.name, self._stale_run_after
-        )
+        claim, event = await self._store.claim_start(ctx.log_key, opening, ctx, spec.name, self._stale_run_after)
         if claim.held_by is not None or event is None:
             raise SessionBusyError(
                 f"session {ctx.log_key!r} already has run {claim.held_by!r} in flight, "
@@ -517,9 +519,8 @@ class Runtime:
 
         A store that refuses a report costs the report, never the run: an advisory event is not
         worth a run, and the alternative is a store that dislikes one *kind* turning a run that
-        would have completed into ``run.failed``. The ``seq`` that report consumed stays spent,
-        so the log shows a gap — the same gap any failed ``_record`` leaves, for any kind, and
-        not this arm's to close.
+        would have completed into ``run.failed``. It costs the report only — a refused append
+        never took a number, so the log this leaves behind is dense.
         """
         for _ in range(len(reports)):
             payload = reports.popleft()

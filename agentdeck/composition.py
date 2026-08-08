@@ -46,8 +46,15 @@ def build_runtime(
     """Wire ``engines`` into a Runtime over the project's invocables.
 
     ``invocables`` defaults to discovery over ``./.agentdeck`` — pass a mapping to run
-    specs built in code instead. ``store`` defaults to the configured event store,
-    ``control`` to the configured control port, and ``clock`` to wall time.
+    specs built in code instead. ``store`` defaults to the configured event store and
+    ``control`` to the configured control port.
+
+    ``clock`` no longer reaches anything that stamps an event. Timestamps are assigned by the
+    store, in the same write that persists the event (ADR-D11), so holding time still means
+    building the store with a clock — ``MemoryEventStore(clock=...)``, ``RedisEventStore(clock=...)``
+    — and the two SQL stores read their backend's clock so that N workers on one database
+    compare one clock rather than N. The keyword is still accepted and still forwarded, and it
+    decides nothing.
     """
     engines = tuple(engines)
     specs = InvocableRegistry(engines).load() if invocables is None else invocables

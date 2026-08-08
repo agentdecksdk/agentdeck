@@ -58,12 +58,13 @@ Documents were written in conversation order and later ones refine earlier ones.
 | Milestone 0 §3 (UC2) | Two seq checks decided later: seq continuity across the kill/restart; double-resume race → exactly one winner | **Applied 2026-08-04** — added to UC2's make-sure list |
 | Milestone 0 header | "A=contiguous, B=full-text — pending confirmation" | **Applied 2026-08-04** — confirmed; UC1/UC3 still test them empirically |
 | PRD FR-17–21 (group sessions, moderator, advisors, triggers) | Designed in conversation, not yet in the architecture doc | Open — each gets a feature spec doc at its epic (v2.1/v2.2); architecture impact already assessed: zero new kinds, one new port (`TriggerPort`), one new component (Moderator as Invocable) |
-| coding-standards §6 (`:113`) | Still reads "the Runtime is the **only** assigner of `seq`" — superseded by ADR-D11 | Open — lands with the port change (ADR-D11 §7) |
+| coding-standards §6 (`:113`) | Read "the Runtime is the **only** assigner of `seq`" — superseded by ADR-D11 | **Applied 2026-08-08** — §6 now states the store's assignment as the law |
 | coding-standards §1 precedence | Enumerates "D1–D10 and ADR-D5"; by its own ordering D11 outranks nothing | **Applied 2026-08-08** — D11 named |
 | ADR-D5 `:151` *Explicitly unchanged* | "`Runtime` still stamps and appends every event" — the exact sentence D11 overturns | **Applied 2026-08-08** — dated amendment added; D5's two-store rule untouched |
 | `prompts/pr1-event-schema-prompt.md:34,121` | "assigned by the Runtime" / "seq is assigned only by the Runtime" | Superseded by precedence rule 3 above. Prompts are frozen (§6 below), so **not edited** |
-| `core/ports/store.py` docstrings, `runtime/service.py:5,536-538`, `test_runtime_service.py:890` | All still assert or pin Runtime-assigned `seq` | Open — land with the port change, per ADR-D11 §7 |
-| Design doc envelope-stamping split | Predates ADR-D11 | Open — lands with the port change |
+| `core/ports/store.py` docstrings, `runtime/service.py:5,536-538`, `test_runtime_service.py:890` | All asserted or pinned Runtime-assigned `seq` | **Applied 2026-08-08** — port and `_drain` docstrings rewritten; the gap assertion flips `[2]` → `[]` |
+| Design doc envelope-stamping split | Predated ADR-D11 | **Applied 2026-08-08** — dated amendment added beside it; the envelope line in §4.2 names the store |
+| `Runtime(clock=...)` / `build_runtime(clock=...)` | Inert since ADR-D11: nothing above the store stamps a `ts`, so the keyword is accepted and forwarded to nothing | Open — documented as inert rather than removed; dropping a public keyword is a breaking change owed its own PR |
 
 ## 4. Execution order (single source of truth for "what's next")
 

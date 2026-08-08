@@ -93,6 +93,33 @@ of vanishing the moment the call returns.
   accepting it. A run's log key is `session_id or run_id`, so `""` was not an error anywhere
   downstream — it quietly gave the turn a private log, and the caller's next message found no
   history with nothing saying why. v1's `POST /agents/{name}/chat` is unchanged.
+- **Breaking (for anyone who implemented `EventStorePort`):** the store now assigns `seq` and
+  `ts`, in the same indivisible step that persists the event, and the port went from eight
+  methods to seven. `append(log_key, payloads, ctx, origin)` takes payload objects instead of
+  finished `Event`s and **returns** the events it wrote; `claim_start` takes the opening
+  `RunStarted` plus `origin` and returns `(SessionClaim, Event | None)`; `claim_resume` takes
+  the `RunResumed` plus `origin` and returns the event it wrote or `None` instead of a bool;
+  `last_seq` is **removed**, having existed only to recover a counter nothing holds any more.
+  `SessionClaim.overridden` now carries each abandoned run's last `Event` rather than its id,
+  and `claim_start`'s cutoff is a `stale_after: timedelta` rather than a `stale_before:
+  datetime` — the store owns the clock, so only it can subtract from its own now. The four
+  bundled stores are unchanged in behavior; a store built outside this package needs porting.
+  `read`, `read_run`, `list_runs` and `run_status` are untouched.
+- `Runtime(clock=...)` and `build_runtime(clock=...)` no longer decide anything. Every event's
+  `ts` is assigned by the store, so a caller that wants to hold time still builds the store
+  with a clock — `MemoryEventStore(clock=...)`, `RedisEventStore(clock=...)` — while the SQLite
+  and Postgres stores read their own backend's clock, so N workers sharing one database compare
+  one clock instead of N. Both keywords are still accepted and do nothing.
+
+### Fixed
+
+- A log no longer carries a permanent gap after a dropped report or a transient append failure.
+  The `seq` was taken before the write and stayed spent when the write failed, so a run that
+  otherwise completed cleanly left a hole in its sequence — and a consumer seeing that hole
+  could not tell "an event was lost in transit, refetch it" from "this gap is permanent and
+  refetching will never converge". A number is now allocated and persisted together, so it
+  cannot be allocated and not persisted, and `check_contiguous` is the loss check it is
+  documented to be.
 
 ### Known limits
 
