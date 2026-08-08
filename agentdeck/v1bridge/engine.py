@@ -4,11 +4,14 @@ them, called rather than reimplemented.
 
 The M0 engine builds a minimal ``RunConfig`` of its own, which is right for a v2 caller
 and wrong for a v1 one: v1's chat resolves the model provider, temperature, ``max_turns``
-and CA bundle from settings, opens a sandbox when the agent needs one, and wraps the turn
-in one Langfuse observation. That resolution is v1's, so it is *reused* here rather than
-reimplemented — this class calls v1's runner for it and keeps the M0 engine's stream
-translation. It is the same ``engine`` name, so a composition root registers one or the
-other, never both.
+and CA bundle from settings, and opens a sandbox when the agent needs one. That resolution
+is v1's, so it is *reused* here rather than reimplemented — this class calls v1's runner
+for it and keeps the M0 engine's stream translation. It is the same ``engine`` name, so a
+composition root registers one or the other, never both.
+
+Tracing is not among the things it reuses: the run's Langfuse trace is built by the
+telemetry sink from the event stream this engine already emits, so opening a second
+observation here would report every turn twice.
 
 Two things v1 puts on the wire have no canonical home yet, so both are additive and
 namespaced (D10: an engine translates into existing kinds or namespaces a ``custom``
@@ -32,8 +35,6 @@ from agentdeck.adapters.engines.openai_agents.engine import Launch, OpenAIAgents
 from agentdeck.agents.runners import HeadlessRunner
 from agentdeck.core.content import coerce_input
 from agentdeck.core.events import Custom, RunCompleted, Usage, UsageReported
-from agentdeck.runtime.observability import trace_run
-from agentdeck.runtime.workspace import current_capture
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Sequence
@@ -49,7 +50,7 @@ STRUCTURED_OUTPUT = "openai_agents.structured_output"
 
 
 class V1CompatEngine(OpenAIAgentsEngine):
-    """Runs an agent with v1's resolved run config, sandbox scope and trace span.
+    """Runs an agent with v1's resolved run config and sandbox scope.
 
     ``session_for`` is v1's own session lookup (``App.session_for``), taken rather than
     rebuilt so a conversation is one conversation whether the turn arrived through
@@ -77,39 +78,19 @@ class V1CompatEngine(OpenAIAgentsEngine):
         self, agent: Agent[Any], message: str, ctx: RunContext, session: Session | None
     ) -> AsyncIterator[Launch]:
         runner = HeadlessRunner.from_agent(agent)
-        with trace_run(
-            current_capture(), name=agent.name, kind="agent", input=message, session_id=ctx.session_id
-        ) as tr:
-            async with runner.attach_sandbox():
-                launch = Launch(
-                    Runner.run_streamed(
-                        agent,
-                        message,
-                        # Same reach a v2 run gives its tools (``openai_agents/engine.py``): a
-                        # v1 tool that wants to report status must not have to be a v2 tool.
-                        context=ctx,
-                        run_config=runner.run_config,
-                        max_turns=runner.max_turns,
-                        session=session,
-                    )
+        async with runner.attach_sandbox():
+            yield Launch(
+                Runner.run_streamed(
+                    agent,
+                    message,
+                    # Same reach a v2 run gives its tools (``openai_agents/engine.py``): a
+                    # v1 tool that wants to report status must not have to be a v2 tool.
+                    context=ctx,
+                    run_config=runner.run_config,
+                    max_turns=runner.max_turns,
+                    session=session,
                 )
-                try:
-                    yield launch
-                except GeneratorExit:
-                    # How a *successful* run ends, not a failure — the Runtime stops reading at
-                    # the terminal event, which closes the generator suspended here. Reporting
-                    # this as an error is what made every completed turn look failed.
-                    if launch.finished:
-                        tr.set_output(launch.result.final_output)
-                    else:
-                        # Not necessarily a consumer walking away: a control-gate cancel ends the
-                        # run here too, and both are "closed before the terminal event".
-                        tr.set_output(error="GeneratorExit: run did not reach its terminal event")
-                    raise
-                except BaseException as exc:
-                    tr.set_output(error=f"{type(exc).__name__}: {exc}")
-                    raise
-                tr.set_output(launch.result.final_output)
+            )
 
     def _translate(self, event: Any, tool_names: dict[str, str]) -> KnownPayload | None:
         payload = super()._translate(event, tool_names)

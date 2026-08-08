@@ -18,6 +18,7 @@ from agentdeck.adapters.control.memory import MemoryControlPort
 from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
+from agentdeck.adapters.telemetry.langfuse.client import langfuse_sink
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import ControlSettings, EventsSettings, get_settings
@@ -39,7 +40,7 @@ def build_runtime(
     engines: Sequence[EnginePort],
     invocables: Mapping[str, InvocableSpec] | None = None,
     store: EventStorePort | None = None,
-    sinks: Sequence[EventSinkPort] = (),
+    sinks: Sequence[EventSinkPort] | None = None,
     control: ControlPort | None = None,
     clock: Callable[[], datetime] | None = None,
 ) -> Runtime:
@@ -47,12 +48,19 @@ def build_runtime(
 
     ``invocables`` defaults to discovery over ``./.agentdeck`` — pass a mapping to run
     specs built in code instead. ``store`` defaults to the configured event store,
-    ``control`` to the configured control port, and ``clock`` to wall time.
+    ``control`` to the configured control port, ``sinks`` to the configured telemetry, and
+    ``clock`` to wall time. Passing ``sinks=()`` is how a caller asks for none at all.
     """
     engines = tuple(engines)
     specs = InvocableRegistry(engines).load() if invocables is None else invocables
     store = store or resolve_event_store()
     control = control or resolve_control_port()
+    if sinks is None:
+        # Telemetry is a reader of the event stream, so it is wired here rather than opened
+        # by whatever happens to be running: one sink covers agents, workflows and every
+        # engine at once. ``None`` when Langfuse has no keys, which registers nothing at all.
+        telemetry = langfuse_sink()
+        sinks = () if telemetry is None else (telemetry,)
     if clock is None:
         return Runtime(engines, store, specs, sinks=sinks, control=control)
     return Runtime(engines, store, specs, sinks=sinks, clock=clock, control=control)

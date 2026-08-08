@@ -2,14 +2,17 @@
 the way ``workflows/runners/dev.py`` plays it.
 
 The M0 langgraph engine compiles ``spec.native`` around its own checkpointer and streams it
-bare, which is right for a v2 caller and wrong for a v1 one. v1 runs a workflow inside two
-things the graph itself cannot supply: one shared :class:`Workspace` (``FileNode`` and
-``SkillNode`` call ``Workspace.require()``, so without it they raise) and one Langfuse
-observation every node's agent and skill span nests under. And v1's own
+bare, which is right for a v2 caller and wrong for a v1 one. v1 runs a workflow inside one
+thing the graph itself cannot supply: a shared :class:`Workspace` (``FileNode`` and
+``SkillNode`` call ``Workspace.require()``, so without it they raise). And v1's own
 ``BaseWorkflow.build()`` is what decides a graph's checkpointer — the configured one for
-``durable = True``, none at all otherwise. All three are v1's, so they are *reused* here
+``durable = True``, none at all otherwise. Both are v1's, so they are *reused* here
 rather than reimplemented: this class calls v1's runner for its resolved configuration and
 v1's compiled graph, and keeps the M0 engine's stream translation.
+
+The workflow's Langfuse trace is not among them: it is built by the telemetry sink from the
+event stream, which is what finally covers workflow runs — the observation v1 opened here
+carried no session identity, and a second one would now double-report the run.
 
 That also settles where the configured checkpointer is resolved: nowhere until a durable
 workflow actually runs one. A composition root registering this engine resolves nothing, so
@@ -23,11 +26,9 @@ from contextlib import aclosing
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.adapters.engines.langgraph.engine import LangGraphEngine
-from agentdeck.core.content import DataBlock
-from agentdeck.core.events import RunCompleted, RunInterrupted
+from agentdeck.core.events import RunInterrupted
 from agentdeck.errors import ConfigError
-from agentdeck.runtime.observability import trace_run
-from agentdeck.runtime.workspace import Workspace, current_capture
+from agentdeck.runtime.workspace import Workspace
 from agentdeck.workflows.nodes import STREAM_CONFIGURABLE_KEY
 from agentdeck.workflows.runners.dev import DevWorkflowRunner
 from agentdeck.workflows.state import json_default
@@ -44,7 +45,7 @@ if TYPE_CHECKING:
 
 
 class V1CompatWorkflowEngine(LangGraphEngine):
-    """Runs a workflow with v1's compiled graph, sandbox scope and trace span.
+    """Runs a workflow with v1's compiled graph and sandbox scope.
 
     ``workflow_for`` is v1's own workflow lookup (``App.workflows.get``), taken rather than
     rebuilt so a graph is compiled once per process and around the checkpointer v1 chose for
@@ -101,46 +102,19 @@ class V1CompatWorkflowEngine(LangGraphEngine):
                 STREAM_CONFIGURABLE_KEY: True,
             },
         }
-        with trace_run(current_capture(), name=workflow.name or workflow.__name__, input=graph_input) as tr:
-            reported = False
-            # The workspace is a ContextVar scope, so the stream it wraps has to be closed
-            # from inside it — an abandoned generator releases it from the wrong context.
-            async with (
-                Workspace.open(environment=runner.environment, input_files=runner.input_files),
-                aclosing(self._play(runner.graph, graph_input, config)) as stream,
-            ):
-                try:
-                    async for payload in stream:
-                        if isinstance(payload, RunInterrupted) and not workflow.durable:
-                            raise ConfigError(
-                                f"{workflow.__name__} called interrupt() but is durable=False: with no checkpointer "
-                                "the paused run cannot be resumed. Set `durable = True` on the workflow.",
-                            )
-                        produced = _reported(payload)
-                        if produced is not None:
-                            tr.set_output(produced)
-                            reported = True
-                        yield payload
-                except GeneratorExit:
-                    # How a *successful* run ends too: the Runtime stops reading at the terminal
-                    # event, closing this generator. Only a run that reported nothing was abandoned.
-                    if not reported:
-                        tr.set_output(error="GeneratorExit: run did not reach its terminal event")
-                    raise
-                except BaseException as exc:
-                    tr.set_output(error=f"{type(exc).__name__}: {exc}")
-                    raise
-
-
-def _reported(payload: KnownPayload) -> Any:
-    """What this payload tells the trace the run produced, or ``None`` if it says nothing —
-    v1 set the observation's output from the graph's final state, and a paused run's answer
-    to "what did it produce" is the question it is waiting on."""
-    if isinstance(payload, RunCompleted):
-        return next((block.data for block in payload.output if isinstance(block, DataBlock)), None)
-    if isinstance(payload, RunInterrupted):
-        return payload.payload
-    return None
+        # The workspace is a ContextVar scope, so the stream it wraps has to be closed
+        # from inside it — an abandoned generator releases it from the wrong context.
+        async with (
+            Workspace.open(environment=runner.environment, input_files=runner.input_files),
+            aclosing(self._play(runner.graph, graph_input, config)) as stream,
+        ):
+            async for payload in stream:
+                if isinstance(payload, RunInterrupted) and not workflow.durable:
+                    raise ConfigError(
+                        f"{workflow.__name__} called interrupt() but is durable=False: with no checkpointer "
+                        "the paused run cannot be resumed. Set `durable = True` on the workflow.",
+                    )
+                yield payload
 
 
 __all__ = ["V1CompatWorkflowEngine"]

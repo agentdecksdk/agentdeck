@@ -74,8 +74,8 @@ class BaseRunner(ABC):
         # Start Langfuse + OpenInference once (no-op when Langfuse is disabled) and let
         # its result drive the SDK's native tracing switch. When active, OpenInference
         # exports the Agents-SDK trace pipeline to Langfuse; when not, tracing is off (no
-        # OpenAI-backend export). Session identity is applied at run time by wrapping the
-        # run in :func:`observability.trace_run` — the capture may bind after this call.
+        # OpenAI-backend export). Session identity comes from the run's own trace: the
+        # telemetry sink for a run played through the Runtime, ``trace_run`` for a direct call.
         run_config = RunConfig(
             workflow_name=runner.workflow_name,
             model=openai.model,
