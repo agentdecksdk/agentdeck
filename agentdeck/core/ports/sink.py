@@ -17,8 +17,8 @@ class EventSinkPort(ABC):
     """One consumer of the stream. Errors and slowness are the sink's problem, not the run's.
 
     A sink that blocks or raises too often is disabled, then offered one event again after a
-    cooldown — so an outage needs no retry logic here. Nothing is replayed: the events the
-    outage covered are lost, and a sink that cannot lose any reads the store.
+    cooldown, so an outage needs no retry logic here. Nothing is replayed: a sink that cannot
+    lose events reads the store instead.
     """
 
     @abstractmethod
@@ -26,19 +26,17 @@ class EventSinkPort(ABC):
         """Take one event, promptly.
 
         Called one at a time per sink, in submission order, from a bounded buffer — so a slow
-        ``emit`` costs this sink's own backlog and nothing else. Slow work buffers internally
-        and flushes in :meth:`close`; a sink that cannot keep up sees gaps in that order rather
-        than delaying the run.
+        ``emit`` costs this sink's own backlog and nothing else. Buffer slow work internally and
+        flush it in :meth:`close`, rather than delaying the run.
         """
 
     async def close(self) -> None:  # noqa: B027 — no-op on purpose: a stateless sink has nothing to flush
         """The stream has ended: write out whatever is still buffered. No-op by default.
 
-        Called once at shutdown, and on a sink that never saw an event, and on one that was
-        disabled — buffered events are still worth writing. Bounded and non-fatal: too slow is
-        abandoned mid-flush, anything raised is logged.
+        Called once at shutdown — including on a sink that never saw an event, and on one that was
+        disabled, whose buffered events are still worth writing. Bounded and non-fatal: too slow
+        is abandoned mid-flush, anything raised is logged.
 
-        One ``emit`` may still be unwinding while this runs (a swallowed cancellation, or an
-        ``await`` in its ``finally``), so a buffer must be safe to touch from two places:
-        read-``await``-clear here can drop what that ``emit`` adds in between.
+        One ``emit`` may still be unwinding while this runs (a swallowed cancellation, an ``await``
+        in its ``finally``), so read-``await``-clear here can drop what that ``emit`` adds between.
         """

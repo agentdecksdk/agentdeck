@@ -1,17 +1,11 @@
 """Typed content blocks.
 
-``Input`` is what every boundary passes instead of a bare string: a list of blocks
-discriminated on ``type``, so text, images, references and structured data travel the same
-way — in both directions, since ``run.completed`` carries an ``Input`` too.
+``Input`` is what every boundary passes instead of a bare string, in both directions —
+``run.completed`` carries one too.
 
-Content policy: text and data blocks are stored in full, because they are the caller's own
-input and the run's own declared result — a truncated one cannot be replayed or reconciled
-against engine state. Only *tool* results are bounded (preview + size + hash), where the
-bytes are unbounded and engine-chosen rather than caller-chosen.
-
-An unfamiliar block ``type`` falls back to :class:`UnknownBlock` instead of rejecting the
-block's whole event, the same move :class:`agentdeck.core.events.Event` makes for an unknown
-``kind``.
+Blocks are stored in full: they are the caller's own input and the run's declared result, and a
+truncated one cannot be replayed. Only *tool* results are bounded (preview + size + hash), where
+the bytes are engine-chosen rather than caller-chosen.
 """
 
 from __future__ import annotations
@@ -83,16 +77,16 @@ class UnknownBlock(CoreModel):
 
 KnownBlock = Annotated[TextBlock | ImageBlock | ResourceBlock | DataBlock, Field(discriminator="type")]
 
-# peels the Annotated, then the union — add a block class above and this follows it
+# Both derived by peeling the Annotated, then the union: a block class added above reaches the
+# fallback and ``coerce_input`` without anyone remembering to list it twice more.
 KNOWN_BLOCK_TYPES: frozenset[str] = frozenset(b.model_fields["type"].default for b in get_args(get_args(KnownBlock)[0]))
 
 
 def _fallback_to_unknown_block(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
     """Reshape an unfamiliar block into :class:`UnknownBlock` instead of failing the union.
 
-    A dict already shaped like a stored ``UnknownBlock`` (``{type, raw_block}``) validates against
-    the union member directly, so ``handler`` succeeds and this never re-wraps it — which is what
-    lets a stored ``UnknownBlock`` round-trip.
+    A stored ``UnknownBlock`` (``{type, raw_block}``) validates against the union member directly,
+    so ``handler`` succeeds and it is never re-wrapped — which is what lets it round-trip.
     """
     try:
         return handler(value)
@@ -107,8 +101,6 @@ def _fallback_to_unknown_block(value: Any, handler: ValidatorFunctionWrapHandler
 ContentBlock = Annotated[KnownBlock | UnknownBlock, WrapValidator(_fallback_to_unknown_block)]
 Input = list[ContentBlock]
 
-# derived from the union for the same reason KNOWN_BLOCK_TYPES is: a block class added above
-# has to reach coerce_input's isinstance check without anyone remembering to list it twice
 _BLOCK_TYPES = (*get_args(get_args(KnownBlock)[0]), UnknownBlock)
 
 

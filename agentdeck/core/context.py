@@ -27,9 +27,8 @@ class RunContext:
     edge or the run should not start.
 
     ``gate`` and ``reporter`` are the two fields that are not values — a cooperative seam has to
-    reach code the Runtime never sees. Control flows in through the gate, updates out through the
-    reporter. Both default to doing nothing and only the Runtime rebinds them, so a context built
-    by hand is still a plain value object.
+    reach code the Runtime never sees. Both default to doing nothing and only the Runtime rebinds
+    them, so a context built by hand is still a plain value object.
     """
 
     tenant: str

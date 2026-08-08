@@ -1,13 +1,12 @@
 """How code inside a run says what it is doing: one report channel, carried on the context.
 
-The mirror image of :class:`~agentdeck.core.ports.control.Gate` — control flows in on
-``RunContext``, updates flow out the same way. A tool six frames inside an engine cannot yield
-an event and must not know a Runtime exists, so it hands the report to the context it has.
+The mirror image of :class:`~agentdeck.core.ports.control.Gate` — control in on ``RunContext``,
+updates out the same way. A tool six frames inside an engine cannot yield an event and must not
+know a Runtime exists, so it hands the report to the context it has.
 
-Buffered, not delivered: reports land in a bounded buffer the Runtime drains at its next event,
-so an emitter is never charged for a store append and a refused write cannot surface as an
-exception inside somebody's tool. A report the store refuses is dropped and logged, never turned
-into a failed run. What it costs is timeliness, stated on :class:`Reporter`.
+Buffered, not delivered: the Runtime drains a bounded buffer at its next event, so an emitter is
+never charged for a store append and a refused write never surfaces as an exception inside
+somebody's tool. What it costs is timeliness, stated on :class:`Reporter`.
 """
 
 from __future__ import annotations
@@ -24,9 +23,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Deep enough for any honest burst — a run reporting more than this between two events of its
-# own is describing itself faster than it is doing anything — and bounded because the buffer is
-# filled by an invocable's own code, which the platform does not get to trust with memory.
+# Deep enough for an honest burst: a run reporting more than this between two events of its own
+# is describing itself faster than it is doing anything. Bounded because an invocable's own code
+# fills it, which the platform does not get to trust with memory.
 MAX_PENDING_REPORTS = 64
 
 
@@ -53,7 +52,7 @@ class Reporter:
     async def status(self, message: str) -> None:
         """Report what the run is doing now, for a person to read. ``message`` must not be empty.
 
-        Async so a channel that one day waits — a real queue, a transport — need not change its
+        Async so a channel that one day waits — a queue, a transport — need not change its
         callers. Nothing here awaits today.
         """
         self._offer(StatusReported(message=message))
@@ -66,9 +65,9 @@ class Reporter:
         if self._pending is None:
             return
         if len(self._pending) >= MAX_PENDING_REPORTS:
-            # The newest is dropped, not the oldest: a progress sequence read with its front
-            # missing is a run that appears to start at step 40, which is worse than one that
-            # stops reporting. Logged rather than raised — an advisory event is not worth a run.
+            # Newest dropped, not oldest: a progress sequence missing its front is a run that
+            # appears to start at step 40, worse than one that stops reporting. Logged rather
+            # than raised — an advisory event is not worth a run.
             logger.warning(
                 "dropping %s: %d reports are already waiting to be recorded", payload.kind, len(self._pending)
             )

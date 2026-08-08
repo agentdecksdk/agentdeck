@@ -61,9 +61,9 @@ class EventStorePort(ABC):
     async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
         """Events in append order, oldest first.
 
-        ``offset`` counts events from the start of the log, not a ``seq`` cursor — ``seq``
-        restarts per run, so it cannot address a position in a log holding several. Safe to
-        page with a plain counter: the log only grows at the end.
+        ``offset`` counts from the start of the log, not a ``seq`` cursor — ``seq`` restarts per
+        run, so it cannot address a position in a log holding several. Safe to page with a plain
+        counter: the log only grows at the end.
 
         A negative ``offset`` means 0; a negative ``limit`` raises ``ValueError`` rather than
         quietly meaning "all" in one store and "none" in another.
@@ -86,26 +86,22 @@ class EventStorePort(ABC):
     @abstractmethod
     async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
         """Append ``event`` — a run's opening ``run.started`` — if and only if this log has no
-        open run at that moment, in one indivisible step. One session runs one turn at a time.
+        open run, in one indivisible step. One session runs one turn at a time.
 
-        Condition and write must be a single operation, which is what carries this across
-        processes: two servers sharing a store would both read an idle session and both open a
-        run on it, whereas only one ``run.started`` can land here.
+        Condition and write must be one operation, which is what carries this across processes:
+        two servers sharing a store would both read an idle session and both open a run on it.
 
         An **open run** recorded a lifecycle transition and no terminal one. ``WAITING_HUMAN``
         counts — an interrupted run still owns its engine's thread, and a second run against it
-        would overwrite the checkpoints the first resumes from. A run with no transition at all
-        is ``PENDING``, indistinguishable from one the store never saw, so it holds nothing.
+        would overwrite the checkpoints the first resumes from. A run with no transition at all is
+        ``PENDING``, indistinguishable from one the store never saw, so it holds nothing.
 
-        Losing never raises: two turns arriving together is a double-clicked send button, so
-        the refusal is data (``held_by`` names the holder, nothing is written). An unreachable
-        store does raise — it cannot know whether anybody holds anything.
+        Losing never raises — two turns at once is a double-clicked send button, so the refusal is
+        data. An unreachable store does raise: it cannot know whether anybody holds anything.
 
-        ``stale_before`` is the cutoff for an abandoned claim: an open run whose own last event
-        is at or before it stops holding the session and comes back in ``overridden`` for the
-        caller to close. Without it a process killed mid-run wedges its session for good. A
-        store never reads a clock — the caller stamps ``ts``, so only the caller's idea of
-        "now" can be compared to it.
+        ``stale_before`` is the cutoff for an abandoned claim: an open run whose last event is at
+        or before it stops holding the session and comes back in ``overridden`` for the caller to
+        close. Without it a process killed mid-run wedges its session for good.
         """
 
     @abstractmethod
@@ -113,29 +109,28 @@ class EventStorePort(ABC):
         """Append ``event`` if and only if ``run_id`` is ``WAITING_HUMAN`` *and* ``event.seq``
         is the next ``seq`` for that run, in one indivisible step. ``True`` when appended.
 
-        The write that publishes the ``WAITING_HUMAN`` -> ``RUNNING`` transition is the same
-        write that tests for it, which is what makes double-resume protection hold between two
-        processes and not merely between two tasks. A store that cannot make both checks and
-        the append indivisible must not implement this port.
+        The write publishing the ``WAITING_HUMAN`` -> ``RUNNING`` transition is the same write
+        that tests for it, which is what makes double-resume protection hold between processes
+        and not merely between tasks. A store that cannot do both indivisibly must not implement
+        this port.
 
         The ``seq`` check covers what status alone cannot: a caller stamps its event before
         claiming, so a slow one can arrive after the run was resumed *and* interrupted again —
         waiting on a human once more, but with that ``seq`` already spent.
 
-        ``False`` on any other status, a stale ``seq``, or a lost race; a stray resume is a
-        no-op by design (``can_resume``). An unreachable store raises instead, because
-        ``False`` claims somebody else recorded this resume, which it cannot know.
+        ``False`` on any other status, a stale ``seq``, or a lost race; a stray resume is a no-op
+        by design (``can_resume``). An unreachable store raises instead, because ``False`` claims
+        somebody else recorded this resume, which it cannot know.
         """
 
     @abstractmethod
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
-        """Every run for this tenant that recorded a lifecycle transition, across all of the
-        tenant's logs, optionally narrowed to one status.
+        """Every run for this tenant that recorded a lifecycle transition, across all its logs,
+        optionally narrowed to one status.
 
-        A ``PENDING`` run is indistinguishable from one the store never heard of, so listings
-        leave it out; every run the Runtime starts records ``run.started`` first. Index this
-        however the store can — the point is that finding waiting runs must not cost a fold of
-        every log the tenant owns.
+        ``PENDING`` runs are left out, being indistinguishable from ones the store never heard of.
+        Index this however the store can: finding waiting runs must not cost a fold of every log
+        the tenant owns.
         """
 
     async def run_status(self, log_key: str, run_id: str, ctx: RunContext) -> RunStatus:

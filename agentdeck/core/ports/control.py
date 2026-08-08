@@ -1,15 +1,11 @@
 """Cross-process run control: a signal addressed by ``run_id`` alone.
 
-No ``RunContext`` parameter on the port methods — ``run_id`` is already globally unique, and
-a caller reaching for a run it did not start (a second terminal, an operator's dashboard) has
-nothing else to offer. That is also why the port carries the caller's ``reason``: the run's
-own loop is what records the request in the log, so the words have to travel with the signal
-or be lost.
+No ``RunContext`` on the port methods — ``run_id`` is globally unique, and a caller reaching for
+a run it did not start (a second terminal, an operator's dashboard) has nothing else to offer.
+Same reason the port carries ``reason``: the run's own loop records the request in the log, so
+the words travel with the signal or are lost.
 
-The three verbs a run can be signaled with — ``cancel``, ``pause``, ``resume`` — match the
-event schema's ``ControlVerb`` values one for one (``steer`` is a mailbox rather than a
-signal, and is not built). A run notices a signal at a safe point, through :class:`Gate`, and
-nowhere else.
+A run notices a signal at a safe point, through :class:`Gate`, and nowhere else.
 """
 
 from __future__ import annotations
@@ -30,11 +26,10 @@ if TYPE_CHECKING:
 CONTROL_POLL_INTERVAL = 0.2
 """Seconds a :class:`Gate` may reuse the answer it already has (issue #85).
 
-Bounds control reads by time instead of by token count: a 500-chunk answer polled per chunk
-costs 500 reads answering "no" 499 times, and a network-backed port pays a round trip each. The
-cost is latency only — a signal is still acted on at a safe point, up to one interval late.
-200ms is picked against a human's cancel click (still reads as instant) and a real token stream
-(~30ms per chunk, so one read stands in for six).
+Bounds control reads by time instead of token count: a 500-chunk answer polled per chunk costs
+500 reads answering "no" 499 times, a round trip each on a network-backed port. The cost is
+latency only — a signal is still honored at a safe point, up to one interval late. 200ms is
+picked against a human's cancel click (still reads as instant) and a ~30ms token stream.
 """
 
 
@@ -61,10 +56,9 @@ class ControlPort(ABC):
     async def signal(self, run_id: str, sig: Signal, reason: str | None = None) -> None:
         """Record ``sig`` for ``run_id``, replacing whatever was pending. Idempotent.
 
-        Signaling an ended run is harmless by construction, not by a check — nothing polls the
-        gate once the run loop exits, so the signal sits unread. ``RESUME`` lifts a pause rather
-        than instructing a live run: it replaces the pending ``PAUSE`` so a resumed run does not
-        stop again at its first safe point.
+        Signaling an ended run is harmless by construction, not by a check: nothing polls the gate
+        once the run loop exits. ``RESUME`` lifts a pause rather than instructing a live run — it
+        replaces the pending ``PAUSE`` so a resumed run does not stop at its first safe point.
         """
 
     @abstractmethod
@@ -120,10 +114,8 @@ class RunPausedError(ControlSignalled):
 
 
 class Gate:
-    """One run's cooperative safe point.
-
-    With no ``control`` port (the default) ``checkpoint()`` is a no-op. A run that has one gets a
-    gate bound to its own ``run_id``, built by the Runtime, never by the caller.
+    """One run's cooperative safe point. Bound to a ``run_id`` by the Runtime, never by the
+    caller; with no ``control`` port (the default) ``checkpoint()`` is a no-op.
 
     Nothing here ever parks a run: a checkpoint reads at most one pending signal, then returns or
     raises. A pause is not a wait *at* the gate — the run unwinds to the Runtime, which records
