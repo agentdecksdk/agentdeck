@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _default_use_responses() -> bool:
+def default_use_responses() -> bool:
     """Default to the SDK's Responses transport, overridable via env.
 
     Set ``OPENAI_USE_RESPONSES=false`` when targeting a Chat-Completions-
@@ -95,7 +95,7 @@ class BaseRunner(ABC):
                 else None,
                 base_url=None if openai.ca_bundle else (openai.base_url or None),
                 api_key=None if openai.ca_bundle else (openai.api_key or None),
-                use_responses=_default_use_responses(),
+                use_responses=default_use_responses(),
             ),
             # ``include_usage`` asks the Chat-Completions API to emit the streaming usage
             # chunk (prompt/completion tokens) — without it, streamed turns land in Langfuse
@@ -127,7 +127,7 @@ class BaseRunner(ABC):
         on the turn. No-op for graphs of plain :class:`Agent` only.
         Inherits an outer workspace bound to the current async context.
         """
-        if not _needs_sandbox(self.agent):
+        if not needs_sandbox(self.agent):
             yield None
             return
         async with Workspace.open(
@@ -151,7 +151,7 @@ class BaseRunner(ABC):
         raise NotImplementedError(f"{type(self).__name__} does not support streaming")
 
 
-def _needs_sandbox(agent: Agent, _seen: set[int] | None = None) -> bool:
+def needs_sandbox(agent: Agent, _seen: set[int] | None = None) -> bool:
     """``True`` if ``agent`` or any reachable worker requires a sandbox.
 
     Walks both direct handoffs (Agent instances; Handoff wrappers don't expose
@@ -169,15 +169,15 @@ def _needs_sandbox(agent: Agent, _seen: set[int] | None = None) -> bool:
     if isinstance(agent, SandboxAgent):
         return True
     for entry in getattr(agent, "handoffs", ()) or ():
-        if isinstance(entry, Agent) and _needs_sandbox(entry, seen):
+        if isinstance(entry, Agent) and needs_sandbox(entry, seen):
             return True
     for tool in getattr(agent, "tools", ()) or ():
         if is_sandbox_tool(tool):
             return True
         inner = inner_agent_of(tool)
-        if isinstance(inner, Agent) and _needs_sandbox(inner, seen):
+        if isinstance(inner, Agent) and needs_sandbox(inner, seen):
             return True
     return False
 
 
-__all__ = ["BaseRunner"]
+__all__ = ["BaseRunner", "default_use_responses", "needs_sandbox"]

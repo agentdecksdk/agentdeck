@@ -13,12 +13,14 @@ import textwrap
 
 import pytest
 from fastapi.testclient import TestClient
-from scripted_model import ScriptedModel, provider_of
+from project_engines import project_engines
+from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.adapters.engines.langgraph import engine as langgraph_engine
+from agentdeck.adapters.engines.openai_agents import engine as openai_agents_engine
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
-from agentdeck.composition import build_runtime, v1_engines
+from agentdeck.composition import build_runtime
 from agentdeck.core.content import coerce_input
 from agentdeck.core.events import check_terminal
 from agentdeck.runtime.service import PendingRun
@@ -26,7 +28,6 @@ from agentdeck.runtime.settings import reset_settings_cache
 from agentdeck.serve import create_app
 from agentdeck.surfaces.serve import compat as surface_compat
 from agentdeck.surfaces.serve.compat import chat_frames, chat_result, interrupt_inbox, run_context
-from agentdeck.v1bridge import engine as compat_engine
 
 AGENT_PY = """
 from pydantic import BaseModel
@@ -89,9 +90,9 @@ def scripted(monkeypatch):
 
     def _build(model=None):
         model = model or ScriptedModel(deltas=("Hello",))
-        monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(model))
+        patch_provider(monkeypatch, provider_of(model))
         store = MemoryEventStore()
-        return build_runtime(engines=v1_engines(), store=store), store, model
+        return build_runtime(engines=project_engines(), store=store), store, model
 
     return _build
 
@@ -99,7 +100,7 @@ def scripted(monkeypatch):
 def test_the_surface_and_the_engine_agree_on_the_structured_output_carrier():
     """The surface spells the engine's custom-event name out rather than importing it, so this
     is what keeps the two from drifting apart."""
-    assert surface_compat.STRUCTURED_OUTPUT == compat_engine.STRUCTURED_OUTPUT
+    assert surface_compat.STRUCTURED_OUTPUT == openai_agents_engine.STRUCTURED_OUTPUT
 
 
 def test_the_surface_and_the_langgraph_engine_agree_on_the_stream_write_carrier():
@@ -238,9 +239,7 @@ async def test_a_structured_output_reaches_the_streamed_done_frame(project, scri
 
 
 def test_the_endpoint_answers_a_structured_agent_with_its_object(project, monkeypatch):
-    monkeypatch.setattr(
-        "agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel(deltas=('{"greeting": "Hi"}',)))
-    )
+    patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=('{"greeting": "Hi"}',))))
 
     with TestClient(create_app()) as client:
         response = client.post("/agents/Structured/chat", json={"session_id": "s1", "message": "hi"})
@@ -258,7 +257,7 @@ def test_the_endpoint_logs_its_run_to_the_configured_event_store(project, monkey
     db = tmp_path / "events.sqlite3"
     monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTDECK_EVENTS_URL", str(db))
-    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel()))
+    patch_provider(monkeypatch, provider_of(ScriptedModel()))
     reset_settings_cache()
     try:
         with TestClient(create_app()) as client:
@@ -289,7 +288,7 @@ def test_the_workflow_endpoint_logs_its_run_to_the_configured_event_store(projec
     db = tmp_path / "events.sqlite3"
     monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "sqlite")
     monkeypatch.setenv("AGENTDECK_EVENTS_URL", str(db))
-    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel()))
+    patch_provider(monkeypatch, provider_of(ScriptedModel()))
     reset_settings_cache()
     try:
         with TestClient(create_app()) as client:
@@ -318,7 +317,7 @@ def test_the_workflow_endpoint_logs_its_run_to_the_configured_event_store(projec
 def test_a_message_that_is_not_a_string_is_a_422(project, monkeypatch, message, query):
     """A shape the endpoint cannot run is a client error with a body like every other one it
     emits — never an unhandled server exception in somebody's 5xx alerting."""
-    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel()))
+    patch_provider(monkeypatch, provider_of(ScriptedModel()))
 
     with TestClient(create_app()) as client:
         response = client.post(f"/agents/Greeter/chat{query}", json={"session_id": "s1", "message": message})
@@ -332,7 +331,7 @@ def test_a_message_that_is_not_a_string_is_a_422(project, monkeypatch, message, 
 def test_a_session_id_that_is_not_a_string_is_a_422(project, monkeypatch, session_id, query):
     """Same class as the message check, and the same reason: it reaches the event envelope, which
     only takes a string, so an unvalidated one is a 500 for what is a malformed body."""
-    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel()))
+    patch_provider(monkeypatch, provider_of(ScriptedModel()))
 
     with TestClient(create_app()) as client:
         response = client.post(f"/agents/Greeter/chat{query}", json={"session_id": session_id, "message": "hi"})
@@ -345,7 +344,7 @@ def test_the_server_warns_once_when_the_event_log_is_in_memory(project, monkeypa
     """The default store never evicts and dies with the process; an operator should not have to
     read the source to find that out."""
     monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "memory")
-    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel()))
+    patch_provider(monkeypatch, provider_of(ScriptedModel()))
     reset_settings_cache()
     try:
         with caplog.at_level(logging.WARNING, logger="agentdeck.serve"), TestClient(create_app()):
@@ -359,7 +358,7 @@ def test_the_server_warns_once_when_the_event_log_is_in_memory(project, monkeypa
 
 def test_a_workflow_is_not_reachable_through_the_agents_route(project, monkeypatch):
     """The Runtime knows every invocable; this route is still agents-only, with v1's message."""
-    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(ScriptedModel()))
+    patch_provider(monkeypatch, provider_of(ScriptedModel()))
 
     with TestClient(create_app()) as client:
         response = client.post("/agents/Shout/chat", json={"session_id": "s1", "message": "hi"})
@@ -374,7 +373,7 @@ async def test_the_runtime_and_the_python_api_share_one_conversation(project, mo
     from agentdeck import App
 
     model = ScriptedModel(deltas=("Hello",))
-    monkeypatch.setattr("agentdeck.agents.runners.base.OpenAIProvider", provider_of(model))
+    patch_provider(monkeypatch, provider_of(model))
     app = App()
     app.load()
 
