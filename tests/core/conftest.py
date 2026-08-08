@@ -101,10 +101,6 @@ PAYLOADS = (
         source="operator",
     ),
     Custom(name="langgraph.checkpoint_written", data={"thread_id": "t-1"}),
-    # Appended rather than filed with the payloads they belong beside: ``seq`` is this tuple's
-    # index, so inserting mid-list rewrites every later snapshot for no schema reason. Appending
-    # is not free either — two PRs appending at once shift each other's indices, which is what
-    # moved the two reporting snapshots below when #112 landed first (#121 decouples the two).
     ControlRequested(verb="cancel", reason="operator pressed cancel"),
     ControlObserved(verb="cancel", safe_point="tool_dispatch"),
     StatusReported(message="Searching GitHub"),
@@ -126,7 +122,23 @@ def _event(payload, seq: int) -> Event:
     )
 
 
-EXAMPLES: dict[str, Event] = {p.kind: _event(p, seq) for seq, p in enumerate(PAYLOADS)}
+# Every example carries the same ``seq``. These snapshots pin one thing — how each payload kind
+# serializes — and a per-kind position in this tuple was never part of that. Deriving it from the
+# index made adding a kind order-sensitive: appending was safe only if nobody else appended, and
+# two schema PRs that both did (#112, #116) each shipped snapshots claiming the same numbers, so
+# whichever merged second had to regenerate files whose only diff was a seq bump (#121).
+# Sequencing has its own tests, which stamp their own seqs through ``make_event``.
+EXAMPLE_SEQ = 0
+
+
+def examples_from(payloads) -> dict[str, Event]:
+    """The rule itself, callable — so ``test_adding_a_payload_kind_rewrites_exactly_its_own_snapshot``
+    can hand it a longer tuple and watch what moves. A test that re-implemented this would pass
+    against the very fixture it exists to forbid."""
+    return {p.kind: _event(p, EXAMPLE_SEQ) for p in payloads}
+
+
+EXAMPLES: dict[str, Event] = examples_from(PAYLOADS)
 
 
 @pytest.fixture(scope="session")
