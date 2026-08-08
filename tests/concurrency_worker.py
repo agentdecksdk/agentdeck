@@ -44,7 +44,6 @@ from agentdeck.core.events import (
     MessageCompleted,
     NodeUpdated,
     RunCompleted,
-    RunContextSnapshot,
     RunInterrupted,
     RunStarted,
     TextDelta,
@@ -142,7 +141,6 @@ def crossrun_script(tag: str) -> list[KnownPayload]:
             invocable=CHATTY,
             kind_of_invocable="agent",
             input=[TextBlock(text="go")],
-            context=RunContextSnapshot(trace_id=f"t-{tag}"),
         ),
         *(TextDelta(message_id=f"m-{tag}", text=f"{tag}{index} ") for index in range(CHATTY_DELTAS)),
         MessageCompleted(message_id=f"m-{tag}", text=f"{tag} done"),
@@ -183,7 +181,7 @@ def session_items(root: Path, trial: int) -> list[Any]:
 
 
 def context(run_id: str, session_id: str | None = None) -> RunContext:
-    return RunContext(namespace=TENANT, run_id=run_id, trace_id="t", session_id=session_id)
+    return RunContext(namespace=TENANT, run_id=run_id, session_id=session_id)
 
 
 def _report(trial: int, tag: str, kinds: Sequence[str]) -> None:
@@ -502,12 +500,31 @@ async def _race_resume(tag: str, trials: int, root: Path) -> None:
             ctx = context(resume_run_id(trial), resume_log_key(trial))
             opened = sync / f"opened.{trial}"
             if tag == "a":
-                opening = [event async for event in runtime.run(APPROVER, coerce_input("go"), ctx)]
+                opening = [
+                    event
+                    async for event in runtime.run(
+                        APPROVER,
+                        coerce_input("go"),
+                        run_id=ctx.run_id,
+                        session_id=ctx.session_id,
+                        namespace=ctx.namespace,
+                    )
+                ]
                 assert opening[-1].kind == "run.interrupted", [event.kind for event in opening]
                 opened.touch()
             else:
                 await _await_file(opened)
-            resumed = [event async for event in runtime.resume(APPROVER, THREAD_ID, "approved", ctx)]
+            resumed = [
+                event
+                async for event in runtime.resume(
+                    APPROVER,
+                    THREAD_ID,
+                    "approved",
+                    run_id=ctx.run_id,
+                    session_id=ctx.session_id,
+                    namespace=ctx.namespace,
+                )
+            ]
             _report(trial, tag, [event.kind for event in resumed])
 
 
@@ -539,7 +556,16 @@ async def _race_cancel(tag: str, trials: int, root: Path) -> None:
             agent = Agent(name="Racer", instructions="stream", model=BarrierModel(sync, run_id, tag, remaining))
             spec = InvocableSpec(name="Racer", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
             runtime = Runtime([OpenAIAgentsEngine()], store, {"Racer": spec}, control=control)
-            events = [event async for event in runtime.run("Racer", coerce_input("go"), context(run_id))]
+            events = [
+                event
+                async for event in runtime.run(
+                    "Racer",
+                    coerce_input("go"),
+                    run_id=(context(run_id)).run_id,
+                    session_id=(context(run_id)).session_id,
+                    namespace=(context(run_id)).namespace,
+                )
+            ]
             finished.touch()
             _report(trial, tag, [event.kind for event in events])
 
@@ -565,7 +591,16 @@ async def _race_session(tag: str, trials: int, root: Path) -> None:
             runtime = Runtime([engine], store, {CHATTY: spec})
             ctx = context(session_run_id(trial, tag), log_key)
             try:
-                events = [event async for event in runtime.run(CHATTY, coerce_input(turn_input(tag)), ctx)]
+                events = [
+                    event
+                    async for event in runtime.run(
+                        CHATTY,
+                        coerce_input(turn_input(tag)),
+                        run_id=ctx.run_id,
+                        session_id=ctx.session_id,
+                        namespace=ctx.namespace,
+                    )
+                ]
             except SessionBusyError as refusal:
                 # Asserted here rather than reported outwards: the refusal has to name the
                 # session and the run holding it, and a wrong message must fail the trial.
@@ -627,7 +662,13 @@ async def _takeover_victim(root: Path) -> None:
     """Open a turn on the session and stall mid-stream, waiting to be killed with it open."""
     store = StallingStore(events_db(root), TAKEOVER_KILLED, TAKEOVER_STALL_AFTER, root / "sync" / "mid")
     runtime = Runtime([StubEngine()], store, {CHATTY: chatty_spec("killed")})
-    async for _event in runtime.run(CHATTY, coerce_input("go"), context(TAKEOVER_KILLED, TAKEOVER_LOG)):
+    async for _event in runtime.run(
+        CHATTY,
+        coerce_input("go"),
+        run_id=(context(TAKEOVER_KILLED, TAKEOVER_LOG)).run_id,
+        session_id=(context(TAKEOVER_KILLED, TAKEOVER_LOG)).session_id,
+        namespace=(context(TAKEOVER_KILLED, TAKEOVER_LOG)).namespace,
+    ):
         pass  # the store stalls this run partway through and never lets it finish
 
 
@@ -642,7 +683,12 @@ async def _takeover_successor(root: Path) -> None:
     runtime = Runtime([StubEngine()], store, {CHATTY: chatty_spec("next")})
     ctx = context(TAKEOVER_NEXT, TAKEOVER_LOG)
     try:
-        events = [event async for event in runtime.run(CHATTY, coerce_input("go"), ctx)]
+        events = [
+            event
+            async for event in runtime.run(
+                CHATTY, coerce_input("go"), run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace
+            )
+        ]
     except SessionBusyError as refusal:
         assert TAKEOVER_LOG in str(refusal), str(refusal)
         assert TAKEOVER_KILLED in str(refusal), str(refusal)
@@ -656,11 +702,26 @@ async def _restart_victim(root: Path) -> None:
     store = StallingStore(events_db(root), RESTART_KILLED, RESTART_STALL_AFTER, root / "sync" / "mid")
     runtime = Runtime([StubEngine()], store, {APPROVER: approver_spec(), CHATTY: chatty_spec("killed")})
     suspended = context(RESTART_SUSPENDED, RESTART_LOG)
-    opening = [event async for event in runtime.run(APPROVER, coerce_input("go"), suspended)]
+    opening = [
+        event
+        async for event in runtime.run(
+            APPROVER,
+            coerce_input("go"),
+            run_id=suspended.run_id,
+            session_id=suspended.session_id,
+            namespace=suspended.namespace,
+        )
+    ]
     _report(0, "victim", [event.kind for event in opening])
     # Its own log, not the suspended run's: that session has an open run, and one session
     # admits one turn at a time, so a second run there would be refused rather than killed.
-    async for _event in runtime.run(CHATTY, coerce_input("go"), context(RESTART_KILLED)):
+    async for _event in runtime.run(
+        CHATTY,
+        coerce_input("go"),
+        run_id=(context(RESTART_KILLED)).run_id,
+        session_id=(context(RESTART_KILLED)).session_id,
+        namespace=(context(RESTART_KILLED)).namespace,
+    ):
         pass  # the store stalls this run partway through and never lets it finish
 
 
@@ -669,10 +730,30 @@ async def _restart_successor(root: Path) -> None:
     store = SqliteEventStore(events_db(root))
     runtime = Runtime([StubEngine()], store, {APPROVER: approver_spec(), CHATTY: chatty_spec("killed")})
     suspended = context(RESTART_SUSPENDED, RESTART_LOG)
-    resumed = [event async for event in runtime.resume(APPROVER, THREAD_ID, "approved", suspended)]
+    resumed = [
+        event
+        async for event in runtime.resume(
+            APPROVER,
+            THREAD_ID,
+            "approved",
+            run_id=suspended.run_id,
+            session_id=suspended.session_id,
+            namespace=suspended.namespace,
+        )
+    ]
     _report(0, "successor", [event.kind for event in resumed])
     killed = context(RESTART_KILLED)
-    stray = [event async for event in runtime.resume(CHATTY, THREAD_ID, "approved", killed)]
+    stray = [
+        event
+        async for event in runtime.resume(
+            CHATTY,
+            THREAD_ID,
+            "approved",
+            run_id=killed.run_id,
+            session_id=killed.session_id,
+            namespace=killed.namespace,
+        )
+    ]
     _report(1, "successor", [event.kind for event in stray])
 
 

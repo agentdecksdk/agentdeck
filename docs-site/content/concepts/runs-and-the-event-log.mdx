@@ -27,7 +27,6 @@ class Greeter(BaseAgent):
 ```python run
 import asyncio
 import os
-import uuid
 
 os.environ["AGENTDECK_EVENTS_BACKEND"] = "sqlite"
 os.environ["AGENTDECK_EVENTS_URL"] = "./events.sqlite3"
@@ -39,16 +38,20 @@ from agentdeck.core.status import status_of
 
 
 async def main() -> None:
-    run_id = str(uuid.uuid4())
-    ctx = RunContext(run_id=run_id, trace_id=str(uuid.uuid4()), session_id="sess-1", namespace="workspace:acme")
-
     async with App.open() as app:
-        async for _event in app.runtime.run("Greeter", coerce_input("book me a slot Tuesday"), ctx):
+        # Options, not a context: the Runtime mints the run id and puts it on every event.
+        run_id = None
+        async for event in app.runtime.run(
+            "Greeter", coerce_input("book me a slot Tuesday"), session_id="sess-1", namespace="workspace:acme"
+        ):
+            run_id = run_id or event.run_id
             pass  # already durable — every event is appended before it is yielded
+    assert run_id is not None
 
     # A second, independent handle on the same store: what a later process, or a
     # dashboard, reads back.
     store = resolve_event_store()
+    ctx = RunContext(run_id=run_id, session_id="sess-1", namespace="workspace:acme")
     events = await store.read_run(ctx.log_key, run_id, ctx)
     for event in events:
         print(event.seq, event.kind)

@@ -26,7 +26,6 @@ from agentdeck.core.events import (
     Event,
     KnownPayload,
     RunCompleted,
-    RunContextSnapshot,
     RunInterrupted,
     RunResumed,
     RunStarted,
@@ -52,7 +51,7 @@ def _event(seq: int, namespace: str = "acme", run_id: str = "r-1") -> Event:
 
 
 def _ctx(namespace: str = "acme") -> RunContext:
-    return RunContext(namespace=namespace, run_id="r-1", trace_id="tr-1", session_id="s-1")
+    return RunContext(namespace=namespace, run_id="r-1", session_id="s-1")
 
 
 def _lifecycle(seq: int, payload: KnownPayload) -> Event:
@@ -69,7 +68,7 @@ def _lifecycle(seq: int, payload: KnownPayload) -> Event:
 
 
 def _started() -> RunStarted:
-    context = RunContextSnapshot(trace_id="tr-1")
+    context = None
     return RunStarted(invocable="Approver", kind_of_invocable="workflow", input=[], context=context)
 
 

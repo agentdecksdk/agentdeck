@@ -69,7 +69,7 @@ class FakeClock:
 
 
 def _ctx(run_id: str = "r-1", session_id: str | None = "s-1") -> RunContext:
-    return RunContext(namespace="acme", run_id=run_id, trace_id="tr-1", session_id=session_id)
+    return RunContext(namespace="acme", run_id=run_id, session_id=session_id)
 
 
 def _kinds(events: list[Event]) -> list[str]:
@@ -260,7 +260,12 @@ async def test_a_pause_signalled_mid_stream_lands_after_the_chunk_that_was_in_fl
     ctx = _ctx()
 
     async def consume() -> list[Event]:
-        return [event async for event in runtime.run("Chatty", coerce_input("hi"), ctx)]
+        return [
+            event
+            async for event in runtime.run(
+                "Chatty", coerce_input("hi"), run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace
+            )
+        ]
 
     consumer = asyncio.create_task(consume())
     await model.holding.wait()  # the turn is parked after its first delta
@@ -304,7 +309,16 @@ async def test_a_pause_during_a_tool_call_waits_for_the_call_to_return() -> None
     runtime, store = _agent_runtime(model, control, tools=[slow_lookup])
     ctx = _ctx()
 
-    paused = [event async for event in runtime.run("Chatty", coerce_input("what happened"), ctx)]
+    paused = [
+        event
+        async for event in runtime.run(
+            "Chatty",
+            coerce_input("what happened"),
+            run_id=ctx.run_id,
+            session_id=ctx.session_id,
+            namespace=ctx.namespace,
+        )
+    ]
     kinds = _kinds(paused)
 
     assert calls == ["slow_lookup"]  # the call returned rather than being killed mid-flight
@@ -313,7 +327,7 @@ async def test_a_pause_during_a_tool_call_waits_for_the_call_to_return() -> None
     assert "message.completed" not in kinds, kinds  # the step the tool's result fed was not taken
     assert status_of(paused) is RunStatus.PAUSED
 
-    resumed = [event async for event in runtime.resume_run(ctx.run_id, ctx)]
+    resumed = [event async for event in runtime.resume_run(ctx.run_id, namespace=ctx.namespace)]
 
     # The cost of a pause with no stack to return to, asserted rather than described: the turn
     # replays, so the tool is called a second time. This is why the safe-point contract tells
@@ -338,7 +352,12 @@ async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None
     ctx = _ctx()
 
     async def consume() -> list[Event]:
-        return [event async for event in runtime.run("Chatty", coerce_input("hi"), ctx)]
+        return [
+            event
+            async for event in runtime.run(
+                "Chatty", coerce_input("hi"), run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace
+            )
+        ]
 
     consumer = asyncio.create_task(consume())
     await model.holding.wait()
@@ -347,7 +366,7 @@ async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None
     paused = await consumer
 
     hold.set()  # the replayed turn must not stall on the pause fixture's own gate
-    resumed = [event async for event in runtime.resume_run(ctx.run_id, ctx)]
+    resumed = [event async for event in runtime.resume_run(ctx.run_id, namespace=ctx.namespace)]
     log = await store.read(ctx.log_key, ctx)
 
     assert _kinds(paused)[-1] == "run.paused"
@@ -379,7 +398,12 @@ async def test_a_signal_is_honored_with_a_store_that_never_yields() -> None:
     store = NeverYields(MemoryEventStore())
     runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
 
-    events = [event async for event in runtime.run("Chatty", coerce_input("hi"), ctx)]
+    events = [
+        event
+        async for event in runtime.run(
+            "Chatty", coerce_input("hi"), run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace
+        )
+    ]
 
     assert _kinds(events)[-1] == "run.cancelled"
     assert check_terminal(events) is None
@@ -402,11 +426,16 @@ async def test_resuming_a_run_that_is_not_paused_is_a_noop() -> None:
     runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
     ctx = _ctx()
 
-    completed = [event async for event in runtime.run("Chatty", coerce_input("hi"), ctx)]
+    completed = [
+        event
+        async for event in runtime.run(
+            "Chatty", coerce_input("hi"), run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace
+        )
+    ]
     before = await store.read(ctx.log_key, ctx)
 
-    assert [event async for event in runtime.resume_run(ctx.run_id, ctx)] == []
-    assert [event async for event in runtime.resume_run("never-heard-of-it", ctx)] == []
+    assert [event async for event in runtime.resume_run(ctx.run_id, namespace=ctx.namespace)] == []
+    assert [event async for event in runtime.resume_run("never-heard-of-it")] == []
     assert await store.read(ctx.log_key, ctx) == before
     assert _kinds(completed)[-1] == "run.completed"
 
@@ -425,9 +454,20 @@ async def test_a_paused_run_keeps_holding_its_session_so_no_second_turn_starts_o
     ctx = _ctx(run_id="r-paused")
     await control.signal(ctx.run_id, Signal.PAUSE)
 
-    paused = [event async for event in runtime.run("Chatty", coerce_input("hi"), ctx)]
+    paused = [
+        event
+        async for event in runtime.run(
+            "Chatty", coerce_input("hi"), run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace
+        )
+    ]
 
     assert _kinds(paused)[-1] == "run.paused"
     with pytest.raises(SessionBusyError):
-        second = runtime.run("Chatty", coerce_input("hi again"), _ctx(run_id="r-second"))
+        second = runtime.run(
+            "Chatty",
+            coerce_input("hi again"),
+            run_id=(_ctx(run_id="r-second")).run_id,
+            session_id=(_ctx(run_id="r-second")).session_id,
+            namespace=(_ctx(run_id="r-second")).namespace,
+        )
         await anext(second)

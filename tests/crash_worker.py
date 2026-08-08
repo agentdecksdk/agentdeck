@@ -98,7 +98,7 @@ def durable_session(root: Path) -> SQLiteSession:
 
 
 def context(run_id: str) -> RunContext:
-    return RunContext(namespace=TENANT, run_id=run_id, trace_id=f"t-{run_id}", session_id=SESSION_ID)
+    return RunContext(namespace=TENANT, run_id=run_id, session_id=SESSION_ID)
 
 
 def transcript_of(items: Sequence[Any]) -> list[list[str]]:
@@ -235,9 +235,21 @@ async def _victim(root: Path) -> None:
         StallingStore(events_db(root), marker_file(root)), DurableSessions(root), ScriptedModel(ANSWER_1)
     )
     async with asyncio.timeout(TURN_TIMEOUT):
-        async for _event in runtime.run(AGENT, coerce_input(QUESTION_1), context(FIRST_RUN)):
+        async for _event in runtime.run(
+            AGENT,
+            coerce_input(QUESTION_1),
+            run_id=(context(FIRST_RUN)).run_id,
+            session_id=(context(FIRST_RUN)).session_id,
+            namespace=(context(FIRST_RUN)).namespace,
+        ):
             pass
-    async for _event in runtime.run(AGENT, coerce_input(QUESTION_2), context(KILLED_RUN)):
+    async for _event in runtime.run(
+        AGENT,
+        coerce_input(QUESTION_2),
+        run_id=(context(KILLED_RUN)).run_id,
+        session_id=(context(KILLED_RUN)).session_id,
+        namespace=(context(KILLED_RUN)).namespace,
+    ):
         pass  # the store blocks on this turn's opening log write; the kill is the only exit
 
 
@@ -247,7 +259,13 @@ async def _successor(root: Path) -> None:
     model = ScriptedModel(ANSWER_3)
     runtime = runtime_over(SqliteEventStore(events_db(root)), DurableSessions(root), model)
     async with asyncio.timeout(TURN_TIMEOUT):
-        async for _event in runtime.run(AGENT, coerce_input(QUESTION_3), context(SUCCESSOR_RUN)):
+        async for _event in runtime.run(
+            AGENT,
+            coerce_input(QUESTION_3),
+            run_id=(context(SUCCESSOR_RUN)).run_id,
+            session_id=(context(SUCCESSOR_RUN)).session_id,
+            namespace=(context(SUCCESSOR_RUN)).namespace,
+        ):
             pass
     print(json.dumps(transcript_of(model.inputs[-1])))
 

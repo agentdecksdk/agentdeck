@@ -65,35 +65,19 @@ class Usage(CoreModel):
     usd: Money | None = None
 
 
-class Budget(CoreModel):
-    """The caps the run was admitted under; None means uncapped on that axis."""
-
-    max_usd: Money | None = None
-    max_tokens: NonNegativeInt | None = None
-
-
-class RunContextSnapshot(CoreModel):
-    """Enough of the run's context to reconstruct it from the log alone.
-
-    No acting identity: AgentDeck does not model users or permissions, so the log records what
-    a run was admitted with, never who asked. An application that needs an actor in its audit
-    trail records one of its own.
-    """
-
-    trace_id: str
-    budget: Budget | None = None
-    triggered_by: str | None = None
-
-
 class RunStarted(CoreModel):
-    """Opens a run and carries its per-run constants."""
+    """Opens a run: what was asked for, and what it was asked with.
+
+    No context snapshot. Everything the old one carried — a trace id, a budget, who triggered
+    it, a parent run — was recorded and read by nothing, so the log said a run was admitted
+    under constraints that never existed. What a run is played in (its namespace) is on the
+    envelope, where every event carries it.
+    """
 
     kind: Literal["run.started"] = "run.started"
     invocable: str
     kind_of_invocable: Literal["agent", "workflow", "skill"]
-    parent_run_id: str | None = None
     input: Input
-    context: RunContextSnapshot
 
 
 class RunCompleted(CoreModel):

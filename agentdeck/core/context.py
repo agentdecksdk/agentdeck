@@ -13,15 +13,9 @@ application that has those concepts keeps them, and may project one of them onto
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 from agentdeck.core.control import Gate
 from agentdeck.core.reporting import Reporter
-
-if TYPE_CHECKING:
-    from datetime import datetime
-
-    from agentdeck.core.events import Budget
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,20 +32,20 @@ class RunContext:
     Empty is rejected rather than accepted, because stores encode ``None`` as the empty key —
     so an explicit ``""`` would silently land in the same bucket as no namespace at all.
 
+    Three values and two seams, and nothing else: a field AgentDeck's own machinery never
+    reads is not infrastructure, it is a guess about a mechanism that does not exist yet.
+    ``trace_id``, ``budget``, ``triggered_by``, ``parent_run_id``, ``deadline`` and
+    ``idempotency_key`` were all of that — recorded or not even that, branched on by nothing —
+    and each comes back with the thing that enforces it.
+
     ``gate`` and ``reporter`` are the two fields that are not values — a cooperative seam has to
     reach code the Runtime never sees. Both default to doing nothing and only the Runtime rebinds
     them, so a context built by hand is still a plain value object.
     """
 
     run_id: str
-    trace_id: str
     session_id: str | None = None
     namespace: str | None = None
-    parent_run_id: str | None = None
-    deadline: datetime | None = None
-    budget: Budget | None = None
-    idempotency_key: str | None = None
-    triggered_by: str | None = None
     gate: Gate = field(default_factory=Gate)
     reporter: Reporter = field(default_factory=Reporter)
 

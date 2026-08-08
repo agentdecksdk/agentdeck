@@ -71,7 +71,7 @@ async def two_event_stores(request: pytest.FixtureRequest) -> AsyncIterator[tupl
 
 
 def _ctx(namespace: str = "acme") -> RunContext:
-    return RunContext(namespace=namespace, run_id="r-1", trace_id="tr-1", session_id="s-1")
+    return RunContext(namespace=namespace, run_id="r-1", session_id="s-1")
 
 
 def _event(

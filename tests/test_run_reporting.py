@@ -62,7 +62,7 @@ if TYPE_CHECKING:
 pytest.importorskip("fastapi")
 
 TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
-CTX = RunContext(namespace="acme", run_id="r-1", trace_id="tr-1", session_id="s-1")
+CTX = RunContext(namespace="acme", run_id="r-1", session_id="s-1")
 
 
 def _reports(events: Sequence[Event]) -> list[tuple[str, Any]]:
@@ -146,7 +146,16 @@ async def test_a_function_tool_reports_through_the_sdk_context() -> None:
     store = MemoryEventStore()
     runtime = Runtime([OpenAIAgentsEngine(ExecutionStore())], store, {spec.name: spec}, clock=lambda: TS)
 
-    events = [event async for event in runtime.run("Searcher", coerce_input("what is open?"), CTX)]
+    events = [
+        event
+        async for event in runtime.run(
+            "Searcher",
+            coerce_input("what is open?"),
+            run_id=CTX.run_id,
+            session_id=CTX.session_id,
+            namespace=CTX.namespace,
+        )
+    ]
 
     assert _reports(events) == [
         ("status.reported", "Searching GitHub"),
@@ -204,7 +213,16 @@ async def test_a_workflow_node_reports_through_the_graph_config() -> None:
     store = MemoryEventStore()
     runtime = Runtime([LangGraphEngine()], store, {spec.name: spec}, clock=lambda: TS)
 
-    events = [event async for event in runtime.run("Reviewer", coerce_input("review 4412"), CTX)]
+    events = [
+        event
+        async for event in runtime.run(
+            "Reviewer",
+            coerce_input("review 4412"),
+            run_id=CTX.run_id,
+            session_id=CTX.session_id,
+            namespace=CTX.namespace,
+        )
+    ]
 
     assert _reports(events) == [
         ("status.reported", "Reviewing issues"),

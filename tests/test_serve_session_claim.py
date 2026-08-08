@@ -24,7 +24,6 @@ from agentdeck.core.events import (
     Event,
     MessageCompleted,
     RunCompleted,
-    RunContextSnapshot,
     RunInterrupted,
     RunStarted,
     Usage,
@@ -52,7 +51,7 @@ def _runtime() -> tuple[Runtime, MemoryEventStore]:
 
 
 def _reader() -> RunContext:
-    return RunContext(namespace=None, run_id="reader", trace_id="t", session_id=SESSION_ID)
+    return RunContext(namespace=None, run_id="reader", session_id=SESSION_ID)
 
 
 def _stamped(payload: KnownPayload, seq: int) -> Event:
@@ -75,7 +74,6 @@ async def _hold_the_session(store: MemoryEventStore) -> None:
         invocable=AGENT,
         kind_of_invocable="agent",
         input=[TextBlock(text="the turn already running")],
-        context=RunContextSnapshot(trace_id="t"),
     )
     waiting = RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1")
     await store.append(SESSION_ID, [_stamped(opening, 0), _stamped(waiting, 1)], _reader())

@@ -17,17 +17,18 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from itertools import count
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from pydantic import ValidationError
 
 from agentdeck.core.content import DataBlock, coerce_input
+from agentdeck.core.context import RunContext
 from agentdeck.core.control import CONTROL_POLL_INTERVAL, Gate, Signal
 from agentdeck.core.events import (
     TERMINAL_KINDS,
     ControlRequested,
     Event,
     RunCancelled,
-    RunContextSnapshot,
     RunFailed,
     RunInterrupted,
     RunResumed,
@@ -45,7 +46,6 @@ if TYPE_CHECKING:
     from typing import Any
 
     from agentdeck.core.content import Input
-    from agentdeck.core.context import RunContext
     from agentdeck.core.events import KnownPayload
     from agentdeck.core.invocable import InvocableSpec
     from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort
@@ -111,8 +111,22 @@ class Runtime:
         """
         return self._store
 
-    async def run(self, name: str, input: Input, ctx: RunContext) -> AsyncGenerator[Event, None]:
+    async def run(
+        self,
+        name: str,
+        input: Input,
+        *,
+        session_id: str | None = None,
+        namespace: str | None = None,
+        run_id: str | None = None,
+    ) -> AsyncGenerator[Event, None]:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
+
+        Options, not a context: ``RunContext`` is this platform's own plumbing and a caller
+        never builds one. ``run_id`` is minted here unless a caller supplies its own — an
+        advanced case, since a run id nobody generated is a run the log has never heard of.
+        The id is on every event, so a caller reads it off ``run.started`` rather than from
+        something it had to pass in.
 
         One turn per session at a time: opening the run is a conditional append that fails if
         the session already has one in flight, so a second concurrent turn raises
@@ -124,7 +138,7 @@ class Runtime:
         closed this generator or had its own task cancelled under it.
         """
         spec, engine = self._resolve(name)
-        ctx, reports = self._bind(ctx)
+        ctx, reports = self._bind(self._context(run_id=run_id, session_id=session_id, namespace=namespace))
         # ponytail: whole log per run — window it (or hand the engine a summary) once a
         # session's history outgrows one read, which a real store will notice long before this does
         history = await self._store.read(ctx.log_key, ctx)
@@ -133,13 +147,7 @@ class Runtime:
         opening = RunStarted(
             invocable=spec.name,
             kind_of_invocable=spec.kind.value,
-            parent_run_id=ctx.parent_run_id,
             input=input,
-            context=RunContextSnapshot(
-                trace_id=ctx.trace_id,
-                budget=ctx.budget,
-                triggered_by=ctx.triggered_by,
-            ),
         )
         try:
             claimed = await self._claim_session(opening, spec, ctx, next(seq))
@@ -158,7 +166,16 @@ class Runtime:
             async for event in run:
                 yield event
 
-    async def resume(self, name: str, thread_id: str, value: Any, ctx: RunContext) -> AsyncGenerator[Event, None]:
+    async def resume(
+        self,
+        name: str,
+        thread_id: str,
+        value: Any,
+        *,
+        run_id: str,
+        session_id: str | None = None,
+        namespace: str | None = None,
+    ) -> AsyncGenerator[Event, None]:
         """Continue a run this Runtime suspended earlier.
 
         The store's conditional append makes the ``WAITING_HUMAN`` -> ``RUNNING`` transition
@@ -172,7 +189,7 @@ class Runtime:
         run — is a no-op: nothing is read from the engine, nothing is yielded.
         """
         spec, engine = self._resolve(name)
-        ctx, reports = self._bind(ctx)
+        ctx, reports = self._bind(self._context(run_id=run_id, session_id=session_id, namespace=namespace))
         claimed = await self._claim_resume(spec, ctx, value)
         if claimed is None:
             return
@@ -182,7 +199,9 @@ class Runtime:
             async for event in resumed:
                 yield event
 
-    async def resume_run(self, run_id: str, ctx: RunContext, reason: str | None = None) -> AsyncGenerator[Event, None]:
+    async def resume_run(
+        self, run_id: str, *, namespace: str | None = None, reason: str | None = None
+    ) -> AsyncGenerator[Event, None]:
         """Continue a run that paused at a safe point: same ``run_id``, same log, ``seq``
         counting on from where it stopped.
 
@@ -202,6 +221,7 @@ class Runtime:
         run ends ``cancelled`` and is never played on — cancel stays terminal, and asking to
         resume a run somebody cancelled does not quietly override them.
         """
+        ctx = self._context(run_id=run_id, namespace=namespace)
         found = await self._paused(run_id, ctx)
         if found is None:
             return
@@ -455,7 +475,7 @@ class Runtime:
         await self._fan_out(event)
         return event, seq
 
-    async def pending(self, ctx: RunContext) -> list[PendingRun]:
+    async def pending(self, *, namespace: str | None = None) -> list[PendingRun]:
         """Every run currently ``WAITING_HUMAN`` in this namespace.
 
         Asks the store to project which runs are waiting rather than keeping an in-memory
@@ -472,6 +492,7 @@ class Runtime:
         # a deployment parks tens of runs; the upgrade is a store-side projection of each run's
         # last interrupt, and the trigger is the first inbox that pages or that a poll can't
         # answer inside its own refresh interval.
+        ctx = self._context(namespace=namespace)
         out: list[PendingRun] = []
         for summary in await self._store.list_runs(ctx, status=RunStatus.WAITING_HUMAN):
             found = _last_interrupt(await self._store.read_run(summary.log_key, summary.run_id, ctx))
@@ -500,6 +521,26 @@ class Runtime:
         one reaches none of them.
         """
         await asyncio.gather(*(dispatch.close() for dispatch in self._sinks), return_exceptions=True)
+
+    def _context(
+        self,
+        *,
+        run_id: str | None = None,
+        session_id: str | None = None,
+        namespace: str | None = None,
+    ) -> RunContext:
+        """Mint this run's context. The one place a ``RunContext`` is constructed for a caller.
+
+        Callers pass options — a session to continue, a namespace to stay inside — and never a
+        context: it carries the gate, the reporter and the ids the claim protocol addresses runs
+        by, none of which an application should be assembling. A listing or a status read that
+        has no run of its own still gets ids, because the ports take a context either way.
+        """
+        return RunContext(
+            run_id=run_id or str(uuid4()),
+            session_id=session_id,
+            namespace=namespace,
+        )
 
     def _bind(self, ctx: RunContext) -> tuple[RunContext, deque[KnownPayload]]:
         """Give this run its control gate and its report buffer, and hand back both.

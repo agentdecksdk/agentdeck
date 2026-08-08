@@ -69,7 +69,9 @@ async def test_every_event_is_in_the_store_before_a_consumer_sees_it(
     """Persist-before-yield, checked at every step rather than at the end: a consumer that
     spots a gap can always refetch it, because the store is never behind the stream."""
     seen = 0
-    async for event in _tolerant(runtime.run(case.spec.name, case.input, ctx)):
+    async for event in _tolerant(
+        runtime.run(case.spec.name, case.input, run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace)
+    ):
         seen += 1
         stored = await store.read(ctx.log_key, ctx)
         assert stored[-1] == event
@@ -88,7 +90,9 @@ async def test_an_abandoned_stream_leaves_a_closed_run_behind(
     """A consumer that walks away mid-run — closed tab, killed CLI — truncates the log at an
     event boundary, and the run is closed there: a later reader must be able to tell
     "abandoned" from "still in flight", which is the same reason an open run is a bug."""
-    async with aclosing(runtime.run(case.spec.name, case.input, ctx)) as run:
+    async with aclosing(
+        runtime.run(case.spec.name, case.input, run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace)
+    ) as run:
         async for _ in run:
             break
     stored = await store.read(ctx.log_key, ctx)
@@ -105,7 +109,18 @@ async def test_a_gap_can_be_refetched_from_the_store_by_run(
     from the gap onward — and gets that run's tail only, even with two runs in the log."""
     first = await _played_out(case, runtime, ctx)
     later_ctx = replace(ctx, run_id="r-2")
-    second = [event async for event in _tolerant(runtime.run(case.spec.name, case.input, later_ctx))]
+    second = [
+        event
+        async for event in _tolerant(
+            runtime.run(
+                case.spec.name,
+                case.input,
+                run_id=later_ctx.run_id,
+                session_id=later_ctx.session_id,
+                namespace=later_ctx.namespace,
+            )
+        )
+    ]
 
     assert await store.read_run(ctx.log_key, "r-1", ctx) == first
     assert await store.read_run(ctx.log_key, "r-2", later_ctx) == second
@@ -118,7 +133,12 @@ async def test_a_second_run_in_the_session_counts_its_seq_from_zero_again(
     """``seq`` is per run, not per session: two runs in one log each count from 0, and the log
     keeps both stories end to end."""
     first = await _played_out(case, runtime, ctx)
-    second = [event async for event in _tolerant(runtime.run(case.spec.name, case.input, replace(ctx, run_id="r-2")))]
+    second = [
+        event
+        async for event in _tolerant(
+            runtime.run(case.spec.name, case.input, run_id="r-2", session_id=ctx.session_id, namespace=ctx.namespace)
+        )
+    ]
 
     assert [event.seq for event in second] == list(range(len(second)))
     assert await store.read(ctx.log_key, ctx) == first + second
@@ -130,11 +150,30 @@ async def _played_out(case: Case, runtime: Runtime, ctx: RunContext) -> list[Eve
     A session admits one open run at a time, so a test that wants a second run in the log has
     to finish the first — a case that stops to ask a question is still holding the session.
     """
-    events = [event async for event in _tolerant(runtime.run(case.spec.name, case.input, ctx))]
+    events = [
+        event
+        async for event in _tolerant(
+            runtime.run(
+                case.spec.name, case.input, run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace
+            )
+        )
+    ]
     if not events or not isinstance(events[-1].payload, RunInterrupted):
         return events
     thread_id = events[-1].payload.thread_id or ctx.run_id
-    return events + [event async for event in _tolerant(runtime.resume(case.spec.name, thread_id, "approved", ctx))]
+    return events + [
+        event
+        async for event in _tolerant(
+            runtime.resume(
+                case.spec.name,
+                thread_id,
+                "approved",
+                run_id=ctx.run_id,
+                session_id=ctx.session_id,
+                namespace=ctx.namespace,
+            )
+        )
+    ]
 
 
 async def _tolerant(events: AsyncIterator[Event]) -> AsyncGenerator[Event, None]:

@@ -24,14 +24,12 @@ from agentdeck.adapters.telemetry.langfuse.sink import _render
 from agentdeck.core.content import DataBlock, ImageBlock, TextBlock, UnknownBlock
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
-    Budget,
     ControlObserved,
     ControlRequested,
     Event,
     NodeUpdated,
     RunCancelled,
     RunCompleted,
-    RunContextSnapshot,
     RunFailed,
     RunInterrupted,
     RunPaused,
@@ -60,10 +58,7 @@ INPUT = [TextBlock(text="ship it")]
 CTX = RunContext(
     namespace="acme",
     run_id="r-1",
-    trace_id="tr-1",
     session_id="s-1",
-    budget=Budget(max_usd=5.0),
-    triggered_by="cron",
 )
 SECRET = "hunter2"
 TOTAL = Usage(input_tokens=11, output_tokens=7, usd=0.02)
@@ -201,7 +196,7 @@ async def _traced(
     """Play a run through a real Runtime and hand back what the sink made of it."""
     collector = Collector()
     runtime = _runtime(collector, *steps, kind=kind, name=name)
-    async for _ in runtime.run(name, INPUT, CTX):
+    async for _ in runtime.run(name, INPUT, run_id=CTX.run_id, session_id=CTX.session_id, namespace=CTX.namespace):
         pass
     await runtime.drain()
     return collector
@@ -226,7 +221,6 @@ def _started(run_id: str = "r-1") -> Event:
             invocable="Pipeline",
             kind_of_invocable="workflow",
             input=INPUT,
-            context=RunContextSnapshot(trace_id="tr-1"),
         ),
         run_id=run_id,
     )
@@ -242,9 +236,6 @@ async def test_a_workflow_run_becomes_one_trace_carrying_its_nodes_tools_and_usa
     assert trace.output == ["shipped"]
     assert trace.metadata["namespace"] == "acme"
     assert trace.metadata["invocable_kind"] == "workflow"
-    assert trace.metadata["trace_id"] == "tr-1"
-    assert trace.metadata["triggered_by"] == "cron"
-    assert trace.metadata["budget_usd"] == 5.0
     assert trace.shape() == [
         ("plan", "span"),
         ("search", "tool"),
@@ -300,7 +291,13 @@ async def test_streamed_text_never_becomes_an_observation_of_its_own() -> None:
 async def test_image_bytes_are_described_to_the_trace_never_copied_into_it() -> None:
     collector = Collector()
     runtime = _runtime(collector, RunCompleted(output=INPUT, usage=TOTAL), kind=InvocableKind.AGENT, name="Viewer")
-    async for _ in runtime.run("Viewer", [ImageBlock(media_type="image/png", data_b64="AAAA")], CTX):
+    async for _ in runtime.run(
+        "Viewer",
+        [ImageBlock(media_type="image/png", data_b64="AAAA")],
+        run_id=CTX.run_id,
+        session_id=CTX.session_id,
+        namespace=CTX.namespace,
+    ):
         pass
     await runtime.drain()
 
@@ -346,7 +343,13 @@ async def test_structured_data_reaches_the_trace_as_json_on_both_ends() -> None:
         kind=InvocableKind.WORKFLOW,
         name="Pipeline",
     )
-    async for _ in runtime.run("Pipeline", [DataBlock(data={"input": "claim 7777"})], CTX):
+    async for _ in runtime.run(
+        "Pipeline",
+        [DataBlock(data={"input": "claim 7777"})],
+        run_id=CTX.run_id,
+        session_id=CTX.session_id,
+        namespace=CTX.namespace,
+    ):
         pass
     await runtime.drain()
 
@@ -358,7 +361,13 @@ async def test_structured_data_reaches_the_trace_as_json_on_both_ends() -> None:
 async def test_an_inline_data_uri_inside_structured_data_is_described_too() -> None:
     collector = Collector()
     runtime = _runtime(collector, RunCompleted(output=INPUT, usage=TOTAL), kind=InvocableKind.AGENT, name="Viewer")
-    async for _ in runtime.run("Viewer", [DataBlock(data={"page": {"img": DATA_URI}})], CTX):
+    async for _ in runtime.run(
+        "Viewer",
+        [DataBlock(data={"page": {"img": DATA_URI}})],
+        run_id=CTX.run_id,
+        session_id=CTX.session_id,
+        namespace=CTX.namespace,
+    ):
         pass
     await runtime.drain()
 
@@ -369,7 +378,13 @@ async def test_an_inline_data_uri_inside_structured_data_is_described_too() -> N
 async def test_an_inline_data_uri_in_a_run_input_is_described_too() -> None:
     collector = Collector()
     runtime = _runtime(collector, RunCompleted(output=INPUT, usage=TOTAL), kind=InvocableKind.AGENT, name="Viewer")
-    async for _ in runtime.run("Viewer", [TextBlock(text=f"look at {DATA_URI}")], CTX):
+    async for _ in runtime.run(
+        "Viewer",
+        [TextBlock(text=f"look at {DATA_URI}")],
+        run_id=CTX.run_id,
+        session_id=CTX.session_id,
+        namespace=CTX.namespace,
+    ):
         pass
     await runtime.drain()
 
@@ -413,9 +428,13 @@ async def test_an_interrupted_run_ships_its_half_and_the_resume_continues_the_sa
         kind=InvocableKind.WORKFLOW,
         name="Approver",
     )
-    async for _ in runtime.run("Approver", INPUT, CTX):
+    async for _ in runtime.run(
+        "Approver", INPUT, run_id=CTX.run_id, session_id=CTX.session_id, namespace=CTX.namespace
+    ):
         pass
-    async for _ in runtime.resume("Approver", "t1", "approved", CTX):
+    async for _ in runtime.resume(
+        "Approver", "t1", "approved", run_id=CTX.run_id, session_id=CTX.session_id, namespace=CTX.namespace
+    ):
         pass
     await runtime.drain()
 

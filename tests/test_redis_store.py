@@ -37,7 +37,7 @@ UNREACHABLE_URL = "redis://127.0.0.1:1/0"
 
 
 def _ctx(namespace: str = "acme", session_id: str = "s-1") -> RunContext:
-    return RunContext(namespace=namespace, run_id="r-1", trace_id="tr-1", session_id=session_id)
+    return RunContext(namespace=namespace, run_id="r-1", session_id=session_id)
 
 
 def _event(seq: int, payload: Any, run_id: str = "r-1", namespace: str = "acme", ts: datetime = TS) -> Event:

@@ -60,9 +60,7 @@ from agentdeck.surfaces.serve.compat import (
     chat_frames,
     chat_result,
     interrupt_inbox,
-    resume_context,
     resume_result,
-    run_context,
     workflow_frames,
     workflow_result,
 )
@@ -151,7 +149,7 @@ def create_app() -> Any:
         # agents-only (a workflow name must still 404 here), and the registry's message is
         # the one v1 answers with.
         app.agents.get(name)
-        run = app.runtime.run(name, content, run_context(session_id))
+        run = app.runtime.run(name, content, session_id=session_id)
         if stream:
             return StreamingResponse(
                 chat_frames(await _opened(run)),
@@ -169,7 +167,7 @@ def create_app() -> Any:
         app.workflows.get(name)
         # The posted state *is* the graph's input, and the thread the caller named is the
         # session it runs under: one turn per thread at a time, and a resume can find it later.
-        run = app.runtime.run(name, [DataBlock(data=state)], run_context(thread_id))
+        run = app.runtime.run(name, [DataBlock(data=state)], session_id=thread_id)
         if stream:
             return StreamingResponse(
                 workflow_frames(await _opened(run)),
@@ -222,7 +220,7 @@ def create_app() -> Any:
     async def pending_interrupts(name: str) -> Any:
         app = deck()
         app.workflows.get(name)
-        return interrupt_inbox(await app.runtime.pending(run_context()), name)
+        return interrupt_inbox(await app.runtime.pending(), name)
 
     @api.post("/workflows/{name}/{thread_id}/resume")
     async def resume_workflow(name: str, thread_id: str, body: dict[str, Any]) -> Any:
@@ -231,16 +229,14 @@ def create_app() -> Any:
         app = deck()
         app.workflows.get(name)
         paused = next(
-            (
-                run
-                for run in await app.runtime.pending(run_context())
-                if run.invocable == name and run.thread_id == thread_id
-            ),
+            (run for run in await app.runtime.pending() if run.invocable == name and run.thread_id == thread_id),
             None,
         )
         if paused is None:
             raise NotFoundError(f"No paused run of {name!r} on thread {thread_id!r}.")
-        result = await resume_result(app.runtime.resume(name, thread_id, body["value"], resume_context(paused)))
+        result = await resume_result(
+            app.runtime.resume(name, thread_id, body["value"], run_id=paused.run_id, session_id=paused.session_id)
+        )
         if result is None:
             # This caller's answer changed nothing: either the claim went to somebody else
             # between the listing and the resume, or the log's entry was a ghost — a thread

@@ -37,7 +37,7 @@ from agentdeck.runtime.settings import LangfuseSettings  # noqa: E402
 
 TS = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 INPUT = [TextBlock(text="ship it")]
-CTX = RunContext(namespace="acme", run_id="r-1", trace_id="tr-1", session_id="s-1")
+CTX = RunContext(namespace="acme", run_id="r-1", session_id="s-1")
 TOTAL = Usage(input_tokens=11, output_tokens=7, usd=0.02)
 SHA = "ab" * 32
 WORKFLOW = (
@@ -117,7 +117,7 @@ async def _run(spy, name: str = "Pipeline") -> None:  # noqa: ANN001
         sinks=[LangfuseSink(LangfuseTracer(spy.client))],
         clock=lambda: TS,
     )
-    async for _ in runtime.run(name, INPUT, CTX):
+    async for _ in runtime.run(name, INPUT, run_id=CTX.run_id, session_id=CTX.session_id, namespace=CTX.namespace):
         pass
     await runtime.drain()
 
@@ -178,7 +178,9 @@ async def test_an_inline_data_uri_in_tool_args_never_reaches_the_langfuse_media_
         sinks=[LangfuseSink(LangfuseTracer(spy.client))],
         clock=lambda: TS,
     )
-    async for _ in runtime.run("Describer", INPUT, CTX):
+    async for _ in runtime.run(
+        "Describer", INPUT, run_id=CTX.run_id, session_id=CTX.session_id, namespace=CTX.namespace
+    ):
         pass
     await runtime.drain()
 

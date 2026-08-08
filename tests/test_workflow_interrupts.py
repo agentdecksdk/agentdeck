@@ -263,7 +263,7 @@ async def test_streamed_durable_run_without_an_interrupt_still_ends_with_done(ap
 
 def test_app_surface_pauses_lists_and_resumes(app_project):
     """``App`` is the entry point: run -> pending_interrupts() (no name = every workflow) -> resume."""
-    from agentdeck.surfaces.serve.compat import run_context
+    from agentdeck.core.context import RunContext
 
     app = app_project
 
@@ -273,7 +273,7 @@ def test_app_surface_pauses_lists_and_resumes(app_project):
         resumed = await app.resume_workflow("ApprovalFlow", "t-app", "no")
         # both run_workflow and resume_workflow write to the event log now (issue #137) —
         # read it back rather than trusting each call's own bookkeeping.
-        events = await app.store.read("t-app", run_context("t-app"))
+        events = await app.store.read("t-app", RunContext(run_id="reader", session_id="t-app"))
         return paused, pending, resumed, [event.kind for event in events]
 
     paused, pending, resumed, kinds = asyncio.run(_scenario())

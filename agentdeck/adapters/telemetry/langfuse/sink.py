@@ -166,8 +166,6 @@ class LangfuseSink(EventSinkPort):
         await asyncio.to_thread(self._tracer.flush)
 
     def _start(self, event: Event, started: RunStarted) -> None:
-        context = started.context
-        budget = context.budget
         self._track(
             event.run_id,
             self._tracer.root(
@@ -181,11 +179,6 @@ class LangfuseSink(EventSinkPort):
                         "run_id": event.run_id,
                         "namespace": event.namespace,
                         "invocable_kind": started.kind_of_invocable,
-                        "trace_id": context.trace_id,
-                        "parent_run_id": started.parent_run_id,
-                        "triggered_by": context.triggered_by,
-                        "budget_usd": budget.max_usd if budget is not None else None,
-                        "budget_tokens": budget.max_tokens if budget is not None else None,
                     }
                 ),
             ),

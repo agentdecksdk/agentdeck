@@ -12,7 +12,6 @@ import pytest
 
 from agentdeck.core import (
     ArtifactCreated,
-    Budget,
     ControlObserved,
     ControlRequested,
     Custom,
@@ -26,7 +25,6 @@ from agentdeck.core import (
     ResourceBlock,
     RunCancelled,
     RunCompleted,
-    RunContextSnapshot,
     RunFailed,
     RunInterrupted,
     RunPaused,
@@ -49,17 +47,11 @@ PAYLOADS = (
     RunStarted(
         invocable="Greeter",
         kind_of_invocable="agent",
-        parent_run_id=None,
         input=[
             TextBlock(text="any slot tuesday?"),
             ImageBlock(media_type="image/png", data_b64="iVBORw0="),
             DataBlock(data={"calendar_id": "cal_9", "attendees": ["sagi", "dana"]}),
         ],
-        context=RunContextSnapshot(
-            trace_id="trace_1",
-            budget=Budget(max_usd=1.0, max_tokens=10000),
-            triggered_by="http",
-        ),
     ),
     RunCompleted(
         output=[

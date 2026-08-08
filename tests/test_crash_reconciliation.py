@@ -122,7 +122,16 @@ def _build(model: worker.ScriptedModel, sessions: ExecutionStore) -> tuple[Runti
 
 
 async def _play(runtime: Runtime, question: str, run_id: str) -> list[Event]:
-    return [event async for event in runtime.run(worker.AGENT, coerce_input(question), worker.context(run_id))]
+    return [
+        event
+        async for event in runtime.run(
+            worker.AGENT,
+            coerce_input(question),
+            run_id=(worker.context(run_id)).run_id,
+            session_id=(worker.context(run_id)).session_id,
+            namespace=(worker.context(run_id)).namespace,
+        )
+    ]
 
 
 async def _drain(payloads: AsyncIterator[KnownPayload]) -> list[KnownPayload]:
@@ -201,7 +210,13 @@ async def test_a_question_the_consumer_abandoned_is_not_replayed_in_front_of_its
     await _play(runtime, worker.QUESTION_1, "turn-1")
 
     # An SSE consumer disconnecting: read the opening event, stop reading, close the stream.
-    stream = runtime.run(worker.AGENT, coerce_input(worker.QUESTION_2), worker.context("abandoned"))
+    stream = runtime.run(
+        worker.AGENT,
+        coerce_input(worker.QUESTION_2),
+        run_id=(worker.context("abandoned")).run_id,
+        session_id=(worker.context("abandoned")).session_id,
+        namespace=(worker.context("abandoned")).namespace,
+    )
     assert (await anext(stream)).kind == "run.started"
     await stream.aclose()
 
@@ -228,7 +243,13 @@ async def test_a_turn_cancelled_after_its_answer_keeps_both_of_its_messages() ->
 
     # Stop reading the moment the answer is in the log, then wait for the SDK's own write of
     # that turn to land before closing: the shape under test is a turn the session *has*.
-    stream = runtime.run(worker.AGENT, coerce_input(worker.QUESTION_2), worker.context("stopped"))
+    stream = runtime.run(
+        worker.AGENT,
+        coerce_input(worker.QUESTION_2),
+        run_id=(worker.context("stopped")).run_id,
+        session_id=(worker.context("stopped")).session_id,
+        namespace=(worker.context("stopped")).namespace,
+    )
     async with asyncio.timeout(WORKER_TIMEOUT):
         while (await anext(stream)).kind != "message.completed":
             pass

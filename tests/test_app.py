@@ -7,6 +7,8 @@ import textwrap
 import pytest
 from scripted_model import ScriptedModel, patch_provider, provider_of
 
+from agentdeck.core.context import RunContext
+
 AGENT_PY = """
 from pydantic import BaseModel
 
@@ -90,11 +92,12 @@ def test_run_workflow_with_no_state_defaults_to_an_empty_object(project):
 
 
 def _ctx(session_id):
-    """A throwaway context of App's own namespace, for reading its log back in a test —
-    exactly what ``surfaces/serve/compat.run_context`` builds for an HTTP request."""
-    from agentdeck.surfaces.serve.compat import run_context
+    """A reader context of App's own (absent) namespace, for reading its log back in a test.
 
-    return run_context(session_id)
+    The Runtime takes options now, but ``EventStorePort`` still takes a context — it is an
+    internal port, and only the session id and namespace are read off this one.
+    """
+    return RunContext(run_id="reader", session_id=session_id)
 
 
 def test_the_apps_structured_output_carrier_matches_the_engines(project):
@@ -283,15 +286,19 @@ def test_pause_and_resume_reach_the_runtime_this_app_composed(project, monkeypat
     from scripted_model import ScriptedModel, patch_provider, provider_of
 
     from agentdeck.core.content import coerce_input
-    from agentdeck.surfaces.serve.compat import run_context
 
     patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("hi",))))
     project.load()
-    ctx = run_context("s-control")  # exactly what the chat route builds for a request
+    ctx = _ctx("s-control")
 
     async def _flow():
         assert await project.pause_run(ctx.run_id, "operator stepped away") is True
-        paused = [event async for event in project.runtime.run("Greeter", coerce_input("hello"), ctx)]
+        paused = [
+            event
+            async for event in project.runtime.run(
+                "Greeter", coerce_input("hello"), run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace
+            )
+        ]
         resumed = await project.resume_run(ctx.run_id)
         return paused, resumed
 

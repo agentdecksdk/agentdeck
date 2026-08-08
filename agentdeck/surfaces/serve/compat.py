@@ -16,12 +16,10 @@ turn on it at a time — which is exactly what a session id buys from the Runtim
 from __future__ import annotations
 
 import json
-import uuid
 from contextlib import aclosing
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.core.content import DataBlock, TextBlock
-from agentdeck.core.context import RunContext
 from agentdeck.core.events import Custom, NodeUpdated, RunCompleted, RunInterrupted, TextDelta, UsageReported
 
 if TYPE_CHECKING:
@@ -42,29 +40,6 @@ STRUCTURED_OUTPUT = "openai_agents.structured_output"
 # kind of test.
 STREAM_WRITE = "langgraph.stream_write"
 STREAM_WRITE_KEY = "value"
-
-
-def run_context(session_id: str | None = None) -> RunContext:
-    """A fresh context for one v1 request."""
-    return RunContext(
-        run_id=str(uuid.uuid4()),
-        trace_id=str(uuid.uuid4()),
-        session_id=session_id,
-    )
-
-
-def resume_context(paused: PendingRun) -> RunContext:
-    """The context that continues an already-open run.
-
-    Its ``run_id`` is the paused run's own, because that is the run whose
-    ``WAITING_HUMAN`` -> ``RUNNING`` claim the resume has to win — a fresh id would name a run
-    the log has never heard of.
-    """
-    return RunContext(
-        run_id=paused.run_id,
-        trace_id=str(uuid.uuid4()),
-        session_id=paused.session_id,
-    )
 
 
 class _Turn:
@@ -249,9 +224,7 @@ __all__ = [
     "chat_frames",
     "chat_result",
     "interrupt_inbox",
-    "resume_context",
     "resume_result",
-    "run_context",
     "workflow_frames",
     "workflow_result",
 ]

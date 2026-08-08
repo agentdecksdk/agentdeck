@@ -29,7 +29,7 @@ def _event(seq: int, namespace: str = "acme", run_id: str = "r-1") -> Event:
 
 
 def _ctx(namespace: str = "acme") -> RunContext:
-    return RunContext(namespace=namespace, run_id="r-1", trace_id="tr-1", session_id="s-1")
+    return RunContext(namespace=namespace, run_id="r-1", session_id="s-1")
 
 
 async def test_events_read_back_in_the_order_they_were_appended() -> None:

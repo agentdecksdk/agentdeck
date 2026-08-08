@@ -42,7 +42,7 @@ UNREACHABLE_DSN = "postgresql://postgres:postgres@127.0.0.1:1/nope"
 
 
 def _ctx(namespace: str = "acme") -> RunContext:
-    return RunContext(namespace=namespace, run_id="r-1", trace_id="tr-1", session_id="s-1")
+    return RunContext(namespace=namespace, run_id="r-1", session_id="s-1")
 
 
 def _event(seq: int, payload: Any, run_id: str = "r-1", namespace: str = "acme", ts: datetime = TS) -> Event:
