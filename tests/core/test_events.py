@@ -219,14 +219,23 @@ def test_events_do_not_mutate(examples):
 def test_result_preview_is_capped():
     args = {"call_id": "call_1", "tool": "t", "result_size": 9, "result_sha256": "a" * 64}
     ToolCallCompleted(result_preview="x" * RESULT_PREVIEW_MAX, **args)
-    with pytest.raises(ValidationError, match="RESULT_PREVIEW_MAX"):
+    with pytest.raises(ValidationError, match="string_too_long"):
         ToolCallCompleted(result_preview="x" * (RESULT_PREVIEW_MAX + 1), **args)
 
 
 @pytest.mark.parametrize("name", ["nodot", ".leading", "trailing.", ""])
 def test_custom_name_must_be_namespaced(name):
-    with pytest.raises(ValidationError, match="namespace"):
+    with pytest.raises(ValidationError, match="string_pattern_mismatch"):
         Custom(name=name, data={})
+
+
+@pytest.mark.parametrize("digest", ["not-a-hash", "", "A" * 64, "a" * 63, "a" * 65])
+def test_result_sha256_must_look_like_one(digest):
+    """Its neighbour ``result_size`` was ``NonNegativeInt`` while this took any string at all —
+    so a truncated or upper-cased digest read as a real one, and the field exists to be
+    compared against another."""
+    with pytest.raises(ValidationError, match="string_pattern_mismatch"):
+        ToolCallCompleted(call_id="c", tool="t", result_preview="x", result_size=1, result_sha256=digest)
 
 
 def test_run_failed_error_codes_are_a_closed_set():

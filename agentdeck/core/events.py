@@ -225,18 +225,11 @@ class ToolCallCompleted(CoreModel):
     kind: Literal["tool.call.completed"] = "tool.call.completed"
     call_id: str
     tool: str
-    result_preview: str
+    result_preview: str = Field(max_length=RESULT_PREVIEW_MAX)
     result_size: NonNegativeInt
-    result_sha256: str
+    result_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     artifact_id: str | None = None
     error: str | None = None
-
-    @field_validator("result_preview")
-    @classmethod
-    def _preview_within_cap(cls, value: str) -> str:
-        if len(value) > RESULT_PREVIEW_MAX:
-            raise ValueError(f"result_preview is {len(value)} chars, over RESULT_PREVIEW_MAX={RESULT_PREVIEW_MAX}")
-        return value
 
 
 class NodeUpdated(CoreModel):
@@ -309,16 +302,11 @@ class Custom(CoreModel):
     """Engine-specific event; ``name`` must be namespaced."""
 
     kind: Literal["custom"] = "custom"
-    name: str
+    # ``<namespace>.<event>``, both non-empty; a further-dotted event name is the namespace's
+    # own business. Pattern rather than a validator — pydantic already says it better than the
+    # message a hand-written one would raise.
+    name: str = Field(pattern=r"^[^.]+\..+$")
     data: dict[str, Any]
-
-    @field_validator("name")
-    @classmethod
-    def _name_is_namespaced(cls, value: str) -> str:
-        namespace, _, event = value.partition(".")
-        if not namespace or not event:
-            raise ValueError(f"custom name must be '<namespace>.<event>', got {value!r}")
-        return value
 
 
 class UnknownEvent(CoreModel):
