@@ -13,7 +13,7 @@ import sqlite3
 
 from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.adapters.control.sqlite import port as port_module
-from agentdeck.core.ports.control import ControlSignal, Signal
+from agentdeck.core.control import ControlSignal, Signal
 
 
 async def test_a_file_backed_control_db_opens_in_wal_with_the_busy_timeout_it_asked_for(tmp_path, monkeypatch) -> None:

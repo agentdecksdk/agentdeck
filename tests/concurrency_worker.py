@@ -38,6 +38,7 @@ from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import TextBlock, coerce_input
 from agentdeck.core.context import RunContext
+from agentdeck.core.control import Signal
 from agentdeck.core.events import (
     Event,
     MessageCompleted,
@@ -50,7 +51,6 @@ from agentdeck.core.events import (
     Usage,
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
-from agentdeck.core.ports.control import Signal
 from agentdeck.errors import SessionBusyError, StoreError
 from agentdeck.runtime.service import Runtime
 

@@ -4,7 +4,8 @@ only — process exit loses every pending signal, same posture as ``stores.memor
 
 from __future__ import annotations
 
-from agentdeck.core.ports.control import ControlPort, ControlSignal, Signal
+from agentdeck.core.control import ControlSignal, Signal
+from agentdeck.core.ports.control import ControlPort
 
 
 class MemoryControlPort(ControlPort):

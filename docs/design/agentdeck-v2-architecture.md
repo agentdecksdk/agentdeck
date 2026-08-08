@@ -1000,6 +1000,16 @@ so it cannot interleave a live signal with an in-flight SSE stream — the cross
 (`tests/test_uc3_slowpoke.py`) drives `Runtime` directly and a real `subprocess` for the CLI
 instead of routing through that transport.)*
 
+*(Amended 2026-08-08 — the `core/ports/control.py` sketch above splits in two as built.
+`ControlPort`, the transport an outer ring implements, is the only thing left in
+`core/ports/control.py`; `Signal`, `ControlSignal`, `Gate`, `ControlSignalled` and
+`CONTROL_POLL_INTERVAL` are in `core/control.py`, one ring in. None of them was ever
+implemented by an outer ring — `Gate` is core's own concrete class and `ControlSignalled`
+mints event payloads, which is core policy — and `RunContext` needs `Gate` as a field type,
+so core was importing from its own ports package to build a value object. `core/control.py`
+and `core/reporting.py` are now visibly the pair the latter's docstring already claimed they
+were: control in on `RunContext`, updates out the same way.)*
+
 *(Amended 2026-08-06, #45 and #85 — pause, resume and cancel as built. Four departures from
 the sketch above, all deliberate.)*
 

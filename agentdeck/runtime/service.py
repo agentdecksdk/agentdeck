@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 
 from agentdeck.core.content import DataBlock, coerce_input
+from agentdeck.core.control import CONTROL_POLL_INTERVAL, Gate, Signal
 from agentdeck.core.events import (
     TERMINAL_KINDS,
     ControlRequested,
@@ -32,8 +33,6 @@ from agentdeck.core.events import (
     RunResumed,
     RunStarted,
 )
-from agentdeck.core.ports import Gate, Signal
-from agentdeck.core.ports.control import CONTROL_POLL_INTERVAL
 from agentdeck.core.reporting import Reporter
 from agentdeck.core.status import RunStatus
 from agentdeck.errors import NotFoundError, SessionBusyError, StoreError

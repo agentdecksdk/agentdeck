@@ -24,9 +24,9 @@ from agentdeck.adapters.engines.openai_agents.reconcile import reconcile
 from agentdeck.adapters.engines.openai_agents.sessions import ExecutionStore
 from agentdeck.adapters.engines.openai_agents.translate import translate
 from agentdeck.core.content import DataBlock, TextBlock, coerce_input
+from agentdeck.core.control import ControlSignalled
 from agentdeck.core.events import RunCompleted, Usage
 from agentdeck.core.ports import EnginePort
-from agentdeck.core.ports.control import ControlSignalled
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:

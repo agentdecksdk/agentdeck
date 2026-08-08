@@ -45,8 +45,8 @@ from agentdeck.agents.registry import AgentRegistry
 from agentdeck.composition import build_runtime, v1_engines
 from agentdeck.core.content import DataBlock, TextBlock, coerce_input
 from agentdeck.core.context import RunContext
+from agentdeck.core.control import Signal
 from agentdeck.core.events import Custom, NodeUpdated, RunCompleted, RunInterrupted
-from agentdeck.core.ports import Signal
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.runtime.registry import PROJECT_DIR, _package_dir, mount_project_dir
 from agentdeck.runtime.sessions import SessionFactory

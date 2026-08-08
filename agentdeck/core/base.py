@@ -13,7 +13,11 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, JsonValue
 
 
 class CoreModel(BaseModel):
-    """Base for the schema models: unknown fields are dropped, and nothing mutates."""
+    """Base for the schema models: unknown fields are dropped, and nothing mutates.
+
+    Dropping them is forward compatibility — a field a newer writer added has to land, not
+    raise. A model that is built rather than parsed sets ``extra="forbid"`` instead.
+    """
 
     model_config = ConfigDict(extra="ignore", frozen=True)
 

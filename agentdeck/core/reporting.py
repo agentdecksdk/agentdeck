@@ -1,6 +1,6 @@
 """How code inside a run says what it is doing: one report channel, carried on the context.
 
-The mirror image of :class:`~agentdeck.core.ports.control.Gate` — control in on ``RunContext``,
+The mirror image of :class:`~agentdeck.core.control.Gate` — control in on ``RunContext``,
 updates out the same way. A tool six frames inside an engine cannot yield an event and must not
 know a Runtime exists, so it hands the report to the context it has.
 

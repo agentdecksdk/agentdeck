@@ -14,6 +14,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ConfigDict
+
 from agentdeck.core.base import CoreModel
 
 if TYPE_CHECKING:
@@ -28,7 +30,12 @@ class ToolSet(CoreModel):
     in front of the model about what is missing, so a degraded run reports the gap instead of
     quietly answering without the tools. It is empty whenever nothing is missing: the happy-path
     prompt has to stay byte-identical or every upstream prompt cache misses.
+
+    Built, never parsed, so ``forbid``: a dropped ``tools=`` would hand back an empty set and
+    degrade the run silently — the one failure this class exists to make visible.
     """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     tools: tuple[Any, ...] = ()
     unavailable: tuple[str, ...] = ()
