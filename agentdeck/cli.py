@@ -20,7 +20,7 @@ import argparse
 import asyncio
 
 from agentdeck.adapters.control.sqlite import SqliteControlPort
-from agentdeck.core.ports.control import Signal
+from agentdeck.core.control import Signal
 
 
 def build_parser() -> argparse.ArgumentParser:

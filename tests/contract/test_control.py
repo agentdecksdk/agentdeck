@@ -26,6 +26,7 @@ from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
+from agentdeck.core.control import Signal
 from agentdeck.core.events import (
     MessageCompleted,
     RunCompleted,
@@ -35,7 +36,6 @@ from agentdeck.core.events import (
     check_terminal,
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
-from agentdeck.core.ports.control import Signal
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.runtime.service import Runtime
 

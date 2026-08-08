@@ -15,9 +15,10 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, ClassVar
 
+from agentdeck.core.control import ControlSignalled
 from agentdeck.core.events import RunInterrupted
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
-from agentdeck.core.ports import ControlSignalled, EnginePort
+from agentdeck.core.ports import EnginePort
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:

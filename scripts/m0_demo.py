@@ -69,9 +69,9 @@ from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.composition import build_runtime
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
+from agentdeck.core.control import Signal
 from agentdeck.core.events import RESULT_PREVIEW_MAX, check_contiguous, check_terminal, parse_event
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
-from agentdeck.core.ports.control import Signal
 from agentdeck.errors import ConfigError
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.surfaces.cli.chat import render, stream_chat

@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from typing import get_args
 
+from agentdeck.core.control import Signal
 from agentdeck.core.events import KNOWN_KINDS, TERMINAL_KINDS, ControlVerb, RunStarted
 from agentdeck.core.invocable import InvocableKind
-from agentdeck.core.ports.control import Signal
 from agentdeck.core.status import LIFECYCLE_KINDS, TERMINAL_STATUSES, RunStatus
 
 

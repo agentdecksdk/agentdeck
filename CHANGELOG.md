@@ -36,6 +36,16 @@ of vanishing the moment the call returns.
 - `App.run_agent`, `App.chat`, `App.chat_stream`, `App.run_workflow` and
   `App.resume_workflow` compose the Runtime on first use (calling `load()` themselves) if
   `App.load()` was never called by hand.
+- **Breaking:** run control's vocabulary and safe point moved out of the ports package to
+  `agentdeck.core.control` — `Signal`, `ControlSignal`, `Gate`, `ControlSignalled`,
+  `RunCancelledError`, `RunPausedError` and `CONTROL_POLL_INTERVAL`. Only `ControlPort`, the
+  transport an adapter implements, stays in `agentdeck.core.ports`. Import from
+  `agentdeck.core.control` instead; nothing about how control behaves changed.
+- `InvocableSpec` and `ToolSet` now raise on a keyword they don't have, instead of dropping it.
+  Both are built in-process, so an unknown keyword is a typo — and a dropped `tools=` used to
+  yield an empty `ToolSet`, degrading a run exactly like an unreachable tool source. Event and
+  content payloads keep ignoring unknown fields: they are parsed off a wire, where a field a
+  newer writer added has to land rather than raise.
 
 ### Added
 

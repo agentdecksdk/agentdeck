@@ -29,6 +29,7 @@ from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.adapters.stores.sqlite import store as sqlite_store
 from agentdeck.core.context import RunContext
+from agentdeck.core.control import Signal
 from agentdeck.core.events import (
     Event,
     KnownPayload,
@@ -42,7 +43,6 @@ from agentdeck.core.events import (
     TextDelta,
 )
 from agentdeck.core.ports import SessionClaim
-from agentdeck.core.ports.control import Signal
 from agentdeck.core.status import RunStatus
 from agentdeck.errors import StoreError
 

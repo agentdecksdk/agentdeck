@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from agentdeck.core.ports.control import Gate
+from agentdeck.core.control import Gate
 from agentdeck.core.reporting import Reporter
 
 if TYPE_CHECKING:

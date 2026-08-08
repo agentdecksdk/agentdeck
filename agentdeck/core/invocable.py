@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from agentdeck.core.base import CoreModel
 
@@ -25,7 +25,11 @@ class InvocableSpec(CoreModel):
 
     ``engine`` selects the adapter; ``native`` is that adapter's own payload and nothing
     outside it may look inside.
+
+    Compiled, never parsed, so ``forbid``: an unknown keyword here is a typo.
     """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
     kind: InvocableKind

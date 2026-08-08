@@ -12,7 +12,8 @@ from contextlib import suppress
 from functools import partial
 from typing import TYPE_CHECKING
 
-from agentdeck.core.ports.control import ControlPort, ControlSignal, Signal
+from agentdeck.core.control import ControlSignal, Signal
+from agentdeck.core.ports.control import ControlPort
 from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:

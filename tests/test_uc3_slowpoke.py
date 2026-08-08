@@ -40,9 +40,9 @@ from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
+from agentdeck.core.control import Signal
 from agentdeck.core.events import check_contiguous, check_terminal
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
-from agentdeck.core.ports.control import ControlPort, Signal
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.runtime.service import Runtime
 from agentdeck.surfaces.cli.chat import render
@@ -54,6 +54,7 @@ if TYPE_CHECKING:
 
     from agentdeck.core.events import Event
     from agentdeck.core.ports import EventStorePort
+    from agentdeck.core.ports.control import ControlPort
 
 CHUNK_COUNT = 30
 MESSAGE_ID = "msg_slowpoke"
