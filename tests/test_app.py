@@ -90,25 +90,11 @@ def test_run_workflow_with_no_state_defaults_to_an_empty_object(project):
 
 
 def _ctx(session_id):
-    """A throwaway context of App's own tenant, for reading its log back in a test —
+    """A throwaway context of App's own namespace, for reading its log back in a test —
     exactly what ``surfaces/serve/compat.run_context`` builds for an HTTP request."""
     from agentdeck.surfaces.serve.compat import run_context
 
     return run_context(session_id)
-
-
-def test_the_apps_tenant_matches_the_http_compat_layers(project):
-    """``App`` mints its own context rather than importing the HTTP surface's, but the two
-    tenants must still agree: the store buckets its log by ``(tenant, log_key)``, so a drift
-    here would silently split one session's history into two logs depending on which entry
-    point ran the turn — exactly what ``test_the_runtime_and_the_python_api_share_one_conversation``
-    (tests/test_serve_compat.py) would start failing to catch.
-    """
-    from agentdeck import app as app_module
-    from agentdeck.surfaces.serve import compat
-
-    assert app_module._TENANT == compat.V1_TENANT
-    assert app_module._PRINCIPAL == compat.V1_PRINCIPAL
 
 
 def test_the_apps_structured_output_carrier_matches_the_engines(project):
@@ -383,7 +369,6 @@ def test_only_the_app_that_started_mcp_shuts_it_down(project, monkeypatch):
 def test_injected_session_factory_is_used_and_closed_once(project, monkeypatch):
     """The DI seam bypasses `from_settings` and `aclose()` closes the injection exactly once."""
     from agentdeck import App
-    from agentdeck import app as app_module
     from agentdeck.adapters.engines.openai_agents.sessions import SessionFactory
 
     def boom(_settings):
@@ -395,10 +380,10 @@ def test_injected_session_factory_is_used_and_closed_once(project, monkeypatch):
     async def scenario() -> App:
         async with App.open(session_factory=fake) as app:
             assert app.session_factory is fake
-            # Tenant-scoped, because the engine's own store is what mints it now: two tenants
+            # Namespace-scoped, because the engine's own store is what mints it now: two namespaces
             # are free to pick the same session id, and an unprefixed key would hand them one
             # conversation. Same key whichever entry point the turn arrived through.
-            assert app.session_for("s1") is fake.sessions[f"{app_module._TENANT}:s1"]
+            assert app.session_for("s1") is fake.sessions[":s1"]
         return app
 
     app = asyncio.run(scenario())

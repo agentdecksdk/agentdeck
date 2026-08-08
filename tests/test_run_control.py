@@ -69,7 +69,7 @@ class FakeClock:
 
 
 def _ctx(run_id: str = "r-1", session_id: str | None = "s-1") -> RunContext:
-    return RunContext(tenant="acme", principal="user:1", run_id=run_id, trace_id="tr-1", session_id=session_id)
+    return RunContext(namespace="acme", run_id=run_id, trace_id="tr-1", session_id=session_id)
 
 
 def _kinds(events: list[Event]) -> list[str]:

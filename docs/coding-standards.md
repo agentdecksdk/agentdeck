@@ -211,8 +211,8 @@ is an architecture violation to report before merging.
 
 No secrets in code, tests, fixtures, goldens, or PR descriptions — goldens are scrubbed
 by construction because fakes need no keys. Raw tool results and artifacts never inline
-in events (preview + hash + reference only, §7 / schema decision 7). `tenant` and
-`principal` are never defaulted inside adapters or surfaces — they flow from the
+in events (preview + hash + reference only, §7 / schema decision 7). `namespace` is
+never defaulted inside adapters or surfaces — it flows from the
 composition root via `RunContext` only. Log lines never include full message content at
 INFO level (event ids and kinds, yes; bodies, no). Idempotency keys accompany every
 side-effecting tool call once Story 3 lands.

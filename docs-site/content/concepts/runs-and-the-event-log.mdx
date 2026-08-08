@@ -40,7 +40,7 @@ from agentdeck.core.status import status_of
 
 async def main() -> None:
     run_id = str(uuid.uuid4())
-    ctx = RunContext(tenant="acme", principal="user:sagi", run_id=run_id, trace_id=str(uuid.uuid4()), session_id="sess-1")
+    ctx = RunContext(run_id=run_id, trace_id=str(uuid.uuid4()), session_id="sess-1", namespace="workspace:acme")
 
     async with App.open() as app:
         async for _event in app.runtime.run("Greeter", coerce_input("book me a slot Tuesday"), ctx):

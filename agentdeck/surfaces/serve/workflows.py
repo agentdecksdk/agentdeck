@@ -4,7 +4,7 @@ A second, additive FastAPI app — ``surfaces/serve/app.py`` (the chat SSE route
 touched by this module at all; a caller mounts both against the same ``Runtime``. Both
 routes call only ``Runtime.pending``/``Runtime.resume``: this module never reads an
 engine's execution state (checkpointer, SDK session) directly, which is what keeps that
-state private to its engine. Same posture as ``app.py``: no auth, one tenant, crude.
+state private to its engine. Same posture as ``app.py``: unnamespaced, crude.
 """
 
 from __future__ import annotations
@@ -22,10 +22,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from agentdeck.runtime.service import Runtime
-
-# Matches surfaces/serve/app.py's fake identity: every request shares one tenant/principal.
-TENANT = "demo"
-PRINCIPAL = "user:demo"
 
 
 class ResumeBody(BaseModel):
@@ -62,8 +58,6 @@ def build_workflow_app(runtime: Runtime) -> FastAPI:
         if match is None:
             return {"status": "no-op"}
         ctx = RunContext(
-            tenant=TENANT,
-            principal=PRINCIPAL,
             run_id=match.run_id,
             trace_id=str(uuid.uuid4()),
             session_id=match.session_id,
@@ -80,8 +74,8 @@ def build_workflow_app(runtime: Runtime) -> FastAPI:
 
 def _listing_ctx() -> RunContext:
     # A listing has no run of its own; run_id/trace_id are throwaway identity for a
-    # RunContext that Runtime.pending only ever reads .tenant off of.
-    return RunContext(tenant=TENANT, principal=PRINCIPAL, run_id=str(uuid.uuid4()), trace_id=str(uuid.uuid4()))
+    # RunContext that Runtime.pending only ever reads .namespace off of.
+    return RunContext(run_id=str(uuid.uuid4()), trace_id=str(uuid.uuid4()))
 
 
 __all__ = ["build_workflow_app"]

@@ -64,7 +64,7 @@ def _spec() -> InvocableSpec:
 
 
 def _ctx() -> RunContext:
-    return RunContext(tenant="acme", principal="user:1", run_id="r-1", trace_id="tr-1", session_id="s-1")
+    return RunContext(namespace="acme", run_id="r-1", trace_id="tr-1", session_id="s-1")
 
 
 async def _run_config_passed_to_runner(monkeypatch: pytest.MonkeyPatch) -> RunConfig:

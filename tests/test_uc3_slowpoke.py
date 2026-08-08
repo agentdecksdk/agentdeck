@@ -161,7 +161,7 @@ async def test_uc3_cancel_lands_at_next_safe_point_stable_across_20_runs() -> No
     for trial in range(20):
         control = MemoryControlPort()
         runtime, _store = _build(control)
-        ctx = RunContext(tenant="demo", principal="user:demo", run_id=f"run-{trial}", trace_id="t")
+        ctx = RunContext(namespace="demo", run_id=f"run-{trial}", trace_id="t")
 
         events: list[Event] = []
         async for event in runtime.run("SlowPoke", coerce_input("go slow"), ctx):
@@ -182,7 +182,7 @@ async def test_uc3_cancel_lands_at_next_safe_point_stable_across_20_runs() -> No
 async def test_uc3_run_cancelled_is_terminal_and_a_followup_signal_is_a_noop() -> None:
     control = MemoryControlPort()
     runtime, store = _build(control)
-    ctx = RunContext(tenant="demo", principal="user:demo", run_id="run-noop", trace_id="t")
+    ctx = RunContext(namespace="demo", run_id="run-noop", trace_id="t")
 
     events: list[Event] = []
     async for event in runtime.run("SlowPoke", coerce_input("go slow"), ctx):
@@ -206,7 +206,7 @@ async def test_uc3_replay_is_truncated_but_coherent_and_the_renderer_copes(
 ) -> None:
     control = MemoryControlPort()
     runtime, store = _build(control)
-    ctx = RunContext(tenant="demo", principal="user:demo", run_id="run-replay", trace_id="t", session_id="s-replay")
+    ctx = RunContext(namespace="demo", run_id="run-replay", trace_id="t", session_id="s-replay")
 
     delta_count = 0
     async for event in runtime.run("SlowPoke", coerce_input("go slow"), ctx):
@@ -237,7 +237,7 @@ async def test_uc3_chaos_gap_detection_recovers_from_store() -> None:
     contiguous seq is for, demonstrated rather than merely argued."""
     control = MemoryControlPort()
     runtime, store = _build(control)
-    ctx = RunContext(tenant="demo", principal="user:demo", run_id="run-chaos", trace_id="t", session_id="s-chaos")
+    ctx = RunContext(namespace="demo", run_id="run-chaos", trace_id="t", session_id="s-chaos")
 
     full_run = [event async for event in runtime.run("SlowPoke", coerce_input("go slow"), ctx)]
     delta_indices = [i for i, event in enumerate(full_run) if event.kind == "text.delta"]
@@ -310,7 +310,7 @@ async def main():
     agent = Agent(name="SlowPoke", instructions="stall", model=SlowPokeModel())
     spec = InvocableSpec(name="SlowPoke", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
     runtime = Runtime([OpenAIAgentsEngine()], store, {"SlowPoke": spec}, control=control)
-    ctx = RunContext(tenant="demo", principal="user:demo", run_id=sys.argv[3], trace_id="t")
+    ctx = RunContext(namespace="demo", run_id=sys.argv[3], trace_id="t")
     async for event in runtime.run("SlowPoke", coerce_input("go slow"), ctx):
         print(event.kind, event.run_id, event.seq, flush=True)
 
@@ -359,7 +359,7 @@ def test_uc3_cross_process_cancel(tmp_path: Any) -> None:
     assert kinds.count("run.cancelled") == 1
 
     store = SqliteEventStore(events_db)
-    ctx = RunContext(tenant="demo", principal="user:demo", run_id=run_id, trace_id="t")
+    ctx = RunContext(namespace="demo", run_id=run_id, trace_id="t")
 
     async def _read_back() -> list[Event]:
         return await store.read_run(ctx.log_key, run_id, ctx)

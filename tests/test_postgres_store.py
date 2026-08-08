@@ -41,17 +41,17 @@ BEFORE_ANY_EVENT = TS - timedelta(hours=1)
 UNREACHABLE_DSN = "postgresql://postgres:postgres@127.0.0.1:1/nope"
 
 
-def _ctx(tenant: str = "acme") -> RunContext:
-    return RunContext(tenant=tenant, principal="user:1", run_id="r-1", trace_id="tr-1", session_id="s-1")
+def _ctx(namespace: str = "acme") -> RunContext:
+    return RunContext(namespace=namespace, run_id="r-1", trace_id="tr-1", session_id="s-1")
 
 
-def _event(seq: int, payload: Any, run_id: str = "r-1", tenant: str = "acme", ts: datetime = TS) -> Event:
+def _event(seq: int, payload: Any, run_id: str = "r-1", namespace: str = "acme", ts: datetime = TS) -> Event:
     return Event(
         kind=payload.kind,
         seq=seq,
         run_id=run_id,
         session_id="s-1",
-        tenant=tenant,
+        namespace=namespace,
         origin="Greeter",
         ts=ts,
         payload=payload,
@@ -63,7 +63,7 @@ def _started() -> RunStarted:
         invocable="Greeter",
         kind_of_invocable="agent",
         input=[],
-        context={"principal": "user:1", "trace_id": "tr-1"},
+        context={"trace_id": "tr-1"},
     )
 
 

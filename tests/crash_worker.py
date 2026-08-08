@@ -98,7 +98,7 @@ def durable_session(root: Path) -> SQLiteSession:
 
 
 def context(run_id: str) -> RunContext:
-    return RunContext(tenant=TENANT, principal=PRINCIPAL, run_id=run_id, trace_id=f"t-{run_id}", session_id=SESSION_ID)
+    return RunContext(namespace=TENANT, run_id=run_id, trace_id=f"t-{run_id}", session_id=SESSION_ID)
 
 
 def transcript_of(items: Sequence[Any]) -> list[list[str]]:
@@ -162,7 +162,7 @@ class DurableSessions(ExecutionStore):
         self._open: dict[str, SQLiteSession] = {}
 
     def session_for(self, ctx: RunContext) -> SQLiteSession:
-        key = f"{ctx.tenant}:{ctx.log_key}"
+        key = f"{ctx.namespace}:{ctx.log_key}"
         session = self._open.get(key)
         if session is None:
             session = SQLiteSession(key, self._path)

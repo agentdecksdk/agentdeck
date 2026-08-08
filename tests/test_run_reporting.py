@@ -62,7 +62,7 @@ if TYPE_CHECKING:
 pytest.importorskip("fastapi")
 
 TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
-CTX = RunContext(tenant="acme", principal="user:1", run_id="r-1", trace_id="tr-1", session_id="s-1")
+CTX = RunContext(namespace="acme", run_id="r-1", trace_id="tr-1", session_id="s-1")
 
 
 def _reports(events: Sequence[Event]) -> list[tuple[str, Any]]:
@@ -278,7 +278,7 @@ async def test_the_reference_renderer_prints_a_status_and_a_counted_stage(capsys
         yield f"data: {_event(ProgressReported(step='Halfway', current=2)).model_dump_json()}"
         # A kind this renderer has never heard of must not stop it — the default case is the
         # forward-compatibility promise, and a new kind is exactly when it gets tested.
-        yield 'data: {"v": 1, "kind": "future.thing", "seq": 4, "run_id": "r-1", "session_id": null, "tenant": "acme", "origin": "Searcher", "ts": "2026-01-01T12:00:00Z", "payload": {"whatever": 1}}'
+        yield 'data: {"v": 1, "kind": "future.thing", "seq": 4, "run_id": "r-1", "session_id": null, "namespace": "acme", "origin": "Searcher", "ts": "2026-01-01T12:00:00Z", "payload": {"whatever": 1}}'
 
     await render(lines())
 
@@ -296,7 +296,7 @@ def _event(payload: KnownPayload) -> Event:
         seq=0,
         run_id="r-1",
         session_id="s-1",
-        tenant="acme",
+        namespace="acme",
         origin="Searcher",
         ts=TS,
         payload=payload,

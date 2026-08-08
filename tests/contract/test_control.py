@@ -112,7 +112,7 @@ def harness(case: ControlCase) -> Harness:
         control=control,
         control_poll_interval=0.0,
     )
-    ctx = RunContext(tenant="acme", principal="user:1", run_id="r-control", trace_id="tr-1", session_id="s-control")
+    ctx = RunContext(namespace="acme", run_id="r-control", trace_id="tr-1", session_id="s-control")
     return Harness(runtime=runtime, store=store, control=control, ctx=ctx, name=case.spec.name)
 
 

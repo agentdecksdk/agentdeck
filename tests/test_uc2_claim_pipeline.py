@@ -50,7 +50,6 @@ if TYPE_CHECKING:
 pytest.importorskip("fastapi")
 pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
 
-TENANT = "demo"
 PRINCIPAL = "user:demo"
 SESSION_ID = "s1"
 
@@ -126,7 +125,7 @@ async def test_uc2_claim_pipeline_survives_a_restart(tmp_path: Any) -> None:
 
     # "restart": brand-new Runtime, store and engine, reading only the two files on disk.
     runtime2, store2 = _runtime(db_path, checkpoint_path)
-    status_ctx = RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="n/a", trace_id="t", session_id=SESSION_ID)
+    status_ctx = RunContext(namespace=None, run_id="n/a", trace_id="t", session_id=SESSION_ID)
     assert status_of(await store2.read(status_ctx.log_key, status_ctx)) is RunStatus.WAITING_HUMAN
 
     workflow_app = build_workflow_app(runtime2)
@@ -164,7 +163,7 @@ async def test_langgraph_transcript_fidelity() -> None:
     engine = LangGraphEngine(checkpointer=checkpointer)
     store = SqliteEventStore()
     runtime = Runtime([engine], store, {"ClaimPipeline": _spec()})
-    ctx = RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="fidelity-1", trace_id="t", session_id="fidelity")
+    ctx = RunContext(namespace=None, run_id="fidelity-1", trace_id="t", session_id="fidelity")
 
     events = [event async for event in runtime.run("ClaimPipeline", coerce_input("claim 7777"), ctx)]
     thread_id = events[-1].payload.thread_id
@@ -247,7 +246,7 @@ async def main():
     gate = sys.argv[5] if len(sys.argv) > 5 else None
     store = LateStore(sys.argv[1], gate) if gate else SqliteEventStore(sys.argv[1])
     runtime = Runtime([engine], store, {"ClaimPipeline": _spec()})
-    ctx = RunContext(tenant="demo", principal="user:demo", run_id="uc2-restart", trace_id="t", session_id="s1")
+    ctx = RunContext(namespace=None, run_id="uc2-restart", trace_id="t", session_id="s1")
     if sys.argv[3] == "interrupt":
         async for event in runtime.run("ClaimPipeline", coerce_input("claim 9911"), ctx):
             print(event.kind)
@@ -279,7 +278,7 @@ def test_uc2_claim_pipeline_survives_a_real_process_restart(tmp_path: Any) -> No
     assert first.stdout.split() == ["run.started", "node.updated", "run.interrupted"]
 
     store = SqliteEventStore(db_path)
-    ctx = RunContext(tenant="demo", principal="user:demo", run_id="uc2-restart", trace_id="t", session_id="s1")
+    ctx = RunContext(namespace=None, run_id="uc2-restart", trace_id="t", session_id="s1")
 
     async def _read_thread_id() -> str:
         history = await store.read(ctx.log_key, ctx)
@@ -335,7 +334,7 @@ def test_two_processes_resuming_one_interrupt_produce_exactly_one_winner(tmp_pat
     assert interrupting.stdout.split() == ["run.started", "node.updated", "run.interrupted"]
 
     store = SqliteEventStore(db_path)
-    ctx = RunContext(tenant="demo", principal="user:demo", run_id="uc2-restart", trace_id="t", session_id=SESSION_ID)
+    ctx = RunContext(namespace=None, run_id="uc2-restart", trace_id="t", session_id=SESSION_ID)
 
     async def _read_thread_id() -> str:
         history = await store.read(ctx.log_key, ctx)

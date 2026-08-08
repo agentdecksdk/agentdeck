@@ -18,23 +18,27 @@ if TYPE_CHECKING:
 
 
 class MemoryEventStore(EventStorePort):
-    """Append-only lists, one per (tenant, log key). Process exit is data loss, by design.
+    """Append-only lists, one per (namespace, log key). Process exit is data loss, by design.
 
-    Keyed by tenant as well as log key so two tenants that pick the same session id cannot
-    read each other's runs — isolation is not something a store gets to skip.
+    Keyed by namespace as well as log key so two namespaces that pick the same session id
+    cannot read each other's runs — isolation is not something a store gets to skip. A
+    ``None`` namespace is a key like any other here, so an unnamespaced deployment needs no
+    special case.
     """
 
     def __init__(self) -> None:
-        self._logs: dict[tuple[str, str], list[Event]] = {}
+        self._logs: dict[tuple[str | None, str], list[Event]] = {}
 
     async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
-        # The bucket is chosen by ctx, so an event stamped for another tenant would land in
+        # The bucket is chosen by ctx, so an event stamped for another namespace would land in
         # the wrong one. The Runtime stamps from ctx and cannot diverge — this makes the
         # isolation the docstring claims enforced rather than merely true today.
-        foreign = {event.tenant for event in events} - {ctx.tenant}
+        foreign = {event.namespace for event in events} - {ctx.namespace}
         if foreign:
-            raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
-        log = self._logs.setdefault((ctx.tenant, log_key), [])
+            raise ValueError(
+                f"events for namespace(s) {sorted(foreign, key=str)} cannot be written to {ctx.namespace!r}'s log"
+            )
+        log = self._logs.setdefault((ctx.namespace, log_key), [])
         _refuse_a_taken_seq(log, events, log_key)
         log.extend(events)
         # Fidelity, not correctness (issue #87): every real store suspends here (SQLite's own
@@ -46,16 +50,16 @@ class MemoryEventStore(EventStorePort):
     async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
         if limit is not None and limit < 0:
             raise ValueError(f"limit must be None or >= 0, got {limit}")
-        log = self._logs.get((ctx.tenant, log_key), ())
+        log = self._logs.get((ctx.namespace, log_key), ())
         page = log[max(offset, 0) :]
         return list(page if limit is None else page[:limit])
 
     async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
-        log = self._logs.get((ctx.tenant, log_key), ())
+        log = self._logs.get((ctx.namespace, log_key), ())
         return [event for event in log if event.run_id == run_id and event.seq >= from_seq]
 
     async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
-        log = self._logs.get((ctx.tenant, log_key), ())
+        log = self._logs.get((ctx.namespace, log_key), ())
         return max((event.seq for event in log if event.run_id == run_id), default=-1)
 
     async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
@@ -63,10 +67,10 @@ class MemoryEventStore(EventStorePort):
         plain dict work with no suspension point between them, so no other task can open a run
         in the gap — ``append``'s own yield comes after that write, too late to be one.
         """
-        if event.tenant != ctx.tenant:
-            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
+        if event.namespace != ctx.namespace:
+            raise ValueError(f"an event for namespace {event.namespace!r} cannot be written to {ctx.namespace!r}'s log")
         overridden: list[str] = []
-        for run_id, events in _by_run(self._logs.get((ctx.tenant, log_key), ())).items():
+        for run_id, events in _by_run(self._logs.get((ctx.namespace, log_key), ())).items():
             status = status_of(events)
             if status is RunStatus.PENDING or status in TERMINAL_STATUSES:
                 continue
@@ -83,9 +87,9 @@ class MemoryEventStore(EventStorePort):
         """
         if event.run_id != run_id:
             raise ValueError(f"a claim on run {run_id!r} cannot carry an event for {event.run_id!r}")
-        if event.tenant != ctx.tenant:
-            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
-        mine = [stored for stored in self._logs.get((ctx.tenant, log_key), ()) if stored.run_id == run_id]
+        if event.namespace != ctx.namespace:
+            raise ValueError(f"an event for namespace {event.namespace!r} cannot be written to {ctx.namespace!r}'s log")
+        mine = [stored for stored in self._logs.get((ctx.namespace, log_key), ()) if stored.run_id == run_id]
         if not can_resume(status_of(mine)):
             return False
         if event.seq != max((stored.seq for stored in mine), default=-1) + 1:
@@ -96,8 +100,8 @@ class MemoryEventStore(EventStorePort):
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
         runs = [
             (log_key, event.run_id)
-            for (tenant, log_key), log in self._logs.items()
-            if tenant == ctx.tenant
+            for (namespace, log_key), log in self._logs.items()
+            if namespace == ctx.namespace
             for event in log
             if event.kind in LIFECYCLE_KINDS
         ]

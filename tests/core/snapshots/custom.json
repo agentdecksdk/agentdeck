@@ -1,10 +1,10 @@
 {
-  "v": 1,
+  "v": 2,
   "kind": "custom",
   "seq": 16,
   "run_id": "run_1",
   "session_id": "sess_1",
-  "tenant": "acme",
+  "namespace": "acme",
   "origin": "Greeter",
   "ts": "2026-01-01T12:00:00Z",
   "payload": {

@@ -37,7 +37,7 @@ from agentdeck.runtime.settings import LangfuseSettings  # noqa: E402
 
 TS = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 INPUT = [TextBlock(text="ship it")]
-CTX = RunContext(tenant="acme", principal="user:1", run_id="r-1", trace_id="tr-1", session_id="s-1")
+CTX = RunContext(namespace="acme", run_id="r-1", trace_id="tr-1", session_id="s-1")
 TOTAL = Usage(input_tokens=11, output_tokens=7, usd=0.02)
 SHA = "ab" * 32
 WORKFLOW = (
@@ -129,9 +129,8 @@ async def test_a_workflow_run_exports_one_langfuse_trace_with_its_spans_nested(s
     assert {span.context.trace_id for span in spy.spans} == {int(spy.client.create_trace_id(seed="r-1"), 16)}
     assert _attr(root, "langfuse.observation.type") == "chain"
     assert _attr(root, "session.id") == "s-1"
-    assert _attr(root, "user.id") == "user:1"
     assert _attr(root, "langfuse.trace.name") == "Pipeline"
-    assert _attr(root, "langfuse.trace.metadata.tenant") == "acme"
+    assert _attr(root, "langfuse.trace.metadata.namespace") == "acme"
     for name, kind in [("plan", "span"), ("search", "tool"), ("gpt-4o", "generation")]:
         assert spy.by_name(name).parent.span_id == root.context.span_id
         assert _attr(spy.by_name(name), "langfuse.observation.type") == kind
@@ -188,7 +187,7 @@ async def test_an_inline_data_uri_in_tool_args_never_reaches_the_langfuse_media_
 
     # The same URI handed over unredacted does queue an upload — which is what makes the two
     # assertions above mean something rather than merely pass.
-    unredacted = LangfuseTracer(spy.client).root("Probe", kind="span", trace_key="r-2", session_id=None, user_id=None)
+    unredacted = LangfuseTracer(spy.client).root("Probe", kind="span", trace_key="r-2", session_id=None)
     unredacted.child("describe", kind="tool", input={"img": data_uri}).finish()
     unredacted.finish()
     assert spy.media_queued() > 0

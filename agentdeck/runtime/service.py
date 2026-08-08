@@ -4,7 +4,7 @@ Per event, in this order: stamp the envelope, append to the log, fan out to sink
 The order is the contract — an event a consumer has seen is already persisted, so a
 consumer that spots a ``seq`` gap can always refetch it.
 
-Engines only yield payloads; ``seq``, ``tenant``, ``origin`` and ``ts`` are stamped here.
+Engines only yield payloads; ``seq``, ``namespace``, ``origin`` and ``ts`` are stamped here.
 """
 
 from __future__ import annotations
@@ -136,7 +136,6 @@ class Runtime:
             parent_run_id=ctx.parent_run_id,
             input=input,
             context=RunContextSnapshot(
-                principal=ctx.principal,
                 trace_id=ctx.trace_id,
                 budget=ctx.budget,
                 triggered_by=ctx.triggered_by,
@@ -326,7 +325,7 @@ class Runtime:
         Addressed by ``run_id`` alone, like every other control operation, so the store's own
         status projection is what locates it — a caller holding a ``run_id`` from a stream it
         was watching has neither the log key nor the invocable's name. ``None`` means no paused
-        run of this tenant answers to that id, which is the same answer a resumed, finished or
+        run of this namespace answers to that id, which is the same answer a resumed, finished or
         cancelled run gives.
         """
         for summary in await self._store.list_runs(ctx, status=RunStatus.PAUSED):
@@ -402,7 +401,7 @@ class Runtime:
             seq=seq,
             run_id=run_id,
             session_id=tail[-1].session_id,
-            tenant=ctx.tenant,
+            namespace=ctx.namespace,
             origin=tail[-1].origin,
             ts=self._clock(),
             payload=payload,
@@ -457,7 +456,7 @@ class Runtime:
         return event, seq
 
     async def pending(self, ctx: RunContext) -> list[PendingRun]:
-        """Every run currently ``WAITING_HUMAN`` for this tenant.
+        """Every run currently ``WAITING_HUMAN`` in this namespace.
 
         Asks the store to project which runs are waiting rather than keeping an in-memory
         registry — a registry would go stale the moment a process restarted, which is
@@ -568,7 +567,7 @@ class Runtime:
             seq=seq,
             run_id=ctx.run_id,
             session_id=ctx.session_id,
-            tenant=ctx.tenant,
+            namespace=ctx.namespace,
             origin=spec.name,
             ts=self._clock(),
             payload=payload,

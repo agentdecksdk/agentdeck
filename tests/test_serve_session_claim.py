@@ -30,7 +30,7 @@ from agentdeck.core.events import (
     Usage,
 )
 from agentdeck.runtime.service import Runtime
-from agentdeck.surfaces.serve.app import PRINCIPAL, TENANT, build_app
+from agentdeck.surfaces.serve.app import build_app
 
 if TYPE_CHECKING:
     from agentdeck.core.events import KnownPayload
@@ -52,7 +52,7 @@ def _runtime() -> tuple[Runtime, MemoryEventStore]:
 
 
 def _reader() -> RunContext:
-    return RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="reader", trace_id="t", session_id=SESSION_ID)
+    return RunContext(namespace=None, run_id="reader", trace_id="t", session_id=SESSION_ID)
 
 
 def _stamped(payload: KnownPayload, seq: int) -> Event:
@@ -61,7 +61,7 @@ def _stamped(payload: KnownPayload, seq: int) -> Event:
         seq=seq,
         run_id=HOLDER,
         session_id=SESSION_ID,
-        tenant=TENANT,
+        namespace=None,
         origin=AGENT,
         ts=datetime.now(UTC),
         payload=payload,
@@ -75,7 +75,7 @@ async def _hold_the_session(store: MemoryEventStore) -> None:
         invocable=AGENT,
         kind_of_invocable="agent",
         input=[TextBlock(text="the turn already running")],
-        context=RunContextSnapshot(principal=PRINCIPAL, trace_id="t"),
+        context=RunContextSnapshot(trace_id="t"),
     )
     waiting = RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1")
     await store.append(SESSION_ID, [_stamped(opening, 0), _stamped(waiting, 1)], _reader())

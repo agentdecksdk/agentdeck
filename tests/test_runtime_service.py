@@ -50,7 +50,7 @@ INPUT = [TextBlock(text="hi")]
 DONE = RunCompleted(output=[TextBlock(text="hi back")], usage=Usage(input_tokens=1, output_tokens=2))
 
 
-CTX = RunContext(tenant="acme", principal="user:1", run_id="r-1", trace_id="tr-1", session_id="s-1")
+CTX = RunContext(namespace="acme", run_id="r-1", trace_id="tr-1", session_id="s-1")
 
 # A wedge detector, not a budget: everything here is in-process and takes microseconds.
 WEDGE_TIMEOUT = 5.0
@@ -108,9 +108,8 @@ async def test_the_envelope_timestamp_comes_from_the_injected_clock() -> None:
 
 async def test_run_started_carries_the_context_snapshot() -> None:
     runtime, _ = _runtime()
-    ctx = replace(CTX, principal="user:9", trace_id="tr-9", triggered_by="cron", parent_run_id="r-0")
+    ctx = replace(CTX, trace_id="tr-9", triggered_by="cron", parent_run_id="r-0")
     opening = [event async for event in runtime.run("Greeter", INPUT, ctx)][0]
-    assert opening.payload.context.principal == "user:9"
     assert opening.payload.context.trace_id == "tr-9"
     assert opening.payload.context.triggered_by == "cron"
     assert opening.payload.parent_run_id == "r-0"
@@ -450,14 +449,14 @@ class _Ticking:
 def _abandoned(run_id: str, ts: datetime, origin: str = "Ghost") -> Event:
     """A run left open by a process that died: nothing else produces one, because a Runtime that
     exits at all closes its own run in the log."""
-    context = RunContextSnapshot(principal=CTX.principal, trace_id=CTX.trace_id)
+    context = RunContextSnapshot(trace_id=CTX.trace_id)
     opening = RunStarted(invocable=origin, kind_of_invocable="agent", input=INPUT, context=context)
     return Event(
         kind=opening.kind,
         seq=0,
         run_id=run_id,
         session_id=CTX.session_id,
-        tenant=CTX.tenant,
+        namespace=CTX.namespace,
         origin=origin,
         ts=ts,
         payload=opening,

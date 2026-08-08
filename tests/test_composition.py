@@ -54,7 +54,7 @@ class Shout(BaseWorkflow):
         return g
 """
 
-CTX = RunContext(tenant="local", principal="user:local", run_id="r1", trace_id="t1")
+CTX = RunContext(namespace="local", run_id="r1", trace_id="t1")
 
 
 @dataclass

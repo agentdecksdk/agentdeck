@@ -1,7 +1,7 @@
 """Event schema v1: one envelope, one payload per kind.
 
 Engines produce payloads, the Runtime fills the envelope — so an engine cannot get
-``seq`` or ``tenant`` wrong. ``seq`` is per-run and contiguous from 0, which makes it
+``seq`` or ``namespace`` wrong. ``seq`` is per-run and contiguous from 0, which makes it
 both the ordering authority and a loss check; ``ts`` is informational.
 
 Unknown kinds parse instead of raising — ``Event.model_validate`` lands them as
@@ -73,9 +73,13 @@ class Budget(CoreModel):
 
 
 class RunContextSnapshot(CoreModel):
-    """Enough of the run's context to reconstruct it from the log alone."""
+    """Enough of the run's context to reconstruct it from the log alone.
 
-    principal: str
+    No acting identity: AgentDeck does not model users or permissions, so the log records what
+    a run was admitted with, never who asked. An application that needs an actor in its audit
+    trail records one of its own.
+    """
+
     trace_id: str
     budget: Budget | None = None
     triggered_by: str | None = None
@@ -378,12 +382,16 @@ class Event(CoreModel):
     released reader dispatches on the payload copy and cannot read a row without it.
     """
 
-    v: int = 1
+    v: int = 2
     kind: str = Field(pattern=KIND_PATTERN)
     seq: NonNegativeInt
     run_id: str
     session_id: str | None
-    tenant: str
+    # the opaque isolation boundary the run was played in, or None for a deployment that keeps
+    # nothing apart; AgentDeck never reads its parts, only which events share it. Nullable but
+    # required, like ``session_id``: a producer says which it is rather than defaulting into
+    # "no isolation" by forgetting the field.
+    namespace: str | None
     # the invocable the caller addressed, never the engine: an internal handoff to a sub-agent
     # does not change it, because "speaker" is defined at invocable granularity
     origin: str

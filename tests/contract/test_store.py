@@ -70,14 +70,14 @@ async def two_event_stores(request: pytest.FixtureRequest) -> AsyncIterator[tupl
         yield pair
 
 
-def _ctx(tenant: str = "acme") -> RunContext:
-    return RunContext(tenant=tenant, principal="user:1", run_id="r-1", trace_id="tr-1", session_id="s-1")
+def _ctx(namespace: str = "acme") -> RunContext:
+    return RunContext(namespace=namespace, run_id="r-1", trace_id="tr-1", session_id="s-1")
 
 
 def _event(
     seq: int,
     payload: KnownPayload,
-    tenant: str = "acme",
+    namespace: str = "acme",
     run_id: str = "r-1",
     log_key: str = "s-1",
     ts: datetime = TS,
@@ -87,7 +87,7 @@ def _event(
         seq=seq,
         run_id=run_id,
         session_id=log_key,
-        tenant=tenant,
+        namespace=namespace,
         origin="Greeter",
         ts=ts,
         payload=payload,
@@ -99,7 +99,7 @@ def _started() -> RunStarted:
         invocable="Greeter",
         kind_of_invocable="agent",
         input=[],
-        context={"principal": "user:1", "trace_id": "tr-1"},
+        context={"trace_id": "tr-1"},
     )
 
 
@@ -160,8 +160,8 @@ BEFORE_ANY_EVENT = TS - timedelta(hours=1)
 AFTER_EVERY_EVENT = TS + timedelta(hours=1)
 
 
-def _opening(run_id: str = "r-1", log_key: str = "s-1", tenant: str = "acme", ts: datetime = TS) -> Event:
-    return _event(0, _started(), tenant=tenant, run_id=run_id, log_key=log_key, ts=ts)
+def _opening(run_id: str = "r-1", log_key: str = "s-1", namespace: str = "acme", ts: datetime = TS) -> Event:
+    return _event(0, _started(), namespace=namespace, run_id=run_id, log_key=log_key, ts=ts)
 
 
 async def test_claim_start_opens_a_run_on_an_idle_session(event_store: EventStorePort) -> None:
@@ -236,12 +236,12 @@ async def test_claim_start_is_scoped_to_one_log_not_the_whole_store(event_store:
 
 async def test_claim_start_never_sees_another_tenants_open_run(event_store: EventStorePort) -> None:
     """Two tenants are free to pick the same session id; neither may hold the other's session,
-    and an event stamped for a foreign tenant never lands in this log."""
+    and an event stamped for a foreign namespace never lands in this log."""
     await event_store.append("s-1", [_opening()], _ctx("acme"))
     intruder = _ctx("globex")
 
     assert await event_store.claim_start(
-        "s-1", _opening(run_id="r-9", tenant="globex"), intruder, BEFORE_ANY_EVENT
+        "s-1", _opening(run_id="r-9", namespace="globex"), intruder, BEFORE_ANY_EVENT
     ) == (SessionClaim())
     with pytest.raises(ValueError, match="acme"):
         await event_store.claim_start("s-1", _opening(run_id="r-8"), intruder, BEFORE_ANY_EVENT)
@@ -479,12 +479,12 @@ async def test_claim_resume_is_scoped_to_one_run_not_the_whole_log(event_store: 
 
 
 async def test_claim_resume_never_reaches_into_another_tenants_waiting_run(event_store: EventStorePort) -> None:
-    """Same isolation as every other query: another tenant's interrupt is not claimable, and
-    an event stamped for a foreign tenant never lands in this log."""
+    """Same isolation as every other query: another namespace's interrupt is not claimable, and
+    an event stamped for a foreign namespace never lands in this log."""
     await _interrupt(event_store, _ctx("acme"))
     intruder = _ctx("globex")
 
-    own = _event(2, RunResumed(reason=None), tenant="globex")
+    own = _event(2, RunResumed(reason=None), namespace="globex")
     assert await event_store.claim_resume("s-1", "r-1", own, intruder) is False
     with pytest.raises(ValueError, match="acme"):
         await event_store.claim_resume("s-1", "r-1", _resumed(2), intruder)
@@ -492,8 +492,8 @@ async def test_claim_resume_never_reaches_into_another_tenants_waiting_run(event
 
 
 async def test_list_runs_scopes_to_one_tenant(event_store: EventStorePort) -> None:
-    await event_store.append("s-1", [_event(0, _started(), tenant="acme")], _ctx("acme"))
-    await event_store.append("s-1", [_event(0, _started(), tenant="globex")], _ctx("globex"))
+    await event_store.append("s-1", [_event(0, _started(), namespace="acme")], _ctx("acme"))
+    await event_store.append("s-1", [_event(0, _started(), namespace="globex")], _ctx("globex"))
 
     acme_runs = await event_store.list_runs(_ctx("acme"))
     assert [summary.run_id for summary in acme_runs] == ["r-1"]
@@ -523,7 +523,7 @@ async def test_list_runs_of_an_empty_store_is_empty(event_store: EventStorePort)
 
 
 async def test_list_runs_enumerates_runs_across_every_log_key_of_the_tenant(event_store: EventStorePort) -> None:
-    """A tenant's waiting runs live in as many logs as it has sessions — a listing that only
+    """A namespace's waiting runs live in as many logs as it has sessions — a listing that only
     looked in one log key would silently hide every other session's interrupts."""
     ctx = _ctx()
     interrupted = RunInterrupted(interrupt_id="i-1", reason="human", payload={}, thread_id=None)
@@ -735,13 +735,13 @@ async def test_a_negative_offset_reads_from_the_start_and_a_negative_limit_is_re
 
 
 async def test_the_focused_queries_never_answer_from_another_tenants_log(event_store: EventStorePort) -> None:
-    """One tenant's populated log must read as untouched emptiness to another — the same
+    """One namespace's populated log must read as untouched emptiness to another — the same
     isolation ``read``/``read_run`` already promise, on the queries that skip them."""
     await event_store.append(
         "s-1",
         [
-            _event(0, _started(), tenant="acme"),
-            _event(1, RunInterrupted(interrupt_id="i-1", reason="human", payload={}, thread_id=None), tenant="acme"),
+            _event(0, _started(), namespace="acme"),
+            _event(1, RunInterrupted(interrupt_id="i-1", reason="human", payload={}, thread_id=None), namespace="acme"),
         ],
         _ctx("acme"),
     )
@@ -811,7 +811,7 @@ async def test_a_write_lock_held_past_the_busy_timeout_is_a_store_error_not_a_lo
 
     peer = sqlite3.connect(tmp_path / "events.sqlite3")
     peer.execute("BEGIN IMMEDIATE")
-    peer.execute("INSERT INTO events (tenant, log_key, run_id, seq, data) VALUES ('acme', 's-1', 'r-9', 0, '{}')")
+    peer.execute("INSERT INTO events (namespace, log_key, run_id, seq, data) VALUES ('acme', 's-1', 'r-9', 0, '{}')")
     try:
         with pytest.raises(StoreError) as raised:
             await store.claim_resume("s-1", "r-1", _resumed(2), ctx)

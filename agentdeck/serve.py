@@ -279,7 +279,7 @@ async def _opened(run: AsyncGenerator[Event, None]) -> AsyncGenerator[Event, Non
 
 def _warn_if_event_log_is_in_memory(deck: App) -> None:
     """Say so once at startup: the default event store is fine for a session and wrong for a
-    server. It never evicts, every v1 request shares one tenant, and a run reads its whole
+    server. It never evicts, every v1 request is unnamespaced, and a run reads its whole
     log before it starts — so one long conversation costs quadratic reads and the process
     keeps every event it ever saw. A warning, not a refusal: dev servers want this default.
     """

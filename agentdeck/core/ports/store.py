@@ -125,12 +125,12 @@ class EventStorePort(ABC):
 
     @abstractmethod
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
-        """Every run for this tenant that recorded a lifecycle transition, across all its logs,
+        """Every run in this namespace that recorded a lifecycle transition, across all its logs,
         optionally narrowed to one status.
 
         ``PENDING`` runs are left out, being indistinguishable from ones the store never heard of.
         Index this however the store can: finding waiting runs must not cost a fold of every log
-        the tenant owns.
+        the namespace owns.
         """
 
     async def run_status(self, log_key: str, run_id: str, ctx: RunContext) -> RunStatus:

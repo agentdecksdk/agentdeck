@@ -49,7 +49,7 @@ def _wire(kind: str, payload: dict) -> dict:
         "seq": 0,
         "run_id": "run_1",
         "session_id": None,
-        "tenant": "acme",
+        "namespace": "acme",
         "origin": "Greeter",
         "ts": TS,
         "payload": {"kind": kind, **payload},
@@ -76,7 +76,7 @@ def test_unknown_kind_parses_as_unknown_event():
     event = Event.model_validate(_wire("future.thing", {"whatever": 1}))
     assert isinstance(event.payload, UnknownEvent)
     assert event.payload.raw_payload == {"kind": "future.thing", "whatever": 1}  # kept raw
-    assert event.tenant == "acme" and event.seq == 0  # envelope still fully validated
+    assert event.namespace == "acme" and event.seq == 0  # envelope still fully validated
 
 
 def test_unknown_field_inside_a_known_payload_is_dropped():
@@ -147,7 +147,7 @@ def test_an_unknown_field_inside_a_data_block_still_parses():
             "kind_of_invocable": "workflow",
             "parent_run_id": None,
             "input": [{"type": "data", "data": {"input": "claim 7777"}, "encoding": "cbor"}],
-            "context": {"principal": "user:sagi", "trace_id": "t"},
+            "context": {"trace_id": "t"},
         },
     )
     assert Event.model_validate(wire).payload.input == [DataBlock(data={"input": "claim 7777"})]
@@ -160,7 +160,7 @@ def test_unknown_event_refuses_a_known_kind():
 
 def test_a_bad_envelope_raises_even_for_an_unknown_kind():
     wire = _wire("future.thing", {"whatever": 1})
-    del wire["tenant"]
+    del wire["namespace"]
     with pytest.raises(ValidationError):
         Event.model_validate(wire)
 
@@ -175,7 +175,7 @@ def test_envelope_kind_must_match_payload_kind():
             seq=0,
             run_id="run_1",
             session_id=None,
-            tenant="acme",
+            namespace="acme",
             origin="Greeter",
             ts=TS,
             payload=RunCompleted(

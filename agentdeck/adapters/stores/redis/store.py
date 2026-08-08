@@ -3,7 +3,7 @@ worker that can reach the instance.
 
 Redis has no query planner to lean on, so the log carries its own indexes — a list per log
 for append order, a list per run for a run's own slice, a sorted set of that run's ``seq``
-numbers, the run's latest lifecycle event, and a set of the runs each log and each tenant
+numbers, the run's latest lifecycle event, and a set of the runs each log and each namespace
 owns. Every write updates all of them inside one ``MULTI``/``EXEC``, so a reader never sees
 an event in the log that is missing from its run's index. Status is still *derived* by
 folding through ``core.status`` (ADR-D5: the log is the sole source of truth) — what the
@@ -58,10 +58,10 @@ _CLAIM_ATTEMPTS = 20
 
 
 def _segment(value: str) -> str:
-    """One key segment, escaped so ``:`` inside a tenant or session id cannot forge another.
+    """One key segment, escaped so ``:`` inside a namespace or session id cannot forge another.
 
-    Without this, tenant ``"a:b"`` + log ``"c"`` and tenant ``"a"`` + log ``"b:c"`` are the
-    same key, and two tenants read each other's runs — the isolation every store owes.
+    Without this, namespace ``"a:b"`` + log ``"c"`` and namespace ``"a"`` + log ``"b:c"`` are the
+    same key, and two namespaces read each other's runs — the isolation every store owes.
     """
     return quote(value, safe="")
 
@@ -86,25 +86,25 @@ class RedisEventStore(EventStorePort):
         self._client: Redis = Redis.from_url(url, decode_responses=True)
         self._prefix = prefix
 
-    def _log_key(self, tenant: str, log_key: str) -> str:
-        return f"{self._prefix}:log:{_segment(tenant)}:{_segment(log_key)}"
+    def _log_key(self, namespace: str, log_key: str) -> str:
+        return f"{self._prefix}:log:{_segment(namespace)}:{_segment(log_key)}"
 
-    def _run_key(self, tenant: str, log_key: str, run_id: str) -> str:
-        return f"{self._prefix}:run:{_segment(tenant)}:{_segment(log_key)}:{_segment(run_id)}"
+    def _run_key(self, namespace: str, log_key: str, run_id: str) -> str:
+        return f"{self._prefix}:run:{_segment(namespace)}:{_segment(log_key)}:{_segment(run_id)}"
 
-    def _seq_key(self, tenant: str, log_key: str, run_id: str) -> str:
-        return f"{self._prefix}:seq:{_segment(tenant)}:{_segment(log_key)}:{_segment(run_id)}"
+    def _seq_key(self, namespace: str, log_key: str, run_id: str) -> str:
+        return f"{self._prefix}:seq:{_segment(namespace)}:{_segment(log_key)}:{_segment(run_id)}"
 
-    def _life_key(self, tenant: str, log_key: str, run_id: str) -> str:
-        return f"{self._prefix}:life:{_segment(tenant)}:{_segment(log_key)}:{_segment(run_id)}"
+    def _life_key(self, namespace: str, log_key: str, run_id: str) -> str:
+        return f"{self._prefix}:life:{_segment(namespace)}:{_segment(log_key)}:{_segment(run_id)}"
 
-    def _log_runs_key(self, tenant: str, log_key: str) -> str:
-        return f"{self._prefix}:logruns:{_segment(tenant)}:{_segment(log_key)}"
+    def _log_runs_key(self, namespace: str, log_key: str) -> str:
+        return f"{self._prefix}:logruns:{_segment(namespace)}:{_segment(log_key)}"
 
-    def _tenant_runs_key(self, tenant: str) -> str:
-        return f"{self._prefix}:runs:{_segment(tenant)}"
+    def _namespace_runs_key(self, namespace: str) -> str:
+        return f"{self._prefix}:runs:{_segment(namespace)}"
 
-    def _queue_writes(self, pipe: Pipeline, tenant: str, log_key: str, events: Iterable[Event]) -> None:
+    def _queue_writes(self, pipe: Pipeline, namespace: str, log_key: str, events: Iterable[Event]) -> None:
         """Buffer one batch's writes — the log, the run's slice and every index — onto a
         pipeline already in ``MULTI``, so no concurrent reader sees part of them.
 
@@ -117,15 +117,15 @@ class RedisEventStore(EventStorePort):
         """
         for event in events:
             data = event.model_dump_json()
-            pipe.rpush(self._log_key(tenant, log_key), data)
-            pipe.rpush(self._run_key(tenant, log_key, event.run_id), data)
-            pipe.zadd(self._seq_key(tenant, log_key, event.run_id), {str(event.seq): event.seq})
+            pipe.rpush(self._log_key(namespace, log_key), data)
+            pipe.rpush(self._run_key(namespace, log_key, event.run_id), data)
+            pipe.zadd(self._seq_key(namespace, log_key, event.run_id), {str(event.seq): event.seq})
             if event.kind in LIFECYCLE_KINDS:
-                pipe.set(self._life_key(tenant, log_key, event.run_id), data)
-                pipe.sadd(self._log_runs_key(tenant, log_key), event.run_id)
-                pipe.sadd(self._tenant_runs_key(tenant), _member(log_key, event.run_id))
+                pipe.set(self._life_key(namespace, log_key, event.run_id), data)
+                pipe.sadd(self._log_runs_key(namespace, log_key), event.run_id)
+                pipe.sadd(self._namespace_runs_key(namespace), _member(log_key, event.run_id))
 
-    async def _refuse_a_taken_seq(self, pipe: Pipeline, tenant: str, log_key: str, events: Sequence[Event]) -> None:
+    async def _refuse_a_taken_seq(self, pipe: Pipeline, namespace: str, log_key: str, events: Sequence[Event]) -> None:
         """One ``seq`` per run, ever — the durable stores' unique index, as a watched check.
 
         Watches each run's ``seq`` index as well as reading it, so a peer that spends one of
@@ -139,10 +139,10 @@ class RedisEventStore(EventStorePort):
         A ``StoreError`` and not a claim's refusal-as-data: a spent ``seq`` is corruption, not a
         race somebody lost.
         """
-        await pipe.watch(*{self._seq_key(tenant, log_key, event.run_id) for event in events})
+        await pipe.watch(*{self._seq_key(namespace, log_key, event.run_id) for event in events})
         taken: set[tuple[str, int]] = set()
         for event in events:
-            spent = await pipe.zscore(self._seq_key(tenant, log_key, event.run_id), str(event.seq))
+            spent = await pipe.zscore(self._seq_key(namespace, log_key, event.run_id), str(event.seq))
             if spent is not None or (event.run_id, event.seq) in taken:
                 raise StoreError(f"seq {event.seq} of run {event.run_id!r} is already in log {log_key!r}")
             taken.add((event.run_id, event.seq))
@@ -150,16 +150,18 @@ class RedisEventStore(EventStorePort):
     async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
         """A plain append is a conditional one too: one ``seq`` per run, over the same
         ``WATCH``/``MULTI``/``EXEC`` the claims use (see ``_refuse_a_taken_seq``)."""
-        foreign = {event.tenant for event in events} - {ctx.tenant}
+        foreign = {event.namespace for event in events} - {ctx.namespace}
         if foreign:
-            raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
+            raise ValueError(
+                f"events for namespace(s) {sorted(foreign, key=str)} cannot be written to {ctx.namespace!r}'s log"
+            )
         if not events:
             return
 
         async def _attempt(pipe: Pipeline) -> None:
-            await self._refuse_a_taken_seq(pipe, ctx.tenant, log_key, events)
+            await self._refuse_a_taken_seq(pipe, ctx.namespace_key, log_key, events)
             pipe.multi()
-            self._queue_writes(pipe, ctx.tenant, log_key, events)
+            self._queue_writes(pipe, ctx.namespace_key, log_key, events)
             await pipe.execute()
 
         await self._watched(_attempt, "append")
@@ -174,14 +176,14 @@ class RedisEventStore(EventStorePort):
         if limit is not None and end < start:
             return []
         try:
-            rows = await self._client.lrange(self._log_key(ctx.tenant, log_key), start, end)
+            rows = await self._client.lrange(self._log_key(ctx.namespace_key, log_key), start, end)
         except RedisError as exc:
             raise StoreError(f"event log read failed: {exc}") from exc
         return [Event.model_validate(json.loads(row)) for row in rows]
 
     async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
         try:
-            rows = await self._client.lrange(self._run_key(ctx.tenant, log_key, run_id), 0, -1)
+            rows = await self._client.lrange(self._run_key(ctx.namespace_key, log_key, run_id), 0, -1)
         except RedisError as exc:
             raise StoreError(f"event log read_run failed: {exc}") from exc
         events = [Event.model_validate(json.loads(row)) for row in rows]
@@ -190,7 +192,7 @@ class RedisEventStore(EventStorePort):
     async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
         try:
             scored = await self._client.zrange(
-                self._seq_key(ctx.tenant, log_key, run_id), 0, 0, desc=True, withscores=True
+                self._seq_key(ctx.namespace_key, log_key, run_id), 0, 0, desc=True, withscores=True
             )
         except RedisError as exc:
             raise StoreError(f"event log last_seq failed: {exc}") from exc
@@ -205,20 +207,20 @@ class RedisEventStore(EventStorePort):
         run that actually holds the session. Only an unreachable store, a hopelessly contended
         one, or a ``seq`` this run has already spent raises.
         """
-        if event.tenant != ctx.tenant:
-            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
+        if event.namespace != ctx.namespace:
+            raise ValueError(f"an event for namespace {event.namespace!r} cannot be written to {ctx.namespace!r}'s log")
 
         async def _attempt(pipe: Pipeline) -> SessionClaim:
-            await pipe.watch(self._log_runs_key(ctx.tenant, log_key))
-            run_ids = _sorted_text(await pipe.smembers(self._log_runs_key(ctx.tenant, log_key)))
+            await pipe.watch(self._log_runs_key(ctx.namespace_key, log_key))
+            run_ids = _sorted_text(await pipe.smembers(self._log_runs_key(ctx.namespace_key, log_key)))
             if run_ids:
                 await pipe.watch(
-                    *(self._life_key(ctx.tenant, log_key, run_id) for run_id in run_ids),
-                    *(self._run_key(ctx.tenant, log_key, run_id) for run_id in run_ids),
+                    *(self._life_key(ctx.namespace_key, log_key, run_id) for run_id in run_ids),
+                    *(self._run_key(ctx.namespace_key, log_key, run_id) for run_id in run_ids),
                 )
             overridden: list[str] = []
             for run_id in run_ids:
-                life = await pipe.get(self._life_key(ctx.tenant, log_key, run_id))
+                life = await pipe.get(self._life_key(ctx.namespace_key, log_key, run_id))
                 # A key the same MULTI filled in coming back empty means the keyspace lost it
                 # — eviction, or an operator's DEL. Read as a run holding nothing rather than
                 # crashing the claim, and note what that costs: a *live* run whose lifecycle
@@ -227,13 +229,13 @@ class RedisEventStore(EventStorePort):
                 # no answer a store can give here that is better than not evicting the record.
                 if life is None or status_of([Event.model_validate(json.loads(life))]) in TERMINAL_STATUSES:
                     continue
-                last = await pipe.lindex(self._run_key(ctx.tenant, log_key, run_id), -1)
+                last = await pipe.lindex(self._run_key(ctx.namespace_key, log_key, run_id), -1)
                 if last is not None and Event.model_validate(json.loads(last)).ts > stale_before:
                     return SessionClaim(held_by=run_id)
                 overridden.append(run_id)
-            await self._refuse_a_taken_seq(pipe, ctx.tenant, log_key, [event])
+            await self._refuse_a_taken_seq(pipe, ctx.namespace_key, log_key, [event])
             pipe.multi()
-            self._queue_writes(pipe, ctx.tenant, log_key, [event])
+            self._queue_writes(pipe, ctx.namespace_key, log_key, [event])
             await pipe.execute()
             return SessionClaim(overridden=tuple(overridden))
 
@@ -249,12 +251,12 @@ class RedisEventStore(EventStorePort):
         """
         if event.run_id != run_id:
             raise ValueError(f"a claim on run {run_id!r} cannot carry an event for {event.run_id!r}")
-        if event.tenant != ctx.tenant:
-            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
+        if event.namespace != ctx.namespace:
+            raise ValueError(f"an event for namespace {event.namespace!r} cannot be written to {ctx.namespace!r}'s log")
 
         async def _attempt(pipe: Pipeline) -> bool:
-            life_key = self._life_key(ctx.tenant, log_key, run_id)
-            seq_key = self._seq_key(ctx.tenant, log_key, run_id)
+            life_key = self._life_key(ctx.namespace_key, log_key, run_id)
+            seq_key = self._seq_key(ctx.namespace_key, log_key, run_id)
             await pipe.watch(life_key, seq_key)
             life = await pipe.get(life_key)
             if not can_resume(status_of([Event.model_validate(json.loads(life))] if life is not None else [])):
@@ -265,22 +267,22 @@ class RedisEventStore(EventStorePort):
                 # again, on a longer log, and this seq belongs to an event already written.
                 return False
             pipe.multi()
-            self._queue_writes(pipe, ctx.tenant, log_key, [event])
+            self._queue_writes(pipe, ctx.namespace_key, log_key, [event])
             await pipe.execute()
             return True
 
         return await self._watched(_attempt, "claim_resume")
 
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
-        """Overrides the port's per-run fold: the tenant's runs come off one set and each
+        """Overrides the port's per-run fold: the namespace's runs come off one set and each
         one's status off its stored last lifecycle event, so a listing deserializes one
         event per run instead of every event of every log."""
         try:
-            members = _sorted_text(await self._client.smembers(self._tenant_runs_key(ctx.tenant)))
+            members = _sorted_text(await self._client.smembers(self._namespace_runs_key(ctx.namespace_key)))
             runs = [_split(member) for member in members]
             async with self._client.pipeline(transaction=False) as pipe:
                 for log_key, run_id in runs:
-                    pipe.get(self._life_key(ctx.tenant, log_key, run_id))
+                    pipe.get(self._life_key(ctx.namespace_key, log_key, run_id))
                 lifecycles = await pipe.execute()
         except RedisError as exc:
             raise StoreError(f"event log list_runs failed: {exc}") from exc

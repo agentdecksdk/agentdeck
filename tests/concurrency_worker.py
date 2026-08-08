@@ -142,7 +142,7 @@ def crossrun_script(tag: str) -> list[KnownPayload]:
             invocable=CHATTY,
             kind_of_invocable="agent",
             input=[TextBlock(text="go")],
-            context=RunContextSnapshot(principal=PRINCIPAL, trace_id=f"t-{tag}"),
+            context=RunContextSnapshot(trace_id=f"t-{tag}"),
         ),
         *(TextDelta(message_id=f"m-{tag}", text=f"{tag}{index} ") for index in range(CHATTY_DELTAS)),
         MessageCompleted(message_id=f"m-{tag}", text=f"{tag} done"),
@@ -183,7 +183,7 @@ def session_items(root: Path, trial: int) -> list[Any]:
 
 
 def context(run_id: str, session_id: str | None = None) -> RunContext:
-    return RunContext(tenant=TENANT, principal=PRINCIPAL, run_id=run_id, trace_id="t", session_id=session_id)
+    return RunContext(namespace=TENANT, run_id=run_id, trace_id="t", session_id=session_id)
 
 
 def _report(trial: int, tag: str, kinds: Sequence[str]) -> None:
@@ -349,7 +349,7 @@ class FileSessions(ExecutionStore):
         self._open: dict[str, SQLiteSession] = {}
 
     def session_for(self, ctx: RunContext) -> SQLiteSession:
-        key = f"{ctx.tenant}:{ctx.log_key}"
+        key = f"{ctx.namespace}:{ctx.log_key}"
         session = self._open.get(key)
         if session is None:
             session = self._open[key] = SQLiteSession(key, self._path)
@@ -616,7 +616,7 @@ def _stamped(payload: KnownPayload, seq: int, ctx: RunContext) -> Event:
         seq=seq,
         run_id=ctx.run_id,
         session_id=ctx.session_id,
-        tenant=ctx.tenant,
+        namespace=ctx.namespace,
         origin=CHATTY,
         ts=datetime.now(UTC),
         payload=payload,

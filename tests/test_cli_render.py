@@ -36,7 +36,7 @@ def _event(payload: KnownPayload, seq: int) -> Event:
         seq=seq,
         run_id="r-1",
         session_id="s-1",
-        tenant="acme",
+        namespace="acme",
         origin="Greeter",
         ts=TS,
         payload=payload,

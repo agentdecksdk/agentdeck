@@ -71,15 +71,9 @@ if TYPE_CHECKING:
     from agentdeck.runtime.service import PendingRun, Runtime
     from agentdeck.workflows.interrupts import InterruptResult
 
-# Every Python call through App mints its own context: one tenant/principal, since this
-# facade has no auth story of its own yet — a real per-caller principal arrives with a real
-# auth layer, not here. Mirrors what v1's HTTP compat layer does for the same reason
-# (``surfaces/serve/compat.py``'s ``V1_TENANT``/``V1_PRINCIPAL``), duplicated rather than
-# imported so `App` depends on nothing under `surfaces/`; a pinned test keeps the two equal,
-# because the store buckets its log by ``(tenant, log_key)`` and a drift here would split one
-# session's history into two logs depending on which entry point ran the turn.
-_TENANT = "local"
-_PRINCIPAL = "user:local"
+# Every Python call through App mints its own context, unnamespaced: this facade runs one
+# deployment's own agents, so there is nothing to keep apart. An application that does have
+# something to separate passes a namespace per run rather than configuring one here.
 
 # The openai-agents engine namespaces a validated ``output_type`` result here as well as
 # putting it on ``RunCompleted.output`` as a ``DataBlock``, because v1's wire can only carry
@@ -116,8 +110,6 @@ class TurnResult:
 
 def _new_context(session_id: str | None = None) -> RunContext:
     return RunContext(
-        tenant=_TENANT,
-        principal=_PRINCIPAL,
         run_id=str(uuid.uuid4()),
         trace_id=str(uuid.uuid4()),
         session_id=session_id,
@@ -129,8 +121,6 @@ def _resume_context(paused: PendingRun) -> RunContext:
     own, because that is the run whose ``WAITING_HUMAN`` -> ``RUNNING`` claim the resume has
     to win — a fresh id would name a run the log has never heard of."""
     return RunContext(
-        tenant=_TENANT,
-        principal=_PRINCIPAL,
         run_id=paused.run_id,
         trace_id=str(uuid.uuid4()),
         session_id=paused.session_id,
@@ -252,7 +242,7 @@ class App:
         write to. Read a turn back with ``await app.store.read(log_key, ctx)``, where
         ``log_key`` is a :class:`TurnResult`'s ``session_id`` (or ``run_id``, for a
         session-less run) and ``ctx`` is any :class:`~agentdeck.core.context.RunContext`
-        of this App's tenant.
+        of this App's namespace.
 
         Same lifetime rule as :attr:`runtime`: composed by :meth:`load`.
         """
@@ -428,7 +418,7 @@ class App:
 
         The engine's own store, not a second one: a turn started here and a turn started over
         HTTP have to land in the same conversation, and they only do if there is one store and
-        one key scheme. The key is tenant-scoped, which is why this goes through a context
+        one key scheme. The key is namespace-scoped, which is why this goes through a context
         rather than the bare id.
         """
         return self._sessions.session_for(_new_context(session_id))

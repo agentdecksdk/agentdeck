@@ -188,7 +188,7 @@ async def test_discovered_specs_run_to_completion_on_their_engine(project: None,
     runtime = Runtime(engines, MemoryEventStore(), InvocableRegistry(engines).load())
 
     for name in ("Greeter", "Shout"):
-        ctx = RunContext(tenant="acme", principal="user:1", run_id=f"r-{name}", trace_id="tr-1", session_id=f"s-{name}")
+        ctx = RunContext(namespace="acme", run_id=f"r-{name}", trace_id="tr-1", session_id=f"s-{name}")
         kinds = [event.kind async for event in runtime.run(name, coerce_input("say hi"), ctx)]
         assert kinds[0] == "run.started", name
         assert kinds[-1] == "run.completed", name

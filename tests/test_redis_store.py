@@ -3,7 +3,7 @@
 Everything the four stores must agree on is asserted once, for all of them, in
 ``tests/contract/test_store.py``. What is left here is what this adapter alone can be wrong
 about: no server at all, two clients racing the same claim through ``WATCH``/``MULTI``/``EXEC``,
-the key escaping that keeps one tenant's ids from forging another's keys, and the prefix the
+the key escaping that keeps one namespace's ids from forging another's keys, and the prefix the
 log is supposed to keep to. The race cases use two store instances over one server — two
 clients sharing no lock, no cache and no ``asyncio.Lock``, which is the position two server
 processes are in.
@@ -36,17 +36,17 @@ BEFORE_ANY_EVENT = TS - timedelta(hours=1)
 UNREACHABLE_URL = "redis://127.0.0.1:1/0"
 
 
-def _ctx(tenant: str = "acme", session_id: str = "s-1") -> RunContext:
-    return RunContext(tenant=tenant, principal="user:1", run_id="r-1", trace_id="tr-1", session_id=session_id)
+def _ctx(namespace: str = "acme", session_id: str = "s-1") -> RunContext:
+    return RunContext(namespace=namespace, run_id="r-1", trace_id="tr-1", session_id=session_id)
 
 
-def _event(seq: int, payload: Any, run_id: str = "r-1", tenant: str = "acme", ts: datetime = TS) -> Event:
+def _event(seq: int, payload: Any, run_id: str = "r-1", namespace: str = "acme", ts: datetime = TS) -> Event:
     return Event(
         kind=payload.kind,
         seq=seq,
         run_id=run_id,
         session_id="s-1",
-        tenant=tenant,
+        namespace=namespace,
         origin="Greeter",
         ts=ts,
         payload=payload,
@@ -58,7 +58,7 @@ def _started() -> RunStarted:
         invocable="Greeter",
         kind_of_invocable="agent",
         input=[],
-        context={"principal": "user:1", "trace_id": "tr-1"},
+        context={"trace_id": "tr-1"},
     )
 
 
@@ -164,17 +164,17 @@ async def test_two_clients_settle_a_session_claim_on_one_winner(keyspace: tuple[
 
 async def test_a_colon_in_a_tenant_id_cannot_reach_into_another_tenants_log(keyspace: tuple[str, str]) -> None:
     """Keys are built by joining segments with ``:``, so an unescaped id containing one would
-    make tenant ``"acme:x"`` + session ``"s"`` and tenant ``"acme"`` + session ``"x:s"`` the
+    make namespace ``"acme:x"`` + session ``"s"`` and namespace ``"acme"`` + session ``"x:s"`` the
     same key — two tenants reading each other's runs through nothing but a chosen name.
     """
     url, prefix = keyspace
     store = RedisEventStore(url, prefix=prefix)
     try:
-        outer = _ctx(tenant="acme:x", session_id="s")
-        inner = _ctx(tenant="acme", session_id="x:s")
-        await store.append("s", [_event(0, _started(), tenant="acme:x")], outer)
+        outer = _ctx(namespace="acme:x", session_id="s")
+        inner = _ctx(namespace="acme", session_id="x:s")
+        await store.append("s", [_event(0, _started(), namespace="acme:x")], outer)
 
-        assert [event.tenant for event in await store.read("s", outer)] == ["acme:x"]
+        assert [event.namespace for event in await store.read("s", outer)] == ["acme:x"]
         assert await store.read("x:s", inner) == []
         assert await store.last_seq("x:s", "r-1", inner) == -1
         assert await store.list_runs(inner) == []

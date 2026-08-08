@@ -55,11 +55,11 @@ def test_a_suspended_run_ends_waiting_and_emits_no_terminal_event(case: Case, pl
 
 
 def test_the_envelope_comes_from_the_context_not_the_engine(case: Case, played: Played, ctx: RunContext) -> None:
-    """An engine cannot set tenancy, identity or attribution — it never sees the envelope."""
+    """An engine cannot set the namespace, the ids or the attribution — it never sees the envelope."""
     for event in played.events:
-        assert (event.tenant, event.run_id, event.session_id) == (ctx.tenant, ctx.run_id, ctx.session_id)
+        assert (event.namespace, event.run_id, event.session_id) == (ctx.namespace, ctx.run_id, ctx.session_id)
         assert event.origin == case.spec.name
-        assert event.v == 1
+        assert event.v == 2
         assert event.kind == event.payload.kind
 
 

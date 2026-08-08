@@ -26,7 +26,7 @@ def case(request: pytest.FixtureRequest) -> Case:
 
 @pytest.fixture
 def ctx() -> RunContext:
-    return RunContext(tenant="acme", principal="user:1", run_id="r-1", trace_id="tr-1", session_id="s-1")
+    return RunContext(namespace="acme", run_id="r-1", trace_id="tr-1", session_id="s-1")
 
 
 @pytest.fixture

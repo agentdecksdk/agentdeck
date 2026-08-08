@@ -30,14 +30,14 @@ if TYPE_CHECKING:
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tenant TEXT NOT NULL,
+    namespace TEXT NOT NULL,
     log_key TEXT NOT NULL,
     run_id TEXT NOT NULL,
     seq INTEGER NOT NULL,
     data TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS events_by_log ON events (tenant, log_key, id);
-CREATE UNIQUE INDEX IF NOT EXISTS events_by_run ON events (tenant, log_key, run_id, seq);
+CREATE INDEX IF NOT EXISTS events_by_log ON events (namespace, log_key, id);
+CREATE UNIQUE INDEX IF NOT EXISTS events_by_run ON events (namespace, log_key, run_id, seq);
 """
 # UNIQUE is the guard, not just the index: one seq per run is the promise consumers refetch a
 # gap with, and a duplicate is the one corruption a gap check cannot see. A run whose process
@@ -45,7 +45,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS events_by_run ON events (tenant, log_key, run_
 # seq. ponytail: only files this build creates get the constraint — a database from an earlier
 # beta keeps its non-unique index, and v2 has no migration story yet.
 
-_INSERT = "INSERT INTO events (tenant, log_key, run_id, seq, data) VALUES (?, ?, ?, ?, ?)"
+_INSERT = "INSERT INTO events (namespace, log_key, run_id, seq, data) VALUES (?, ?, ?, ?, ?)"
 
 _SORTED_LIFECYCLE_KINDS = tuple(sorted(LIFECYCLE_KINDS))
 _KIND_SLOTS = ", ".join("?" * len(_SORTED_LIFECYCLE_KINDS))
@@ -122,24 +122,26 @@ class SqliteEventStore(EventStorePort):
                 raise StoreError(f"event log {op} failed: {exc}") from exc
 
     async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
-        foreign = {event.tenant for event in events} - {ctx.tenant}
+        foreign = {event.namespace for event in events} - {ctx.namespace}
         if foreign:
-            raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
-        rows = [(ctx.tenant, log_key, event.run_id, event.seq, event.model_dump_json()) for event in events]
+            raise ValueError(
+                f"events for namespace(s) {sorted(foreign, key=str)} cannot be written to {ctx.namespace!r}'s log"
+            )
+        rows = [(ctx.namespace_key, log_key, event.run_id, event.seq, event.model_dump_json()) for event in events]
         await self._run(partial(self._insert, rows), "append")
 
     async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
         if limit is not None and limit < 0:
             raise ValueError(f"limit must be None or >= 0, got {limit}")
-        rows = await self._run(partial(self._select_log, ctx.tenant, log_key, max(offset, 0), limit), "read")
+        rows = await self._run(partial(self._select_log, ctx.namespace_key, log_key, max(offset, 0), limit), "read")
         return [Event.model_validate(json.loads(row)) for row in rows]
 
     async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
-        rows = await self._run(partial(self._select_run, ctx.tenant, log_key, run_id, from_seq), "read_run")
+        rows = await self._run(partial(self._select_run, ctx.namespace_key, log_key, run_id, from_seq), "read_run")
         return [Event.model_validate(json.loads(row)) for row in rows]
 
     async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
-        return await self._run(partial(self._select_last_seq, ctx.tenant, log_key, run_id), "last_seq")
+        return await self._run(partial(self._select_last_seq, ctx.namespace_key, log_key, run_id), "last_seq")
 
     async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
         """The port's session claim as one ``BEGIN IMMEDIATE`` transaction, for the same reason
@@ -150,9 +152,9 @@ class SqliteEventStore(EventStorePort):
         and then read the run the winner opened. Only a lock held past the busy timeout raises,
         because that is a store nobody can write to rather than a session somebody else took.
         """
-        if event.tenant != ctx.tenant:
-            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
-        row = (ctx.tenant, log_key, event.run_id, event.seq, event.model_dump_json())
+        if event.namespace != ctx.namespace:
+            raise ValueError(f"an event for namespace {event.namespace!r} cannot be written to {ctx.namespace!r}'s log")
+        row = (ctx.namespace_key, log_key, event.run_id, event.seq, event.model_dump_json())
         return await self._run(partial(self._claim_start, row, stale_before), "claim_start")
 
     async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
@@ -167,15 +169,15 @@ class SqliteEventStore(EventStorePort):
         """
         if event.run_id != run_id:
             raise ValueError(f"a claim on run {run_id!r} cannot carry an event for {event.run_id!r}")
-        if event.tenant != ctx.tenant:
-            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
-        row = (ctx.tenant, log_key, event.run_id, event.seq, event.model_dump_json())
+        if event.namespace != ctx.namespace:
+            raise ValueError(f"an event for namespace {event.namespace!r} cannot be written to {ctx.namespace!r}'s log")
+        row = (ctx.namespace_key, log_key, event.run_id, event.seq, event.model_dump_json())
         return await self._run(partial(self._claim, row, run_id), "claim_resume")
 
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
         """Overrides the port's per-run fold: one statement returns each run's *last*
         lifecycle row, so a listing deserializes one event per run instead of all of them."""
-        rows = await self._run(partial(self._select_last_lifecycle, ctx.tenant), "list_runs")
+        rows = await self._run(partial(self._select_last_lifecycle, ctx.namespace_key), "list_runs")
         summaries = [
             RunSummary(log_key=log_key, run_id=run_id, status=status_of([Event.model_validate(json.loads(data))]))
             for log_key, run_id, data in rows
@@ -189,47 +191,47 @@ class SqliteEventStore(EventStorePort):
             self._conn.executemany(_INSERT, rows)
 
     def _claim_start(self, row: tuple[str, str, str, int, str], stale_before: datetime) -> SessionClaim:
-        tenant, log_key, _run_id, _seq, _data = row
+        namespace, log_key, _run_id, _seq, _data = row
         # Same lock-first reasoning as _claim: BEGIN IMMEDIATE takes the write lock before the
         # reads, so a peer cannot open a run in the gap between finding this session idle and
         # saying so. A deferred transaction would only lock at the insert, which is too late.
         self._conn.execute("BEGIN IMMEDIATE")
         with self._conn:
             overridden: list[str] = []
-            for run_id, last in self._select_open_runs(tenant, log_key):
+            for run_id, last in self._select_open_runs(namespace, log_key):
                 if last.ts > stale_before:
                     return SessionClaim(held_by=run_id)
                 overridden.append(run_id)
             self._conn.execute(_INSERT, row)
         return SessionClaim(overridden=tuple(overridden))
 
-    def _select_open_runs(self, tenant: str, log_key: str) -> list[tuple[str, Event]]:
+    def _select_open_runs(self, namespace: str, log_key: str) -> list[tuple[str, Event]]:
         """Every run in this log that has recorded a transition but not a terminal one, paired
         with its own last event — whatever kind — because that event is the run's last sign of
         life, and silence is all that separates an abandoned run from a working one.
         """
         cursor = self._conn.execute(
             "SELECT run_id, data, MAX(id) FROM events "
-            f"WHERE tenant = ? AND log_key = ? AND json_extract(data, '$.kind') IN ({_KIND_SLOTS}) "
+            f"WHERE namespace = ? AND log_key = ? AND json_extract(data, '$.kind') IN ({_KIND_SLOTS}) "
             "GROUP BY run_id",
-            (tenant, log_key, *_SORTED_LIFECYCLE_KINDS),
+            (namespace, log_key, *_SORTED_LIFECYCLE_KINDS),
         )
         open_runs = [
             row[0]
             for row in cursor.fetchall()
             if status_of([Event.model_validate(json.loads(row[1]))]) not in TERMINAL_STATUSES
         ]
-        return [(run_id, self._select_last_event(tenant, log_key, run_id)) for run_id in open_runs]
+        return [(run_id, self._select_last_event(namespace, log_key, run_id)) for run_id in open_runs]
 
-    def _select_last_event(self, tenant: str, log_key: str, run_id: str) -> Event:
+    def _select_last_event(self, namespace: str, log_key: str, run_id: str) -> Event:
         cursor = self._conn.execute(
-            "SELECT data, MAX(id) FROM events WHERE tenant = ? AND log_key = ? AND run_id = ?",
-            (tenant, log_key, run_id),
+            "SELECT data, MAX(id) FROM events WHERE namespace = ? AND log_key = ? AND run_id = ?",
+            (namespace, log_key, run_id),
         )
         return Event.model_validate(json.loads(cursor.fetchone()[0]))
 
     def _claim(self, row: tuple[str, str, str, int, str], run_id: str) -> bool:
-        tenant, log_key, _run_id, seq, _data = row
+        namespace, log_key, _run_id, seq, _data = row
         # BEGIN IMMEDIATE takes the file's write lock before the reads, so a second process
         # cannot see this run waiting in the gap between our checks and our insert — a
         # deferred transaction would only lock at the insert, which is exactly too late.
@@ -237,56 +239,57 @@ class SqliteEventStore(EventStorePort):
         # Commits the insert on the way out, rolls back if anything raised; the losing paths
         # wrote nothing, so their commit is only the write lock being handed back.
         with self._conn:
-            last = self._select_last_lifecycle_of_run(tenant, log_key, run_id)
+            last = self._select_last_lifecycle_of_run(namespace, log_key, run_id)
             if not can_resume(status_of([Event.model_validate(json.loads(last))] if last is not None else [])):
                 return False
-            if seq != self._select_last_seq(tenant, log_key, run_id) + 1:
+            if seq != self._select_last_seq(namespace, log_key, run_id) + 1:
                 # The run went round the loop while this claim was in flight: it waits again,
                 # but on a longer log, and this seq now belongs to an event already written.
                 return False
             self._conn.execute(_INSERT, row)
         return True
 
-    def _select_log(self, tenant: str, log_key: str, after: int, limit: int | None) -> list[str]:
+    def _select_log(self, namespace: str, log_key: str, after: int, limit: int | None) -> list[str]:
         # SQLite treats a negative LIMIT as "no limit" — the one case a plain int can't say.
         cursor = self._conn.execute(
-            "SELECT data FROM events WHERE tenant = ? AND log_key = ? ORDER BY id ASC LIMIT ? OFFSET ?",
-            (tenant, log_key, -1 if limit is None else limit, after),
+            "SELECT data FROM events WHERE namespace = ? AND log_key = ? ORDER BY id ASC LIMIT ? OFFSET ?",
+            (namespace, log_key, -1 if limit is None else limit, after),
         )
         return [row[0] for row in cursor.fetchall()]
 
-    def _select_run(self, tenant: str, log_key: str, run_id: str, from_seq: int) -> list[str]:
+    def _select_run(self, namespace: str, log_key: str, run_id: str, from_seq: int) -> list[str]:
         cursor = self._conn.execute(
-            "SELECT data FROM events WHERE tenant = ? AND log_key = ? AND run_id = ? AND seq >= ? ORDER BY id ASC",
-            (tenant, log_key, run_id, from_seq),
+            "SELECT data FROM events WHERE namespace = ? AND log_key = ? AND run_id = ? AND seq >= ? ORDER BY id ASC",
+            (namespace, log_key, run_id, from_seq),
         )
         return [row[0] for row in cursor.fetchall()]
 
-    def _select_last_seq(self, tenant: str, log_key: str, run_id: str) -> int:
+    def _select_last_seq(self, namespace: str, log_key: str, run_id: str) -> int:
         cursor = self._conn.execute(
-            "SELECT MAX(seq) FROM events WHERE tenant = ? AND log_key = ? AND run_id = ?", (tenant, log_key, run_id)
+            "SELECT MAX(seq) FROM events WHERE namespace = ? AND log_key = ? AND run_id = ?",
+            (namespace, log_key, run_id),
         )
         row = cursor.fetchone()
         return row[0] if row is not None and row[0] is not None else -1
 
-    def _select_last_lifecycle_of_run(self, tenant: str, log_key: str, run_id: str) -> str | None:
+    def _select_last_lifecycle_of_run(self, namespace: str, log_key: str, run_id: str) -> str | None:
         cursor = self._conn.execute(
             "SELECT data FROM events "
-            f"WHERE tenant = ? AND log_key = ? AND run_id = ? AND json_extract(data, '$.kind') IN ({_KIND_SLOTS}) "
+            f"WHERE namespace = ? AND log_key = ? AND run_id = ? AND json_extract(data, '$.kind') IN ({_KIND_SLOTS}) "
             "ORDER BY id DESC LIMIT 1",
-            (tenant, log_key, run_id, *_SORTED_LIFECYCLE_KINDS),
+            (namespace, log_key, run_id, *_SORTED_LIFECYCLE_KINDS),
         )
         row = cursor.fetchone()
         return row[0] if row is not None else None
 
-    def _select_last_lifecycle(self, tenant: str) -> list[tuple[str, str, str]]:
+    def _select_last_lifecycle(self, namespace: str) -> list[tuple[str, str, str]]:
         # SQLite guarantees the bare columns of a MAX() group come from the row that held the
         # maximum, so this is the newest lifecycle event of each run in a single group-by.
         cursor = self._conn.execute(
             "SELECT log_key, run_id, data, MAX(id) FROM events "
-            f"WHERE tenant = ? AND json_extract(data, '$.kind') IN ({_KIND_SLOTS}) "
+            f"WHERE namespace = ? AND json_extract(data, '$.kind') IN ({_KIND_SLOTS}) "
             "GROUP BY log_key, run_id",
-            (tenant, *_SORTED_LIFECYCLE_KINDS),
+            (namespace, *_SORTED_LIFECYCLE_KINDS),
         )
         return [(row[0], row[1], row[2]) for row in cursor.fetchall()]
 

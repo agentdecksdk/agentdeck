@@ -23,10 +23,6 @@ if TYPE_CHECKING:
     from agentdeck.core.events import Event
     from agentdeck.runtime.service import Runtime
 
-# M0 fakes auth away entirely — every run shares one tenant/principal.
-TENANT = "demo"
-PRINCIPAL = "user:demo"
-
 
 class ChatBody(BaseModel):
     """Validated at the trust boundary instead of a bare ``body["session_id"]`` — a
@@ -51,8 +47,6 @@ def build_app(runtime: Runtime) -> FastAPI:
     @api.post("/v2/invocables/{name}/chat")
     async def chat(name: str, body: ChatBody) -> Any:
         ctx = RunContext(
-            tenant=TENANT,
-            principal=PRINCIPAL,
             run_id=str(uuid.uuid4()),
             trace_id=str(uuid.uuid4()),
             session_id=body.session_id,

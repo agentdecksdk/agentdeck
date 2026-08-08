@@ -1,4 +1,4 @@
-"""The memory event log: ordering, ranged reads, and tenant isolation."""
+"""The memory event log: ordering, ranged reads, and namespace isolation."""
 
 from __future__ import annotations
 
@@ -14,22 +14,22 @@ from agentdeck.core.events import Event, RunCompleted, TextDelta, Usage
 TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 
 
-def _event(seq: int, tenant: str = "acme", run_id: str = "r-1") -> Event:
+def _event(seq: int, namespace: str = "acme", run_id: str = "r-1") -> Event:
     payload = TextDelta(message_id="m1", text=f"chunk {seq}")
     return Event(
         kind=payload.kind,
         seq=seq,
         run_id=run_id,
         session_id="s-1",
-        tenant=tenant,
+        namespace=namespace,
         origin="Greeter",
         ts=TS,
         payload=payload,
     )
 
 
-def _ctx(tenant: str = "acme") -> RunContext:
-    return RunContext(tenant=tenant, principal="user:1", run_id="r-1", trace_id="tr-1", session_id="s-1")
+def _ctx(namespace: str = "acme") -> RunContext:
+    return RunContext(namespace=namespace, run_id="r-1", trace_id="tr-1", session_id="s-1")
 
 
 async def test_events_read_back_in_the_order_they_were_appended() -> None:
@@ -70,23 +70,23 @@ async def test_an_unknown_log_reads_as_empty() -> None:
 
 async def test_an_event_stamped_for_another_tenant_is_refused() -> None:
     """The bucket is chosen by the context, so writing a foreign event would file it under the
-    wrong tenant — the isolation has to be enforced where it is claimed."""
+    wrong namespace — the isolation has to be enforced where it is claimed."""
     store = MemoryEventStore()
     with pytest.raises(ValueError, match="globex"):
-        await store.append("s-1", [_event(0, tenant="globex")], _ctx("acme"))
+        await store.append("s-1", [_event(0, namespace="globex")], _ctx("acme"))
     assert await store.read("s-1", _ctx("acme")) == []
 
 
 async def test_one_tenant_cannot_read_another_tenants_log_under_the_same_key() -> None:
     """Two tenants are free to pick the same session id; the store keeps them apart."""
     store = MemoryEventStore()
-    await store.append("s-1", [_event(0, tenant="acme")], _ctx("acme"))
-    await store.append("s-1", [_event(0, tenant="globex")], _ctx("globex"))
+    await store.append("s-1", [_event(0, namespace="acme")], _ctx("acme"))
+    await store.append("s-1", [_event(0, namespace="globex")], _ctx("globex"))
 
     acme = await store.read("s-1", _ctx("acme"))
     globex = await store.read("s-1", _ctx("globex"))
-    assert [event.tenant for event in acme] == ["acme"]
-    assert [event.tenant for event in globex] == ["globex"]
+    assert [event.namespace for event in acme] == ["acme"]
+    assert [event.namespace for event in globex] == ["globex"]
 
 
 async def test_a_read_cannot_be_used_to_mutate_the_log() -> None:
@@ -105,7 +105,7 @@ async def test_the_stub_completion_payload_round_trips_through_the_log() -> None
         seq=0,
         run_id="r-1",
         session_id="s-1",
-        tenant="acme",
+        namespace="acme",
         origin="Greeter",
         ts=TS,
         payload=payload,

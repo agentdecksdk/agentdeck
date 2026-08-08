@@ -55,7 +55,7 @@ def _spec(metadata: dict[str, Any]) -> InvocableSpec:
 
 def _ctx(run_id: str) -> RunContext:
     # One session_id across both runs: that is the thread a second turn would resume.
-    return RunContext(tenant="acme", principal="user:1", run_id=run_id, trace_id=run_id, session_id="thread-1")
+    return RunContext(namespace="acme", run_id=run_id, trace_id=run_id, session_id="thread-1")
 
 
 async def _seen(engine: LangGraphEngine, spec: InvocableSpec, text: str, run_id: str) -> list[str]:

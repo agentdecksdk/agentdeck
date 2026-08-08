@@ -73,7 +73,6 @@ class LangfuseTracer:
         kind: ObservationKind,
         trace_key: str,
         session_id: str | None,
-        user_id: str | None,
         input: Any = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> Observation:
@@ -83,7 +82,6 @@ class LangfuseTracer:
         # attributes stamped on spans opened inside this context, so the root is opened inside it.
         with propagate_attributes(
             session_id=session_id,
-            user_id=user_id,
             trace_name=name,
             metadata=dict(metadata) if metadata else None,
         ):
