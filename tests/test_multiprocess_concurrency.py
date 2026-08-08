@@ -363,12 +363,15 @@ def test_two_processes_appending_two_runs_into_one_log_keep_each_runs_seq_its_ow
         pairs = [(event.run_id, event.seq) for event in log]
         assert len(set(pairs)) == len(pairs), f"trial {trial}: a seq answers to two events\n{_dump(log)}"
 
-        # More than two blocks of run_ids means the two processes really were writing into the
-        # file at the same time, rather than one finishing before the other started.
+        # Reported, not asserted, for the same reason as the two races above: whether two
+        # processes' appends alternate in the file is a fact about the machine, not a promise of
+        # the store. Peers released from a barrier onto a loaded or single-usable-core runner can
+        # serialise across every trial — which is how this went red on CI from a branch whose diff
+        # could not reach the code under test. What the store owes is asserted per trial above.
         if len(list(groupby(event.run_id for event in log))) > 2:
             interleaved += 1
 
-    assert interleaved, f"no trial interleaved in {CROSSRUN_TRIALS}: the two runs never overlapped"
+    print(f"crossrun over {CROSSRUN_TRIALS} trials: {interleaved} genuinely interleaved")
 
 
 def test_a_session_a_killed_run_left_open_is_refused_until_the_staleness_window_passes(tmp_path: Path) -> None:
