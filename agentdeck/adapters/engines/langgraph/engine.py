@@ -214,16 +214,28 @@ class LangGraphEngine(EnginePort):
             self._compiled[spec.name] = compiled
         return compiled
 
-    def _checkpointer_for(self, spec: InvocableSpec) -> BaseCheckpointSaver:
-        """This graph's checkpointer, resolving the configured one only for a durable graph.
+    def _checkpointer_for(self, spec: InvocableSpec) -> BaseCheckpointSaver | None:
+        """This graph's checkpointer. Three answers, because ``durable`` has three states.
 
-        The resolution is deliberately here and not in ``__init__``: ``sqlite``/``postgres``
+        Declared ``False`` means **no checkpointer at all** — not an in-memory one. A saver
+        keyed by thread would make a second run on a thread resume the first's state instead
+        of starting fresh, which is the opposite of what a workflow declaring itself
+        non-durable asked for.
+
+        Absent is not the same as ``False``: a spec built in code never said, so it keeps the
+        engine's own default (see ``DURABLE_KEY``), which is what a hand-wired
+        ``LangGraphEngine()`` already gets and what lets such a graph interrupt at all.
+
+        The configured saver is resolved here and not in ``__init__``: ``sqlite``/``postgres``
         savers live in the ``[durability]`` extra, so a composition root that merely names a
         backend must not import one until a workflow that needs it actually runs.
         """
-        if spec.metadata.get(DURABLE_KEY) is not True or self._durable_checkpoint is None:
-            return self._checkpointer
-        return resolve_checkpointer(*self._durable_checkpoint)
+        durable = spec.metadata.get(DURABLE_KEY)
+        if durable is False:
+            return None
+        if durable is True and self._durable_checkpoint is not None:
+            return resolve_checkpointer(*self._durable_checkpoint)
+        return self._checkpointer
 
     async def _play(
         self,
