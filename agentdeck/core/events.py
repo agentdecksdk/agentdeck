@@ -318,7 +318,7 @@ class Custom(CoreModel):
     # own business. Pattern rather than a validator — pydantic already says it better than the
     # message a hand-written one would raise.
     name: str = Field(pattern=r"^[^.]+\..+$")
-    data: dict[str, Any]
+    data: dict[str, JsonData]
 
 
 class UnknownEvent(CoreModel):
@@ -331,7 +331,7 @@ class UnknownEvent(CoreModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: str = Field(pattern=KIND_PATTERN)
-    raw_payload: dict[str, Any]
+    raw_payload: dict[str, JsonData]
 
     @field_validator("kind")
     @classmethod

@@ -313,12 +313,19 @@ def test_a_budget_cannot_be_negative_on_either_axis():
         (lambda v: NodeUpdated(node="n", state_patch=v), "state_patch"),
         (lambda v: ToolCallStarted(call_id="c", tool="t", args=v), "args"),
         (lambda v: RunInterrupted(interrupt_id="i", reason="human", payload=v), "payload"),
+        (lambda v: Custom(name="ns.event", data=v), "data"),
+        (lambda v: UnknownEvent(kind="ns.later", raw_payload=v), "raw_payload"),
     ],
 )
 def test_a_free_form_field_holds_only_what_the_store_hands_back_unchanged(build, field, value):
     """The invariant ``DataBlock`` always had, now on the free-form dicts too. Each of these
     reached the log before and came back as something else — ``nan`` as ``null``, a set as a
-    list, a datetime as a string — because the type said ``Any`` and only the adapters cared."""
+    list, a datetime as a string — because the type said ``Any`` and only the adapters cared.
+
+    ``UnknownEvent`` is the one that had to hold it most: it exists so this reader survives a
+    newer writer, which it cannot do while it is free to alter that writer's data on the way
+    through. ``Custom`` is where a model's own structured output lands, floats included.
+    """
     with pytest.raises(ValidationError):
         build({"v": value})
 
@@ -328,6 +335,8 @@ def test_the_free_form_fields_still_take_ordinary_json():
     assert NodeUpdated(node="n", state_patch=nested).state_patch == nested
     assert ToolCallStarted(call_id="c", tool="t", args=nested).args == nested
     assert RunInterrupted(interrupt_id="i", reason="human", payload=nested).payload == nested
+    assert Custom(name="ns.event", data=nested).data == nested
+    assert UnknownEvent(kind="ns.later", raw_payload=nested).raw_payload == nested
 
 
 # --- status and progress reports (#47) -------------------------------------------------

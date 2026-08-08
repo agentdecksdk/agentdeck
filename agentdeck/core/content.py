@@ -71,7 +71,7 @@ class UnknownBlock(CoreModel):
     model_config = ConfigDict(extra="forbid")
 
     type: str
-    raw_block: dict[str, Any]
+    raw_block: dict[str, JsonData]
 
     @field_validator("type")
     @classmethod
