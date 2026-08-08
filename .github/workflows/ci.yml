@@ -70,19 +70,20 @@ jobs:
       - name: Test
         run: .venv/bin/pytest tests/ -q --junit-xml=/tmp/pytest-results.xml
       # Guard against a whole subsystem silently dropping out of the gate again (#33): a
-      # full run with every guarded extra installed skips ~32 tests today — parametrized
-      # "only applies to X" contract cases, and nothing else. The ceiling dropped 46 → 34
-      # when #142 added [observability] to the install: those 12 tests now run instead of
-      # skipping, and leaving the ceiling at 46 would have handed the guard 12 tests of
-      # slack — exactly the blind spot #33 is about. Keep the headroom this tight so a
-      # subsystem dropping out still trips it. Bump it only with a stated reason.
+      # full run with every guarded extra installed skips **42** — measured on this workflow,
+      # not derived: parametrized "only applies to X" contract cases, plus tests that skip for
+      # their own reasons even with the extra present. #142 added [observability] to the
+      # install and moved the ceiling 46 → 44; the first attempt guessed 34 from the old
+      # comment's "~44 skips" arithmetic and CI reported 42, which is why this number is now
+      # the measurement. Headroom is 2: observability dropping out again lands at ~54 and
+      # durability at ~58, both caught. Bump it only with a stated reason.
       # The ceiling is deliberately unchanged for the Redis/Postgres stores (#75): with the
       # services above they add ~80 running tests and no skips, and if a container fails to
       # come up they skip instead — which takes the count to ~120 and fails here, exactly
       # the "proved nothing and went green" outcome this guard is for.
       - name: Guard against silently-skipped durability tests
         run: |
-          ceiling=34
+          ceiling=44
           # `bash -e` aborts on grep's own exit code before the `-z` check below ever
           # runs; `|| true` keeps a missing/truncated/attribute-less XML falling through
           # to that check instead of failing silently with no diagnostic.
