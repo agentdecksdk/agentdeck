@@ -35,7 +35,6 @@ from agentdeck.core import (
     Usage,
     check_contiguous,
     check_terminal,
-    parse_event,
 )
 from agentdeck.core.status import LIFECYCLE_KINDS, RunStatus, status_of
 
@@ -63,7 +62,7 @@ def test_every_known_kind_has_an_example(examples):
 
 def test_round_trip_every_kind(examples):
     for kind, event in examples.items():
-        assert parse_event(json.loads(event.model_dump_json())) == event, kind
+        assert Event.model_validate(json.loads(event.model_dump_json())) == event, kind
 
 
 def test_terminal_kinds_are_the_documented_three():
@@ -74,27 +73,27 @@ def test_terminal_kinds_are_the_documented_three():
 
 
 def test_unknown_kind_parses_as_unknown_event():
-    event = parse_event(_wire("future.thing", {"whatever": 1}))
+    event = Event.model_validate(_wire("future.thing", {"whatever": 1}))
     assert isinstance(event.payload, UnknownEvent)
     assert event.payload.raw_payload == {"kind": "future.thing", "whatever": 1}  # kept raw
     assert event.tenant == "acme" and event.seq == 0  # envelope still fully validated
 
 
 def test_unknown_field_inside_a_known_payload_is_dropped():
-    event = parse_event(_wire("text.delta", {"message_id": "msg_1", "text": "hi", "tone": "cheery"}))
+    event = Event.model_validate(_wire("text.delta", {"message_id": "msg_1", "text": "hi", "tone": "cheery"}))
     assert event.payload == TextDelta(message_id="msg_1", text="hi")
 
 
 def test_unknown_event_survives_its_own_round_trip():
-    event = parse_event(_wire("future.thing", {"whatever": 1}))
-    assert parse_event(json.loads(event.model_dump_json())) == event  # no double-wrapping
+    event = Event.model_validate(_wire("future.thing", {"whatever": 1}))
+    assert Event.model_validate(json.loads(event.model_dump_json())) == event  # no double-wrapping
 
 
 def test_a_consumer_skips_unknown_and_processes_the_rest():
     stream = [
-        parse_event(_wire("text.delta", {"message_id": "msg_1", "text": "a"})),
-        parse_event(_wire("future.thing", {"whatever": 1})),
-        parse_event(_wire("text.delta", {"message_id": "msg_1", "text": "b"})),
+        Event.model_validate(_wire("text.delta", {"message_id": "msg_1", "text": "a"})),
+        Event.model_validate(_wire("future.thing", {"whatever": 1})),
+        Event.model_validate(_wire("text.delta", {"message_id": "msg_1", "text": "b"})),
     ]
     assert "".join(e.payload.text for e in stream if isinstance(e.payload, TextDelta)) == "ab"
     assert sum(isinstance(e.payload, UnknownEvent) for e in stream) == 1
@@ -102,17 +101,17 @@ def test_a_consumer_skips_unknown_and_processes_the_rest():
 
 def test_a_malformed_known_payload_still_raises():
     with pytest.raises(ValidationError):
-        parse_event(_wire("text.delta", {"message_id": "msg_1"}))
+        Event.model_validate(_wire("text.delta", {"message_id": "msg_1"}))
 
 
 def test_a_payload_named_raw_payload_does_not_slip_past_its_own_schema():
     """The UnknownEvent arm must not become a bypass for a malformed known payload."""
     with pytest.raises(ValidationError):
-        parse_event(_wire("text.delta", {"raw_payload": {"a": 1}}))
+        Event.model_validate(_wire("text.delta", {"raw_payload": {"a": 1}}))
 
 
 def test_an_unknown_payload_keeps_every_sibling_field():
-    event = parse_event(_wire("future.thing", {"raw_payload": {"deep": 1}, "extra": 2}))
+    event = Event.model_validate(_wire("future.thing", {"raw_payload": {"deep": 1}, "extra": 2}))
     assert isinstance(event.payload, UnknownEvent)
     assert event.payload.raw_payload == {
         "kind": "future.thing",
@@ -131,7 +130,7 @@ def test_a_structured_result_arrives_typed_off_the_wire():
             "usage": {"input_tokens": 1, "output_tokens": 2},
         },
     )
-    event = parse_event(wire)
+    event = Event.model_validate(wire)
     assert event.payload == RunCompleted(
         output=[DataBlock(data={"claim_id": "7777", "decision": "approved"})],
         usage=Usage(input_tokens=1, output_tokens=2),
@@ -151,7 +150,7 @@ def test_an_unknown_field_inside_a_data_block_still_parses():
             "context": {"principal": "user:sagi", "trace_id": "t"},
         },
     )
-    assert parse_event(wire).payload.input == [DataBlock(data={"input": "claim 7777"})]
+    assert Event.model_validate(wire).payload.input == [DataBlock(data={"input": "claim 7777"})]
 
 
 def test_unknown_event_refuses_a_known_kind():
@@ -163,7 +162,7 @@ def test_a_bad_envelope_raises_even_for_an_unknown_kind():
     wire = _wire("future.thing", {"whatever": 1})
     del wire["tenant"]
     with pytest.raises(ValidationError):
-        parse_event(wire)
+        Event.model_validate(wire)
 
 
 # --- validators ------------------------------------------------------------------------
@@ -186,24 +185,57 @@ def test_envelope_kind_must_match_payload_kind():
         )
 
 
+@pytest.mark.parametrize(
+    ("envelope", "payload_kind"),
+    [
+        pytest.param("future.a", "future.b", id="unknown-vs-unknown"),
+        pytest.param("future.a", "text.delta", id="unknown-envelope-known-payload"),
+    ],
+)
+def test_two_kinds_that_disagree_are_refused_rather_than_relabelled(envelope, payload_kind):
+    """Wrapping an unknown kind used to stamp the envelope's answer over the payload's, so a row
+    whose copies disagreed was accepted under a name it never claimed — with its real one buried
+    in ``raw_payload``. The disagreement is the whole signal that the row is not what it says."""
+    wire = _wire(envelope, {})
+    wire["payload"] = {"kind": payload_kind, "message_id": "m", "text": "hi"}
+    with pytest.raises(ValidationError, match="does not match payload kind"):
+        Event.model_validate(wire)
+
+
+@pytest.mark.parametrize("kind", ["", "Run Started", "run..started", "run.", ".started", "RUN.STARTED"])
+def test_a_kind_that_no_writer_could_emit_is_refused(kind):
+    """Shape, not membership: an unfamiliar kind must still parse (that is what ``UnknownEvent``
+    is for), but ``kind`` was an open ``str``, so ``""`` and ``"Run Started"`` validated too."""
+    with pytest.raises(ValidationError):
+        Event.model_validate(_wire(kind, {}))
+
+
+def test_a_namespace_this_version_has_never_seen_still_parses():
+    """The pattern must not become a closed set by accident — digits included, so the A2A and
+    MCP surfaces (#129) have somewhere to land."""
+    event = Event.model_validate(_wire("a2a.task.started", {"task": "t-1"}))
+    assert isinstance(event.payload, UnknownEvent)
+    assert event.payload.raw_payload == {"kind": "a2a.task.started", "task": "t-1"}
+
+
 def test_a_payload_must_carry_its_own_discriminator():
     wire = _wire("text.delta", {"message_id": "msg_1", "text": "hi"})
     del wire["payload"]["kind"]
     with pytest.raises(ValidationError):
-        parse_event(wire)
+        Event.model_validate(wire)
 
 
 def test_session_id_must_be_stated_even_when_absent():
     wire = _wire("text.delta", {"message_id": "msg_1", "text": "hi"})
     del wire["session_id"]
     with pytest.raises(ValidationError):
-        parse_event(wire)
+        Event.model_validate(wire)
 
 
 def test_seq_and_counters_reject_negatives():
     wire = _wire("text.delta", {"message_id": "msg_1", "text": "hi"})
     with pytest.raises(ValidationError):
-        parse_event({**wire, "seq": -1})
+        Event.model_validate({**wire, "seq": -1})
     with pytest.raises(ValidationError):
         Usage(input_tokens=-1, output_tokens=0)
 
@@ -417,8 +449,8 @@ def test_a_resumed_run_keeps_its_run_id_and_continues_its_seq(examples, make_eve
 def test_one_pair_of_kinds_carries_every_control_verb(verb):
     """Designed once rather than per verb: pause and steering reuse these two kinds, so they
     need no schema PR of their own — and no reader has to learn a new kind to follow them."""
-    requested = parse_event(_wire("control.requested", {"verb": verb}))
-    observed = parse_event(_wire("control.observed", {"verb": verb, "safe_point": "stream_item"}))
+    requested = Event.model_validate(_wire("control.requested", {"verb": verb}))
+    observed = Event.model_validate(_wire("control.observed", {"verb": verb, "safe_point": "stream_item"}))
     assert (requested.payload.verb, observed.payload.verb) == (verb, verb)
 
 
@@ -456,7 +488,7 @@ def test_a_resume_answer_is_carried_in_full_not_as_a_preview():
     """Full storage is the whole point: a truncated answer cannot be replayed into an engine
     that never received it, which is the repair this field exists to make possible."""
     answer = {"approved": True, "amount": 240, "note": "x" * 5000}
-    event = parse_event(_wire("run.resumed", {"reason": None, "value": [{"type": "data", "data": answer}]}))
+    event = Event.model_validate(_wire("run.resumed", {"reason": None, "value": [{"type": "data", "data": answer}]}))
     assert event.payload == RunResumed(reason=None, value=[DataBlock(data=answer)])
     block = event.payload.value[0]
     assert isinstance(block, DataBlock) and block.data == answer
@@ -465,7 +497,7 @@ def test_a_resume_answer_is_carried_in_full_not_as_a_preview():
 def test_a_resume_recorded_before_this_field_existed_still_parses():
     """The compatibility direction a new field is usually tested in the wrong one: a reader
     that demanded a value could not read its own store's older rows."""
-    event = parse_event(_wire("run.resumed", {"reason": "approved"}))
+    event = Event.model_validate(_wire("run.resumed", {"reason": "approved"}))
     assert event.payload == RunResumed(reason="approved")
     assert event.payload.value is None
 

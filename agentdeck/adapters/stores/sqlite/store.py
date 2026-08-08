@@ -14,7 +14,7 @@ from contextlib import suppress
 from functools import partial
 from typing import TYPE_CHECKING
 
-from agentdeck.core.events import parse_event
+from agentdeck.core.events import Event
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
 from agentdeck.core.status import LIFECYCLE_KINDS, TERMINAL_STATUSES, can_resume, status_of
 from agentdeck.errors import StoreError
@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from agentdeck.core.context import RunContext
-    from agentdeck.core.events import Event
     from agentdeck.core.status import RunStatus
 
 _SCHEMA = """
@@ -133,11 +132,11 @@ class SqliteEventStore(EventStorePort):
         if limit is not None and limit < 0:
             raise ValueError(f"limit must be None or >= 0, got {limit}")
         rows = await self._run(partial(self._select_log, ctx.tenant, log_key, max(offset, 0), limit), "read")
-        return [parse_event(json.loads(row)) for row in rows]
+        return [Event.model_validate(json.loads(row)) for row in rows]
 
     async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
         rows = await self._run(partial(self._select_run, ctx.tenant, log_key, run_id, from_seq), "read_run")
-        return [parse_event(json.loads(row)) for row in rows]
+        return [Event.model_validate(json.loads(row)) for row in rows]
 
     async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
         return await self._run(partial(self._select_last_seq, ctx.tenant, log_key, run_id), "last_seq")
@@ -178,7 +177,7 @@ class SqliteEventStore(EventStorePort):
         lifecycle row, so a listing deserializes one event per run instead of all of them."""
         rows = await self._run(partial(self._select_last_lifecycle, ctx.tenant), "list_runs")
         summaries = [
-            RunSummary(log_key=log_key, run_id=run_id, status=status_of([parse_event(json.loads(data))]))
+            RunSummary(log_key=log_key, run_id=run_id, status=status_of([Event.model_validate(json.loads(data))]))
             for log_key, run_id, data in rows
         ]
         return [summary for summary in summaries if status is None or summary.status is status]
@@ -216,7 +215,9 @@ class SqliteEventStore(EventStorePort):
             (tenant, log_key, *_SORTED_LIFECYCLE_KINDS),
         )
         open_runs = [
-            row[0] for row in cursor.fetchall() if status_of([parse_event(json.loads(row[1]))]) not in TERMINAL_STATUSES
+            row[0]
+            for row in cursor.fetchall()
+            if status_of([Event.model_validate(json.loads(row[1]))]) not in TERMINAL_STATUSES
         ]
         return [(run_id, self._select_last_event(tenant, log_key, run_id)) for run_id in open_runs]
 
@@ -225,7 +226,7 @@ class SqliteEventStore(EventStorePort):
             "SELECT data, MAX(id) FROM events WHERE tenant = ? AND log_key = ? AND run_id = ?",
             (tenant, log_key, run_id),
         )
-        return parse_event(json.loads(cursor.fetchone()[0]))
+        return Event.model_validate(json.loads(cursor.fetchone()[0]))
 
     def _claim(self, row: tuple[str, str, str, int, str], run_id: str) -> bool:
         tenant, log_key, _run_id, seq, _data = row
@@ -237,7 +238,7 @@ class SqliteEventStore(EventStorePort):
         # wrote nothing, so their commit is only the write lock being handed back.
         with self._conn:
             last = self._select_last_lifecycle_of_run(tenant, log_key, run_id)
-            if not can_resume(status_of([parse_event(json.loads(last))] if last is not None else [])):
+            if not can_resume(status_of([Event.model_validate(json.loads(last))] if last is not None else [])):
                 return False
             if seq != self._select_last_seq(tenant, log_key, run_id) + 1:
                 # The run went round the loop while this claim was in flight: it waits again,

@@ -52,7 +52,6 @@ from agentdeck.core.events import (
     UsageReported,
     check_contiguous,
     check_terminal,
-    parse_event,
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.reporting import Reporter
@@ -109,6 +108,5 @@ __all__ = [
     "check_contiguous",
     "check_terminal",
     "coerce_input",
-    "parse_event",
     "status_of",
 ]

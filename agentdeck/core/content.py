@@ -10,8 +10,8 @@ against engine state. Only *tool* results are bounded (preview + size + hash), w
 bytes are unbounded and engine-chosen rather than caller-chosen.
 
 An unfamiliar block ``type`` falls back to :class:`UnknownBlock` instead of rejecting the
-block's whole event, mirroring how :func:`agentdeck.core.events.parse_event` treats an
-unknown ``kind``.
+block's whole event, the same move :class:`agentdeck.core.events.Event` makes for an unknown
+``kind``.
 """
 
 from __future__ import annotations

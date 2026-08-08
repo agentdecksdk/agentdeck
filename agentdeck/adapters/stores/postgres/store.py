@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any
 import psycopg
 from psycopg import sql
 
-from agentdeck.core.events import parse_event
+from agentdeck.core.events import Event
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
 from agentdeck.core.status import LIFECYCLE_KINDS, TERMINAL_STATUSES, can_resume, status_of
 from agentdeck.errors import StoreError
@@ -32,7 +32,6 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from agentdeck.core.context import RunContext
-    from agentdeck.core.events import Event
     from agentdeck.core.status import RunStatus
 
     type Connection = psycopg.AsyncConnection[tuple[Any, ...]]
@@ -216,14 +215,14 @@ class PostgresEventStore(EventStorePort):
             cursor = await conn.execute(self._select_log, (ctx.tenant, log_key, limit, max(offset, 0)))
             return [row[0] for row in await cursor.fetchall()]
 
-        return [parse_event(data) for data in await self._run(_work, "read")]
+        return [Event.model_validate(data) for data in await self._run(_work, "read")]
 
     async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
         async def _work(conn: Connection) -> list[dict[str, Any]]:
             cursor = await conn.execute(self._select_run, (ctx.tenant, log_key, run_id, from_seq))
             return [row[0] for row in await cursor.fetchall()]
 
-        return [parse_event(data) for data in await self._run(_work, "read_run")]
+        return [Event.model_validate(data) for data in await self._run(_work, "read_run")]
 
     async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
         async def _work(conn: Connection) -> int:
@@ -295,7 +294,7 @@ class PostgresEventStore(EventStorePort):
             return [(row[0], row[1], row[2]) for row in await cursor.fetchall()]
 
         summaries = [
-            RunSummary(log_key=log_key, run_id=run_id, status=status_of([parse_event(data)]))
+            RunSummary(log_key=log_key, run_id=run_id, status=status_of([Event.model_validate(data)]))
             for log_key, run_id, data in await self._run(_work, "list_runs")
         ]
         return [summary for summary in summaries if status is None or summary.status is status]
@@ -319,7 +318,7 @@ class PostgresEventStore(EventStorePort):
     async def _last_lifecycle_of_run(self, conn: Connection, tenant: str, log_key: str, run_id: str) -> Event | None:
         cursor = await conn.execute(self._select_run_lifecycle, (tenant, log_key, run_id, _SORTED_LIFECYCLE_KINDS))
         row = await cursor.fetchone()
-        return parse_event(row[0]) if row is not None else None
+        return Event.model_validate(row[0]) if row is not None else None
 
     async def _open_runs(self, conn: Connection, tenant: str, log_key: str) -> list[tuple[str, Event]]:
         """Every run in this log that has recorded a transition but not a terminal one,
@@ -329,12 +328,14 @@ class PostgresEventStore(EventStorePort):
         """
         cursor = await conn.execute(self._select_log_lifecycle, (tenant, log_key, _SORTED_LIFECYCLE_KINDS))
         open_runs = [
-            row[0] for row in await cursor.fetchall() if status_of([parse_event(row[1])]) not in TERMINAL_STATUSES
+            row[0]
+            for row in await cursor.fetchall()
+            if status_of([Event.model_validate(row[1])]) not in TERMINAL_STATUSES
         ]
         if not open_runs:
             return []
         cursor = await conn.execute(self._select_last_events, (tenant, log_key, open_runs))
-        last_events = {row[0]: parse_event(row[1]) for row in await cursor.fetchall()}
+        last_events = {row[0]: Event.model_validate(row[1]) for row in await cursor.fetchall()}
         return [(run_id, last_events[run_id]) for run_id in open_runs]
 
     async def aclose(self) -> None:

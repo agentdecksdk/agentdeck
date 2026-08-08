@@ -45,7 +45,6 @@ from agentdeck.core.events import (
     Usage,
     check_contiguous,
     check_terminal,
-    parse_event,
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
@@ -251,7 +250,7 @@ async def test_an_sse_client_receives_the_reports_in_order() -> None:
         response = await client.post("/v2/invocables/Searcher/chat", json={"session_id": "s-1", "message": "hi"})
 
     frames = [
-        parse_event(json.loads(line.removeprefix("data: ")))
+        Event.model_validate(json.loads(line.removeprefix("data: ")))
         for line in response.text.splitlines()
         if line.startswith("data: ")
     ]

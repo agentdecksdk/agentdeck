@@ -17,7 +17,6 @@ from agentdeck.core.events import (
     Event,
     MessageCompleted,
     RunCancelled,
-    parse_event,
 )
 from agentdeck.surfaces.cli.chat import render
 
@@ -73,7 +72,7 @@ async def test_a_kind_this_renderer_does_not_know_is_skipped_and_the_rest_still_
     """The ``case _`` default, still doing its job now that two arms were added above it."""
     known = _event(MessageCompleted(message_id="m1", text="done"), 1)
     wire = {**known.model_dump(mode="json"), "kind": "run.teleported", "payload": {"kind": "run.teleported"}}
-    unknown = parse_event(wire)
+    unknown = Event.model_validate(wire)
 
     await render(_sse(unknown, known))
 

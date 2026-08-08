@@ -4,8 +4,9 @@ Engines produce payloads, the Runtime fills the envelope — so an engine cannot
 ``seq`` or ``tenant`` wrong. ``seq`` is per-run and contiguous from 0, which makes it
 both the ordering authority and a loss check; ``ts`` is informational.
 
-Unknown kinds parse instead of raising (:func:`parse_event`) and unknown fields inside a
-known payload are dropped, so an old reader survives a newer writer. Adding a kind or an
+Unknown kinds parse instead of raising — ``Event.model_validate`` lands them as
+:class:`UnknownEvent` — and unknown fields inside a known payload are dropped, so an old
+reader survives a newer writer. Adding a kind or an
 optional field stays compatible; renaming or removing one means bumping ``v``.
 
 Run control is three phases rather than one event: ``control.requested`` records that a
@@ -28,6 +29,7 @@ from pydantic import (
     NonNegativeInt,
     PositiveInt,
     ValidationError,
+    ValidatorFunctionWrapHandler,
     field_validator,
     model_validator,
 )
@@ -40,6 +42,15 @@ if TYPE_CHECKING:
 RESULT_PREVIEW_MAX = 4096
 
 TERMINAL_KINDS = frozenset({"run.completed", "run.failed", "run.cancelled"})
+
+KIND_PATTERN = r"^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)*$"
+"""What a ``kind`` may look like — dotted lowercase segments, digits allowed after the first
+letter so a namespace like ``a2a.*`` stays reachable (#129).
+
+A shape, deliberately not a set: closing it to :data:`KNOWN_KINDS` would reject every kind a
+newer writer invents, which is the one thing :class:`UnknownEvent` exists to prevent. This only
+refuses what no writer should ever emit — ``""``, ``"Run Started"``, ``"run..started"``.
+"""
 
 Money = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 """US dollars. Constrained where the token counts already were, plus one reason of its own:
@@ -318,7 +329,7 @@ class UnknownEvent(CoreModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: str
+    kind: str = Field(pattern=KIND_PATTERN)
     raw_payload: dict[str, Any]
 
     @field_validator("kind")
@@ -363,10 +374,19 @@ class Event(CoreModel):
 
     Per-run constants belong in the ``run.started`` payload, not here. Unknown envelope
     fields are ignored rather than rejected, so a newer writer can't break this reader.
+
+    ``model_validate`` is the only entry point a reader needs: an unfamiliar ``kind`` lands as
+    :class:`UnknownEvent` rather than raising, so an old reader survives a newer writer. A
+    malformed *known* payload still raises.
+
+    ``kind`` is written twice — here and inside the payload — because each copy answers a
+    different question: this one is what a store indexes on without parsing (``json_extract(data,
+    '$.kind')``), the payload's is the union's discriminator. Dropping either is a wire change:
+    a released reader dispatches on the payload copy and cannot read a row without it.
     """
 
     v: int = 1
-    kind: str
+    kind: str = Field(pattern=KIND_PATTERN)
     seq: NonNegativeInt
     run_id: str
     session_id: str | None
@@ -378,27 +398,41 @@ class Event(CoreModel):
     ts: AwareDatetime
     payload: KnownPayload | UnknownEvent
 
+    @model_validator(mode="wrap")
+    @classmethod
+    def _an_unknown_kind_degrades(cls, data: Any, handler: ValidatorFunctionWrapHandler) -> Any:
+        """An unfamiliar ``kind`` lands as :class:`UnknownEvent` instead of failing the whole
+        read — stores parse every row, so one unrecognised event would otherwise take a session's
+        entire log with it.
+
+        Wrapping needs the envelope: a payload of an unknown kind has no arm of the union to
+        dispatch to, and the discriminator a reader can trust is the one out here. That is also
+        why the payload's own claim is compared first rather than overwritten — wrapping with the
+        envelope's ``kind`` would otherwise *relabel* a row whose two copies disagree, and the
+        disagreement is exactly what says the row is not what it says it is.
+
+        A stored ``UnknownEvent`` (``{kind, raw_payload}``) validates against the union member
+        directly, so ``handler`` succeeds and this never re-wraps it — which is what lets one
+        round-trip.
+        """
+        try:
+            return handler(data)
+        except ValidationError:
+            if not isinstance(data, dict):
+                raise
+            kind, payload = data.get("kind"), data.get("payload")
+            if not isinstance(kind, str) or kind in KNOWN_KINDS or not isinstance(payload, dict):
+                raise
+            stated = payload.get("kind")
+            if isinstance(stated, str) and stated != kind:
+                raise ValueError(f"envelope kind {kind!r} does not match payload kind {stated!r}") from None
+            return handler({**data, "payload": {"kind": kind, "raw_payload": payload}})
+
     @model_validator(mode="after")
     def _kind_mirrors_payload(self) -> Event:
         if self.kind != self.payload.kind:
             raise ValueError(f"envelope kind {self.kind!r} does not match payload kind {self.payload.kind!r}")
         return self
-
-
-def parse_event(data: dict[str, Any]) -> Event:
-    """Parse one event: an unknown ``kind`` yields an :class:`UnknownEvent` payload with
-    the envelope still validated. A malformed *known* payload raises.
-
-    An unknown payload of exactly ``{kind, raw_payload}`` is read as already wrapped —
-    that ambiguity is what lets a stored ``UnknownEvent`` round-trip.
-    """
-    try:
-        return Event.model_validate(data)
-    except ValidationError:
-        kind, payload = data.get("kind"), data.get("payload")
-        if not isinstance(kind, str) or kind in KNOWN_KINDS or not isinstance(payload, dict):
-            raise
-        return Event.model_validate({**data, "payload": {"kind": kind, "raw_payload": payload}})
 
 
 def check_contiguous(events: Iterable[Event]) -> list[int]:

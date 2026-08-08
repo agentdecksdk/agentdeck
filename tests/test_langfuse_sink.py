@@ -42,7 +42,6 @@ from agentdeck.core.events import (
     ToolCallStarted,
     Usage,
     UsageReported,
-    parse_event,
 )
 from agentdeck.core.invocable import InvocableKind
 from agentdeck.runtime.service import Runtime
@@ -565,7 +564,7 @@ async def test_a_second_opening_of_one_run_abandons_the_root_it_replaces() -> No
 
 async def test_an_event_kind_this_version_does_not_know_is_skipped_not_crashed_on() -> None:
     sink = LangfuseSink(collector := Collector())
-    unknown = parse_event(
+    unknown = Event.model_validate(
         {**_started().model_dump(mode="json"), "kind": "run.teleported", "payload": {"kind": "run.teleported"}}
     )
     await sink.emit(_started())
@@ -589,7 +588,7 @@ async def test_no_arm_of_the_mapping_ever_suspends_so_none_can_spend_the_dispatc
         RunInterrupted(interrupt_id="i1", reason="human", payload={}, thread_id="t1"),
         RunPaused(reason="waiting on a timer"),
     )
-    unknown = parse_event(
+    unknown = Event.model_validate(
         {**_started().model_dump(mode="json"), "kind": "run.teleported", "payload": {"kind": "run.teleported"}}
     )
 

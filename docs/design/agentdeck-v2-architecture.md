@@ -159,8 +159,8 @@ Every event shares a versioned envelope of exactly eight fields; the payload is 
 discriminated union **nested** under `payload`, so envelope and payload fields never
 share a namespace. Evolution rules (D8): adding a new `kind` or an optional field is a
 minor change; renaming, removing, or changing the meaning of a field bumps `v`.
-Consumers must ignore kinds they don't know — implemented via a `parse_event` entry
-point that falls back to `UnknownEvent(kind, raw_payload)` instead of raising, which is
+Consumers must ignore kinds they don't know — implemented inside `Event` itself, whose
+validator falls back to `UnknownEvent(kind, raw_payload)` instead of raising, which is
 what lets a v1 dashboard render a stream from a v1.4 engine. The envelope is **closed**
 (D9): new needs go into payloads or into `run.started`; an envelope addition must
 demonstrate that routing/ordering/isolation itself is impossible without it.
@@ -209,9 +209,9 @@ sub-agent-level attribution.
 not a namespaced `custom` event and not a stringified dict. No payload class changed and no
 kind was added, so this is D8-additive; of the three golden snapshots that carry an `Input`
 (`run.started`, `run.completed`, `input.appended`), the first two gained a `data` block to
-freeze its wire shape on both the input and the result channel. One honest asymmetry:
-`parse_event` tolerates an unknown *kind*, but `ContentBlock` is a strict discriminated
-union, so a reader older than a new block type rejects the event rather than skipping the
+freeze its wire shape on both the input and the result channel. One asymmetry, since closed (#109): `Event` tolerates an unknown *kind* and
+`ContentBlock` now tolerates an unknown block `type` the same way. Before that fix a
+reader older than a new block type rejected the whole event rather than skipping the
 block. Measured, the blast radius is wider than one event: `SqliteEventStore.list_runs`
 deserializes each run's last lifecycle row in one comprehension, so one structured
 `run.completed` in a shared store makes an older process's listing fail for the whole tenant,

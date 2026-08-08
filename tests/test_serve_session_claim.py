@@ -28,7 +28,6 @@ from agentdeck.core.events import (
     RunInterrupted,
     RunStarted,
     Usage,
-    parse_event,
 )
 from agentdeck.runtime.service import Runtime
 from agentdeck.surfaces.serve.app import PRINCIPAL, TENANT, build_app
@@ -114,7 +113,7 @@ async def test_a_turn_on_an_idle_session_still_streams_every_event_once() -> Non
         assert response.headers["content-type"].startswith("text/event-stream")
         async for line in response.aiter_lines():
             if line.startswith("data: "):
-                frames.append(parse_event(json.loads(line.removeprefix("data: "))))
+                frames.append(Event.model_validate(json.loads(line.removeprefix("data: "))))
 
     assert [event.kind for event in frames] == ["run.started", "message.completed", "run.completed"]
     assert frames == await store.read(SESSION_ID, _reader())
