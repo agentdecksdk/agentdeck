@@ -51,6 +51,12 @@ of vanishing the moment the call returns.
 
 - Every `LayeredSettings` field in `agentdeck/runtime/settings.py` now carries a
   `Field(description=...)`, the source the new generated settings reference renders from.
+- `NodeUpdated.state_patch`, `ToolCallStarted.args` and `RunInterrupted.payload` hold only
+  what a store hands back unchanged. They were `dict[str, Any]`, so a `NaN` reached the log as
+  `null`, a set as a list and a datetime as a string — the divergence `DataBlock` has always
+  refused. All three now carry the same `JsonData` type `DataBlock` does. Every engine adapter
+  already sanitized before constructing these, so nothing the package produces changes; a
+  caller building one by hand from non-JSON values now gets a `ValidationError`.
 - The cost and budget fields validate like the token counts always did: `Usage.usd`,
   `Budget.max_usd` and `Budget.max_tokens` reject negatives, and the two dollar fields also
   reject `NaN` and `±Infinity`. Those have no JSON literal, so they serialized as `null` — a

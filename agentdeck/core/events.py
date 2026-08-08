@@ -32,7 +32,7 @@ from pydantic import (
     model_validator,
 )
 
-from agentdeck.core.content import CoreModel, Input
+from agentdeck.core.content import CoreModel, Input, JsonData
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -142,7 +142,7 @@ class RunInterrupted(CoreModel):
     kind: Literal["run.interrupted"] = "run.interrupted"
     interrupt_id: str
     reason: Literal["human", "pause", "approval"]
-    payload: dict[str, Any]
+    payload: dict[str, JsonData]
     thread_id: str | None = None
     expected_resume: str | None = None
 
@@ -216,7 +216,7 @@ class ToolCallStarted(CoreModel):
     kind: Literal["tool.call.started"] = "tool.call.started"
     call_id: str
     tool: str
-    args: dict[str, Any]
+    args: dict[str, JsonData]
 
 
 class ToolCallCompleted(CoreModel):
@@ -244,7 +244,7 @@ class NodeUpdated(CoreModel):
 
     kind: Literal["node.updated"] = "node.updated"
     node: str
-    state_patch: dict[str, Any]
+    state_patch: dict[str, JsonData]
 
 
 class ArtifactCreated(CoreModel):

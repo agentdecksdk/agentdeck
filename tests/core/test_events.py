@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import get_args
 
 import pytest
@@ -19,14 +20,17 @@ from agentdeck.core import (
     Custom,
     DataBlock,
     Event,
+    NodeUpdated,
     ProgressReported,
     RunCompleted,
     RunFailed,
+    RunInterrupted,
     RunResumed,
     StatusReported,
     TextBlock,
     TextDelta,
     ToolCallCompleted,
+    ToolCallStarted,
     UnknownEvent,
     Usage,
     check_contiguous,
@@ -252,6 +256,37 @@ def test_a_budget_cannot_be_negative_on_either_axis():
     with pytest.raises(ValidationError):
         Budget(max_tokens=-1)
     assert Budget(max_usd=0.0, max_tokens=0).max_tokens == 0
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        pytest.param(float("nan"), id="non-finite-float"),
+        pytest.param({1, 2, 3}, id="set"),
+        pytest.param(datetime(2020, 1, 1, tzinfo=UTC), id="datetime"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("build", "field"),
+    [
+        (lambda v: NodeUpdated(node="n", state_patch=v), "state_patch"),
+        (lambda v: ToolCallStarted(call_id="c", tool="t", args=v), "args"),
+        (lambda v: RunInterrupted(interrupt_id="i", reason="human", payload=v), "payload"),
+    ],
+)
+def test_a_free_form_field_holds_only_what_the_store_hands_back_unchanged(build, field, value):
+    """The invariant ``DataBlock`` always had, now on the free-form dicts too. Each of these
+    reached the log before and came back as something else — ``nan`` as ``null``, a set as a
+    list, a datetime as a string — because the type said ``Any`` and only the adapters cared."""
+    with pytest.raises(ValidationError):
+        build({"v": value})
+
+
+def test_the_free_form_fields_still_take_ordinary_json():
+    nested = {"a": [1, "two", None, {"b": 3.5}], "c": True}
+    assert NodeUpdated(node="n", state_patch=nested).state_patch == nested
+    assert ToolCallStarted(call_id="c", tool="t", args=nested).args == nested
+    assert RunInterrupted(interrupt_id="i", reason="human", payload=nested).payload == nested
 
 
 # --- status and progress reports (#47) -------------------------------------------------
