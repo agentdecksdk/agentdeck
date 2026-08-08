@@ -176,6 +176,8 @@ class SqliteEventStore(EventStorePort):
         return [summary for summary in summaries if status is None or summary.status is status]
 
     def _append(self, log_key: str, payloads: list[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        if not payloads:  # as postgres and redis do — no reason to take the write lock for nothing
+            return []
         # BEGIN IMMEDIATE, which a plain append never used to take. Reading MAX(seq) inside a
         # *deferred* transaction and then inserting upgrades read→write mid-transaction, which
         # SQLite answers with SQLITE_BUSY_SNAPSHOT — and it does not honour busy_timeout (#84),

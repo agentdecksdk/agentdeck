@@ -129,7 +129,19 @@ EVERYTHING_IS_STALE = timedelta(0)
 # Long enough that the fresher event is comfortably inside the window while the older one is
 # outside it, short enough to cost a fraction of a second per backend.
 AGE_GAP = 0.5
-HALF_THE_GAP = timedelta(seconds=AGE_GAP / 2)
+
+
+def _window_between(older: Event, newer: Event) -> timedelta:
+    """A ``stale_after`` landing strictly between two real events, measured from the stamps the
+    store wrote rather than from how long this process believes it slept.
+
+    Nine tenths of the measured gap, not half. The window has to stay wider than the delay
+    between the last write and the claim's own clock read, and that delay is the one quantity a
+    case here cannot bound — it is where a fixed window flakes. Taking most of the gap buys the
+    largest margin the two events allow, and reading the gap back means a stall between the two
+    writes widens the window instead of eating into it.
+    """
+    return (newer.ts - older.ts) * 0.9
 
 
 async def test_claim_start_opens_a_run_on_an_idle_session(event_store: EventStorePort) -> None:
@@ -247,11 +259,12 @@ async def test_staleness_is_measured_from_the_last_event_of_a_run_not_its_last_t
     transition finds this run stale, one judging by its last event finds it live.
     """
     ctx = _ctx()
-    await _write(event_store, [_started()], ctx)
+    [opening] = await _write(event_store, [_started()], ctx)
     await asyncio.sleep(AGE_GAP)
-    await _write(event_store, [TextDelta(message_id="m1", text="still here")], ctx)
+    [delta] = await _write(event_store, [TextDelta(message_id="m1", text="still here")], ctx)
 
-    claim, event = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-2"), ORIGIN, HALF_THE_GAP)
+    window = _window_between(opening, delta)
+    claim, event = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-2"), ORIGIN, window)
     assert (claim, event) == (SessionClaim(held_by="r-1"), None)
     assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-1", "r-1"]
 
@@ -259,11 +272,12 @@ async def test_staleness_is_measured_from_the_last_event_of_a_run_not_its_last_t
 async def test_one_live_run_refuses_a_claim_even_beside_an_abandoned_one(event_store: EventStorePort) -> None:
     """A refused claim overrides nothing: a session with one dead run and one live one is busy,
     and stepping over the dead one anyway would leave a takeover half-done."""
-    await _write(event_store, [_started()], _ctx(run_id="r-dead"))
+    [dead] = await _write(event_store, [_started()], _ctx(run_id="r-dead"))
     await asyncio.sleep(AGE_GAP)
-    await _write(event_store, [_started()], _ctx(run_id="r-live"))
+    [live] = await _write(event_store, [_started()], _ctx(run_id="r-live"))
 
-    claim, event = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-2"), ORIGIN, HALF_THE_GAP)
+    window = _window_between(dead, live)
+    claim, event = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-2"), ORIGIN, window)
     assert (claim, event) == (SessionClaim(held_by="r-live"), None)
     assert [event.run_id for event in await event_store.read("s-1", _ctx())] == ["r-dead", "r-live"]
 

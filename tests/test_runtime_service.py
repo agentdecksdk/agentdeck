@@ -630,8 +630,49 @@ async def test_a_run_that_writes_again_after_being_taken_over_lands_behind_its_t
     assert check_terminal(resurrected) == "2 terminal events: ['run.failed', 'run.completed']"
 
 
-async def _collect(runtime: Runtime, run_id: str) -> list[Event]:
-    return [event async for event in runtime.run("Greeter", INPUT, replace(CTX, run_id=run_id))]
+async def test_a_run_resurrected_into_an_interrupt_takes_its_session_back() -> None:
+    """The worse half of the same premature takeover: the resurrected run's next write is not a
+    terminal event but ``run.interrupted``, which is a run *waiting*, not a run finished.
+
+    So it does not merely land behind its own ``run.failed`` — it becomes ``WAITING_HUMAN`` and
+    takes the session back, after a turn was told the session was free and used it. The session
+    ends up held by the run that was declared dead, and it is listed as pending, meaning a
+    resume can be addressed to a run whose log says it was abandoned.
+
+    This is arguably the *right* outcome — the run really is alive and really is waiting — and it
+    is why the takeover stays advisory rather than fatal. It is pinned because it is the shape a
+    reader of ADR-D11 would not predict: the ADR says a spent seq can no longer refuse a write,
+    and says nothing about a refused run reclaiming the session it was evicted from.
+    ``check_terminal`` is what still gives it away.
+    """
+    engine = _Stalling("r-1")
+    spec = stub_spec(
+        "Approver",
+        TextDelta(message_id="m1", text="thinking"),
+        RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1"),
+        kind=InvocableKind.WORKFLOW,
+    )
+    store = MemoryEventStore(clock=_Ticking())
+    runtime = Runtime([engine], store, {spec.name: spec}, stale_run_after=timedelta(seconds=1))
+
+    quiet = asyncio.create_task(_collect(runtime, "r-1", "Approver"))
+    async with asyncio.timeout(WEDGE_TIMEOUT):
+        await engine.quiet.wait()
+        taken = [event async for event in runtime.run("Approver", INPUT, replace(CTX, run_id="r-2"))]
+        engine.release.set()
+        await quiet
+
+    assert taken[-1].kind == "run.interrupted"
+    resurrected = await store.read_run(CTX.log_key, "r-1", CTX)
+    assert [event.kind for event in resurrected] == ["run.started", "text.delta", "run.failed", "run.interrupted"]
+    assert check_contiguous(resurrected) == [], "the log stays dense however wrong its shape is"
+    assert check_terminal(resurrected) == "terminal event 'run.failed' at index 2 of 4, not last"
+    assert await store.run_status(CTX.log_key, "r-1", CTX) is RunStatus.WAITING_HUMAN
+    assert "r-1" in [run.run_id for run in await runtime.pending(CTX)], "the evicted run is resumable again"
+
+
+async def _collect(runtime: Runtime, run_id: str, name: str = "Greeter") -> list[Event]:
+    return [event async for event in runtime.run(name, INPUT, replace(CTX, run_id=run_id))]
 
 
 async def test_a_cancellation_during_the_claim_closes_the_run_and_frees_the_session() -> None:

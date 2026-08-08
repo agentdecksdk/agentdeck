@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import warnings
 from collections import deque
 from contextlib import aclosing, suppress
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
@@ -43,7 +43,7 @@ from agentdeck.runtime.settings import get_settings
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
-    from datetime import timedelta
+    from datetime import datetime, timedelta
     from typing import Any
 
     from agentdeck.core.content import Input
@@ -69,17 +69,15 @@ class PendingRun:
     payload: dict[str, Any]
 
 
-def _now() -> datetime:
-    return datetime.now(UTC)
-
-
 class Runtime:
     """Runs invocables and emits one canonical event stream, whatever engine did the work.
 
     Sinks are optional and buffered — each gets its own bounded queue, so the run is never
     pinned to one. ``clock`` no longer decides anything: the store stamps every event's ``ts``
     in the write that persists it (ADR-D11), so a caller that wants to hold time still injects
-    a clock into the store instead. It is still accepted, and does nothing.
+    a clock into the store instead. It is still accepted, does nothing, and warns — silently
+    ignoring it is how a caller ends up asserting against wall time believing it froze it.
+    Removing the keyword is a breaking change and is owed its own PR (#158).
 
     ``stale_run_after`` is how long a run may go silent before it stops holding its session,
     defaulted from ``AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`` and passed explicitly by tests
@@ -94,16 +92,22 @@ class Runtime:
         store: EventStorePort,
         invocables: Mapping[str, InvocableSpec],
         sinks: Sequence[EventSinkPort] = (),
-        clock: Callable[[], datetime] = _now,
+        clock: Callable[[], datetime] | None = None,
         control: ControlPort | None = None,
         stale_run_after: timedelta | None = None,
         control_poll_interval: float = CONTROL_POLL_INTERVAL,
     ) -> None:
+        if clock is not None:
+            warnings.warn(
+                "Runtime(clock=...) is inert: the store stamps every event's ts inside the write "
+                "that persists it (ADR-D11). Inject the clock into the store instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         self._engines = {engine.engine: engine for engine in engines}
         self._store = store
         self._invocables = invocables
         self._sinks = tuple(SinkDispatch(sink) for sink in sinks)
-        self._clock = clock
         self._control = control
         self._stale_run_after = get_settings().runtime.stale_run_after if stale_run_after is None else stale_run_after
         self._control_poll_interval = control_poll_interval

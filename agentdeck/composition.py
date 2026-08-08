@@ -53,8 +53,8 @@ def build_runtime(
     store, in the same write that persists the event (ADR-D11), so holding time still means
     building the store with a clock — ``MemoryEventStore(clock=...)``, ``RedisEventStore(clock=...)``
     — and the two SQL stores read their backend's clock so that N workers on one database
-    compare one clock rather than N. The keyword is still accepted and still forwarded, and it
-    decides nothing.
+    compare one clock rather than N. The keyword is still accepted and still forwarded, it
+    decides nothing, and passing it warns. Removal is #158.
     """
     engines = tuple(engines)
     specs = InvocableRegistry(engines).load() if invocables is None else invocables

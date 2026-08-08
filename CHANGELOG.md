@@ -111,6 +111,13 @@ of vanishing the moment the call returns.
   and Postgres stores read their own backend's clock, so N workers sharing one database compare
   one clock instead of N. Both keywords are still accepted and do nothing.
 
+### Deprecated
+
+- `Runtime(clock=...)` and `build_runtime(clock=...)` now raise a `DeprecationWarning` when
+  passed explicitly. They are inert (see above), and a keyword that silently ignores a frozen
+  clock is how a caller ends up asserting against wall time believing it held time still.
+  Removal is tracked in #158; pass the clock to the store instead.
+
 ### Fixed
 
 - A log no longer carries a permanent gap after a dropped report or a transient append failure.

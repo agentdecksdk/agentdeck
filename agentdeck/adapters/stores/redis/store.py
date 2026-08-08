@@ -61,7 +61,12 @@ _DEFAULT_PREFIX = "agentdeck:events"
 # A claim re-reads and re-decides when a peer wrote to the same log under it. Bounded
 # because an unbounded optimistic retry is a hang: past this many rounds the honest answer
 # is that the store is too contended to settle, which is a store error and not a refusal.
-_CLAIM_ATTEMPTS = 20
+#
+# The loop is lock-step: one winner per round dirties every other watcher on the key, so N
+# simultaneous contenders need exactly N rounds to drain. This must therefore stay well clear
+# of any test's contender count — at 20 it sat exactly on `_CONCURRENT_APPENDS`, where one more
+# contender turns a passing case into a permanently red one rather than a flaky one.
+_CLAIM_ATTEMPTS = 64
 
 
 def _segment(value: str) -> str:
