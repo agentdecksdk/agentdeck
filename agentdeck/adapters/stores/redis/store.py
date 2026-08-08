@@ -29,6 +29,7 @@ the log its own rather than share a cache's.
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote
 
@@ -42,12 +43,18 @@ from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Sequence
-    from datetime import datetime
+    from datetime import timedelta
 
     from redis.asyncio.client import Pipeline
 
     from agentdeck.core.context import RunContext
+    from agentdeck.core.events import KnownPayload, RunResumed, RunStarted
     from agentdeck.core.status import RunStatus
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
 
 _DEFAULT_PREFIX = "agentdeck:events"
 
@@ -81,10 +88,14 @@ class RedisEventStore(EventStorePort):
     ``StoreError``.
     """
 
-    def __init__(self, url: str, *, prefix: str = _DEFAULT_PREFIX) -> None:
+    def __init__(self, url: str, *, prefix: str = _DEFAULT_PREFIX, clock: Callable[[], datetime] = _now) -> None:
         # decode_responses because every value here is UTF-8 JSON this store wrote itself.
         self._client: Redis = Redis.from_url(url, decode_responses=True)
         self._prefix = prefix
+        # An injected callable rather than Redis's own TIME, per ADR-D11 §4: reading the server's
+        # clock costs a round trip on the hot path, and unlike the SQL stores this one already
+        # holds a WATCH across the read — the clock is not what its atomicity rests on.
+        self._clock = clock
 
     def _log_key(self, tenant: str, log_key: str) -> str:
         return f"{self._prefix}:log:{_segment(tenant)}:{_segment(log_key)}"
@@ -125,44 +136,57 @@ class RedisEventStore(EventStorePort):
                 pipe.sadd(self._log_runs_key(tenant, log_key), event.run_id)
                 pipe.sadd(self._tenant_runs_key(tenant), _member(log_key, event.run_id))
 
-    async def _refuse_a_taken_seq(self, pipe: Pipeline, tenant: str, log_key: str, events: Sequence[Event]) -> None:
-        """One ``seq`` per run, ever — the durable stores' unique index, as a watched check.
+    async def _stamp(
+        self, pipe: Pipeline, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str
+    ) -> list[Event]:
+        """Read this run's next ``seq`` off its index and build the events, **watching** that
+        index so a peer spending the same number between here and ``EXEC`` aborts this write
+        instead of doubling it.
 
-        Watches each run's ``seq`` index as well as reading it, so a peer that spends one of
-        these between the check and the write aborts the ``EXEC`` instead of doubling it. Every
-        write goes through here, the conditional ones included: a store that guarded only the
-        plain path would let a claim put two different events at one ``seq``, and nothing in the
-        log would reveal it — ``check_contiguous`` looks for holes and a duplicate leaves none,
-        and ``last_seq`` reads the same either way.
+        That watch is the whole atomicity mechanism, and it replaces the explicit spent-``seq``
+        check this store used to run: the number is no longer supplied by a caller who might
+        reuse one, and a peer racing for it loses the ``EXEC`` rather than being refused. The
+        index is a **ZSET** — ADR-D11 §6 originally prescribed ``INCR`` here, which would have
+        returned ``WRONGTYPE`` on every append; #153 corrected it.
 
-        Raised before anything is queued, so a refused batch leaves no half of itself behind.
-        A ``StoreError`` and not a claim's refusal-as-data: a spent ``seq`` is corruption, not a
-        race somebody lost.
+        Every payload in one call shares one ``ts``: a batch is one ``MULTI``, so it happened at
+        one instant.
         """
-        await pipe.watch(*{self._seq_key(tenant, log_key, event.run_id) for event in events})
-        taken: set[tuple[str, int]] = set()
-        for event in events:
-            spent = await pipe.zscore(self._seq_key(tenant, log_key, event.run_id), str(event.seq))
-            if spent is not None or (event.run_id, event.seq) in taken:
-                raise StoreError(f"seq {event.seq} of run {event.run_id!r} is already in log {log_key!r}")
-            taken.add((event.run_id, event.seq))
+        seq_key = self._seq_key(ctx.tenant, log_key, ctx.run_id)
+        await pipe.watch(seq_key)
+        scored = await pipe.zrange(seq_key, 0, 0, desc=True, withscores=True)
+        seq = (int(scored[0][1]) if scored else -1) + 1
+        now = self._clock()
+        events = []
+        for offset, payload in enumerate(payloads):
+            events.append(
+                Event(
+                    kind=payload.kind,
+                    seq=seq + offset,
+                    run_id=ctx.run_id,
+                    session_id=ctx.session_id,
+                    tenant=ctx.tenant,
+                    origin=origin,
+                    ts=now,
+                    payload=payload,
+                )
+            )
+        return events
 
-    async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
-        """A plain append is a conditional one too: one ``seq`` per run, over the same
-        ``WATCH``/``MULTI``/``EXEC`` the claims use (see ``_refuse_a_taken_seq``)."""
-        foreign = {event.tenant for event in events} - {ctx.tenant}
-        if foreign:
-            raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
-        if not events:
-            return
+    async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        """A plain append is a conditional one too: the run's ``seq`` index is watched, read and
+        extended over one ``WATCH``/``MULTI``/``EXEC``, exactly as the claims do."""
+        if not payloads:
+            return []
 
-        async def _attempt(pipe: Pipeline) -> None:
-            await self._refuse_a_taken_seq(pipe, ctx.tenant, log_key, events)
+        async def _attempt(pipe: Pipeline) -> list[Event]:
+            events = await self._stamp(pipe, log_key, payloads, ctx, origin)
             pipe.multi()
             self._queue_writes(pipe, ctx.tenant, log_key, events)
             await pipe.execute()
+            return events
 
-        await self._watched(_attempt, "append")
+        return await self._watched(_attempt, "append")
 
     async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
         if limit is not None and limit < 0:
@@ -187,28 +211,19 @@ class RedisEventStore(EventStorePort):
         events = [Event.model_validate(json.loads(row)) for row in rows]
         return [event for event in events if event.seq >= from_seq]
 
-    async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
-        try:
-            scored = await self._client.zrange(
-                self._seq_key(ctx.tenant, log_key, run_id), 0, 0, desc=True, withscores=True
-            )
-        except RedisError as exc:
-            raise StoreError(f"event log last_seq failed: {exc}") from exc
-        return int(scored[0][1]) if scored else -1
-
-    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
+    async def claim_start(
+        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+    ) -> tuple[SessionClaim, Event | None]:
         """The port's session claim over ``WATCH``/``MULTI``/``EXEC``: the log's set of runs
         and every open run's own keys are watched, so a peer opening a run under this
         decision aborts the write rather than doubling it.
 
         A refusal is data, as the port requires — the losing caller re-reads and names the
-        run that actually holds the session. Only an unreachable store, a hopelessly contended
-        one, or a ``seq`` this run has already spent raises.
+        run that actually holds the session. Only an unreachable store or a hopelessly
+        contended one raises.
         """
-        if event.tenant != ctx.tenant:
-            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
 
-        async def _attempt(pipe: Pipeline) -> SessionClaim:
+        async def _attempt(pipe: Pipeline) -> tuple[SessionClaim, Event | None]:
             await pipe.watch(self._log_runs_key(ctx.tenant, log_key))
             run_ids = _sorted_text(await pipe.smembers(self._log_runs_key(ctx.tenant, log_key)))
             if run_ids:
@@ -216,7 +231,8 @@ class RedisEventStore(EventStorePort):
                     *(self._life_key(ctx.tenant, log_key, run_id) for run_id in run_ids),
                     *(self._run_key(ctx.tenant, log_key, run_id) for run_id in run_ids),
                 )
-            overridden: list[str] = []
+            stale_before = self._clock() - stale_after
+            overridden: list[Event] = []
             for run_id in run_ids:
                 life = await pipe.get(self._life_key(ctx.tenant, log_key, run_id))
                 # A key the same MULTI filled in coming back empty means the keyspace lost it
@@ -228,46 +244,44 @@ class RedisEventStore(EventStorePort):
                 if life is None or status_of([Event.model_validate(json.loads(life))]) in TERMINAL_STATUSES:
                     continue
                 last = await pipe.lindex(self._run_key(ctx.tenant, log_key, run_id), -1)
-                if last is not None and Event.model_validate(json.loads(last)).ts > stale_before:
-                    return SessionClaim(held_by=run_id)
-                overridden.append(run_id)
-            await self._refuse_a_taken_seq(pipe, ctx.tenant, log_key, [event])
+                if last is None:
+                    continue
+                tail = Event.model_validate(json.loads(last))
+                if tail.ts > stale_before:
+                    return SessionClaim(held_by=run_id), None
+                overridden.append(tail)
+            events = await self._stamp(pipe, log_key, [opening], ctx, origin)
             pipe.multi()
-            self._queue_writes(pipe, ctx.tenant, log_key, [event])
+            self._queue_writes(pipe, ctx.tenant, log_key, events)
             await pipe.execute()
-            return SessionClaim(overridden=tuple(overridden))
+            return SessionClaim(overridden=tuple(overridden)), events[0]
 
         return await self._watched(_attempt, "claim_start")
 
-    async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
+    async def claim_resume(
+        self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
+    ) -> Event | None:
         """The port's conditional append over ``WATCH``/``MULTI``/``EXEC``: the run's status
         and its ``seq`` index are watched, so the write that publishes the
         ``WAITING_HUMAN`` -> ``RUNNING`` transition is the write that tested for it.
 
-        A loser gets its clean ``False`` from what the winner wrote, never from a guess. An
+        A loser gets its clean ``None`` from what the winner wrote, never from a guess. An
         unreachable store raises instead, because it cannot know whether anybody resumed.
         """
-        if event.run_id != run_id:
-            raise ValueError(f"a claim on run {run_id!r} cannot carry an event for {event.run_id!r}")
-        if event.tenant != ctx.tenant:
-            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
+        if ctx.run_id != run_id:
+            raise ValueError(f"a claim on run {run_id!r} cannot be made in the context of {ctx.run_id!r}")
 
-        async def _attempt(pipe: Pipeline) -> bool:
+        async def _attempt(pipe: Pipeline) -> Event | None:
             life_key = self._life_key(ctx.tenant, log_key, run_id)
-            seq_key = self._seq_key(ctx.tenant, log_key, run_id)
-            await pipe.watch(life_key, seq_key)
+            await pipe.watch(life_key)
             life = await pipe.get(life_key)
             if not can_resume(status_of([Event.model_validate(json.loads(life))] if life is not None else [])):
-                return False
-            scored = await pipe.zrange(seq_key, 0, 0, desc=True, withscores=True)
-            if event.seq != (int(scored[0][1]) if scored else -1) + 1:
-                # The run went round the loop while this claim was in flight: it waits
-                # again, on a longer log, and this seq belongs to an event already written.
-                return False
+                return None
+            events = await self._stamp(pipe, log_key, [resumed], ctx, origin)
             pipe.multi()
-            self._queue_writes(pipe, ctx.tenant, log_key, [event])
+            self._queue_writes(pipe, ctx.tenant, log_key, events)
             await pipe.execute()
-            return True
+            return events[0]
 
         return await self._watched(_attempt, "claim_resume")
 
