@@ -18,6 +18,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
+from agentdeck.adapters.caps.sandbox import open_sandbox
 from agentdeck.adapters.control.memory import MemoryControlPort
 from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings
@@ -26,9 +27,9 @@ from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.adapters.telemetry.langfuse.client import langfuse_sink
 from agentdeck.agents.runners.base import default_use_responses, needs_sandbox
 from agentdeck.runtime.discovery import InvocableRegistry
+from agentdeck.runtime.observability import sandbox_trace_env
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import ControlSettings, EventsSettings, Settings, get_settings
-from agentdeck.runtime.workspace import Workspace
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Mapping, Sequence
@@ -116,35 +117,34 @@ def resolve_checkpoint(settings: Settings | None = None) -> tuple[str, str]:
 def resolve_agent_sandbox() -> Callable[[Agent[Any]], AbstractAsyncContextManager[Any]]:
     """How the openai-agents engine opens a sandbox for an agent that needs one.
 
-    ponytail: a closure over v1's :class:`Workspace`, not a port — the sandbox becomes
-    ``core/ports/sandbox.py`` in the next slice, and it has three consumers with three
-    different needs, so inventing the port here would be inventing the wrong one. The
-    upgrade trigger is that slice; nothing else may take this shape in the meantime.
+    Yields the SDK's own run-config handle rather than the port: attaching a sandbox to an SDK
+    run means handing the SDK its own type, so there is nothing for core to describe. The engine
+    treats it as opaque, which is why the type here is ``Any`` and not the adapter's class.
     """
 
     @asynccontextmanager
     async def scope(agent: Agent[Any]) -> AsyncIterator[Any]:
         # Opens when the top-level agent OR any reachable worker is a SandboxAgent: the SDK
         # requires ``run_config.sandbox`` before any handoff target executes, not just for
-        # the first agent on the turn. ``Workspace.open`` inherits an outer workspace bound
-        # to the current async context, so a nested run shares the caller's session.
+        # the first agent on the turn. ``open_sandbox`` joins an outer sandbox bound to the
+        # current async context, so a nested run shares the caller's session.
         if not needs_sandbox(agent):
             yield None
             return
-        async with Workspace.open(environment=get_settings().sandbox_env()) as workspace:
-            yield workspace.sandbox_run_config
+        async with open_sandbox(environment=get_settings().sandbox_env(), trace_env=sandbox_trace_env) as sandbox:
+            yield sandbox.sandbox_run_config
 
     return scope
 
 
 def resolve_workflow_workspace() -> Callable[[], AbstractAsyncContextManager[Any]]:
-    """The workspace a workflow's nodes run inside.
+    """The sandbox a workflow's nodes run inside.
 
     Unconditional, unlike the agent scope: a ``SkillNode`` or a ``LoadFileNode`` calls
-    ``Workspace.require()`` and raises without one, and which nodes a graph holds is not
-    something this engine can see. Same ponytail ceiling as :func:`resolve_agent_sandbox`.
+    ``require_sandbox()`` and raises without one, and which nodes a graph holds is not
+    something this engine can see.
     """
-    return lambda: Workspace.open(environment=get_settings().sandbox_env())
+    return lambda: open_sandbox(environment=get_settings().sandbox_env(), trace_env=sandbox_trace_env)
 
 
 def resolve_control_port(settings: ControlSettings | None = None) -> ControlPort:

@@ -250,7 +250,7 @@ def sandbox_trace_env(settings: LangfuseSettings | None = None) -> dict[str, str
     the same ``LANGFUSE_*`` env the SDK reads natively (``get_client()`` owns the OTLP
     endpoint, auth and flush), the shared ``OTEL_SERVICE_NAME``, and the W3C
     ``TRACEPARENT``/``BAGGAGE`` carriers so its spans nest under the caller's active span
-    and keep Langfuse's trace attributes. The Workspace injects it alongside
+    and keep Langfuse's trace attributes. A sandbox injects it alongside
     ``SANDBOX_CAPTURE``. Does not require :func:`init_observability`: a skill run outside an
     agent/workflow still exports, just as a root trace (no carrier to adopt).
     """

@@ -51,8 +51,21 @@ of vanishing the moment the call returns.
   was never read anywhere in the codebase.
 - **Breaking:** `agentdeck.runtime.workspace.runtime_capture` and `current_capture` are
   removed. Nothing ever bound the ContextVar behind them, so `current_capture()` always
-  answered `None`; a run's identity now reaches telemetry through the event envelope. Pass
-  `Workspace.open(capture=...)` directly if you were relying on the ambient default.
+  answered `None`; a run's identity now reaches telemetry through the event envelope.
+- **Breaking:** the sandbox is a port. `agentdeck.runtime.workspace` and its `Workspace` class
+  are removed, replaced by `SandboxPort` (`agentdeck.core.ports.sandbox`) and the
+  `agentdeck.adapters.caps.sandbox` adapter that implements it. Open one with
+  `async with open_sandbox(...) as sandbox:` instead of `Workspace.open(...)`, and reach the
+  ambient one with `require_sandbox()` instead of `Workspace.require()`. The port carries only
+  what callers actually use — `read_text`, `write_bytes`, `mount_dir`, `exec` — so
+  `write_text`, `write_output`, `read_output`, `output_path` and `OUTPUT_FILES_DIR` are gone
+  (nothing in the package or its tests called them), `exec` no longer takes `shell`, and
+  mounting a host directory now grants access to it in the same call rather than requiring a
+  separate `extra_path_grants=`. `materialize()` and `input_file_entries()`, which took the
+  Agents SDK's own manifest-entry types, are replaced by `mount_dir()` and
+  `input_file_targets()`; `Workspace.open`'s unused `capture`, `client` and `client_factory`
+  arguments are gone. A sandbox's environment is unchanged, including the rule that
+  host-supplied trace carriers win over a caller's stale copy.
 - An agent turn no longer opens its Langfuse observation inside the engine — the sink builds
   the run's trace from its events instead, so a turn is reported once rather than twice.
 - **Breaking:** `App.run_agent` and `App.chat` no longer return the OpenAI Agents SDK's

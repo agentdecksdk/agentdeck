@@ -34,8 +34,8 @@ class BaseWorkflow:
 
     Override :attr:`state` (a Pydantic model) and :meth:`build_graph`
     (returns an unbuilt ``StateGraph``). :meth:`run` opens one
-    :class:`Workspace` for the whole graph; all nodes — and any agents
-    they invoke — share that session via ``Workspace.require()``.
+    sandbox for the whole graph; all nodes — and any agents
+    they invoke — share that session via ``require_sandbox()``.
     """
 
     name: ClassVar[str] = ""
@@ -199,7 +199,7 @@ class BaseWorkflow:
             args = json.loads(raw_args) if raw_args else {}
             if pinned:
                 args = {**args, **pinned}  # pinned values always win
-            # Through cls.run so the workflow inherits an active Workspace
+            # Through cls.run so the workflow inherits an active sandbox
             # from the calling agent.
             result = await cls.run(args)
             if keys is not None:
