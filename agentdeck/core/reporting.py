@@ -74,6 +74,3 @@ class Reporter:
             )
             return
         self._pending.append(payload)
-
-
-__all__ = ["MAX_PENDING_REPORTS", "Reporter"]

@@ -48,6 +48,3 @@ class ToolSourcePort(ABC):
     @abstractmethod
     def resolve(self, spec: InvocableSpec) -> ToolSet:
         """The tools this source has for ``spec``, plus whatever it could not supply."""
-
-
-__all__ = ["ToolSet", "ToolSourcePort"]

@@ -50,6 +50,3 @@ class RunContext:
         """Where this run's events are written — a run without a session is its own log,
         so persist-before-yield holds for it too."""
         return self.session_id or self.run_id
-
-
-__all__ = ["RunContext"]

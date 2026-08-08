@@ -42,6 +42,3 @@ class EventSinkPort(ABC):
         ``await`` in its ``finally``), so a buffer must be safe to touch from two places:
         read-``await``-clear here can drop what that ``emit`` adds in between.
         """
-
-
-__all__ = ["EventSinkPort"]

@@ -171,15 +171,3 @@ class Gate:
         if pending.verb is Signal.CANCEL:
             raise RunCancelledError(self._run_id, safe_point, pending.reason)
         raise RunPausedError(self._run_id, safe_point, pending.reason)
-
-
-__all__ = [
-    "CONTROL_POLL_INTERVAL",
-    "ControlPort",
-    "ControlSignal",
-    "ControlSignalled",
-    "Gate",
-    "RunCancelledError",
-    "RunPausedError",
-    "Signal",
-]
