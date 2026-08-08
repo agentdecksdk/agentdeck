@@ -1,7 +1,7 @@
 {
   "v": 1,
   "kind": "control.requested",
-  "seq": 17,
+  "seq": 0,
   "run_id": "run_1",
   "session_id": "sess_1",
   "tenant": "acme",
