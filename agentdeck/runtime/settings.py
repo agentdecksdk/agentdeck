@@ -18,12 +18,15 @@ from collections.abc import Mapping
 from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Self
+from typing import TYPE_CHECKING, Any, Self
 
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.sources import YamlConfigSettingsSource
+
+if TYPE_CHECKING:
+    from importlib.resources.abc import Traversable
 
 PACKAGED_DEFAULT_YAML = Path(__file__).resolve().parent / "config.default.yaml"
 _CONFIG_PATH_ENV = "APP_CONFIG_PATH"
@@ -74,10 +77,19 @@ class SectionedYamlSource(YamlConfigSettingsSource):
         self._section = section
         super().__init__(settings_cls, yaml_file=resolve_config_path())
 
-    def _read_file(self, file_path: Path) -> dict[str, Any]:
+    # ``Path | Traversable`` because pydantic-settings widened this parameter and an override
+    # may not narrow one (Liskov) — CI, resolving fresh, reads the widened base and rejected the
+    # old signature. The dependency is unpinned (`>=2.4`), so both are in the field: the wide
+    # annotation is the one that satisfies either base, and the body only needs ``is_file()``,
+    # which both types provide.
+    def _read_file(self, file_path: Path | Traversable) -> dict[str, Any]:
         if not file_path.is_file():
             return {}
-        data: Any = super()._read_file(file_path) or {}
+        # ty: ignore[invalid-argument-type] — the same two-version split, seen from the other
+        # side: against a `Path`-only base this argument is too wide. It is a `Path` at runtime
+        # (the caller is pydantic-settings, resolving our own `yaml_file`), and the widened base
+        # accepts both. Drop the ignore once `pydantic-settings` is pinned past the widening.
+        data: Any = super()._read_file(file_path) or {}  # ty: ignore[invalid-argument-type]
         if not isinstance(data, Mapping):
             return {}
         if self._section is None:
