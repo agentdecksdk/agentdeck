@@ -16,10 +16,10 @@ from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine, Sequence
-    from datetime import datetime
+    from datetime import timedelta
 
     from agentdeck.core.context import RunContext
-    from agentdeck.core.events import Event
+    from agentdeck.core.events import Event, KnownPayload, RunResumed, RunStarted
     from agentdeck.core.status import RunStatus
 
 
@@ -56,8 +56,8 @@ class NeverYields(EventStorePort):
     def __init__(self, inner: EventStorePort) -> None:
         self._inner = inner
 
-    async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
-        _drive(self._inner.append(log_key, events, ctx))
+    async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        return _drive(self._inner.append(log_key, payloads, ctx, origin))
 
     async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
         return _drive(self._inner.read(log_key, ctx, offset, limit))
@@ -65,14 +65,15 @@ class NeverYields(EventStorePort):
     async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
         return _drive(self._inner.read_run(log_key, run_id, ctx, from_seq))
 
-    async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
-        return _drive(self._inner.last_seq(log_key, run_id, ctx))
+    async def claim_start(
+        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+    ) -> tuple[SessionClaim, Event | None]:
+        return _drive(self._inner.claim_start(log_key, opening, ctx, origin, stale_after))
 
-    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
-        return _drive(self._inner.claim_start(log_key, event, ctx, stale_before))
-
-    async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
-        return _drive(self._inner.claim_resume(log_key, run_id, event, ctx))
+    async def claim_resume(
+        self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
+    ) -> Event | None:
+        return _drive(self._inner.claim_resume(log_key, run_id, resumed, ctx, origin))
 
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
         return _drive(self._inner.list_runs(ctx, status))
