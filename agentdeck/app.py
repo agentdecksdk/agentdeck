@@ -40,7 +40,8 @@ from typing import TYPE_CHECKING, Any
 
 from agents import SQLiteSession
 
-from agentdeck.agents.mcp.lifecycle import MCPLifecycle
+from agentdeck.adapters.engines.openai_agents.sessions import SessionFactory
+from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.agents.registry import AgentRegistry
 from agentdeck.composition import build_runtime, v1_engines
 from agentdeck.core.content import DataBlock, TextBlock, coerce_input
@@ -49,7 +50,6 @@ from agentdeck.core.control import Signal
 from agentdeck.core.events import Custom, NodeUpdated, RunCompleted, RunInterrupted
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.runtime.registry import PROJECT_DIR, _package_dir, mount_project_dir
-from agentdeck.runtime.sessions import SessionFactory
 from agentdeck.runtime.settings import Settings, get_settings
 from agentdeck.skills.bundle import SkillRegistry
 from agentdeck.workflows.interrupts import interrupt_result
