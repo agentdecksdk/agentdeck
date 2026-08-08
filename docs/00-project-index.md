@@ -34,14 +34,17 @@ Documents were written in conversation order and later ones refine earlier ones.
    (it predates several decisions), PR #1 wins.
 2. `design/adr-d5-two-stores.md` **is** the session-state rule. Design doc §5/§11/§12-D5 read
    through the ADR's §5 amendment list until edited.
-2b. `design/adr-d11-store-assigns-seq-and-time.md` **is** the rule for who assigns `seq` and
-   `ts`. It supersedes `EventStorePort.claim_start`'s "a store never reads a clock" and the
-   design doc's envelope-stamping split; ADR-D5 is otherwise untouched, and the engine boundary
-   (engines yield payloads, never envelopes) is unchanged by it.
-3. `delivery/milestone-0-walking-skeleton.md` reorders early delivery: the epic's Phase 1/2 now
+3. `design/adr-d11-store-assigns-seq-and-time.md` **is** the rule for who assigns `seq` and `ts`,
+   and it outranks rule 1 on that one question. It supersedes coding-standards §6
+   (`docs/coding-standards.md:113`), ADR-D5's *Explicitly unchanged* clause (`:151`, "`Runtime`
+   still stamps and appends every event"), `prompts/pr1-event-schema-prompt.md:34` and `:121`
+   (frozen as history, so superseded here rather than edited), and the design doc's
+   envelope-stamping split. **ADR-D5's two-store rule is untouched**, as is the engine boundary —
+   engines yield payloads, never envelopes.
+4. `delivery/milestone-0-walking-skeleton.md` reorders early delivery: the epic's Phase 1/2 now
    execute *through* the skeleton (see §4 below). Epic story content is unchanged;
    sequencing defers to this index.
-4. The PRD owns *what and for whom*; the design doc owns *how*; neither restates the
+5. The PRD owns *what and for whom*; the design doc owns *how*; neither restates the
    other. A conflict between them is a bug in one of them — flag it, don't guess.
 
 ## 3. Known deltas (recorded so nothing is silently inconsistent)
@@ -55,6 +58,12 @@ Documents were written in conversation order and later ones refine earlier ones.
 | Milestone 0 §3 (UC2) | Two seq checks decided later: seq continuity across the kill/restart; double-resume race → exactly one winner | **Applied 2026-08-04** — added to UC2's make-sure list |
 | Milestone 0 header | "A=contiguous, B=full-text — pending confirmation" | **Applied 2026-08-04** — confirmed; UC1/UC3 still test them empirically |
 | PRD FR-17–21 (group sessions, moderator, advisors, triggers) | Designed in conversation, not yet in the architecture doc | Open — each gets a feature spec doc at its epic (v2.1/v2.2); architecture impact already assessed: zero new kinds, one new port (`TriggerPort`), one new component (Moderator as Invocable) |
+| coding-standards §6 (`:113`) | Still reads "the Runtime is the **only** assigner of `seq`" — superseded by ADR-D11 | Open — lands with the port change (ADR-D11 §7) |
+| coding-standards §1 precedence | Enumerates "D1–D10 and ADR-D5"; by its own ordering D11 outranks nothing | **Applied 2026-08-08** — D11 named |
+| ADR-D5 `:151` *Explicitly unchanged* | "`Runtime` still stamps and appends every event" — the exact sentence D11 overturns | **Applied 2026-08-08** — dated amendment added; D5's two-store rule untouched |
+| `prompts/pr1-event-schema-prompt.md:34,121` | "assigned by the Runtime" / "seq is assigned only by the Runtime" | Superseded by precedence rule 3 above. Prompts are frozen (§6 below), so **not edited** |
+| `core/ports/store.py` docstrings, `runtime/service.py:5,536-538`, `test_runtime_service.py:890` | All still assert or pin Runtime-assigned `seq` | Open — land with the port change, per ADR-D11 §7 |
+| Design doc envelope-stamping split | Predates ADR-D11 | Open — lands with the port change |
 
 ## 4. Execution order (single source of truth for "what's next")
 
