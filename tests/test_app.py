@@ -326,7 +326,7 @@ def test_pause_and_resume_reach_the_runtime_this_app_composed(project, monkeypat
 
 @pytest.fixture(autouse=True)
 def _reset_mcp_lifecycle():
-    from agentdeck.agents.mcp.lifecycle import MCPLifecycle
+    from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 
     yield
     MCPLifecycle.reset()
@@ -366,7 +366,7 @@ def test_open_close_lifecycle(project):
 def test_only_the_app_that_started_mcp_shuts_it_down(project, monkeypatch):
     """The MCP registry is process-wide: a bare App must not tear down someone else's servers."""
     from agentdeck import App
-    from agentdeck.agents.mcp.lifecycle import MCPLifecycle
+    from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 
     calls = []
 
@@ -389,7 +389,7 @@ def test_only_the_app_that_started_mcp_shuts_it_down(project, monkeypatch):
 def test_injected_session_factory_is_used_and_closed_once(project, monkeypatch):
     """The DI seam bypasses `from_settings` and `aclose()` closes the injection exactly once."""
     from agentdeck import App
-    from agentdeck.runtime.sessions import SessionFactory
+    from agentdeck.adapters.engines.openai_agents.sessions import SessionFactory
 
     def boom(_settings):
         raise AssertionError("from_settings must not be called when a factory is injected")

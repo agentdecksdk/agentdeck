@@ -16,6 +16,22 @@ of vanishing the moment the call returns.
 
 ### Changed
 
+- **Breaking:** `agentdeck.runtime` no longer re-exports `OpenAISettings`, `PluginRegistry`,
+  `RunnerSettings`, `Settings`, `SkillsSettings`, `Workspace`, `get_settings` or
+  `reset_settings_cache`. Import each from the module that defines it, e.g.
+  `from agentdeck.runtime.settings import get_settings`; nothing about how any of them
+  behaves changed. Part of the v3 cutover's prep to put a package-wide "`agentdeck.runtime`
+  stays adapter-free" import-linter contract on the whole package, rather than just today's
+  `service`/`dispatch` carve-out (`docs/delivery/plan-v2-cutover.md`).
+- **Breaking:** `agentdeck.runtime.sessions` and `agentdeck.runtime.checkpointer` (forwarders
+  left behind when `SessionFactory` and `resolve_checkpointer` relocated to their engine
+  adapters) are removed. Import `SessionFactory` from
+  `agentdeck.adapters.engines.openai_agents.sessions` and `resolve_checkpointer` from
+  `agentdeck.adapters.engines.langgraph.checkpointer`. `agentdeck.agents.mcp.lifecycle`, the
+  equivalent forwarder for `MCPLifecycle`, is removed the same way — import it from
+  `agentdeck.adapters.tools.mcp.lifecycle`.
+- **Breaking:** `OpenAISettings.tracing_api_key` (`OPENAI_TRACING_API_KEY`) is removed — it
+  was never read anywhere in the codebase.
 - **Breaking:** `App.run_agent` and `App.chat` no longer return the OpenAI Agents SDK's
   `RunResult`. Both return a `TurnResult` (`output`, `usage`, `run_id`, `session_id`) built
   from the run's own `run.completed` event. Update `result.final_output` to `result.output`;

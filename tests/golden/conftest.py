@@ -37,7 +37,7 @@ def make_client(monkeypatch):
     from fake_model import ScriptedProvider
     from fastapi.testclient import TestClient
 
-    from agentdeck.runtime.checkpointer import _memory_saver
+    from agentdeck.adapters.engines.langgraph.checkpointer import _memory_saver
     from agentdeck.runtime.settings import PACKAGED_DEFAULT_YAML, reset_settings_cache
     from agentdeck.serve import create_app
 
