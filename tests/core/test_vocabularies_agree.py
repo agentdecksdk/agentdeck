@@ -10,10 +10,10 @@ from __future__ import annotations
 
 from typing import get_args
 
-from agentdeck.core.events import ControlVerb, RunStarted
+from agentdeck.core.events import KNOWN_KINDS, TERMINAL_KINDS, ControlVerb, RunStarted
 from agentdeck.core.invocable import InvocableKind
 from agentdeck.core.ports.control import Signal
-from agentdeck.core.status import TERMINAL_STATUSES, RunStatus
+from agentdeck.core.status import LIFECYCLE_KINDS, TERMINAL_STATUSES, RunStatus
 
 
 def test_every_signal_is_a_control_verb_the_schema_can_record():
@@ -33,6 +33,18 @@ def test_invocable_kinds_match_what_run_started_accepts():
     ``run.started`` carries. A kind the schema rejects cannot open a run."""
     literal = get_args(RunStarted.model_fields["kind_of_invocable"].annotation)
     assert {kind.value for kind in InvocableKind} == set(literal)
+
+
+def test_every_kind_the_lifecycle_tables_name_is_a_kind_the_schema_mints():
+    """``_KIND_TO_STATUS`` and ``TERMINAL_KINDS`` are hand-written strings — the one place in
+    core where a kind is spelled rather than derived from its payload class.
+
+    A typo does not raise anywhere: the entry simply never matches, so a run's status quietly
+    stops advancing past that transition, or ``check_terminal`` quietly stops seeing an end.
+    Both failures look like a working system with one missing event.
+    """
+    assert LIFECYCLE_KINDS <= KNOWN_KINDS
+    assert TERMINAL_KINDS <= LIFECYCLE_KINDS
 
 
 def test_terminal_statuses_are_exactly_the_unresumable_finished_ones():
