@@ -13,7 +13,7 @@ from agents.sandbox.workspace_paths import SandboxPathGrant
 
 from agentdeck.errors import SkillError
 from agentdeck.runtime.observability import RunTrace, init_observability, trace_run
-from agentdeck.runtime.workspace import Workspace, current_capture, input_file_entries
+from agentdeck.runtime.workspace import Workspace, input_file_entries
 from agentdeck.skills.bundle import DEFAULT_ENTRY_SCRIPT, SkillBundle
 
 if TYPE_CHECKING:
@@ -149,10 +149,8 @@ class SkillExecutor:
         # One named span per skill run. Opened BEFORE the sandbox so the skill's own
         # ``TRACEPARENT`` (captured in ``Workspace.open``) points here — the sandboxed
         # LLM calls then nest under this skill span instead of floating up to the run
-        # root, and the trace shows *which* skill did the work. Passing the ambient capture
-        # re-affirms the session (idempotent under a run; it also tags a *standalone* skill
-        # run's trace, which would otherwise be session-less).
-        with trace_run(current_capture(), name=self.bundle.name, kind="tool", input=[str(a) for a in args]) as step:
+        # root, and the trace shows *which* skill did the work.
+        with trace_run(name=self.bundle.name, kind="tool", input=[str(a) for a in args]) as step:
             async with Workspace.open(
                 environment=env,
                 extra_path_grants=(bundle_grant,),

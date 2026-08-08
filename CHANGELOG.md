@@ -32,6 +32,12 @@ of vanishing the moment the call returns.
   `agentdeck.adapters.tools.mcp.lifecycle`.
 - **Breaking:** `OpenAISettings.tracing_api_key` (`OPENAI_TRACING_API_KEY`) is removed — it
   was never read anywhere in the codebase.
+- **Breaking:** `agentdeck.runtime.workspace.runtime_capture` and `current_capture` are
+  removed. Nothing ever bound the ContextVar behind them, so `current_capture()` always
+  answered `None`; a run's identity now reaches telemetry through the event envelope. Pass
+  `Workspace.open(capture=...)` directly if you were relying on the ambient default.
+- An agent turn no longer opens its Langfuse observation inside the engine — the sink builds
+  the run's trace from its events instead, so a turn is reported once rather than twice.
 - **Breaking:** `App.run_agent` and `App.chat` no longer return the OpenAI Agents SDK's
   `RunResult`. Both return a `TurnResult` (`output`, `usage`, `run_id`, `session_id`) built
   from the run's own `run.completed` event. Update `result.final_output` to `result.output`;
@@ -65,6 +71,14 @@ of vanishing the moment the call returns.
 
 ### Added
 
+- **Langfuse now traces workflow runs.** `build_runtime` registers the Langfuse sink itself
+  when `AGENTDECK_LANGFUSE_PUBLIC_KEY` and `AGENTDECK_LANGFUSE_SECRET_KEY` are both set, so
+  every run played through a Runtime — workflow as well as agent — becomes a trace built from
+  the run's own events, carrying its session id, its principal as the Langfuse user, its
+  nodes, its tool calls and its token usage. Workflow runs previously produced either no trace
+  or an anonymous one. Nothing is registered and the Langfuse SDK is never imported without
+  both keys, so the `[observability]` extra stays optional. Pass `sinks=()` to `build_runtime`
+  to opt out.
 - **`App.store`**: the event log every recorded turn appends to. Read a turn back with
   `await app.store.read(log_key, ctx)`, where `log_key` is a `TurnResult`'s `session_id` (or
   `run_id`, for a session-less run).

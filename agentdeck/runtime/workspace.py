@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 import logging
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,7 +22,7 @@ from agentdeck.runtime.observability import sandbox_trace_env
 
 if TYPE_CHECKING:
     import os
-    from collections.abc import AsyncGenerator, Callable, Generator, Iterator, Mapping, Sequence
+    from collections.abc import AsyncGenerator, Callable, Iterator, Mapping, Sequence
 
     from agents.sandbox.session import SandboxSession
     from agents.sandbox.session.sandbox_client import BaseSandboxClient
@@ -47,39 +47,6 @@ OUTPUT_FILES_DIR = "output_files"
 # same shape so callers can predict paths without reading SKILL.md.
 
 _active: ContextVar[Workspace | None] = ContextVar("toolkit_workspace", default=None)
-
-# Ambient per-session capture identity. The runtime binds it ONCE at the session
-# boundary (where it first knows who / which session is acting); every
-# ``Workspace.open`` within the scope inherits it, so skills and agents never
-# resolve the session id themselves — it rides into every emitted entity's
-# ``Capture`` under the hood. Mirrors the ``_active`` workspace ContextVar.
-_runtime_capture: ContextVar[Capture | None] = ContextVar("agentdeck_runtime_capture", default=None)
-
-
-@contextmanager
-def runtime_capture(capture: Capture | None) -> Generator[None, None, None]:
-    """Bind the ambient capture identity for the enclosed run.
-
-    Set once at the session boundary — e.g. a backend that knows the conversation
-    id does ``with runtime_capture(Capture(actor=AGENT, session_id=sid)): ...`` —
-    and every :meth:`Workspace.open` inside (across extract / chat / nested
-    workflows) inherits it as the default ``capture``. An explicit
-    ``Workspace.open(capture=...)`` still wins for a one-off override.
-    """
-    token = _runtime_capture.set(capture)
-    try:
-        yield
-    finally:
-        _runtime_capture.reset(token)
-
-
-def current_capture() -> Capture | None:
-    """The ambient session capture bound by :func:`runtime_capture`, or ``None``.
-
-    The read side of the same ContextVar: whoever needs the acting identity (e.g.
-    to tag a trace with its ``session_id``) reads it here instead of the private var.
-    """
-    return _runtime_capture.get()
 
 
 @dataclass(slots=True)
@@ -133,15 +100,11 @@ class Workspace:
         ``capture`` is the per-session identity (who/which-session) stamped
         onto everything the sandbox's skills emit, serialized into the
         :data:`CAPTURE_ENV` env var on the host — never sourced from model
-        output. It defaults to the ambient :func:`runtime_capture` the session
-        bound, so callers normally pass nothing; an explicit value is a one-off
-        override.
+        output. A caller that passes none gets the sandbox-session fallback
+        stamped below.
         """
-        # Identity falls back to the ambient session-bound capture, so a single
-        # `runtime_capture(...)` at the session boundary reaches every open.
         # Serialize once; both the reuse and fresh-session branches consume the
         # merged dict. An explicit ``environment`` key still wins on collision.
-        capture = capture if capture is not None else _runtime_capture.get()
         # Host-built, unspoofable-in-sandbox context: the capture identity and (when
         # Langfuse is on) the OTLP export target + W3C trace carriers of the active
         # span. A skill's ``skill_runtime`` reads both.
@@ -163,10 +126,10 @@ class Workspace:
         client = client or client_factory()
         manifest = _build_manifest(environment, input_files, manifest_root, extra_path_grants)
         session = await client.create(manifest=manifest, options=None)
-        # No bound identity? The sandbox session id is only known post-create, so
+        # No identity from the caller? The sandbox session id is only known post-create, so
         # stamp it onto the live manifest as a minimal fallback capture — ``exec``
         # re-resolves ``environment`` each call. An explicit ``environment`` key or a
-        # bound ``capture`` already rode in via the manifest and is left intact.
+        # passed ``capture`` already rode in via the manifest and is left intact.
         if CAPTURE_ENV not in session.state.manifest.environment.value:
             session.state.manifest.environment.value[CAPTURE_ENV] = Capture(
                 session_id=str(session.state.session_id),
@@ -324,7 +287,5 @@ __all__ = [
     "CAPTURE_ENV",
     "OUTPUT_FILES_DIR",
     "Workspace",
-    "current_capture",
     "input_file_entries",
-    "runtime_capture",
 ]

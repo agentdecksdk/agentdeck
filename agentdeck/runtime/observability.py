@@ -189,7 +189,7 @@ class RunTrace:
 
 @contextmanager
 def trace_run(
-    capture: Capture | None,
+    capture: Capture | None = None,
     *,
     name: str,
     kind: ObservationKind = "chain",
@@ -213,8 +213,9 @@ def trace_run(
     is what makes the unit's own LLM/sandbox calls nest under it instead of floating up.
 
     ``session_id``, when given, names the chat session at a run root (e.g. ``App.chat``'s
-    caller-supplied id) and wins over the capture-derived one, which stays the fallback for
-    sandboxed skills that only have a ``Capture``.
+    caller-supplied id) and wins over the capture-derived one. No caller in the package
+    supplies a ``capture`` any more — the telemetry sink reads identity off the event
+    envelope instead — so it defaults to none and only a direct caller still has the hook.
 
     A cheap no-op when Langfuse is disabled.
     """

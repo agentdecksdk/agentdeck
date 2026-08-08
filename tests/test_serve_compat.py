@@ -10,8 +10,6 @@ import json
 import logging
 import sys
 import textwrap
-from contextlib import aclosing, contextmanager
-from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -83,31 +81,6 @@ def project(tmp_path, monkeypatch):
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
     return tmp_path
-
-
-class RecordingTrace:
-    """Stands in for the Langfuse observation v1 opens around a turn, recording what the run
-    reported about itself — the difference between a trace that reads as succeeded and one that
-    reads as errored, without needing the ``[observability]`` extra installed."""
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[Any, str | None]] = []
-
-    def set_output(self, output: Any = None, *, error: str | None = None) -> None:
-        self.calls.append((output, error))
-
-
-@pytest.fixture
-def recorded_trace(monkeypatch):
-    """Swap v1's Langfuse observation for one that records what the run reported into it."""
-    trace = RecordingTrace()
-
-    @contextmanager
-    def _trace_run(_capture, **_kwargs):
-        yield trace
-
-    monkeypatch.setattr("agentdeck.v1bridge.engine.trace_run", _trace_run)
-    return trace
 
 
 @pytest.fixture
@@ -187,31 +160,6 @@ async def test_a_failed_turn_ends_with_an_error_frame_while_the_log_keeps_the_fa
     assert "secret detail" not in "".join(frames)
     # v1's wire has no frame for a recorded failure, but the log must still hold one.
     assert [event.kind for event in await store.read("s1", ctx)][-1] == "run.failed"
-
-
-async def test_a_completed_turn_reports_its_output_to_the_trace_not_a_failure(project, scripted, recorded_trace):
-    """A successful run ends by the Runtime closing the engine's generator, which is not an
-    abandoned run: the trace must carry the output and no error, or every chat turn shows up
-    in Langfuse as errored."""
-    runtime, _, _ = scripted(ScriptedModel(deltas=("Hello",)))
-
-    frames = [frame async for frame in chat_frames(runtime.run("Greeter", coerce_input("hi"), run_context("s1")))]
-
-    assert frames[-1].startswith("event: done")
-    assert recorded_trace.calls == [("Hello", None)]
-
-
-async def test_an_abandoned_turn_reports_the_abandonment_to_the_trace(project, scripted, recorded_trace):
-    """Walking away before the engine reached its terminal event is the one case that *is* a
-    failed observation. Deterministic without a sleep: the engine says whether it finished,
-    rather than the test racing the SDK's detached run loop."""
-    runtime, _, _ = scripted(ScriptedModel(deltas=("one", "two", "three")))
-
-    events = runtime.run("Greeter", coerce_input("hi"), run_context("s1"))
-    async with aclosing(chat_frames(events)) as frames:
-        await anext(frames)  # one delta, then walk away mid-run
-
-    assert [error for _, error in recorded_trace.calls] == ["GeneratorExit: run did not reach its terminal event"]
 
 
 async def test_a_disconnect_closes_its_run_in_the_log(project, scripted):
