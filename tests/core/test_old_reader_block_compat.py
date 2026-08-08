@@ -47,7 +47,7 @@ def _wire(kind: str, payload: dict, seq: int = 0) -> dict[str, Any]:
         "seq": seq,
         "run_id": "run_1",
         "session_id": None,
-        "tenant": "acme",
+        "namespace": "acme",
         "origin": "Greeter",
         "ts": TS,
         "payload": {"kind": kind, **payload},
@@ -104,7 +104,7 @@ def test_this_tree_parses_the_same_block_as_unknown_and_keeps_it_raw() -> None:
             "kind_of_invocable": "agent",
             "parent_run_id": None,
             "input": [{"type": "text", "text": "hi"}, UNFAMILIAR_BLOCK],
-            "context": {"principal": "user:sagi", "trace_id": "t"},
+            "context": {"trace_id": "t"},
         },
     )
     event = Event.model_validate(wire)  # must not raise — the fix under test
@@ -119,7 +119,7 @@ def test_this_tree_round_trips_the_event_carrying_it() -> None:
             "kind_of_invocable": "agent",
             "parent_run_id": None,
             "input": [UNFAMILIAR_BLOCK],
-            "context": {"principal": "user:sagi", "trace_id": "t"},
+            "context": {"trace_id": "t"},
         },
     )
     event = Event.model_validate(wire)
@@ -137,7 +137,7 @@ def test_status_of_and_the_terminal_invariant_are_unchanged_by_the_unfamiliar_bl
             "kind_of_invocable": "agent",
             "parent_run_id": None,
             "input": [{"type": "text", "text": "hi"}],
-            "context": {"principal": "user:sagi", "trace_id": "t"},
+            "context": {"trace_id": "t"},
         },
         seq=0,
     )
@@ -148,7 +148,7 @@ def test_status_of_and_the_terminal_invariant_are_unchanged_by_the_unfamiliar_bl
             "kind_of_invocable": "agent",
             "parent_run_id": None,
             "input": [{"type": "text", "text": "hi"}, UNFAMILIAR_BLOCK],
-            "context": {"principal": "user:sagi", "trace_id": "t"},
+            "context": {"trace_id": "t"},
         },
         seq=0,
     )

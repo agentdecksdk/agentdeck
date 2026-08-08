@@ -12,7 +12,7 @@ that needs no second store lives beside each one instead: ``tests/test_sqlite_st
 Callers here hand over payloads and never envelopes: the store assigns ``seq`` and ``ts`` in the
 same indivisible step that persists the event, and every other envelope field comes from the
 ``RunContext``. So a case that writes for a second run passes a context built for it, and a case
-about a second tenant passes that tenant's context — there is no field left to mis-stamp.
+about a second namespace passes that namespace's context — there is no field left to mis-stamp.
 
 The last case is a boundary invariant rather than a query one, and covers both SQLite-backed
 ports by shape: whatever fails underneath, callers see the harness's own error type.
@@ -75,9 +75,9 @@ async def two_event_stores(request: pytest.FixtureRequest) -> AsyncIterator[tupl
         yield pair
 
 
-def _ctx(tenant: str = "acme", run_id: str = "r-1", log_key: str = "s-1") -> RunContext:
+def _ctx(namespace: str = "acme", run_id: str = "r-1", log_key: str = "s-1") -> RunContext:
     """The context a write is made in — which is now the whole envelope bar ``origin``."""
-    return RunContext(tenant=tenant, principal="user:1", run_id=run_id, trace_id="tr-1", session_id=log_key)
+    return RunContext(namespace=namespace, run_id=run_id, session_id=log_key)
 
 
 def _started() -> RunStarted:
@@ -85,7 +85,7 @@ def _started() -> RunStarted:
         invocable=ORIGIN,
         kind_of_invocable="agent",
         input=[],
-        context={"principal": "user:1", "trace_id": "tr-1"},
+        context={"trace_id": "tr-1"},
     )
 
 
@@ -217,16 +217,16 @@ async def test_claim_start_is_scoped_to_one_log_not_the_whole_store(event_store:
     assert (claim, event is not None) == (SessionClaim(), True)
 
 
-async def test_claim_start_never_sees_another_tenants_open_run(event_store: EventStorePort) -> None:
-    """Two tenants are free to pick the same session id; neither may hold the other's session,
-    and the run each claim opens is filed under the tenant that asked for it."""
+async def test_claim_start_never_sees_another_namespaces_open_run(event_store: EventStorePort) -> None:
+    """Two namespaces are free to pick the same session id; neither may hold the other's session,
+    and the run each claim opens is filed under the namespace that asked for it."""
     await _write(event_store, [_started()], _ctx("acme"))
     intruder = _ctx("globex", run_id="r-9")
 
     claim, event = await event_store.claim_start("s-1", _started(), intruder, ORIGIN, NOTHING_IS_STALE)
     assert (claim, event is not None) == (SessionClaim(), True)
-    assert [event.tenant for event in await event_store.read("s-1", intruder)] == ["globex"]
-    assert [event.tenant for event in await event_store.read("s-1", _ctx("acme"))] == ["acme"]
+    assert [event.namespace for event in await event_store.read("s-1", intruder)] == ["globex"]
+    assert [event.namespace for event in await event_store.read("s-1", _ctx("acme"))] == ["acme"]
 
 
 async def test_a_run_silent_past_the_cutoff_stops_holding_its_session(event_store: EventStorePort) -> None:
@@ -361,7 +361,7 @@ async def test_a_second_batch_carries_on_from_where_the_first_stopped(event_stor
 
 async def _interrupt(event_store: EventStorePort, ctx: RunContext, run_id: str = "r-1") -> None:
     """Leave one run parked in ``WAITING_HUMAN`` — the only status a resume may claim."""
-    parked = ctx if ctx.run_id == run_id else _ctx(ctx.tenant, run_id=run_id, log_key=ctx.log_key)
+    parked = ctx if ctx.run_id == run_id else _ctx(ctx.namespace, run_id=run_id, log_key=ctx.log_key)
     await _write(event_store, [_started(), _interrupted()], parked)
 
 
@@ -448,8 +448,8 @@ async def test_claim_resume_is_scoped_to_one_run_not_the_whole_log(event_store: 
     assert await event_store.claim_resume("s-1", "r-1", RunResumed(reason=None), ctx, ORIGIN) is not None
 
 
-async def test_claim_resume_never_reaches_into_another_tenants_waiting_run(event_store: EventStorePort) -> None:
-    """Same isolation as every other query: another tenant's interrupt is not claimable, and the
+async def test_claim_resume_never_reaches_into_another_namespaces_waiting_run(event_store: EventStorePort) -> None:
+    """Same isolation as every other query: another namespace's interrupt is not claimable, and the
     intruder's own view of that run is a run nobody ever started."""
     await _interrupt(event_store, _ctx("acme"))
     intruder = _ctx("globex")
@@ -458,7 +458,7 @@ async def test_claim_resume_never_reaches_into_another_tenants_waiting_run(event
     assert [event.kind for event in await event_store.read_run("s-1", "r-1", _ctx("acme"))].count("run.resumed") == 0
 
 
-async def test_list_runs_scopes_to_one_tenant(event_store: EventStorePort) -> None:
+async def test_list_runs_scopes_to_one_namespace(event_store: EventStorePort) -> None:
     await _write(event_store, [_started()], _ctx("acme"))
     await _write(event_store, [_started()], _ctx("globex"))
 
@@ -482,8 +482,8 @@ async def test_list_runs_of_an_empty_store_is_empty(event_store: EventStorePort)
     assert await event_store.list_runs(_ctx()) == []
 
 
-async def test_list_runs_enumerates_runs_across_every_log_key_of_the_tenant(event_store: EventStorePort) -> None:
-    """A tenant's waiting runs live in as many logs as it has sessions — a listing that only
+async def test_list_runs_enumerates_runs_across_every_log_key_of_the_namespace(event_store: EventStorePort) -> None:
+    """A namespace's waiting runs live in as many logs as it has sessions — a listing that only
     looked in one log key would silently hide every other session's interrupts."""
     ctx = _ctx()
     await _write(event_store, [_started(), _interrupted(thread_id=None)], ctx)
@@ -690,8 +690,8 @@ async def test_a_negative_offset_reads_from_the_start_and_a_negative_limit_is_re
         await event_store.read("s-1", ctx, limit=-1)
 
 
-async def test_the_focused_queries_never_answer_from_another_tenants_log(event_store: EventStorePort) -> None:
-    """One tenant's populated log must read as untouched emptiness to another — the same
+async def test_the_focused_queries_never_answer_from_another_namespaces_log(event_store: EventStorePort) -> None:
+    """One namespace's populated log must read as untouched emptiness to another — the same
     isolation ``read``/``read_run`` already promise, on the queries that skip them."""
     await _write(event_store, [_started(), _interrupted(thread_id=None)], _ctx("acme"))
     intruder = _ctx("globex")
@@ -763,7 +763,7 @@ async def test_a_write_lock_held_past_the_busy_timeout_is_a_store_error_not_a_lo
 
     peer = sqlite3.connect(tmp_path / "events.sqlite3")
     peer.execute("BEGIN IMMEDIATE")
-    peer.execute("INSERT INTO events (tenant, log_key, run_id, seq, data) VALUES ('acme', 's-1', 'r-9', 0, '{}')")
+    peer.execute("INSERT INTO events (namespace, log_key, run_id, seq, data) VALUES ('acme', 's-1', 'r-9', 0, '{}')")
     try:
         with pytest.raises(StoreError) as raised:
             await store.claim_resume("s-1", "r-1", RunResumed(reason=None), ctx, ORIGIN)

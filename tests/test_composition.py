@@ -4,7 +4,7 @@ import os
 import subprocess
 import sys
 import textwrap
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
@@ -54,7 +54,7 @@ class Shout(BaseWorkflow):
         return g
 """
 
-CTX = RunContext(tenant="local", principal="user:local", run_id="r1", trace_id="t1")
+CTX = RunContext(namespace="local", run_id="r1")
 
 
 @dataclass
@@ -157,7 +157,12 @@ def test_app_wires_the_same_engines_this_suite_builds_by_hand(project):
 async def test_build_runtime_discovers_the_project_when_given_no_invocables(project):
     runtime = build_runtime(engines=project_engines(), store=MemoryEventStore())
 
-    kinds = [event.kind async for event in runtime.run("Shout", coerce_input("hello"), CTX)]
+    kinds = [
+        event.kind
+        async for event in runtime.run(
+            "Shout", coerce_input("hello"), run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+        )
+    ]
 
     assert kinds == ["run.started", "node.updated", "run.completed"]
 
@@ -171,7 +176,12 @@ async def test_build_runtime_takes_explicit_specs_and_a_store_that_holds_time_st
     specs = InvocableRegistry(engines).load()
 
     runtime = build_runtime(engines=engines, invocables=specs, store=MemoryEventStore(clock=lambda: frozen))
-    stamps = {event.ts async for event in runtime.run("Shout", coerce_input("hello"), CTX)}
+    stamps = {
+        event.ts
+        async for event in runtime.run(
+            "Shout", coerce_input("hello"), run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+        )
+    }
 
     assert stamps == {frozen}
 
@@ -180,7 +190,16 @@ async def test_build_runtime_refuses_an_unknown_invocable(project):
     runtime = build_runtime(engines=project_engines(), store=MemoryEventStore())
 
     with pytest.raises(NotFoundError):
-        [event async for event in runtime.run("Nope", coerce_input("hello"), CTX)]
+        [
+            event
+            async for event in runtime.run(
+                "Nope",
+                coerce_input("hello"),
+                run_id=(CTX).run_id,
+                session_id=(CTX).session_id,
+                namespace=(CTX).namespace,
+            )
+        ]
 
 
 def test_resolve_event_store_defaults_to_memory():
@@ -247,7 +266,9 @@ async def test_a_configured_langfuse_traces_a_workflow_run_under_its_session(pro
     langfuse_keys("pk-lf-test", "sk-lf-test")
     runtime = build_runtime(engines=project_engines(), store=MemoryEventStore())
 
-    async for _ in runtime.run("Shout", coerce_input("hello"), replace(CTX, session_id="s-1")):
+    async for _ in runtime.run(
+        "Shout", coerce_input("hello"), run_id=CTX.run_id, session_id="s-1", namespace=CTX.namespace
+    ):
         pass
     await runtime.drain()
 
@@ -279,7 +300,9 @@ async def test_an_unconfigured_langfuse_leaves_the_run_untraced(project, recorde
     langfuse_keys("", "")
     runtime = build_runtime(engines=project_engines(), store=MemoryEventStore())
 
-    async for _ in runtime.run("Shout", coerce_input("hello"), CTX):
+    async for _ in runtime.run(
+        "Shout", coerce_input("hello"), run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+    ):
         pass
     await runtime.drain()
 
@@ -323,7 +346,12 @@ async def test_app_composes_one_runtime_over_the_whole_project(project):
     app.load()
 
     assert isinstance(app.runtime, Runtime)
-    kinds = [event.kind async for event in app.runtime.run("Shout", coerce_input("hello"), CTX)]
+    kinds = [
+        event.kind
+        async for event in app.runtime.run(
+            "Shout", coerce_input("hello"), run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+        )
+    ]
     assert kinds == ["run.started", "node.updated", "run.completed"]
     await app.aclose()
     await app.aclose()  # idempotent, with a Runtime to drain

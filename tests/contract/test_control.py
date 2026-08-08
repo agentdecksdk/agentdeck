@@ -90,10 +90,22 @@ class Harness:
     name: str
 
     async def play(self) -> list[Event]:
-        return [event async for event in self.runtime.run(self.name, coerce_input("say something"), self.ctx)]
+        return [
+            event
+            async for event in self.runtime.run(
+                self.name,
+                coerce_input("say something"),
+                run_id=(self.ctx).run_id,
+                session_id=(self.ctx).session_id,
+                namespace=(self.ctx).namespace,
+            )
+        ]
 
     async def resume(self, reason: str | None = None) -> list[Event]:
-        return [event async for event in self.runtime.resume_run(self.ctx.run_id, self.ctx, reason)]
+        return [
+            event
+            async for event in self.runtime.resume_run(self.ctx.run_id, namespace=self.ctx.namespace, reason=reason)
+        ]
 
     async def log(self) -> list[Event]:
         return await self.store.read(self.ctx.log_key, self.ctx)
@@ -112,7 +124,7 @@ def harness(case: ControlCase) -> Harness:
         control=control,
         control_poll_interval=0.0,
     )
-    ctx = RunContext(tenant="acme", principal="user:1", run_id="r-control", trace_id="tr-1", session_id="s-control")
+    ctx = RunContext(namespace="acme", run_id="r-control", session_id="s-control")
     return Harness(runtime=runtime, store=store, control=control, ctx=ctx, name=case.spec.name)
 
 

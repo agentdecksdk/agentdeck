@@ -22,12 +22,13 @@ from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.composition import build_runtime
 from agentdeck.core.content import coerce_input
+from agentdeck.core.context import RunContext
 from agentdeck.core.events import check_terminal
 from agentdeck.runtime.service import PendingRun
 from agentdeck.runtime.settings import reset_settings_cache
 from agentdeck.serve import create_app
 from agentdeck.surfaces.serve import compat as surface_compat
-from agentdeck.surfaces.serve.compat import chat_frames, chat_result, interrupt_inbox, run_context
+from agentdeck.surfaces.serve.compat import chat_frames, chat_result, interrupt_inbox
 
 AGENT_PY = """
 from pydantic import BaseModel
@@ -69,6 +70,15 @@ class Shout(BaseWorkflow):
         g.add_edge("shout", END)
         return g
 """
+
+
+def run_context(session_id: str | None = None) -> RunContext:
+    """A reader context for the store assertions here.
+
+    The Runtime takes options now; ``EventStorePort`` still takes a context, being an internal
+    port, and only the session id and namespace are read off this one.
+    """
+    return RunContext(run_id="reader", session_id=session_id)
 
 
 @pytest.fixture
@@ -130,7 +140,18 @@ async def test_chat_frames_render_deltas_then_done_from_canonical_events(project
     runtime, store, _ = scripted(ScriptedModel(deltas=("Tuesday ", "at 9am"), input_tokens=11, output_tokens=5))
     ctx = run_context("s1")
 
-    frames = [frame async for frame in chat_frames(runtime.run("Greeter", coerce_input("when?"), ctx))]
+    frames = [
+        frame
+        async for frame in chat_frames(
+            runtime.run(
+                "Greeter",
+                coerce_input("when?"),
+                run_id=(ctx).run_id,
+                session_id=(ctx).session_id,
+                namespace=(ctx).namespace,
+            )
+        )
+    ]
 
     assert frames == [
         'data: {"delta": "Tuesday "}\n\n',
@@ -154,7 +175,18 @@ async def test_a_failed_turn_ends_with_an_error_frame_while_the_log_keeps_the_fa
     runtime, store, _ = scripted(ScriptedModel(deltas=("par",), raises=RuntimeError("secret detail")))
     ctx = run_context("s1")
 
-    frames = [frame async for frame in chat_frames(runtime.run("Greeter", coerce_input("hi"), ctx))]
+    frames = [
+        frame
+        async for frame in chat_frames(
+            runtime.run(
+                "Greeter",
+                coerce_input("hi"),
+                run_id=(ctx).run_id,
+                session_id=(ctx).session_id,
+                namespace=(ctx).namespace,
+            )
+        )
+    ]
 
     assert frames[0] == 'data: {"delta": "par"}\n\n'
     assert frames[-1] == 'event: error\ndata: {"error": "RuntimeError"}\n\n'
@@ -176,7 +208,15 @@ async def test_a_disconnect_closes_its_run_in_the_log(project, scripted):
     frames: list[str] = []
 
     async def consume() -> None:
-        async for frame in chat_frames(runtime.run("Greeter", coerce_input("hi"), ctx)):
+        async for frame in chat_frames(
+            runtime.run(
+                "Greeter",
+                coerce_input("hi"),
+                run_id=(ctx).run_id,
+                session_id=(ctx).session_id,
+                namespace=(ctx).namespace,
+            )
+        ):
             frames.append(frame)
 
     consumer = asyncio.create_task(consume())
@@ -200,7 +240,7 @@ async def test_the_done_output_is_the_sdks_final_output_not_the_rejoined_deltas(
     for a tool-using or output-shaping agent."""
     runtime, _, _ = scripted(ScriptedModel(deltas=("Hel", "lo"), final_text="Hello, from the SDK."))
 
-    frames = [frame async for frame in chat_frames(runtime.run("Greeter", coerce_input("hi"), run_context("s1")))]
+    frames = [frame async for frame in chat_frames(runtime.run("Greeter", coerce_input("hi"), session_id="s1"))]
 
     assert '"output": "Hello, from the SDK."' in frames[-1]
 
@@ -208,7 +248,7 @@ async def test_the_done_output_is_the_sdks_final_output_not_the_rejoined_deltas(
 async def test_chat_result_returns_v1s_output_body(project, scripted):
     runtime, _, _ = scripted(ScriptedModel(deltas=("Hello",)))
 
-    body = await chat_result(runtime.run("Greeter", coerce_input("hi"), run_context("s1")))
+    body = await chat_result(runtime.run("Greeter", coerce_input("hi"), session_id="s1"))
 
     assert body == {"output": "Hello"}
 
@@ -219,7 +259,15 @@ async def test_a_structured_output_survives_the_canonical_stream(project, script
     runtime, store, _ = scripted(ScriptedModel(deltas=('{"greeting": "Hello"}',)))
     ctx = run_context("s1")
 
-    body = await chat_result(runtime.run("Structured", coerce_input("hi"), ctx))
+    body = await chat_result(
+        runtime.run(
+            "Structured",
+            coerce_input("hi"),
+            run_id=(ctx).run_id,
+            session_id=(ctx).session_id,
+            namespace=(ctx).namespace,
+        )
+    )
 
     assert body == {"output": {"greeting": "Hello"}}
     assert surface_compat.STRUCTURED_OUTPUT in [
@@ -230,7 +278,7 @@ async def test_a_structured_output_survives_the_canonical_stream(project, script
 async def test_a_structured_output_reaches_the_streamed_done_frame(project, scripted):
     runtime, _, _ = scripted(ScriptedModel(deltas=('{"greeting": "Hello"}',), input_tokens=1, output_tokens=2))
 
-    frames = [frame async for frame in chat_frames(runtime.run("Structured", coerce_input("hi"), run_context("s1")))]
+    frames = [frame async for frame in chat_frames(runtime.run("Structured", coerce_input("hi"), session_id="s1"))]
 
     assert frames[-1] == (
         'event: done\ndata: {"output": {"greeting": "Hello"}, "usage": '
@@ -377,7 +425,7 @@ async def test_the_runtime_and_the_python_api_share_one_conversation(project, mo
     app = App()
     app.load()
 
-    async for _ in app.runtime.run("Greeter", coerce_input("over http"), run_context("s1")):
+    async for _ in app.runtime.run("Greeter", coerce_input("over http"), session_id="s1"):
         pass
     await app.chat("Greeter", "s1", "over python")
 

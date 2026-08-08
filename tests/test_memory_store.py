@@ -1,4 +1,4 @@
-"""The memory event log: ordering, ranged reads, and tenant isolation."""
+"""The memory event log: ordering, ranged reads, and namespace isolation."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ def _deltas(count: int) -> list[KnownPayload]:
     return [TextDelta(message_id="m1", text=f"chunk {which}") for which in range(count)]
 
 
-def _ctx(tenant: str = "acme", run_id: str = "r-1") -> RunContext:
-    return RunContext(tenant=tenant, principal="user:1", run_id=run_id, trace_id="tr-1", session_id="s-1")
+def _ctx(namespace: str = "acme", run_id: str = "r-1") -> RunContext:
+    return RunContext(namespace=namespace, run_id=run_id, session_id="s-1")
 
 
 async def test_events_read_back_in_the_order_they_were_appended() -> None:
@@ -54,16 +54,16 @@ async def test_an_unknown_log_reads_as_empty() -> None:
     assert await MemoryEventStore().read_run("nobody", "r-1", _ctx()) == []
 
 
-async def test_one_tenant_cannot_read_another_tenants_log_under_the_same_key() -> None:
-    """Two tenants are free to pick the same session id; the store keeps them apart."""
+async def test_one_namespace_cannot_read_another_namespaces_log_under_the_same_key() -> None:
+    """Two namespaces are free to pick the same session id; the store keeps them apart."""
     store = MemoryEventStore()
     await store.append("s-1", _deltas(1), _ctx("acme"), ORIGIN)
     await store.append("s-1", _deltas(1), _ctx("globex"), ORIGIN)
 
     acme = await store.read("s-1", _ctx("acme"))
     globex = await store.read("s-1", _ctx("globex"))
-    assert [event.tenant for event in acme] == ["acme"]
-    assert [event.tenant for event in globex] == ["globex"]
+    assert [event.namespace for event in acme] == ["acme"]
+    assert [event.namespace for event in globex] == ["globex"]
 
 
 async def test_a_read_cannot_be_used_to_mutate_the_log() -> None:

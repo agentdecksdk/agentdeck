@@ -24,14 +24,12 @@ from agentdeck.adapters.telemetry.langfuse.sink import _render
 from agentdeck.core.content import DataBlock, ImageBlock, TextBlock, UnknownBlock
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
-    Budget,
     ControlObserved,
     ControlRequested,
     Event,
     NodeUpdated,
     RunCancelled,
     RunCompleted,
-    RunContextSnapshot,
     RunFailed,
     RunInterrupted,
     RunPaused,
@@ -58,13 +56,9 @@ if TYPE_CHECKING:
 TS = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 INPUT = [TextBlock(text="ship it")]
 CTX = RunContext(
-    tenant="acme",
-    principal="user:1",
+    namespace="acme",
     run_id="r-1",
-    trace_id="tr-1",
     session_id="s-1",
-    budget=Budget(max_usd=5.0),
-    triggered_by="cron",
 )
 SECRET = "hunter2"
 TOTAL = Usage(input_tokens=11, output_tokens=7, usd=0.02)
@@ -94,7 +88,6 @@ class Observed:
     metadata: dict[str, Any] = field(default_factory=dict)
     trace_key: str | None = None
     session_id: str | None = None
-    user_id: str | None = None
     children: list[Observed] = field(default_factory=list)
     output: Any = None
     level: str | None = None
@@ -158,7 +151,6 @@ class Collector:
         kind: ObservationKind,
         trace_key: str,
         session_id: str | None,
-        user_id: str | None,
         input: Any = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> Observed:
@@ -169,7 +161,6 @@ class Collector:
             metadata=dict(metadata or {}),
             trace_key=trace_key,
             session_id=session_id,
-            user_id=user_id,
         )
         self.traces.append(recorded)
         return recorded
@@ -204,7 +195,9 @@ async def _traced(
     """Play a run through a real Runtime and hand back what the sink made of it."""
     collector = Collector()
     runtime = _runtime(collector, *steps, kind=kind, name=name)
-    async for _ in runtime.run(name, INPUT, CTX):
+    async for _ in runtime.run(
+        name, INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+    ):
         pass
     await runtime.drain()
     return collector
@@ -216,7 +209,7 @@ def _event(payload: KnownPayload, *, run_id: str = "r-1", seq: int = 0) -> Event
         seq=seq,
         run_id=run_id,
         session_id="s-1",
-        tenant="acme",
+        namespace="acme",
         origin="Pipeline",
         ts=TS,
         payload=payload,
@@ -229,7 +222,6 @@ def _started(run_id: str = "r-1") -> Event:
             invocable="Pipeline",
             kind_of_invocable="workflow",
             input=INPUT,
-            context=RunContextSnapshot(principal="user:1", trace_id="tr-1"),
         ),
         run_id=run_id,
     )
@@ -240,14 +232,11 @@ async def test_a_workflow_run_becomes_one_trace_carrying_its_nodes_tools_and_usa
     trace = (await _traced(*WORKFLOW)).only()
 
     assert (trace.name, trace.kind) == ("Pipeline", "chain")
-    assert (trace.trace_key, trace.session_id, trace.user_id) == ("r-1", "s-1", "user:1")
+    assert (trace.trace_key, trace.session_id) == ("r-1", "s-1")
     assert trace.input == ["ship it"]
     assert trace.output == ["shipped"]
-    assert trace.metadata["tenant"] == "acme"
+    assert trace.metadata["namespace"] == "acme"
     assert trace.metadata["invocable_kind"] == "workflow"
-    assert trace.metadata["trace_id"] == "tr-1"
-    assert trace.metadata["triggered_by"] == "cron"
-    assert trace.metadata["budget_usd"] == 5.0
     assert trace.shape() == [
         ("plan", "span"),
         ("search", "tool"),
@@ -303,7 +292,13 @@ async def test_streamed_text_never_becomes_an_observation_of_its_own() -> None:
 async def test_image_bytes_are_described_to_the_trace_never_copied_into_it() -> None:
     collector = Collector()
     runtime = _runtime(collector, RunCompleted(output=INPUT, usage=TOTAL), kind=InvocableKind.AGENT, name="Viewer")
-    async for _ in runtime.run("Viewer", [ImageBlock(media_type="image/png", data_b64="AAAA")], CTX):
+    async for _ in runtime.run(
+        "Viewer",
+        [ImageBlock(media_type="image/png", data_b64="AAAA")],
+        run_id=(CTX).run_id,
+        session_id=(CTX).session_id,
+        namespace=(CTX).namespace,
+    ):
         pass
     await runtime.drain()
 
@@ -349,7 +344,13 @@ async def test_structured_data_reaches_the_trace_as_json_on_both_ends() -> None:
         kind=InvocableKind.WORKFLOW,
         name="Pipeline",
     )
-    async for _ in runtime.run("Pipeline", [DataBlock(data={"input": "claim 7777"})], CTX):
+    async for _ in runtime.run(
+        "Pipeline",
+        [DataBlock(data={"input": "claim 7777"})],
+        run_id=(CTX).run_id,
+        session_id=(CTX).session_id,
+        namespace=(CTX).namespace,
+    ):
         pass
     await runtime.drain()
 
@@ -361,7 +362,13 @@ async def test_structured_data_reaches_the_trace_as_json_on_both_ends() -> None:
 async def test_an_inline_data_uri_inside_structured_data_is_described_too() -> None:
     collector = Collector()
     runtime = _runtime(collector, RunCompleted(output=INPUT, usage=TOTAL), kind=InvocableKind.AGENT, name="Viewer")
-    async for _ in runtime.run("Viewer", [DataBlock(data={"page": {"img": DATA_URI}})], CTX):
+    async for _ in runtime.run(
+        "Viewer",
+        [DataBlock(data={"page": {"img": DATA_URI}})],
+        run_id=(CTX).run_id,
+        session_id=(CTX).session_id,
+        namespace=(CTX).namespace,
+    ):
         pass
     await runtime.drain()
 
@@ -372,7 +379,13 @@ async def test_an_inline_data_uri_inside_structured_data_is_described_too() -> N
 async def test_an_inline_data_uri_in_a_run_input_is_described_too() -> None:
     collector = Collector()
     runtime = _runtime(collector, RunCompleted(output=INPUT, usage=TOTAL), kind=InvocableKind.AGENT, name="Viewer")
-    async for _ in runtime.run("Viewer", [TextBlock(text=f"look at {DATA_URI}")], CTX):
+    async for _ in runtime.run(
+        "Viewer",
+        [TextBlock(text=f"look at {DATA_URI}")],
+        run_id=(CTX).run_id,
+        session_id=(CTX).session_id,
+        namespace=(CTX).namespace,
+    ):
         pass
     await runtime.drain()
 
@@ -416,9 +429,13 @@ async def test_an_interrupted_run_ships_its_half_and_the_resume_continues_the_sa
         kind=InvocableKind.WORKFLOW,
         name="Approver",
     )
-    async for _ in runtime.run("Approver", INPUT, CTX):
+    async for _ in runtime.run(
+        "Approver", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+    ):
         pass
-    async for _ in runtime.resume("Approver", "t1", "approved", CTX):
+    async for _ in runtime.resume(
+        "Approver", "t1", "approved", run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+    ):
         pass
     await runtime.drain()
 
@@ -432,21 +449,20 @@ async def test_an_interrupted_run_ships_its_half_and_the_resume_continues_the_sa
     assert waiting.shape() == [("plan", "span")]
     assert continued.metadata["resumed"] is True
     assert continued.output == ["shipped"]
-    # The principal is only in ``run.started``; a continuation that lost it would leave half a
+    # The run's constants are only in ``run.started``; a continuation that lost them would leave half a
     # run's cost unattributed to whoever asked for it.
-    assert (waiting.user_id, continued.user_id) == ("user:1", "user:1")
     assert [observed.finishes for observed in collector.everything()] == [1, 1, 1, 1]
 
 
 async def test_a_process_that_only_saw_the_resume_still_traces_it_under_the_run_s_own_key() -> None:
     """The other half of a cross-process resume: no ``run.started`` means no kind and no
-    principal to stamp, but the trace key is the run, so both halves still meet in one trace.
+    constants to stamp, but the trace key is the run, so both halves still meet in one trace.
     """
     sink = LangfuseSink(collector := Collector())
     await sink.emit(_event(RunResumed(reason=None)))
     root = collector.only()
 
-    assert (root.trace_key, root.kind, root.user_id) == ("r-1", "span", None)
+    assert (root.trace_key, root.kind) == ("r-1", "span")
     assert root.metadata["resumed"] is True
     assert root.input is None  # a resume that answered nothing has no input to show
 

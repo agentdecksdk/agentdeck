@@ -66,7 +66,6 @@ class Tracer(Protocol):
         kind: ObservationKind,
         trace_key: str,
         session_id: str | None,
-        user_id: str | None,
         input: Any = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> Observation:

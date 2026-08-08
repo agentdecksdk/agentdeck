@@ -29,7 +29,6 @@ from typing import TYPE_CHECKING, Any
 
 from agentdeck.core.content import DataBlock, ImageBlock, ResourceBlock, TextBlock
 from agentdeck.core.events import (
-    TERMINAL_KINDS,
     ControlObserved,
     ControlRequested,
     NodeUpdated,
@@ -100,7 +99,6 @@ class LangfuseSink(EventSinkPort):
         # Outlives the trace it belongs to, because a suspended run's trace closes and its
         # continuation still has to say whose run it is. Bounded like ``_open``, and dropped
         # once the run reaches a terminal event.
-        self._principals: dict[str, str] = {}
 
     async def emit(self, event: Event) -> None:
         """Fold one event into its run's trace. Never suspends: no round trip is awaited."""
@@ -163,15 +161,11 @@ class LangfuseSink(EventSinkPort):
         for open_trace in self._open.values():
             self._abandon(open_trace, "the process shut down before the run ended")
         self._open.clear()
-        self._principals.clear()
         # On a worker thread because the SDK's flush blocks: on the event loop it would block the
         # very deadline that is supposed to keep a slow flush from holding shutdown open.
         await asyncio.to_thread(self._tracer.flush)
 
     def _start(self, event: Event, started: RunStarted) -> None:
-        context = started.context
-        budget = context.budget
-        self._remember(event.run_id, context.principal)
         self._track(
             event.run_id,
             self._tracer.root(
@@ -179,18 +173,12 @@ class LangfuseSink(EventSinkPort):
                 kind=_OBSERVATION_OF.get(started.kind_of_invocable, "span"),
                 trace_key=event.run_id,
                 session_id=event.session_id,
-                user_id=context.principal,
                 input=_render(started.input),
                 metadata=_without_nones(
                     {
                         "run_id": event.run_id,
-                        "tenant": event.tenant,
+                        "namespace": event.namespace,
                         "invocable_kind": started.kind_of_invocable,
-                        "trace_id": context.trace_id,
-                        "parent_run_id": started.parent_run_id,
-                        "triggered_by": context.triggered_by,
-                        "budget_usd": budget.max_usd if budget is not None else None,
-                        "budget_tokens": budget.max_tokens if budget is not None else None,
                     }
                 ),
             ),
@@ -201,9 +189,7 @@ class LangfuseSink(EventSinkPort):
 
         The kind and the run's constants live in ``run.started``, which a process that only
         picked up the resume never saw — so a continuation is a plain span and says who it
-        belongs to in its metadata. The principal is carried over when this process opened the
-        first half; a process that only ever saw the resume has none to stamp, and the trace's
-        user then comes from the half that did.
+        belongs to in its metadata.
 
         The answer the resume carried is the continuation's input, media-described like any
         other content: a trace of an approval flow that does not say what was approved is a
@@ -218,9 +204,8 @@ class LangfuseSink(EventSinkPort):
                 kind="span",
                 trace_key=event.run_id,
                 session_id=event.session_id,
-                user_id=self._principals.get(event.run_id),
                 input=_render(resumed.value) if resumed.value is not None else None,
-                metadata={"run_id": event.run_id, "tenant": event.tenant, "resumed": True},
+                metadata={"run_id": event.run_id, "namespace": event.namespace, "resumed": True},
             ),
         )
 
@@ -291,10 +276,6 @@ class LangfuseSink(EventSinkPort):
         status: str | None = None,
         usage: Usage | None = None,
     ) -> None:
-        if event.kind in TERMINAL_KINDS:
-            # A suspended run keeps its principal: its continuation is still the same run, by
-            # the same caller, and that identity is only in ``run.started``.
-            self._principals.pop(event.run_id, None)
         open_trace = self._open.pop(event.run_id, None)
         if open_trace is None:
             return
@@ -313,18 +294,12 @@ class LangfuseSink(EventSinkPort):
             stale_id = next(iter(self._open))
             logger.warning("langfuse trace for run %s abandoned: %d runs already open", stale_id, self._max_open_runs)
             self._abandon(self._open.pop(stale_id), "no terminal event seen")
-            self._principals.pop(stale_id, None)
         if (superseded := self._open.pop(run_id, None)) is not None:
             # One opening per run is the Runtime's promise; a second one would otherwise leave
             # the first root open forever, invisible in Langfuse and unaccounted for here.
             logger.warning("langfuse trace for run %s reopened; the first one is abandoned", run_id)
             self._abandon(superseded, "superseded by a second opening of this run")
         self._open[run_id] = _OpenTrace(root)
-
-    def _remember(self, run_id: str, principal: str) -> None:
-        if len(self._principals) >= self._max_open_runs:
-            self._principals.pop(next(iter(self._principals)))
-        self._principals[run_id] = principal
 
     def _abandon(self, open_trace: _OpenTrace, status: str) -> None:
         for call_id, span in open_trace.calls.items():

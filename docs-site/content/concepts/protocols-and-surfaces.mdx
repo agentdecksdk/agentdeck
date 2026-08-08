@@ -39,8 +39,8 @@ version of it:
 
 - **No authentication on any endpoint.** Anyone who can reach the process can call every route
   above, including run control.
-- **One tenant, one principal.** The HTTP surface stamps every request with the same hardcoded
-  `tenant="local"`, `principal="user:local"` — `RunContext` carries both fields, but nothing
+- **Unnamespaced.** The HTTP surface runs every request without a namespace, so one log
+  space serves the whole deployment — `RunContext` carries `namespace`, but nothing
   today varies them per caller.
 - **A second, native HTTP surface exists but is not reachable.** `agentdeck/surfaces/serve/app.py`
   builds a FastAPI app over the raw canonical events, with routes under `/v2/invocables/{name}/chat`

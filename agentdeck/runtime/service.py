@@ -19,17 +19,18 @@ from collections import deque
 from contextlib import aclosing, suppress
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from pydantic import ValidationError
 
 from agentdeck.core.content import DataBlock, coerce_input
+from agentdeck.core.context import RunContext
 from agentdeck.core.control import CONTROL_POLL_INTERVAL, Gate, Signal
 from agentdeck.core.events import (
     TERMINAL_KINDS,
     ControlRequested,
     Event,
     RunCancelled,
-    RunContextSnapshot,
     RunFailed,
     RunInterrupted,
     RunResumed,
@@ -47,7 +48,6 @@ if TYPE_CHECKING:
     from typing import Any
 
     from agentdeck.core.content import Input
-    from agentdeck.core.context import RunContext
     from agentdeck.core.events import KnownPayload
     from agentdeck.core.invocable import InvocableSpec
     from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort
@@ -120,7 +120,15 @@ class Runtime:
         """
         return self._store
 
-    async def run(self, name: str, input: Input, ctx: RunContext) -> AsyncGenerator[Event, None]:
+    async def run(
+        self,
+        name: str,
+        input: Input,
+        *,
+        session_id: str | None = None,
+        namespace: str | None = None,
+        run_id: str | None = None,
+    ) -> AsyncGenerator[Event, None]:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
 
         One turn per session at a time: opening the run is a conditional append that fails if
@@ -133,7 +141,7 @@ class Runtime:
         closed this generator or had its own task cancelled under it.
         """
         spec, engine = self._resolve(name)
-        ctx, reports = self._bind(ctx)
+        ctx, reports = self._bind(self._context(run_id=run_id, session_id=session_id, namespace=namespace))
         # ponytail: whole log per run — window it (or hand the engine a summary) once a
         # session's history outgrows one read, which a real store will notice long before this does
         history = await self._store.read(ctx.log_key, ctx)
@@ -141,14 +149,7 @@ class Runtime:
         opening = RunStarted(
             invocable=spec.name,
             kind_of_invocable=spec.kind.value,
-            parent_run_id=ctx.parent_run_id,
             input=input,
-            context=RunContextSnapshot(
-                principal=ctx.principal,
-                trace_id=ctx.trace_id,
-                budget=ctx.budget,
-                triggered_by=ctx.triggered_by,
-            ),
         )
         try:
             claimed = await self._claim_session(opening, spec, ctx)
@@ -170,7 +171,16 @@ class Runtime:
             async for event in run:
                 yield event
 
-    async def resume(self, name: str, thread_id: str, value: Any, ctx: RunContext) -> AsyncGenerator[Event, None]:
+    async def resume(
+        self,
+        name: str,
+        thread_id: str,
+        value: Any,
+        *,
+        run_id: str,
+        session_id: str | None = None,
+        namespace: str | None = None,
+    ) -> AsyncGenerator[Event, None]:
         """Continue a run this Runtime suspended earlier.
 
         The store's conditional append makes the ``WAITING_HUMAN`` -> ``RUNNING`` transition
@@ -184,7 +194,7 @@ class Runtime:
         run — is a no-op: nothing is read from the engine, nothing is yielded.
         """
         spec, engine = self._resolve(name)
-        ctx, reports = self._bind(ctx)
+        ctx, reports = self._bind(self._context(run_id=run_id, session_id=session_id, namespace=namespace))
         opening = await self._claim_resume(spec, ctx, value)
         if opening is None:
             return
@@ -193,7 +203,9 @@ class Runtime:
             async for event in resumed:
                 yield event
 
-    async def resume_run(self, run_id: str, ctx: RunContext, reason: str | None = None) -> AsyncGenerator[Event, None]:
+    async def resume_run(
+        self, run_id: str, *, namespace: str | None = None, reason: str | None = None
+    ) -> AsyncGenerator[Event, None]:
         """Continue a run that paused at a safe point: same ``run_id``, same log, ``seq``
         counting on from where it stopped.
 
@@ -213,6 +225,7 @@ class Runtime:
         run ends ``cancelled`` and is never played on — cancel stays terminal, and asking to
         resume a run somebody cancelled does not quietly override them.
         """
+        ctx = self._context(run_id=run_id, namespace=namespace)
         found = await self._paused(run_id, ctx)
         if found is None:
             return
@@ -332,7 +345,7 @@ class Runtime:
         Addressed by ``run_id`` alone, like every other control operation, so the store's own
         status projection is what locates it — a caller holding a ``run_id`` from a stream it
         was watching has neither the log key nor the invocable's name. ``None`` means no paused
-        run of this tenant answers to that id, which is the same answer a resumed, finished or
+        run of this namespace answers to that id, which is the same answer a resumed, finished or
         cancelled run gives.
         """
         for summary in await self._store.list_runs(ctx, status=RunStatus.PAUSED):
@@ -446,8 +459,8 @@ class Runtime:
         await self._fan_out(event)
         return event
 
-    async def pending(self, ctx: RunContext) -> list[PendingRun]:
-        """Every run currently ``WAITING_HUMAN`` for this tenant.
+    async def pending(self, *, namespace: str | None = None) -> list[PendingRun]:
+        """Every run currently ``WAITING_HUMAN`` in this namespace.
 
         Asks the store to project which runs are waiting rather than keeping an in-memory
         registry — a registry would go stale the moment a process restarted, which is
@@ -463,6 +476,7 @@ class Runtime:
         # a deployment parks tens of runs; the upgrade is a store-side projection of each run's
         # last interrupt, and the trigger is the first inbox that pages or that a poll can't
         # answer inside its own refresh interval.
+        ctx = self._context(namespace=namespace)
         out: list[PendingRun] = []
         for summary in await self._store.list_runs(ctx, status=RunStatus.WAITING_HUMAN):
             found = _last_interrupt(await self._store.read_run(summary.log_key, summary.run_id, ctx))
@@ -491,6 +505,18 @@ class Runtime:
         one reaches none of them.
         """
         await asyncio.gather(*(dispatch.close() for dispatch in self._sinks), return_exceptions=True)
+
+    def _context(
+        self, *, run_id: str | None = None, session_id: str | None = None, namespace: str | None = None
+    ) -> RunContext:
+        """Mint this run's context — the one place a ``RunContext`` is built for a caller.
+
+        Callers pass options, never a context: it carries the gate, the reporter and the id the
+        claim protocol addresses runs by, none of which an application should assemble. Getting
+        ``run_id`` wrong is not a type error but a silent no-op, so it is minted here unless a
+        caller has a reason of its own.
+        """
+        return RunContext(run_id=run_id or str(uuid4()), session_id=session_id, namespace=namespace)
 
     def _bind(self, ctx: RunContext) -> tuple[RunContext, deque[KnownPayload]]:
         """Give this run its control gate and its report buffer, and hand back both.

@@ -22,13 +22,12 @@ from agentdeck.core.events import (
     Event,
     MessageCompleted,
     RunCompleted,
-    RunContextSnapshot,
     RunInterrupted,
     RunStarted,
     Usage,
 )
 from agentdeck.runtime.service import Runtime
-from agentdeck.surfaces.serve.app import PRINCIPAL, TENANT, build_app
+from agentdeck.surfaces.serve.app import build_app
 
 SESSION_ID = "s-busy"
 AGENT = "Greeter"
@@ -47,13 +46,13 @@ def _runtime() -> tuple[Runtime, MemoryEventStore]:
 
 
 def _reader() -> RunContext:
-    return RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="reader", trace_id="t", session_id=SESSION_ID)
+    return RunContext(run_id="reader", session_id=SESSION_ID)
 
 
 def _holder() -> RunContext:
     """The run that already owns the session — its own context, because that is what files an
     event under its ``run_id`` now."""
-    return RunContext(tenant=TENANT, principal=PRINCIPAL, run_id=HOLDER, trace_id="t", session_id=SESSION_ID)
+    return RunContext(run_id=HOLDER, session_id=SESSION_ID)
 
 
 async def _hold_the_session(store: MemoryEventStore) -> None:
@@ -63,7 +62,6 @@ async def _hold_the_session(store: MemoryEventStore) -> None:
         invocable=AGENT,
         kind_of_invocable="agent",
         input=[TextBlock(text="the turn already running")],
-        context=RunContextSnapshot(principal=PRINCIPAL, trace_id="t"),
     )
     waiting = RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1")
     await store.append(SESSION_ID, [opening, waiting], _holder(), AGENT)

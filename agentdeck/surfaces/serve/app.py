@@ -5,7 +5,6 @@ untouched. No auth, no discovery: the composition root hands in an already-wired
 
 from __future__ import annotations
 
-import uuid
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any
 
@@ -14,7 +13,6 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from agentdeck.core.content import coerce_input
-from agentdeck.core.context import RunContext
 from agentdeck.errors import SessionBusyError
 
 if TYPE_CHECKING:
@@ -22,10 +20,6 @@ if TYPE_CHECKING:
 
     from agentdeck.core.events import Event
     from agentdeck.runtime.service import Runtime
-
-# M0 fakes auth away entirely — every run shares one tenant/principal.
-TENANT = "demo"
-PRINCIPAL = "user:demo"
 
 
 class ChatBody(BaseModel):
@@ -50,15 +44,7 @@ def build_app(runtime: Runtime) -> FastAPI:
 
     @api.post("/v2/invocables/{name}/chat")
     async def chat(name: str, body: ChatBody) -> Any:
-        ctx = RunContext(
-            tenant=TENANT,
-            principal=PRINCIPAL,
-            run_id=str(uuid.uuid4()),
-            trace_id=str(uuid.uuid4()),
-            session_id=body.session_id,
-        )
-
-        stream = runtime.run(name, coerce_input(body.message), ctx)
+        stream = runtime.run(name, coerce_input(body.message), session_id=body.session_id)
         try:
             # The turn is claimed on the first event, so it has to be pulled here: once a
             # StreamingResponse has committed 200 and `text/event-stream`, a refusal can only

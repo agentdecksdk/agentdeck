@@ -71,15 +71,9 @@ if TYPE_CHECKING:
     from agentdeck.runtime.service import PendingRun, Runtime
     from agentdeck.workflows.interrupts import InterruptResult
 
-# Every Python call through App mints its own context: one tenant/principal, since this
-# facade has no auth story of its own yet — a real per-caller principal arrives with a real
-# auth layer, not here. Mirrors what v1's HTTP compat layer does for the same reason
-# (``surfaces/serve/compat.py``'s ``V1_TENANT``/``V1_PRINCIPAL``), duplicated rather than
-# imported so `App` depends on nothing under `surfaces/`; a pinned test keeps the two equal,
-# because the store buckets its log by ``(tenant, log_key)`` and a drift here would split one
-# session's history into two logs depending on which entry point ran the turn.
-_TENANT = "local"
-_PRINCIPAL = "user:local"
+# Every Python call through App runs unnamespaced: this facade serves one deployment's own
+# agents, so there is nothing to keep apart. An application that does have something to
+# separate passes a namespace per run rather than configuring one here.
 
 # The openai-agents engine namespaces a validated ``output_type`` result here as well as
 # putting it on ``RunCompleted.output`` as a ``DataBlock``, because v1's wire can only carry
@@ -115,29 +109,13 @@ class TurnResult:
 
 
 def _new_context(session_id: str | None = None) -> RunContext:
-    return RunContext(
-        tenant=_TENANT,
-        principal=_PRINCIPAL,
-        run_id=str(uuid.uuid4()),
-        trace_id=str(uuid.uuid4()),
-        session_id=session_id,
-    )
+    """A context for the internal ports that still take one — the execution store, the event
+    store. The Runtime does not: it takes run options and mints its own.
+    """
+    return RunContext(run_id=str(uuid.uuid4()), session_id=session_id)
 
 
-def _resume_context(paused: PendingRun) -> RunContext:
-    """The context that continues an already-open run: its ``run_id`` is the paused run's
-    own, because that is the run whose ``WAITING_HUMAN`` -> ``RUNNING`` claim the resume has
-    to win — a fresh id would name a run the log has never heard of."""
-    return RunContext(
-        tenant=_TENANT,
-        principal=_PRINCIPAL,
-        run_id=paused.run_id,
-        trace_id=str(uuid.uuid4()),
-        session_id=paused.session_id,
-    )
-
-
-async def _turn_result(events: AsyncGenerator[Event, None], ctx: RunContext) -> TurnResult:
+async def _turn_result(events: AsyncGenerator[Event, None]) -> TurnResult:
     """A run's own ``run.completed`` (plus whatever it names, en route), as a :class:`TurnResult`.
 
     Drains ``events`` to its natural end rather than returning the moment ``run.completed``
@@ -167,10 +145,12 @@ async def _turn_result(events: AsyncGenerator[Event, None], ctx: RunContext) -> 
                     output = structured
                 else:
                     output = "".join(block.text for block in payload.output if isinstance(block, TextBlock))
-                result = TurnResult(output=output, usage=payload.usage, run_id=ctx.run_id, session_id=ctx.session_id)
+                result = TurnResult(
+                    output=output, usage=payload.usage, run_id=event.run_id, session_id=event.session_id
+                )
     if result is None:
         raise RuntimeError(
-            f"run {ctx.run_id!r} ended without completing (paused or cancelled) — resume it with "
+            "the run ended without completing (paused or cancelled) — resume it with "
             "App.resume_run, or inspect App.store for what happened."
         )
     return result
@@ -252,7 +232,7 @@ class App:
         write to. Read a turn back with ``await app.store.read(log_key, ctx)``, where
         ``log_key`` is a :class:`TurnResult`'s ``session_id`` (or ``run_id``, for a
         session-less run) and ``ctx`` is any :class:`~agentdeck.core.context.RunContext`
-        of this App's tenant.
+        of this App's namespace.
 
         Same lifetime rule as :attr:`runtime`: composed by :meth:`load`.
         """
@@ -313,8 +293,7 @@ class App:
         """
         self.agents.get(name)  # v1's message ("No agent named ...") if it doesn't exist
         runtime = self._ensure_runtime()
-        ctx = _new_context()
-        return await _turn_result(runtime.run(name, coerce_input(message), ctx), ctx)
+        return await _turn_result(runtime.run(name, coerce_input(message)))
 
     async def run_workflow(self, name: str, state: Any = None, *, thread_id: str | None = None) -> Any:
         """One run of a discovered workflow, recorded on the Runtime; returns the final state.
@@ -332,7 +311,7 @@ class App:
         # `None`'s default meaning here is "no updates", which a data block can only carry
         # as `{}` — `DataBlock(data=None)` would reach the langgraph engine as a null state
         # and fail its own "must be a JSON object" check.
-        run = runtime.run(name, [DataBlock(data=state if state is not None else {})], _new_context(thread_id))
+        run = runtime.run(name, [DataBlock(data=state if state is not None else {})], session_id=thread_id)
         result, _ = await _workflow_result(run)
         return result
 
@@ -345,7 +324,9 @@ class App:
         self.workflows.get(name)
         runtime = self._ensure_runtime()
         paused = await self._paused_workflow_run(runtime, name, thread_id)
-        result, applied = await _workflow_result(runtime.resume(name, thread_id, value, _resume_context(paused)))
+        result, applied = await _workflow_result(
+            runtime.resume(name, thread_id, value, run_id=paused.run_id, session_id=paused.session_id)
+        )
         if not applied:
             # Either the claim went to somebody else between the listing above and this
             # resume, or the thread was already at `END` and langgraph replayed its stale
@@ -355,11 +336,7 @@ class App:
 
     async def _paused_workflow_run(self, runtime: Runtime, name: str, thread_id: str) -> PendingRun:
         paused = next(
-            (
-                run
-                for run in await runtime.pending(_new_context())
-                if run.invocable == name and run.thread_id == thread_id
-            ),
+            (run for run in await runtime.pending() if run.invocable == name and run.thread_id == thread_id),
             None,
         )
         if paused is None:
@@ -428,7 +405,7 @@ class App:
 
         The engine's own store, not a second one: a turn started here and a turn started over
         HTTP have to land in the same conversation, and they only do if there is one store and
-        one key scheme. The key is tenant-scoped, which is why this goes through a context
+        one key scheme. The key is namespace-scoped, which is why this goes through a context
         rather than the bare id.
         """
         return self._sessions.session_for(_new_context(session_id))
@@ -464,7 +441,7 @@ class App:
         not a signal a live run notices, because a paused run has no loop left to notice
         anything: this call plays it on, so it returns when the run does.
         """
-        return [event async for event in self.runtime.resume_run(run_id, _new_context(), reason)]
+        return [event async for event in self.runtime.resume_run(run_id, reason=reason)]
 
     async def chat(self, name: str, session_id: str, message: Any) -> TurnResult:
         """One conversational turn: same ``session_id`` → same history across calls, recorded
@@ -472,8 +449,7 @@ class App:
         """
         self.agents.get(name)
         runtime = self._ensure_runtime()
-        ctx = _new_context(session_id)
-        return await _turn_result(runtime.run(name, coerce_input(message), ctx), ctx)
+        return await _turn_result(runtime.run(name, coerce_input(message), session_id=session_id))
 
     async def chat_stream(self, name: str, session_id: str, message: Any) -> AsyncIterator[Event]:
         """Streaming counterpart to :meth:`chat`: yields the run's own canonical
@@ -489,7 +465,7 @@ class App:
         """
         self.agents.get(name)
         runtime = self._ensure_runtime()
-        async with aclosing(runtime.run(name, coerce_input(message), _new_context(session_id))) as run:
+        async with aclosing(runtime.run(name, coerce_input(message), session_id=session_id)) as run:
             async for event in run:
                 yield event
 
