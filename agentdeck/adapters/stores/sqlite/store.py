@@ -11,6 +11,7 @@ import asyncio
 import json
 import sqlite3
 from contextlib import suppress
+from datetime import datetime
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -21,10 +22,11 @@ from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
-    from datetime import datetime
+    from datetime import timedelta
     from pathlib import Path
 
     from agentdeck.core.context import RunContext
+    from agentdeck.core.events import KnownPayload, RunResumed, RunStarted
     from agentdeck.core.status import RunStatus
 
 _SCHEMA = """
@@ -121,12 +123,8 @@ class SqliteEventStore(EventStorePort):
             except sqlite3.Error as exc:
                 raise StoreError(f"event log {op} failed: {exc}") from exc
 
-    async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
-        foreign = {event.tenant for event in events} - {ctx.tenant}
-        if foreign:
-            raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
-        rows = [(ctx.tenant, log_key, event.run_id, event.seq, event.model_dump_json()) for event in events]
-        await self._run(partial(self._insert, rows), "append")
+    async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        return await self._run(partial(self._append, log_key, list(payloads), ctx, origin), "append")
 
     async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
         if limit is not None and limit < 0:
@@ -138,10 +136,9 @@ class SqliteEventStore(EventStorePort):
         rows = await self._run(partial(self._select_run, ctx.tenant, log_key, run_id, from_seq), "read_run")
         return [Event.model_validate(json.loads(row)) for row in rows]
 
-    async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
-        return await self._run(partial(self._select_last_seq, ctx.tenant, log_key, run_id), "last_seq")
-
-    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
+    async def claim_start(
+        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+    ) -> tuple[SessionClaim, Event | None]:
         """The port's session claim as one ``BEGIN IMMEDIATE`` transaction, for the same reason
         ``claim_resume`` is one: the file's write lock, not this process, is what two servers
         agree through, so only one of them can open a run on an idle session.
@@ -150,27 +147,23 @@ class SqliteEventStore(EventStorePort):
         and then read the run the winner opened. Only a lock held past the busy timeout raises,
         because that is a store nobody can write to rather than a session somebody else took.
         """
-        if event.tenant != ctx.tenant:
-            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
-        row = (ctx.tenant, log_key, event.run_id, event.seq, event.model_dump_json())
-        return await self._run(partial(self._claim_start, row, stale_before), "claim_start")
+        return await self._run(partial(self._claim_start, log_key, opening, ctx, origin, stale_after), "claim_start")
 
-    async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
+    async def claim_resume(
+        self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
+    ) -> Event | None:
         """The port's conditional append as one ``BEGIN IMMEDIATE`` transaction, so the
         winner is decided by SQLite's own write lock — the file, not this process, is what
         two servers agree through.
 
-        A loser still gets its clean ``False``: it waits for the winner's transaction to
+        A loser still gets its clean ``None``: it waits for the winner's transaction to
         commit, then reads the ``RUNNING`` status the winner published. Only a lock held past
         the busy timeout raises, and that is a store nobody can write to rather than a claim
-        somebody else won — ``StoreError``, never a fabricated ``False``.
+        somebody else won — ``StoreError``, never a fabricated ``None``.
         """
-        if event.run_id != run_id:
-            raise ValueError(f"a claim on run {run_id!r} cannot carry an event for {event.run_id!r}")
-        if event.tenant != ctx.tenant:
-            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
-        row = (ctx.tenant, log_key, event.run_id, event.seq, event.model_dump_json())
-        return await self._run(partial(self._claim, row, run_id), "claim_resume")
+        if ctx.run_id != run_id:
+            raise ValueError(f"a claim on run {run_id!r} cannot be made in the context of {ctx.run_id!r}")
+        return await self._run(partial(self._claim, log_key, resumed, ctx, origin), "claim_resume")
 
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
         """Overrides the port's per-run fold: one statement returns each run's *last*
@@ -182,26 +175,73 @@ class SqliteEventStore(EventStorePort):
         ]
         return [summary for summary in summaries if status is None or summary.status is status]
 
-    def _insert(self, rows: list[tuple[str, str, str, int, str]]) -> None:
-        # One transaction for the batch, so a row the unique index rejects takes its whole batch
-        # with it rather than leaving half of it behind for the next commit to pick up.
+    def _append(self, log_key: str, payloads: list[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        # BEGIN IMMEDIATE, which a plain append never used to take. Reading MAX(seq) inside a
+        # *deferred* transaction and then inserting upgrades read→write mid-transaction, which
+        # SQLite answers with SQLITE_BUSY_SNAPSHOT — and it does not honour busy_timeout (#84),
+        # so a peer committing in between is an error rather than a wait. Taking the write lock
+        # first makes the read and the insert one step, which is the whole decision (ADR-D11).
+        self._conn.execute("BEGIN IMMEDIATE")
         with self._conn:
-            self._conn.executemany(_INSERT, rows)
+            return self._stamp_and_insert(log_key, payloads, ctx, origin)
 
-    def _claim_start(self, row: tuple[str, str, str, int, str], stale_before: datetime) -> SessionClaim:
-        tenant, log_key, _run_id, _seq, _data = row
+    def _stamp_and_insert(
+        self, log_key: str, payloads: list[KnownPayload], ctx: RunContext, origin: str
+    ) -> list[Event]:
+        """Assign, build, insert — callable only with the write lock already held.
+
+        Every payload in one call shares one ``ts``: the batch is a single indivisible write, so
+        it happened at one instant. Read from SQLite rather than this process, so N workers on one
+        file compare one clock (ADR-D11 §4).
+        """
+        now = self._backend_now()
+        seq = self._select_last_seq(ctx.tenant, log_key, ctx.run_id)
+        events = []
+        for payload in payloads:
+            seq += 1
+            events.append(
+                Event(
+                    kind=payload.kind,
+                    seq=seq,
+                    run_id=ctx.run_id,
+                    session_id=ctx.session_id,
+                    tenant=ctx.tenant,
+                    origin=origin,
+                    ts=now,
+                    payload=payload,
+                )
+            )
+        self._conn.executemany(
+            _INSERT, [(ctx.tenant, log_key, event.run_id, event.seq, event.model_dump_json()) for event in events]
+        )
+        return events
+
+    def _backend_now(self) -> datetime:
+        """SQLite's clock, to millisecond precision.
+
+        ``CURRENT_TIMESTAMP`` is whole seconds, which would give every event in a busy second the
+        same ``ts`` — visible coarsening on the wire for no reason. ``%f`` is seconds with three
+        decimals, so the format below is the ISO string with an explicit UTC offset.
+        """
+        cursor = self._conn.execute("SELECT strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')")
+        return datetime.fromisoformat(cursor.fetchone()[0])
+
+    def _claim_start(
+        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+    ) -> tuple[SessionClaim, Event | None]:
         # Same lock-first reasoning as _claim: BEGIN IMMEDIATE takes the write lock before the
         # reads, so a peer cannot open a run in the gap between finding this session idle and
         # saying so. A deferred transaction would only lock at the insert, which is too late.
         self._conn.execute("BEGIN IMMEDIATE")
         with self._conn:
-            overridden: list[str] = []
-            for run_id, last in self._select_open_runs(tenant, log_key):
+            stale_before = self._backend_now() - stale_after
+            overridden: list[Event] = []
+            for _run_id, last in self._select_open_runs(ctx.tenant, log_key):
                 if last.ts > stale_before:
-                    return SessionClaim(held_by=run_id)
-                overridden.append(run_id)
-            self._conn.execute(_INSERT, row)
-        return SessionClaim(overridden=tuple(overridden))
+                    return SessionClaim(held_by=last.run_id), None
+                overridden.append(last)
+            event = self._stamp_and_insert(log_key, [opening], ctx, origin)[0]
+        return SessionClaim(overridden=tuple(overridden)), event
 
     def _select_open_runs(self, tenant: str, log_key: str) -> list[tuple[str, Event]]:
         """Every run in this log that has recorded a transition but not a terminal one, paired
@@ -228,24 +268,18 @@ class SqliteEventStore(EventStorePort):
         )
         return Event.model_validate(json.loads(cursor.fetchone()[0]))
 
-    def _claim(self, row: tuple[str, str, str, int, str], run_id: str) -> bool:
-        tenant, log_key, _run_id, seq, _data = row
+    def _claim(self, log_key: str, resumed: RunResumed, ctx: RunContext, origin: str) -> Event | None:
         # BEGIN IMMEDIATE takes the file's write lock before the reads, so a second process
-        # cannot see this run waiting in the gap between our checks and our insert — a
+        # cannot see this run waiting in the gap between our check and our insert — a
         # deferred transaction would only lock at the insert, which is exactly too late.
         self._conn.execute("BEGIN IMMEDIATE")
-        # Commits the insert on the way out, rolls back if anything raised; the losing paths
-        # wrote nothing, so their commit is only the write lock being handed back.
+        # Commits the insert on the way out, rolls back if anything raised; the losing path
+        # wrote nothing, so its commit is only the write lock being handed back.
         with self._conn:
-            last = self._select_last_lifecycle_of_run(tenant, log_key, run_id)
+            last = self._select_last_lifecycle_of_run(ctx.tenant, log_key, ctx.run_id)
             if not can_resume(status_of([Event.model_validate(json.loads(last))] if last is not None else [])):
-                return False
-            if seq != self._select_last_seq(tenant, log_key, run_id) + 1:
-                # The run went round the loop while this claim was in flight: it waits again,
-                # but on a longer log, and this seq now belongs to an event already written.
-                return False
-            self._conn.execute(_INSERT, row)
-        return True
+                return None
+            return self._stamp_and_insert(log_key, [resumed], ctx, origin)[0]
 
     def _select_log(self, tenant: str, log_key: str, after: int, limit: int | None) -> list[str]:
         # SQLite treats a negative LIMIT as "no limit" — the one case a plain int can't say.
