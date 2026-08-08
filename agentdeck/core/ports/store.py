@@ -14,10 +14,10 @@ from agentdeck.core.status import RunStatus, status_of
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import datetime
+    from datetime import timedelta
 
     from agentdeck.core.context import RunContext
-    from agentdeck.core.events import Event
+    from agentdeck.core.events import Event, KnownPayload, RunResumed, RunStarted
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,13 +35,17 @@ class SessionClaim:
     """What one :meth:`EventStorePort.claim_start` decided.
 
     ``held_by`` names the open run that refused the claim, ``None`` when the claim won.
-    ``overridden`` is every run a winning claim stepped over as abandoned; the store wrote
-    nothing for those, since closing a run means stamping an event and only the Runtime does
-    that.
+
+    ``overridden`` is the **last event of** every run a winning claim stepped over as abandoned —
+    not merely its id. The store wrote nothing for those: closing a run means deciding it is
+    abandoned, which is judgement, and the store only reports what it saw. It saw these events
+    already, having compared each one's ``ts`` to decide the run was stale, so handing them back
+    costs nothing and saves the caller a read it would otherwise need to reconstruct the closing
+    event's envelope (ADR-D11 §5).
     """
 
     held_by: str | None = None
-    overridden: tuple[str, ...] = ()
+    overridden: tuple[Event, ...] = ()
 
 
 class EventStorePort(ABC):
@@ -50,12 +54,33 @@ class EventStorePort(ABC):
 
     ``log_key`` is the session the events belong to, or the run itself when there is no
     session (``RunContext.log_key``) — a store never has to decide where to put them.
+
+    **The store assigns ``seq`` and ``ts``** (ADR-D11), in the same indivisible step that
+    persists the event. Callers hand over payloads and get finished events back. That is what
+    makes ``seq`` dense: a number allocated and persisted together cannot be allocated and not
+    persisted, so a gap means an event was genuinely lost and refetching it converges.
+
+    Every other envelope field comes from ``ctx`` — ``run_id``, ``session_id``, ``tenant`` — plus
+    ``origin``, which is the invocable the caller addressed. A store never decides what an event
+    *means*; it refuses what would corrupt the log and reports what it saw.
     """
 
     @abstractmethod
-    async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
-        """Write events in the order given. Must return only once they are durable, because
-        the Runtime yields to consumers immediately after."""
+    async def append(
+        self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str
+    ) -> list[Event]:
+        """Stamp and write ``payloads`` in the order given, returning the finished events.
+
+        Each gets this run's next ``seq`` and the store's own ``ts``, assigned inside whatever
+        the backend uses to make the write indivisible. Must return only once they are durable,
+        because the Runtime yields to consumers immediately after.
+
+        Run identity comes from ``ctx`` alone. The one write that belongs to a *different* run —
+        the terminal event a takeover stamps for a run it stepped over — passes a ``ctx`` built
+        for that run, from the event :class:`SessionClaim` handed back. There is no override
+        parameter, because a caller that could address any run could file an event under a run it
+        is not playing.
+        """
 
     @abstractmethod
     async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
@@ -79,14 +104,12 @@ class EventStorePort(ABC):
         """
 
     @abstractmethod
-    async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
-        """The highest ``seq`` recorded for this run, or -1 if it has none — what the Runtime
-        recovers its per-run counter from on resume."""
-
-    @abstractmethod
-    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
-        """Append ``event`` — a run's opening ``run.started`` — if and only if this log has no
-        open run, in one indivisible step. One session runs one turn at a time.
+    async def claim_start(
+        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+    ) -> tuple[SessionClaim, Event | None]:
+        """Stamp and append ``opening`` — a run's ``run.started`` — if and only if this log has no
+        open run, in one indivisible step. One session runs one turn at a time. The event is
+        returned when the claim won, ``None`` when it lost.
 
         Condition and write must be one operation, which is what carries this across processes:
         two servers sharing a store would both read an idle session and both open a run on it.
@@ -99,28 +122,35 @@ class EventStorePort(ABC):
         Losing never raises — two turns at once is a double-clicked send button, so the refusal is
         data. An unreachable store does raise: it cannot know whether anybody holds anything.
 
-        ``stale_before`` is the cutoff for an abandoned claim: an open run whose last event is at
-        or before it stops holding the session and comes back in ``overridden`` for the caller to
-        close. Without it a process killed mid-run wedges its session for good.
+        ``stale_after`` is how long an open run may be silent before it stops holding the session:
+        one whose last event is older than that comes back in ``overridden`` for the caller to
+        close. A duration rather than a cutoff instant, because the caller no longer owns the clock
+        the comparison is made in — the store does, and only it can subtract from its own now.
+        Without this a process killed mid-run wedges its session for good.
         """
 
     @abstractmethod
-    async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
-        """Append ``event`` if and only if ``run_id`` is ``WAITING_HUMAN`` *and* ``event.seq``
-        is the next ``seq`` for that run, in one indivisible step. ``True`` when appended.
+    async def claim_resume(
+        self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
+    ) -> Event | None:
+        """Stamp and append ``resumed`` if and only if ``run_id`` is ``WAITING_HUMAN``, in one
+        indivisible step. The event when appended, ``None`` when not.
 
         The write publishing the ``WAITING_HUMAN`` -> ``RUNNING`` transition is the same write
         that tests for it, which is what makes double-resume protection hold between processes
         and not merely between tasks. A store that cannot do both indivisibly must not implement
-        this port.
+        this port. A concurrent loser reads ``RUNNING`` — the winner's append is what flipped it —
+        and gets ``None``.
 
-        The ``seq`` check covers what status alone cannot: a caller stamps its event before
-        claiming, so a slow one can arrive after the run was resumed *and* interrupted again —
-        waiting on a human once more, but with that ``seq`` already spent.
+        Status is the whole condition now. It used to be paired with a stale-``seq`` check, which
+        existed because the caller stamped before claiming; the caller no longer holds a ``seq`` to
+        go stale. Note what that check did *not* cover and still does not: a resume can answer an
+        interrupt other than the one in flight, because nothing here names which interrupt is being
+        answered. Recording that is #94's business, in a schema PR.
 
-        ``False`` on any other status, a stale ``seq``, or a lost race; a stray resume is a no-op
-        by design (``can_resume``). An unreachable store raises instead, because ``False`` claims
-        somebody else recorded this resume, which it cannot know.
+        ``None`` on any other status or a lost race; a stray resume is a no-op by design
+        (``can_resume``). An unreachable store raises instead, because ``None`` claims somebody
+        else recorded this resume, which it cannot know.
         """
 
     @abstractmethod
