@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -51,13 +50,14 @@ from agentdeck.core.events import (
     Usage,
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
-from agentdeck.errors import SessionBusyError, StoreError
+from agentdeck.errors import SessionBusyError
 from agentdeck.runtime.service import Runtime
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Sequence
+    from datetime import timedelta
 
-    from agentdeck.core.events import KnownPayload
+    from agentdeck.core.events import KnownPayload, RunResumed
     from agentdeck.core.ports import SessionClaim
 
 TENANT = "demo"
@@ -292,11 +292,13 @@ class ClaimTimingStore(SqliteEventStore):
         self._sync = sync
         self._tag = tag
 
-    async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
+    async def claim_resume(
+        self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
+    ) -> Event | None:
         await _barrier(self._sync, f"resumeclaim.{run_id}", self._tag)
         started = time.time_ns()
         try:
-            return await super().claim_resume(log_key, run_id, event, ctx)
+            return await super().claim_resume(log_key, run_id, resumed, ctx, origin)
         finally:
             with self._windows.open("a") as handle:
                 handle.write(f"{run_id} {started} {time.time_ns()}\n")
@@ -326,11 +328,13 @@ class ClaimStartTimingStore(SqliteEventStore):
         self._sync = sync
         self._tag = tag
 
-    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
+    async def claim_start(
+        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+    ) -> tuple[SessionClaim, Event | None]:
         await _barrier(self._sync, f"claim.{log_key}", self._tag)
         started = time.time_ns()
         try:
-            return await super().claim_start(log_key, event, ctx, stale_before)
+            return await super().claim_start(log_key, opening, ctx, origin, stale_after)
         finally:
             with self._windows.open("a") as handle:
                 handle.write(f"{log_key} {started} {time.time_ns()}\n")
@@ -367,17 +371,20 @@ class StallingStore(SqliteEventStore):
         self._mid = mid
         self._written = 0
 
-    async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
-        await super().append(log_key, events, ctx)
-        await self._stall_once_deep_enough(events)
+    async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        written = await super().append(log_key, payloads, ctx, origin)
+        await self._stall_once_deep_enough(written)
+        return written
 
-    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
+    async def claim_start(
+        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+    ) -> tuple[SessionClaim, Event | None]:
         # A run's opening event is written by the session claim, not by append, so counting a
         # run's durable events means counting at both doors.
-        claim = await super().claim_start(log_key, event, ctx, stale_before)
-        if claim.held_by is None:
+        claim, event = await super().claim_start(log_key, opening, ctx, origin, stale_after)
+        if event is not None:
             await self._stall_once_deep_enough([event])
-        return claim
+        return claim, event
 
     async def _stall_once_deep_enough(self, events: Sequence[Event]) -> None:
         self._written += sum(1 for event in events if event.run_id == self._run_id)
@@ -580,9 +587,16 @@ async def _race_crossrun(tag: str, trials: int, root: Path) -> None:
     """Two different runs of one log, written into by both peers at once, event by event.
 
     Below the Runtime deliberately: one session admits one turn now, so a log with two live runs
-    in it is what a takeover leaves behind rather than something a caller can ask for. The store
-    still owes both of them the same two things — each run's ``seq`` is its own, and a ``seq`` a
-    run has already spent is refused rather than written twice.
+    in it is what a takeover leaves behind rather than something a caller can ask for. What the
+    store owes both of them is that each run's ``seq`` is its own and every number it assigns is
+    a number it persisted — which is why each peer asserts here, while the other is still writing
+    into the same file, that the log gave it back exactly the seqs it expected.
+
+    The peers no longer stamp their own events, so there is no spent ``seq`` for one of them to
+    offer back: the store reads the run's last number under the file's write lock and hands out
+    the next one. That makes the duplicate this trial used to demand a refusal for unconstructible
+    rather than merely refused, and moves the burden onto what the store *returns* — checked here
+    per write, and again over the settled file by the trial that spawned these peers.
     """
     sync = root / "sync"
     store = SqliteEventStore(events_db(root))
@@ -592,35 +606,25 @@ async def _race_crossrun(tag: str, trials: int, root: Path) -> None:
             ctx = context(crossrun_run_id(trial, tag), log_key)
             script = crossrun_script(tag)
             await _barrier(sync, f"crossrun-{trial}", tag)
-            for seq, payload in enumerate(script):
-                await store.append(log_key, [_stamped(payload, seq, ctx)], ctx)
-            await _refuse_a_spent_seq(store, log_key, ctx)
+            for expected, payload in enumerate(script):
+                written = await store.append(log_key, [payload], ctx, CHATTY)
+                _assert_assigned(written, expected, ctx)
             _report(trial, tag, [payload.kind for payload in script])
 
 
-async def _refuse_a_spent_seq(store: SqliteEventStore, log_key: str, ctx: RunContext) -> None:
-    """Ask the log to take this run's ``seq`` 0 a second time. Asserted in the worker so a store
-    that accepts it fails the trial here, with the peer still writing into the same file."""
-    spent = _stamped(TextDelta(message_id="m-again", text="not yours"), 0, ctx)
-    try:
-        await store.append(log_key, [spent], ctx)
-    except StoreError:
-        return
-    raise AssertionError(f"log {log_key!r} accepted a second event at seq 0 of run {ctx.run_id!r}")
+def _assert_assigned(written: list[Event], expected: int, ctx: RunContext) -> None:
+    """One write, one event, at this run's next number and under this run's own name.
 
-
-def _stamped(payload: KnownPayload, seq: int, ctx: RunContext) -> Event:
-    """The envelope the Runtime would put on — by hand, because this race is the store's own."""
-    return Event(
-        kind=payload.kind,
-        seq=seq,
-        run_id=ctx.run_id,
-        session_id=ctx.session_id,
-        tenant=ctx.tenant,
-        origin=CHATTY,
-        ts=datetime.now(UTC),
-        payload=payload,
-    )
+    Asserted in the worker rather than only over the settled file, because a store that handed
+    this peer a number belonging to the other run — or one it had already given away — is caught
+    here while both peers are still writing, with the trial that spawned them reporting it as a
+    failed worker instead of as a merely odd log.
+    """
+    if [(event.run_id, event.seq) for event in written] != [(ctx.run_id, expected)]:
+        raise AssertionError(
+            f"log {ctx.log_key!r} gave run {ctx.run_id!r} {[(e.run_id, e.seq) for e in written]}, "
+            f"expected [({ctx.run_id!r}, {expected})]"
+        )
 
 
 async def _takeover_victim(root: Path) -> None:

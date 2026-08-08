@@ -11,8 +11,6 @@ path did not lose or duplicate its opening event on the way to fixing that.
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 import httpx
 
@@ -31,9 +29,6 @@ from agentdeck.core.events import (
 )
 from agentdeck.runtime.service import Runtime
 from agentdeck.surfaces.serve.app import PRINCIPAL, TENANT, build_app
-
-if TYPE_CHECKING:
-    from agentdeck.core.events import KnownPayload
 
 SESSION_ID = "s-busy"
 AGENT = "Greeter"
@@ -55,17 +50,10 @@ def _reader() -> RunContext:
     return RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="reader", trace_id="t", session_id=SESSION_ID)
 
 
-def _stamped(payload: KnownPayload, seq: int) -> Event:
-    return Event(
-        kind=payload.kind,
-        seq=seq,
-        run_id=HOLDER,
-        session_id=SESSION_ID,
-        tenant=TENANT,
-        origin=AGENT,
-        ts=datetime.now(UTC),
-        payload=payload,
-    )
+def _holder() -> RunContext:
+    """The run that already owns the session — its own context, because that is what files an
+    event under its ``run_id`` now."""
+    return RunContext(tenant=TENANT, principal=PRINCIPAL, run_id=HOLDER, trace_id="t", session_id=SESSION_ID)
 
 
 async def _hold_the_session(store: MemoryEventStore) -> None:
@@ -78,7 +66,7 @@ async def _hold_the_session(store: MemoryEventStore) -> None:
         context=RunContextSnapshot(principal=PRINCIPAL, trace_id="t"),
     )
     waiting = RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1")
-    await store.append(SESSION_ID, [_stamped(opening, 0), _stamped(waiting, 1)], _reader())
+    await store.append(SESSION_ID, [opening, waiting], _holder(), AGENT)
 
 
 async def test_a_turn_on_a_busy_session_is_a_409_naming_the_run_that_holds_it() -> None:
