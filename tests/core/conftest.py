@@ -130,7 +130,15 @@ def _event(payload, seq: int) -> Event:
 # Sequencing has its own tests, which stamp their own seqs through ``make_event``.
 EXAMPLE_SEQ = 0
 
-EXAMPLES: dict[str, Event] = {p.kind: _event(p, EXAMPLE_SEQ) for p in PAYLOADS}
+
+def examples_from(payloads) -> dict[str, Event]:
+    """The rule itself, callable — so ``test_adding_a_payload_kind_rewrites_exactly_its_own_snapshot``
+    can hand it a longer tuple and watch what moves. A test that re-implemented this would pass
+    against the very fixture it exists to forbid."""
+    return {p.kind: _event(p, EXAMPLE_SEQ) for p in payloads}
+
+
+EXAMPLES: dict[str, Event] = examples_from(PAYLOADS)
 
 
 @pytest.fixture(scope="session")
