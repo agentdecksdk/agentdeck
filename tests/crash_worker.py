@@ -42,9 +42,9 @@ from agentdeck.runtime.service import Runtime
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import datetime
+    from datetime import timedelta
 
-    from agentdeck.core.events import Event
+    from agentdeck.core.events import Event, KnownPayload, RunStarted
     from agentdeck.core.ports import SessionClaim
 
 TENANT = "demo"
@@ -179,17 +179,20 @@ class StallingStore(SqliteEventStore):
         super().__init__(path)
         self._marker = marker
 
-    async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
-        await super().append(log_key, events, ctx)
-        await self._stall_if_written(events)
+    async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        written = await super().append(log_key, payloads, ctx, origin)
+        await self._stall_if_written(written)
+        return written
 
-    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
+    async def claim_start(
+        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+    ) -> tuple[SessionClaim, Event | None]:
         # A turn's opening event is the session claim's own write, never an append, so a
         # fixture watching for one has to watch both doors.
-        claim = await super().claim_start(log_key, event, ctx, stale_before)
-        if claim.held_by is None:
+        claim, event = await super().claim_start(log_key, opening, ctx, origin, stale_after)
+        if event is not None:
             await self._stall_if_written([event])
-        return claim
+        return claim, event
 
     async def _stall_if_written(self, events: Sequence[Event]) -> None:
         if any(event.run_id == STALL_RUN and event.kind == STALL_KIND for event in events):

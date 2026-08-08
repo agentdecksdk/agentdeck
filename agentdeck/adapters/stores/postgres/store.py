@@ -29,12 +29,18 @@ from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
-    from datetime import datetime
+    from datetime import timedelta
 
     from agentdeck.core.context import RunContext
+    from agentdeck.core.events import KnownPayload, RunResumed, RunStarted
     from agentdeck.core.status import RunStatus
 
     type Connection = psycopg.AsyncConnection[tuple[Any, ...]]
+
+# Postgres's own wall clock, so N workers sharing one database compare one clock rather than N
+# (ADR-D11 §4). ``clock_timestamp()`` and not ``now()``: the latter is the transaction's start
+# time, so every event in a batch would carry the timestamp of the statement that opened it.
+_SELECT_NOW = "SELECT clock_timestamp()"
 
 _DEFAULT_SCHEMA = "agentdeck_events"
 
@@ -180,31 +186,28 @@ class PostgresEventStore(EventStorePort):
             self._conn = conn
         return self._conn
 
-    async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
-        """Writes take the log's lock too, for the port's paging guarantee: a page already
-        read must never shift under a later one.
+    async def append(
+        self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str
+    ) -> list[Event]:
+        """Writes take the log's lock, for the port's paging guarantee and now for ``seq``.
 
         Row order is `BIGSERIAL`, assigned at insert and published at commit, so an
         unlocked append can be given a *later* number than a claim's in-flight insert and
         still commit *first* — the claim's event then appears at an offset a reader has
         already gone past, and one of its neighbours is delivered twice. Serializing writes
-        per log is what keeps the log growing only at its end. It also makes a batch atomic,
-        so a row the unique index rejects takes the whole batch with it.
+        per log is what keeps the log growing only at its end. The same lock is what makes
+        reading this run's last ``seq`` and inserting the next one indivisible.
         """
-        foreign = {event.tenant for event in events} - {ctx.tenant}
-        if foreign:
-            raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
-        if not events:
+        if not payloads:
             # No lock and no transaction for a batch with nothing in it, as in the Redis store.
-            return
-        rows = [_row(ctx.tenant, log_key, event) for event in events]
+            return []
 
-        async def _work(conn: Connection) -> None:
+        async def _work(conn: Connection) -> list[Event]:
             async with conn.transaction():
                 await self._lock_log(conn, ctx.tenant, log_key)
-                await conn.cursor().executemany(self._insert, rows)
+                return await self._stamp_and_insert(conn, log_key, list(payloads), ctx, origin)
 
-        await self._run(_work, "append")
+        return await self._run(_work, "append")
 
     async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
         if limit is not None and limit < 0:
@@ -224,13 +227,40 @@ class PostgresEventStore(EventStorePort):
 
         return [Event.model_validate(data) for data in await self._run(_work, "read_run")]
 
-    async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
-        async def _work(conn: Connection) -> int:
-            return await self._last_seq(conn, ctx.tenant, log_key, run_id)
+    async def _stamp_and_insert(
+        self, conn: Connection, log_key: str, payloads: list[KnownPayload], ctx: RunContext, origin: str
+    ) -> list[Event]:
+        """Assign, build, insert — callable only with this log's advisory lock already held.
 
-        return await self._run(_work, "last_seq")
+        ``ts`` is ``clock_timestamp()``, Postgres's own wall clock, so N workers sharing one
+        database compare one clock rather than N (ADR-D11 §4). ``clock_timestamp`` rather than
+        ``now()``, which is the transaction's start time and would hand every event in a batch
+        the timestamp of the statement that opened it.
+        """
+        cursor = await conn.execute(_SELECT_NOW)
+        now = (await cursor.fetchone())[0]  # ty: ignore[not-subscriptable] — one-row scalar select
+        seq = await self._last_seq(conn, ctx.tenant, log_key, ctx.run_id)
+        events = []
+        for payload in payloads:
+            seq += 1
+            events.append(
+                Event(
+                    kind=payload.kind,
+                    seq=seq,
+                    run_id=ctx.run_id,
+                    session_id=ctx.session_id,
+                    tenant=ctx.tenant,
+                    origin=origin,
+                    ts=now,
+                    payload=payload,
+                )
+            )
+        await conn.cursor().executemany(self._insert, [_row(ctx.tenant, log_key, event) for event in events])
+        return events
 
-    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
+    async def claim_start(
+        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+    ) -> tuple[SessionClaim, Event | None]:
         """The port's session claim as one transaction holding this log's advisory lock, so
         only one of two servers can open a run on an idle session.
 
@@ -238,50 +268,43 @@ class PostgresEventStore(EventStorePort):
         out and then reads the run it opened. Only a lock held past ``lock_timeout`` raises,
         because that is a store nobody can write to rather than a session somebody took.
         """
-        if event.tenant != ctx.tenant:
-            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
-        row = _row(ctx.tenant, log_key, event)
 
-        async def _work(conn: Connection) -> SessionClaim:
+        async def _work(conn: Connection) -> tuple[SessionClaim, Event | None]:
             async with conn.transaction():
                 await self._lock_log(conn, ctx.tenant, log_key)
-                overridden: list[str] = []
-                for run_id, last in await self._open_runs(conn, ctx.tenant, log_key):
+                cursor = await conn.execute(_SELECT_NOW)
+                stale_before = (await cursor.fetchone())[0] - stale_after  # ty: ignore[not-subscriptable]
+                overridden: list[Event] = []
+                for _run_id, last in await self._open_runs(conn, ctx.tenant, log_key):
                     if last.ts > stale_before:
-                        return SessionClaim(held_by=run_id)
-                    overridden.append(run_id)
-                await conn.execute(self._insert, row)
-            return SessionClaim(overridden=tuple(overridden))
+                        return SessionClaim(held_by=last.run_id), None
+                    overridden.append(last)
+                event = (await self._stamp_and_insert(conn, log_key, [opening], ctx, origin))[0]
+            return SessionClaim(overridden=tuple(overridden)), event
 
         return await self._run(_work, "claim_start")
 
-    async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
+    async def claim_resume(
+        self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
+    ) -> Event | None:
         """The port's conditional append as one transaction holding this log's advisory
-        lock: the lock is taken before the reads, so a peer cannot resume the same run in
-        the gap between this caller's checks and its insert.
+        lock: the lock is taken before the read, so a peer cannot resume the same run in
+        the gap between this caller's check and its insert.
 
-        A loser gets its clean ``False`` — it reads the ``RUNNING`` status the winner
+        A loser gets its clean ``None`` — it reads the ``RUNNING`` status the winner
         published. Only an unreachable store or a lock held past ``lock_timeout`` raises,
-        never a fabricated ``False``.
+        never a fabricated ``None``.
         """
-        if event.run_id != run_id:
-            raise ValueError(f"a claim on run {run_id!r} cannot carry an event for {event.run_id!r}")
-        if event.tenant != ctx.tenant:
-            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
-        row = _row(ctx.tenant, log_key, event)
+        if ctx.run_id != run_id:
+            raise ValueError(f"a claim on run {run_id!r} cannot be made in the context of {ctx.run_id!r}")
 
-        async def _work(conn: Connection) -> bool:
+        async def _work(conn: Connection) -> Event | None:
             async with conn.transaction():
                 await self._lock_log(conn, ctx.tenant, log_key)
                 last = await self._last_lifecycle_of_run(conn, ctx.tenant, log_key, run_id)
                 if not can_resume(status_of([last] if last is not None else [])):
-                    return False
-                if event.seq != await self._last_seq(conn, ctx.tenant, log_key, run_id) + 1:
-                    # The run went round the loop while this claim was in flight: it waits
-                    # again, on a longer log, and this seq belongs to an event already written.
-                    return False
-                await conn.execute(self._insert, row)
-            return True
+                    return None
+                return (await self._stamp_and_insert(conn, log_key, [resumed], ctx, origin))[0]
 
         return await self._run(_work, "claim_resume")
 

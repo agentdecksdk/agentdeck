@@ -170,7 +170,7 @@ demonstrate that routing/ordering/isolation itself is impossible without it.
 class Event(BaseModel):
     v: int = 1
     kind: str                # discriminator, mirrors the payload class
-    seq: int                 # per-run, CONTIGUOUS from 0; assigned only by the Runtime (decision A)
+    seq: int                 # per-run, CONTIGUOUS from 0; assigned by the store (decision A, ADR-D11)
     run_id: str
     session_id: str | None
     tenant: str              # stamped outside-in from RunContext; engines cannot set it
@@ -195,6 +195,16 @@ tenancy. Contiguous `seq` upgrades ordering into **loss detection**: a consumer 
 `0,1,2,4` knows 3 is missing and refetches from the store. Supporting invariants:
 persist-before-yield (an event a consumer has seen is already in the store); an
 interrupted-then-resumed run keeps the same `run_id` with continuing `seq`.
+
+*(Amended 2026-08-08, ADR-D11.)* The stamping is split differently now: **the store** assigns
+`seq` and `ts`, in the same indivisible step that persists the event, and the `Runtime` supplies
+the rest of the envelope through the `RunContext` it hands the store (`run_id`, `session_id`,
+`tenant`) plus `origin`. The engine's position is unchanged — it still yields payloads and still
+cannot forge `seq` or `tenant` — and so is everything the paragraph above claims about ordering
+and loss detection. What changes is that those claims become true rather than nearly true: with
+allocation separated from the write by an `await`, a refused append left the number it had taken
+spent, and the resulting hole was indistinguishable from an event lost in transit. `last_seq`
+came off the port with the counter it existed to recover.
 
 *(Ruled 2026-08-05, Milestone 0 checkpoint, issue #57.)* `origin` is invocable-scoped:
 "speaker" means the invocable the caller addressed, not the SDK's internal sub-agent, so

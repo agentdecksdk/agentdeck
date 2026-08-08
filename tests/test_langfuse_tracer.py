@@ -115,7 +115,6 @@ async def _run(spy, name: str = "Pipeline") -> None:  # noqa: ANN001
         MemoryEventStore(),
         {spec.name: spec},
         sinks=[LangfuseSink(LangfuseTracer(spy.client))],
-        clock=lambda: TS,
     )
     async for _ in runtime.run(name, INPUT, CTX):
         pass
@@ -177,7 +176,6 @@ async def test_an_inline_data_uri_in_tool_args_never_reaches_the_langfuse_media_
         MemoryEventStore(),
         {spec.name: spec},
         sinks=[LangfuseSink(LangfuseTracer(spy.client))],
-        clock=lambda: TS,
     )
     async for _ in runtime.run("Describer", INPUT, CTX):
         pass

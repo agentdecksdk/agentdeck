@@ -80,14 +80,15 @@ async def test_build_runtime_discovers_the_project_when_given_no_invocables(proj
     assert kinds == ["run.started", "node.updated", "run.completed"]
 
 
-async def test_build_runtime_takes_explicit_specs_and_a_clock(project):
-    """A caller with specs in hand skips discovery, and injects a clock instead of waiting
-    for wall time to be deterministic."""
+async def test_build_runtime_takes_explicit_specs_and_a_store_that_holds_time_still(project):
+    """A caller with specs in hand skips discovery, and freezes time by handing in a store with a
+    clock — which is the only seam that decides a ``ts`` now (ADR-D11). ``build_runtime``'s own
+    ``clock`` keyword no longer reaches anything that stamps an event."""
     frozen = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     engines = v1_engines()
     specs = InvocableRegistry(engines).load()
 
-    runtime = build_runtime(engines=engines, invocables=specs, store=MemoryEventStore(), clock=lambda: frozen)
+    runtime = build_runtime(engines=engines, invocables=specs, store=MemoryEventStore(clock=lambda: frozen))
     stamps = {event.ts async for event in runtime.run("Shout", coerce_input("hello"), CTX)}
 
     assert stamps == {frozen}

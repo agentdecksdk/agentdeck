@@ -195,7 +195,6 @@ def _runtime(collector: Collector, *steps: KnownPayload, kind: InvocableKind, na
         MemoryEventStore(),
         {spec.name: spec},
         sinks=[LangfuseSink(collector)],
-        clock=lambda: TS,
     )
 
 

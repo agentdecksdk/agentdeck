@@ -220,25 +220,23 @@ def _spec():
     return InvocableSpec(name="ClaimPipeline", kind=InvocableKind.WORKFLOW, engine=LangGraphEngine.engine, native=g)
 
 
-# Holds this process inside resume() until the gate file appears, so its claim is
-# guaranteed to land after the other process resumed the same run: the interleaving a
+# Holds this process on the doorstep of its resume claim until the gate file appears, so the
+# claim is guaranteed to land after the other process resumed the same run: the interleaving a
 # check-then-append resume duplicated, made schedule-proof rather than timing-lucky.
+#
+# The wait is inside claim_resume, ahead of the real one, because resume() no longer reads the
+# log before claiming — the store assigns the seq, so there is nothing left to read first. That
+# also removes the way this fixture could go wrong: the gate cannot be outrun by a claim it is
+# the first statement of.
 class LateStore(SqliteEventStore):
     def __init__(self, path, gate):
         super().__init__(path)
         self._gate = pathlib.Path(gate)
 
-    async def last_seq(self, *args, **kwargs):
+    async def claim_resume(self, *args, **kwargs):
         self._gate.with_suffix(".reached").touch()
         while not self._gate.exists():
             await asyncio.sleep(0.01)
-        return await super().last_seq(*args, **kwargs)
-
-    async def claim_resume(self, *args, **kwargs):
-        # The gate is upstream of the claim only because resume() reads the log before it
-        # claims. If that ever stops being true this exits non-zero instead of quietly
-        # turning the race back into a coin toss.
-        assert self._gate.exists(), "the claim outran the gate — this race is no longer ordered"
         return await super().claim_resume(*args, **kwargs)
 
 
@@ -315,8 +313,8 @@ def _wait_for(path: Path, timeout: float = 15.0) -> None:
 def test_two_processes_resuming_one_interrupt_produce_exactly_one_winner(tmp_path: Any) -> None:
     """Two OS processes, one events file, one interrupted run: the second must lose cleanly
     even though it entered ``resume`` before the first one finished. Ordering is forced with
-    files rather than sleeps — the loser blocks on its first store read until the winner has
-    exited — so this fails on a check-then-append claim every time, not now and then.
+    files rather than sleeps — the loser blocks on the doorstep of its own claim until the winner
+    has exited — so this fails on a check-then-append claim every time, not now and then.
     """
     db_path = str(tmp_path / "events.sqlite3")
     checkpoint_path = str(tmp_path / "checkpoints.sqlite3")

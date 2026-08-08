@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from agentdeck.core.events import Event
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
 from agentdeck.core.status import LIFECYCLE_KINDS, TERMINAL_STATUSES, RunStatus, can_resume, status_of
-from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-    from datetime import datetime
+    from collections.abc import Callable, Sequence
+    from datetime import timedelta
 
     from agentdeck.core.context import RunContext
-    from agentdeck.core.events import Event
+    from agentdeck.core.events import KnownPayload, RunResumed, RunStarted
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
 
 
 class MemoryEventStore(EventStorePort):
@@ -24,24 +29,50 @@ class MemoryEventStore(EventStorePort):
     read each other's runs — isolation is not something a store gets to skip.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, clock: Callable[[], datetime] = _now) -> None:
         self._logs: dict[tuple[str, str], list[Event]] = {}
+        self._clock = clock
 
-    async def append(self, log_key: str, events: Sequence[Event], ctx: RunContext) -> None:
-        # The bucket is chosen by ctx, so an event stamped for another tenant would land in
-        # the wrong one. The Runtime stamps from ctx and cannot diverge — this makes the
-        # isolation the docstring claims enforced rather than merely true today.
-        foreign = {event.tenant for event in events} - {ctx.tenant}
-        if foreign:
-            raise ValueError(f"events for tenant(s) {sorted(foreign)} cannot be written to {ctx.tenant!r}'s log")
-        log = self._logs.setdefault((ctx.tenant, log_key), [])
-        _refuse_a_taken_seq(log, events, log_key)
-        log.extend(events)
+    async def append(
+        self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str
+    ) -> list[Event]:
+        events = self._stamp(log_key, payloads, ctx, origin)
         # Fidelity, not correctness (issue #87): every real store suspends here (SQLite's own
         # `to_thread`), so a caller whose liveness secretly depends on that turn is caught by
         # this store too, instead of only by measurement in production. Placed after the
-        # mutation above, so it opens no window in `claim_resume`'s atomicity.
+        # mutation in `_stamp`, so it opens no window in either claim's atomicity.
         await asyncio.sleep(0)
+        return events
+
+    def _stamp(
+        self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str
+    ) -> list[Event]:
+        """Assign, build and write, with no suspension point anywhere in between.
+
+        That is this store's whole atomicity mechanism, and it is why every caller here — both
+        claims included — goes through this rather than through ``append``: an ``await`` between
+        reading the run's last ``seq`` and extending the log is all it would take for two tasks to
+        be handed the same number.
+        """
+        log = self._logs.setdefault((ctx.tenant, log_key), [])
+        seq = max((stored.seq for stored in log if stored.run_id == ctx.run_id), default=-1)
+        events = []
+        for payload in payloads:
+            seq += 1
+            events.append(
+                Event(
+                    kind=payload.kind,
+                    seq=seq,
+                    run_id=ctx.run_id,
+                    session_id=ctx.session_id,
+                    tenant=ctx.tenant,
+                    origin=origin,
+                    ts=self._clock(),
+                    payload=payload,
+                )
+            )
+        log.extend(events)
+        return events
 
     async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
         if limit is not None and limit < 0:
@@ -54,44 +85,39 @@ class MemoryEventStore(EventStorePort):
         log = self._logs.get((ctx.tenant, log_key), ())
         return [event for event in log if event.run_id == run_id and event.seq >= from_seq]
 
-    async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
-        log = self._logs.get((ctx.tenant, log_key), ())
-        return max((event.seq for event in log if event.run_id == run_id), default=-1)
-
-    async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
-        """Atomic for free, like ``claim_resume``: the scan and the write inside ``append`` are
-        plain dict work with no suspension point between them, so no other task can open a run
-        in the gap — ``append``'s own yield comes after that write, too late to be one.
+    async def claim_start(
+        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+    ) -> tuple[SessionClaim, Event | None]:
+        """Atomic for free, like ``claim_resume``: the scan and ``_stamp`` are plain dict work
+        with no suspension point between them, so no other task can open a run in the gap.
         """
-        if event.tenant != ctx.tenant:
-            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
-        overridden: list[str] = []
-        for run_id, events in _by_run(self._logs.get((ctx.tenant, log_key), ())).items():
+        stale_before = self._clock() - stale_after
+        overridden: list[Event] = []
+        for events in _by_run(self._logs.get((ctx.tenant, log_key), ())).values():
             status = status_of(events)
             if status is RunStatus.PENDING or status in TERMINAL_STATUSES:
                 continue
             if events[-1].ts > stale_before:
-                return SessionClaim(held_by=run_id)
-            overridden.append(run_id)
-        await self.append(log_key, [event], ctx)
-        return SessionClaim(overridden=tuple(overridden))
+                return SessionClaim(held_by=events[-1].run_id), None
+            overridden.append(events[-1])
+        event = self._stamp(log_key, [opening], ctx, origin)[0]
+        await asyncio.sleep(0)
+        return SessionClaim(overridden=tuple(overridden)), event
 
-    async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
-        """Atomic for free: both checks and the write inside ``append`` are plain dict work
-        with no suspension point between them, so no other task can slip in and claim the
-        same run — ``append``'s own yield comes after that write, too late to open a window.
+    async def claim_resume(
+        self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
+    ) -> Event | None:
+        """Atomic for free: the status fold and ``_stamp`` are plain dict work with no suspension
+        point between them, so no other task can slip in and claim the same run.
         """
-        if event.run_id != run_id:
-            raise ValueError(f"a claim on run {run_id!r} cannot carry an event for {event.run_id!r}")
-        if event.tenant != ctx.tenant:
-            raise ValueError(f"an event for tenant {event.tenant!r} cannot be written to {ctx.tenant!r}'s log")
+        if ctx.run_id != run_id:
+            raise ValueError(f"a claim on run {run_id!r} cannot be made in the context of {ctx.run_id!r}")
         mine = [stored for stored in self._logs.get((ctx.tenant, log_key), ()) if stored.run_id == run_id]
         if not can_resume(status_of(mine)):
-            return False
-        if event.seq != max((stored.seq for stored in mine), default=-1) + 1:
-            return False
-        await self.append(log_key, [event], ctx)
-        return True
+            return None
+        event = self._stamp(log_key, [resumed], ctx, origin)[0]
+        await asyncio.sleep(0)
+        return event
 
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
         runs = [
@@ -110,19 +136,9 @@ class MemoryEventStore(EventStorePort):
         return [summary for summary in summaries if status is None or summary.status is status]
 
 
-def _refuse_a_taken_seq(log: Sequence[Event], events: Sequence[Event], log_key: str) -> None:
-    """The durable store's unique index, in a dict: one ``seq`` per run, ever.
-
-    A gap check cannot see a duplicate, so without this a run that was presumed dead and wrote
-    again — the one way two writers can share a run — would put two different events at one
-    ``seq``, and every consumer refetching that ``seq`` would get whichever came back first.
-    Raised before anything is written, so a rejected batch leaves no half of itself behind.
-    """
-    taken = {(stored.run_id, stored.seq) for stored in log}
-    for event in events:
-        if (event.run_id, event.seq) in taken:
-            raise StoreError(f"seq {event.seq} of run {event.run_id!r} is already in log {log_key!r}")
-        taken.add((event.run_id, event.seq))
+# The unique-index equivalent this store used to need is gone: no caller supplies a ``seq``, and
+# ``_stamp`` reads the run's last one and extends the log with no suspension in between, so two
+# events at one ``seq`` is unconstructible rather than merely refused (ADR-D11 §6).
 
 
 def _by_run(log: Sequence[Event]) -> dict[str, list[Event]]:
