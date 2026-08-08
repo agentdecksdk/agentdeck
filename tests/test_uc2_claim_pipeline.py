@@ -37,7 +37,7 @@ from agentdeck.adapters.engines.langgraph.engine import _to_graph_input
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import check_contiguous, check_terminal, parse_event
+from agentdeck.core.events import Event, check_contiguous, check_terminal
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.runtime.service import Runtime
@@ -101,7 +101,7 @@ async def _post_events(client: httpx.AsyncClient, path: str, body: dict[str, Any
     async with client.stream("POST", path, json=body) as response:
         async for line in response.aiter_lines():
             if line.startswith("data: "):
-                events.append(parse_event(json.loads(line.removeprefix("data: "))))
+                events.append(Event.model_validate(json.loads(line.removeprefix("data: "))))
     return events
 
 

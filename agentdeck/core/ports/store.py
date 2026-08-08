@@ -22,8 +22,8 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class RunSummary:
-    """One run's identity and derived status, as :meth:`EventStorePort.list_runs` projects
-    it — never a stored row of its own (ADR-D5: the log stays the sole source of truth)."""
+    """One run as :meth:`EventStorePort.list_runs` projects it — never a stored row of its
+    own (ADR-D5: the log stays the sole source of truth)."""
 
     log_key: str
     run_id: str
@@ -34,10 +34,10 @@ class RunSummary:
 class SessionClaim:
     """What one :meth:`EventStorePort.claim_start` decided.
 
-    ``held_by`` names the open run that refused the claim, and is ``None`` when the claim won.
-    ``overridden`` is every run a winning claim stepped over because nobody was coming back
-    for it: the store wrote nothing for those, since closing a run means stamping an event and
-    only the Runtime does that.
+    ``held_by`` names the open run that refused the claim, ``None`` when the claim won.
+    ``overridden`` is every run a winning claim stepped over as abandoned; the store wrote
+    nothing for those, since closing a run means stamping an event and only the Runtime does
+    that.
     """
 
     held_by: str | None = None
@@ -59,106 +59,89 @@ class EventStorePort(ABC):
 
     @abstractmethod
     async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
-        """Events in append order, oldest first. ``offset`` is a count of events to skip from
-        the start of the log, not a ``seq`` cursor — ``seq`` restarts per run, so it cannot
-        address a position in a log that holds several. ``limit`` caps how many come back,
-        ``None`` for the rest.
+        """Events in append order, oldest first.
 
-        Safe to page with a plain counter: the log only ever grows at the end, so an earlier
-        page never shifts under a later read. A negative ``offset`` means the same as 0; a
-        negative ``limit`` is a caller bug and raises ``ValueError`` rather than quietly
-        meaning "all" in one store and "none" in another.
+        ``offset`` counts events from the start of the log, not a ``seq`` cursor — ``seq``
+        restarts per run, so it cannot address a position in a log holding several. Safe to
+        page with a plain counter: the log only grows at the end.
+
+        A negative ``offset`` means 0; a negative ``limit`` raises ``ValueError`` rather than
+        quietly meaning "all" in one store and "none" in another.
         """
 
     @abstractmethod
     async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
-        """One run's events from ``from_seq`` onward, inclusive.
+        """One run's events from ``from_seq`` onward, inclusive — what a consumer calls to
+        refetch after spotting a gap.
 
-        A range read has to name the run: ``seq`` is per run, so a seq range over a whole
-        log would splice together the tails of every run in it. This is what a consumer
-        calls to refetch after spotting a gap.
+        A range read has to name the run: a seq range over a whole log would splice together
+        the tails of every run in it.
         """
 
     @abstractmethod
     async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
-        """The highest ``seq`` recorded for this run, or -1 if it has none yet.
-
-        What the Runtime recovers its per-run counter from on resume, instead of reading
-        every event to fold the same max by hand.
-        """
+        """The highest ``seq`` recorded for this run, or -1 if it has none — what the Runtime
+        recovers its per-run counter from on resume."""
 
     @abstractmethod
     async def claim_start(self, log_key: str, event: Event, ctx: RunContext, stale_before: datetime) -> SessionClaim:
-        """Append ``event`` — a run's opening ``run.started`` — if and only if, at that moment,
-        this log has no open run, in one indivisible step. One session runs one turn at a time.
+        """Append ``event`` — a run's opening ``run.started`` — if and only if this log has no
+        open run at that moment, in one indivisible step. One session runs one turn at a time.
 
-        An **open run** is one that recorded a lifecycle transition and has not recorded a
-        terminal one. ``WAITING_HUMAN`` counts: an interrupted run still owns its engine's
-        thread, and a second run against that thread would write over the checkpoints the
-        first one resumes from. A run with no transition at all is ``PENDING``, which no store
-        can tell from a run it never saw, so it holds nothing — the same line
-        :meth:`list_runs` draws.
-
-        Losing is not an error and never raises: two turns arriving together is a
-        double-clicked send button, not a broken store, so the refusal is data —
-        ``SessionClaim.held_by`` names the run that has the session and nothing is written. A
-        store nobody can reach still raises, for the same reason it does in
-        :meth:`claim_resume`: it cannot know whether anybody holds anything.
-
-        Making the condition and the write one operation is what carries this across
+        Condition and write must be a single operation, which is what carries this across
         processes: two servers sharing a store would both read an idle session and both open a
         run on it, whereas only one ``run.started`` can land here.
 
-        ``stale_before`` is the cutoff for an abandoned claim. An open run whose own last event
-        is at or before it stops holding the session and comes back in
-        ``SessionClaim.overridden`` for the caller to close — without it a process killed
-        mid-run would wedge its session for good. A store never reads a clock: the caller
-        stamps ``ts``, so the caller is the only one whose idea of "now" can be compared to it.
+        An **open run** recorded a lifecycle transition and no terminal one. ``WAITING_HUMAN``
+        counts — an interrupted run still owns its engine's thread, and a second run against it
+        would overwrite the checkpoints the first resumes from. A run with no transition at all
+        is ``PENDING``, indistinguishable from one the store never saw, so it holds nothing.
+
+        Losing never raises: two turns arriving together is a double-clicked send button, so
+        the refusal is data (``held_by`` names the holder, nothing is written). An unreachable
+        store does raise — it cannot know whether anybody holds anything.
+
+        ``stale_before`` is the cutoff for an abandoned claim: an open run whose own last event
+        is at or before it stops holding the session and comes back in ``overridden`` for the
+        caller to close. Without it a process killed mid-run wedges its session for good. A
+        store never reads a clock — the caller stamps ``ts``, so only the caller's idea of
+        "now" can be compared to it.
         """
 
     @abstractmethod
     async def claim_resume(self, log_key: str, run_id: str, event: Event, ctx: RunContext) -> bool:
-        """Append ``event`` if and only if, at that moment, ``run_id`` is ``WAITING_HUMAN``
-        *and* ``event.seq`` is the next ``seq`` for that run — one indivisible step. ``True``
-        when it was appended, ``False`` on any other status or a stale ``seq``, including
-        when another caller got there first.
+        """Append ``event`` if and only if ``run_id`` is ``WAITING_HUMAN`` *and* ``event.seq``
+        is the next ``seq`` for that run, in one indivisible step. ``True`` when appended.
 
-        The one write that publishes the ``WAITING_HUMAN`` -> ``RUNNING`` transition is the
-        same write that tests for it, which is what makes double-resume protection hold
-        between two processes sharing a store and not merely between two tasks. Losing is
-        never an error: a stray resume is a no-op by design (``can_resume``), so a store
-        returns ``False`` rather than raising. A store it cannot reach at all is a different
-        answer and does raise — ``StoreError`` from the durable ones — because ``False`` says
-        somebody else already recorded this resume, which an unreachable store cannot know.
+        The write that publishes the ``WAITING_HUMAN`` -> ``RUNNING`` transition is the same
+        write that tests for it, which is what makes double-resume protection hold between two
+        processes and not merely between two tasks. A store that cannot make both checks and
+        the append indivisible must not implement this port.
 
-        The ``seq`` condition covers what the status alone cannot. A caller stamps its event
-        before claiming, so a slow one can arrive after the run was resumed *and* interrupted
-        again: waiting on a human once more, but with that ``seq`` already spent. Refusing it
-        there is what keeps duplicate ``seq``s out of a log — a store that cannot make both
-        checks and the append indivisible must not implement this port.
+        The ``seq`` check covers what status alone cannot: a caller stamps its event before
+        claiming, so a slow one can arrive after the run was resumed *and* interrupted again —
+        waiting on a human once more, but with that ``seq`` already spent.
+
+        ``False`` on any other status, a stale ``seq``, or a lost race; a stray resume is a
+        no-op by design (``can_resume``). An unreachable store raises instead, because
+        ``False`` claims somebody else recorded this resume, which it cannot know.
         """
 
     @abstractmethod
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
-        """Every run for this tenant that has recorded a lifecycle transition, across all of
-        the tenant's logs, optionally narrowed to one status.
+        """Every run for this tenant that recorded a lifecycle transition, across all of the
+        tenant's logs, optionally narrowed to one status.
 
-        A run with no transition yet is ``PENDING``, which is indistinguishable from a run
-        this store has never heard of — so a listing cannot meaningfully report it, and both
-        stores leave it out. Every run the Runtime starts records ``run.started`` first.
-
-        A store is free to enumerate however it can index — the point of this query is that
-        finding waiting runs must not cost a fold of every log the tenant owns.
+        A ``PENDING`` run is indistinguishable from one the store never heard of, so listings
+        leave it out; every run the Runtime starts records ``run.started`` first. Index this
+        however the store can — the point is that finding waiting runs must not cost a fold of
+        every log the tenant owns.
         """
 
     async def run_status(self, log_key: str, run_id: str, ctx: RunContext) -> RunStatus:
         """One run's status, derived from its own events only — never the whole log.
 
-        Default projection: fold this run's events through ``status_of`` (ADR-D5: a
-        projection, not a second store), fetched by :meth:`read_run`, which every store
-        already indexes by run. A store with a cheaper way to answer this may override it.
+        Default projection: fold :meth:`read_run` through ``status_of`` (ADR-D5: a projection,
+        not a second store). A store with a cheaper way to answer may override it.
         """
         return status_of(await self.read_run(log_key, run_id, ctx))
-
-
-__all__ = ["EventStorePort", "RunSummary", "SessionClaim"]

@@ -35,7 +35,7 @@ from urllib.parse import quote, unquote
 from redis.asyncio import Redis
 from redis.exceptions import RedisError, WatchError
 
-from agentdeck.core.events import parse_event
+from agentdeck.core.events import Event
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
 from agentdeck.core.status import LIFECYCLE_KINDS, TERMINAL_STATUSES, can_resume, status_of
 from agentdeck.errors import StoreError
@@ -47,7 +47,6 @@ if TYPE_CHECKING:
     from redis.asyncio.client import Pipeline
 
     from agentdeck.core.context import RunContext
-    from agentdeck.core.events import Event
     from agentdeck.core.status import RunStatus
 
 _DEFAULT_PREFIX = "agentdeck:events"
@@ -178,14 +177,14 @@ class RedisEventStore(EventStorePort):
             rows = await self._client.lrange(self._log_key(ctx.tenant, log_key), start, end)
         except RedisError as exc:
             raise StoreError(f"event log read failed: {exc}") from exc
-        return [parse_event(json.loads(row)) for row in rows]
+        return [Event.model_validate(json.loads(row)) for row in rows]
 
     async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
         try:
             rows = await self._client.lrange(self._run_key(ctx.tenant, log_key, run_id), 0, -1)
         except RedisError as exc:
             raise StoreError(f"event log read_run failed: {exc}") from exc
-        events = [parse_event(json.loads(row)) for row in rows]
+        events = [Event.model_validate(json.loads(row)) for row in rows]
         return [event for event in events if event.seq >= from_seq]
 
     async def last_seq(self, log_key: str, run_id: str, ctx: RunContext) -> int:
@@ -226,10 +225,10 @@ class RedisEventStore(EventStorePort):
                 # key went missing silently loses its session hold, and is not even reported
                 # in `overridden` for the winner to close. Hence `noeviction` up top; there is
                 # no answer a store can give here that is better than not evicting the record.
-                if life is None or status_of([parse_event(json.loads(life))]) in TERMINAL_STATUSES:
+                if life is None or status_of([Event.model_validate(json.loads(life))]) in TERMINAL_STATUSES:
                     continue
                 last = await pipe.lindex(self._run_key(ctx.tenant, log_key, run_id), -1)
-                if last is not None and parse_event(json.loads(last)).ts > stale_before:
+                if last is not None and Event.model_validate(json.loads(last)).ts > stale_before:
                     return SessionClaim(held_by=run_id)
                 overridden.append(run_id)
             await self._refuse_a_taken_seq(pipe, ctx.tenant, log_key, [event])
@@ -258,7 +257,7 @@ class RedisEventStore(EventStorePort):
             seq_key = self._seq_key(ctx.tenant, log_key, run_id)
             await pipe.watch(life_key, seq_key)
             life = await pipe.get(life_key)
-            if not can_resume(status_of([parse_event(json.loads(life))] if life is not None else [])):
+            if not can_resume(status_of([Event.model_validate(json.loads(life))] if life is not None else [])):
                 return False
             scored = await pipe.zrange(seq_key, 0, 0, desc=True, withscores=True)
             if event.seq != (int(scored[0][1]) if scored else -1) + 1:
@@ -286,7 +285,7 @@ class RedisEventStore(EventStorePort):
         except RedisError as exc:
             raise StoreError(f"event log list_runs failed: {exc}") from exc
         summaries = [
-            RunSummary(log_key=log_key, run_id=run_id, status=status_of([parse_event(json.loads(life))]))
+            RunSummary(log_key=log_key, run_id=run_id, status=status_of([Event.model_validate(json.loads(life))]))
             for (log_key, run_id), life in zip(runs, lifecycles, strict=True)
             if life is not None
         ]

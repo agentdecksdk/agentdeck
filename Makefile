@@ -1,7 +1,10 @@
-.PHONY: install build test lint typecheck lint-imports golden docs-reference fmt clean check
+.PHONY: install build test lint typecheck lint-imports coverage golden docs-reference fmt clean check
 
-install:        ## editable install with dev extras
-	uv pip install -e ".[dev]"
+install:        ## editable install with every extra the gate needs
+	# Every extra ci.yml installs, so `make check` locally runs the same tests CI does.
+	# `.[dev]` alone silently skipped serve, durability and observability — the whole
+	# point of #142: a narrower install reads as a pass instead of as untested.
+	uv pip install -e ".[dev,serve,durability,observability]"
 
 build:          ## sdist + wheel into dist/
 	uv build
@@ -17,6 +20,12 @@ typecheck:      ## ty type check
 
 lint-imports:   ## import-linter contracts (.importlinter)
 	.venv/bin/lint-imports
+
+coverage:       ## per-module coverage — audit input for #71/#131, not part of `make check`
+	# Zero coverage is evidence a module *may* be dead, never proof: skill_runtime is
+	# copied into sandbox venvs and the crossrun tests run out-of-process, so both read
+	# as uncovered while being load-bearing. Corroborate with grep + the import graph.
+	.venv/bin/pytest tests/ -q --cov=agentdeck --cov-report=term-missing:skip-covered
 
 golden:         ## re-record the wire + schema snapshots — deliberate, never automatic
 	AGENTDECK_GOLDEN_UPDATE=1 .venv/bin/pytest tests/golden tests/core -q

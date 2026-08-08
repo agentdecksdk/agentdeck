@@ -36,7 +36,7 @@ from openai.types.responses.response_usage import InputTokensDetails, OutputToke
 from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import RESULT_PREVIEW_MAX, check_contiguous, parse_event
+from agentdeck.core.events import RESULT_PREVIEW_MAX, Event, check_contiguous
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.runtime.service import Runtime
 from agentdeck.surfaces.cli.chat import stream_chat
@@ -249,7 +249,7 @@ async def test_uc1_handoff_chat_end_to_end(capsys: pytest.CaptureFixture[str]) -
 
     # --- every emitted event validates round-trip ------------------------------------
     for event in log:
-        assert parse_event(json.loads(event.model_dump_json())) == event
+        assert Event.model_validate(json.loads(event.model_dump_json())) == event
 
     # --- tool result: preview + hash + size in the log, full bytes in the SDK session --
     [tool_completed] = [event for event in log if event.kind == "tool.call.completed"]

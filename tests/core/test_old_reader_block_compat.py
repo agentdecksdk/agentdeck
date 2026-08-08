@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from agentdeck.core import UnknownBlock, check_terminal, parse_event
+from agentdeck.core import Event, UnknownBlock, check_terminal
 from agentdeck.core.status import RunStatus, status_of
 
 if TYPE_CHECKING:
@@ -107,7 +107,7 @@ def test_this_tree_parses_the_same_block_as_unknown_and_keeps_it_raw() -> None:
             "context": {"principal": "user:sagi", "trace_id": "t"},
         },
     )
-    event = parse_event(wire)  # must not raise — the fix under test
+    event = Event.model_validate(wire)  # must not raise — the fix under test
     assert event.payload.input[1] == UnknownBlock(type="audio", raw_block=UNFAMILIAR_BLOCK)  # raw block kept
 
 
@@ -122,8 +122,8 @@ def test_this_tree_round_trips_the_event_carrying_it() -> None:
             "context": {"principal": "user:sagi", "trace_id": "t"},
         },
     )
-    event = parse_event(wire)
-    assert parse_event(json.loads(event.model_dump_json())) == event
+    event = Event.model_validate(wire)
+    assert Event.model_validate(json.loads(event.model_dump_json())) == event
 
 
 def test_status_of_and_the_terminal_invariant_are_unchanged_by_the_unfamiliar_block() -> None:
@@ -158,8 +158,8 @@ def test_status_of_and_the_terminal_invariant_are_unchanged_by_the_unfamiliar_bl
         seq=1,
     )
 
-    plain_run = [parse_event(plain_started), parse_event(completed)]
-    odd_run = [parse_event(odd_started), parse_event(completed)]
+    plain_run = [Event.model_validate(plain_started), Event.model_validate(completed)]
+    odd_run = [Event.model_validate(odd_started), Event.model_validate(completed)]
 
     assert status_of(odd_run) is status_of(plain_run) is RunStatus.COMPLETED
     assert check_terminal(odd_run) is check_terminal(plain_run) is None

@@ -11,6 +11,8 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from agentdeck.core.events import TERMINAL_KINDS
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -29,8 +31,6 @@ class RunStatus(StrEnum):
     FAILED = "failed"
     CANCELLED = "cancelled"
 
-
-TERMINAL_STATUSES = frozenset({RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED})
 
 # Suspended, not finished: a run in one of these has an engine to re-enter and a terminal
 # event still owed. Cancelled is deliberately absent — terminal is terminal.
@@ -52,6 +52,11 @@ _KIND_TO_STATUS: dict[str, RunStatus] = {
 # run" — the derivation itself stays here, in ``status_of``.
 LIFECYCLE_KINDS: frozenset[str] = frozenset(_KIND_TO_STATUS)
 
+# Derived, not listed again: "which statuses are terminal" and "which kinds are terminal" are
+# one fact, and two hand-written sets can drift with nothing failing. A terminal kind added to
+# events.py without a transition here raises KeyError at import — loud, and at the right place.
+TERMINAL_STATUSES = frozenset(_KIND_TO_STATUS[kind] for kind in TERMINAL_KINDS)
+
 
 def status_of(events: Sequence[Event]) -> RunStatus:
     """One run's status: the last transition kind wins, in log order. No events at all is
@@ -63,20 +68,9 @@ def status_of(events: Sequence[Event]) -> RunStatus:
 
 
 def can_resume(status: RunStatus) -> bool:
-    """A run is resumable while it is suspended: waiting on a human answer, or paused by an
-    operator. Both continue under the same ``run_id`` and the same append that flips them back
-    to ``RUNNING``; what differs is what the resume carries (a value, or nothing).
+    """A run is resumable while suspended: waiting on a human answer, or paused by an operator.
+    Both continue under the same ``run_id``; what differs is what the resume carries.
 
-    A resume against any other status — a run still running, a race that already resumed it,
-    anything terminal — is a no-op, not an error: the caller checks this instead of raising."""
+    A resume against any other status — still running, already resumed by a race, terminal — is a
+    no-op rather than an error: the caller checks this instead of raising."""
     return status in RESUMABLE_STATUSES
-
-
-__all__ = [
-    "LIFECYCLE_KINDS",
-    "RESUMABLE_STATUSES",
-    "TERMINAL_STATUSES",
-    "RunStatus",
-    "can_resume",
-    "status_of",
-]

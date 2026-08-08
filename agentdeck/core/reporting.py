@@ -1,17 +1,13 @@
 """How code inside a run says what it is doing: one report channel, carried on the context.
 
-The mirror image of :class:`~agentdeck.core.ports.control.Gate`. A cancel signal has to reach
-code the Runtime never sees, so it travels *in* on ``RunContext``; a status update has the same
-problem in the other direction — a tool six frames inside an engine cannot yield an event, and
-must not know a Runtime exists. So it hands the report to the context it already has, and the
-Runtime, which owns the stream, is the only thing that turns one into an event.
+The mirror image of :class:`~agentdeck.core.ports.control.Gate` — control flows in on
+``RunContext``, updates flow out the same way. A tool six frames inside an engine cannot yield
+an event and must not know a Runtime exists, so it hands the report to the context it has.
 
-Buffered rather than delivered: a report is appended to a bounded buffer the Runtime drains at
-its next event. That is what keeps an advisory update from ever failing a tool call — an emitter
-is never charged for a store append, and a store that refuses one cannot surface as an exception
-inside somebody's tool. The Runtime holds the other half of that bargain: a report the store
-refuses is dropped and logged, never turned into a failed run. What it costs is timeliness,
-stated on :class:`Reporter`.
+Buffered, not delivered: reports land in a bounded buffer the Runtime drains at its next event,
+so an emitter is never charged for a store append and a refused write cannot surface as an
+exception inside somebody's tool. A report the store refuses is dropped and logged, never turned
+into a failed run. What it costs is timeliness, stated on :class:`Reporter`.
 """
 
 from __future__ import annotations
@@ -37,19 +33,17 @@ MAX_PENDING_REPORTS = 64
 class Reporter:
     """One run's out-of-band report channel: ``status`` in prose, ``progress`` in stages.
 
-    With no buffer — the default — both methods validate their arguments and drop the result,
-    so a ``RunContext`` a caller built themselves behaves exactly as before, and an emitter
-    still learns immediately that its numbers are nonsense rather than only in the run that
-    happens to be wired.
+    With no buffer — the default — both methods still validate and then drop the result, so an
+    emitter learns its numbers are nonsense even outside a wired run.
 
     The Runtime binds a real one per run and drains it *before* each event the engine yields,
-    which is what keeps reports in log order and always ahead of the terminal event. The ceiling
-    that follows: a report emitted while the engine is producing nothing waits for the engine's
-    next payload, so a status set inside one long tool call surfaces when that call ends rather
-    than while it runs, and one emitted after the engine's last payload is dropped. Lifting it
-    means racing the engine's stream against this buffer in a task of its own; the trigger is a
-    consumer that needs the label *during* a single call, not merely between calls or nodes.
+    keeping reports in log order and ahead of the terminal event.
     """
+
+    # ponytail: drained between payloads, not concurrently with them — a report emitted during one
+    # long tool call surfaces when that call ends, and one emitted after the engine's last payload
+    # is dropped. Lift it by racing the engine's stream against this buffer in its own task, when a
+    # consumer needs the label *during* a single call rather than merely between calls.
 
     __slots__ = ("_pending",)
 
@@ -59,9 +53,8 @@ class Reporter:
     async def status(self, message: str) -> None:
         """Report what the run is doing now, for a person to read. ``message`` must not be empty.
 
-        Async because every other seam an invocable's code touches is, and because a channel that
-        one day has to wait — for a real queue, a transport — must not change its callers when it
-        does. Nothing here awaits today.
+        Async so a channel that one day waits — a real queue, a transport — need not change its
+        callers. Nothing here awaits today.
         """
         self._offer(StatusReported(message=message))
 
@@ -81,6 +74,3 @@ class Reporter:
             )
             return
         self._pending.append(payload)
-
-
-__all__ = ["MAX_PENDING_REPORTS", "Reporter"]

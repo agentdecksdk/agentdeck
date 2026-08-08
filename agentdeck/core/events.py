@@ -4,8 +4,9 @@ Engines produce payloads, the Runtime fills the envelope — so an engine cannot
 ``seq`` or ``tenant`` wrong. ``seq`` is per-run and contiguous from 0, which makes it
 both the ordering authority and a loss check; ``ts`` is informational.
 
-Unknown kinds parse instead of raising (:func:`parse_event`) and unknown fields inside a
-known payload are dropped, so an old reader survives a newer writer. Adding a kind or an
+Unknown kinds parse instead of raising — ``Event.model_validate`` lands them as
+:class:`UnknownEvent` — and unknown fields inside a known payload are dropped, so an old
+reader survives a newer writer. Adding a kind or an
 optional field stays compatible; renaming or removing one means bumping ``v``.
 
 Run control is three phases rather than one event: ``control.requested`` records that a
@@ -28,11 +29,12 @@ from pydantic import (
     NonNegativeInt,
     PositiveInt,
     ValidationError,
+    ValidatorFunctionWrapHandler,
     field_validator,
     model_validator,
 )
 
-from agentdeck.core.content import CoreModel, Input
+from agentdeck.core.content import CoreModel, Input, JsonData
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -41,20 +43,35 @@ RESULT_PREVIEW_MAX = 4096
 
 TERMINAL_KINDS = frozenset({"run.completed", "run.failed", "run.cancelled"})
 
+KIND_PATTERN = r"^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)*$"
+"""What a ``kind`` may look like — dotted lowercase segments, digits allowed after the first
+letter so a namespace like ``a2a.*`` stays reachable (#129).
+
+A shape, deliberately not a set: closing it to :data:`KNOWN_KINDS` would reject every kind a
+newer writer invents, which is the one thing :class:`UnknownEvent` exists to prevent. This only
+refuses what no writer should ever emit — ``""``, ``"Run Started"``, ``"run..started"``.
+"""
+
+Money = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+"""US dollars. Constrained where the token counts already were, plus one reason of its own:
+``NaN``/``±Infinity`` have no JSON literal, so they serialize as ``null`` and a consumer reads
+*no cost* where the producer wrote nonsense — the divergence ``DataBlock`` rejects for arbitrary
+data, and money is the last field that should be exempt from it."""
+
 
 class Usage(CoreModel):
     """Token and cost accounting. ``usd`` is None when no price is known for the model."""
 
     input_tokens: NonNegativeInt
     output_tokens: NonNegativeInt
-    usd: float | None = None
+    usd: Money | None = None
 
 
 class Budget(CoreModel):
     """The caps the run was admitted under; None means uncapped on that axis."""
 
-    max_usd: float | None = None
-    max_tokens: int | None = None
+    max_usd: Money | None = None
+    max_tokens: NonNegativeInt | None = None
 
 
 class RunContextSnapshot(CoreModel):
@@ -81,8 +98,7 @@ class RunCompleted(CoreModel):
     """Terminal. ``usage`` is the authoritative total for the run.
 
     A structured result — a validated ``output_type``, a workflow's final state — is a
-    ``DataBlock`` in ``output``, not a namespaced ``custom`` event and not a stringified
-    dict: the result is what the run *returned*, so it belongs on the terminal event.
+    ``DataBlock`` in ``output``, not a namespaced ``custom`` event and not a stringified dict.
     """
 
     kind: Literal["run.completed"] = "run.completed"
@@ -109,18 +125,14 @@ class RunPaused(CoreModel):
 class RunResumed(CoreModel):
     """The run continues: same ``run_id``, ``seq`` keeps counting.
 
-    ``value`` is the answer this resume carries, stored in full like ``run.started.input``
-    because it is the caller's own input and a truncated one cannot be replayed. It rides on
-    this event rather than on one of its own so that the write which flips ``WAITING_HUMAN``
-    to ``RUNNING`` is the same write that stores the answer: two writes leave a window where
-    the log says a run was answered and no longer holds what the answer was, and a run whose
-    engine never got the value is stranded — running in the log, parked at its interrupt in
-    the engine, every later resume refused as stray. ``None`` is a resume that answers
-    nothing, which is what lifting an operator's pause looks like.
+    ``value`` is the answer this resume carries, stored in full like ``run.started.input``: it is
+    the caller's own input and a truncated one cannot be replayed. It rides on this event so that
+    the write flipping ``WAITING_HUMAN`` to ``RUNNING`` is the same write that stores the answer —
+    two writes leave a window where the log says a run was answered but no longer holds what the
+    answer was. ``None`` is a resume answering nothing, which is what lifting a pause looks like.
 
-    A resume is not irreversible: the log is append-only and status is a fold over it, so a
-    resume that cannot be carried through returns the run to ``WAITING_HUMAN`` by recording
-    its interrupt again — no rollback, and no further vocabulary needed.
+    Not irreversible: the log is append-only and status is a fold over it, so a resume that cannot
+    be carried through returns the run to ``WAITING_HUMAN`` by recording its interrupt again.
     """
 
     kind: Literal["run.resumed"] = "run.resumed"
@@ -141,7 +153,7 @@ class RunInterrupted(CoreModel):
     kind: Literal["run.interrupted"] = "run.interrupted"
     interrupt_id: str
     reason: Literal["human", "pause", "approval"]
-    payload: dict[str, Any]
+    payload: dict[str, JsonData]
     thread_id: str | None = None
     expected_resume: str | None = None
 
@@ -150,8 +162,7 @@ ControlVerb = Literal["cancel", "pause", "resume", "steer"]
 """Every verb run control has, including the ones whose behavior isn't built yet.
 
 Complete at birth deliberately: a member added later is not additive for a *reader*, which
-rejects the whole event rather than skipping it the way it can with an unknown kind. An unused
-member costs nothing; a missing one costs a broken consumer.
+rejects the whole event rather than skipping it the way it can an unknown kind.
 """
 
 SafePoint = Literal["stream_item", "tool_dispatch", "node_boundary"]
@@ -162,13 +173,10 @@ or at a graph node boundary. Closed for the same reason ``ControlVerb`` is."""
 class ControlRequested(CoreModel):
     """A control signal was recorded for this run — not that the run has acted on it.
 
-    Under cooperative control those are two different facts, and at the moment a caller asks
-    only this one is knowable: the run may be inside a tool call that has to return first.
-    Which is why a request is never a status transition — a run stays ``RUNNING`` until
-    ``run.paused`` or ``run.cancelled`` says otherwise.
-
-    A signal that lost the race with a terminal event records nothing at all: a terminal event
-    is a run's last event by invariant, so the no-op has nowhere to land.
+    At the moment a caller asks, only this is knowable: the run may be inside a tool call that has
+    to return first. So a request is never a status transition — a run stays ``RUNNING`` until
+    ``run.paused`` or ``run.cancelled`` says otherwise. A signal that lost the race with a
+    terminal event records nothing: a terminal event is a run's last by invariant.
     """
 
     kind: Literal["control.requested"] = "control.requested"
@@ -179,9 +187,9 @@ class ControlRequested(CoreModel):
 class ControlObserved(CoreModel):
     """The run reached a safe point, found the signal, and is acting on it.
 
-    ``safe_point`` names where, because "cancel took eight seconds" and "cancel took eight
-    seconds because a tool call did" are different answers to the same complaint. The verb's
-    own kind still records the effect: this event says the run noticed, not that it stopped.
+    ``safe_point`` names where, because "cancel took eight seconds" and "cancel took eight seconds
+    because a tool call did" are different answers to the same complaint. The verb's own kind
+    records the effect: this event says the run noticed, not that it stopped.
     """
 
     kind: Literal["control.observed"] = "control.observed"
@@ -219,7 +227,7 @@ class ToolCallStarted(CoreModel):
     kind: Literal["tool.call.started"] = "tool.call.started"
     call_id: str
     tool: str
-    args: dict[str, Any]
+    args: dict[str, JsonData]
 
 
 class ToolCallCompleted(CoreModel):
@@ -228,18 +236,11 @@ class ToolCallCompleted(CoreModel):
     kind: Literal["tool.call.completed"] = "tool.call.completed"
     call_id: str
     tool: str
-    result_preview: str
+    result_preview: str = Field(max_length=RESULT_PREVIEW_MAX)
     result_size: NonNegativeInt
-    result_sha256: str
+    result_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     artifact_id: str | None = None
     error: str | None = None
-
-    @field_validator("result_preview")
-    @classmethod
-    def _preview_within_cap(cls, value: str) -> str:
-        if len(value) > RESULT_PREVIEW_MAX:
-            raise ValueError(f"result_preview is {len(value)} chars, over RESULT_PREVIEW_MAX={RESULT_PREVIEW_MAX}")
-        return value
 
 
 class NodeUpdated(CoreModel):
@@ -247,7 +248,7 @@ class NodeUpdated(CoreModel):
 
     kind: Literal["node.updated"] = "node.updated"
     node: str
-    state_patch: dict[str, Any]
+    state_patch: dict[str, JsonData]
 
 
 class ArtifactCreated(CoreModel):
@@ -279,9 +280,9 @@ class InputAppended(CoreModel):
 class StatusReported(CoreModel):
     """Advisory: what the run is doing right now, in words a person can read.
 
-    Not a lifecycle event and not a transition. A run's status is folded from its lifecycle
-    kinds (``core/status.py``); a run reporting ``"Searching GitHub"`` is still ``RUNNING``,
-    and a log full of these folds to exactly the status a log with none of them does.
+    Not a transition. Status is folded from the lifecycle kinds (``core/status.py``), so a run
+    reporting ``"Searching GitHub"`` is still ``RUNNING`` and a log full of these folds to exactly
+    what a log with none of them does.
     """
 
     kind: Literal["status.reported"] = "status.reported"
@@ -291,9 +292,9 @@ class StatusReported(CoreModel):
 class ProgressReported(CoreModel):
     """Advisory: which named stage the run is on, optionally counted.
 
-    ``step`` is the point of the event and is required; the counts are not, because a run that
-    knows its current stage often does not know how many there are. Never a percentage — a
-    consumer that wants one divides, and only when ``total`` is actually present.
+    ``step`` is required; the counts are not, because a run that knows its stage often does not
+    know how many there are. Never a percentage — a consumer that wants one divides, and only
+    when ``total`` is present.
     """
 
     kind: Literal["progress.reported"] = "progress.reported"
@@ -312,16 +313,11 @@ class Custom(CoreModel):
     """Engine-specific event; ``name`` must be namespaced."""
 
     kind: Literal["custom"] = "custom"
-    name: str
+    # ``<namespace>.<event>``, both non-empty; a further-dotted event name is the namespace's
+    # own business. Pattern rather than a validator — pydantic already says it better than the
+    # message a hand-written one would raise.
+    name: str = Field(pattern=r"^[^.]+\..+$")
     data: dict[str, Any]
-
-    @field_validator("name")
-    @classmethod
-    def _name_is_namespaced(cls, value: str) -> str:
-        namespace, _, event = value.partition(".")
-        if not namespace or not event:
-            raise ValueError(f"custom name must be '<namespace>.<event>', got {value!r}")
-        return value
 
 
 class UnknownEvent(CoreModel):
@@ -333,7 +329,7 @@ class UnknownEvent(CoreModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    kind: str
+    kind: str = Field(pattern=KIND_PATTERN)
     raw_payload: dict[str, Any]
 
     @field_validator("kind")
@@ -378,10 +374,19 @@ class Event(CoreModel):
 
     Per-run constants belong in the ``run.started`` payload, not here. Unknown envelope
     fields are ignored rather than rejected, so a newer writer can't break this reader.
+
+    ``model_validate`` is the only entry point a reader needs: an unfamiliar ``kind`` lands as
+    :class:`UnknownEvent` rather than raising, so an old reader survives a newer writer. A
+    malformed *known* payload still raises.
+
+    ``kind`` is written twice — here and inside the payload — because each copy answers a
+    different question: this one is what a store indexes on without parsing (``json_extract(data,
+    '$.kind')``), the payload's is the union's discriminator. Dropping either is a wire change:
+    a released reader dispatches on the payload copy and cannot read a row without it.
     """
 
     v: int = 1
-    kind: str
+    kind: str = Field(pattern=KIND_PATTERN)
     seq: NonNegativeInt
     run_id: str
     session_id: str | None
@@ -393,27 +398,41 @@ class Event(CoreModel):
     ts: AwareDatetime
     payload: KnownPayload | UnknownEvent
 
+    @model_validator(mode="wrap")
+    @classmethod
+    def _an_unknown_kind_degrades(cls, data: Any, handler: ValidatorFunctionWrapHandler) -> Any:
+        """An unfamiliar ``kind`` lands as :class:`UnknownEvent` instead of failing the whole
+        read — stores parse every row, so one unrecognised event would otherwise take a session's
+        entire log with it.
+
+        Wrapping needs the envelope: a payload of an unknown kind has no arm of the union to
+        dispatch to, and the discriminator a reader can trust is the one out here. That is also
+        why the payload's own claim is compared first rather than overwritten — wrapping with the
+        envelope's ``kind`` would otherwise *relabel* a row whose two copies disagree, and the
+        disagreement is exactly what says the row is not what it says it is.
+
+        A stored ``UnknownEvent`` (``{kind, raw_payload}``) validates against the union member
+        directly, so ``handler`` succeeds and this never re-wraps it — which is what lets one
+        round-trip.
+        """
+        try:
+            return handler(data)
+        except ValidationError:
+            if not isinstance(data, dict):
+                raise
+            kind, payload = data.get("kind"), data.get("payload")
+            if not isinstance(kind, str) or kind in KNOWN_KINDS or not isinstance(payload, dict):
+                raise
+            stated = payload.get("kind")
+            if isinstance(stated, str) and stated != kind:
+                raise ValueError(f"envelope kind {kind!r} does not match payload kind {stated!r}") from None
+            return handler({**data, "payload": {"kind": kind, "raw_payload": payload}})
+
     @model_validator(mode="after")
     def _kind_mirrors_payload(self) -> Event:
         if self.kind != self.payload.kind:
             raise ValueError(f"envelope kind {self.kind!r} does not match payload kind {self.payload.kind!r}")
         return self
-
-
-def parse_event(data: dict[str, Any]) -> Event:
-    """Parse one event: an unknown ``kind`` yields an :class:`UnknownEvent` payload with
-    the envelope still validated. A malformed *known* payload raises.
-
-    An unknown payload of exactly ``{kind, raw_payload}`` is read as already wrapped —
-    that ambiguity is what lets a stored ``UnknownEvent`` round-trip.
-    """
-    try:
-        return Event.model_validate(data)
-    except ValidationError:
-        kind, payload = data.get("kind"), data.get("payload")
-        if not isinstance(kind, str) or kind in KNOWN_KINDS or not isinstance(payload, dict):
-            raise
-        return Event.model_validate({**data, "payload": {"kind": kind, "raw_payload": payload}})
 
 
 def check_contiguous(events: Iterable[Event]) -> list[int]:
@@ -437,42 +456,3 @@ def check_terminal(events: Sequence[Event]) -> str | None:
     if at[0] != len(events) - 1:
         return f"terminal event {events[at[0]].kind!r} at index {at[0]} of {len(events)}, not last"
     return None
-
-
-__all__ = [
-    "KNOWN_KINDS",
-    "RESULT_PREVIEW_MAX",
-    "TERMINAL_KINDS",
-    "ArtifactCreated",
-    "Budget",
-    "ControlObserved",
-    "ControlRequested",
-    "ControlVerb",
-    "Custom",
-    "Event",
-    "InputAppended",
-    "KnownPayload",
-    "MessageCompleted",
-    "NodeUpdated",
-    "ProgressReported",
-    "RunCancelled",
-    "RunCompleted",
-    "RunContextSnapshot",
-    "RunFailed",
-    "RunInterrupted",
-    "RunPaused",
-    "RunResumed",
-    "RunStarted",
-    "SafePoint",
-    "StatusReported",
-    "TextDelta",
-    "ThoughtDelta",
-    "ToolCallCompleted",
-    "ToolCallStarted",
-    "UnknownEvent",
-    "Usage",
-    "UsageReported",
-    "check_contiguous",
-    "check_terminal",
-    "parse_event",
-]

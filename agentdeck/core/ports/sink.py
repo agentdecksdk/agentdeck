@@ -16,53 +16,29 @@ if TYPE_CHECKING:
 class EventSinkPort(ABC):
     """One consumer of the stream. Errors and slowness are the sink's problem, not the run's.
 
-    An ``emit`` must therefore return promptly — a sink whose work is slow buffers internally
-    and flushes on its own schedule, because the dispatch feeding it times out a blocking emit
-    and eventually disables a sink that keeps doing it. Since that pushes every non-trivial
-    sink into buffering, ``close`` is where a buffer gets written out for the last time.
-
-    Being disabled is not the end of it: after a cooldown the dispatch offers a disabled sink one
-    event, and one that takes it goes back to receiving the stream — so an outage a sink cannot
-    do anything about needs no retry logic of its own, and a sink that raises rather than blocks
-    while its endpoint is down is behaving correctly. What none of that recovers is the events the
-    outage covered: nothing is replayed, and a sink that cannot lose any reads the store instead.
+    A sink that blocks or raises too often is disabled, then offered one event again after a
+    cooldown — so an outage needs no retry logic here. Nothing is replayed: the events the
+    outage covered are lost, and a sink that cannot lose any reads the store.
     """
 
     @abstractmethod
     async def emit(self, event: Event) -> None:
-        """Take one event.
+        """Take one event, promptly.
 
-        Called one event at a time per sink instance, in submission order, from a bounded
-        buffer — so a slow ``emit`` costs this sink's own backlog and nothing else. A sink
-        that cannot keep up sees gaps in that order rather than delaying the run: that is not
-        negotiable, and a sink that needs every event reads the store, which is the ordered,
-        complete copy.
+        Called one at a time per sink, in submission order, from a bounded buffer — so a slow
+        ``emit`` costs this sink's own backlog and nothing else. Slow work buffers internally
+        and flushes in :meth:`close`; a sink that cannot keep up sees gaps in that order rather
+        than delaying the run.
         """
 
     async def close(self) -> None:  # noqa: B027 — no-op on purpose: a stateless sink has nothing to flush
-        """The stream has ended: write out whatever is still buffered. Does nothing by default.
+        """The stream has ended: write out whatever is still buffered. No-op by default.
 
-        Called once at shutdown, after the dispatch has stopped feeding the sink: no ``emit``
-        begins after this, so a sink may release what it was holding without guarding the rest of
-        itself against a further event. One that already began can still be running, though — an
-        ``emit`` that has not finished by the time the dispatch stops waiting for it, whether
-        because it swallowed the cancellation sent to end it or because it does async work while
-        unwinding (an ``await`` in a ``finally`` or an ``except``), overlaps this call. So a
-        buffering sink must keep its buffer safe to touch from two places: read-``await``-clear
-        here can drop whatever a still-unwinding ``emit`` adds in between.
+        Called once at shutdown, and on a sink that never saw an event, and on one that was
+        disabled — buffered events are still worth writing. Bounded and non-fatal: too slow is
+        abandoned mid-flush, anything raised is logged.
 
-        Called even on a sink that never saw an event, since a process can shut down without
-        having run anything: a flush that costs something should tolerate having nothing to flush.
-
-        A sink whose failures got it disabled is closed too: the events it buffered
-        before that are still worth writing out, and being bad at taking events says nothing
-        about being able to flush the ones already taken.
-
-        Bounded and non-fatal, like every other wait on a sink: one that takes too long is
-        abandoned mid-flush, and anything raised here is logged and flagged rather than
-        allowed to break a shutdown. A sink that needs its flush to be certain is asking for
-        delivery guarantees, which belong to the store, not here.
+        One ``emit`` may still be unwinding while this runs (a swallowed cancellation, or an
+        ``await`` in its ``finally``), so a buffer must be safe to touch from two places:
+        read-``await``-clear here can drop what that ``emit`` adds in between.
         """
-
-
-__all__ = ["EventSinkPort"]

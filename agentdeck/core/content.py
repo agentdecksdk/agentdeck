@@ -10,8 +10,8 @@ against engine state. Only *tool* results are bounded (preview + size + hash), w
 bytes are unbounded and engine-chosen rather than caller-chosen.
 
 An unfamiliar block ``type`` falls back to :class:`UnknownBlock` instead of rejecting the
-block's whole event, mirroring how :func:`agentdeck.core.events.parse_event` treats an
-unknown ``kind``.
+block's whole event, the same move :class:`agentdeck.core.events.Event` makes for an unknown
+``kind``.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from math import isfinite
 from typing import Annotated, Any, Literal, get_args
 
 from pydantic import (
+    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
@@ -35,6 +36,35 @@ class CoreModel(BaseModel):
     """Base for the schema models: unknown fields are dropped, and nothing mutates."""
 
     model_config = ConfigDict(extra="ignore", frozen=True)
+
+
+def _reject_non_finite(value: JsonValue) -> JsonValue:
+    """``NaN`` and ``±Infinity`` pass ``JsonValue``'s float branch but have no JSON literal:
+    they serialize as ``null``, so a consumer would see a number the store does not hold — the
+    one silent divergence between a yielded event and its record.
+
+    Iterative, not recursive: a payload deep enough to recurse is already rejected by
+    ``JsonValue``, and this must not turn that into a ``RecursionError``.
+    """
+    stack: list[JsonValue] = [value]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, float) and not isfinite(item):
+            raise ValueError(f"data holds a non-finite float ({item}), which JSON cannot carry")
+        if isinstance(item, dict):
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+    return value
+
+
+JsonData = Annotated[JsonValue, AfterValidator(_reject_non_finite)]
+"""JSON a store can hold and hand back unchanged.
+
+``JsonValue`` alone refuses what JSON has no shape for (a set, a datetime) but *accepts*
+``NaN``/``±Infinity``, which serialize to ``null``. Both halves are the same rule — what goes in
+comes back out — so they travel as one type rather than as a type plus a validator each field
+has to remember."""
 
 
 class TextBlock(CoreModel):
@@ -59,37 +89,13 @@ class ResourceBlock(CoreModel):
 class DataBlock(CoreModel):
     """JSON data as content: a validated ``output_type`` result, a workflow's state.
 
-    ``JsonValue`` is the type, so a value that could not survive the wire is rejected here
-    at construction instead of failing later in a store or a sink. An object, an array or a
-    scalar all fit — but prose belongs in a ``TextBlock``, which is what readers render.
+    ``JsonData`` is the type, so a value that could not survive the wire is rejected at
+    construction instead of failing later in a store or a sink. Prose belongs in a ``TextBlock``,
+    which is what readers render.
     """
 
     type: Literal["data"] = "data"
-    data: JsonValue
-
-    @field_validator("data")
-    @classmethod
-    def _floats_are_finite(cls, value: JsonValue) -> JsonValue:
-        """``NaN`` and ``±Infinity`` pass ``JsonValue``'s float branch but have no JSON
-        literal: they serialize as ``null``, so a consumer would see a number that the store
-        does not hold — the one silent divergence between a yielded event and its record.
-        A producer meaning "no value" says so with ``null``; one meaning "not a number" says
-        so with a string.
-
-        The walk is iterative: a payload deep enough to recurse is already rejected by
-        ``JsonValue`` itself, and this must not be the thing that turns that into a
-        ``RecursionError``.
-        """
-        stack: list[JsonValue] = [value]
-        while stack:
-            item = stack.pop()
-            if isinstance(item, float) and not isfinite(item):
-                raise ValueError(f"data holds a non-finite float ({item}), which JSON cannot carry")
-            if isinstance(item, dict):
-                stack.extend(item.values())
-            elif isinstance(item, list):
-                stack.extend(item)
-        return value
+    data: JsonData
 
 
 class UnknownBlock(CoreModel):
@@ -121,9 +127,9 @@ KNOWN_BLOCK_TYPES: frozenset[str] = frozenset(b.model_fields["type"].default for
 def _fallback_to_unknown_block(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
     """Reshape an unfamiliar block into :class:`UnknownBlock` instead of failing the union.
 
-    A dict already shaped like a stored ``UnknownBlock`` (``{type, raw_block}``) validates
-    against the union's ``UnknownBlock`` member directly, so ``handler`` succeeds and this
-    never re-wraps it — that ambiguity is what lets a stored ``UnknownBlock`` round-trip.
+    A dict already shaped like a stored ``UnknownBlock`` (``{type, raw_block}``) validates against
+    the union member directly, so ``handler`` succeeds and this never re-wraps it — which is what
+    lets a stored ``UnknownBlock`` round-trip.
     """
     try:
         return handler(value)
@@ -138,7 +144,9 @@ def _fallback_to_unknown_block(value: Any, handler: ValidatorFunctionWrapHandler
 ContentBlock = Annotated[KnownBlock | UnknownBlock, WrapValidator(_fallback_to_unknown_block)]
 Input = list[ContentBlock]
 
-_BLOCK_TYPES = (TextBlock, ImageBlock, ResourceBlock, DataBlock, UnknownBlock)
+# derived from the union for the same reason KNOWN_BLOCK_TYPES is: a block class added above
+# has to reach coerce_input's isinstance check without anyone remembering to list it twice
+_BLOCK_TYPES = (*get_args(get_args(KnownBlock)[0]), UnknownBlock)
 
 
 def coerce_input(value: str | Input) -> Input:
@@ -149,18 +157,3 @@ def coerce_input(value: str | Input) -> Input:
     if isinstance(value, list) and all(isinstance(block, _BLOCK_TYPES) for block in value):
         return list(value)
     raise TypeError(f"expected str or list[ContentBlock], got {type(value).__name__}")
-
-
-__all__ = [
-    "KNOWN_BLOCK_TYPES",
-    "ContentBlock",
-    "CoreModel",
-    "DataBlock",
-    "ImageBlock",
-    "Input",
-    "KnownBlock",
-    "ResourceBlock",
-    "TextBlock",
-    "UnknownBlock",
-    "coerce_input",
-]

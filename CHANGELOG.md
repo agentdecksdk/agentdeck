@@ -51,6 +51,30 @@ of vanishing the moment the call returns.
 
 - Every `LayeredSettings` field in `agentdeck/runtime/settings.py` now carries a
   `Field(description=...)`, the source the new generated settings reference renders from.
+- **Breaking:** `parse_event` is removed. `Event.model_validate(data)` does the same job —
+  an unfamiliar `kind` still lands as `UnknownEvent` rather than raising — so the forward-
+  compatibility promise is now a property of the type instead of something a reader has to
+  remember to call. Replace `parse_event(row)` with `Event.model_validate(row)`.
+- Two `kind` values that disagree are refused instead of silently relabelled. When the
+  envelope's `kind` was one this version didn't know, the payload's own claim used to be
+  overwritten with the envelope's and buried in `raw_payload`, so a row was accepted under a
+  name it never carried. Only reachable from rows this package didn't write.
+- `Event.kind` and `UnknownEvent.kind` now have to look like a kind (`run.started`,
+  `a2a.task.started`); `""`, `"Run Started"` and `"run..started"` were accepted before. A
+  shape, not a fixed set — an unfamiliar kind from a newer writer still parses.
+- `NodeUpdated.state_patch`, `ToolCallStarted.args` and `RunInterrupted.payload` hold only
+  what a store hands back unchanged. They were `dict[str, Any]`, so a `NaN` reached the log as
+  `null`, a set as a list and a datetime as a string — the divergence `DataBlock` has always
+  refused. All three now carry the same `JsonData` type `DataBlock` does. Every engine adapter
+  already sanitized before constructing these, so nothing the package produces changes; a
+  caller building one by hand from non-JSON values now gets a `ValidationError`.
+- The cost and budget fields validate like the token counts always did: `Usage.usd`,
+  `Budget.max_usd` and `Budget.max_tokens` reject negatives, and the two dollar fields also
+  reject `NaN` and `±Infinity`. Those have no JSON literal, so they serialized as `null` — a
+  consumer read *no cost* where the producer wrote nonsense. Nothing in the package produced
+  such a value, so this closes a trap rather than fixing a live bug; a caller that built a
+  `Usage` or `Budget` by hand with one now gets a `ValidationError` at construction. No
+  serialized shape changed.
 
 ### Known limits
 

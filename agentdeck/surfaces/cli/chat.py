@@ -16,6 +16,7 @@ from agentdeck.core.content import TextBlock
 from agentdeck.core.events import (
     ControlObserved,
     ControlRequested,
+    Event,
     MessageCompleted,
     ProgressReported,
     RunCancelled,
@@ -25,7 +26,6 @@ from agentdeck.core.events import (
     StatusReported,
     ToolCallCompleted,
     ToolCallStarted,
-    parse_event,
 )
 
 if TYPE_CHECKING:
@@ -41,7 +41,7 @@ async def render(lines: AsyncIterator[str]) -> None:
     async for line in lines:
         if not line.startswith("data: "):
             continue  # blank keep-alives and any `event: ...` framing line
-        event = parse_event(json.loads(line.removeprefix("data: ")))
+        event = Event.model_validate(json.loads(line.removeprefix("data: ")))
         match event.payload:
             case RunStarted(input=blocks):
                 text = " ".join(block.text for block in blocks if isinstance(block, TextBlock))

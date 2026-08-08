@@ -23,15 +23,13 @@ if TYPE_CHECKING:
 class RunContext:
     """One run's identity and limits.
 
-    ``tenant`` and ``principal`` are required and never defaulted downstream: they come
-    from the caller at the edge or the run should not start. ``gate`` defaults to a no-op
-    (no ``ControlPort`` behind it) — the Runtime is what rebinds it to a real one, never
-    the caller building this context.
+    ``tenant`` and ``principal`` are never defaulted downstream: they come from the caller at the
+    edge or the run should not start.
 
-    ``gate`` and ``reporter`` are the two fields that are not values, and they are here for the
-    same reason: a cooperative seam has to reach code the Runtime never sees. Control flows in
-    through the gate, updates flow out through the reporter, and both default to doing nothing,
-    so a context built outside a run is still a plain value object.
+    ``gate`` and ``reporter`` are the two fields that are not values — a cooperative seam has to
+    reach code the Runtime never sees. Control flows in through the gate, updates out through the
+    reporter. Both default to doing nothing and only the Runtime rebinds them, so a context built
+    by hand is still a plain value object.
     """
 
     tenant: str
@@ -52,6 +50,3 @@ class RunContext:
         """Where this run's events are written — a run without a session is its own log,
         so persist-before-yield holds for it too."""
         return self.session_id or self.run_id
-
-
-__all__ = ["RunContext"]

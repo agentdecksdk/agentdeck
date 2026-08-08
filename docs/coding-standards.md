@@ -130,9 +130,10 @@ schema PRs, never smuggled into feature PRs; every payload class carries its
 `kind: Literal[...]` discriminator and a docstring; the golden JSON snapshots under
 `tests/core/snapshots/` change only when the PR description explicitly declares a schema
 change and its D8 classification (minor vs `v` bump). Producers construct events only
-through payload classes — never hand-built dicts. Consumers use `parse_event` and must
-tolerate `UnknownEvent` (skip, don't crash); a consumer that pattern-matches on kinds
-includes a default case. Engine adapters emit existing kinds or namespaced `custom` —
+through payload classes — never hand-built dicts. Consumers read with
+`Event.model_validate` and must tolerate `UnknownEvent` (skip, don't crash); a consumer
+that pattern-matches on kinds includes a default case. Engine adapters emit existing
+kinds or namespaced `custom` —
 minting a kind inside an adapter is a review-rejection offense (D10).
 
 ## 8. Tests
