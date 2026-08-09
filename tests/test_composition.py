@@ -277,16 +277,18 @@ async def test_a_configured_langfuse_traces_a_workflow_run_under_its_session(pro
     assert trace.shape() == [("shout", "span"), ("run.usage", "generation")]
 
 
-async def test_a_chat_turn_reaches_langfuse_under_its_own_session(project, recorded_traces, langfuse_keys, monkeypatch):
-    """The identity ``Deck.chat`` already gave its trace, kept while its owner changes: the
+async def test_a_run_with_a_session_id_reaches_langfuse_under_its_own_session(
+    project, recorded_traces, langfuse_keys, monkeypatch
+):
+    """The identity ``Deck.run`` already gave its trace, kept while its owner changes: the
     engine no longer opens an observation of its own, so if the sink did not carry the session
-    across, every chat turn would go anonymous the moment the wrapping span was removed."""
+    across, every turn would go anonymous the moment the wrapping span was removed."""
     patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("hi",))))
     langfuse_keys("pk-lf-test", "sk-lf-test")
     from agentdeck.deck import Deck
 
     async with Deck.from_project() as deck:
-        result = await deck.chat("Greeter", "wa-123", "hello")
+        result = await deck.run("Greeter", "hello", session_id="wa-123")
 
     assert result.output == "hi"
     [trace] = recorded_traces.roots
@@ -344,7 +346,11 @@ async def test_deck_composes_one_runtime_over_the_whole_project(project):
         kinds = [
             event.kind
             async for event in deck._runtime.run(
-                "Shout", coerce_input("hello"), run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+                "Shout",
+                coerce_input("hello"),
+                run_id=(CTX).run_id,
+                session_id=(CTX).session_id,
+                namespace=(CTX).namespace,
             )
         ]
     assert kinds == ["run.started", "node.updated", "run.completed"]

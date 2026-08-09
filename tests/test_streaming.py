@@ -135,24 +135,24 @@ async def test_run_streamed_cancels_sdk_run_on_abandonment(project, monkeypatch)
     assert fake_result.cancelled == 1
 
 
-async def test_chat_returns_a_turn_result_not_the_sdks_runresult(project, monkeypatch):
-    """``chat`` used to hand back the SDK's own ``RunResult``; it now plays on the Runtime
+async def test_run_returns_a_turn_result_not_the_sdks_runresult(project, monkeypatch):
+    """``run`` used to hand back the SDK's own ``RunResult``; it now plays on the Runtime
     and returns a :class:`~agentdeck.deck.TurnResult` assembled from the run's
     own ``run.completed`` — a caller depends on agentdeck's event schema, never on the SDK.
     """
     patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("echo:hi",))))
 
     async with project:
-        result = await project.chat("Greeter", "s1", "hi")
+        result = await project.run("Greeter", "hi", session_id="s1")
 
     assert result.output == "echo:hi"
     assert result.session_id == "s1"
 
 
-async def test_chat_stream_uses_same_session_as_chat(project, monkeypatch):
+async def test_stream_uses_same_session_as_run(project, monkeypatch):
     """One ``session_id`` is one conversation whichever Deck method ran the turn — the same
     guarantee the old ``HeadlessRunner``-backed methods gave, now proven at the SDK boundary
-    instead of by stubbing ``HeadlessRunner.from_agent`` directly (which ``chat``/``chat_stream``
+    instead of by stubbing ``HeadlessRunner.from_agent`` directly (which ``run``/``stream``
     no longer call: both play on the Runtime)."""
     from agentdeck.core.events import RunCompleted
 
@@ -160,8 +160,8 @@ async def test_chat_stream_uses_same_session_as_chat(project, monkeypatch):
     patch_provider(monkeypatch, provider_of(model))
 
     async with project:
-        events = [event async for event in project.chat_stream("Greeter", "s1", "first")]
-        result = await project.chat("Greeter", "s1", "second")
+        events = [event async for event in project.stream("Greeter", "first", session_id="s1")]
+        result = await project.run("Greeter", "second", session_id="s1")
 
     streamed_output = next(e.payload.output[0].text for e in events if isinstance(e.payload, RunCompleted))
     assert streamed_output == "echo:hi" == result.output

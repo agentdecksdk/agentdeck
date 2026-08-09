@@ -1,18 +1,18 @@
 """agentdeck — declarative framework over the OpenAI Agents SDK and LangGraph.
 
 Owns *configuration* (settings, capabilities, runner glue, graph compilation,
-plug-in discovery) so the underlying engines own *execution*. Application code
-typically imports from :mod:`agentdeck.authoring` (``Agent``, ``Workflow``);
-:mod:`agentdeck.runtime` and :mod:`agentdeck.skills` are consumed indirectly.
+plug-in discovery) so the underlying engines own *execution*.
 :class:`agentdeck.Deck` is the composition root — either constructed directly
-(``Deck(agents=..., ...)``) or discovered from a project directory
-(``Deck.from_project()``).
+from :class:`agentdeck.Agent`/:class:`agentdeck.Workflow` declarations, or
+discovered from a project directory (``Deck.from_project()``).
 """
 
+from agentdeck.authoring import Agent, Workflow
 from agentdeck.deck import Deck, TurnResult
 from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, SessionBusyError, SkillError, StoreError
 
 __all__ = [
+    "Agent",
     "AgentdeckError",
     "ConfigError",
     "Deck",
@@ -21,4 +21,5 @@ __all__ = [
     "SkillError",
     "StoreError",
     "TurnResult",
+    "Workflow",
 ]

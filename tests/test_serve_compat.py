@@ -423,7 +423,7 @@ async def test_the_runtime_and_the_python_api_share_one_conversation(project, mo
     async with deck:
         async for _ in deck._runtime.run("Greeter", coerce_input("over http"), session_id="s1"):
             pass
-        await deck.chat("Greeter", "s1", "over python")
+        await deck.run("Greeter", "over python", session_id="s1")
 
     # the Python API's turn opened on the Runtime turn's message, so both wrote one session
     assert json.dumps(model.inputs[0], default=str).count("over") == 1

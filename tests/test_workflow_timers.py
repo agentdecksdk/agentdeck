@@ -29,7 +29,7 @@ def test_past_timer_is_due_and_completes_after_tick(app_project_timers):
 
     async def _scenario():
         async with app:
-            paused = await app.run_workflow("PastTimerFlow", {}, thread_id="t-past")
+            paused = await app.run("PastTimerFlow", {}, session_id="t-past")
             due = await app.due_resumes()
             finished = await app.tick()
         return paused, due, finished
@@ -48,14 +48,16 @@ def test_future_timer_is_pending_but_not_due(app_project_timers):
 
     async def _scenario():
         async with app:
-            paused = await app.run_workflow("FutureTimerFlow", {}, thread_id="t-future")
-            pending = await app.pending_interrupts("FutureTimerFlow")
+            paused = await app.run("FutureTimerFlow", {}, session_id="t-future")
+            pending = await app.pending()
             due = await app.due_resumes()
         return paused, pending, due
 
     paused, pending, due = asyncio.run(_scenario())
 
-    assert [p["thread_id"] for p in pending if p["thread_id"] == "t-future"] == ["t-future"]
+    assert [p.thread_id for p in pending if p.invocable == "FutureTimerFlow" and p.thread_id == "t-future"] == [
+        "t-future"
+    ]
     assert [d for d in due if d["thread_id"] == "t-future"] == []
 
 
@@ -64,7 +66,7 @@ def test_sleep_until_rejects_naive_datetime(app_project_timers):
 
     async def _scenario():
         async with app:
-            return await app.run_workflow("NaiveTimerFlow", {}, thread_id="t-naive")
+            return await app.run("NaiveTimerFlow", {}, session_id="t-naive")
 
     with pytest.raises(ValueError, match="timezone-aware"):
         asyncio.run(_scenario())
@@ -159,7 +161,7 @@ from agentdeck.deck import Deck
 async def main():
     async with Deck.from_project() as deck:
         if sys.argv[1] == "start":
-            return await deck.run_workflow("TimerFlow", {}, thread_id="restart-timer")
+            return await deck.run("TimerFlow", {}, session_id="restart-timer")
         due = await deck.due_resumes()
         resumed = await deck.tick()
         return {"due": due, "resumed": resumed}

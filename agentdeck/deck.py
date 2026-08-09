@@ -1,8 +1,7 @@
 """``Deck`` — the v3 composition root: agents, workflows, skills and MCP servers become one
 catalog, either handed in directly or discovered from a project directory.
 
-    from agentdeck.authoring import Agent
-    from agentdeck.deck import Deck
+    from agentdeck import Agent, Deck
 
     booking_agent = Agent(name="booking", instructions="...", tools=[find_slots])
     deck = Deck(agents=[booking_agent], skills="./skills", mcp=".mcp.json")
@@ -63,7 +62,7 @@ from agentdeck.runtime.settings import Settings, get_settings
 from agentdeck.skills import Skills
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, AsyncIterator, Mapping, Sequence
+    from collections.abc import AsyncGenerator, Mapping, Sequence
 
     from agents.memory.session import Session
     from agents.tool import FunctionTool
@@ -472,18 +471,6 @@ class Deck:
             raise ConfigError("this Deck is not open: use `async with deck:` (or `await deck.__aenter__()`) first.")
         return self._runtime
 
-    def _agent(self, name: str) -> Agent:
-        try:
-            return self._agents[name]
-        except KeyError:
-            raise NotFoundError(f"No agent named {name!r}. Available: {sorted(self._agents)}.") from None
-
-    def _workflow(self, name: str) -> Workflow:
-        try:
-            return self._workflows[name]
-        except KeyError:
-            raise NotFoundError(f"No workflow named {name!r}. Available: {sorted(self._workflows)}.") from None
-
     def _root(self, name: str) -> Agent | Workflow:
         if name in self._agents:
             return self._agents[name]
@@ -536,7 +523,7 @@ class Deck:
         namespace: str | None = None,
         run_id: str | None = None,
         context: Any = None,
-    ) -> AsyncIterator[Event]:
+    ) -> AsyncGenerator[Event, None]:
         """Streaming counterpart to :meth:`run`: yields the run's own canonical events."""
         self._require_no_context(context)
         root = self._root(name)
@@ -578,84 +565,39 @@ class Deck:
         """Every run currently waiting on a human, across this Deck's whole catalog."""
         return await self._require_open().pending(namespace=namespace)
 
-    # --- ports carried across from v1's `App`, unchanged in behavior ----------------------
-
-    async def run_agent(self, name: str, message: Any) -> TurnResult:
-        """One-shot run of a discovered agent, recorded on the Runtime."""
-        self._agent(name)
-        return await _turn_result(self._require_open().run(name, coerce_input(message)))
-
-    async def chat(self, name: str, session_id: str, message: Any) -> TurnResult:
-        """One conversational turn: same ``session_id`` -> same history across calls."""
-        self._agent(name)
-        return await _turn_result(self._require_open().run(name, coerce_input(message), session_id=session_id))
-
-    async def chat_stream(self, name: str, session_id: str, message: Any) -> AsyncIterator[Event]:
-        """Streaming counterpart to :meth:`chat`."""
-        self._agent(name)
-        async with aclosing(self._require_open().run(name, coerce_input(message), session_id=session_id)) as run:
-            async for event in run:
-                yield event
-
-    async def run_workflow(self, name: str, state: Any = None, *, thread_id: str | None = None) -> Any:
-        """One run of a discovered workflow, recorded on the Runtime; returns the final state
-        or an :class:`~agentdeck.authoring.interrupts.InterruptResult` while paused.
+    async def answer(self, run_id: str, value: Any) -> Any:
+        """Answer the interrupt the run named by ``run_id`` is paused on; returns the final
+        state or the next interrupt. Pairs with :meth:`pending`: list the inbox, answer one run
+        by the ``run_id`` it named there — the lookup this needs (invocable, thread, session)
+        travels with it, so a caller supplies only the id and the value.
         """
-        self._workflow(name)
         runtime = self._require_open()
-        run = runtime.run(name, [_as_state_block(state)], session_id=thread_id)
-        result, _ = await _workflow_result(run)
-        return result
-
-    async def resume_workflow(self, name: str, thread_id: str, value: Any) -> Any:
-        """Answer the interrupt paused on ``thread_id``; returns the final state or the next
-        interrupt."""
-        self._workflow(name)
-        runtime = self._require_open()
-        paused = await self._paused_workflow_run(runtime, name, thread_id)
+        pending = next((run for run in await runtime.pending() if run.run_id == run_id), None)
+        if pending is None:
+            raise NotFoundError(f"No pending run {run_id!r}.")
         result, applied = await _workflow_result(
-            runtime.resume(name, thread_id, value, run_id=paused.run_id, session_id=paused.session_id)
+            runtime.resume(
+                pending.invocable, pending.thread_id, value, run_id=pending.run_id, session_id=pending.session_id
+            )
         )
         if not applied:
-            raise NotFoundError(f"No paused run of {name!r} on thread {thread_id!r}.")
+            raise NotFoundError(f"No pending run {run_id!r}.")
         return result
-
-    async def run_workflow_stream(
-        self, name: str, state: Any = None, *, thread_id: str | None = None
-    ) -> AsyncIterator[dict[str, Any] | InterruptResult]:
-        """Streaming counterpart to :meth:`run_workflow`: a ``node_update``/``custom``/``done``
-        event per the workflow's own graph stream, or an :class:`InterruptResult` on a pause.
-
-        Unlike :meth:`run_workflow`, this drives the graph directly rather than the Runtime —
-        the same trade v1's ``App.run_workflow_stream`` made — so a run started here writes
-        nothing to the event log and cannot be found by :meth:`resume_workflow`'s own lookup.
-        """
-        workflow = self._workflow(name)
-        async for event in workflow.run_stream(state, thread_id=thread_id):
-            yield event
-
-    async def _paused_workflow_run(self, runtime: Runtime, name: str, thread_id: str) -> PendingRun:
-        paused = next(
-            (run for run in await runtime.pending() if run.invocable == name and run.thread_id == thread_id),
-            None,
-        )
-        if paused is None:
-            raise NotFoundError(f"No paused run of {name!r} on thread {thread_id!r}.")
-        return paused
-
-    async def pending_interrupts(self, name: str | None = None) -> list[InterruptResult]:
-        """Approval inbox: every thread paused on an interrupt, for one workflow or all of them."""
-        workflows = [self._workflow(name)] if name else list(self._workflows.values())
-        pending: list[InterruptResult] = []
-        for workflow in workflows:
-            pending.extend(await workflow.pending())
-        return pending
 
     async def due_resumes(self, now: datetime | None = None) -> list[InterruptResult]:
         """Timer-paused threads (``sleep_until``) whose wake time has passed."""
         now = _require_aware(now) if now is not None else datetime.now(UTC)
-        pending = await self.pending_interrupts()
+        pending = await self._pending_interrupts()
         return [p for p in pending if (wake_at := wake_at_of(p["payload"])) is not None and wake_at <= now]
+
+    async def _pending_interrupts(self) -> list[InterruptResult]:
+        """Every thread paused on an interrupt, across the whole catalog — :meth:`due_resumes`'s
+        own filter, driven straight off each workflow's checkpointer rather than the Runtime's
+        log (the same source :meth:`tick` reads)."""
+        pending: list[InterruptResult] = []
+        for workflow in self._workflows.values():
+            pending.extend(await workflow.pending())
+        return pending
 
     async def tick(self, now: datetime | None = None) -> list[Any]:
         """Resume every thread whose ``sleep_until`` timer is due."""

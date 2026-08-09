@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from agentdeck.authoring import Workflow
 from agentdeck.core.context import RunContext
-from agentdeck.errors import ConfigError, NotFoundError
+from agentdeck.errors import ConfigError
 from agentdeck.runtime.settings import reset_settings_cache
 
 
@@ -224,71 +224,63 @@ def app_project(tmp_path, monkeypatch):
     return Deck.from_project()
 
 
-async def test_streamed_run_ends_with_an_interrupt_event(app_project):
-    """The streaming surface: node updates, then an interrupt event *instead of* ``done``."""
-    events = [
-        event
-        async for event in app_project.run_workflow_stream("ApprovalFlow", {"request": "tue 9am"}, thread_id="t-stream")
-    ]
-
-    assert events == [
-        {"type": "node_update", "node": "prepare", "delta": {"prepared": 1}},
-        {"type": "interrupt", "payload": {"question": "tue 9am"}, "thread_id": "t-stream"},
-    ]
-    inbox = await app_project.pending_interrupts("ApprovalFlow")
-    assert [p for p in inbox if p["thread_id"] == "t-stream"] == [events[-1]]
-
-
-async def test_a_run_started_via_run_workflow_stream_cannot_be_resumed_via_resume_workflow(app_project):
-    """A pause used to resume the same way regardless of which method started the run,
-    because both read and wrote the same checkpointer. That symmetry breaks once
-    ``resume_workflow`` plays on the Runtime: it looks the paused run up in the
-    event log, and ``run_workflow_stream`` — left out of that reroute — writes nothing there.
-    A caller needing both the log and a live stream on one thread starts on ``run_workflow``
-    (or ``resume_workflow``) instead, the way ``test_deck_surface_pauses_lists_and_resumes`` does.
-    """
-    async for _ in app_project.run_workflow_stream("ApprovalFlow", {"request": "tue 9am"}, thread_id="t-stream-2"):
-        pass
-
+async def test_stream_ends_with_a_run_interrupted_event(app_project):
+    """The streaming surface: a node-updated event, then run-interrupted *instead of*
+    run-completed — and the same pause the Runtime's own inbox lists."""
     async with app_project:
-        with pytest.raises(NotFoundError, match="t-stream-2"):
-            await app_project.resume_workflow("ApprovalFlow", "t-stream-2", "yes")
+        events = [
+            event async for event in app_project.stream("ApprovalFlow", {"request": "tue 9am"}, session_id="t-stream")
+        ]
+
+        assert [event.kind for event in events] == ["run.started", "node.updated", "run.interrupted"]
+        assert events[1].payload.node == "prepare"
+        assert events[1].payload.state_patch == {"prepared": 1}
+        assert events[2].payload.payload == {"question": "tue 9am"}
+        assert events[2].payload.thread_id == "t-stream"
+
+        [pending] = [run for run in await app_project.pending() if run.thread_id == "t-stream"]
+
+        # a run started on `stream` is answerable by `answer`, the inversion of what
+        # `run_workflow_stream` (deleted with the rest of v1's surface) could never do
+        result = await app_project.answer(pending.run_id, "yes")
+    assert result["outcome"] == "booked"
 
 
-async def test_streamed_durable_run_without_an_interrupt_still_ends_with_done(app_project):
-    """No regression for #9's shape: only a paused run swaps ``done`` for an interrupt."""
-    events = [event async for event in app_project.run_workflow_stream("PlainFlow", {"text": "hi"}, thread_id="t-p")]
+async def test_stream_without_an_interrupt_still_ends_with_run_completed(app_project):
+    """No regression for #9's shape: only a paused run swaps run-completed for run-interrupted."""
+    async with app_project:
+        events = [event async for event in app_project.stream("PlainFlow", {"text": "hi"}, session_id="t-p")]
 
-    assert events == [
-        {"type": "node_update", "node": "shout", "delta": {"text": "HI"}},
-        {"type": "done", "state": {"text": "HI"}},
-    ]
+    assert [event.kind for event in events] == ["run.started", "node.updated", "run.completed"]
+    assert events[1].payload.node == "shout"
+    assert events[1].payload.state_patch == {"text": "HI"}
 
 
-def test_deck_surface_pauses_lists_and_resumes(app_project):
-    """``Deck`` is the entry point: run -> pending_interrupts() (no name = every workflow) -> resume."""
+def test_deck_surface_runs_lists_and_answers(app_project):
+    """``Deck`` is the entry point: run -> pending() (every workflow) -> answer, by run_id."""
     deck = app_project
 
     async def _scenario():
         async with deck:
-            paused = await deck.run_workflow("ApprovalFlow", {"request": "tue 9am"}, thread_id="t-app")
-            pending = await deck.pending_interrupts()
-            resumed = await deck.resume_workflow("ApprovalFlow", "t-app", "no")
-            # both run_workflow and resume_workflow write to the event log now —
+            paused = await deck.run("ApprovalFlow", {"request": "tue 9am"}, session_id="t-app")
+            pending = await deck.pending()
+            # other tests in this process share the cached memory saver, so filter to this thread
+            [mine] = [run for run in pending if run.thread_id == "t-app"]
+            resumed = await deck.answer(mine.run_id, "no")
+            # both run and answer write to the event log now —
             # read it back rather than trusting each call's own bookkeeping.
             events = await deck._runtime.store.read("t-app", RunContext(run_id="reader", session_id="t-app"))
-            return paused, pending, resumed, [event.kind for event in events]
+            return paused, mine, resumed, [event.kind for event in events]
 
-    paused, pending, resumed, kinds = asyncio.run(_scenario())
+    paused, mine, resumed, kinds = asyncio.run(_scenario())
 
     assert kinds[0] == "run.started"
-    assert "run.interrupted" in kinds  # the pause `run_workflow` produced
-    assert "run.resumed" in kinds  # resume_workflow's own claim, not a fresh run
+    assert "run.interrupted" in kinds  # the pause `run` produced
+    assert "run.resumed" in kinds  # answer's own claim, not a fresh run
     assert kinds[-1] == "run.completed"
 
     assert paused == {"type": "interrupt", "payload": {"question": "tue 9am"}, "thread_id": "t-app"}
-    # other tests in this process share the cached memory saver, so filter to this thread
-    assert [p for p in pending if p["thread_id"] == "t-app"] == [paused]
+    assert mine.payload == {"question": "tue 9am"}
     assert resumed["outcome"] == "dropped"
 
 

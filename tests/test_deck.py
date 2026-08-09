@@ -53,6 +53,34 @@ def _shout_workflow(name: str = "Shout") -> Workflow:
     return Workflow(name=name, state=_State, graph=_build_shout_graph)
 
 
+class _ApprovalState(BaseModel):
+    request: str = ""
+    decision: str = ""
+    outcome: str = ""
+
+
+def _build_approval_graph() -> StateGraph:
+    from langgraph.types import interrupt
+
+    graph = StateGraph(_ApprovalState)
+    graph.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
+    graph.add_node("approved", lambda s: {"outcome": "yes:" + s.request})
+    graph.add_node("rejected", lambda s: {"outcome": "no"})
+    graph.set_entry_point("ask")
+    graph.add_conditional_edges(
+        "ask",
+        lambda s: "approved" if s.decision == "yes" else "rejected",
+        {"approved": "approved", "rejected": "rejected"},
+    )
+    graph.add_edge("approved", END)
+    graph.add_edge("rejected", END)
+    return graph
+
+
+def _approval_workflow(name: str = "Approval") -> Workflow:
+    return Workflow(name=name, state=_ApprovalState, durable=True, graph=_build_approval_graph)
+
+
 def _write_skill(root, dirname: str, *, description: str = "does a thing") -> None:
     skill_dir = root / dirname
     skill_dir.mkdir(parents=True)
@@ -412,7 +440,7 @@ def test_asgi_health_reflects_this_decks_catalog(no_project, tmp_path):
     }
 
 
-# --- v1's convenience methods, carried across unchanged, behave the same on Deck -----------
+# --- v1's convenience carried across as `run`/`stream`, behave the same on Deck ------------
 
 
 def _reader_ctx(session_id: str | None) -> RunContext:
@@ -422,24 +450,24 @@ def _reader_ctx(session_id: str | None) -> RunContext:
 
 
 @pytest.mark.asyncio
-async def test_run_workflow_with_no_state_defaults_to_an_empty_object(no_project, monkeypatch):
+async def test_run_with_no_input_defaults_a_workflow_to_an_empty_object(no_project, monkeypatch):
     """``state=None``'s old meaning ("no updates") has to survive wrapping it in a
     ``DataBlock``, which cannot carry ``None`` as a graph's state."""
     monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "memory")
     deck = Deck(workflows=[_shout_workflow()])
 
     async with deck:
-        out = await deck.run_workflow("Shout")
+        out = await deck.run("Shout", None)
 
     assert out == {"shouted": ""}
 
 
 @pytest.mark.asyncio
-async def test_run_agent_is_recorded_and_returns_a_turn_result(no_project, scripted):
+async def test_run_is_recorded_and_returns_a_turn_result(no_project, scripted):
     deck = Deck(agents=[_greeter()])
 
     async with deck:
-        result = await deck.run_agent("Greeter", "hello")
+        result = await deck.run("Greeter", "hello")
         assert result.output == "hi"
         assert result.session_id is None
         events = await deck._runtime.store.read(result.run_id, _reader_ctx(None))
@@ -454,11 +482,11 @@ async def test_run_agent_is_recorded_and_returns_a_turn_result(no_project, scrip
 
 
 @pytest.mark.asyncio
-async def test_chat_is_recorded_and_returns_a_turn_result(no_project, scripted):
+async def test_run_with_a_session_id_is_recorded_and_returns_a_turn_result(no_project, scripted):
     deck = Deck(agents=[_greeter()])
 
     async with deck:
-        result = await deck.chat("Greeter", "s1", "hello")
+        result = await deck.run("Greeter", "hello", session_id="s1")
         assert result.output == "hi"
         assert result.session_id == "s1"
         events = await deck._runtime.store.read("s1", _reader_ctx("s1"))
@@ -473,7 +501,7 @@ async def test_chat_is_recorded_and_returns_a_turn_result(no_project, scripted):
 
 
 @pytest.mark.asyncio
-async def test_a_failed_chat_still_leaves_run_failed_in_the_log(no_project, monkeypatch):
+async def test_a_failed_run_still_leaves_run_failed_in_the_log(no_project, monkeypatch):
     """A run that raises is still written down, even though nobody read the stream to the end
     by hand."""
     patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("par",), raises=RuntimeError("boom"))))
@@ -481,7 +509,7 @@ async def test_a_failed_chat_still_leaves_run_failed_in_the_log(no_project, monk
 
     async with deck:
         with pytest.raises(RuntimeError, match="boom"):
-            await deck.chat("Greeter", "s1", "hello")
+            await deck.run("Greeter", "hello", session_id="s1")
         events = await deck._runtime.store.read("s1", _reader_ctx("s1"))
 
     assert [event.kind for event in events] == ["run.started", "text.delta", "run.failed"]
@@ -492,28 +520,28 @@ class _Greeting(BaseModel):
 
 
 @pytest.mark.asyncio
-async def test_a_structured_chat_output_survives_as_validated_data(no_project, monkeypatch):
+async def test_a_structured_run_output_survives_as_validated_data(no_project, monkeypatch):
     """``RunCompleted.output`` can only hold text; the compat engine carries a validated
-    ``output_type`` result alongside it, and ``chat``'s ``TurnResult`` must still surface it as
+    ``output_type`` result alongside it, and ``run``'s ``TurnResult`` must still surface it as
     data rather than the stringified JSON the terminal event itself carries."""
     patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=('{"greeting": "hi"}',))))
     deck = Deck(agents=[Agent(name="Structured", instructions="Answer as JSON.", output_type=_Greeting)])
 
     async with deck:
-        result = await deck.chat("Structured", "s1", "hello")
+        result = await deck.run("Structured", "hello", session_id="s1")
 
     assert result.output == {"greeting": "hi"}
 
 
 @pytest.mark.asyncio
-async def test_chat_stream_yields_canonical_events_and_is_recorded(no_project, monkeypatch):
+async def test_stream_yields_canonical_events_and_is_recorded(no_project, monkeypatch):
     from agentdeck.core.events import RunCompleted, TextDelta
 
     patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("Hel", "lo"))))
     deck = Deck(agents=[_greeter()])
 
     async with deck:
-        events = [event async for event in deck.chat_stream("Greeter", "s1", "hello")]
+        events = [event async for event in deck.stream("Greeter", "hello", session_id="s1")]
 
         assert [event.kind for event in events] == [
             "run.started",
@@ -527,22 +555,22 @@ async def test_chat_stream_yields_canonical_events_and_is_recorded(no_project, m
         assert next(e for e in events if isinstance(e.payload, RunCompleted)).payload.output[0].text == "Hello"
 
         # the stream itself already recorded every one of those events; store.read proves it
-        # rather than the caller having to trust chat_stream's own bookkeeping
+        # rather than the caller having to trust stream's own bookkeeping
         stored = await deck._runtime.store.read("s1", _reader_ctx("s1"))
 
     assert [event.kind for event in stored] == [event.kind for event in events]
 
 
 @pytest.mark.asyncio
-async def test_chat_stream_closes_the_runtime_generator_on_abandonment(no_project, monkeypatch):
+async def test_stream_closes_the_runtime_generator_on_abandonment(no_project, monkeypatch):
     """A caller that stops mid-stream must not leave the run open in the log holding its
-    session forever: closing only ``chat_stream``'s own frame would abandon the Runtime's
+    session forever: closing only ``stream``'s own frame would abandon the Runtime's
     generator to the GC instead of closing it."""
     patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("Hel", "lo"))))
     deck = Deck(agents=[_greeter()])
 
     async with deck:
-        stream = deck.chat_stream("Greeter", "s1", "hello")
+        stream = deck.stream("Greeter", "hello", session_id="s1")
         first = await anext(stream)
         second = await anext(stream)
         await stream.aclose()
@@ -553,7 +581,7 @@ async def test_chat_stream_closes_the_runtime_generator_on_abandonment(no_projec
 
 
 @pytest.mark.asyncio
-async def test_chat_and_chat_stream_share_one_session(no_project, monkeypatch):
+async def test_run_and_stream_share_one_session(no_project, monkeypatch):
     """Same guarantee v1 gave: one ``session_id`` is one conversation whichever Deck method ran
     the turn."""
     model = ScriptedModel(deltas=("hi",))
@@ -561,9 +589,9 @@ async def test_chat_and_chat_stream_share_one_session(no_project, monkeypatch):
     deck = Deck(agents=[_greeter()])
 
     async with deck:
-        async for _ in deck.chat_stream("Greeter", "s1", "first"):
+        async for _ in deck.stream("Greeter", "first", session_id="s1"):
             pass
-        await deck.chat("Greeter", "s1", "second")
+        await deck.run("Greeter", "second", session_id="s1")
 
     # two model calls, and the second turn's input carries the first turn's history
     assert model.calls == 2
@@ -575,6 +603,44 @@ def test_sessions_keyed_by_id(no_project):
 
     assert deck.session_for("a") is deck.session_for("a")
     assert deck.session_for("a") is not deck.session_for("b")
+
+
+# --- pending() lists a paused run, answer() answers it by run_id --------------------------
+
+
+@pytest.mark.asyncio
+async def test_pending_lists_a_paused_run_and_answer_completes_it(no_project, monkeypatch):
+    """``answer`` pairs with ``pending``: a caller lists the inbox, then answers one run by
+    the ``run_id`` it named there — no name, thread id, or session id supplied by hand."""
+    from agentdeck.runtime.settings import reset_settings_cache
+
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "memory")
+    reset_settings_cache()
+    try:
+        deck = Deck(workflows=[_approval_workflow()])
+
+        async with deck:
+            paused = await deck.run("Approval", {"request": "tue 9am"}, session_id="t-1")
+            assert paused["type"] == "interrupt"
+
+            [pending] = await deck.pending()
+            assert pending.run_id  # minted by the Runtime, not supplied by the caller
+            assert pending.thread_id == "t-1"
+
+            result = await deck.answer(pending.run_id, "yes")
+    finally:
+        reset_settings_cache()
+
+    assert result == {"request": "tue 9am", "decision": "yes", "outcome": "yes:tue 9am"}
+
+
+@pytest.mark.asyncio
+async def test_answer_of_an_unknown_run_id_raises_not_found(no_project):
+    deck = Deck(workflows=[_approval_workflow()])
+
+    async with deck:
+        with pytest.raises(NotFoundError, match="nonexistent"):
+            await deck.answer("nonexistent", "yes")
 
 
 @pytest.mark.asyncio

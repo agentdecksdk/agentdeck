@@ -44,7 +44,7 @@ Endpoints:
                                         the continuation this call played — 409 if the run is
                                         not paused
 
-The workflow inbox above reads the event log, while ``Deck.pending_interrupts()`` still reads
+The workflow inbox above reads the event log, while ``Deck.due_resumes()`` still reads
 the graph's checkpointer — so the two disagree once approvals are driven through both doors
 (see the CHANGELOG for the plan to join them).
 """
@@ -56,14 +56,13 @@ import os
 from contextlib import aclosing, asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from agentdeck.core.content import DataBlock, coerce_input
+from agentdeck.core.content import coerce_input
 from agentdeck.core.status import status_of
 from agentdeck.errors import AgentdeckError, NotFoundError, SessionBusyError
 from agentdeck.surfaces.serve.compat import (
     chat_frames,
     chat_result,
     interrupt_inbox,
-    resume_result,
     workflow_frames,
     workflow_result,
 )
@@ -83,6 +82,19 @@ def create_app() -> Any:
     from agentdeck.deck import Deck
 
     return Deck.from_project().asgi()
+
+
+def _require_agent(deck: Deck, name: str) -> None:
+    """v1's 404 wording, owned here now that ``Deck`` exposes only the public ``agents``
+    mapping — a route that needs "unknown agent" as a client-facing miss checks membership
+    itself rather than reaching for a private lookup."""
+    if name not in deck.agents:
+        raise NotFoundError(f"No agent named {name!r}. Available: {sorted(deck.agents)}.")
+
+
+def _require_workflow(deck: Deck, name: str) -> None:
+    if name not in deck.workflows:
+        raise NotFoundError(f"No workflow named {name!r}. Available: {sorted(deck.workflows)}.")
 
 
 def build_asgi_app(deck: Deck) -> Any:
@@ -162,8 +174,8 @@ def build_asgi_app(deck: Deck) -> Any:
         deck = _deck()  # resolve before streaming so a pre-startup 503 keeps its status code
         # Resolved against the agent catalog, not the Runtime's invocables: this route is
         # agents-only (a workflow name must still 404 here), and the message matches v1's own.
-        deck._agent(name)
-        run = deck._require_open().run(name, content, session_id=session_id)
+        _require_agent(deck, name)
+        run = deck.stream(name, content, session_id=session_id)
         if stream:
             return StreamingResponse(
                 chat_frames(await _opened(run)),
@@ -178,10 +190,10 @@ def build_asgi_app(deck: Deck) -> Any:
         deck = _deck()  # resolve before streaming so a pre-startup 503 keeps its status code
         # Workflows-only, resolved against the workflow catalog rather than the Runtime's
         # invocables: an agent name must still 404 here, with v1's message.
-        deck._workflow(name)
+        _require_workflow(deck, name)
         # The posted state *is* the graph's input, and the thread the caller named is the
         # session it runs under: one turn per thread at a time, and a resume can find it later.
-        run = deck._require_open().run(name, [DataBlock(data=state)], session_id=thread_id)
+        run = deck.stream(name, state, session_id=thread_id)
         if stream:
             return StreamingResponse(
                 workflow_frames(await _opened(run)),
@@ -233,7 +245,7 @@ def build_asgi_app(deck: Deck) -> Any:
     @api.get("/workflows/{name}/pending")
     async def pending_interrupts(name: str) -> Any:
         deck = _deck()
-        deck._workflow(name)
+        _require_workflow(deck, name)
         return interrupt_inbox(await deck.pending(), name)
 
     @api.post("/workflows/{name}/{thread_id}/resume")
@@ -241,26 +253,16 @@ def build_asgi_app(deck: Deck) -> Any:
         if "value" not in body:
             raise HTTPException(status_code=422, detail="missing field: value")
         deck = _deck()
-        deck._workflow(name)
+        _require_workflow(deck, name)
+        # v1's own 404 names the thread, not a run_id the caller never posted — so the lookup
+        # stays here rather than moving into Deck.answer, whose own miss talks about run_id.
         paused = next(
             (run for run in await deck.pending() if run.invocable == name and run.thread_id == thread_id),
             None,
         )
         if paused is None:
             raise NotFoundError(f"No paused run of {name!r} on thread {thread_id!r}.")
-        result = await resume_result(
-            deck._require_open().resume(
-                name, thread_id, body["value"], run_id=paused.run_id, session_id=paused.session_id
-            )
-        )
-        if result is None:
-            # This caller's answer changed nothing: either the claim went to somebody else
-            # between the listing and the resume, or the log's entry was a ghost — a thread
-            # already answered through the Python API, whose inbox is the checkpointer rather
-            # than the log. Either way there is no paused run here, and saying so beats handing
-            # back the stale final state a replayed thread produces while dropping the answer.
-            raise NotFoundError(f"No paused run of {name!r} on thread {thread_id!r}.")
-        return result
+        return await deck.answer(paused.run_id, body["value"])
 
     return api
 
