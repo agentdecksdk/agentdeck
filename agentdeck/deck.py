@@ -659,5 +659,16 @@ class Deck:
         here and one started over HTTP land in the same conversation."""
         return self._ensure_sessions().session_for(_new_context(session_id))
 
+    def asgi(self) -> Any:
+        """The ASGI app ``agentdeck serve`` runs: a FastAPI app whose lifespan opens this Deck
+        on startup and closes it on shutdown, so a mounted Deck needs no separate
+        ``async with``. The HTTP contract is v1's own, unchanged (``tests/golden/`` proves it
+        byte-for-byte) — building it lives in ``agentdeck.serve`` (the one module allowed to
+        import FastAPI), not here, so ``agentdeck.deck`` stays free of that dependency.
+        """
+        from agentdeck.serve import build_asgi_app
+
+        return build_asgi_app(self)
+
 
 __all__ = ["Deck", "TurnResult"]

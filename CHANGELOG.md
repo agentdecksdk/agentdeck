@@ -260,6 +260,14 @@ of vanishing the moment the call returns.
   injection is its own, larger effort (`docs/delivery/plan-context-injection.md`) and is not
   wired into this slice. `App` is unchanged and still serves `.agentdeck/` projects; `Deck`
   replaces it as the documented entry point once `agentdeck serve` and the CLI move onto it.
+- **`Deck.asgi()`**: the ASGI app `agentdeck serve` runs, built from a `Deck` instead of an
+  `App` (#164). `agentdeck.serve.create_app()` — the console script's entry point, and every
+  existing test's — is now `Deck.from_project().asgi()`; the lifespan opens and closes that same
+  `Deck` (`async with deck: ...`) instead of building an `App` of its own. The HTTP contract has
+  not moved: every route, status code and event-stream shape is identical, which
+  `tests/golden/`'s byte-for-byte snapshots confirm. `GET /health`'s inventory now reads off
+  `Deck.agents`/`.workflows`/`.skills` directly rather than a cached dict, with the same three
+  keys in the same shape.
 
 ## [2.0.0] - 2026-08-06
 
