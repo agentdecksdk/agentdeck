@@ -68,7 +68,7 @@ jobs:
       - name: Import contracts
         run: .venv/bin/lint-imports
       - name: Test
-        run: .venv/bin/pytest tests/ -q --junit-xml=/tmp/pytest-results.xml
+        run: .venv/bin/pytest tests/ -q -rs --junit-xml=/tmp/pytest-results.xml
       # Guard against a whole subsystem silently dropping out of the gate again (#33): a
       # full run with every guarded extra installed skips **42** — measured on this workflow,
       # not derived: parametrized "only applies to X" contract cases, plus tests that skip for
