@@ -170,13 +170,30 @@ def test_from_project_matches_the_equivalent_code_first_deck(tmp_path, monkeypat
     from_project = Deck.from_project()
     code_first = Deck(agents=[_greeter()], workflows=[_shout_workflow()], skills=Skills(root / "skills"))
 
-    def catalog(deck: Deck) -> tuple[frozenset[str], frozenset[str], frozenset[str]]:
-        return frozenset(deck.agents), frozenset(deck.workflows), frozenset(deck.skills.build())
+    def agent_shape(agent: Agent) -> tuple[str, str, tuple[str, ...], tuple[str, ...]]:
+        # Same catalog, not just the same names: instructions plus every tool/handoff name,
+        # so a `from_project()` that discovered the right name with the wrong body still fails.
+        tools = tuple(getattr(t, "name", getattr(t, "__name__", str(t))) for t in agent.tools)
+        handoffs = tuple(h if isinstance(h, str) else h.name for h in agent.handoffs)
+        return agent.name, agent.instructions, tools, handoffs
+
+    def catalog(
+        deck: Deck,
+    ) -> tuple[frozenset[tuple[str, str, tuple[str, ...], tuple[str, ...]]], frozenset[str], frozenset[str]]:
+        return (
+            frozenset(agent_shape(a) for a in deck.agents.values()),
+            frozenset(deck.workflows),
+            frozenset(deck.skills.build()),
+        )
 
     assert (
         catalog(from_project)
         == catalog(code_first)
-        == (frozenset({"Greeter"}), frozenset({"Shout"}), frozenset({"booking"}))
+        == (
+            frozenset({("Greeter", "Greet the user.", (), ())}),
+            frozenset({"Shout"}),
+            frozenset({"booking"}),
+        )
     )
 
 
@@ -209,10 +226,24 @@ def test_mcp_coercion_accepts_a_bare_path_and_a_capability_object(tmp_path):
 # --- root-name collisions and unknown-name references all fail build() ---------------------
 
 
+def test_two_agents_sharing_a_name_raise_at_construction():
+    """`{a.name: a for a in agents}` would collapse a duplicate to whichever came last with
+    no error — the same silent shadow the discovery path already refuses."""
+    with pytest.raises(ConfigError, match="Dup"):
+        Deck(agents=[_greeter(name="Dup"), _greeter(name="Dup")])
+
+
+def test_two_workflows_sharing_a_name_raise_at_construction():
+    with pytest.raises(ConfigError, match="Dup"):
+        Deck(workflows=[_shout_workflow(name="Dup"), _shout_workflow(name="Dup")])
+
+
 def test_agent_and_workflow_sharing_a_name_fails_build_naming_both():
     deck = Deck(agents=[_greeter(name="Twin")], workflows=[_shout_workflow(name="Twin")])
 
-    with pytest.raises(ConfigError, match="Twin"):
+    # a bare `match="Twin"` would still pass a regression to a message naming only one kind —
+    # pin that both are named, not just that the shared name appears somewhere in the text.
+    with pytest.raises(ConfigError, match=r"agent.*Twin.*workflow|workflow.*Twin.*agent"):
         deck.build()
 
 
@@ -309,6 +340,24 @@ def test_mutating_the_catalog_after_build_raises():
         deck.agents["Intruder"] = _greeter(name="Intruder")
 
 
+# --- CLOSED is terminal: reopening a closed Deck raises rather than leaking resources -------
+
+
+@pytest.mark.asyncio
+async def test_reopening_a_closed_deck_raises(no_project, scripted):
+    """Silently reopening would build a second runtime/store/engine set and start MCP again,
+    while the eventual `aclose()` sees the stale `_closed` guard and skips draining or closing
+    any of it — a leak dressed up as reuse."""
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        await deck.run("Greeter", "hi")
+
+    with pytest.raises(ConfigError, match="already closed"):
+        async with deck:
+            pass
+
+
 # --- run/stream before OPEN raise -------------------------------------------------------------
 
 
@@ -380,6 +429,30 @@ async def test_deck_does_not_close_a_store_passed_in(no_project, scripted):
         await deck.run("Greeter", "hi")
 
     assert store.aclose_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_deck_closes_a_store_it_built_itself(no_project, monkeypatch, scripted):
+    """The other half of the ownership rule: dropping `_owns_store`'s branch entirely would
+    still pass every other test here, since none of them build a store worth spying on."""
+    from agentdeck.adapters.stores.memory import MemoryEventStore
+
+    class _SpyStore(MemoryEventStore):
+        def __init__(self) -> None:
+            super().__init__()
+            self.aclose_calls = 0
+
+        async def aclose(self) -> None:
+            self.aclose_calls += 1
+
+    store = _SpyStore()
+    monkeypatch.setattr("agentdeck.deck.resolve_event_store", lambda: store)
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        await deck.run("Greeter", "hi")
+
+    assert store.aclose_calls == 1
 
 
 # --- the private `_engines=` seam exists and is exercised -----------------------------------

@@ -214,6 +214,21 @@ async def _aclose_store(store: EventStorePort) -> None:
         store.close()  # ty: ignore[call-non-callable] — same reason
 
 
+def _named_mapping(items: Sequence[Agent] | Sequence[Workflow], arg_name: str) -> Mapping[str, Any]:
+    # Mirrors PluginRegistry's own collision rule: `{a.name: a for a in agents}` would collapse
+    # a duplicate to whichever came last with no error, the same silent shadow this rule refuses
+    # on the discovery path.
+    found: dict[str, Any] = {}
+    for item in items:
+        if item.name in found:
+            raise ConfigError(
+                f"two entries in {arg_name}= both use the name {item.name!r}; one name is one "
+                f"invocable — rename one of them."
+            )
+        found[item.name] = item
+    return MappingProxyType(found)
+
+
 def _coerce_skills(value: str | Path | Sequence[str | Path] | Skills | None) -> Skills | None:
     if value is None or isinstance(value, Skills):
         return value
@@ -262,8 +277,8 @@ class Deck:
         _store: EventStorePort | None = None,
         _session_factory: SessionFactory | None = None,
     ) -> None:
-        self._agents: Mapping[str, Agent] = MappingProxyType({a.name: a for a in agents})
-        self._workflows: Mapping[str, Workflow] = MappingProxyType({w.name: w for w in workflows})
+        self._agents: Mapping[str, Agent] = _named_mapping(agents, "agents")
+        self._workflows: Mapping[str, Workflow] = _named_mapping(workflows, "workflows")
         self._skills_obj = _coerce_skills(skills)
         self._mcp_obj = _coerce_mcp(mcp)
         self._context_type = context
@@ -301,10 +316,11 @@ class Deck:
             .values()
         )
         project_root = Path(path).resolve()
-        # ``.mcp.json`` lives at the project root — a sibling of ``.agentdeck/``, not inside it,
-        # matching where ``config.yaml``/``.env`` already resolve from. Its absence means "no
-        # servers" rather than a configuration error, the same fail-open rule an empty
-        # ``mcp.servers`` map always had.
+        # ``.mcp.json`` lives at the project root — a sibling of ``.agentdeck/``, not inside it.
+        # For the default ``path`` this is also where ``config.yaml``/``.env`` resolve from
+        # (both read off ``Path.cwd()``); an explicit non-default ``path`` only matches that if
+        # the caller also runs from its parent. Its absence means "no servers" rather than a
+        # configuration error, the same fail-open rule an empty ``mcp.servers`` map always had.
         mcp_json = project_root.parent / ".mcp.json"
         return cls(
             agents=agents,
@@ -402,6 +418,11 @@ class Deck:
         engines, the event store, the session factory, and connecting every configured MCP
         server (soft per-server failure, same as today).
         """
+        if self._state == "CLOSED":
+            # CLOSED is terminal: aclose()'s own idempotency guard would otherwise skip
+            # draining/closing everything a second open builds fresh, on the mistaken belief
+            # there was nothing left to do.
+            raise ConfigError("this Deck is already closed; construct a new one to open again.")
         self.build()
         if self._state == "OPEN":
             return self

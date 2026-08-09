@@ -269,11 +269,18 @@ def build_asgi_app(deck: Deck) -> Any:
 
 def _inventory(deck: Deck) -> dict[str, list[str]]:
     """v1's ``{"agents": [...], "workflows": [...], "skills": [...]}`` — built from ``Deck``'s
-    own properties rather than a separate cache, since they are already read-only mappings."""
+    own properties rather than a separate cache, since they are already read-only mappings.
+
+    ``skills.list()``, not ``.build()``: ``build()`` re-scans disk and overwrites the registry
+    every call, which would make a hot probe endpoint re-read every ``SKILL.md`` on each request
+    and let one edited after startup change what ``load_skill`` returns mid-run — the catalog is
+    supposed to be immutable once ``BUILT``. ``Deck.build()`` already populated the cache
+    ``list()`` reads.
+    """
     return {
         "agents": sorted(deck.agents),
         "workflows": sorted(deck.workflows),
-        "skills": sorted(deck.skills.build()) if deck.skills is not None else [],
+        "skills": sorted(deck.skills.list()) if deck.skills is not None else [],
     }
 
 

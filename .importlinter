@@ -32,6 +32,7 @@ forbidden_modules =
     psycopg
     agentdeck.authoring
     agentdeck.skills
+    agentdeck.mcp
     agentdeck.runtime
     agentdeck.serve
     agentdeck.deck
@@ -55,6 +56,7 @@ forbidden_modules =
     agentdeck.adapters
     agentdeck.authoring
     agentdeck.skills
+    agentdeck.mcp
     agentdeck.serve
     agentdeck.deck
 
@@ -81,6 +83,7 @@ forbidden_modules =
     agentdeck.runtime
     agentdeck.authoring
     agentdeck.skills
+    agentdeck.mcp
     agentdeck.serve
     agentdeck.deck
 
@@ -142,6 +145,7 @@ forbidden_modules =
     agentdeck.runtime
     agentdeck.authoring
     agentdeck.skills
+    agentdeck.mcp
     agentdeck.serve
     agentdeck.deck
 
@@ -157,6 +161,7 @@ forbidden_modules =
     agentdeck.runtime
     agentdeck.authoring
     agentdeck.skills
+    agentdeck.mcp
     agentdeck.serve
     agentdeck.deck
 
@@ -181,6 +186,7 @@ source_modules =
     agentdeck.deck
     agentdeck.authoring
     agentdeck.skills
+    agentdeck.mcp
 forbidden_modules =
     mcp
 
@@ -233,6 +239,7 @@ forbidden_modules =
     agentdeck.adapters.tools
     agentdeck.authoring
     agentdeck.skills
+    agentdeck.mcp
     agentdeck.surfaces
     agentdeck.serve
     agentdeck.deck
@@ -257,6 +264,7 @@ forbidden_modules =
     agentdeck.adapters.tools
     agentdeck.authoring
     agentdeck.skills
+    agentdeck.mcp
     agentdeck.surfaces
     agentdeck.serve
     agentdeck.deck

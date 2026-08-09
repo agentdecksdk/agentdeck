@@ -1,4 +1,4 @@
-"""Generic plugin registry: discover ``T`` subclasses in a package's bundles."""
+"""Generic plugin registry: discover ``T`` instances in a package's bundles."""
 
 from __future__ import annotations
 
