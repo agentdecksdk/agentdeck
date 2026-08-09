@@ -12,7 +12,7 @@ and answers from.
 ```python file=.agentdeck/agents/scheduler/agent.py
 from agents import function_tool
 
-from agentdeck.agents import BaseAgent
+from agentdeck import Agent
 
 
 @function_tool
@@ -21,9 +21,11 @@ def lookup_slot(day: str) -> str:
     return f"{day} 09:00"
 
 
-class Scheduler(BaseAgent):
-    instructions = "Help the user book a slot. Use lookup_slot to check availability."
-    tools = [lookup_slot]
+scheduler = Agent(
+    name="Scheduler",
+    instructions="Help the user book a slot. Use lookup_slot to check availability.",
+    tools=[lookup_slot],
+)
 ```
 
 `tools` takes already-built SDK tools — `@function_tool` is how you build one from a plain
@@ -32,12 +34,12 @@ function. Run the agent the same way as any other:
 ```python run
 import asyncio
 
-from agentdeck import App
+from agentdeck import Deck
 
 
 async def main() -> None:
-    async with App.open() as app:
-        result = await app.run_agent("Scheduler", "is Tuesday free?")
+    async with Deck.from_project() as deck:
+        result = await deck.run("Scheduler", "is Tuesday free?")
         print(result.output)
 
 
@@ -53,12 +55,12 @@ runner drives the call-then-continue loop once the model decides to use it. Noth
 `agentdeck` sits between the two — `tools` just hands the SDK's `Agent` constructor a list it
 already knows how to run.
 
-## Tools vs. capabilities
+## Tools vs. skills
 
-`tools` is for exactly this: a function that runs in the host process and returns a value.
-Sandbox powers — running shell commands, editing files, using a [skill](/concepts/skills) —
-are a different thing declared through [`capabilities`](/concepts/capabilities) instead,
-because those need a sandbox session to run in, not just an SDK wrapper.
+`tools` is for exactly this: a function that runs in the host process and returns a value,
+callable mid-conversation. A [skill](/concepts/skills) is a different thing — prose the agent
+reads to decide *when* to reach for a tool, not a tool itself. A skill's `SKILL.md` commonly
+describes how to use one or more of an agent's own `tools=[...]`.
 
-Next: the full attribute table, including `handoffs` and `output_type`, is on
+Next: the full argument table, including `handoffs` and `output_type`, is on
 [Agents](/concepts/agents).

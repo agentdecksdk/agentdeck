@@ -1,6 +1,6 @@
 export default {
   index: 'Overview',
-  app: 'App',
+  deck: 'Deck',
   definitions: 'Definitions',
   capabilities: 'Capabilities',
   settings: 'Settings',

@@ -10,14 +10,14 @@ running it or from another one entirely — see [Pause, Resume, Cancel](/operati
 for how to reach one from outside the process. In your own code it looks like this:
 
 ```python no-test reason="needs a live run_id from a run this process is streaming"
-await app.pause_run(run_id, reason="operator stepped away")
-events = await app.resume_run(run_id)
-await app.cancel_run(run_id, reason="user closed the tab")
+await deck.pause(run_id, reason="operator stepped away")
+events = await deck.resume(run_id)
+await deck.cancel(run_id, reason="user closed the tab")
 ```
 
 ## Asking is not stopping
 
-`pause_run` and `cancel_run` **record a request** and return. They do not wait for the run to
+`pause` and `cancel` **record a request** and return. They do not wait for the run to
 stop, because at the moment you ask, nobody can know when it will: the run may be halfway
 through a tool call that has to finish first.
 
@@ -70,7 +70,7 @@ tool call it is 30 seconds, and no setting can change that without killing the c
 
 Both of those are about a run that is *live*. Cancelling a run that is already **paused** is the
 one case with no bound on it, because a paused run has no loop reaching safe points: the request
-is recorded, and the next `resume_run` honours it — ending the run `cancelled` instead of playing
+is recorded, and the next `resume` honours it — ending the run `cancelled` instead of playing
 it on. So the cancel is never lost and can never be overridden by a resume, but it becomes an
 effect only when somebody next touches the run. A paused run that nobody ever picks up stays
 paused, holding its session until `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` takes it over.
@@ -87,14 +87,14 @@ model is asked again, and a tool it had already called may be called a second ti
 idempotent, put side effects behind `ctx.idempotency_key`, and treat a resumed turn the way you
 treat a resumed LangGraph interrupt node.
 
-`resume_run` returns the events the continuation produced — an empty list means there was
+`resume` returns the events the continuation produced — an empty list means there was
 nothing to resume (the run finished, was cancelled, is still running, or another worker got
 there first). Exactly one caller can resume a paused run: the transition is a conditional append
 to the log, so two racing resumes cannot both play the turn.
 
 **Cancel is terminal.** A cancelled run cannot be resumed, and a cancel cannot un-do what a tool
 already did — an email that was sent stays sent. That holds for a run cancelled *while paused*
-too: `resume_run` finds the pending cancel and ends the run rather than continuing it, so asking
+too: `resume` finds the pending cancel and ends the run rather than continuing it, so asking
 to resume does not quietly override whoever cancelled.
 
 `paused` is also not `waiting_human`: a run stopped on an `interrupt()` is waiting for an answer

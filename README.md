@@ -20,51 +20,41 @@ Everything you define lives in a `.agentdeck/` directory next to where you run:
 
 ```text
 .agentdeck/
-├── agents/greeter/agent.py          # a BaseAgent subclass
-├── workflows/new_booking/workflow.py  # a BaseWorkflow subclass
-└── skills/parse-request/            # skill bundles: SKILL.md + scripts/run.py
+├── agents/greeter/agent.py          # an Agent(...)
+├── workflows/new_booking/workflow.py  # a Workflow(...)
+└── skills/parse-request/            # skill bundles: SKILL.md
 ```
 
 No `__init__.py`, no registration — dirs are discovered by convention
 (`agents/<bundle>/agent.py`, `workflows/<bundle>/workflow.py`, `skills/*/SKILL.md`).
 
 ```python
-from agentdeck import App
+from agentdeck import Deck
 
-app = App()  # mounts ./.agentdeck
-app.load()  # imports, builds, and compiles everything; fails fast
+async with Deck.from_project() as deck:  # discovers and compiles ./.agentdeck; fails fast
+    result = await deck.run("Greeter", "hello")                          # one-shot
+    state = await deck.run("NewBooking", {"request": "..."})            # one workflow run
+    turn = await deck.run("Greeter", "hi", session_id="wa-123")         # multi-turn
 
-result = await app.run_agent("Greeter", "hello")  # one-shot
-state = await app.run_workflow("NewBooking", {"request": "..."})  # one ainvoke
-turn = await app.chat("Greeter", session_id="wa-123", message="hi")  # multi-turn
-
-async for chunk in app.chat_stream("Greeter", "wa-123", "hi"):  # streamed turn
-    ...  # text deltas, then a final StreamDone(final_output=..., usage=...)
+    async for event in deck.stream("Greeter", "hi", session_id="wa-123"):  # streamed turn
+        ...  # the run's own canonical Events: text.delta per chunk, run.completed last
 ```
 
-A `durable = True` workflow can pause for a human: a node calls
-`interrupt(payload)`, `run_workflow` returns
+A `durable=True` workflow can pause for a human: a node calls
+`interrupt(payload)`, `run` returns
 `{"type": "interrupt", "payload": ..., "thread_id": ...}`, and the decision comes
-back later — possibly in another process — via
-`app.resume_workflow(name, thread_id, value)`. `app.pending_interrupts()` lists
-everything still waiting. A streamed run (`app.run_workflow_stream`) ends on that
-same interrupt event instead of its terminal `done`. The interrupted node re-runs
-from its start on resume, so keep it pure and put side effects in earlier nodes.
+back later — possibly in another process — via `deck.pending()` (the approval
+inbox, listed by `run_id`) followed by `deck.answer(run_id, value)`. The
+interrupted node re-runs from its start on resume, so keep it pure and put side
+effects in earlier nodes.
 
-`chat()` keeps history per `session_id` — Redis when
+`session_id=` keeps history across calls — Redis when
 `AGENTDECK_SESSION_REDIS_URL` is set, in-process SQLite otherwise.
 
-For anything long-running — and for every deployment using Redis sessions or
-MCP servers — use `App.open()` instead of a bare `App()`. It runs `load()`,
-starts the MCP lifecycle, and guarantees `aclose()` on exit (even on error), so
-the Redis client and MCP servers are never leaked:
-
-```python
-async with App.open() as app:
-    turn = await app.chat("Greeter", session_id="wa-123", message="hi")
-```
-
-`agentdeck-serve` does exactly this in its FastAPI lifespan.
+`async with Deck.from_project() as deck:` starts the MCP lifecycle and
+guarantees `aclose()` on exit (even on error), so the Redis client and MCP
+servers are never leaked. `agentdeck-serve` does exactly this in its FastAPI
+lifespan.
 
 ## Serve
 
@@ -84,18 +74,19 @@ docker compose up
 | `GET /workflows/{name}/pending` | threads paused on a human decision — the approval inbox |
 | `POST /workflows/{name}/{thread_id}/resume` | `{"value": ...}` → final state, or the next interrupt |
 
-The chat endpoints are served by the v2 `Runtime` that `App` composes (`App.runtime`), so
-every turn is also recorded as a canonical event log; the frames above are unchanged. The
-workflow endpoints still run on the v1 workflow runner.
+Every endpoint above is served by the `Runtime` the `Deck` composes, so every
+turn — chat or workflow — is recorded as one canonical event log; the frames
+above are unchanged.
 
 ## Configuration
 
 Layered pydantic-settings: process env / `.env` / YAML
 (`agentdeck/runtime/config.default.yaml`). Key vars: `OPENAI_API_KEY`,
 `OPENAI_BASE_URL`, `OPENAI_MODEL`, `AGENTDECK_RUNNER_*`,
-`AGENTDECK_SESSION_*`, `AGENTDECK_SHELL_*`, `AGENTDECK_MCP_SERVERS`,
+`AGENTDECK_SESSION_*`,
 `AGENTDECK_EVENTS_*` (where the event log goes: `memory` by default, or
-`sqlite` plus a file path to keep it across restarts).
+`sqlite` plus a file path to keep it across restarts). Named MCP servers go in
+a `.mcp.json` file at the project root (a sibling of `.agentdeck/`), not an env var.
 See `agentdeck/runtime/settings.py`.
 
 ## Development

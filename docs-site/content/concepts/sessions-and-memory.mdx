@@ -6,33 +6,31 @@ description: What a session is, where its history lives, and why it is not the e
 # Sessions and Memory
 
 A session is the history one conversation's model calls are built from. Naming one —
-`chat` and `chat_stream` take a `session_id`, `run_agent` does not — is what decides whether
-a turn remembers the ones before it:
+`run` and `stream` take an optional `session_id` — is what decides whether a turn remembers the
+ones before it:
 
 ```python file=.agentdeck/agents/greeter/agent.py
-from agentdeck.agents import BaseAgent
+from agentdeck import Agent
 
-
-class Greeter(BaseAgent):
-    instructions = "You are a friendly scheduling assistant. Keep replies to one short sentence."
+greeter = Agent(name="Greeter", instructions="You are a friendly scheduling assistant. Keep replies to one short sentence.")
 ```
 
 ```python run
 import asyncio
 
-from agentdeck import App
+from agentdeck import Deck
 
 
 async def main() -> None:
-    async with App.open() as app:
-        await app.chat("Greeter", "wa-1", "my name is Sagi")
+    async with Deck.from_project() as deck:
+        await deck.run("Greeter", "my name is Sagi", session_id="wa-1")
         # A peek at the session's own history, to show it grew — not how a consumer
         # normally reads a conversation back; see "Reading a session" below.
-        first_turn = await app.session_for("wa-1").get_items()
+        first_turn = await deck.session_for("wa-1").get_items()
         print("items after turn 1:", len(first_turn))
 
-        await app.chat("Greeter", "wa-1", "what is my name?")
-        second_turn = await app.session_for("wa-1").get_items()
+        await deck.run("Greeter", "what is my name?", session_id="wa-1")
+        second_turn = await deck.session_for("wa-1").get_items()
         print("items after turn 2:", len(second_turn))
         first_item = second_turn[0]
         print("turn 1 is still there:", first_item["role"], first_item["content"])
@@ -48,16 +46,16 @@ turn 1 is still there: user my name is Sagi
 ```
 
 By the second call, the session already holds the first turn's user message and reply —
-that is what "my name is Sagi" being present at `second_turn[0]` proves. `run_agent`, which
-takes no `session_id`, gets none of this: each call is a one-shot with no session and no
-memory of the last one.
+that is what "my name is Sagi" being present at `second_turn[0]` proves. A call with no
+`session_id` gets none of this: each one is a one-shot with no session and no memory of the
+last one.
 
 ## Where a session lives
 
-`app.session_for(session_id)` is a thin lookup, not a store of its own: `AGENTDECK_SESSION_REDIS_URL`
+`deck.session_for(session_id)` is a thin lookup, not a store of its own: `AGENTDECK_SESSION_REDIS_URL`
 set means every session is a `RedisSession` sharing one Redis client, reachable from any
 worker and surviving a restart; unset, each `session_id` gets one in-process SQLite session,
-held in the `App` instance that created it — gone the moment that process exits, invisible to
+held in the `Deck` instance that created it — gone the moment that process exits, invisible to
 any other worker. `AGENTDECK_SESSION_REDIS_KEY_PREFIX` and `AGENTDECK_SESSION_REDIS_TTL` are the
 Redis-only knobs. FR-6's promise — a conversation surviving a process restart — needs Redis
 configured; the fallback is a dev convenience, not a second durable option. Full table:
@@ -86,7 +84,7 @@ before the first finishes does not queue or interleave it — it is refused outr
 from agentdeck import SessionBusyError
 
 try:
-    await app.chat("Greeter", "wa-1", "another message, same session")
+    await deck.run("Greeter", "another message, same session", session_id="wa-1")
 except SessionBusyError as busy:
     ...  # "session 'wa-1' already has run '<run_id>' in flight, so run '<run_id>' cannot start on it"
 ```

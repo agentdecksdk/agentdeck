@@ -9,9 +9,11 @@ Some steps should not happen until a person says yes. A workflow node can pause 
 that — durably, so the process asking does not have to be the process answering.
 
 ```python file=.agentdeck/workflows/quote_approval/workflow.py
+from langgraph.graph import StateGraph
+from langgraph.types import interrupt
 from pydantic import BaseModel
 
-from agentdeck.workflows import BaseWorkflow, StateGraph, interrupt
+from agentdeck import Workflow
 
 
 class QuoteState(BaseModel):
@@ -20,27 +22,25 @@ class QuoteState(BaseModel):
     approved: bool = False
 
 
-class QuoteApproval(BaseWorkflow):
-    state = QuoteState
-    durable = True
+def _quote(state: QuoteState) -> dict:
+    return {"quote": f"EUR 420 for {state.request}"}
 
-    @classmethod
-    def build_graph(cls) -> StateGraph:
-        graph = StateGraph(cls.state)
-        graph.add_node("quote", cls.quote)
-        graph.add_node("confirm", cls.confirm)
-        graph.set_entry_point("quote")
-        graph.add_edge("quote", "confirm")
-        return graph
 
-    @staticmethod
-    def quote(state: QuoteState) -> dict:
-        return {"quote": f"EUR 420 for {state.request}"}
+def _confirm(state: QuoteState) -> dict:
+    decision = interrupt({"question": f"Send quote: {state.quote}?"})
+    return {"approved": decision == "yes"}
 
-    @staticmethod
-    def confirm(state: QuoteState) -> dict:
-        decision = interrupt({"question": f"Send quote: {state.quote}?"})
-        return {"approved": decision == "yes"}
+
+def _build_graph() -> StateGraph:
+    graph = StateGraph(QuoteState)
+    graph.add_node("quote", _quote)
+    graph.add_node("confirm", _confirm)
+    graph.set_entry_point("quote")
+    graph.add_edge("quote", "confirm")
+    return graph
+
+
+quote_approval = Workflow(name="QuoteApproval", state=QuoteState, durable=True, graph=_build_graph)
 ```
 
 `quote` runs once and does its work before anything pauses. `confirm` is the node that
@@ -48,28 +48,34 @@ interrupts — keep it to the question itself, because [it re-runs from its star
 resume](/concepts/workflows#durability-and-human-approval).
 
 Starting the run returns the question instead of a final state. A second process — the one
-with the person in front of it — finds it in the approval inbox and answers by thread id:
+with the person in front of it — finds it in the approval inbox and answers by `run_id`:
 
 ```python run
 import asyncio
 
-from agentdeck import App
+from agentdeck import Deck
 
 
 async def main() -> None:
-    async with App.open() as app:
-        paused = await app.run_workflow("QuoteApproval", {"request": "Berlin -> Munich"}, thread_id="quote-42")
+    async with Deck.from_project() as deck:
+        paused = await deck.run("QuoteApproval", {"request": "Berlin -> Munich"}, session_id="quote-42")
         print(paused)  # {"type": "interrupt", "payload": {"question": ...}, "thread_id": "quote-42"}
 
-        inbox = await app.pending_interrupts("QuoteApproval")
-        print(inbox)  # what a second process, or a later call in this one, would see
+        inbox = await deck.pending()
+        print([(p.run_id, p.thread_id, p.payload) for p in inbox])  # what a second process, or a later call in this one, would see
 
-        final = await app.resume_workflow("QuoteApproval", "quote-42", "yes")
+        [mine] = [p for p in inbox if p.thread_id == "quote-42"]
+        final = await deck.answer(mine.run_id, "yes")
         print(final)  # {"request": ..., "quote": ..., "approved": True}
 
 
 asyncio.run(main())
 ```
+
+`pending()` lists every paused run across the whole catalog — a real caller narrows it by
+`p.invocable == "QuoteApproval"` when more than one durable workflow is in flight. `answer()`
+needs only the `run_id` `pending()` named; it looks up which workflow and which thread that run
+belongs to itself.
 
 ## The same thing over HTTP
 
