@@ -2,7 +2,7 @@
 
 A single ``config.yaml`` (resolved via ``APP_CONFIG_PATH`` → cwd →
 packaged default) hosts every settings group keyed by section: ``openai:``,
-``runner:``, ``session:``, ``shell:``, ``skill:``, ``mcp:``. Each :class:`BaseSettings` subclass reads only its section; shell
+``runner:``, ``session:``, ``shell:``, ``skill:``. Each :class:`BaseSettings` subclass reads only its section; shell
 env vars (prefix-bound, e.g. ``OPENAI_BASE_URL``) override the file. The
 project's ``.env`` (found from ``Path.cwd()``, never from this module's own
 location) is loaded the first time :func:`get_settings` builds a
@@ -337,50 +337,6 @@ class LangfuseSettings(LayeredSettings):
         return self.base_url or self.host
 
 
-class McpServerSettings(BaseModel):
-    """One MCP server entry: transport + how to reach it.
-
-    Mirrors a single value in Claude Code's ``mcpServers`` block. Extra keys
-    are tolerated so a Claude-Code-shaped spec drops in unchanged. Only the
-    HTTP transport is supported today (see ``agentdeck.adapters.tools.mcp``).
-    """
-
-    model_config = ConfigDict(extra="allow")
-
-    type: str = "http"
-    url: str = ""
-    headers: dict[str, str] = Field(default_factory=dict)
-    timeout: float | None = None
-
-
-class McpSettings(LayeredSettings):
-    """Named MCP servers an agent can depend on (transport / URL / headers).
-
-    Replaces the old root ``.mcp.json``: servers now live in the shared
-    ``config.yaml`` under ``mcp:`` (packaged default in ``config.default.yaml``)
-    and override via ``AGENTDECK_MCP_SERVERS`` — a JSON object decoded like every
-    other complex env field (cf. ``CHATKIT_CORS_ORIGINS``). pydantic-settings
-    deep-merges the map across layers, so env need only restate what changes —
-    e.g. ``{"agentdeck":{"url":"http://knowledge-mcp:8765/mcp"}}`` overrides just
-    that server's URL and keeps the rest of its YAML spec. Agents reference
-    servers by name via ``Agent.mcp``; this class owns *how* to
-    reach each one.
-    """
-
-    model_config = settings_config("AGENTDECK_MCP_")
-
-    servers: dict[str, McpServerSettings] = Field(
-        default_factory=dict,
-        description="Named MCP servers, keyed by the name `BaseAgent.mcp_server_names` references. Set as a "
-        'JSON object (e.g. `{"agentdeck":{"url":"http://host:8765/mcp"}}`) — deep-merged per server over '
-        "the YAML `mcp:` default.",
-    )
-
-    def as_config(self) -> dict[str, dict[str, Any]]:
-        """``{name: spec}`` in the shape :class:`agentdeck.adapters.tools.mcp.MCPLifecycle` consumes."""
-        return {name: spec.model_dump(exclude_none=True) for name, spec in self.servers.items()}
-
-
 class TavilySettings(LayeredSettings):
     """Tavily web-search API. One knob: ``TAVILY_API_KEY`` env var (or YAML ``tavily: api_key:``)."""
 
@@ -571,7 +527,6 @@ class Settings(BaseModel):
     session: SessionSettings = Field(default_factory=lambda: SessionSettings.model_validate({}))
     skills: SkillsSettings = Field(default_factory=lambda: SkillsSettings.model_validate({}))
     langfuse: LangfuseSettings = Field(default_factory=lambda: LangfuseSettings.model_validate({}))
-    mcp: McpSettings = Field(default_factory=lambda: McpSettings.model_validate({}))
     tavily: TavilySettings = Field(default_factory=lambda: TavilySettings.model_validate({}))
 
     def sandbox_env(self, extra: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -597,8 +552,6 @@ __all__ = [
     "ControlSettings",
     "EventsSettings",
     "LangfuseSettings",
-    "McpServerSettings",
-    "McpSettings",
     "OpenAISettings",
     "RunnerSettings",
     "RuntimeSettings",

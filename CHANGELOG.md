@@ -229,6 +229,16 @@ of vanishing the moment the call returns.
   (name + description per declared skill) plus a `load_skill(name)` tool that reads the full
   `SKILL.md` body on demand, scoped to that agent's own `skills=[...]`; `SkillError` (the base
   exception a workflow node may still raise itself) is unaffected.
+- **Breaking (v3.0.0 in progress, #164): named MCP servers move to a `.mcp.json` file,
+  reversing #78.** `agentdeck.mcp.MCP` parses one file's `mcpServers` object (the shape Claude
+  Code already uses) and validates every entry; `Agent.mcp` will resolve names against it once
+  `Deck` lands. The `mcp:` section of `config.yaml`/`config.default.yaml` and the
+  `AGENTDECK_MCP_SERVERS` env var are removed — `McpSettings` is gone, and `McpServerSettings`
+  (the per-server shape, unchanged) moves from `agentdeck.runtime.settings` to `agentdeck.mcp`.
+  `App` now reads `.mcp.json` from the project root (a sibling of `.agentdeck/`, not inside it)
+  when present, and boots with no servers when it is absent — the same fail-open behavior an
+  empty `mcp.servers` always had. `MCPLifecycle.configure`/`.startup` no longer fall back to
+  process settings; a caller now always hands them the config to use.
 
 ## [2.0.0] - 2026-08-06
 

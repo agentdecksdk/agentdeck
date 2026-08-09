@@ -41,8 +41,3 @@ langfuse:
   secret_key: ""
   host: http://localhost:3000
   environment: local
-
-mcp:
-  # Named MCP servers agents reach via ``BaseAgent.mcp_server_names``.
-  # Override per-env via the YAML ``mcp:`` section or ``AGENTDECK_MCP_SERVERS`` (JSON).
-  servers: {}

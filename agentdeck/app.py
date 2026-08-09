@@ -51,6 +51,7 @@ from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
 from agentdeck.core.events import Custom, NodeUpdated, RunCompleted, RunInterrupted
 from agentdeck.errors import ConfigError, NotFoundError
+from agentdeck.mcp import MCP
 from agentdeck.runtime.registry import PROJECT_DIR, PluginRegistry, _package_dir, mount_project_dir
 from agentdeck.runtime.settings import Settings, get_settings
 from agentdeck.skills import Skills
@@ -184,6 +185,7 @@ class App:
     agents: PluginRegistry[AuthoringAgent] = field(init=False)
     workflows: PluginRegistry[AuthoringWorkflow] = field(init=False)
     skills: Skills = field(init=False)
+    mcp: MCP | None = field(init=False)
     # DI seam for tests: pass a prebuilt factory (or one wrapping fakeredis) to skip
     # `from_settings`'s real Redis client entirely.
     session_factory: SessionFactory | None = None
@@ -202,6 +204,11 @@ class App:
             package, base_class=AuthoringWorkflow, module_name="workflow", type_dir="workflows", label="workflow"
         )
         self.skills = Skills((_package_dir(package) or Path(PROJECT_DIR)) / "skills")
+        # ``.mcp.json`` lives at the project root (cwd), a sibling of ``.agentdeck/`` and
+        # ``config.yaml`` — not inside it. A project with no MCP servers has none of these
+        # files, so its absence means "no servers" rather than a configuration error.
+        mcp_json = Path.cwd() / ".mcp.json"
+        self.mcp = MCP(mcp_json) if mcp_json.is_file() else None
         if self.session_factory is None:
             self.session_factory = SessionFactory.from_settings(self.settings.session)
         # One conversation memory for this process, whether the turn arrived here or through
@@ -253,7 +260,7 @@ class App:
         }
         # One assembly seam, one caller: everything this App hands a surface comes from
         # `build_runtime`, so a second front door adds a caller instead of a second wiring.
-        # No sandbox= / workspace=: sandboxing is disabled in v3 (#163), and `InvocableRegistry`
+        # No sandbox= / workspace=: sandboxing is disabled in v3, and `InvocableRegistry`
         # (inside `build_runtime`) is what actually compiles every agent/workflow here, catching
         # a broken bundle the same way this method always has.
         self._runtime = build_runtime(
@@ -470,7 +477,7 @@ class App:
         app = cls(session_factory=session_factory)
         try:
             app.load()
-            await MCPLifecycle.startup()
+            await MCPLifecycle.startup(app.mcp.config() if app.mcp is not None else None)
             app._started_mcp = True
             yield app
         finally:
