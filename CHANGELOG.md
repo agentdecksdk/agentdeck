@@ -190,14 +190,10 @@ of vanishing the moment the call returns.
 
 ### Known limits
 
-- `App.run_workflow_stream` is unchanged: it still drives the compiled graph directly and
-  writes nothing to the event log, so a run started there cannot be found — and so cannot be
-  resumed — by the now-Runtime-backed `resume_workflow`. Start on `run_workflow` (or
-  `resume_workflow`) instead if one thread needs both the log and a live stream.
-- `App.tick()` and `App.due_resumes()` still resume a paused workflow through its LangGraph
-  checkpointer rather than the Runtime (#120), so a timer-paused run started through the new
-  `run_workflow` is resumed outside the log: its own log entry stays `WAITING_HUMAN` until
-  `stale_run_after` reclaims it.
+- `Deck.tick()` and `Deck.due_resumes()` still resume a paused workflow through its LangGraph
+  checkpointer rather than the Runtime (#120), so a timer-paused run started through `run` is
+  resumed outside the log: its own log entry stays `WAITING_HUMAN` until `stale_run_after`
+  reclaims it.
 
 ### Changed
 
@@ -268,6 +264,35 @@ of vanishing the moment the call returns.
   `tests/golden/`'s byte-for-byte snapshots confirm. `GET /health`'s inventory now reads off
   `Deck.agents`/`.workflows`/`.skills` directly rather than a cached dict, with the same three
   keys in the same shape.
+- **`Deck.answer(run_id, value)`** (#164): answers the interrupt the run named by `run_id` is
+  paused on, in place of `resume_workflow(name, thread_id, value)`'s five-argument shape.
+  Pairs with `pending()` — list the inbox, then answer one run by the `run_id` it named there;
+  the lookup a caller used to do by hand (which invocable, which thread, which session) now
+  travels with the pending entry.
+- `agentdeck.__init__` now also exports `Agent` and `Workflow` alongside `Deck` (#164), so
+  `from agentdeck import Agent, Deck, Workflow` covers the whole composition surface without
+  reaching into `agentdeck.authoring`.
+
+### Removed
+
+- **Breaking (v3.0.0, #164): `App`, `agentdeck.app`, `agentdeck.agents` and
+  `agentdeck.workflows` are gone, with no re-export shim.** `Deck` (`agentdeck.deck.Deck`, also
+  exported as `agentdeck.Deck`) is the one composition root now: `Deck(...)` in place of
+  `App()`, `Deck.from_project()` in place of discovery-on-construction. `agentdeck serve`'s
+  console script and HTTP contract are unchanged from the previous slice
+  (`Deck.from_project().asgi()`); everything else that called `App` migrates to `Deck` per the
+  surface change below.
+- **Breaking (v3.0.0, #164): `Deck`'s Python API is `run`/`stream`/`pause`/`cancel`/`status`/
+  `resume`/`pending`/`answer` only.** `run_agent`, `chat`, `chat_stream`, `run_workflow`,
+  `run_workflow_stream` and `resume_workflow` — v1's method names, carried onto `Deck`
+  unchanged in the previous slice — are removed outright, and `pending_interrupts` is no
+  longer public (folded into `due_resumes`, which stays). None of the six were ever called by
+  `agentdeck.serve` — it always drove the Runtime directly — so the HTTP surface and
+  `tests/golden/`'s byte-for-byte wire are unaffected; only the Python API changes. `run`
+  covers `run_agent`/`chat`/`run_workflow` uniformly (pass `session_id=` for a conversational
+  or threaded turn), and `stream` covers `chat_stream` the same way — including, now, what
+  `run_workflow_stream` used to do outside the Runtime: a workflow's stream is canonical
+  `Event`s, not the old dict shape, whichever method starts it.
 
 ## [2.0.0] - 2026-08-06
 
