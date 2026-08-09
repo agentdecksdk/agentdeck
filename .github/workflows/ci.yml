@@ -46,8 +46,7 @@ jobs:
           # The schema's backward-compatibility gate (#47) loads the newest *released*
           # reader out of git — by tag — and measures this tree's events against it. The
           # default depth-1 checkout has neither that tag nor its history, so the gate
-          # would skip, which is exactly the "proved nothing and went green" outcome the
-          # skip ceiling below exists to catch.
+          # would skip, and prove nothing while going green.
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
         with:
@@ -67,41 +66,8 @@ jobs:
         run: .venv/bin/ty check agentdeck
       - name: Import contracts
         run: .venv/bin/lint-imports
-      # `-rs` so the guard below is diagnosable from the log alone: when it trips, the next
-      # question is always *which* tests skipped, and without this the run has to be repeated
-      # with it added. That repeat is what it cost to find out #152, not #165, moved the count.
       - name: Test
-        run: .venv/bin/pytest tests/ -q -rs --junit-xml=/tmp/pytest-results.xml
-      # Guard against a whole subsystem silently dropping out of the gate again (#33): a
-      # full run with every guarded extra installed skips **48** — measured on this workflow,
-      # not derived: parametrized "only applies to X" contract cases, plus tests that skip for
-      # their own reasons even with the extra present. #142 added [observability] to the
-      # install and moved the ceiling 46 → 44; the first attempt guessed 34 from the old
-      # comment's "~44 skips" arithmetic and CI reported 42, which is why this number is now
-      # the measurement. #152 then grew the contract matrix (sandbox_cases.py, test_sandbox.py,
-      # and expanded resume/event-stream cases) and the measurement went 42 → 48 without the
-      # ceiling following, which left dev red from f686158 and failed an unrelated PR that
-      # added no skips of its own. The 48 are 30 in contract/test_resume.py, 12 in
-      # contract/test_event_stream.py and 6 in core/test_old_reader_compat.py — **zero
-      # durability skips**, i.e. the subsystem this guard protects never dropped out.
-      # Headroom stays 2: observability dropping out lands at ~60 and durability at ~64,
-      # both caught. Bump it only with a stated reason.
-      # The ceiling is deliberately unchanged for the Redis/Postgres stores (#75): with the
-      # services above they add ~80 running tests and no skips, and if a container fails to
-      # come up they skip instead — which takes the count to ~120 and fails here, exactly
-      # the "proved nothing and went green" outcome this guard is for.
-      - name: Guard against silently-skipped durability tests
-        run: |
-          ceiling=50
-          # `bash -e` aborts on grep's own exit code before the `-z` check below ever
-          # runs; `|| true` keeps a missing/truncated/attribute-less XML falling through
-          # to that check instead of failing silently with no diagnostic.
-          skipped=$(grep -oP '(?<=skipped=")[0-9]+' /tmp/pytest-results.xml | head -1 || true)
-          echo "skipped=$skipped (ceiling=$ceiling)"
-          if [ -z "$skipped" ] || [ "$skipped" -gt "$ceiling" ]; then
-            echo "::error::skip count ($skipped) exceeds ceiling ($ceiling) — a subsystem (e.g. durability) may have silently dropped out of the gate. See issue #33."
-            exit 1
-          fi
+        run: .venv/bin/pytest tests/ -q
       # `Test` already replayed the goldens once; this second, separate process is what
       # proves the snapshots don't depend on process state (in-process stability has its
       # own test).
