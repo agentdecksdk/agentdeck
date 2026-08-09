@@ -214,6 +214,21 @@ of vanishing the moment the call returns.
   invokes a skill through its executor, not a graph node. This is the first slice of the
   `Deck` composition API (#164); `App` still serves `.agentdeck/` projects unchanged for now
   and is removed once `Deck` replaces it later in the same effort.
+- **Breaking (v3.0.0 in progress, #164): a skill is disclosed into an agent's own execution, not
+  run as a program.** `agentdeck.skills.Skills` is the new capability object — one or more root
+  directories, scanned direct-child only (`<root>/<name>/SKILL.md`, never recursive) and merged
+  into one name-keyed registry at `build()`; a name declared under two roots fails naming both
+  paths. `build()` also enforces what a permissive scan would not: a `SKILL.md`'s frontmatter
+  `name` must match its directory name, and it must declare a non-empty `description` — pass
+  `validate=False` for the old lenient fallback. `agentdeck.skills.SkillRegistry` (single root,
+  no validation) is removed; `App.skills` is now a `Skills` over `.agentdeck/skills`. The
+  executable skill model — `SkillExecutor`, `SkillOutputSchema`, the `skill_runtime` subprocess
+  package, and the sandboxed `scripts/run.py` contract they wrapped — is removed outright rather
+  than ported: nothing in the package or its tests used it, and sandboxing is disabled and
+  tracked separately (#163). An activated skill now reaches an agent as an instructions-block
+  (name + description per declared skill) plus a `load_skill(name)` tool that reads the full
+  `SKILL.md` body on demand, scoped to that agent's own `skills=[...]`; `SkillError` (the base
+  exception a workflow node may still raise itself) is unaffected.
 
 ## [2.0.0] - 2026-08-06
 

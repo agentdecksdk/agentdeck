@@ -9,7 +9,6 @@ from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, SkillError
 from agentdeck.runtime.registry import PluginRegistry
-from agentdeck.skills.executor import SkillEnvError, SkillExecutionError
 
 AGENT_PY = """
 from agentdeck.authoring import Agent
@@ -82,11 +81,8 @@ def test_not_found_error_message_is_plain():
     assert str(NotFoundError("no such thing")) == "no such thing"
 
 
-def test_skill_errors_are_agentdeck_errors():
-    assert issubclass(SkillEnvError, SkillError)
-    assert issubclass(SkillEnvError, AgentdeckError)
-    assert issubclass(SkillExecutionError, SkillError)
-    assert issubclass(SkillExecutionError, AgentdeckError)
+def test_skill_error_is_an_agentdeck_error():
+    assert issubclass(SkillError, AgentdeckError)
 
 
 def test_unknown_agent_chat_returns_404_with_body(project):
@@ -147,7 +143,7 @@ def test_skill_error_returns_500_without_leaking_stderr(project, monkeypatch):
     secret = "Traceback: AWS_SECRET_ACCESS_KEY=hunter2"
     # The turn fails at the SDK boundary, so the error travels the whole real path — engine,
     # Runtime, surface — the way a failing tool or skill inside a turn does.
-    model = ScriptedModel(raises=SkillExecutionError("greeter", 1, secret))
+    model = ScriptedModel(raises=SkillError(secret))
     patch_provider(monkeypatch, provider_of(model))
 
     with TestClient(create_app()) as client:

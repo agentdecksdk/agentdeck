@@ -53,7 +53,7 @@ from agentdeck.core.events import Custom, NodeUpdated, RunCompleted, RunInterrup
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.runtime.registry import PROJECT_DIR, PluginRegistry, _package_dir, mount_project_dir
 from agentdeck.runtime.settings import Settings, get_settings
-from agentdeck.skills.bundle import SkillRegistry
+from agentdeck.skills import Skills
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
@@ -183,7 +183,7 @@ class App:
 
     agents: PluginRegistry[AuthoringAgent] = field(init=False)
     workflows: PluginRegistry[AuthoringWorkflow] = field(init=False)
-    skills: SkillRegistry = field(init=False)
+    skills: Skills = field(init=False)
     # DI seam for tests: pass a prebuilt factory (or one wrapping fakeredis) to skip
     # `from_settings`'s real Redis client entirely.
     session_factory: SessionFactory | None = None
@@ -201,7 +201,7 @@ class App:
         self.workflows = PluginRegistry(
             package, base_class=AuthoringWorkflow, module_name="workflow", type_dir="workflows", label="workflow"
         )
-        self.skills = SkillRegistry((_package_dir(package) or Path(PROJECT_DIR)) / "skills")
+        self.skills = Skills((_package_dir(package) or Path(PROJECT_DIR)) / "skills")
         if self.session_factory is None:
             self.session_factory = SessionFactory.from_settings(self.settings.session)
         # One conversation memory for this process, whether the turn arrived here or through
@@ -245,9 +245,7 @@ class App:
         """
         agents = self.agents.list(refresh=True)
         workflows = self.workflows.list(refresh=True)
-        skills = self.skills.list(refresh=True)
-        for bundle in skills.values():
-            bundle.output_schema  # noqa: B018 — imports/validates the declared schema
+        skills = self.skills.list(refresh=True)  # validates every SKILL.md's frontmatter
         self.inventory = {
             "agents": sorted(agents),
             "workflows": sorted(workflows),

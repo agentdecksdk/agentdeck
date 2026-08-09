@@ -11,7 +11,7 @@ from agents.sandbox.entries import LocalDir
 from agents.sandbox.workspace_paths import SandboxPathGrant
 
 from agentdeck.errors import ConfigError
-from agentdeck.skills import SkillRegistry
+from agentdeck.skills import Skills as SkillsRegistry
 
 if TYPE_CHECKING:
     from agents.sandbox.manifest import Manifest
@@ -66,9 +66,9 @@ def build_skills(names: list[str], skills_dir: Path | None) -> Skills:
     src = Path(skills_dir).expanduser().resolve()
     if not src.is_dir():
         raise ConfigError(f"skills_dir does not exist or is not a directory: {src}")
-    if missing := sorted(set(names) - set(SkillRegistry(src).list())):
+    if missing := sorted(set(names) - set(SkillsRegistry(src).list())):
         raise ConfigError(
-            f"Unknown skill(s) {missing} under {src}. Available: {sorted(SkillRegistry(src).list())}.",
+            f"Unknown skill(s) {missing} under {src}. Available: {sorted(SkillsRegistry(src).list())}.",
         )
     return _AutoGrantedSkills(
         lazy_from=_AllowListedSkillSource(
