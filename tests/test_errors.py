@@ -97,10 +97,10 @@ def test_unknown_agent_chat_returns_404_with_body(project):
 
 def test_two_same_kind_bundles_sharing_a_class_name_raise_naming_both(duplicate_class_name_project):
     """#82: a copied bundle that forgot to rename its class must not silently shadow the original."""
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
     with pytest.raises(ConfigError) as excinfo:
-        App().load()
+        Deck.from_project()
     message = str(excinfo.value)
     # Quoted, not bare substrings: "agents/greeter" is itself a substring of
     # "agents/greeter-v2", so a bare-substring check passes even if the message only
@@ -116,10 +116,10 @@ def test_one_bundle_aliasing_its_own_class_is_not_a_collision(aliased_class_proj
     ``vars(module)`` yields one entry per *binding*, not per class — ``GreeterAgent = Greeter``
     must not trip the same-name guard against itself.
     """
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
-    inventory = App().load()
-    assert inventory["agents"] == ["Greeter"]
+    deck = Deck.from_project()
+    assert list(deck.agents) == ["Greeter"]
 
 
 def test_bundle_import_failure_is_wrapped_with_its_path(tmp_path, monkeypatch):
@@ -130,11 +130,25 @@ def test_bundle_import_failure_is_wrapped_with_its_path(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
     with pytest.raises(ConfigError, match="agents/broken/agent.py") as excinfo:
-        App().load()
+        Deck.from_project()
     assert isinstance(excinfo.value.__cause__, RuntimeError)
+
+
+def test_old_layout_raises_clear_config_error(tmp_path, monkeypatch):
+    """A pre-0.3 project (bundles straight under the project root) fails loudly, not silently."""
+    root = tmp_path / ".agentdeck"
+    (root / "greeter").mkdir(parents=True)
+    (root / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
+    monkeypatch.chdir(tmp_path)
+    for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
+        del sys.modules[mod]
+    from agentdeck.deck import Deck
+
+    with pytest.raises(ConfigError, match="agents/<bundle>/agent.py"):
+        Deck.from_project()
 
 
 def test_skill_error_returns_500_without_leaking_stderr(project, monkeypatch):

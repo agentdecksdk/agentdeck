@@ -16,6 +16,7 @@ from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring import Agent, Workflow
+from agentdeck.core.context import RunContext
 from agentdeck.deck import Deck, TurnResult
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.mcp import MCP
@@ -409,3 +410,224 @@ def test_asgi_health_reflects_this_decks_catalog(no_project, tmp_path):
         "workflows": ["Shout"],
         "skills": ["booking"],
     }
+
+
+# --- v1's convenience methods, carried across unchanged, behave the same on Deck -----------
+
+
+def _reader_ctx(session_id: str | None) -> RunContext:
+    """A throwaway context of the Deck's own namespace, for reading its log back in a test —
+    exactly what ``serve.py``'s compat routes build for an HTTP request."""
+    return RunContext(run_id="reader", session_id=session_id)
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_with_no_state_defaults_to_an_empty_object(no_project, monkeypatch):
+    """``state=None``'s old meaning ("no updates") has to survive wrapping it in a
+    ``DataBlock``, which cannot carry ``None`` as a graph's state."""
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "memory")
+    deck = Deck(workflows=[_shout_workflow()])
+
+    async with deck:
+        out = await deck.run_workflow("Shout")
+
+    assert out == {"shouted": ""}
+
+
+@pytest.mark.asyncio
+async def test_run_agent_is_recorded_and_returns_a_turn_result(no_project, scripted):
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        result = await deck.run_agent("Greeter", "hello")
+        assert result.output == "hi"
+        assert result.session_id is None
+        events = await deck._runtime.store.read(result.run_id, _reader_ctx(None))
+
+    assert [event.kind for event in events] == [
+        "run.started",
+        "text.delta",
+        "usage.reported",
+        "message.completed",
+        "run.completed",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_chat_is_recorded_and_returns_a_turn_result(no_project, scripted):
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        result = await deck.chat("Greeter", "s1", "hello")
+        assert result.output == "hi"
+        assert result.session_id == "s1"
+        events = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+
+    assert [event.kind for event in events] == [
+        "run.started",
+        "text.delta",
+        "usage.reported",
+        "message.completed",
+        "run.completed",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_chat_still_leaves_run_failed_in_the_log(no_project, monkeypatch):
+    """A run that raises is still written down, even though nobody read the stream to the end
+    by hand."""
+    patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("par",), raises=RuntimeError("boom"))))
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        with pytest.raises(RuntimeError, match="boom"):
+            await deck.chat("Greeter", "s1", "hello")
+        events = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+
+    assert [event.kind for event in events] == ["run.started", "text.delta", "run.failed"]
+
+
+class _Greeting(BaseModel):
+    greeting: str
+
+
+@pytest.mark.asyncio
+async def test_a_structured_chat_output_survives_as_validated_data(no_project, monkeypatch):
+    """``RunCompleted.output`` can only hold text; the compat engine carries a validated
+    ``output_type`` result alongside it, and ``chat``'s ``TurnResult`` must still surface it as
+    data rather than the stringified JSON the terminal event itself carries."""
+    patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=('{"greeting": "hi"}',))))
+    deck = Deck(agents=[Agent(name="Structured", instructions="Answer as JSON.", output_type=_Greeting)])
+
+    async with deck:
+        result = await deck.chat("Structured", "s1", "hello")
+
+    assert result.output == {"greeting": "hi"}
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_yields_canonical_events_and_is_recorded(no_project, monkeypatch):
+    from agentdeck.core.events import RunCompleted, TextDelta
+
+    patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("Hel", "lo"))))
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        events = [event async for event in deck.chat_stream("Greeter", "s1", "hello")]
+
+        assert [event.kind for event in events] == [
+            "run.started",
+            "text.delta",
+            "text.delta",
+            "usage.reported",
+            "message.completed",
+            "run.completed",
+        ]
+        assert "".join(e.payload.text for e in events if isinstance(e.payload, TextDelta)) == "Hello"
+        assert next(e for e in events if isinstance(e.payload, RunCompleted)).payload.output[0].text == "Hello"
+
+        # the stream itself already recorded every one of those events; store.read proves it
+        # rather than the caller having to trust chat_stream's own bookkeeping
+        stored = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+
+    assert [event.kind for event in stored] == [event.kind for event in events]
+
+
+@pytest.mark.asyncio
+async def test_chat_stream_closes_the_runtime_generator_on_abandonment(no_project, monkeypatch):
+    """A caller that stops mid-stream must not leave the run open in the log holding its
+    session forever: closing only ``chat_stream``'s own frame would abandon the Runtime's
+    generator to the GC instead of closing it."""
+    patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("Hel", "lo"))))
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        stream = deck.chat_stream("Greeter", "s1", "hello")
+        first = await anext(stream)
+        second = await anext(stream)
+        await stream.aclose()
+        events = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+
+    assert (first.kind, second.kind) == ("run.started", "text.delta")
+    assert [event.kind for event in events] == ["run.started", "text.delta", "run.cancelled"]
+
+
+@pytest.mark.asyncio
+async def test_chat_and_chat_stream_share_one_session(no_project, monkeypatch):
+    """Same guarantee v1 gave: one ``session_id`` is one conversation whichever Deck method ran
+    the turn."""
+    model = ScriptedModel(deltas=("hi",))
+    patch_provider(monkeypatch, provider_of(model))
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        async for _ in deck.chat_stream("Greeter", "s1", "first"):
+            pass
+        await deck.chat("Greeter", "s1", "second")
+
+    # two model calls, and the second turn's input carries the first turn's history
+    assert model.calls == 2
+    assert "first" in str(model.inputs[-1])
+
+
+def test_sessions_keyed_by_id(no_project):
+    deck = Deck(agents=[_greeter()])
+
+    assert deck.session_for("a") is deck.session_for("a")
+    assert deck.session_for("a") is not deck.session_for("b")
+
+
+@pytest.mark.asyncio
+async def test_pause_and_resume_reach_the_runtime_this_deck_composed(no_project, scripted):
+    """The wiring, end to end and with nothing hand-built: ``Deck.pause`` writes to the very
+    control port this Deck's own Runtime got, the run stops at its own safe point, and
+    ``Deck.resume`` plays it on to completion."""
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        run_id = "r-control"
+        assert await deck.pause(run_id, "operator stepped away") is True
+        paused = [event async for event in deck.stream("Greeter", "hi there", run_id=run_id)]
+        resumed = await deck.resume(run_id)
+
+    assert [event.kind for event in paused][-3:] == ["control.requested", "control.observed", "run.paused"]
+    assert next(e.payload.reason for e in paused if e.kind == "run.paused") == "operator stepped away"
+    assert [event.kind for event in resumed][0] == "run.resumed"
+    assert [event.kind for event in resumed][-1] == "run.completed"
+
+
+@pytest.mark.asyncio
+async def test_injected_session_factory_is_used_and_closed_once(no_project, monkeypatch, scripted):
+    """The DI seam bypasses ``SessionFactory.from_settings``, and ``aclose()`` closes the
+    injection exactly once."""
+    from agentdeck.adapters.engines.openai_agents.sessions import SessionFactory
+
+    def boom(_settings: Any) -> Any:
+        raise AssertionError("from_settings must not be called when a factory is injected")
+
+    monkeypatch.setattr(SessionFactory, "from_settings", staticmethod(boom))
+
+    class _FakeSessionFactory:
+        """Stand-in for the Redis-backed SessionFactory; counts aclose() calls."""
+
+        def __init__(self) -> None:
+            self.closed = 0
+            self.sessions: dict[str, Any] = {}
+
+        def session_for(self, session_id: str) -> Any:
+            from agents import SQLiteSession
+
+            return self.sessions.setdefault(session_id, SQLiteSession(session_id))
+
+        async def aclose(self) -> None:
+            self.closed += 1
+
+    fake = _FakeSessionFactory()
+    deck = Deck(agents=[_greeter()], session_factory=fake)
+
+    async with deck:
+        # namespace-scoped, because the engine's own store mints the key: two namespaces are
+        # free to pick the same session id, and an unprefixed key would hand them one conversation
+        assert deck.session_for("s1") is fake.sessions[":s1"]
+
+    assert fake.closed == 1

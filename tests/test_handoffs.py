@@ -41,9 +41,9 @@ def _mount(tmp_path, monkeypatch, bundles: dict[str, str]):
     # the project alias is process-global; drop stale mounts from other tests
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
-    return App()
+    return Deck.from_project()
 
 
 @pytest.fixture
@@ -70,10 +70,11 @@ def test_mutual_string_handoffs_both_build(mutual_project):
     assert cancel.handoffs[0] is booking
 
 
-def test_app_load_green_with_mutual_handoffs(mutual_project):
-    assert sorted(mutual_project.load()["agents"]) == ["BookingAgent", "CancelAgent"]
+def test_deck_builds_green_with_mutual_handoffs(mutual_project):
+    mutual_project.build()
+    assert sorted(mutual_project.agents) == ["BookingAgent", "CancelAgent"]
 
 
 def test_unknown_handoff_name_raises_not_found_error(ghost_project):
     with pytest.raises(NotFoundError, match="GhostAgent"):
-        ghost_project.load()
+        ghost_project.build()

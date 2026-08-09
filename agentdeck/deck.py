@@ -620,6 +620,20 @@ class Deck:
             raise NotFoundError(f"No paused run of {name!r} on thread {thread_id!r}.")
         return result
 
+    async def run_workflow_stream(
+        self, name: str, state: Any = None, *, thread_id: str | None = None
+    ) -> AsyncIterator[dict[str, Any] | InterruptResult]:
+        """Streaming counterpart to :meth:`run_workflow`: a ``node_update``/``custom``/``done``
+        event per the workflow's own graph stream, or an :class:`InterruptResult` on a pause.
+
+        Unlike :meth:`run_workflow`, this drives the graph directly rather than the Runtime —
+        the same trade v1's ``App.run_workflow_stream`` made — so a run started here writes
+        nothing to the event log and cannot be found by :meth:`resume_workflow`'s own lookup.
+        """
+        workflow = self._workflow(name)
+        async for event in workflow.run_stream(state, thread_id=thread_id):
+            yield event
+
     async def _paused_workflow_run(self, runtime: Runtime, name: str, thread_id: str) -> PendingRun:
         paused = next(
             (run for run in await runtime.pending() if run.invocable == name and run.thread_id == thread_id),

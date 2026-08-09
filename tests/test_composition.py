@@ -1,4 +1,4 @@
-"""The assembly seam: one function builds every Runtime, and App is one of its callers."""
+"""The assembly seam: one function builds every Runtime, and Deck is one of its callers."""
 
 import os
 import subprocess
@@ -19,7 +19,7 @@ from agentdeck.adapters.telemetry.langfuse import client as langfuse_client
 from agentdeck.composition import build_runtime, resolve_event_store
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
-from agentdeck.errors import ConfigError, NotFoundError
+from agentdeck.errors import NotFoundError
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import EventsSettings, reset_settings_cache
@@ -141,17 +141,17 @@ def test_the_project_engine_set_covers_both_bundle_shapes():
     assert [type(engine).__name__ for engine in engines] == ["OpenAIAgentsEngine", "LangGraphEngine"]
 
 
-def test_app_wires_the_same_engines_this_suite_builds_by_hand(project):
-    """What keeps ``tests/project_engines.py`` honest: the facade is the only production
-    caller, so a test set that stopped matching its wiring would be testing nothing."""
-    from agentdeck import App
+async def test_deck_wires_the_same_engines_this_suite_builds_by_hand(project):
+    """What keeps ``tests/project_engines.py`` honest: the composition root is the only
+    production caller, so a test set that stopped matching its wiring would be testing nothing."""
+    from agentdeck.deck import Deck
 
-    app = App()
-    app.load()
+    deck = Deck.from_project()
 
-    assert [type(engine).__name__ for engine in app.runtime._engines.values()] == [
-        type(engine).__name__ for engine in project_engines()
-    ]
+    async with deck:
+        assert [type(engine).__name__ for engine in deck._runtime._engines.values()] == [
+            type(engine).__name__ for engine in project_engines()
+        ]
 
 
 async def test_build_runtime_discovers_the_project_when_given_no_invocables(project):
@@ -278,16 +278,15 @@ async def test_a_configured_langfuse_traces_a_workflow_run_under_its_session(pro
 
 
 async def test_a_chat_turn_reaches_langfuse_under_its_own_session(project, recorded_traces, langfuse_keys, monkeypatch):
-    """The identity ``App.chat`` already gave its trace, kept while its owner changes: the
+    """The identity ``Deck.chat`` already gave its trace, kept while its owner changes: the
     engine no longer opens an observation of its own, so if the sink did not carry the session
     across, every chat turn would go anonymous the moment the wrapping span was removed."""
     patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("hi",))))
     langfuse_keys("pk-lf-test", "sk-lf-test")
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
-    app = App()
-    result = await app.chat("Greeter", "wa-123", "hello")
-    await app.aclose()
+    async with Deck.from_project() as deck:
+        result = await deck.chat("Greeter", "wa-123", "hello")
 
     assert result.output == "hi"
     [trace] = recorded_traces.roots
@@ -330,28 +329,34 @@ def test_wiring_telemetry_does_not_make_the_observability_extra_mandatory():
     assert "no keys, no sdk" in done.stdout
 
 
-def test_app_has_no_runtime_before_load(project):
-    from agentdeck import App
+async def test_deck_composes_one_runtime_over_the_whole_project(project):
+    """``Deck`` is a caller of the seam, not a second assembly: its Runtime covers every
+    discovered bundle, workflows included. (``Deck()`` before ``OPEN`` refusing a run at all
+    is covered directly in ``tests/test_deck.py``, which has no ``App``-shaped ``.runtime``
+    property to reach into.)
+    """
+    from agentdeck.deck import Deck
 
-    with pytest.raises(ConfigError, match="call App.load()"):
-        _ = App().runtime
+    deck = Deck.from_project()
 
-
-async def test_app_composes_one_runtime_over_the_whole_project(project):
-    """``App`` is a caller of the seam, not a second assembly: its Runtime covers every
-    discovered bundle, workflows included."""
-    from agentdeck import App
-
-    app = App()
-    app.load()
-
-    assert isinstance(app.runtime, Runtime)
-    kinds = [
-        event.kind
-        async for event in app.runtime.run(
-            "Shout", coerce_input("hello"), run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
-    ]
+    async with deck:
+        assert isinstance(deck._runtime, Runtime)
+        kinds = [
+            event.kind
+            async for event in deck._runtime.run(
+                "Shout", coerce_input("hello"), run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+            )
+        ]
     assert kinds == ["run.started", "node.updated", "run.completed"]
-    await app.aclose()
-    await app.aclose()  # idempotent, with a Runtime to drain
+    await deck.aclose()  # idempotent, with a Runtime already drained
+
+
+def test_v1s_bundle_harness_is_gone_with_no_facade():
+    """``agents/``, ``workflows/`` and ``app.py`` are deleted outright — a re-export shim
+    would pass this the same way a real deletion does, so it checks the module is gone from
+    the package rather than merely absent from any one import."""
+    import importlib.util
+
+    assert importlib.util.find_spec("agentdeck.app") is None
+    assert importlib.util.find_spec("agentdeck.agents") is None
+    assert importlib.util.find_spec("agentdeck.workflows") is None

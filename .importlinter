@@ -34,7 +34,7 @@ forbidden_modules =
     agentdeck.skills
     agentdeck.runtime
     agentdeck.serve
-    agentdeck.app
+    agentdeck.deck
 
 # The Runtime is the use-case layer: it orchestrates through ports and must never reach for
 # an engine, a store or a surface directly — those arrive from the composition root.
@@ -56,7 +56,7 @@ forbidden_modules =
     agentdeck.authoring
     agentdeck.skills
     agentdeck.serve
-    agentdeck.app
+    agentdeck.deck
 
 # These adapters wrap no external system at all (sqlite3 is stdlib), so they stay pure
 # forever: a store or engine reaching back into the Runtime or a surface would invert the
@@ -82,7 +82,7 @@ forbidden_modules =
     agentdeck.authoring
     agentdeck.skills
     agentdeck.serve
-    agentdeck.app
+    agentdeck.deck
 
 # Ring 3 (#52): surfaces render events for a Runtime handed to them by the composition
 # root — they never mint an engine or a store themselves.
@@ -143,7 +143,7 @@ forbidden_modules =
     agentdeck.authoring
     agentdeck.skills
     agentdeck.serve
-    agentdeck.app
+    agentdeck.deck
 
 [importlinter:contract:postgres-store-takes-only-psycopg]
 name = the Postgres event log imports core and psycopg only
@@ -158,7 +158,7 @@ forbidden_modules =
     agentdeck.authoring
     agentdeck.skills
     agentdeck.serve
-    agentdeck.app
+    agentdeck.deck
 
 # MCP relocation (#78): the raw MCP protocol SDK is the tool adapter's alone, so a second
 # client can't quietly appear next to an engine or a surface. The list is everything except
@@ -178,7 +178,7 @@ source_modules =
     agentdeck.adapters.engines
     agentdeck.surfaces
     agentdeck.serve
-    agentdeck.app
+    agentdeck.deck
     agentdeck.authoring
     agentdeck.skills
 forbidden_modules =
@@ -235,7 +235,7 @@ forbidden_modules =
     agentdeck.skills
     agentdeck.surfaces
     agentdeck.serve
-    agentdeck.app
+    agentdeck.deck
 
 # The sink reads events and writes spans, nothing else: deleting this directory must cost
 # Langfuse traces and not one behavior more.
@@ -259,4 +259,4 @@ forbidden_modules =
     agentdeck.skills
     agentdeck.surfaces
     agentdeck.serve
-    agentdeck.app
+    agentdeck.deck

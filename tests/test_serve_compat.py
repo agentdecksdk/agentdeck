@@ -414,18 +414,17 @@ def test_a_workflow_is_not_reachable_through_the_agents_route(project, monkeypat
 async def test_the_runtime_and_the_python_api_share_one_conversation(project, monkeypatch):
     """v1 kept one session per id whichever entry point ran the turn; the compat engine
     takes v1's own session lookup so that stays true across the two paths."""
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
     model = ScriptedModel(deltas=("Hello",))
     patch_provider(monkeypatch, provider_of(model))
-    app = App()
-    app.load()
+    deck = Deck.from_project()
 
-    async for _ in app.runtime.run("Greeter", coerce_input("over http"), session_id="s1"):
-        pass
-    await app.chat("Greeter", "s1", "over python")
+    async with deck:
+        async for _ in deck._runtime.run("Greeter", coerce_input("over http"), session_id="s1"):
+            pass
+        await deck.chat("Greeter", "s1", "over python")
 
     # the Python API's turn opened on the Runtime turn's message, so both wrote one session
     assert json.dumps(model.inputs[0], default=str).count("over") == 1
     assert "over http" in json.dumps(model.inputs[-1], default=str)
-    await app.aclose()

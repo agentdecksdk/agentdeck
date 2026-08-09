@@ -219,9 +219,9 @@ def app_project(tmp_path, monkeypatch):
     # the project alias is process-global; drop stale mounts from other tests
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
-    return App()
+    return Deck.from_project()
 
 
 async def test_streamed_run_ends_with_an_interrupt_event(app_project):
@@ -240,18 +240,19 @@ async def test_streamed_run_ends_with_an_interrupt_event(app_project):
 
 
 async def test_a_run_started_via_run_workflow_stream_cannot_be_resumed_via_resume_workflow(app_project):
-    """A pause used to resume the same way regardless of which App method started the run,
+    """A pause used to resume the same way regardless of which method started the run,
     because both read and wrote the same checkpointer. That symmetry breaks once
-    ``resume_workflow`` plays on the Runtime (issue #137): it looks the paused run up in the
+    ``resume_workflow`` plays on the Runtime: it looks the paused run up in the
     event log, and ``run_workflow_stream`` — left out of that reroute — writes nothing there.
     A caller needing both the log and a live stream on one thread starts on ``run_workflow``
-    (or ``resume_workflow``) instead, the way ``test_app_surface_pauses_lists_and_resumes`` does.
+    (or ``resume_workflow``) instead, the way ``test_deck_surface_pauses_lists_and_resumes`` does.
     """
     async for _ in app_project.run_workflow_stream("ApprovalFlow", {"request": "tue 9am"}, thread_id="t-stream-2"):
         pass
 
-    with pytest.raises(NotFoundError, match="t-stream-2"):
-        await app_project.resume_workflow("ApprovalFlow", "t-stream-2", "yes")
+    async with app_project:
+        with pytest.raises(NotFoundError, match="t-stream-2"):
+            await app_project.resume_workflow("ApprovalFlow", "t-stream-2", "yes")
 
 
 async def test_streamed_durable_run_without_an_interrupt_still_ends_with_done(app_project):
@@ -264,18 +265,19 @@ async def test_streamed_durable_run_without_an_interrupt_still_ends_with_done(ap
     ]
 
 
-def test_app_surface_pauses_lists_and_resumes(app_project):
-    """``App`` is the entry point: run -> pending_interrupts() (no name = every workflow) -> resume."""
-    app = app_project
+def test_deck_surface_pauses_lists_and_resumes(app_project):
+    """``Deck`` is the entry point: run -> pending_interrupts() (no name = every workflow) -> resume."""
+    deck = app_project
 
     async def _scenario():
-        paused = await app.run_workflow("ApprovalFlow", {"request": "tue 9am"}, thread_id="t-app")
-        pending = await app.pending_interrupts()
-        resumed = await app.resume_workflow("ApprovalFlow", "t-app", "no")
-        # both run_workflow and resume_workflow write to the event log now (issue #137) —
-        # read it back rather than trusting each call's own bookkeeping.
-        events = await app.store.read("t-app", RunContext(run_id="reader", session_id="t-app"))
-        return paused, pending, resumed, [event.kind for event in events]
+        async with deck:
+            paused = await deck.run_workflow("ApprovalFlow", {"request": "tue 9am"}, thread_id="t-app")
+            pending = await deck.pending_interrupts()
+            resumed = await deck.resume_workflow("ApprovalFlow", "t-app", "no")
+            # both run_workflow and resume_workflow write to the event log now —
+            # read it back rather than trusting each call's own bookkeeping.
+            events = await deck._runtime.store.read("t-app", RunContext(run_id="reader", session_id="t-app"))
+            return paused, pending, resumed, [event.kind for event in events]
 
     paused, pending, resumed, kinds = asyncio.run(_scenario())
 

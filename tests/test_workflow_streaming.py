@@ -3,7 +3,7 @@
 final state — plus ``AgentNode`` forwarding its nested agent's deltas into the custom stream.
 
 The two endpoint tests at the bottom drive the whole real path instead of stubbing
-``App.run_workflow_stream``, which the streamed endpoint no longer calls (#102): it renders
+``Deck.run_workflow_stream``, which the streamed endpoint no longer calls: it renders
 v1's frames from the canonical events of a Runtime run.
 """
 
@@ -120,9 +120,9 @@ def project(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
-    return App()
+    return Deck.from_project()
 
 
 def _delta_event(text: str) -> SimpleNamespace:
@@ -209,7 +209,8 @@ async def test_run_workflow_now_drives_the_graph_through_the_runtimes_stream(pro
 
     monkeypatch.setattr(project.workflows.get("TwoStepFlow").build(), "ainvoke", spy_ainvoke)
 
-    out = await project.run_workflow("TwoStepFlow", {"text": "hi"})
+    async with project:
+        out = await project.run_workflow("TwoStepFlow", {"text": "hi"})
 
     assert out == {"text": "HI", "count": 1}
     assert calls == []  # astream, not ainvoke — the Runtime's own path for every invocable
@@ -237,7 +238,8 @@ async def test_agent_node_now_uses_run_streamed_even_via_plain_run_workflow(proj
     monkeypatch.setattr("agentdeck.authoring.runners.agent.Runner.run", fake_run)
     monkeypatch.setattr("agentdeck.authoring.runners.agent.Runner.run_streamed", fake_run_streamed)
 
-    out = await project.run_workflow("ChatFlow", {"input": "hi"})
+    async with project:
+        out = await project.run_workflow("ChatFlow", {"input": "hi"})
 
     assert out == {"input": "hi", "output": "Hello!"}
     assert run_calls == []
