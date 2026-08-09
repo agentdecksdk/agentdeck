@@ -17,6 +17,8 @@ execution already in flight — same run, session, context, reporter and gate.
 | 1 | Workflows have no model to disclose to — what replaces `SkillNode`? | **Nothing.** `SkillNode` is deleted. A workflow that needs a skill uses an **agent node whose agent declares `skills=[…]`**; the skill activates inside that agent's execution. One meaning for the word, everywhere. |
 | 2 | Multiple skill roots vs the SDK's single `skills_path` | **One lazy source per root, merged into one registry.** A duplicate name across roots is a `build()` error naming both paths. |
 | 3 | `scripts/` | **Deferred from v3.** Documented as reserved and inert. The serializable-projection boundary gets decided when there is a real script to run. |
+| 4 | Root scanning depth | **Direct-child only** — `<root>/<name>/SKILL.md`, never recursive. Matches the SDK and keeps shadowing predictable. |
+| 5 | Frontmatter | **`build()` validates it**, it does not merely find the file. See below — the SDK is deliberately permissive and will not. |
 
 ## Most of this is already native — do not rebuild it
 
@@ -49,6 +51,24 @@ allow-list.
 
 **`build()` validation:** every declared name resolves; duplicate names across roots raise and
 name both paths — one name is one skill, the same rule `PluginRegistry` applies to bundles.
+
+**And it validates frontmatter, because the SDK will not.** `list_skill_metadata` is permissive
+by design:
+
+```python
+name=frontmatter.get("name", child.name)                        # falls back to the directory
+description=frontmatter.get("description", "No description provided.")
+except OSError: continue                                        # malformed -> silently skipped
+```
+
+Two concrete failures follow, and both are silent at runtime rather than loud at build:
+
+- A `SKILL.md` declaring `name: reservation` under `skills/booking/` registers as
+  **`reservation`**, so `Agent(skills=["booking"])` never matches. The Agent Skills spec requires
+  `name` to match the parent directory; `build()` should enforce exactly that.
+- A skill with no frontmatter registers with `"No description provided."` — which is the text the
+  model reads when deciding whether to activate it. A skill nobody can choose is worse than one
+  that fails to load.
 
 ## What gets deleted
 

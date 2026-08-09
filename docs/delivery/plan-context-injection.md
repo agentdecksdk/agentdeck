@@ -12,6 +12,7 @@ AgentDeck owns propagation and injection across the whole execution graph.**
 | 2 | Injection mechanism | **Our own**, not the SDK's — so one mechanism covers every engine and every site: agent, tool, skill, workflow step. |
 | 3 | Sandboxed skills | **The subprocess becomes optional**, a per-skill choice AgentDeck supplies. How context reaches a skill is **still open** (below). |
 | 4 | Deck declares the context type | **Yes** — `Deck(context=MiddleContext)`, validated at `build()`. |
+| 5 | What `context=None` means when a type is declared | **Every root whose graph requires context must receive a compatible instance, checked before execution.** A context-free root may still run with `None`. `resume()` applies the same rule. |
 
 ## The public surface — one generic, five members
 
@@ -82,6 +83,22 @@ find_slots requires MiddleContext, but this deck provides GitHubContext.
 `build()` walks agents, their instruction callables, their tools, workflow steps and nodes, and
 fails on the first incompatibility — before any model call. Invocation-time validation stays as
 a safety net for anything the graph could not see statically.
+
+### What `context=None` means at run time
+
+`build()` is static; the instance check is not. When a deck declares a context type:
+
+- **Every root whose graph requires context must be given a compatible instance**, and the check
+  happens **before execution starts** — not at the first tool call that happens to need it. A
+  `run()` that omits `context=` for such a root fails immediately.
+- A root whose graph requires no context may be run with `context=None`. Declaring a deck-level
+  type does not force every agent to want one.
+- **`resume()` applies the identical rule.** The context is run-scoped and never persisted, so a
+  resumed run must be resupplied one, and it is validated the same way.
+
+Static graph compatibility and run-time instance compatibility are two checks with two messages:
+one says *these components disagree with each other*, the other says *this run supplied the
+wrong thing*. Neither substitutes for the other.
 
 ## Lifecycle
 
