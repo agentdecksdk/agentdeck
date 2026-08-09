@@ -17,6 +17,7 @@ Resolves #88. Blocks phases 5–6.
 | 7 | A workflow as an agent's ability | **Everything in `workflows=` is registered and root-invocable.** An agent references a *registered* workflow by name or object; an agent can never introduce a workflow the catalog does not already hold. |
 | 8 | Lifecycle | **`NEW → BUILT → OPEN → CLOSED`.** The catalog is immutable after `BUILT`, or the validation guarantee is worthless. `run`/`stream` require `OPEN`; `asgi()` owns OPEN/CLOSED through the ASGI lifespan. |
 | 9 | `Agent(base=…)` mechanics | **`base=` keyword only.** No positional base, no `.with(...)`. `Agent(...)` stays the one construction API. |
+| 11 | Sandboxing | **A future ability, currently disabled and out of scope (#163).** No agent, tool or skill is sandboxed in v3; `BaseSandboxAgent` goes with `agents/` and nothing replaces it in `authoring/`. |
 | 10 | Declaration naming | **`BaseAgent` → `AgentDeclaration`, `BaseWorkflow` → `WorkflowDeclaration`.** In a breaking release, calling something `Base*` when it is a declarative *input* to `Agent(...)` is conceptual debt with no upgrade path later. |
 
 ## Target shape

@@ -1,154 +1,185 @@
 # Plan — execution context and context injection
 
 **Status:** proposed · **Date:** 2026-08-09 · **Target: v3.0.0**
+Revised against `review-context-injection.md`, which reversed the original ruling on injection.
 Pairs with `plan-phase4-deck.md`. The rule: **one context value enters the run once, and
-AgentDeck owns propagation and injection across the whole execution graph.**
+AgentDeck owns its public semantics across the whole execution graph.**
 
-## Rulings taken (2026-08-09)
+## Rulings
 
 | # | Question | Ruling |
 |---|---|---|
-| 1 | `Execution` split out of `RunContext` | **Yes, but deferred.** Ship injection on today's `RunContext`; do the split later as its own change. |
-| 2 | Injection mechanism | **Our own**, not the SDK's — so one mechanism covers every engine and every site: agent, tool, skill, workflow step. |
-| 3 | Sandboxed skills | **Closed by `plan-skills.md`.** A skill discloses rather than executes, so it never leaves the run and there is no boundary for context to cross. `scripts/` is deferred from v3, and with it the projection question. |
-| 4 | Deck declares the context type | **Yes** — `Deck(context=MiddleContext)`, validated at `build()`. |
-| 5 | What `context=None` means when a type is declared | **Every root whose graph requires context must receive a compatible instance, checked before execution.** A context-free root may still run with `None`. `resume()` applies the same rule. |
+| 1 | Who owns context *semantics*? | **AgentDeck.** `Context[T]` is the only portable public context API; application code never names an engine type. |
+| 2 | Who owns context *propagation*? | **The engines.** Both already have first-class runtime-context facilities built for this. AgentDeck bridges them to `Context[T]`; it does not reimplement them. |
+| 3 | `Execution` split from `RunContext` | **Yes, deferred.** Add `data` to today's internal carrier; the public `Context[T]` does not change when the split happens, which is what makes deferring it safe. |
+| 4 | Injection detection | **Annotation-based.** Exactly one `Context[...]` parameter; the name is irrelevant; two is a `build()` error. |
+| 5 | Deck declares the context type | **Yes** — `Deck(context=MiddleContext)`, enabling build-time compatibility checks. |
+| 6 | Nested execution | **Same run → same execution context. Child run → same `data` by reference, new execution identity.** |
+| 7 | Workflow state vs context | **Strictly separate.** `state` is workflow-owned mutable data; `ctx.data` is the application-owned environment. Neither absorbs the other. |
+| 8 | **Sandboxing** | **A future ability, currently disabled and out of scope (#163).** No component — agent, tool or skill — is sandboxed in v3, so no context crosses a process boundary and the projection question does not arise. |
+| 9 | Native/opaque components | **Supported, with weaker static guarantees.** Invocation-time validation stays mandatory. |
+| 10 | `context=None` when a type is declared | Every root whose graph requires context must receive a compatible instance, checked **before execution**. A context-free root may run with `None`. `resume()` applies the same rule. |
 
-## The public surface — one generic, five members
+## The split that matters
+
+Two responsibilities the first draft conflated:
+
+```
+        Context[T]                    ← AgentDeck owns this (public contract)
+             │
+   ┌─────────┴─────────┐
+   ▼                   ▼
+OpenAI adapter    LangGraph adapter   ← thin bridges
+   │                   │
+RunContextWrapper   Runtime[T]        ← the engines own this (transport)
+```
+
+Both SDKs already carry an arbitrary application object through an execution and hand it to
+tools, instructions and hooks — and both explicitly keep it *out* of the model prompt.
+Reimplementing that takes on the hard half of the problem for no gain. What AgentDeck keeps is
+the part the engines cannot do: one portable public type, so a tool signature does not change
+when the engine does.
+
+## The public surface
 
 ```python
 ctx: Context[MiddleContext]
 
-ctx.data          # the value the caller passed to deck.run(context=...)
-ctx.reporter      # progress/status, already exists
-ctx.run_id · ctx.session_id · ctx.namespace
-await ctx.checkpoint()        # delegates to the internal Gate
+ctx.data          # the value passed to deck.run(context=...)
+ctx.reporter      # progress/status
+ctx.run_id · ctx.session_id
+await ctx.checkpoint()
 ```
 
-No `ToolContext`, `SkillContext`, `WorkflowContext`, `AgentContext`. One type, everywhere.
-`Gate` stays internal and is reached only through `checkpoint()`.
+No `ToolContext`, `SkillContext`, `WorkflowContext`, `AgentContext`. `Gate` stays internal,
+reached only through `checkpoint()`.
+
+**`ctx.namespace` is deliberately not in the initial surface.** `RunContext.namespace` is defined
+and load-bearing for storage isolation, but no injection site has needed to *read* it yet, and a
+property added later is cheaper than one whose meaning changes after release.
+
+**Nothing from the engines is mirrored automatically.** `ctx.reporter` and `ctx.checkpoint()`
+exist because AgentDeck defines what progress and control mean independently of the engine. SDK
+usage metadata, LangGraph's store or stream writer and the like do not belong here — the public
+context is the stable intersection of AgentDeck concepts, not the union of two runtime APIs.
 
 ## Injection is annotation-based, never name-based
 
-A parameter is injected because it is annotated `Context[T]` — **not** because it is called
-`ctx`. A user may name it anything.
+```python
+@function_tool
+async def find_slots(date: str, environment: Context[MiddleContext]):
+    return await environment.data.calendar.find_slots(date=date)
+```
+
+Injected because it is annotated `Context[...]`, not because of the parameter's name.
+
+- **Zero** — an ordinary callable, nothing injected.
+- **Exactly one** — injected, whatever it is called.
+- **More than one** — `build()` error: *`foo` declares multiple `Context[...]` parameters; at most one is allowed.*
+
+Introspection uses `inspect.unwrap`, `inspect.signature` and `typing.get_type_hints` rather than
+raw `__annotations__`, so `from __future__ import annotations` and wrapped callables work. A
+decorator that destroys the signature cannot be validated statically; that falls to the
+invocation-time safety net rather than to a guess.
+
+## What AgentDeck still builds
+
+Native propagation removes the hard part, not all of it. AgentDeck compiles a user callable into
+an engine-native one, keeping metadata about the original:
+
+```
+user callable → callable analysis → engine-specific bridge → engine-native propagation
+```
+
+Conceptually, for the SDK:
 
 ```python
 @function_tool
-async def find_slots(date: str, ctx: Context[MiddleContext]):
-    return await ctx.data.calendar.find_slots(business=ctx.data.business, date=date)
+async def sdk_find_slots(wrapper: RunContextWrapper[RunContext], date: str):
+    return await find_slots(date=date, ctx=public_context(wrapper.context))
 ```
 
-The model sees `{"date": str}` only. AgentDeck strips the `Context[...]` parameter from the tool
-schema it publishes and supplies it at dispatch.
+The SDK handles propagation, dispatch, and excluding its own context parameter from the
+model-visible schema. AgentDeck handles detecting `Context[T]`, validating `T`, producing the
+bridge, and calling the original.
 
-**Why our own mechanism and not the SDK's** (ruling 2): the Agents SDK does exactly this for
-`RunContextWrapper[T]`, but only for SDK function tools. LangGraph nodes, workflow steps and
-skills get nothing from it. One mechanism that reads a signature, strips the parameter, and
-injects at call time works identically at all four sites — and it frees the SDK's `context=`
-slot, which `RunContext` occupies today (`adapters/engines/openai_agents/engine.py`).
+**Plain callables are the canonical declaration.** `Agent(tools=[find_slots])` with an
+undecorated function; AgentDeck compiles it for whichever engine is active. That is also the
+natural home for permissions, approvals, retries and telemetry later — none of them v3. A
+pre-built engine-native object is still accepted, but is **engine-native**: it gets no
+portability guarantee, and `build()` does not pretend it can introspect it.
 
-## The four injection sites
+## Engine integration
 
-**Dynamic instructions.** `def instructions(ctx: Context[T]) -> str`, called with the live
-context before the turn. *Only what the function returns reaches the prompt* — the context is
-never dumped into it wholesale. That is a security property, not a convenience.
+**OpenAI Agents.** Keep `Runner.run_streamed(..., context=ctx)`. The slot is exactly what is
+needed, and the earlier plan's "free the slot" was backwards. `RunContext` stays what travels;
+it gains `data`.
 
-**Function tools.** As above; schema-stripped, injected at dispatch.
+**LangGraph.** Move application context off `configurable` onto the native runtime-context
+channel (`context=` / `Runtime[T]`). `configurable` keeps what is genuinely LangGraph
+configuration — `thread_id` — and nothing else. LangGraph draws the same state-vs-runtime-context
+line AgentDeck wants, which is a second reason to use it rather than a parallel mechanism.
 
-**Workflow steps.** `async def reserve(state: BookingState, ctx: Context[T])`. `state` is what
-the workflow produces; `ctx.data` is the environment it was given. Neither becomes the other.
-
-**Agent hooks.** `async def on_start(ctx: Context[T])` — same type, no separate model.
-
-**Nested execution** inherits the caller's context by default. No `run_child(context=ctx.data)`
-per call. Explicit override is a later addition, not a v3 requirement.
-
-## Type compatibility
-
-Declared at the deck, checked at `build()`, enforced at `run()`:
+## Type compatibility, conservatively
 
 ```
 ContextTypeError:
 find_slots requires MiddleContext, but this deck provides GitHubContext.
 ```
 
-- **Subtypes and protocol-compatible types are allowed.** A component asking for a `Protocol` the
-  supplied type satisfies is valid.
-- `Context[Any]` and `Context[Mapping[str, Any]]` are legal when asked for explicitly, so a plain
-  `dict` context is a first-class choice.
-- Dicts are **never** auto-converted into typed models. Typed dataclasses/pydantic remain the
-  preferred path, but the conversion is the application's to write.
+| | |
+|---|---|
+| exact concrete type | supported |
+| subtype | supported |
+| `Any` | supported |
+| runtime ABCs (`Mapping`, …) | where the runtime check is meaningful |
+| arbitrary structural `Protocol` | best effort, else deferred to invocation |
 
-`build()` walks agents, their instruction callables, their tools, workflow steps and nodes, and
-fails on the first incompatibility — before any model call. Invocation-time validation stays as
-a safety net for anything the graph could not see statically.
+> Build-time guarantees apply to runtime-introspectable types. Structural protocols are accepted
+> where runtime compatibility can be established; otherwise validation is deferred.
 
-### What `context=None` means at run time
+`build()` is not a partial type checker and should not grow into one. Dicts are never
+auto-converted into typed models — `Context[Mapping[str, Any]]` is first-class, and the
+conversion is the application's to write.
 
-`build()` is static; the instance check is not. When a deck declares a context type:
+### Two validation levels
 
-- **Every root whose graph requires context must be given a compatible instance**, and the check
-  happens **before execution starts** — not at the first tool call that happens to need it. A
-  `run()` that omits `context=` for such a root fails immediately.
-- A root whose graph requires no context may be run with `context=None`. Declaring a deck-level
-  type does not force every agent to want one.
-- **`resume()` applies the identical rule.** The context is run-scoped and never persisted, so a
-  resumed run must be resupplied one, and it is validated the same way.
+**AgentDeck-managed** — requirement known, schema known, checked at `build()`.
+**Opaque or engine-native** — best effort at build, invocation-time safety net mandatory. The
+contract says this rather than implying every native object is introspectable.
 
-Static graph compatibility and run-time instance compatibility are two checks with two messages:
-one says *these components disagree with each other*, the other says *this run supplied the
-wrong thing*. Neither substitutes for the other.
+## The rule that must not be weakened
+
+> **Possessing `Context[T]` gives application code access to runtime dependencies. It does not
+> grant the model access to them or their values. Only explicit user code may project context
+> into model-visible instructions or input.**
+
+`def instructions(ctx) -> str` puts *only its return value* in the prompt. `ctx.data` is never
+serialized into it. Both engines already treat their runtime context as local rather than model
+context; this states it as an AgentDeck guarantee rather than an inherited accident.
 
 ## Lifecycle
 
-The context is **run-scoped and application-owned**. AgentDeck:
-
-- keeps the same value for the whole run
-- never serializes it into the event log
-- never clones it
-- assumes nothing about it being serializable — DB clients and service handles are expected
-
-On resume the application resupplies it: `await deck.resume(run_id, context=await resolve(...))`.
-Provider-based reconstruction can be layered on later; it must build on this contract rather
-than replace it.
-
-This is also why the context is not on `RunContextSnapshot`: the log records what a run was asked
-to do, not the live objects it was handed.
-
-## Where it rides internally (until the Execution split)
-
-A fourth internal field on `RunContext`, beside `gate` and `reporter`. `RunContext` is already
-internal and never constructed by a user, so nothing leaks. When ruling 1's split happens, that
-field moves to `Execution` and `Context[T]` — the only thing user code ever touches — does not
-change.
-
-## Skills need nothing here
-
-`plan-skills.md` resolved this. A skill is progressive disclosure *into* the execution already
-holding the context — it starts no run and no process, so `Context[T]` reaches its tools and any
-workflow it triggers by ordinary injection, and there is nothing to serialize or project.
-`scripts/`, the only part that would cross a process boundary, is deferred from v3.
+Run-scoped and application-owned. AgentDeck keeps the same value for the whole run, never
+serializes it into the event log, never clones it, and assumes nothing about it being
+serializable. That is also why it is not on `RunContextSnapshot`: the log records what a run was
+asked to do, not the live objects it held. `resume()` resupplies it.
 
 ## Sequencing
 
-1. `Context[T]` and the signature/injection machinery (engine-agnostic, no engine changes yet)
-2. Free the SDK's `context=` slot; inject at the openai-agents tool site
-3. LangGraph node/step injection via `configurable`, beside the reporter
-4. Instruction callables and agent hooks
-5. `build()` graph validation, `ContextTypeError`, and the run-time instance check
-
-Nothing here waits on the skills work: skills consume the same injection the tool and workflow
-sites already provide.
+1. Public `Context[T]` + `RunContext.data` — no engine changes
+2. Callable analysis: the `Context` parameter, required `T`, visible parameters, whether static inspection is reliable
+3. The callable bridge/compiler abstraction
+4. OpenAI Agents: compile tools/instructions/hooks into SDK-native wrappers over the existing `context=`
+5. LangGraph: application context onto `Runtime[T]`; `configurable` keeps `thread_id`
+6. Dynamic instructions and hooks through the same compiler — not a second injection system
+7. `Deck.build()` graph validation and `ContextTypeError`
+8. Skills — in-process only, since sandboxing is disabled (ruling 8)
 
 ## Risks
 
-- **Schema stripping is the sharp edge.** A `Context[...]` parameter that reaches the published
-  tool schema becomes a field the model tries to fill. That is the one failure worth a dedicated
-  test at every site, not just at the SDK one.
-- **Doing our own injection means tracking two engines' calling conventions.** The SDK gives its
-  version away free; ruling 2 accepts that cost deliberately for uniformity, and it should be a
-  judgment-ledger entry rather than a surprise in review.
-- **`build()` validation depends on introspectable signatures.** A tool built dynamically, or one
-  wrapped by a decorator that discards annotations, cannot be checked statically — the safety net
-  has to stay.
+- **Two bridges, one contract.** The uniformity users see is produced by two adapters that must
+  agree. A contract test parametrized over both engines is the only thing keeping them honest.
+- **`build()` validation depends on introspectable signatures.** The safety net is not optional.
+- **The compiler is where scope creep arrives.** Permissions, retries and telemetry all have a
+  natural home there; none are v3.

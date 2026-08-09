@@ -16,7 +16,8 @@ execution already in flight — same run, session, context, reporter and gate.
 |---|---|---|
 | 1 | Workflows have no model to disclose to — what replaces `SkillNode`? | **Nothing.** `SkillNode` is deleted. A workflow that needs a skill uses an **agent node whose agent declares `skills=[…]`**; the skill activates inside that agent's execution. One meaning for the word, everywhere. |
 | 2 | Multiple skill roots vs the SDK's single `skills_path` | **One lazy source per root, merged into one registry.** A duplicate name across roots is a `build()` error naming both paths. |
-| 3 | `scripts/` | **Deferred from v3.** Documented as reserved and inert. The serializable-projection boundary gets decided when there is a real script to run. |
+| 3 | `scripts/` | **Deferred from v3.** Documented as reserved and inert. |
+| 6 | Sandboxing | **A future ability, currently disabled and out of scope (#163).** Nothing a skill causes runs isolated in v3, which is why the executable path below is deleted rather than made optional. |
 | 4 | Root scanning depth | **Direct-child only** — `<root>/<name>/SKILL.md`, never recursive. Matches the SDK and keeps shadowing predictable. |
 | 5 | Frontmatter | **`build()` validates it**, it does not merely find the file. See below — the SDK is deliberately permissive and will not. |
 
@@ -138,6 +139,9 @@ Depends on phase 4b (`Deck(skills=…)` and `build()`). Order within this plan:
   only for the subprocess; removing the subprocess without them leaves dead wire contract.
 - **Workflow examples change shape.** Any `.agentdeck/workflows/*` using `SkillNode` is rewritten
   as an agent node. That is a user-visible migration and belongs in the v3 guide.
+- **Sandboxing is disabled, not preserved.** The executable path is deleted outright rather than
+  kept behind a flag: a disabled feature with live code is the thing #163 exists to redesign
+  properly, and keeping a half-wired subprocess would prejudge that design.
 - **`references/` and `assets/` are disclosed by the SDK, not by us.** Whatever it does with
   those directories is the contract; this plan should not invent a second one. Verify before
   documenting them as supported.
