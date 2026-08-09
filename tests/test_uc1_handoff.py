@@ -201,9 +201,9 @@ def _build() -> tuple[Runtime, ExecutionStore, SqliteEventStore]:
 
 
 def _read_ctx() -> RunContext:
-    # The SSE surface fixes tenant/principal for every request (M0 fakes auth away);
+    # The SSE surface runs unnamespaced, so every request shares one log space;
     # reading the store back afterwards has to use the same identity.
-    return RunContext(tenant="demo", principal="user:demo", run_id="n/a", trace_id="t", session_id=SESSION_ID)
+    return RunContext(run_id="n/a", session_id=SESSION_ID)
 
 
 async def test_uc1_handoff_chat_end_to_end(capsys: pytest.CaptureFixture[str]) -> None:

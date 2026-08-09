@@ -60,15 +60,13 @@ class EventStorePort(ABC):
     makes ``seq`` dense: a number allocated and persisted together cannot be allocated and not
     persisted, so a gap means an event was genuinely lost and refetching it converges.
 
-    Every other envelope field comes from ``ctx`` — ``run_id``, ``session_id``, ``tenant`` — plus
+    Every other envelope field comes from ``ctx`` — ``run_id``, ``session_id``, ``namespace`` — plus
     ``origin``, which is the invocable the caller addressed. A store never decides what an event
     *means*; it refuses what would corrupt the log and reports what it saw.
     """
 
     @abstractmethod
-    async def append(
-        self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str
-    ) -> list[Event]:
+    async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
         """Stamp and write ``payloads`` in the order given, returning the finished events.
 
         Each gets this run's next ``seq`` and the store's own ``ts``, assigned inside whatever
@@ -155,12 +153,12 @@ class EventStorePort(ABC):
 
     @abstractmethod
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
-        """Every run for this tenant that recorded a lifecycle transition, across all its logs,
+        """Every run in this namespace that recorded a lifecycle transition, across all its logs,
         optionally narrowed to one status.
 
         ``PENDING`` runs are left out, being indistinguishable from ones the store never heard of.
         Index this however the store can: finding waiting runs must not cost a fold of every log
-        the tenant owns.
+        the namespace owns.
         """
 
     async def run_status(self, log_key: str, run_id: str, ctx: RunContext) -> RunStatus:

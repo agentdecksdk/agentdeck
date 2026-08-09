@@ -23,19 +23,17 @@ def _now() -> datetime:
 
 
 class MemoryEventStore(EventStorePort):
-    """Append-only lists, one per (tenant, log key). Process exit is data loss, by design.
+    """Append-only lists, one per (namespace, log key). Process exit is data loss, by design.
 
-    Keyed by tenant as well as log key so two tenants that pick the same session id cannot
+    Keyed by namespace as well as log key so two namespaces that pick the same session id cannot
     read each other's runs — isolation is not something a store gets to skip.
     """
 
     def __init__(self, clock: Callable[[], datetime] = _now) -> None:
-        self._logs: dict[tuple[str, str], list[Event]] = {}
+        self._logs: dict[tuple[str | None, str], list[Event]] = {}
         self._clock = clock
 
-    async def append(
-        self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str
-    ) -> list[Event]:
+    async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
         events = self._stamp(log_key, payloads, ctx, origin)
         # Fidelity, not correctness (issue #87): every real store suspends here (SQLite's own
         # `to_thread`), so a caller whose liveness secretly depends on that turn is caught by
@@ -44,9 +42,7 @@ class MemoryEventStore(EventStorePort):
         await asyncio.sleep(0)
         return events
 
-    def _stamp(
-        self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str
-    ) -> list[Event]:
+    def _stamp(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
         """Assign, build and write, with no suspension point anywhere in between.
 
         That is this store's whole atomicity mechanism, and it is why every caller here — both
@@ -54,7 +50,7 @@ class MemoryEventStore(EventStorePort):
         reading the run's last ``seq`` and extending the log is all it would take for two tasks to
         be handed the same number.
         """
-        log = self._logs.setdefault((ctx.tenant, log_key), [])
+        log = self._logs.setdefault((ctx.namespace, log_key), [])
         seq = max((stored.seq for stored in log if stored.run_id == ctx.run_id), default=-1)
         events = []
         for payload in payloads:
@@ -65,7 +61,7 @@ class MemoryEventStore(EventStorePort):
                     seq=seq,
                     run_id=ctx.run_id,
                     session_id=ctx.session_id,
-                    tenant=ctx.tenant,
+                    namespace=ctx.namespace,
                     origin=origin,
                     ts=self._clock(),
                     payload=payload,
@@ -77,12 +73,12 @@ class MemoryEventStore(EventStorePort):
     async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
         if limit is not None and limit < 0:
             raise ValueError(f"limit must be None or >= 0, got {limit}")
-        log = self._logs.get((ctx.tenant, log_key), ())
+        log = self._logs.get((ctx.namespace, log_key), ())
         page = log[max(offset, 0) :]
         return list(page if limit is None else page[:limit])
 
     async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
-        log = self._logs.get((ctx.tenant, log_key), ())
+        log = self._logs.get((ctx.namespace, log_key), ())
         return [event for event in log if event.run_id == run_id and event.seq >= from_seq]
 
     async def claim_start(
@@ -93,7 +89,7 @@ class MemoryEventStore(EventStorePort):
         """
         stale_before = self._clock() - stale_after
         overridden: list[Event] = []
-        for events in _by_run(self._logs.get((ctx.tenant, log_key), ())).values():
+        for events in _by_run(self._logs.get((ctx.namespace, log_key), ())).values():
             status = status_of(events)
             if status is RunStatus.PENDING or status in TERMINAL_STATUSES:
                 continue
@@ -112,7 +108,7 @@ class MemoryEventStore(EventStorePort):
         """
         if ctx.run_id != run_id:
             raise ValueError(f"a claim on run {run_id!r} cannot be made in the context of {ctx.run_id!r}")
-        mine = [stored for stored in self._logs.get((ctx.tenant, log_key), ()) if stored.run_id == run_id]
+        mine = [stored for stored in self._logs.get((ctx.namespace, log_key), ()) if stored.run_id == run_id]
         if not can_resume(status_of(mine)):
             return None
         event = self._stamp(log_key, [resumed], ctx, origin)[0]
@@ -122,8 +118,8 @@ class MemoryEventStore(EventStorePort):
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
         runs = [
             (log_key, event.run_id)
-            for (tenant, log_key), log in self._logs.items()
-            if tenant == ctx.tenant
+            for (namespace, log_key), log in self._logs.items()
+            if namespace == ctx.namespace
             for event in log
             if event.kind in LIFECYCLE_KINDS
         ]

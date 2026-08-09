@@ -1,7 +1,7 @@
 """Event schema v1: one envelope, one payload per kind.
 
 Engines produce payloads, the Runtime fills the envelope — so an engine cannot get
-``seq`` or ``tenant`` wrong. ``seq`` is per-run and contiguous from 0, which makes it
+``seq`` or ``namespace`` wrong. ``seq`` is per-run and contiguous from 0, which makes it
 both the ordering authority and a loss check; ``ts`` is informational.
 
 Unknown kinds parse instead of raising — ``Event.model_validate`` lands them as
@@ -65,31 +65,19 @@ class Usage(CoreModel):
     usd: Money | None = None
 
 
-class Budget(CoreModel):
-    """The caps the run was admitted under; None means uncapped on that axis."""
-
-    max_usd: Money | None = None
-    max_tokens: NonNegativeInt | None = None
-
-
-class RunContextSnapshot(CoreModel):
-    """Enough of the run's context to reconstruct it from the log alone."""
-
-    principal: str
-    trace_id: str
-    budget: Budget | None = None
-    triggered_by: str | None = None
-
-
 class RunStarted(CoreModel):
-    """Opens a run and carries its per-run constants."""
+    """Opens a run: what was asked for, and what it was asked with.
+
+    No context snapshot. Everything the old one carried — a trace id, a budget, who triggered
+    it, a parent run — was recorded and read by nothing, so the log said a run was admitted
+    under constraints that never existed. Where a run was played is on the envelope, where
+    every event carries it.
+    """
 
     kind: Literal["run.started"] = "run.started"
     invocable: str
     kind_of_invocable: Literal["agent", "workflow", "skill"]
-    parent_run_id: str | None = None
     input: Input
-    context: RunContextSnapshot
 
 
 class RunCompleted(CoreModel):
@@ -378,12 +366,14 @@ class Event(CoreModel):
     released reader dispatches on the payload copy and cannot read a row without it.
     """
 
-    v: int = 1
+    v: int = 2
     kind: str = Field(pattern=KIND_PATTERN)
     seq: NonNegativeInt
     run_id: str
     session_id: str | None
-    tenant: str
+    # the opaque isolation boundary the run was played in, or None when nothing is kept
+    # apart; AgentDeck never reads its parts, only which events share it
+    namespace: str | None
     # the invocable the caller addressed, never the engine: an internal handoff to a sub-agent
     # does not change it, because "speaker" is defined at invocable granularity
     origin: str

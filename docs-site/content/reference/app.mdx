@@ -122,7 +122,7 @@ event_store = app.store  # an EventStorePort
 
 `await app.store.read(log_key, ctx)` returns one log's events in order, where `log_key` is a
 `TurnResult`'s `session_id` (or `run_id`, for a session-less run) and `ctx` is any `RunContext` of
-this `App`'s tenant. `store` also exposes `list_runs(ctx, status=None)` (every run for the tenant,
+this `App`'s namespace. `store` also exposes `list_runs(ctx, status=None)` (every run in the namespace,
 optionally narrowed to one status) and `run_status(log_key, run_id, ctx)` (one run's status,
 folded from its own events) — see [Runs and the Event Log](/concepts/runs-and-the-event-log) for
 what the log holds and what a status fold means.

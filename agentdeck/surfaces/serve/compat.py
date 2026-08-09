@@ -7,8 +7,8 @@ core is deliberate (D10: a consumer shapes what it needs, the schema does not gr
 surface's frame shapes) — this module is the only place that knows what v1 puts on the wire,
 and it reads nothing but ``Event`` objects to do it.
 
-v1 has no tenancy and no auth, so every run through this facade shares one tenant and
-principal; the ``/v2`` routes are where a real principal will arrive from. A workflow's
+v1 has no isolation boundary of its own, so every run through this facade is unnamespaced;
+a caller that needs runs kept apart passes a namespace per run. A workflow's
 ``thread_id`` is its session: v1's caller names the thread, resumes it later, and expects one
 turn on it at a time — which is exactly what a session id buys from the Runtime.
 """
@@ -16,12 +16,10 @@ turn on it at a time — which is exactly what a session id buys from the Runtim
 from __future__ import annotations
 
 import json
-import uuid
 from contextlib import aclosing
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.core.content import DataBlock, TextBlock
-from agentdeck.core.context import RunContext
 from agentdeck.core.events import Custom, NodeUpdated, RunCompleted, RunInterrupted, TextDelta, UsageReported
 
 if TYPE_CHECKING:
@@ -30,8 +28,6 @@ if TYPE_CHECKING:
     from agentdeck.core.events import Event
     from agentdeck.runtime.service import PendingRun
 
-V1_TENANT = "local"
-V1_PRINCIPAL = "user:local"
 
 # The engine's namespaced carrier for an ``output_type`` result, which ``RunCompleted``
 # can only hold as text. Spelled out rather than imported: a surface that imported an
@@ -44,33 +40,6 @@ STRUCTURED_OUTPUT = "openai_agents.structured_output"
 # kind of test.
 STREAM_WRITE = "langgraph.stream_write"
 STREAM_WRITE_KEY = "value"
-
-
-def run_context(session_id: str | None = None) -> RunContext:
-    """A fresh context for one v1 request."""
-    return RunContext(
-        tenant=V1_TENANT,
-        principal=V1_PRINCIPAL,
-        run_id=str(uuid.uuid4()),
-        trace_id=str(uuid.uuid4()),
-        session_id=session_id,
-    )
-
-
-def resume_context(paused: PendingRun) -> RunContext:
-    """The context that continues an already-open run.
-
-    Its ``run_id`` is the paused run's own, because that is the run whose
-    ``WAITING_HUMAN`` -> ``RUNNING`` claim the resume has to win — a fresh id would name a run
-    the log has never heard of.
-    """
-    return RunContext(
-        tenant=V1_TENANT,
-        principal=V1_PRINCIPAL,
-        run_id=paused.run_id,
-        trace_id=str(uuid.uuid4()),
-        session_id=paused.session_id,
-    )
 
 
 class _Turn:
@@ -252,14 +221,10 @@ __all__ = [
     "STREAM_WRITE",
     "STREAM_WRITE_KEY",
     "STRUCTURED_OUTPUT",
-    "V1_PRINCIPAL",
-    "V1_TENANT",
     "chat_frames",
     "chat_result",
     "interrupt_inbox",
-    "resume_context",
     "resume_result",
-    "run_context",
     "workflow_frames",
     "workflow_result",
 ]

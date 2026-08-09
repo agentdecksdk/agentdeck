@@ -44,8 +44,8 @@ EVERYTHING_IS_STALE = timedelta(0)
 UNREACHABLE_DSN = "postgresql://postgres:postgres@127.0.0.1:1/nope"
 
 
-def _ctx(tenant: str = "acme", run_id: str = "r-1", log_key: str = "s-1") -> RunContext:
-    return RunContext(tenant=tenant, principal="user:1", run_id=run_id, trace_id="tr-1", session_id=log_key)
+def _ctx(namespace: str = "acme", run_id: str = "r-1", log_key: str = "s-1") -> RunContext:
+    return RunContext(namespace=namespace, run_id=run_id, session_id=log_key)
 
 
 def _started() -> RunStarted:
@@ -53,7 +53,7 @@ def _started() -> RunStarted:
         invocable=ORIGIN,
         kind_of_invocable="agent",
         input=[],
-        context={"principal": "user:1", "trace_id": "tr-1"},
+        context={"trace_id": "tr-1"},
     )
 
 

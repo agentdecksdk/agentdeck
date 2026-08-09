@@ -40,10 +40,29 @@ async def _interrupt_thread_id(events: list[Event]) -> str:
 async def test_resume_continues_seq_with_exactly_one_terminal_event_at_the_end(
     suspended_case: Case, runtime: Runtime, store: MemoryEventStore, ctx: RunContext
 ) -> None:
-    opening = [event async for event in runtime.run(suspended_case.spec.name, suspended_case.input, ctx)]
+    opening = [
+        event
+        async for event in runtime.run(
+            suspended_case.spec.name,
+            suspended_case.input,
+            run_id=(ctx).run_id,
+            session_id=(ctx).session_id,
+            namespace=(ctx).namespace,
+        )
+    ]
     thread_id = await _interrupt_thread_id(opening)
 
-    resumed = [event async for event in runtime.resume(suspended_case.spec.name, thread_id, RESUME_VALUE, ctx)]
+    resumed = [
+        event
+        async for event in runtime.resume(
+            suspended_case.spec.name,
+            thread_id,
+            RESUME_VALUE,
+            run_id=(ctx).run_id,
+            session_id=(ctx).session_id,
+            namespace=(ctx).namespace,
+        )
+    ]
     assert resumed  # a claim that wins always yields at least run.resumed
 
     whole = opening + resumed
@@ -56,24 +75,72 @@ async def test_resume_continues_seq_with_exactly_one_terminal_event_at_the_end(
 async def test_a_stray_resume_on_an_already_completed_run_is_a_noop(
     suspended_case: Case, runtime: Runtime, ctx: RunContext
 ) -> None:
-    opening = [event async for event in runtime.run(suspended_case.spec.name, suspended_case.input, ctx)]
+    opening = [
+        event
+        async for event in runtime.run(
+            suspended_case.spec.name,
+            suspended_case.input,
+            run_id=(ctx).run_id,
+            session_id=(ctx).session_id,
+            namespace=(ctx).namespace,
+        )
+    ]
     thread_id = await _interrupt_thread_id(opening)
 
-    first = [event async for event in runtime.resume(suspended_case.spec.name, thread_id, RESUME_VALUE, ctx)]
+    first = [
+        event
+        async for event in runtime.resume(
+            suspended_case.spec.name,
+            thread_id,
+            RESUME_VALUE,
+            run_id=(ctx).run_id,
+            session_id=(ctx).session_id,
+            namespace=(ctx).namespace,
+        )
+    ]
     assert first
 
-    second = [event async for event in runtime.resume(suspended_case.spec.name, thread_id, RESUME_VALUE, ctx)]
+    second = [
+        event
+        async for event in runtime.resume(
+            suspended_case.spec.name,
+            thread_id,
+            RESUME_VALUE,
+            run_id=(ctx).run_id,
+            session_id=(ctx).session_id,
+            namespace=(ctx).namespace,
+        )
+    ]
     assert second == []
 
 
 async def test_two_concurrent_resumes_have_exactly_one_winner_and_no_duplicate_seq(
     suspended_case: Case, runtime: Runtime, store: MemoryEventStore, ctx: RunContext
 ) -> None:
-    opening = [event async for event in runtime.run(suspended_case.spec.name, suspended_case.input, ctx)]
+    opening = [
+        event
+        async for event in runtime.run(
+            suspended_case.spec.name,
+            suspended_case.input,
+            run_id=(ctx).run_id,
+            session_id=(ctx).session_id,
+            namespace=(ctx).namespace,
+        )
+    ]
     thread_id = await _interrupt_thread_id(opening)
 
     async def _collect() -> list[Event]:
-        return [event async for event in runtime.resume(suspended_case.spec.name, thread_id, RESUME_VALUE, ctx)]
+        return [
+            event
+            async for event in runtime.resume(
+                suspended_case.spec.name,
+                thread_id,
+                RESUME_VALUE,
+                run_id=(ctx).run_id,
+                session_id=(ctx).session_id,
+                namespace=(ctx).namespace,
+            )
+        ]
 
     first, second = await asyncio.gather(_collect(), _collect())
 

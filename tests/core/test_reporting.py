@@ -40,7 +40,7 @@ async def test_a_report_becomes_a_payload_in_the_order_it_was_made() -> None:
 
 async def test_the_default_reporter_drops_instead_of_raising() -> None:
     """A context nothing is draining must not fail the code that reports into it."""
-    ctx = RunContext(tenant="acme", principal="user:1", run_id="r-1", trace_id="tr-1")
+    ctx = RunContext(namespace="acme", run_id="r-1")
     await ctx.reporter.status("nobody is listening")
     await ctx.reporter.progress("still nobody", current=1, total=2)
 

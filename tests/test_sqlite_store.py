@@ -22,7 +22,6 @@ from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
     KnownPayload,
     RunCompleted,
-    RunContextSnapshot,
     RunInterrupted,
     RunResumed,
     RunStarted,
@@ -37,12 +36,12 @@ def _deltas(count: int) -> list[KnownPayload]:
     return [TextDelta(message_id="m1", text=f"chunk {which}") for which in range(count)]
 
 
-def _ctx(tenant: str = "acme", run_id: str = "r-1") -> RunContext:
-    return RunContext(tenant=tenant, principal="user:1", run_id=run_id, trace_id="tr-1", session_id="s-1")
+def _ctx(namespace: str = "acme", run_id: str = "r-1") -> RunContext:
+    return RunContext(namespace=namespace, run_id=run_id, session_id="s-1")
 
 
 def _started() -> RunStarted:
-    context = RunContextSnapshot(principal="user:1", trace_id="tr-1")
+    context = None
     return RunStarted(invocable="Approver", kind_of_invocable="workflow", input=[], context=context)
 
 
@@ -86,16 +85,16 @@ async def test_an_unknown_log_reads_as_empty() -> None:
     assert await SqliteEventStore().read_run("nobody", "r-1", _ctx()) == []
 
 
-async def test_one_tenant_cannot_read_another_tenants_log_under_the_same_key() -> None:
-    """Two tenants are free to pick the same session id; the store keeps them apart."""
+async def test_one_namespace_cannot_read_another_namespaces_log_under_the_same_key() -> None:
+    """Two namespaces are free to pick the same session id; the store keeps them apart."""
     store = SqliteEventStore()
     await store.append("s-1", _deltas(1), _ctx("acme"), ORIGIN)
     await store.append("s-1", _deltas(1), _ctx("globex"), ORIGIN)
 
     acme = await store.read("s-1", _ctx("acme"))
     globex = await store.read("s-1", _ctx("globex"))
-    assert [event.tenant for event in acme] == ["acme"]
-    assert [event.tenant for event in globex] == ["globex"]
+    assert [event.namespace for event in acme] == ["acme"]
+    assert [event.namespace for event in globex] == ["globex"]
 
 
 async def test_the_stub_completion_payload_round_trips_through_the_log() -> None:
@@ -143,7 +142,7 @@ async def test_opening_a_pre_wal_file_a_peer_is_writing_falls_back_instead_of_fa
     peer = sqlite3.connect(db_path)
     peer.execute("PRAGMA journal_mode = DELETE")
     peer.execute("BEGIN IMMEDIATE")
-    peer.execute("INSERT INTO events (tenant, log_key, run_id, seq, data) VALUES ('acme', 's-1', 'r-9', 0, '{}')")
+    peer.execute("INSERT INTO events (namespace, log_key, run_id, seq, data) VALUES ('acme', 's-1', 'r-9', 0, '{}')")
     try:
         store = SqliteEventStore(db_path)
         assert store._conn.execute("PRAGMA journal_mode").fetchone()[0] == "delete"

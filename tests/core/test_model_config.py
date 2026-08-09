@@ -44,7 +44,7 @@ def test_an_envelope_still_ignores_a_field_a_newer_writer_added():
         run_id="r-1",
         seq=0,
         ts=datetime(2026, 1, 1, tzinfo=UTC),
-        tenant="acme",
+        namespace="acme",
         session_id=None,
         kind="text.delta",
         origin="engine",

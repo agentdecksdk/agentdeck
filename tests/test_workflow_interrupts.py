@@ -12,6 +12,7 @@ import textwrap
 import pytest
 from pydantic import BaseModel
 
+from agentdeck.core.context import RunContext
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.runtime.settings import reset_settings_cache
 from agentdeck.workflows import END, BaseWorkflow, StateGraph, interrupt
@@ -51,6 +52,15 @@ def _make_approval_workflow(*, durable: bool) -> type[BaseWorkflow]:
 
     ApprovalFlow.durable = durable
     return ApprovalFlow
+
+
+def run_context(session_id: str | None = None) -> RunContext:
+    """A reader context for the store assertions here.
+
+    The Runtime takes options now; ``EventStorePort`` still takes a context, being an internal
+    port, and only the session id and namespace are read off this one.
+    """
+    return RunContext(run_id="reader", session_id=session_id)
 
 
 @pytest.fixture(autouse=True)
@@ -263,8 +273,6 @@ async def test_streamed_durable_run_without_an_interrupt_still_ends_with_done(ap
 
 def test_app_surface_pauses_lists_and_resumes(app_project):
     """``App`` is the entry point: run -> pending_interrupts() (no name = every workflow) -> resume."""
-    from agentdeck.surfaces.serve.compat import run_context
-
     app = app_project
 
     async def _scenario():
@@ -273,7 +281,7 @@ def test_app_surface_pauses_lists_and_resumes(app_project):
         resumed = await app.resume_workflow("ApprovalFlow", "t-app", "no")
         # both run_workflow and resume_workflow write to the event log now (issue #137) —
         # read it back rather than trusting each call's own bookkeeping.
-        events = await app.store.read("t-app", run_context("t-app"))
+        events = await app.store.read("t-app", RunContext(run_id="reader", session_id="t-app"))
         return paused, pending, resumed, [event.kind for event in events]
 
     paused, pending, resumed, kinds = asyncio.run(_scenario())

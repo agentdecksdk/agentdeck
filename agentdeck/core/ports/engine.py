@@ -1,6 +1,6 @@
 """The engine boundary: start a run, yield payloads until it ends.
 
-An engine yields payloads and nothing else — no envelopes, no ``seq``, no tenant — so
+An engine yields payloads and nothing else — no envelopes, no ``seq``, no namespace — so
 ordering and isolation stay with the Runtime and an engine cannot get them wrong.
 """
 
