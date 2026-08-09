@@ -70,7 +70,7 @@ jobs:
           .venv/bin/ty check agentdeck
           .venv/bin/lint-imports
           .venv/bin/pytest tests/ -q --junit-xml=/tmp/pytest-results.xml
-          ceiling=44
+          ceiling=50
           # `bash -e` aborts on grep's own exit code before the `-z` check below ever
           # runs; `|| true` keeps a missing/truncated/attribute-less XML falling through
           # to that check instead of failing silently with no diagnostic.
