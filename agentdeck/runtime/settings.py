@@ -98,6 +98,19 @@ class SectionedYamlSource(YamlConfigSettingsSource):
         return dict(sub) if isinstance(sub, Mapping) else {}
 
 
+def default_use_responses() -> bool:
+    """Default to the SDK's Responses transport, overridable via env.
+
+    Set ``OPENAI_USE_RESPONSES=false`` when targeting a Chat-Completions-
+    only model server. Default deployments pick up real per-message
+    response ids and avoid the ``FAKE_RESPONSES_ID`` collision entirely.
+    """
+    raw = os.environ.get("OPENAI_USE_RESPONSES")
+    if raw is None:
+        return True
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
 def _yaml_section_for_prefix(prefix: str) -> str:
     """Map an env_prefix to its YAML section name.
 
@@ -350,7 +363,7 @@ class McpSettings(LayeredSettings):
     deep-merges the map across layers, so env need only restate what changes —
     e.g. ``{"agentdeck":{"url":"http://knowledge-mcp:8765/mcp"}}`` overrides just
     that server's URL and keeps the rest of its YAML spec. Agents reference
-    servers by name via ``BaseAgent.mcp_server_names``; this class owns *how* to
+    servers by name via ``Agent.mcp``; this class owns *how* to
     reach each one.
     """
 
@@ -594,6 +607,7 @@ __all__ = [
     "Settings",
     "SkillsSettings",
     "TavilySettings",
+    "default_use_responses",
     "get_settings",
     "reset_settings_cache",
     "resolve_config_path",

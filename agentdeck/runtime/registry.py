@@ -21,14 +21,18 @@ _PROJECT_ALIAS = "agentdeck_project"
 
 @dataclass(slots=True)
 class PluginRegistry(Generic[T]):
-    """Discover ``T`` subclasses in ``<package>/<type_dir>/<bundle>/<module_name>.py``.
+    """Discover ``T`` instances in ``<package>/<type_dir>/<bundle>/<module_name>.py``.
 
     Lazy: discovery runs on the first :meth:`list` call and is cached on
     the instance. Pass ``refresh=True`` to force a re-scan. Two *different* bundles
-    that define a class of the same name raise ``ConfigError`` naming both bundle
+    that declare an invocable of the same name raise ``ConfigError`` naming both bundle
     paths — one name is one invocable, never a silent shadow in bundle-sort order.
-    A single bundle binding one class under two names (e.g. an alias kept after a
-    rename) is not a collision: it is the same object claiming its name twice.
+    A single bundle exposing the same instance under two names (e.g. an alias kept
+    after a rename) is not a collision: it is the same object claiming its name twice.
+
+    ``base_class`` is matched by ``isinstance`` — a bundle module holds one or more
+    already-constructed ``Agent``/``Workflow`` instances (``authoring``'s ``Agent(...)``,
+    ``Workflow(...)``), not subclasses to discover.
     """
 
     package: str
@@ -36,9 +40,9 @@ class PluginRegistry(Generic[T]):
     module_name: str
     type_dir: str
     label: str = "plugin"
-    _cache: dict[str, type[T]] | None = field(default=None, init=False, repr=False)
+    _cache: dict[str, T] | None = field(default=None, init=False, repr=False)
 
-    def list(self, *, refresh: bool = False) -> dict[str, type[T]]:
+    def list(self, *, refresh: bool = False) -> dict[str, T]:
         """Return the discovered bundles. The result is the live cache — treat
         it as read-only; mutations corrupt subsequent lookups.
         """
@@ -46,14 +50,14 @@ class PluginRegistry(Generic[T]):
             self._cache = self._scan()
         return self._cache
 
-    def get(self, name: str) -> type[T]:
+    def get(self, name: str) -> T:
         plugins = self.list()
         try:
             return plugins[name]
         except KeyError:
             raise NotFoundError(f"No {self.label} named {name!r}. Available: {sorted(plugins)}.") from None
 
-    def _scan(self) -> dict[str, type[T]]:
+    def _scan(self) -> dict[str, T]:
         project_root = _package_dir(self.package)
         if project_root is None or not project_root.is_dir():
             return {}
@@ -61,8 +65,8 @@ class PluginRegistry(Generic[T]):
         if not root.is_dir():
             self._reject_legacy_layout(project_root)
             return {}
-        found: dict[str, type[T]] = {}
-        bundle_of: dict[str, str] = {}  # class name -> bundle dir that claimed it, for the collision message
+        found: dict[str, T] = {}
+        bundle_of: dict[str, str] = {}  # invocable name -> bundle dir that claimed it, for the collision message
         for child in sorted(root.iterdir()):
             if not self._is_bundle(child):
                 continue
@@ -72,28 +76,23 @@ class PluginRegistry(Generic[T]):
             except Exception as exc:
                 bundle_file = f"{self.type_dir}/{child.name}/{self.module_name}.py"
                 raise ConfigError(f"{bundle_file} failed to import: {exc}") from exc
-            # ``attr.__module__ == module.__name__`` filters re-exports —
-            # only classes defined in this module are registered.
             for attr in vars(module).values():
-                if (
-                    isinstance(attr, type)
-                    and issubclass(attr, self.base_class)
-                    and attr is not self.base_class
-                    and attr.__module__ == module.__name__
-                ):
-                    # Identity, not name: ``vars(module)`` yields one entry per *binding*, so a
-                    # bundle aliasing its own class under a second name (kept after a rename)
-                    # must not trip this against itself — only a second, different class
-                    # claiming a name already taken is the collision.
-                    claimant = found.get(attr.__name__)
-                    if claimant is not None and claimant is not attr:
-                        raise ConfigError(
-                            f"two bundles under '{self.type_dir}/' both define the {self.label} class "
-                            f"{attr.__name__!r}: '{self.type_dir}/{bundle_of[attr.__name__]}' and "
-                            f"'{self.type_dir}/{child.name}'; one name is one invocable — rename one of the classes."
-                        )
-                    found[attr.__name__] = attr
-                    bundle_of[attr.__name__] = child.name
+                if not isinstance(attr, self.base_class):
+                    continue
+                name = attr.name
+                # Identity, not name: ``vars(module)`` yields one entry per *binding*, so a
+                # bundle aliasing its own instance under a second name (kept after a rename)
+                # must not trip this against itself — only a second, different instance
+                # claiming a name already taken is the collision.
+                claimant = found.get(name)
+                if claimant is not None and claimant is not attr:
+                    raise ConfigError(
+                        f"two bundles under '{self.type_dir}/' both define the {self.label} "
+                        f"{name!r}: '{self.type_dir}/{bundle_of[name]}' and "
+                        f"'{self.type_dir}/{child.name}'; one name is one invocable — rename one of them."
+                    )
+                found[name] = attr
+                bundle_of[name] = child.name
         return found
 
     def _reject_legacy_layout(self, project_root: Path) -> None:

@@ -12,30 +12,27 @@ from agentdeck.runtime.registry import PluginRegistry
 from agentdeck.skills.executor import SkillEnvError, SkillExecutionError
 
 AGENT_PY = """
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
-class Greeter(BaseAgent):
-    instructions = "Greet the user."
+greeter = Agent(name="Greeter", instructions="Greet the user.")
 """
 
-# Same class name as AGENT_PY's, authored under a second bundle — the "copied greeter/,
-# forgot to rename the class" repro from #82.
+# Same invocable name as AGENT_PY's, authored under a second bundle — the "copied greeter/,
+# forgot to rename it" repro from #82.
 GREETER_V2_AGENT_PY = """
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
-class Greeter(BaseAgent):
-    instructions = "Greet the user, v2."
+greeter = Agent(name="Greeter", instructions="Greet the user, v2.")
 """
 
-# One bundle, one class, bound under a second name — an alias kept after a rename. Not a
-# collision: it is the same class object claiming its own name twice, not two classes.
+# One bundle, one instance, bound under a second name — an alias kept after a rename. Not a
+# collision: it is the same object claiming its own name twice, not two different agents.
 ALIASED_AGENT_PY = """
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
-class Greeter(BaseAgent):
-    instructions = "Greet the user."
+greeter = Agent(name="Greeter", instructions="Greet the user.")
 
-GreeterAgent = Greeter
+greeter_agent = greeter
 """
 
 

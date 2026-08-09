@@ -1,4 +1,5 @@
-"""Discovery: the ``.agentdeck/`` project dir becomes the invocables a Runtime can run.
+"""Discovery: the ``.agentdeck/`` project dir (or a code-first list) becomes the invocables a
+Runtime can run.
 
 One registry for every shape a project authors — an agent bundle and a workflow bundle
 both come out as an ``InvocableSpec``, so the Runtime is handed one mapping and never
@@ -10,14 +11,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Final
 
-from agentdeck.agents.registry import AgentRegistry
+from agentdeck.authoring.agent import Agent
+from agentdeck.authoring.compile import compile_agent, link_handoffs
+from agentdeck.authoring.workflow import Workflow
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.errors import ConfigError
-from agentdeck.runtime.registry import mount_project_dir
-from agentdeck.workflows.registry import WorkflowRegistry
+from agentdeck.runtime.registry import PluginRegistry, mount_project_dir
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
+
+    from agents import Agent as SDKAgent
+    from agents.tool import FunctionTool
 
     from agentdeck.core.ports import EnginePort
 
@@ -40,7 +45,8 @@ DURABLE_KEY: Final[str] = "durable"
 
 
 class InvocableRegistry:
-    """The one registry of what a project can run, built from its ``.agentdeck/`` bundles.
+    """The one registry of what a project can run — from ``.agentdeck/`` bundles, or from a
+    code-first ``agents=``/``workflows=`` list a :class:`~agentdeck.Deck` already holds.
 
     Construct it with the engines the Runtime was given; :meth:`load` then returns the
     mapping the Runtime takes, and raises instead if the project asks for an engine nobody
@@ -50,28 +56,59 @@ class InvocableRegistry:
     def __init__(self, engines: Sequence[EnginePort]) -> None:
         self._engines = frozenset(engine.engine for engine in engines)
 
-    def load(self) -> Mapping[str, InvocableSpec]:
-        """Import every bundle under ``./.agentdeck`` and compile it to an ``InvocableSpec``.
+    def load(
+        self,
+        *,
+        agents: Sequence[Agent] | None = None,
+        workflows: Sequence[Workflow] | None = None,
+        resolve_skills: Callable[[Sequence[str]], tuple[str, Sequence[FunctionTool]]] | None = None,
+        resolve_workflow_tool: Callable[[Workflow], FunctionTool] | None = None,
+    ) -> Mapping[str, InvocableSpec]:
+        """Compile every agent and workflow to an ``InvocableSpec``.
+
+        ``agents``/``workflows`` default to a discovery scan of ``./.agentdeck`` (one
+        ``Agent``/``Workflow`` instance per bundle module); pass explicit sequences for a
+        code-first catalog instead — ``Deck.from_project()`` and ``Deck(agents=..., ...)``
+        both end up here, so the two build the same way. ``resolve_skills``/
+        ``resolve_workflow_tool`` are the catalog-aware hooks ``compile_agent`` needs for
+        ``skills=``/a workflow used as a tool; a bare discovery scan passes neither, so an
+        agent declaring either fails loudly rather than compiling silently short.
 
         Eager on purpose: a bundle that can't be imported, an agent that can't be built and
-        an engine that isn't registered all fail here, the way ``App.load()`` fails.
+        an engine that isn't registered all fail here, not mid-conversation.
         """
-        package = mount_project_dir()
+        if agents is None:
+            agents = list(self._discover(Agent, type_dir="agents", module_name="agent", label="agent").values())
+        if workflows is None:
+            workflows = list(
+                self._discover(Workflow, type_dir="workflows", module_name="workflow", label="workflow").values()
+            )
         specs: dict[str, InvocableSpec] = {}
-        for name, agent in AgentRegistry(package).list(refresh=True).items():
-            self._add(specs, name, InvocableKind.AGENT, agent.build())
-        for name, workflow in WorkflowRegistry(package).list(refresh=True).items():
+        compiled: dict[str, SDKAgent] = {
+            agent.name: compile_agent(agent, resolve_skills=resolve_skills, resolve_workflow_tool=resolve_workflow_tool)
+            for agent in agents
+        }
+        link_handoffs(compiled, agents)
+        for agent in agents:
+            self._add(specs, agent.name, InvocableKind.AGENT, compiled[agent.name])
+        for workflow in workflows:
             # uncompiled: the langgraph adapter compiles the graph itself, around the checkpointer
             # ``durable`` names — which is why that flag travels with the spec rather than staying
-            # on a class only v1 can see.
+            # on the Workflow only the authoring layer can see.
             self._add(
                 specs,
-                name,
+                workflow.name,
                 InvocableKind.WORKFLOW,
                 workflow.build_graph(),
                 metadata={DURABLE_KEY: workflow.durable},
             )
         return specs
+
+    def _discover(self, base_class: type, *, type_dir: str, module_name: str, label: str) -> dict[str, Any]:
+        package = mount_project_dir()
+        return PluginRegistry(
+            package, base_class=base_class, module_name=module_name, type_dir=type_dir, label=label
+        ).list(refresh=True)
 
     def _add(
         self,
@@ -81,12 +118,12 @@ class InvocableRegistry:
         native: Any,
         metadata: dict[str, Any] | None = None,
     ) -> None:
-        # Only catches a collision across kinds; a collision within one kind (two agent
-        # bundles exporting the same class name) already raised inside the v1 scan that fed this.
+        # Only catches a collision across kinds; a collision within one kind (two bundles
+        # exposing the same invocable name) already raised inside the scan that fed this.
         if name in specs:
             raise ConfigError(
-                f"two bundles are both named {name!r} (kinds: {specs[name].kind.value} and {kind.value}); "
-                "one name is one invocable — rename one of the classes."
+                f"an agent and a workflow are both named {name!r} (kinds: {specs[name].kind.value} and "
+                f"{kind.value}); one name is one invocable — rename one of them."
             )
         engine = ENGINE_FOR_KIND[kind]
         if engine not in self._engines:

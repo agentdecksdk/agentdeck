@@ -1,4 +1,4 @@
-"""LangGraph checkpointer support for ``BaseWorkflow`` (issue #3): ``durable=True``
+"""LangGraph checkpointer support for ``Workflow`` (issue #3): ``durable=True``
 compiles with a checkpointer resolved from ``AGENTDECK_CHECKPOINT_*`` settings and
 threads ``thread_id`` through so state accumulates per thread; ``durable=False``
 (the default) is byte-for-byte today's behavior.
@@ -13,35 +13,31 @@ import sys
 import textwrap
 
 import pytest
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
+from agentdeck.authoring import Workflow
 from agentdeck.runtime.settings import reset_settings_cache
-from agentdeck.workflows import END, BaseWorkflow, StateGraph
 
 
 class CounterState(BaseModel):
     count: int = 0
 
 
-def _make_counter_workflow(*, durable: bool) -> type[BaseWorkflow]:
-    """A fresh workflow class per test — ``_compiled`` is cached on the class itself."""
+def _build_counter_graph():
+    g = StateGraph(CounterState)
+    # Reads ``s.count`` off whatever state the runner hands the node — the
+    # resumed checkpoint on a repeat call with the same thread_id, or the
+    # schema default on a fresh thread — so accumulation is observable.
+    g.add_node("inc", lambda s: {"count": s.count + 1})
+    g.set_entry_point("inc")
+    g.add_edge("inc", END)
+    return g
 
-    class CounterFlow(BaseWorkflow):
-        state = CounterState
 
-        @classmethod
-        def build_graph(cls):
-            g = StateGraph(cls.state)
-            # Reads ``s.count`` off whatever state the runner hands the node — the
-            # resumed checkpoint on a repeat call with the same thread_id, or the
-            # schema default on a fresh thread — so accumulation is observable.
-            g.add_node("inc", lambda s: {"count": s.count + 1})
-            g.set_entry_point("inc")
-            g.add_edge("inc", END)
-            return g
-
-    CounterFlow.durable = durable
-    return CounterFlow
+def _make_counter_workflow(*, durable: bool) -> Workflow:
+    """A fresh ``Workflow`` per test — nothing is cached across instances."""
+    return Workflow(name="CounterFlow", state=CounterState, durable=durable, graph=_build_counter_graph)
 
 
 @pytest.fixture(autouse=True)
@@ -125,25 +121,22 @@ def test_durable_sqlite_backend_builds_outside_an_event_loop(tmp_path, monkeypat
 
 _RESTART_SCRIPT = """
 import asyncio
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
-from agentdeck.workflows import END, BaseWorkflow, StateGraph
+from agentdeck.authoring import Workflow
 
 class State(BaseModel):
     count: int = 0
 
-class CounterFlow(BaseWorkflow):
-    state = State
-    durable = True
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("inc", lambda s: {"count": s.count + 1})
+    g.set_entry_point("inc")
+    g.add_edge("inc", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("inc", lambda s: {"count": s.count + 1})
-        g.set_entry_point("inc")
-        g.add_edge("inc", END)
-        return g
-
-result = asyncio.run(CounterFlow.run(None, thread_id="restart-test"))
+counter_flow = Workflow(name="CounterFlow", state=State, durable=True, graph=_build_graph)
+result = asyncio.run(counter_flow.run(None, thread_id="restart-test"))
 print(result["count"])
 """
 
@@ -167,6 +160,7 @@ def test_durable_sqlite_backend_resumes_after_process_restart(tmp_path, monkeypa
         text=True,
         env=env,
         check=True,
+        timeout=60,
     )
     second = subprocess.run(
         [sys.executable, "-c", textwrap.dedent(_RESTART_SCRIPT)],
@@ -174,6 +168,7 @@ def test_durable_sqlite_backend_resumes_after_process_restart(tmp_path, monkeypa
         text=True,
         env=env,
         check=True,
+        timeout=60,
     )
 
     assert int(first.stdout.strip()) == 1

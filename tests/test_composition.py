@@ -25,16 +25,17 @@ from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import EventsSettings, reset_settings_cache
 
 AGENT_PY = """
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
-class Greeter(BaseAgent):
-    instructions = "Greet the user."
+greeter = Agent(name="Greeter", instructions="Greet the user.")
 """
 
 WORKFLOW_PY = """
 from typing import TypedDict
 
-from agentdeck.workflows import END, BaseWorkflow, StateGraph
+from langgraph.graph import END, StateGraph
+
+from agentdeck.authoring import Workflow
 
 
 class State(TypedDict, total=False):
@@ -42,16 +43,15 @@ class State(TypedDict, total=False):
     shouted: str
 
 
-class Shout(BaseWorkflow):
-    state = State
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("shout", lambda s: {"shouted": s["input"].upper()})
+    g.set_entry_point("shout")
+    g.add_edge("shout", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("shout", lambda s: {"shouted": s["input"].upper()})
-        g.set_entry_point("shout")
-        g.add_edge("shout", END)
-        return g
+
+shout = Workflow(name="Shout", state=State, graph=_build_graph)
 """
 
 CTX = RunContext(namespace="local", run_id="r1")

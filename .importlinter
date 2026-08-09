@@ -30,8 +30,7 @@ forbidden_modules =
     fastapi
     redis
     psycopg
-    agentdeck.agents
-    agentdeck.workflows
+    agentdeck.authoring
     agentdeck.skills
     agentdeck.runtime
     agentdeck.serve
@@ -54,8 +53,7 @@ forbidden_modules =
     redis
     psycopg
     agentdeck.adapters
-    agentdeck.agents
-    agentdeck.workflows
+    agentdeck.authoring
     agentdeck.skills
     agentdeck.serve
     agentdeck.app
@@ -81,8 +79,7 @@ forbidden_modules =
     redis
     psycopg
     agentdeck.runtime
-    agentdeck.agents
-    agentdeck.workflows
+    agentdeck.authoring
     agentdeck.skills
     agentdeck.serve
     agentdeck.app
@@ -104,9 +101,10 @@ forbidden_modules =
 # Checkpointer relocation (#53): langgraph is now the langgraph adapter's business, the
 # same way `agents` is openai_agents's (`pure-adapters-stay-pure` above already forbids it
 # for the pure stores/stub; this is the v2-wide version, for every module ADR-D5 says must
-# never see a checkpointer). v1 (`agentdeck.workflows` and its `runtime.checkpointer`
-# legacy re-export shim, #53) keeps importing langgraph directly — frozen behavior, not
-# covered here on purpose; only new v2 code is held to this.
+# never see a checkpointer). `agentdeck.authoring` is deliberately absent from this contract's
+# source_modules — it compiles ``Workflow``/``Agent`` declarations for either engine, so it
+# needs both `agents` and `langgraph` directly (amended #164: authoring/ imports core/ plus
+# the engine SDKs it compiles to, not core/ alone).
 [importlinter:contract:langgraph-is-engine-private]
 name = only the langgraph adapter imports langgraph directly (v2 modules)
 type = forbidden
@@ -142,8 +140,7 @@ forbidden_modules =
     fastapi
     psycopg
     agentdeck.runtime
-    agentdeck.agents
-    agentdeck.workflows
+    agentdeck.authoring
     agentdeck.skills
     agentdeck.serve
     agentdeck.app
@@ -158,8 +155,7 @@ forbidden_modules =
     fastapi
     redis
     agentdeck.runtime
-    agentdeck.agents
-    agentdeck.workflows
+    agentdeck.authoring
     agentdeck.skills
     agentdeck.serve
     agentdeck.app
@@ -183,8 +179,7 @@ source_modules =
     agentdeck.surfaces
     agentdeck.serve
     agentdeck.app
-    agentdeck.agents
-    agentdeck.workflows
+    agentdeck.authoring
     agentdeck.skills
 forbidden_modules =
     mcp
@@ -236,8 +231,7 @@ forbidden_modules =
     agentdeck.adapters.stores
     agentdeck.adapters.telemetry
     agentdeck.adapters.tools
-    agentdeck.agents
-    agentdeck.workflows
+    agentdeck.authoring
     agentdeck.skills
     agentdeck.surfaces
     agentdeck.serve
@@ -261,8 +255,7 @@ forbidden_modules =
     agentdeck.adapters.engines
     agentdeck.adapters.stores
     agentdeck.adapters.tools
-    agentdeck.agents
-    agentdeck.workflows
+    agentdeck.authoring
     agentdeck.skills
     agentdeck.surfaces
     agentdeck.serve

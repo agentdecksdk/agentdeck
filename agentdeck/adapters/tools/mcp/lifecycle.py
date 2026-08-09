@@ -166,7 +166,7 @@ class MCPLifecycle:
 
         Lets agents declared at import time wire up the same instance the lifecycle
         connects later. ``None`` when the name is unknown or its connect failed —
-        callers (``BaseAgent._kwargs``) filter that out to boot with reduced capability.
+        callers (``authoring.compile.compile_agent``) filter that out to boot with reduced capability.
         """
         if name in cls._failed:
             return None

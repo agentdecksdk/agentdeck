@@ -12,8 +12,10 @@ import pytest
 pytest.importorskip("fastapi")
 
 APPROVAL_WORKFLOW_PY = """
+from langgraph.graph import END, StateGraph
+from langgraph.types import interrupt
 from pydantic import BaseModel
-from agentdeck.workflows import END, BaseWorkflow, StateGraph, interrupt
+from agentdeck.authoring import Workflow
 
 class State(BaseModel):
     request: str = ""
@@ -21,21 +23,18 @@ class State(BaseModel):
     decision: str = ""
     outcome: str = ""
 
-class ApprovalFlow(BaseWorkflow):
-    state = State
-    durable = True
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("prepare", lambda s: {"prepared": s.prepared + 1})
+    g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
+    g.add_node("done", lambda s: {"outcome": "booked" if s.decision == "yes" else "dropped"})
+    g.set_entry_point("prepare")
+    g.add_edge("prepare", "ask")
+    g.add_edge("ask", "done")
+    g.add_edge("done", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("prepare", lambda s: {"prepared": s.prepared + 1})
-        g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
-        g.add_node("done", lambda s: {"outcome": "booked" if s.decision == "yes" else "dropped"})
-        g.set_entry_point("prepare")
-        g.add_edge("prepare", "ask")
-        g.add_edge("ask", "done")
-        g.add_edge("done", END)
-        return g
+approval_flow = Workflow(name="ApprovalFlow", state=State, durable=True, graph=_build_graph)
 """
 
 

@@ -9,12 +9,12 @@ from types import SimpleNamespace
 import pytest
 from scripted_model import ScriptedModel, patch_provider, provider_of
 
-from agentdeck.agents.runners.headless import HeadlessRunner, StreamDone
+from agentdeck.authoring.runners.agent import HeadlessRunner, StreamDone
 
 AGENT_PY = """
 from agents import function_tool
 
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
 
 @function_tool
@@ -23,13 +23,8 @@ def lookup_slot(day: str) -> str:
     return f"{day} 09:00"
 
 
-class Greeter(BaseAgent):
-    instructions = "Greet the user."
-
-
-class Tooler(BaseAgent):
-    instructions = "Use the tool, then answer."
-    tools = [lookup_slot]
+greeter = Agent(name="Greeter", instructions="Greet the user.")
+tooler = Agent(name="Tooler", instructions="Use the tool, then answer.", tools=[lookup_slot])
 """
 
 
@@ -103,7 +98,7 @@ async def test_run_streamed_yields_deltas_incrementally(project, monkeypatch):
         captured_kwargs.update(kwargs)
         return fake_result
 
-    monkeypatch.setattr("agentdeck.agents.runners.headless.Runner.run_streamed", fake_run_streamed)
+    monkeypatch.setattr("agentdeck.authoring.runners.agent.Runner.run_streamed", fake_run_streamed)
 
     sentinel_session = object()
     chunks = [c async for c in runner.run_streamed("hi", session=sentinel_session)]
@@ -129,7 +124,7 @@ async def test_run_streamed_cancels_sdk_run_on_abandonment(project, monkeypatch)
 
     fake_result = FakeRunResultStreaming(events=[_delta_event("a"), _delta_event("b")], final_output="ab")
     monkeypatch.setattr(
-        "agentdeck.agents.runners.headless.Runner.run_streamed",
+        "agentdeck.authoring.runners.agent.Runner.run_streamed",
         lambda agent, message, **kwargs: fake_result,
     )
 

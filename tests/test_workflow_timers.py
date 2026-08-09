@@ -12,8 +12,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from agentdeck.authoring.timers import TIMER_TYPE
 from agentdeck.runtime.settings import reset_settings_cache
-from agentdeck.workflows.timers import TIMER_TYPE
 
 
 @pytest.fixture(autouse=True)
@@ -80,12 +80,22 @@ def app_project_timers(tmp_path, monkeypatch):
 
     root = tmp_path / ".agentdeck" / "workflows"
     for name, module_src in [
-        ("past_timer_flow", _TIMER_WORKFLOW_PY.format(cls="PastTimerFlow", when=f'datetime.fromisoformat("{past}")')),
+        (
+            "past_timer_flow",
+            _TIMER_WORKFLOW_PY.format(
+                cls="PastTimerFlow", var="past_timer_flow", when=f'datetime.fromisoformat("{past}")'
+            ),
+        ),
         (
             "future_timer_flow",
-            _TIMER_WORKFLOW_PY.format(cls="FutureTimerFlow", when=f'datetime.fromisoformat("{future}")'),
+            _TIMER_WORKFLOW_PY.format(
+                cls="FutureTimerFlow", var="future_timer_flow", when=f'datetime.fromisoformat("{future}")'
+            ),
         ),
-        ("naive_timer_flow", _TIMER_WORKFLOW_PY.format(cls="NaiveTimerFlow", when="datetime(2030, 1, 1)")),
+        (
+            "naive_timer_flow",
+            _TIMER_WORKFLOW_PY.format(cls="NaiveTimerFlow", var="naive_timer_flow", when="datetime(2030, 1, 1)"),
+        ),
     ]:
         bundle = root / name
         bundle.mkdir(parents=True)
@@ -101,46 +111,42 @@ def app_project_timers(tmp_path, monkeypatch):
 
 _TIMER_WORKFLOW_PY = """
 from datetime import datetime
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
-from agentdeck.workflows import END, BaseWorkflow, StateGraph, sleep_until
+from agentdeck.authoring import Workflow, sleep_until
 
 class State(BaseModel):
     woke_at: str = ""
 
-class {cls}(BaseWorkflow):
-    state = State
-    durable = True
+def _build_graph():
+    g = StateGraph(State)
+    # distinct node name per workflow: foreign-graph replay only sees interrupts on nodes that graph has too
+    g.add_node("{cls}_wait", lambda s: {{"woke_at": str(sleep_until({when}))}})
+    g.set_entry_point("{cls}_wait")
+    g.add_edge("{cls}_wait", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        # distinct node name per workflow: foreign-graph replay only sees interrupts on nodes that graph has too
-        g.add_node("{cls}_wait", lambda s: {{"woke_at": str(sleep_until({when}))}})
-        g.set_entry_point("{cls}_wait")
-        g.add_edge("{cls}_wait", END)
-        return g
+{var} = Workflow(name="{cls}", state=State, durable=True, graph=_build_graph)
 """
 
 
 _RESTART_WORKFLOW_PY = """
 from datetime import datetime, timedelta, timezone
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
-from agentdeck.workflows import END, BaseWorkflow, StateGraph, sleep_until
+from agentdeck.authoring import Workflow, sleep_until
 
 class State(BaseModel):
     woke_at: str = ""
 
-class TimerFlow(BaseWorkflow):
-    state = State
-    durable = True
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("wait", lambda s: {"woke_at": str(sleep_until(datetime.now(timezone.utc) - timedelta(days=1)))})
+    g.set_entry_point("wait")
+    g.add_edge("wait", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("wait", lambda s: {"woke_at": str(sleep_until(datetime.now(timezone.utc) - timedelta(days=1)))})
-        g.set_entry_point("wait")
-        g.add_edge("wait", END)
-        return g
+timer_flow = Workflow(name="TimerFlow", state=State, durable=True, graph=_build_graph)
 """
 
 _RESTART_SCRIPT = """

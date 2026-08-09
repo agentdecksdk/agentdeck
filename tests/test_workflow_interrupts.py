@@ -10,12 +10,14 @@ import sys
 import textwrap
 
 import pytest
+from langgraph.graph import END, StateGraph
+from langgraph.types import interrupt
 from pydantic import BaseModel
 
+from agentdeck.authoring import Workflow
 from agentdeck.core.context import RunContext
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.runtime.settings import reset_settings_cache
-from agentdeck.workflows import END, BaseWorkflow, StateGraph, interrupt
 
 
 class ApprovalState(BaseModel):
@@ -25,33 +27,27 @@ class ApprovalState(BaseModel):
     outcome: str = ""
 
 
-def _make_approval_workflow(*, durable: bool) -> type[BaseWorkflow]:
-    """Prepare -> ask a human -> approved/rejected branch. Fresh class per test
-    (``_compiled`` is cached on the class itself)."""
+def _build_approval_graph():
+    g = StateGraph(ApprovalState)
+    g.add_node("prepare", lambda s: {"prepared": s.prepared + 1})
+    g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
+    g.add_node("approved", lambda s: {"outcome": f"booked:{s.request}"})
+    g.add_node("rejected", lambda s: {"outcome": "dropped"})
+    g.set_entry_point("prepare")
+    g.add_edge("prepare", "ask")
+    g.add_conditional_edges(
+        "ask",
+        lambda s: "approved" if s.decision == "yes" else "rejected",
+        {"approved": "approved", "rejected": "rejected"},
+    )
+    g.add_edge("approved", END)
+    g.add_edge("rejected", END)
+    return g
 
-    class ApprovalFlow(BaseWorkflow):
-        state = ApprovalState
 
-        @classmethod
-        def build_graph(cls):
-            g = StateGraph(cls.state)
-            g.add_node("prepare", lambda s: {"prepared": s.prepared + 1})
-            g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
-            g.add_node("approved", lambda s: {"outcome": f"booked:{s.request}"})
-            g.add_node("rejected", lambda s: {"outcome": "dropped"})
-            g.set_entry_point("prepare")
-            g.add_edge("prepare", "ask")
-            g.add_conditional_edges(
-                "ask",
-                lambda s: "approved" if s.decision == "yes" else "rejected",
-                {"approved": "approved", "rejected": "rejected"},
-            )
-            g.add_edge("approved", END)
-            g.add_edge("rejected", END)
-            return g
-
-    ApprovalFlow.durable = durable
-    return ApprovalFlow
+def _make_approval_workflow(*, durable: bool) -> Workflow:
+    """Prepare -> ask a human -> approved/rejected branch. Fresh ``Workflow`` per test."""
+    return Workflow(name="ApprovalFlow", state=ApprovalState, durable=durable, graph=_build_approval_graph)
 
 
 def run_context(session_id: str | None = None) -> RunContext:
@@ -165,8 +161,10 @@ def test_workflow_without_interrupts_still_returns_its_final_state():
 
 
 APPROVAL_WORKFLOW_PY = """
+from langgraph.graph import END, StateGraph
+from langgraph.types import interrupt
 from pydantic import BaseModel
-from agentdeck.workflows import END, BaseWorkflow, StateGraph, interrupt
+from agentdeck.authoring import Workflow
 
 class State(BaseModel):
     request: str = ""
@@ -174,42 +172,37 @@ class State(BaseModel):
     decision: str = ""
     outcome: str = ""
 
-class ApprovalFlow(BaseWorkflow):
-    state = State
-    durable = True
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("prepare", lambda s: {"prepared": s.prepared + 1})
+    g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
+    g.add_node("done", lambda s: {"outcome": "booked" if s.decision == "yes" else "dropped"})
+    g.set_entry_point("prepare")
+    g.add_edge("prepare", "ask")
+    g.add_edge("ask", "done")
+    g.add_edge("done", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("prepare", lambda s: {"prepared": s.prepared + 1})
-        g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
-        g.add_node("done", lambda s: {"outcome": "booked" if s.decision == "yes" else "dropped"})
-        g.set_entry_point("prepare")
-        g.add_edge("prepare", "ask")
-        g.add_edge("ask", "done")
-        g.add_edge("done", END)
-        return g
+approval_flow = Workflow(name="ApprovalFlow", state=State, durable=True, graph=_build_graph)
 """
 
 
 PLAIN_WORKFLOW_PY = """
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
-from agentdeck.workflows import END, BaseWorkflow, StateGraph
+from agentdeck.authoring import Workflow
 
 class State(BaseModel):
     text: str = ""
 
-class PlainFlow(BaseWorkflow):
-    state = State
-    durable = True
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("shout", lambda s: {"text": s.text.upper()})
+    g.set_entry_point("shout")
+    g.add_edge("shout", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("shout", lambda s: {"text": s.text.upper()})
-        g.set_entry_point("shout")
-        g.add_edge("shout", END)
-        return g
+plain_flow = Workflow(name="PlainFlow", state=State, durable=True, graph=_build_graph)
 """
 
 
@@ -299,39 +292,38 @@ def test_app_surface_pauses_lists_and_resumes(app_project):
 
 _RESTART_SCRIPT = """
 import asyncio, json, sys
+from langgraph.graph import END, StateGraph
+from langgraph.types import interrupt
 from pydantic import BaseModel
-from agentdeck.workflows import END, BaseWorkflow, StateGraph, interrupt
+from agentdeck.authoring import Workflow
 
 class State(BaseModel):
     request: str = ""
     decision: str = ""
     outcome: str = ""
 
-class ApprovalFlow(BaseWorkflow):
-    state = State
-    durable = True
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
+    g.add_node("approved", lambda s: {"outcome": "booked:" + s.request})
+    g.add_node("rejected", lambda s: {"outcome": "dropped"})
+    g.set_entry_point("ask")
+    g.add_conditional_edges(
+        "ask",
+        lambda s: "approved" if s.decision == "yes" else "rejected",
+        {"approved": "approved", "rejected": "rejected"},
+    )
+    g.add_edge("approved", END)
+    g.add_edge("rejected", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
-        g.add_node("approved", lambda s: {"outcome": "booked:" + s.request})
-        g.add_node("rejected", lambda s: {"outcome": "dropped"})
-        g.set_entry_point("ask")
-        g.add_conditional_edges(
-            "ask",
-            lambda s: "approved" if s.decision == "yes" else "rejected",
-            {"approved": "approved", "rejected": "rejected"},
-        )
-        g.add_edge("approved", END)
-        g.add_edge("rejected", END)
-        return g
+approval_flow = Workflow(name="ApprovalFlow", state=State, durable=True, graph=_build_graph)
 
 async def main():
     if sys.argv[1] == "start":
-        return await ApprovalFlow.run({"request": "tue 9am"}, thread_id="restart-hitl")
-    pending = await ApprovalFlow.pending()
-    resumed = await ApprovalFlow.resume("restart-hitl", sys.argv[2])
+        return await approval_flow.run({"request": "tue 9am"}, thread_id="restart-hitl")
+    pending = await approval_flow.pending()
+    resumed = await approval_flow.resume("restart-hitl", sys.argv[2])
     return {"pending": pending, "resumed": resumed}
 
 print(json.dumps(asyncio.run(main())))

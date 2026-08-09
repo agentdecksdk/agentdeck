@@ -12,36 +12,32 @@ from agentdeck.core.context import RunContext
 AGENT_PY = """
 from pydantic import BaseModel
 
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
-class Greeter(BaseAgent):
-    instructions = "Greet the user."
+greeter = Agent(name="Greeter", instructions="Greet the user.")
 
 class Greeting(BaseModel):
     greeting: str
 
-class Structured(BaseAgent):
-    instructions = "Answer as JSON."
-    output_type = Greeting
+structured = Agent(name="Structured", instructions="Answer as JSON.", output_type=Greeting)
 """
 
 WORKFLOW_PY = """
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
-from agentdeck.workflows import END, BaseWorkflow, StateGraph
+from agentdeck.authoring import Workflow
 
 class State(BaseModel):
     text: str = ""
 
-class HelloFlow(BaseWorkflow):
-    state = State
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("shout", lambda s: {"text": s.text.upper()})
+    g.set_entry_point("shout")
+    g.add_edge("shout", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("shout", lambda s: {"text": s.text.upper()})
-        g.set_entry_point("shout")
-        g.add_edge("shout", END)
-        return g
+hello_flow = Workflow(name="HelloFlow", state=State, graph=_build_graph)
 """
 
 SKILL_MD = """---

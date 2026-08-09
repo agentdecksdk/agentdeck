@@ -199,6 +199,22 @@ of vanishing the moment the call returns.
   `run_workflow` is resumed outside the log: its own log entry stays `WAITING_HUMAN` until
   `stale_run_after` reclaims it.
 
+### Changed
+
+- **Breaking (v3.0.0 in progress, #164):** a bundle's `agent.py`/`workflow.py` now builds an
+  `Agent(...)`/`Workflow(...)` instance from `agentdeck.authoring` instead of subclassing
+  `BaseAgent`/`BaseWorkflow`. `agentdeck.agents` and `agentdeck.workflows` are removed;
+  `LoadFileNode` and `AgentNode` move to `agentdeck.authoring.nodes`, the capability mixins
+  move to `agentdeck.authoring.capabilities`, and `web_search` moves to
+  `agentdeck.authoring.web_search`. `Agent.mcp` replaces `BaseAgent.mcp_server_names`.
+  Subagent delegation (`BaseAgent.subagents`) and the sandboxed agent path
+  (`BaseSandboxAgent`, `SandboxAgentNode`) are dropped rather than ported — sandboxing is
+  disabled and tracked separately (#163); a workflow that needs a sub-run composes another
+  `Agent`/`Workflow` and calls it directly. `SkillNode` is removed along with it — a workflow
+  invokes a skill through its executor, not a graph node. This is the first slice of the
+  `Deck` composition API (#164); `App` still serves `.agentdeck/` projects unchanged for now
+  and is removed once `Deck` replaces it later in the same effort.
+
 ## [2.0.0] - 2026-08-06
 
 The release where agentdeck becomes a platform rather than a harness. Every turn — chat

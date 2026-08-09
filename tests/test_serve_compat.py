@@ -33,42 +33,38 @@ from agentdeck.surfaces.serve.compat import chat_frames, chat_result, interrupt_
 AGENT_PY = """
 from pydantic import BaseModel
 
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
 
 class Greeting(BaseModel):
     greeting: str
 
 
-class Greeter(BaseAgent):
-    instructions = "Greet the user."
-
-
-class Structured(BaseAgent):
-    instructions = "Answer as JSON."
-    output_type = Greeting
+greeter = Agent(name="Greeter", instructions="Greet the user.")
+structured = Agent(name="Structured", instructions="Answer as JSON.", output_type=Greeting)
 """
 
 WORKFLOW_PY = """
 from typing import TypedDict
 
-from agentdeck.workflows import END, BaseWorkflow, StateGraph
+from langgraph.graph import END, StateGraph
+
+from agentdeck.authoring import Workflow
 
 
 class State(TypedDict, total=False):
     input: str
 
 
-class Shout(BaseWorkflow):
-    state = State
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("shout", lambda s: {"input": s["input"].upper()})
+    g.set_entry_point("shout")
+    g.add_edge("shout", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("shout", lambda s: {"input": s["input"].upper()})
-        g.set_entry_point("shout")
-        g.add_edge("shout", END)
-        return g
+
+shout = Workflow(name="Shout", state=State, graph=_build_graph)
 """
 
 

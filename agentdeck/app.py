@@ -6,8 +6,8 @@ agents, workflows, and skills.
     app = App()                   # serves ./.agentdeck: agents/<bundle>/agent.py,
     app.load()                    # workflows/<bundle>/workflow.py and a skills/ dir
 
-    app.agents.get("FileAgent")                       # BaseAgent subclass
-    app.workflows.get("TranslateAndSummarize")        # BaseWorkflow subclass
+    app.agents.get("FileAgent")                       # Agent instance
+    app.workflows.get("TranslateAndSummarize")        # Workflow instance
     app.skills.get("md-segment-translate")            # SkillBundle
 
     result = await app.run_agent("FileAgent", "hello")   # TurnResult: .output, .usage
@@ -41,35 +41,29 @@ from typing import TYPE_CHECKING, Any
 from agentdeck.adapters.engines.langgraph import LangGraphEngine
 from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine, SessionFactory
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
-from agentdeck.agents.registry import AgentRegistry
-from agentdeck.composition import (
-    build_runtime,
-    resolve_agent_sandbox,
-    resolve_checkpoint,
-    resolve_run_settings,
-    resolve_workflow_workspace,
-)
+from agentdeck.authoring.agent import Agent as AuthoringAgent
+from agentdeck.authoring.interrupts import interrupt_result
+from agentdeck.authoring.timers import wake_at_of
+from agentdeck.authoring.workflow import Workflow as AuthoringWorkflow
+from agentdeck.composition import build_runtime, resolve_checkpoint, resolve_run_settings
 from agentdeck.core.content import DataBlock, TextBlock, coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
 from agentdeck.core.events import Custom, NodeUpdated, RunCompleted, RunInterrupted
 from agentdeck.errors import ConfigError, NotFoundError
-from agentdeck.runtime.registry import PROJECT_DIR, _package_dir, mount_project_dir
+from agentdeck.runtime.registry import PROJECT_DIR, PluginRegistry, _package_dir, mount_project_dir
 from agentdeck.runtime.settings import Settings, get_settings
 from agentdeck.skills.bundle import SkillRegistry
-from agentdeck.workflows.interrupts import interrupt_result
-from agentdeck.workflows.registry import WorkflowRegistry
-from agentdeck.workflows.timers import wake_at_of
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator
 
     from agents.memory.session import Session
 
+    from agentdeck.authoring.interrupts import InterruptResult
     from agentdeck.core.events import Event, Usage
     from agentdeck.core.ports import EventStorePort
     from agentdeck.runtime.service import PendingRun, Runtime
-    from agentdeck.workflows.interrupts import InterruptResult
 
 # Every Python call through App runs unnamespaced: this facade serves one deployment's own
 # agents, so there is nothing to keep apart. An application that does have something to
@@ -187,8 +181,8 @@ class App:
     directory: ``agents/<bundle>/agent.py``, ``workflows/<bundle>/workflow.py``, ``skills/``.
     """
 
-    agents: AgentRegistry = field(init=False)
-    workflows: WorkflowRegistry = field(init=False)
+    agents: PluginRegistry[AuthoringAgent] = field(init=False)
+    workflows: PluginRegistry[AuthoringWorkflow] = field(init=False)
     skills: SkillRegistry = field(init=False)
     # DI seam for tests: pass a prebuilt factory (or one wrapping fakeredis) to skip
     # `from_settings`'s real Redis client entirely.
@@ -201,8 +195,12 @@ class App:
 
     def __post_init__(self) -> None:
         package = mount_project_dir()
-        self.agents = AgentRegistry(package)
-        self.workflows = WorkflowRegistry(package)
+        self.agents = PluginRegistry(
+            package, base_class=AuthoringAgent, module_name="agent", type_dir="agents", label="agent"
+        )
+        self.workflows = PluginRegistry(
+            package, base_class=AuthoringWorkflow, module_name="workflow", type_dir="workflows", label="workflow"
+        )
         self.skills = SkillRegistry((_package_dir(package) or Path(PROJECT_DIR)) / "skills")
         if self.session_factory is None:
             self.session_factory = SessionFactory.from_settings(self.settings.session)
@@ -248,10 +246,6 @@ class App:
         agents = self.agents.list(refresh=True)
         workflows = self.workflows.list(refresh=True)
         skills = self.skills.list(refresh=True)
-        for agent_cls in agents.values():
-            agent_cls.build()
-        for wf_cls in workflows.values():
-            wf_cls.build()  # compiles + caches the LangGraph graph
         for bundle in skills.values():
             bundle.output_schema  # noqa: B018 — imports/validates the declared schema
         self.inventory = {
@@ -261,17 +255,13 @@ class App:
         }
         # One assembly seam, one caller: everything this App hands a surface comes from
         # `build_runtime`, so a second front door adds a caller instead of a second wiring.
+        # No sandbox= / workspace=: sandboxing is disabled in v3 (#163), and `InvocableRegistry`
+        # (inside `build_runtime`) is what actually compiles every agent/workflow here, catching
+        # a broken bundle the same way this method always has.
         self._runtime = build_runtime(
             engines=(
-                OpenAIAgentsEngine(
-                    self._sessions,
-                    settings=resolve_run_settings(),
-                    sandbox=resolve_agent_sandbox(),
-                ),
-                LangGraphEngine(
-                    durable_checkpoint=resolve_checkpoint(),
-                    workspace=resolve_workflow_workspace(),
-                ),
+                OpenAIAgentsEngine(self._sessions, settings=resolve_run_settings()),
+                LangGraphEngine(durable_checkpoint=resolve_checkpoint()),
             )
         )
         return self.inventory
@@ -302,7 +292,7 @@ class App:
         (so a later call with the same id resumes it), ignored otherwise.
 
         A run that stops on ``langgraph.types.interrupt()`` returns an
-        :class:`~agentdeck.workflows.interrupts.InterruptResult`
+        :class:`~agentdeck.authoring.interrupts.InterruptResult`
         (``{"type": "interrupt", "payload": ..., "thread_id": ...}``) instead of a final
         state; feed the human's answer back with :meth:`resume_workflow`.
         """
@@ -383,12 +373,12 @@ class App:
         **runner_options: Any,
     ) -> AsyncIterator[dict[str, Any] | InterruptResult]:
         """Streaming counterpart to :meth:`run_workflow`: a ``node_update`` event per completed
-        node, a ``custom`` event per nested :class:`~agentdeck.workflows.nodes.AgentNode`'s text
+        node, a ``custom`` event per nested :class:`~agentdeck.authoring.nodes.AgentNode`'s text
         delta (or any :func:`~langgraph.config.get_stream_writer` call), then one terminal
         ``done`` event carrying the final state. Same ``thread_id`` semantics as ``run_workflow``.
 
         A run that pauses on ``langgraph.types.interrupt()`` ends with an
-        :class:`~agentdeck.workflows.interrupts.InterruptResult` event instead of ``done``;
+        :class:`~agentdeck.authoring.interrupts.InterruptResult` event instead of ``done``;
         answer it with :meth:`resume_workflow`.
 
         Unlike ``run_workflow``, this does not yet play on the Runtime: it drives the graph
@@ -454,7 +444,7 @@ class App:
     async def chat_stream(self, name: str, session_id: str, message: Any) -> AsyncIterator[Event]:
         """Streaming counterpart to :meth:`chat`: yields the run's own canonical
         :class:`~agentdeck.core.events.Event`\\ s (``text.delta`` for each token, ``run.completed``
-        last) instead of raw text and a :class:`~agentdeck.agents.runners.StreamDone` sentinel —
+        last) instead of raw text and a :class:`~agentdeck.authoring.runners.agent.StreamDone` sentinel —
         the same events :attr:`store` would hand back after the fact, live as they're recorded.
 
         ``aclosing`` the Runtime's own generator, not just this one: a caller that walks away
