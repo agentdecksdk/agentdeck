@@ -17,6 +17,8 @@ Resolves #88. Blocks phases 5–6.
 | 7 | A workflow as an agent's ability | **Everything in `workflows=` is registered and root-invocable.** An agent references a *registered* workflow by name or object; an agent can never introduce a workflow the catalog does not already hold. |
 | 8 | Lifecycle | **`NEW → BUILT → OPEN → CLOSED`.** The catalog is immutable after `BUILT`, or the validation guarantee is worthless. `run`/`stream` require `OPEN`; `asgi()` owns OPEN/CLOSED through the ASGI lifespan. |
 | 9 | `Agent(base=…)` mechanics | **`base=` keyword only.** No positional base, no `.with(...)`. `Agent(...)` stays the one construction API. |
+| 12 | Capability wrappers | **A subsystem with real behavior gets an object** — `Skills(...)`, `MCP(...)` — so its options live there rather than on `Deck`. See `deck-capability-wrapper-pattern.md`. A bare path still works: `Deck` coerces `str`/`Sequence[str]` to the wrapper. Executable roots are **not** wrapped; there is no `Agents([...])`. |
+| 13 | Who closes a capability | **The Deck.** A wrapper is a *declaration*, inert until the deck opens — so the deck instantiated the connections from configuration and closes them. The ownership rule applies unchanged, with no exemption for capability arguments. |
 | 11 | Sandboxing | **A future ability, currently disabled and out of scope (#163).** No agent, tool or skill is sandboxed in v3; `BaseSandboxAgent` goes with `agents/` and nothing replaces it in `authoring/`. |
 | 10 | Declaration naming | **`BaseAgent` → `AgentDeclaration`, `BaseWorkflow` → `WorkflowDeclaration`.** In a breaking release, calling something `Base*` when it is a declarative *input* to `Agent(...)` is conceptual debt with no upgrade path later. |
 
@@ -34,8 +36,16 @@ booking_agent = Agent(
 deck = Deck(
     agents=[booking_agent, support_agent],
     workflows=[onboarding_workflow],
-    skills=["./skills", "./company-skills"],
-    mcp=".mcp.json",
+    skills=["./skills", "./company-skills"],     # coerced to Skills(...)
+    mcp=".mcp.json",                             # coerced to MCP(...)
+    context=MiddleContext,
+)
+
+# the same, when a subsystem needs options of its own
+deck = Deck(
+    agents=[booking_agent],
+    skills=Skills("./skills", validate=False),
+    mcp=MCP(".mcp.json"),
     context=MiddleContext,
 )
 deck.build()
@@ -74,10 +84,32 @@ NEW ──build()──► BUILT ──async with──► OPEN ──exit──
 require `OPEN`. `asgi()` owns the OPEN/CLOSED transitions through the ASGI lifespan, so a mounted
 deck needs no separate `async with`.
 
+## Capability wrappers
+
+A subsystem with behavior beyond holding a value — discovery, validation, indexing, connection —
+gets its own object, so its options grow there instead of on `Deck`:
+
+```
+Deck
+├── executable roots        agents=[...]  workflows=[...]      ← never wrapped
+└── capability systems      skills=Skills(...)  mcp=MCP(...)   ← own their subsystem
+```
+
+`Deck` coerces a bare `str` or `Sequence[str]` into the wrapper, so the no-options case stays
+short. Roots are deliberately not wrapped: `Agents([...])` would be symmetry for its own sake,
+which `deck-capability-wrapper-pattern.md` explicitly rules out.
+
+**A wrapper is a declaration, not a live resource.** `MCP(".mcp.json")` holds parsed
+configuration and connects nothing; the connections open when the deck opens. That is what keeps
+the next rule free of exceptions.
+
 ## The ownership rule
 
 > **The Deck owns and closes the infrastructure resources it instantiates from configuration or
 > factories. It never assumes ownership of resource instances supplied by user code.**
+
+A capability wrapper is configuration, so the deck closes what it opened from it — no exemption,
+no second rule keyed on argument type. A `PostgresEventStore` you constructed is still yours.
 
 Stated this way rather than "closes what it constructed", because `from_project()` constructs
 `Agent`/`Workflow` objects too — and loading an agent must not imply the deck owns every object
@@ -116,14 +148,14 @@ Node classes (`LoadFileNode`, `AgentNode`) move to `authoring/nodes.py`; `SkillN
 (`plan-skills.md`). Everything compiles to `InvocableSpec`, so the Runtime is untouched.
 
 ### 4b — skill roots and the registry
-`skills=` takes a path or paths. Each root is scanned **direct-child only** — `<root>/<name>/SKILL.md`,
+`skills=` takes a path, paths, or a `Skills(...)`. Each root is scanned **direct-child only** — `<root>/<name>/SKILL.md`,
 never a recursive `**/SKILL.md` — which is both what the SDK already does and what keeps
 shadowing predictable. The roots merge into one registry keyed by directory name. `Agent(skills=["booking"])` resolves against it. Users never
 construct a `Skill(...)`. Duplicate names across roots are a `build()` error naming both paths —
 one name is one skill, the same rule `PluginRegistry` already applies to bundles.
 
 ### 4c — MCP from one file
-One MCP file is the single source of truth, replacing the `mcp:` section of `config.yaml` and
+`mcp=` takes a path or an `MCP(...)`. One MCP file is the single source of truth, replacing the `mcp:` section of `config.yaml` and
 `AGENTDECK_MCP_SERVERS`. `Agent(mcp=["calendar"])` resolves names against it; an unknown name is
 a `build()` error rather than the current silent drop.
 

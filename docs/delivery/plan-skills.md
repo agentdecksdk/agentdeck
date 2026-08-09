@@ -45,7 +45,12 @@ instead of `.agentdeck/skills`, and validation moving into `deck.build()`.
 name-keyed registry at `build()`. Only metadata is read then — full content is loaded when a
 skill is activated, which is the SDK's behavior already.
 
-**`Deck(skills=…)`** accepting a path or paths, feeding that registry.
+**`Skills(...)`**, the capability object that owns roots, discovery, validation and indexing —
+so those options grow there rather than on `Deck` (`deck-capability-wrapper-pattern.md`).
+`Deck(skills="./skills")` coerces a bare path into it, so the simple case stays a string.
+
+It is a **declaration**: constructing it reads nothing. Discovery happens at `deck.build()`,
+which is what keeps `build()` the one place a bad skill directory is reported.
 
 **`Agent(skills=["booking"])`** resolving names against it, unchanged in mechanism from today's
 allow-list.
