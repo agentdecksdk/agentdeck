@@ -10,7 +10,7 @@ AgentDeck owns propagation and injection across the whole execution graph.**
 |---|---|---|
 | 1 | `Execution` split out of `RunContext` | **Yes, but deferred.** Ship injection on today's `RunContext`; do the split later as its own change. |
 | 2 | Injection mechanism | **Our own**, not the SDK's — so one mechanism covers every engine and every site: agent, tool, skill, workflow step. |
-| 3 | Sandboxed skills | **The subprocess becomes optional**, a per-skill choice AgentDeck supplies. How context reaches a skill is **still open** (below). |
+| 3 | Sandboxed skills | **Closed by `plan-skills.md`.** A skill discloses rather than executes, so it never leaves the run and there is no boundary for context to cross. `scripts/` is deferred from v3, and with it the projection question. |
 | 4 | Deck declares the context type | **Yes** — `Deck(context=MiddleContext)`, validated at `build()`. |
 | 5 | What `context=None` means when a type is declared | **Every root whose graph requires context must receive a compatible instance, checked before execution.** A context-free root may still run with `None`. `resume()` applies the same rule. |
 
@@ -123,19 +123,12 @@ internal and never constructed by a user, so nothing leaks. When ruling 1's spli
 field moves to `Execution` and `Context[T]` — the only thing user code ever touches — does not
 change.
 
-## Still open — needs a ruling before the skills work starts
+## Skills need nothing here
 
-**How does context reach a skill?** You said the subprocess should become optional and that
-injection there needs thought. The two halves:
-
-- **In-process skills** are straightforward: a real `Context[T]`, same as a tool.
-- **Sandboxed skills** cannot receive a live object across the process boundary. The candidates
-  are: nothing at all; a serializable projection the context type declares; or the skill simply
-  cannot be sandboxed if it declares a `Context[...]` parameter, which turns the choice into a
-  consequence of what the skill asks for rather than a separate flag.
-
-The third reads best — the skill's own signature decides whether it can be isolated — but it is
-not decided, and it interacts with making the sandbox optional at all.
+`plan-skills.md` resolved this. A skill is progressive disclosure *into* the execution already
+holding the context — it starts no run and no process, so `Context[T]` reaches its tools and any
+workflow it triggers by ordinary injection, and there is nothing to serialize or project.
+`scripts/`, the only part that would cross a process boundary, is deferred from v3.
 
 ## Sequencing
 
@@ -143,10 +136,10 @@ not decided, and it interacts with making the sandbox optional at all.
 2. Free the SDK's `context=` slot; inject at the openai-agents tool site
 3. LangGraph node/step injection via `configurable`, beside the reporter
 4. Instruction callables and agent hooks
-5. `build()` graph validation and `ContextTypeError`
-6. Skills — after the open ruling above
+5. `build()` graph validation, `ContextTypeError`, and the run-time instance check
 
-Steps 1–5 are independent of the skills question and can land while it is open.
+Nothing here waits on the skills work: skills consume the same injection the tool and workflow
+sites already provide.
 
 ## Risks
 
