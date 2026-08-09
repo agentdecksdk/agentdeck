@@ -231,14 +231,35 @@ of vanishing the moment the call returns.
   exception a workflow node may still raise itself) is unaffected.
 - **Breaking (v3.0.0 in progress, #164): named MCP servers move to a `.mcp.json` file,
   reversing #78.** `agentdeck.mcp.MCP` parses one file's `mcpServers` object (the shape Claude
-  Code already uses) and validates every entry; `Agent.mcp` will resolve names against it once
-  `Deck` lands. The `mcp:` section of `config.yaml`/`config.default.yaml` and the
+  Code already uses) and validates every entry; `Agent.mcp` resolves names against it through
+  `Deck`'s own `build()`. The `mcp:` section of `config.yaml`/`config.default.yaml` and the
   `AGENTDECK_MCP_SERVERS` env var are removed — `McpSettings` is gone, and `McpServerSettings`
   (the per-server shape, unchanged) moves from `agentdeck.runtime.settings` to `agentdeck.mcp`.
   `App` now reads `.mcp.json` from the project root (a sibling of `.agentdeck/`, not inside it)
   when present, and boots with no servers when it is absent — the same fail-open behavior an
   empty `mcp.servers` always had. `MCPLifecycle.configure`/`.startup` no longer fall back to
   process settings; a caller now always hands them the config to use.
+
+### Added
+
+- **`agentdeck.deck.Deck`**, the v3 composition root (#164): `Deck(agents=..., workflows=...,
+  skills=..., mcp=..., context=...)` builds and runs a catalog from Python objects with no
+  `.agentdeck/` project on disk, and `Deck.from_project(path)` discovers the same four arguments
+  from today's directory layout — both end at the same constructor, so there is one catalog
+  mechanism either way. Lifecycle is `NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED`:
+  `build()` validates every name a catalog references (an unknown skill, MCP server, or
+  workflow-as-tool name; an agent and a workflow sharing a root name) and compiles every
+  agent/workflow to an `InvocableSpec`, reading only local files — no network call, no MCP
+  server started, and idempotent, so it doubles as a CI check. `deck.agents`/`deck.workflows`
+  are read-only mappings once built; `run`/`stream`/`pause`/`cancel`/`resume`/`status`/`pending`
+  require an opened deck (`async with deck: ...`), which is also what starts every configured
+  MCP server and composes the Runtime. Closing tears down only what a Deck itself instantiated
+  — an `MCP(...)` it holds, always, and an event store it built from settings — never a store
+  handed in through the (private, test-only) `_store=` seam. `Deck.run`/`.stream`/`.resume`
+  accept `context=` for forward compatibility but raise on a non-`None` value: full `Context[T]`
+  injection is its own, larger effort (`docs/delivery/plan-context-injection.md`) and is not
+  wired into this slice. `App` is unchanged and still serves `.agentdeck/` projects; `Deck`
+  replaces it as the documented entry point once `agentdeck serve` and the CLI move onto it.
 
 ## [2.0.0] - 2026-08-06
 

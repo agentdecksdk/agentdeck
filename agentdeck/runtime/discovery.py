@@ -51,10 +51,14 @@ class InvocableRegistry:
     Construct it with the engines the Runtime was given; :meth:`load` then returns the
     mapping the Runtime takes, and raises instead if the project asks for an engine nobody
     registered — a wiring mistake belongs at startup, not in the middle of a run.
+
+    An entry may be a live ``EnginePort`` or its bare ``engine`` name string — ``Deck.build()``
+    validates which engines a catalog needs before it is safe to construct any of them (no
+    network I/O), so it names them instead of building disposable instances just to ask.
     """
 
-    def __init__(self, engines: Sequence[EnginePort]) -> None:
-        self._engines = frozenset(engine.engine for engine in engines)
+    def __init__(self, engines: Sequence[EnginePort | str]) -> None:
+        self._engines = frozenset(e if isinstance(e, str) else e.engine for e in engines)
 
     def load(
         self,

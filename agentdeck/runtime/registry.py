@@ -107,21 +107,25 @@ class PluginRegistry(Generic[T]):
         return path.is_dir() and not path.name.startswith(("_", ".")) and (path / f"{self.module_name}.py").is_file()
 
 
-def mount_project_dir() -> str:
-    """Make ``./.agentdeck`` importable as package ``agentdeck_project``; returns that name.
+def mount_project_dir(root: str | Path = PROJECT_DIR) -> str:
+    """Make a project dir importable as package ``agentdeck_project``; returns that name.
+
+    Defaults to ``./.agentdeck`` (``root=PROJECT_DIR``); ``Deck.from_project(path)`` passes an
+    explicit ``path`` instead. One alias slot, so one mounted project per process at a time —
+    matching the plan's own ruling that a deck-per-tenant is a process-per-tenant.
 
     A hidden dir can't be imported by name, so we register a synthetic parent
     package whose ``__path__`` points at it; the normal import machinery then
     resolves ``<alias>.agents.<bundle>.agent`` as namespace packages — no
     ``__init__.py`` needed anywhere under the project dir.
     """
-    root = Path(PROJECT_DIR).resolve()
-    if not root.is_dir():
-        raise FileNotFoundError(f"project dir not found: {root}")
+    resolved = Path(root).resolve()
+    if not resolved.is_dir():
+        raise FileNotFoundError(f"project dir not found: {resolved}")
     module = types.ModuleType(_PROJECT_ALIAS)
-    module.__path__ = [str(root)]
+    module.__path__ = [str(resolved)]
     module.__spec__ = ModuleSpec(_PROJECT_ALIAS, None, is_package=True)
-    module.__spec__.submodule_search_locations = [str(root)]
+    module.__spec__.submodule_search_locations = [str(resolved)]
     sys.modules[_PROJECT_ALIAS] = module
     return _PROJECT_ALIAS
 
