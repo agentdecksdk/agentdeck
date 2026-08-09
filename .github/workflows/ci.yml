@@ -67,8 +67,11 @@ jobs:
         run: .venv/bin/ty check agentdeck
       - name: Import contracts
         run: .venv/bin/lint-imports
+      # `-rs` so the guard below is diagnosable from the log alone: when it trips, the next
+      # question is always *which* tests skipped, and without this the run has to be repeated
+      # with it added. That repeat is what it cost to find out #152, not #165, moved the count.
       - name: Test
-        run: .venv/bin/pytest tests/ -q --junit-xml=/tmp/pytest-results.xml
+        run: .venv/bin/pytest tests/ -q -rs --junit-xml=/tmp/pytest-results.xml
       # Guard against a whole subsystem silently dropping out of the gate again (#33): a
       # full run with every guarded extra installed skips **48** — measured on this workflow,
       # not derived: parametrized "only applies to X" contract cases, plus tests that skip for
