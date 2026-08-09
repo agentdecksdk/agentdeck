@@ -70,20 +70,30 @@ jobs:
       - name: Test
         run: .venv/bin/pytest tests/ -q -rs --junit-xml=/tmp/pytest-results.xml
       # Guard against a whole subsystem silently dropping out of the gate again (#33): a
-      # full run with every guarded extra installed skips **42** — measured on this workflow,
+      # full run with every guarded extra installed skips **48** — measured on this workflow,
       # not derived: parametrized "only applies to X" contract cases, plus tests that skip for
       # their own reasons even with the extra present. #142 added [observability] to the
       # install and moved the ceiling 46 → 44; the first attempt guessed 34 from the old
-      # comment's "~44 skips" arithmetic and CI reported 42, which is why this number is now
-      # the measurement. Headroom is 2: observability dropping out again lands at ~54 and
-      # durability at ~58, both caught. Bump it only with a stated reason.
+      # comment's "~44 skips" arithmetic and CI reported 42, which is why that number was the
+      # measurement then. #152 (the v3 cutover) added `contract/sandbox_cases.py` and
+      # `contract/test_sandbox.py` and expanded `test_resume.py`/`test_event_stream.py`,
+      # growing the contract suite's case×store matrix — its own conditional "not applicable"
+      # skips grew with it, from 36 to 42 ("only a suspended case can be resumed" /
+      # "this run finished" / "a suspended run's terminal event arrives on resume"), on top of
+      # the 6 `core/test_old_reader_compat.py` skips (unconditional until the first v3 release,
+      # #47). 42 + 6 = 48 is the new measurement, confirmed on #152's own merge commit and on
+      # current `dev` HEAD, both red against the old ceiling of 44 with zero durability or
+      # observability skips in the breakdown — the subsystem this guard protects never
+      # dropped out; the threshold was just stale. Headroom is 2: observability dropping out
+      # again lands at ~60 and durability at ~64, both still caught. Bump it only with a
+      # stated reason.
       # The ceiling is deliberately unchanged for the Redis/Postgres stores (#75): with the
       # services above they add ~80 running tests and no skips, and if a container fails to
-      # come up they skip instead — which takes the count to ~120 and fails here, exactly
+      # come up they skip instead — which takes the count to ~120+ and fails here, exactly
       # the "proved nothing and went green" outcome this guard is for.
       - name: Guard against silently-skipped durability tests
         run: |
-          ceiling=44
+          ceiling=50
           # `bash -e` aborts on grep's own exit code before the `-z` check below ever
           # runs; `|| true` keeps a missing/truncated/attribute-less XML falling through
           # to that check instead of failing silently with no diagnostic.
