@@ -10,6 +10,7 @@ import textwrap
 from typing import Any
 
 import pytest
+from agents import WebSearchTool, function_tool
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 from scripted_model import ScriptedModel, patch_provider, provider_of
@@ -289,6 +290,48 @@ def test_agent_workflow_tool_not_registered_fails_build():
 def test_agent_workflow_tool_that_is_registered_builds_cleanly():
     workflow = _shout_workflow(name="Registered")
     deck = Deck(agents=[_greeter(tools=[workflow])], workflows=[workflow])
+
+    deck.build()  # no raise
+
+
+# --- a tool build() cannot compile fails loudly, naming the agent and @function_tool -------
+# (#172: a raw callable used to reach the SDK unwrapped and only fail at run time)
+
+
+def test_agent_tool_that_is_a_bare_lambda_fails_build():
+    deck = Deck(agents=[_greeter(tools=[lambda q: q])])
+
+    with pytest.raises(ConfigError, match="Greeter") as exc_info:
+        deck.build()
+    assert "function_tool" in str(exc_info.value)
+
+
+def test_agent_tool_that_is_a_bare_named_function_fails_build():
+    def lookup(q: str) -> str:
+        return q
+
+    deck = Deck(agents=[_greeter(tools=[lookup])])
+
+    with pytest.raises(ConfigError, match="Greeter") as exc_info:
+        deck.build()
+    assert "function_tool" in str(exc_info.value)
+
+
+def test_agent_tool_wrapped_with_function_tool_builds_cleanly():
+    @function_tool
+    def lookup(q: str) -> str:
+        """Look something up."""
+        return q
+
+    deck = Deck(agents=[_greeter(tools=[lookup])])
+
+    deck.build()  # no raise
+
+
+def test_agent_tool_that_is_a_hosted_sdk_tool_builds_cleanly():
+    """A ``FunctionTool``-only check would reject this — pins that the structural check
+    accepts any SDK tool object, not just the one built by ``@function_tool``."""
+    deck = Deck(agents=[_greeter(tools=[WebSearchTool()])])
 
     deck.build()  # no raise
 
