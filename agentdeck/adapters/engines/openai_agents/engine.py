@@ -26,7 +26,7 @@ from agentdeck.adapters.engines.openai_agents.sessions import ExecutionStore
 from agentdeck.adapters.engines.openai_agents.translate import translate
 from agentdeck.core.content import DataBlock, TextBlock, coerce_input
 from agentdeck.core.control import ControlSignalled
-from agentdeck.core.events import Custom, RunCompleted, Usage, UsageReported
+from agentdeck.core.events import RunCompleted, Usage, UsageReported
 from agentdeck.core.ports import EnginePort
 from agentdeck.errors import ConfigError
 
@@ -41,15 +41,6 @@ if TYPE_CHECKING:
     from agentdeck.core.context import RunContext
     from agentdeck.core.events import Event, KnownPayload
     from agentdeck.core.invocable import InvocableSpec
-
-STRUCTURED_OUTPUT = "openai_agents.structured_output"
-"""Where an ``output_type`` agent's validated result travels *in addition to*
-``RunCompleted.output``.
-
-Redundant by construction — the same object rides the terminal event as a ``DataBlock`` — and
-kept anyway, because ``surfaces/serve/compat.py`` reads this event to build v1's ``done``
-frame. Retiring it moves that wire, which is a change of its own rather than a side effect
-of this one (D10: an engine namespaces a ``custom`` event, it never mints a kind)."""
 
 SandboxScope = Callable[[Agent[Any]], AbstractAsyncContextManager[Any]]
 """How this engine opens whatever sandbox an agent needs: given the agent, a scope yielding
@@ -193,11 +184,7 @@ class OpenAIAgentsEngine(EnginePort):
         return payload if payload is not None else _usage_reported(event)
 
     def _terminal(self, result: RunResultStreaming) -> Sequence[KnownPayload]:
-        completed = _run_completed(result)
-        structured = [block.data for block in completed.output if isinstance(block, DataBlock)]
-        if not structured:
-            return (completed,)
-        return (Custom(name=STRUCTURED_OUTPUT, data={"output": structured[0]}), completed)
+        return (_run_completed(result),)
 
     async def resume(
         self,
@@ -283,4 +270,4 @@ def _usage_of(result: RunResultStreaming) -> Usage:
     return Usage(input_tokens=usage.input_tokens, output_tokens=usage.output_tokens)
 
 
-__all__ = ["STRUCTURED_OUTPUT", "Launch", "OpenAIAgentsEngine", "SandboxScope"]
+__all__ = ["Launch", "OpenAIAgentsEngine", "SandboxScope"]
