@@ -12,6 +12,10 @@ resolving servers has never needed a catalog, only the lifecycle's own state. Sk
 workflow-as-tool *do* need one — a root to scan, a graph to call — so both arrive as optional
 resolver callbacks a ``Deck`` supplies; an ``Agent`` built with neither configured raises a
 clear ``ConfigError`` naming what is missing, instead of silently dropping what it declared.
+
+``refresh_mcp_status`` is a second pass over MCP status specifically, the same shape as
+``link_handoffs`` — needed because ``Deck.build()`` compiles agents before ``Deck.__aenter__``
+ever connects a server, so the first resolution is always stale by the time anything runs.
 """
 
 from __future__ import annotations
@@ -134,6 +138,35 @@ def _lookup(compiled: Mapping[str, SDKAgent], name: str) -> SDKAgent:
         raise NotFoundError(f"No agent named {name!r}. Available: {sorted(compiled)}.") from None
 
 
+def refresh_mcp_status(compiled: Mapping[str, SDKAgent], agents: Sequence[Agent]) -> None:
+    """Re-resolve MCP status in place, on an already-compiled agent — a second pass over
+    :func:`compile_agent`'s output, same shape as :func:`link_handoffs`.
+
+    ``compile_agent`` resolves each agent's ``mcp=`` against :class:`MCPLifecycle` once, at
+    compile time. Inside ``Deck.build()`` that runs before ``Deck.__aenter__`` has connected
+    anything, so every declared server bakes in as missing regardless of what it will actually
+    be once open. ``Deck.__aenter__`` calls this right after ``MCPLifecycle.startup`` connects
+    the real servers, so the compiled agent that actually runs turns carries the corrected tools
+    and banner instead of the stale ones from build time.
+    """
+    for agent in agents:
+        if not agent.mcp:
+            continue
+        sdk_agent = compiled[agent.name]
+        # `compile_agent` only ever assigns a plain `str` here (never the SDK's other two
+        # shapes, a callable or `None`) — narrow so the slice below type-checks.
+        stale_instructions = sdk_agent.instructions
+        assert isinstance(stale_instructions, str)
+        # At build time every declared name resolved as missing (nothing had connected yet),
+        # so the banner baked in is this exact, deterministic text — strip only that prefix,
+        # so a skills disclosure compile_agent appended after it survives untouched.
+        stale_prefix = mcp_status_banner(list(agent.mcp)) + agent.instructions
+        suffix = stale_instructions[len(stale_prefix) :]
+        instructions, mcp_servers = _resolve_mcp(agent)
+        sdk_agent.instructions = instructions + suffix
+        sdk_agent.mcp_servers = mcp_servers
+
+
 def _resolve_mcp(agent: Agent) -> tuple[str, list[Any]]:
     """Instructions with the strict-protocol banner prepended (empty on the happy path, so
     prompt caches stay warm), and the SDK servers to attach — unchanged from v1's own
@@ -147,4 +180,4 @@ def _resolve_mcp(agent: Agent) -> tuple[str, list[Any]]:
     return instructions, list(available)
 
 
-__all__ = ["compile_agent", "compile_workflow", "link_handoffs"]
+__all__ = ["compile_agent", "compile_workflow", "link_handoffs", "refresh_mcp_status"]

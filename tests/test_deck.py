@@ -36,6 +36,26 @@ def scripted(monkeypatch):
     return model
 
 
+@pytest.fixture
+def mcp_connect(monkeypatch):
+    """Connects every MCP server the resilient transport builds without opening a socket;
+    returns a `refuse.add(name)` switch to make one server's connect fail instead."""
+    from agentdeck.adapters.tools.mcp import MCPServerStreamableHttpResilient
+
+    refuse: set[str] = set()
+
+    async def _connect(self: Any) -> None:
+        if self.name in refuse:
+            raise PermissionError(f"{self.name}: no")  # not transient — no retry backoff to wait out
+
+    async def _cleanup(self: Any) -> None:
+        return None
+
+    monkeypatch.setattr(MCPServerStreamableHttpResilient, "connect", _connect)
+    monkeypatch.setattr(MCPServerStreamableHttpResilient, "cleanup", _cleanup)
+    return refuse
+
+
 class _State(BaseModel):
     input: str = ""
     shouted: str = ""
@@ -387,6 +407,78 @@ async def test_stream_before_open_raises(no_project):
     with pytest.raises(ConfigError, match="not open"):
         async for _ in deck.stream("Greeter", "hi"):
             pass
+
+
+# --- opening a Deck wires the MCP servers build() only resolved as unconnected (#173) -------
+#
+# build() compiles every agent's mcp= against MCPLifecycle before __aenter__ has connected
+# anything, so the first resolution always reads every declared server as missing. Without a
+# second pass at open time, the agent that actually runs a turn is stuck with the servers it
+# read as missing at build time, and its instructions falsely carry the "UNAVAILABLE" banner
+# even once the server is up.
+
+
+def _write_mcp_json(tmp_path) -> Any:
+    mcp_json = tmp_path / ".mcp.json"
+    mcp_json.write_text(json.dumps({"mcpServers": {"calendar": {"url": "http://host/mcp"}}}))
+    return mcp_json
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("build_first", [False, True], ids=["direct-open", "build-then-open"])
+async def test_opening_a_deck_wires_its_connected_mcp_server_into_the_compiled_agent(
+    no_project, tmp_path, mcp_connect, build_first
+):
+    deck = Deck(agents=[_greeter(mcp=["calendar"])], mcp=_write_mcp_json(tmp_path))
+    if build_first:
+        deck.build()  # the documented pattern: validate early, open later — must not stick
+
+    async with deck:
+        compiled = deck._invocables["Greeter"].native
+        assert [server.name for server in compiled.mcp_servers] == ["calendar"]
+        assert compiled.instructions == "Greet the user."  # no banner: the server is up
+
+
+@pytest.mark.asyncio
+async def test_a_refused_mcp_connect_still_leaves_the_degraded_banner_after_open(no_project, tmp_path, mcp_connect):
+    mcp_connect.add("calendar")
+    deck = Deck(agents=[_greeter(mcp=["calendar"])], mcp=_write_mcp_json(tmp_path))
+
+    async with deck:
+        compiled = deck._invocables["Greeter"].native
+        assert compiled.mcp_servers == []
+        assert "UNAVAILABLE: `calendar`" in compiled.instructions
+
+
+@pytest.mark.asyncio
+async def test_mcp_refresh_keeps_a_skills_disclosure_intact(no_project, tmp_path, mcp_connect):
+    _write_skill(tmp_path, "booking")
+    reference = Deck(agents=[_greeter(skills=["booking"])], skills=tmp_path)
+    reference.build()
+    expected_instructions = reference._invocables["Greeter"].native.instructions
+
+    deck = Deck(agents=[_greeter(skills=["booking"], mcp=["calendar"])], skills=tmp_path, mcp=_write_mcp_json(tmp_path))
+    deck.build()
+    stale = deck._invocables["Greeter"].native.instructions
+    assert stale != expected_instructions  # the banner is baked in before anything connects
+    assert "UNAVAILABLE" in stale
+
+    async with deck:
+        refreshed = deck._invocables["Greeter"].native.instructions
+
+    assert refreshed == expected_instructions  # banner gone, disclosure intact either way
+
+
+def test_build_logs_no_false_not_found_warning_for_a_configured_mcp_server(tmp_path, caplog):
+    """Before the fix, resolving a genuinely-configured server before any server connects
+    fell back to a bare, un-configured ``MCPLifecycle`` and logged this exact line — the
+    silent-drop wording #173 flags, even though the server is not, in fact, missing."""
+    deck = Deck(agents=[_greeter(mcp=["calendar"])], mcp=_write_mcp_json(tmp_path))
+
+    with caplog.at_level("WARNING"):
+        deck.build()
+
+    assert not any("not found in config" in record.message for record in caplog.records)
 
 
 # --- ownership: a deck closes an MCP(...) it opened, never a store passed in ----------------
