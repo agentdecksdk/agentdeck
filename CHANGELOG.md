@@ -28,6 +28,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   docs site to carry a version pin matching `pyproject.toml`, not just validating pins that
   already exist — closing the gap that let `/guides/serve-over-http` ship an unpinned
   `agentdeck[serve]` install example.
+- **Three docs pages corrected against the current v3 code (#192).** `/guides/human-approval`'s
+  cross-process example now says what it actually needs: `durable=True` makes the checkpointer
+  file-backed, but `pending()`/`answer()` read the event store instead, so a second process only
+  sees a paused run if `AGENTDECK_EVENTS_BACKEND` is pointed at a shared backend too — the
+  in-process default is not enough on its own. `/guides/serve-over-http`'s install line now pins
+  a version (`git+...@v3.0.0b1`), matching `getting-started.mdx` instead of an unqualified
+  `agentdeck[serve]`. `/operating/pause-resume-cancel` no longer describes the `503 no control
+  backend configured` response as a deployment state operators can hit: `resolve_control_port()`
+  always wires a real `ControlPort` for `Deck`/`agentdeck-serve`, so that response is reachable
+  only by an embedder constructing a bare `Runtime` outside `Deck`.
 - **`Deck.tick()`** no longer leaves a ghost `WAITING_HUMAN` run in the event log when it
   resumes a timer-paused thread that a `Deck.run()`/HTTP call parked (#120): it now resumes
   such a thread through the Runtime, the same as `Deck.answer()` already did, so the run's
