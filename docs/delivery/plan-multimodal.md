@@ -169,8 +169,18 @@ So: **#156, then #159, then #161.**
 - **`video`/`file` kinds.** Add on first real consumer.
 - **Transcoding or resizing.** agentdeck carries content; it does not process it.
 
-## Open for a ruling
+## Rulings taken (2026-08-10)
 
-1. **The inline cap: 1 MB decoded?** Or a different number, or guidance only with no enforcement.
-2. **Does `ImageBlock` become usable in the same slice as audio,** or does #161 do image first and
-   audio follow? They share the code path, so one slice is cheaper — but it makes #161 bigger.
+1. **The inline cap is 1 MB decoded**, enforced at construction on `ImageBlock` and `AudioBlock`,
+   with the error naming `ResourceBlock` as the alternative. Roughly a minute of speech-quality
+   audio or a large screenshot. Chosen low on purpose: raising a cap later is compatible,
+   lowering one is not, and the cost of getting it wrong is unbounded — base64 in an event lands
+   in an append-only log and replays down every SSE connection for the life of that run.
+2. **Image and audio land in the same slice.** They share one code path in `_to_sdk_input`, so
+   splitting them would mean writing the per-kind mapping twice and reviewing it twice. #161
+   gets bigger; the total gets smaller.
+3. **#156 lands before #159/#161.** Adding a block kind is the textbook "minor, additive" bump
+   #156 introduces semantics for, so audio becomes the first real exercise of that path rather
+   than an additive change with no way to signal itself.
+
+Wave 2's order in `docs/delivery/roadmap-v3.md` is updated to match.
