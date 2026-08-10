@@ -158,7 +158,7 @@ async def test_deck_builds_and_runs_an_agent_with_no_project_on_disk(no_project,
 
 @pytest.mark.asyncio
 async def test_deck_runs_a_workflow_with_no_project_on_disk(no_project, monkeypatch):
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "memory")
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     deck = Deck(workflows=[_shout_workflow()])
     deck.build()
 
@@ -708,7 +708,7 @@ def _reader_ctx(session_id: str | None) -> RunContext:
 async def test_run_with_no_input_defaults_a_workflow_to_an_empty_object(no_project, monkeypatch):
     """``state=None``'s old meaning ("no updates") has to survive wrapping it in a
     ``DataBlock``, which cannot carry ``None`` as a graph's state."""
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "memory")
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     deck = Deck(workflows=[_shout_workflow()])
 
     async with deck:
@@ -868,7 +868,7 @@ async def test_pending_lists_a_paused_run_and_answer_completes_it(no_project, mo
     the ``run_id`` it named there — no name, thread id, or session id supplied by hand."""
     from agentdeck.runtime.settings import reset_settings_cache
 
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "memory")
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     reset_settings_cache()
     try:
         deck = Deck(workflows=[_approval_workflow()])
@@ -912,7 +912,7 @@ async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost
     """
     from agentdeck.runtime.settings import reset_settings_cache
 
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "memory")
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     reset_settings_cache()
     past = datetime.now(UTC) - timedelta(days=1)
     try:

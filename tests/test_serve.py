@@ -71,12 +71,13 @@ def client(request, tmp_path, monkeypatch):
 
     if request.param == "sqlite":
         pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
-        monkeypatch.setenv("AGENTDECK_CHECKPOINT_URL", str(tmp_path / "checkpoints.sqlite3"))
+        monkeypatch.setenv("AGENTDECK_CHECKPOINT", f"sqlite://{tmp_path / 'checkpoints.sqlite3'}")
+    else:
+        monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     root = tmp_path / ".agentdeck" / "workflows" / "approval_flow"
     root.mkdir(parents=True)
     (root / "workflow.py").write_text(textwrap.dedent(APPROVAL_WORKFLOW_PY))
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", request.param)
     reset_settings_cache()
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]

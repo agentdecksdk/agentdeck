@@ -123,8 +123,11 @@ Last substantive work before `v3.0.0`.
 
 - **#71** cleanup — rescoped, and no longer blocked on a sandboxing ruling. With sandboxing out of
   v3 the answer is settled by default: delete `core/ports/sandbox.py` and `adapters/caps/sandbox/`
-  (zero users), `authoring/capabilities/` (orphaned), `Settings.sandbox_env()` and the `SKILL_*`
-  block (no callers), and `observability.sandbox_trace_env()` (no callers)
+  (zero users), and `authoring/capabilities/` (orphaned). `Settings.sandbox_env()` and the
+  `SKILL_*` block were deleted early, in #155 (same "no callers" finding, surfaced while
+  restructuring the env surface); `observability.sandbox_trace_env()` is the same shape (no
+  callers) but was left for #71, since #155 could fix its `.host`/`.endpoint` reference in place
+  without deciding whether to delete the function
 - **#131** simplification — live code heavier than it needs to be
 - **#132** professional gaps — starting with `pyproject.toml` declaring no license, which every
   metadata reader currently sees as unlicensed

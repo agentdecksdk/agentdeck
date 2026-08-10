@@ -215,7 +215,7 @@ def test_the_tracer_s_flush_is_the_sdk_client_s_own() -> None:
 def test_configured_keys_yield_a_sink_over_the_real_sdk(spy) -> None:  # noqa: ANN001
     """The unconfigured half lives in ``test_langfuse_sink.py``; this is the other branch."""
     sink = langfuse_sink(
-        LangfuseSettings(public_key="pk-lf-configured", secret_key="sk-lf-test", host="http://localhost:1")
+        LangfuseSettings(public_key="pk-lf-configured", secret_key="sk-lf-test", base_url="http://localhost:1")
     )
 
     assert isinstance(sink, LangfuseSink)

@@ -35,7 +35,7 @@ def _fake_site_packages_install(root: Path) -> Path:
 def _run(script: str, cwd: Path, site_packages: Path, extra_env: dict[str, str] | None = None) -> str:
     env = dict(os.environ)
     env["PYTHONPATH"] = str(site_packages)
-    for key in ("OPENAI_MODEL", "OPENAI_API_KEY", "OPENAI_BASE_URL", "APP_CONFIG_PATH"):
+    for key in ("OPENAI_MODEL", "OPENAI_API_KEY", "OPENAI_BASE_URL", "AGENTDECK_CONFIG_PATH"):
         env.pop(key, None)
     env.update(extra_env or {})
     result = subprocess.run(
@@ -151,3 +151,28 @@ def test_settings_resolve_cwd_at_first_use_not_at_import(tmp_path):
     model = _run(script, launch_dir, site_packages)
 
     assert model == "from-project"
+
+
+def test_agentdeck_config_path_redirects_the_shared_yaml(tmp_path, monkeypatch):
+    """`AGENTDECK_CONFIG_PATH` is the one name that redirects `config.yaml` — issue #155."""
+    from agentdeck.runtime.settings import resolve_config_path
+
+    redirected = tmp_path / "elsewhere.yaml"
+    redirected.write_text("openai:\n  model: from-redirected-path\n")
+    monkeypatch.setenv("AGENTDECK_CONFIG_PATH", str(redirected))
+
+    assert resolve_config_path() == redirected
+
+
+def test_the_old_app_config_path_name_is_no_longer_read(tmp_path, monkeypatch):
+    """`APP_CONFIG_PATH` was unprefixed and generic; #155 renamed it outright — no shim, no
+    fallback. Setting only the old name must resolve as if nothing were set at all."""
+    from agentdeck.runtime.settings import PACKAGED_DEFAULT_YAML, resolve_config_path
+
+    decoy = tmp_path / "decoy.yaml"
+    decoy.write_text("openai:\n  model: from-old-name-that-must-not-be-read\n")
+    monkeypatch.setenv("APP_CONFIG_PATH", str(decoy))
+    monkeypatch.delenv("AGENTDECK_CONFIG_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    assert resolve_config_path() == PACKAGED_DEFAULT_YAML

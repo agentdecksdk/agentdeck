@@ -46,7 +46,7 @@ asyncio.run(main())
 - **Registration** — drop a file into `.agentdeck/`; discovery does the rest.
 - **Provider and runner config** — layered settings from env, `.env`, and `config.yaml`.
 - **Conversation memory** — `deck.run(..., session_id=...)` keeps a session across turns and
-  surfaces; set `AGENTDECK_SESSION_REDIS_URL` to keep it across a process restart too.
+  surfaces; set `AGENTDECK_SESSION` to keep it across a process restart too.
 - **Streaming** — `deck.stream()` and an SSE HTTP surface: same agent, no extra code.
 - **Workflow machinery** — graph compilation, durability, and human interrupts from a typed state class.
 

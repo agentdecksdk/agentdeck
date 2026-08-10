@@ -1,37 +1,42 @@
-"""Layered runtime settings (OpenAI, Runner, Skills) backed by env + shared YAML.
+"""Layered runtime settings (OpenAI, Runner, ...) backed by env + shared YAML.
 
-A single ``config.yaml`` (resolved via ``APP_CONFIG_PATH`` → cwd →
+A single ``config.yaml`` (resolved via ``AGENTDECK_CONFIG_PATH`` → cwd →
 packaged default) hosts every settings group keyed by section: ``openai:``,
-``runner:``, ``session:``, ``shell:``, ``skill:``. Each :class:`BaseSettings` subclass reads only its section; shell
+``runner:``, ``session:``, ``shell:``. Each :class:`BaseSettings` subclass reads only its section; shell
 env vars (prefix-bound, e.g. ``OPENAI_BASE_URL``) override the file. The
 project's ``.env`` (found from ``Path.cwd()``, never from this module's own
 location) is loaded the first time :func:`get_settings` builds a
 :class:`Settings` — not at import — so a ``chdir`` between ``import agentdeck``
 and first use still lands on the right project (process env wins either way).
+
+``EVENTS``/``CONTROL``/``CHECKPOINT``/``SESSION`` each read one URL-shaped env var
+(``AGENTDECK_EVENTS``, not a ``_BACKEND``/``_URL`` pair) — the scheme names the backend, so
+there is no second decision left to disagree with it. See :func:`parse_backend_url`.
 """
 
 from __future__ import annotations
 
-import json
+import logging
 import os
 from collections.abc import Mapping
 from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.sources import YamlConfigSettingsSource
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from importlib.resources.abc import Traversable
 
-PACKAGED_DEFAULT_YAML = Path(__file__).resolve().parent / "config.default.yaml"
-_CONFIG_PATH_ENV = "APP_CONFIG_PATH"
+logger = logging.getLogger(__name__)
 
-_SKILL_PREFIX = "skill_"
+PACKAGED_DEFAULT_YAML = Path(__file__).resolve().parent / "config.default.yaml"
+_CONFIG_PATH_ENV = "AGENTDECK_CONFIG_PATH"
 
 
 def resolve_env_file() -> Path:
@@ -51,7 +56,7 @@ def resolve_env_file() -> Path:
 
 
 def resolve_config_path(explicit: str | Path | None = None) -> Path:
-    """Resolve the shared YAML: explicit arg → ``APP_CONFIG_PATH`` → cwd → packaged default.
+    """Resolve the shared YAML: explicit arg → ``AGENTDECK_CONFIG_PATH`` → cwd → packaged default.
 
     Returning a path that doesn't exist is fine — the YAML source treats a
     missing file as empty, which lets env vars alone drive a fully-defaulted
@@ -115,8 +120,7 @@ def _yaml_section_for_prefix(prefix: str) -> str:
     """Map an env_prefix to its YAML section name.
 
     ``OPENAI_`` → ``openai``, ``AGENTDECK_RUNNER_`` → ``runner``,
-    ``AGENTDECK_SESSION_`` → ``session``, ``AGENTDECK_SHELL_`` → ``shell``,
-    ``SKILL_`` → ``skill``.
+    ``AGENTDECK_SESSION_`` → ``session``, ``AGENTDECK_SHELL_`` → ``shell``.
     """
     name = prefix.strip().rstrip("_").lower()
     if name.startswith("agentdeck_"):
@@ -138,19 +142,32 @@ def settings_config(prefix: str, **overrides: Any) -> SettingsConfigDict:
     return SettingsConfigDict(**(base | overrides))
 
 
-def _strip_skill_prefix(key: str) -> str:
-    key = key.strip()
-    if key.casefold().startswith(_SKILL_PREFIX):
-        key = key[len(_SKILL_PREFIX) :]
-    return key.lower()
+def parse_backend_url(url: str) -> tuple[str, str]:
+    """Split ``scheme://rest`` into ``(scheme, rest)`` — the scheme names the backend
+    (``memory``, ``sqlite``, ``redis``, ``postgresql``, …), and ``rest`` is everything after
+    it, untouched, so a relative sqlite path round-trips exactly as written (``sqlite://.agentdeck/x.db``
+    stays relative; ``sqlite:///var/lib/x.db`` stays absolute).
+
+    A value with no ``://`` at all returns the whole string as ``scheme`` and an empty
+    ``rest`` — indistinguishable, on purpose, from any other scheme a caller's own dispatch
+    does not recognize, so one "unknown backend" branch covers both.
+    """
+    scheme, _, rest = url.partition("://")
+    return scheme.lower(), rest
 
 
-def _as_env_value(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value
-    return json.dumps(value, default=str, separators=(",", ":"))
+def _bare_env_source(names: Mapping[str, str]) -> Callable[[], dict[str, str]]:
+    """A settings source reading each ``field -> exact env var name`` in ``names`` verbatim,
+    ignoring ``env_prefix``.
+
+    For a decision that is one variable, not ``<PREFIX>_<FIELD>`` — ``AGENTDECK_EVENTS``, never
+    ``AGENTDECK_EVENTS_URL`` alongside it. See ``LayeredSettings._bare_env_names``.
+    """
+
+    def _read() -> dict[str, str]:
+        return {field: value for field, name in names.items() if (value := os.environ.get(name)) is not None}
+
+    return _read
 
 
 class LayeredSettings(BaseSettings):
@@ -161,6 +178,11 @@ class LayeredSettings(BaseSettings):
     Used by both runtime settings (``OpenAISettings`` etc.) and backend settings
     (``PolarionSettings`` etc.). One base class, one resolution algorithm.
     """
+
+    _bare_env_names: ClassVar[Mapping[str, str]] = {}
+    """Fields read from an exact, unprefixed env var name instead of ``env_prefix + field_name``
+    (see :func:`_bare_env_source`). When every field of a model is covered, the normal prefixed
+    env source is dropped entirely rather than kept as an undocumented second spelling."""
 
     def with_overrides(self, **overrides: Any) -> Self:
         applied = {k: v for k, v in overrides.items() if v is not None}
@@ -177,7 +199,14 @@ class LayeredSettings(BaseSettings):
     ) -> tuple[Any, ...]:
         prefix = settings_cls.model_config.get("env_prefix", "")
         section = _yaml_section_for_prefix(prefix) if prefix else None
-        return (init_settings, env_settings, SectionedYamlSource(settings_cls, section))
+        bare_names = cls._bare_env_names
+        if bare_names and set(bare_names) >= set(settings_cls.model_fields):
+            sources: tuple[Any, ...] = (init_settings, _bare_env_source(bare_names))
+        elif bare_names:
+            sources = (init_settings, _bare_env_source(bare_names), env_settings)
+        else:
+            sources = (init_settings, env_settings)
+        return (*sources, SectionedYamlSource(settings_cls, section))
 
 
 class OpenAISettings(LayeredSettings):
@@ -308,14 +337,7 @@ class LangfuseSettings(LayeredSettings):
     secret_key: str = Field(
         default="", description="Langfuse secret key. Tracing stays off unless this and `public_key` are both set."
     )
-    host: str = Field(
-        default="http://localhost:3000",
-        description="Legacy Langfuse endpoint (pre-4.x naming). Overridden by `base_url` when that is set.",
-    )
-    # Langfuse 4.x name for the endpoint; wins over ``host`` (kept as the legacy alias) when set.
-    base_url: str = Field(
-        default="", description="Langfuse 4.x endpoint. Wins over `host` (kept as the legacy alias) when set."
-    )
+    base_url: str = Field(default="http://localhost:3000", description="Langfuse endpoint.")
     environment: str = Field(default="local", description="Langfuse `environment` tag attached to every exported span.")
     debug: bool = Field(default=False, description="Enable the Langfuse SDK's own debug logging.")
     sample_rate: float = Field(default=1.0, description="Fraction of traces exported to Langfuse, from 0.0 to 1.0.")
@@ -332,10 +354,6 @@ class LangfuseSettings(LayeredSettings):
     def enabled(self) -> bool:
         return bool(self.public_key and self.secret_key)
 
-    @property
-    def endpoint(self) -> str:
-        return self.base_url or self.host
-
 
 class TavilySettings(LayeredSettings):
     """Tavily web-search API. One knob: ``TAVILY_API_KEY`` env var (or YAML ``tavily: api_key:``)."""
@@ -350,86 +368,77 @@ class TavilySettings(LayeredSettings):
 
 
 class CheckpointSettings(LayeredSettings):
-    """LangGraph checkpointer backend for ``durable=True`` workflows.
+    """LangGraph checkpointer backend for ``durable=True`` workflows, as one scheme-shaped URL.
 
-    ``backend`` picks the saver (``sqlite`` for dev, ``postgres`` for prod,
-    ``memory`` for tests — never persists past the process); ``url`` is the
-    sqlite file path or the Postgres DSN. Resolving the saver classes lives in
-    ``agentdeck.adapters.engines.langgraph.checkpointer`` — sqlite/postgres ship in the
-    optional ``[durability]`` extra, so this settings model stays import-free of them.
+    ``sqlite://<path>`` for dev (relative or absolute — see :func:`parse_backend_url`;
+    ``sqlite://.agentdeck/checkpoints.sqlite3`` is the default), ``postgresql://<dsn>`` for
+    prod, ``memory://`` for tests (never persists past the process). Resolving the saver
+    classes lives in ``agentdeck.adapters.engines.langgraph.checkpointer`` — sqlite/postgres
+    ship in the optional ``[durability]`` extra, so this settings model stays import-free of
+    them.
     """
 
+    _bare_env_names: ClassVar[Mapping[str, str]] = {"url": "AGENTDECK_CHECKPOINT"}
     model_config = settings_config("AGENTDECK_CHECKPOINT_")
 
-    backend: str = Field(
-        default="sqlite",
-        description="Which LangGraph checkpointer backend `durable=True` workflows use: `sqlite` for dev, "
-        "`postgres` for prod, or `memory` for tests (never persists past the process).",
-    )
     url: str = Field(
-        default="",
-        description="Sqlite file path or Postgres DSN for the checkpointer. Empty sqlite falls back to "
-        "`.agentdeck/checkpoints.sqlite3`.",
+        default="sqlite://.agentdeck/checkpoints.sqlite3",
+        description="LangGraph checkpointer for `durable=True` workflows: `sqlite://<path>` for dev "
+        "(this default), `postgresql://<dsn>` for prod, or `memory://` for tests (never persists past the "
+        "process). The scheme names the backend.",
     )
 
 
 class EventsSettings(LayeredSettings):
-    """Where the Runtime's canonical event log is written.
+    """Where the Runtime's canonical event log is written, as one scheme-shaped URL.
 
-    ``memory`` (the default) keeps it in the process and never touches disk, so a plain
+    ``memory://`` (the default) keeps it in the process and never touches disk, so a plain
     install needs no configuration and no writable project dir — at the cost of a log that
-    grows for as long as the process lives and is gone when it exits. Point ``url`` at a
-    file and set ``backend: sqlite`` for a log that survives a restart.
+    grows for as long as the process lives and is gone when it exits. ``sqlite://<path>`` is a
+    log that survives a restart.
 
-    ``redis`` (``url`` is a Redis URL) and ``postgres`` (``url`` is a DSN, and needs the
-    ``[durability]`` extra) are the two that several workers can share: SQLite's durability
-    rests on cross-process shared memory, so one file behind more than one machine is
-    unsupported. Each keeps to its own keyspace, so an instance already holding LangGraph
-    checkpoints or agent conversations is fine to reuse. A Redis instance used as the record
-    wants ``appendonly yes`` and ``maxmemory-policy noeviction`` — this is a log, not a cache.
+    ``redis://``/``rediss://`` and ``postgresql://`` (needs the ``[durability]`` extra) are the
+    two that several workers can share: SQLite's durability rests on cross-process shared
+    memory, so one file behind more than one machine is unsupported. Each keeps to its own
+    keyspace, so an instance already holding LangGraph checkpoints or agent conversations is
+    fine to reuse. A Redis instance used as the record wants ``appendonly yes`` and
+    ``maxmemory-policy noeviction`` — this is a log, not a cache.
     """
 
+    _bare_env_names: ClassVar[Mapping[str, str]] = {"url": "AGENTDECK_EVENTS"}
     model_config = settings_config("AGENTDECK_EVENTS_")
 
-    backend: str = Field(
-        default="memory",
-        description="Which backend stores the Runtime's canonical event log: `memory` (default, in-process, "
-        "gone when the process exits), `sqlite`, `redis`, or `postgres` (needs the `[durability]` extra).",
-    )
     url: str = Field(
-        default="",
-        description="File path (sqlite), Redis URL, or Postgres DSN for the event log. Required for every "
-        "backend except `memory`.",
+        default="memory://",
+        description="Where the Runtime's canonical event log is written: `memory://` (default, in-process, "
+        "gone when the process exits), `sqlite://<path>`, `redis://<url>`/`rediss://<url>`, or "
+        "`postgresql://<dsn>` (needs the `[durability]` extra). The scheme names the backend.",
     )
 
 
 class ControlSettings(LayeredSettings):
     """Where a run's pending control signals live — what pause and cancel are written to.
 
-    ``memory`` (the default) keeps them in the process, which is all a single worker needs and
-    all it can use: a signal written in one process is invisible to another, so with the
-    default backend the ``agentdeck runs signal`` CLI and a second web worker cannot reach a
-    run at all. Point ``url`` at a file and set ``backend: sqlite`` for signals that cross
-    process boundaries — the same file the CLI's ``--control-db`` names. SQLite's cross-process
-    story rests on shared memory, so one file behind more than one *machine* is unsupported;
-    that one waits for a Redis control port.
+    One scheme-shaped URL. ``memory://`` (the default) keeps them in the process, which is all a
+    single worker needs and all it can use: a signal written in one process is invisible to
+    another, so with the default backend the ``agentdeck runs signal`` CLI and a second web
+    worker cannot reach a run at all. ``sqlite://<path>`` crosses process boundaries — the same
+    file the CLI's ``--control-db`` names. SQLite's cross-process story rests on shared memory,
+    so one file behind more than one *machine* is unsupported; that one waits for a Redis
+    control port.
 
     This is a tiny table of pending intent, not a log: nothing here is a record of what
     happened to a run — that is the event store's job, and the control events in it.
     """
 
+    _bare_env_names: ClassVar[Mapping[str, str]] = {"url": "AGENTDECK_CONTROL"}
     model_config = settings_config("AGENTDECK_CONTROL_")
 
-    backend: str = Field(
-        default="memory",
-        description="Which backend stores a run's pending control signals: `memory` (default, reachable only "
-        "from this process) or `sqlite` (crosses process boundaries — required for the `agentdeck runs signal` "
-        "CLI to reach a run).",
-    )
     url: str = Field(
-        default="",
-        description="Sqlite file path for the control backend. Required when `backend` is `sqlite`; matches "
-        "the CLI's `--control-db`.",
+        default="memory://",
+        description="Where a run's pending control signals live: `memory://` (default, reachable only from "
+        "this process) or `sqlite://<path>` (crosses process boundaries — required for the `agentdeck runs "
+        "signal` CLI to reach a run). The scheme names the backend.",
     )
 
 
@@ -440,13 +449,14 @@ class SessionSettings(LayeredSettings):
     store to ``Runner.run_streamed`` (currently the ChatKit backend) read
     these settings to mint a per-session
     :class:`agents.extensions.memory.RedisSession`. Plugins decide
-    whether ``redis_url`` is optional or required — the ChatKit backend
+    whether ``url`` is optional or required — the ChatKit backend
     treats it as required and raises at boot if unset.
     """
 
+    _bare_env_names: ClassVar[Mapping[str, str]] = {"url": "AGENTDECK_SESSION"}
     model_config = settings_config("AGENTDECK_SESSION_")
 
-    redis_url: str | None = Field(
+    url: str | None = Field(
         default=None,
         description="Redis URL for `RedisSession`-backed agent conversation memory "
         "(`agentdeck.adapters.engines.openai_agents.sessions.SessionFactory`). `None` falls back to one "
@@ -461,52 +471,6 @@ class SessionSettings(LayeredSettings):
         description="Per-session TTL in seconds for Redis-backed conversations. `None` means sessions persist "
         "indefinitely.",
     )
-
-
-class SkillsSettings(LayeredSettings):
-    """Captures arbitrary ``SKILL_*`` keys (env + YAML ``skill:``); re-exports as ``UPPER_CASE``."""
-
-    model_config = settings_config("SKILL_", extra="allow")
-
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: Any,
-        env_settings: Any,
-        dotenv_settings: Any,
-        file_secret_settings: Any,
-    ) -> tuple[Any, ...]:
-        # BaseSettings only auto-binds env vars matching declared fields
-        # after prefix stripping; the inline ``skill_env`` source captures
-        # every ``SKILL_*`` key so operators can declare arbitrary names.
-        # YAML's ``skill:`` section is the file-side equivalent.
-
-        def skill_env() -> dict[str, str]:
-            return {
-                _strip_skill_prefix(name): value
-                for name, value in os.environ.items()
-                if name.casefold().startswith(_SKILL_PREFIX)
-            }
-
-        return (
-            init_settings,
-            env_settings,
-            skill_env,
-            SectionedYamlSource(settings_cls, "skill"),
-        )
-
-    @model_validator(mode="before")
-    @classmethod
-    def _normalize_input_keys(cls, data: Any) -> Any:
-        if not isinstance(data, Mapping):
-            return data
-        return {_strip_skill_prefix(k) if isinstance(k, str) else k: v for k, v in data.items()}
-
-    def env_dict(self) -> dict[str, str]:
-        return {
-            name.upper(): rendered for name, value in self.model_dump().items() if (rendered := _as_env_value(value))
-        }
 
 
 class Settings(BaseModel):
@@ -525,13 +489,8 @@ class Settings(BaseModel):
     events: EventsSettings = Field(default_factory=lambda: EventsSettings.model_validate({}))
     control: ControlSettings = Field(default_factory=lambda: ControlSettings.model_validate({}))
     session: SessionSettings = Field(default_factory=lambda: SessionSettings.model_validate({}))
-    skills: SkillsSettings = Field(default_factory=lambda: SkillsSettings.model_validate({}))
     langfuse: LangfuseSettings = Field(default_factory=lambda: LangfuseSettings.model_validate({}))
     tavily: TavilySettings = Field(default_factory=lambda: TavilySettings.model_validate({}))
-
-    def sandbox_env(self, extra: Mapping[str, str] | None = None) -> dict[str, str]:
-        """Standard env every sandbox sees: ``OPENAI_*`` + ``SKILL_*`` + extras."""
-        return self.openai.env_dict() | self.skills.env_dict() | dict(extra or {})
 
 
 @lru_cache(maxsize=1)
@@ -558,10 +517,10 @@ __all__ = [
     "SectionedYamlSource",
     "SessionSettings",
     "Settings",
-    "SkillsSettings",
     "TavilySettings",
     "default_use_responses",
     "get_settings",
+    "parse_backend_url",
     "reset_settings_cache",
     "resolve_config_path",
     "resolve_env_file",

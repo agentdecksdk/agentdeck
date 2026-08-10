@@ -51,6 +51,7 @@ from agentdeck.core.events import (
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.errors import SessionBusyError
 from agentdeck.runtime.service import Runtime
+from agentdeck.runtime.settings import get_settings
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Sequence
@@ -678,10 +679,14 @@ async def _takeover_successor(root: Path) -> None:
 
     The staleness window is left to the settings on purpose: the test runs this twice, once
     with the default — which must refuse — and once with the window shortened through the
-    environment, the way an operator would set it, which must get through.
+    environment, the way an operator would set it, which must get through. ``Runtime`` itself
+    reads no settings, so this worker resolves the configured window explicitly, the same way
+    ``build_runtime`` would.
     """
     store = SqliteEventStore(events_db(root))
-    runtime = Runtime([StubEngine()], store, {CHATTY: chatty_spec("next")})
+    runtime = Runtime(
+        [StubEngine()], store, {CHATTY: chatty_spec("next")}, stale_run_after=get_settings().runtime.stale_run_after
+    )
     ctx = context(TAKEOVER_NEXT, TAKEOVER_LOG)
     try:
         events = [

@@ -42,10 +42,10 @@ class SessionFactory:
     @classmethod
     def from_settings(cls, settings: SessionSettings) -> SessionFactory | None:
         """Build from :class:`SessionSettings` or return ``None`` when disabled."""
-        if not settings.redis_url:
+        if not settings.url:
             return None
         return cls(
-            Redis.from_url(settings.redis_url),
+            Redis.from_url(settings.url),
             key_prefix=settings.redis_key_prefix,
             ttl=settings.redis_ttl,
         )

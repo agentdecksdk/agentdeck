@@ -15,6 +15,7 @@ are what an entry point calls to fill an adapter's constructor in.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from agentdeck.adapters.control.memory import MemoryControlPort
@@ -25,14 +26,23 @@ from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.adapters.telemetry.langfuse.client import langfuse_sink
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
-from agentdeck.runtime.settings import ControlSettings, EventsSettings, Settings, default_use_responses, get_settings
+from agentdeck.runtime.settings import (
+    ControlSettings,
+    EventsSettings,
+    Settings,
+    default_use_responses,
+    get_settings,
+    parse_backend_url,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
-    from datetime import datetime
+    from datetime import datetime, timedelta
 
     from agentdeck.core.invocable import InvocableSpec
     from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort
+
+logger = logging.getLogger(__name__)
 
 
 def build_runtime(
@@ -43,12 +53,14 @@ def build_runtime(
     sinks: Sequence[EventSinkPort] | None = None,
     control: ControlPort | None = None,
     clock: Callable[[], datetime] | None = None,
+    stale_run_after: timedelta | None = None,
 ) -> Runtime:
     """Wire ``engines`` into a Runtime over the project's invocables.
 
     ``invocables`` defaults to discovery over ``./.agentdeck`` — pass a mapping to run
     specs built in code instead. ``store`` defaults to the configured event store,
-    ``control`` to the configured control port, and ``sinks`` to the configured telemetry —
+    ``control`` to the configured control port, ``stale_run_after`` to
+    ``RuntimeSettings.stale_run_after``, and ``sinks`` to the configured telemetry —
     passing ``sinks=()`` is how a caller asks for none at all.
 
     ``clock`` no longer reaches anything that stamps an event. Timestamps are assigned by the
@@ -62,6 +74,8 @@ def build_runtime(
     specs = InvocableRegistry(engines).load() if invocables is None else invocables
     store = store or resolve_event_store()
     control = control or resolve_control_port()
+    if stale_run_after is None:
+        stale_run_after = get_settings().runtime.stale_run_after
     if sinks is None:
         # Telemetry is a reader of the event stream, so it is wired here rather than opened
         # by whatever happens to be running: one sink covers agents, workflows and every
@@ -69,8 +83,8 @@ def build_runtime(
         telemetry = langfuse_sink()
         sinks = () if telemetry is None else (telemetry,)
     if clock is None:
-        return Runtime(engines, store, specs, sinks=sinks, control=control)
-    return Runtime(engines, store, specs, sinks=sinks, clock=clock, control=control)
+        return Runtime(engines, store, specs, sinks=sinks, control=control, stale_run_after=stale_run_after)
+    return Runtime(engines, store, specs, sinks=sinks, clock=clock, control=control, stale_run_after=stale_run_after)
 
 
 def resolve_run_settings(settings: Settings | None = None) -> RunSettings:
@@ -97,59 +111,73 @@ def resolve_run_settings(settings: Settings | None = None) -> RunSettings:
 
 
 def resolve_checkpoint(settings: Settings | None = None) -> tuple[str, str]:
-    """The ``(backend, url)`` a durable workflow checkpoints to.
+    """The ``(backend, path_or_dsn)`` a durable workflow checkpoints to, derived from
+    ``AGENTDECK_CHECKPOINT``'s scheme.
 
     A pair of strings, not a saver: the sqlite/postgres savers live in the ``[durability]``
     extra, so naming a backend here must not import one — the langgraph adapter builds it at
-    the first durable run and not before.
+    the first durable run and not before. ``postgresql`` normalizes to the backend name
+    ``resolve_checkpointer`` expects (``postgres``); sqlite's own value is the bare path after
+    the scheme, since the saver takes a filesystem path, not a URL.
     """
     checkpoint = (settings if settings is not None else get_settings()).checkpoint
-    return checkpoint.backend, checkpoint.url
+    scheme, rest = parse_backend_url(checkpoint.url)
+    backend = "postgres" if scheme == "postgresql" else scheme
+    return backend, rest if backend == "sqlite" else checkpoint.url
 
 
 def resolve_control_port(settings: ControlSettings | None = None) -> ControlPort:
-    """Build the control port named by ``backend``: ``memory`` (default) or ``sqlite``.
+    """Build the control port named by ``AGENTDECK_CONTROL``'s scheme: ``memory://`` (default)
+    or ``sqlite://<path>``.
 
     Always built, never left off: a Runtime without one cannot pause or cancel anything, and a
     caller finding that out from an endpoint that silently did nothing is worse than the
     in-memory port's own limit — which is that only this process can reach the run.
     """
     control = settings if settings is not None else get_settings().control
-    backend = control.backend.strip().lower()
-    if backend == "memory":
+    scheme, rest = parse_backend_url(control.url)
+    if scheme == "memory":
+        logger.warning(
+            "AGENTDECK_CONTROL is 'memory://': a signal written in one process is invisible to another — "
+            "'agentdeck runs signal' and a second worker cannot reach a run. Set AGENTDECK_CONTROL=sqlite:///<path> "
+            "to cross process boundaries."
+        )
         return MemoryControlPort()
-    if backend == "sqlite":
-        if not control.url:
-            raise ValueError("the sqlite control port needs a file path: set AGENTDECK_CONTROL_URL")
-        return SqliteControlPort(control.url)
-    raise ValueError(f"unknown control backend {control.backend!r}; expected memory or sqlite")
+    if scheme == "sqlite":
+        if not rest:
+            raise ValueError("the sqlite control port needs a file path: set AGENTDECK_CONTROL=sqlite:///<path>")
+        return SqliteControlPort(rest)
+    raise ValueError(
+        f"unknown control backend {scheme!r} in AGENTDECK_CONTROL={control.url!r}; expected memory or sqlite"
+    )
 
 
 def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePort:
-    """Build the event store named by ``backend``: ``memory`` (default), ``sqlite``,
-    ``redis`` or ``postgres``.
+    """Build the event store named by ``AGENTDECK_EVENTS``'s scheme: ``memory://`` (default),
+    ``sqlite://<path>``, ``redis://``/``rediss://<url>``, or ``postgresql://<dsn>``.
 
     The last two are imported inside their own branch, not at module scope: this module is on
     the import path of every entry point, and Postgres needs the ``[durability]`` extra, so a
     top-level import would make that extra mandatory for anyone who only chats.
     """
     events = settings if settings is not None else get_settings().events
-    backend = events.backend.strip().lower()
-    if backend == "memory":
+    scheme, rest = parse_backend_url(events.url)
+    if scheme == "memory":
+        logger.warning(
+            "AGENTDECK_EVENTS is 'memory://': the event log never evicts and is lost on restart. Set "
+            "AGENTDECK_EVENTS=sqlite:///<path> for a durable log, or redis://.../postgresql://... for one "
+            "several workers can share."
+        )
         return MemoryEventStore()
-    if backend == "sqlite":
-        if not events.url:
-            raise ValueError("the sqlite event store needs a file path: set AGENTDECK_EVENTS_URL")
-        return SqliteEventStore(events.url)
-    if backend == "redis":
-        if not events.url:
-            raise ValueError("the redis event store needs a URL: set AGENTDECK_EVENTS_URL")
+    if scheme == "sqlite":
+        if not rest:
+            raise ValueError("the sqlite event store needs a file path: set AGENTDECK_EVENTS=sqlite:///<path>")
+        return SqliteEventStore(rest)
+    if scheme in ("redis", "rediss"):
         from agentdeck.adapters.stores.redis import RedisEventStore
 
         return RedisEventStore(events.url)
-    if backend == "postgres":
-        if not events.url:
-            raise ValueError("the postgres event store needs a DSN: set AGENTDECK_EVENTS_URL")
+    if scheme in ("postgres", "postgresql"):
         try:
             from agentdeck.adapters.stores.postgres import PostgresEventStore
         except ImportError as exc:
@@ -158,7 +186,10 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
                 'pip install "agentdeck[durability]"'
             ) from exc
         return PostgresEventStore(events.url)
-    raise ValueError(f"unknown event store backend {events.backend!r}; expected memory, sqlite, redis or postgres")
+    raise ValueError(
+        f"unknown event store scheme {scheme!r} in AGENTDECK_EVENTS={events.url!r}; expected memory, sqlite, "
+        "redis, rediss, or postgresql"
+    )
 
 
 __all__ = [
