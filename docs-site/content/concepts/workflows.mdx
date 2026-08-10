@@ -140,3 +140,15 @@ checkpointer.
 
 `Workflow.as_tool()` turns the whole workflow into a tool an agent can call (pass it in
 `Agent(tools=[...])`), which is how a conversation reaches deterministic multi-step work.
+
+**A workflow exposed as a tool must be `durable=False`.** A tool call carries no thread, and a
+durable workflow needs one to load and persist its checkpoint — so `build()` rejects the
+combination rather than letting it fail the first time a model reaches for the tool:
+
+```
+agent 'booking' uses workflow 'Onboarding' as a tool, but it is durable=True.
+```
+
+If the work genuinely needs to survive a restart or pause for a human, it is a root invocable,
+not an ability: call it with `deck.run("Onboarding", state, session_id=...)`, where you control
+the thread.

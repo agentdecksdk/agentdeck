@@ -130,7 +130,10 @@ plays a workflow the same way, so nothing on `Deck` calls `run_stream()` — it 
 script or a test that wants the raw graph stream with no log.
 
 `as_tool()` requires `state` to be a Pydantic model (`TypeError` otherwise, since the tool's JSON
-schema comes from `state.model_json_schema()`). `defaults` pins specific state fields to fixed
+schema comes from `state.model_json_schema()`), and requires `durable=False` — a tool call
+supplies no `thread_id`, which a durable workflow needs for its checkpoint, so `Deck.build()`
+raises `ConfigError` naming the agent and the workflow. A durable workflow is a root invocable:
+reach it through `deck.run(...)` with a session, not as an agent's ability. `defaults` pins specific state fields to fixed
 values regardless of what the model passes, and strips those fields from the schema the model
 sees; `output_keys` filters the final state down to a subset of channels in the tool's return
 value. Both are optional — the default is the whole schema, the whole final state.
