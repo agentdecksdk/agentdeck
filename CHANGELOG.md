@@ -303,6 +303,12 @@ of vanishing the moment the call returns.
   `Deck.build()` and standalone `Agent.build()`) now raises `ConfigError` naming the agent and
   the offending tool, pointing at `@function_tool` — structurally, by checking the tool is one
   of the SDK's own tool types, so the check still constructs no engine and touches no network.
+- **Every `tools=` example in the docs and docstrings now shows the real contract (#179).**
+  `Agent`'s docstring, `Deck`'s module docstring, and `docs-site/content/reference/definitions.mdx`
+  / `concepts/agents.mdx` documented `tools=[find_slots, book_slot]` with plain callables — a
+  form that has never run, and now fails `build()` per the fix above instead of the SDK at run
+  time. They now show a tool built with `@function_tool` (`from agents import function_tool`),
+  the only place agentdeck asks you to reach for the SDK directly.
 
 ## [2.0.0] - 2026-08-06
 

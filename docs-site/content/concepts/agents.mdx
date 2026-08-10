@@ -51,7 +51,7 @@ asyncio.run(main())
 | `instructions` | the system prompt: role, priorities, tool rules, output expectations |
 | `model` | per-agent override; `None` uses the `OPENAI_MODEL` setting |
 | `model_settings` | forwarded to `agents.ModelSettings(**model_settings)` — temperature, token budget, parallel tool calls |
-| `tools` | plain callables, already-built SDK tools, or a `Workflow` to expose as a tool |
+| `tools` | already-built SDK tool objects (`@function_tool`-wrapped), or a `Workflow` to expose as a tool — see [Definitions](/reference/definitions) |
 | `handoffs` | peers this agent can transfer the conversation to |
 | `handoff_description` | how this agent describes itself to a peer deciding whether to hand off |
 | `output_type` | a Pydantic model for structured final output; `None` for free text |
