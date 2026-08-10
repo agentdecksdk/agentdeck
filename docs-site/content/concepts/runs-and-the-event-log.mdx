@@ -120,9 +120,25 @@ hand you back the exact context an engine fed the model to produce it.
 `AGENTDECK_EVENTS_BACKEND` picks the store: `memory` (the default) keeps it in the process and
 loses it on exit; `sqlite` (with `AGENTDECK_EVENTS_URL` a file path, as above) survives a
 restart; `redis` and `postgres` (a URL or DSN in the same variable) are the two several workers
-can share. SQLite's cross-process story rests on shared memory between processes on one machine
-— one file behind more than one *machine* is not supported, which is exactly why `redis` and
-`postgres` exist as separate options rather than "just point everyone at the same file."
+can share. SQLite's cross-process story is a shared *file*, not shared memory: several
+processes on the same machine can open it, but a file can't reach a second machine — which is
+exactly why `redis` and `postgres` exist as separate options rather than "just point everyone at
+the same file."
+
+## A listed exception: timer resumes
+
+The claim at the top of this page — every consumer of a run reads this log — has one carve-out.
+`Deck.due_resumes()` lists which timer-paused workflow threads are due, and `Deck.tick()` resumes
+them, by reading each workflow's own LangGraph checkpointer, not this log. That is deliberate:
+the checkpoint backend defaults to durable (`sqlite`) while the event store defaults to
+`memory`, so listing off the log alone would stop surviving a process restart under the default
+configuration — exactly the guarantee a due timer keeps its wake-up call across one restart.
+When a due thread also has a run `Deck.pending()` already knows about (parked by a `Deck.run()`
+or HTTP call, which does go through the Runtime), `tick()` resumes it *through the Runtime*, so
+that resume itself lands in the log like any other; only a thread with no logged run at all —
+parked by calling a durable `Workflow`'s own `run`/`resume` directly — falls back to resuming
+straight off the checkpointer, since there is no log entry to reconcile. See [Workflows →
+Timers](/concepts/workflows#timers) for where this shows up in practice.
 
 Next: [Run Control](/concepts/run-control) covers what a run in flight can be asked to do, and
 how those requests land in this same log.
