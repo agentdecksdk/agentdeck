@@ -66,10 +66,16 @@ jobs:
         # narrower one.
         run: |
           uv pip install -e ".[dev,serve,durability,observability]"
+          .venv/bin/python -c "import langgraph.checkpoint.sqlite, langfuse, psycopg, redis"
           .venv/bin/ruff check agentdeck/ tests/
           .venv/bin/ty check agentdeck
           .venv/bin/lint-imports
-          .venv/bin/pytest tests/ -q
+          .venv/bin/pytest tests/ -q --junit-xml=/tmp/pytest-results.xml
+          if grep -qE 'needs the \[[a-z]+\] extra|no Postgres at|no Redis at' /tmp/pytest-results.xml; then
+            echo "::error::a subsystem skipped out of the gate — an extra or a service container is missing" >&2
+            grep -oE 'needs the \[[a-z]+\] extra|no (Postgres|Redis) at [^"]*' /tmp/pytest-results.xml | sort -u >&2
+            exit 1
+          fi
       - name: Build
         run: uv build
       - name: Extract CHANGELOG section
