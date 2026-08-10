@@ -61,7 +61,7 @@ from agentdeck.composition import (
 from agentdeck.core.content import DataBlock, TextBlock, coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
-from agentdeck.core.events import Custom, NodeUpdated, RunCompleted, RunInterrupted
+from agentdeck.core.events import NodeUpdated, RunCompleted, RunInterrupted
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.mcp import MCP
 from agentdeck.runtime.discovery import InvocableRegistry
@@ -86,12 +86,6 @@ if TYPE_CHECKING:
 # never an instance, so ``build()`` can validate "an engine is registered" without constructing
 # anything that could touch the network. See the module docstring's lifecycle note.
 _DEFAULT_ENGINE_NAMES: tuple[str, str] = (OpenAIAgentsEngine.engine, LangGraphEngine.engine)
-
-# Duplicated from ``app.py`` rather than imported: v1's `App` is deleted in the same effort this
-# class replaces it for, so importing from a module about to disappear would only have to be
-# undone again. See the openai-agents engine's own copy for why the constant is spelled out
-# rather than imported from there.
-_LEGACY_STRUCTURED_OUTPUT = "openai_agents.structured_output"
 
 _State = Literal["NEW", "BUILT", "OPEN", "CLOSED"]
 
@@ -143,7 +137,7 @@ def _new_context(session_id: str | None = None) -> RunContext:
 
 
 async def _turn_result(events: AsyncGenerator[Event, None]) -> TurnResult:
-    """A run's own ``run.completed`` (plus whatever it names, en route), as a :class:`TurnResult`.
+    """A run's own ``run.completed`` as a :class:`TurnResult`.
 
     Drains ``events`` to its natural end rather than returning the moment ``run.completed``
     is seen — closing the Runtime's generator any earlier throws ``GeneratorExit`` into it one
@@ -153,19 +147,14 @@ async def _turn_result(events: AsyncGenerator[Event, None]) -> TurnResult:
     Raises if the stream ends without one: the engine's own exception already reached the
     caller in that case, so the only way this is hit is a run suspended by a pause or a cancel.
     """
-    structured: Any = None
     result: TurnResult | None = None
     async with aclosing(events):
         async for event in events:
             payload = event.payload
-            if isinstance(payload, Custom) and payload.name == _LEGACY_STRUCTURED_OUTPUT:
-                structured = payload.data.get("output")
-            elif isinstance(payload, RunCompleted):
+            if isinstance(payload, RunCompleted):
                 data = next((block.data for block in payload.output if isinstance(block, DataBlock)), None)
                 if data is not None:
                     output = data
-                elif structured is not None:
-                    output = structured
                 else:
                     output = "".join(block.text for block in payload.output if isinstance(block, TextBlock))
                 result = TurnResult(

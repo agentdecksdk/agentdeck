@@ -890,6 +890,11 @@ rides alongside as one namespaced `custom` event (`openai_agents.structured_outp
 surface renders. Two recurrences of "core has no shape for structured data" is the promotion
 signal D10 describes; a `DataBlock` (or a structured field on `run.completed`) is the schema
 decision that would retire both the custom event and this note.)*
+
+*(Amended 2026-08-10, issue #105: retired. #101 gave `RunCompleted.output` the `DataBlock` this
+note called for; the `custom` event was one release's overlap with it, kept only because
+retiring it inside #101 meant editing an open PR's files. `surfaces/serve/compat.py` now reads
+the `DataBlock` straight off `run.completed`, and the custom event no longer exists.)*
 `surfaces/cli/` gains `agentdeck run`, `agentdeck sessions replay`, `agentdeck runs
 signal` for free, because they too are event readers.
 

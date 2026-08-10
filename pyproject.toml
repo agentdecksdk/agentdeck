@@ -2,6 +2,8 @@
 name = "agentdeck"
 version = "3.0.0b1"
 description = "Declarative harness over the OpenAI Agents SDK and LangGraph: settings, capabilities, skills, runners, graph compilation, plug-in discovery."
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2.7",
