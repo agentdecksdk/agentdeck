@@ -8,8 +8,7 @@ description: Declarative agent definitions — keyword arguments in, SDK Agent o
 An agent is an `Agent(...)` call. Pass keyword arguments; `build()` forwards the ones you set to
 the Agents SDK constructor and drops the rest so the SDK keeps its own defaults.
 
-```python
-# .agentdeck/agents/support/agent.py
+```python file=.agentdeck/agents/support/agent.py
 from agentdeck import Agent
 
 support = Agent(
@@ -27,10 +26,11 @@ support = Agent(
 No registration, no runner wiring, no provider setup, no session plumbing. The same agent is
 reachable one-shot, as a conversation, streamed, over HTTP, and as another agent's tool:
 
-```python
+```python run
 import asyncio
 
 from agentdeck import Deck
+from agentdeck.core import MessageCompleted, RunCompleted, TextDelta
 
 
 async def main() -> None:
@@ -38,7 +38,19 @@ async def main() -> None:
         await deck.run("Support", "where is my order?")                       # one-shot
         await deck.run("Support", "where is my order?", session_id="wa-123")  # remembers
         async for event in deck.stream("Support", "and now?", session_id="wa-123"):  # streams
-            print(event)
+            # `type(event)` is always `Event` — the envelope. The discriminator is
+            # `event.payload`, whose own `kind` is what the union matched on; an
+            # unfamiliar kind still parses (as `UnknownEvent`), so a default case
+            # tolerates it instead of crashing on a newer writer.
+            match event.payload:
+                case TextDelta(text=text):
+                    print(text, end="", flush=True)
+                case MessageCompleted():
+                    print()
+                case RunCompleted(usage=usage):
+                    print(f"[{usage.input_tokens}+{usage.output_tokens} tokens]")
+                case _:
+                    pass
 
 
 asyncio.run(main())

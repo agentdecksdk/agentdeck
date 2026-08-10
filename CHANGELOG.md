@@ -294,6 +294,18 @@ of vanishing the moment the call returns.
   `run_workflow_stream` used to do outside the Runtime: a workflow's stream is canonical
   `Event`s, not the old dict shape, whichever method starts it.
 
+### Added
+
+- **`agentdeck.__version__`** (#176): the installed distribution's version
+  (`importlib.metadata.version("agentdeck")`), so it can never drift from what
+  `pip`/`uv` actually installed. Falls back to `"0+unknown"` rather than raising when the
+  package has no installed distribution to read (e.g. a bare source checkout).
+- Docs: `deck.stream()`'s worked example ([Agents](/concepts/agents)) now discriminates
+  events by `match`ing on `event.payload` instead of printing the envelope, and
+  [Deck](/reference/deck) says so in prose — `type(event)` is always `Event`; the
+  discriminator is the payload's own `kind`, reachable as `event.payload` or `event.kind`
+  (#175).
+
 ## [2.0.0] - 2026-08-06
 
 The release where agentdeck becomes a platform rather than a harness. Every turn — chat
