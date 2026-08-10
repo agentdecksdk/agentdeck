@@ -20,6 +20,20 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   backend configured` response as a deployment state operators can hit: `resolve_control_port()`
   always wires a real `ControlPort` for `Deck`/`agentdeck-serve`, so that response is reachable
   only by an embedder constructing a bare `Runtime` outside `Deck`.
+- **Seven more docs pages corrected against the current v3 code (#192).** `/` no longer calls
+  skills Python definitions (they are `SKILL.md` directories) or claims `session_id` survives a
+  restart by default (it needs `AGENTDECK_SESSION_REDIS_URL`). `/concepts` and
+  `/concepts/runs-and-the-event-log` no longer describe SQLite's cross-process story as "shared
+  memory" — it is a shared file, openable by several processes on one machine, not across
+  machines. `/concepts/agents` describes MCP status as it works today: `build()` stays
+  network-free, and status is re-resolved when the `Deck` opens (`__aenter__`, right after
+  `MCPLifecycle.startup`), not "dropped at build time". `/concepts/protocols-and-surfaces` no
+  longer says an HTTP handler builds a `RunContext` — the `Runtime` mints it for every caller.
+  `/concepts/run-control` no longer recommends `ctx.idempotency_key`, a field `RunContext` does
+  not have. `/concepts/runs-and-the-event-log` and `/concepts/workflows` now document that
+  `Deck.due_resumes()`/`Deck.tick()`'s *listing* of due timers reads each workflow's own
+  checkpointer, not the event log, for the same #22-driven reason as the `Deck.tick()` fix
+  below.
 - **`Deck.tick()`** no longer leaves a ghost `WAITING_HUMAN` run in the event log when it
   resumes a timer-paused thread that a `Deck.run()`/HTTP call parked (#120): it now resumes
   such a thread through the Runtime, the same as `Deck.answer()` already did, so the run's
