@@ -1,7 +1,7 @@
 {
   "v": {
     "major": 3,
-    "minor": 0
+    "minor": 1
   },
   "kind": "run.started",
   "seq": 0,
@@ -23,6 +23,11 @@
         "type": "image",
         "media_type": "image/png",
         "data_b64": "iVBORw0="
+      },
+      {
+        "type": "audio",
+        "media_type": "audio/wav",
+        "data_b64": "AAA="
       },
       {
         "type": "data",

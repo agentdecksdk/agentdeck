@@ -281,7 +281,10 @@ def test_a_minor_bump_is_how_a_content_block_kind_would_arrive():
     real: a block type this tree has never heard of, riding on an event stamped one minor ahead,
     still parses — the run's own payload typed, the unfamiliar block preserved rather than
     dropped. Proves the minor half of the semantics is usable by a payload change, not only an
-    envelope one."""
+    envelope one.
+
+    ``audio`` was this example until #159 made ``AudioBlock`` real; ``video`` is what stays
+    unknown to this tree now, so the rehearsal still has a kind to be unfamiliar with."""
     newer = {**WIRE_VERSION, "minor": WIRE_VERSION["minor"] + 1}
     wire = _wire(
         "run.started",
@@ -290,7 +293,7 @@ def test_a_minor_bump_is_how_a_content_block_kind_would_arrive():
             "kind_of_invocable": "agent",
             "input": [
                 {"type": "text", "text": "book a slot"},
-                {"type": "audio", "media_type": "audio/wav", "data_b64": "AAA="},
+                {"type": "video", "media_type": "video/mp4", "data_b64": "AAA="},
             ],
         },
     )
@@ -299,8 +302,38 @@ def test_a_minor_bump_is_how_a_content_block_kind_would_arrive():
     assert event.v == SchemaVersion(major=CURRENT_VERSION.major, minor=CURRENT_VERSION.minor + 1)
     assert isinstance(event.payload, RunStarted)
     assert event.payload.input[1] == UnknownBlock(
-        type="audio", raw_block={"type": "audio", "media_type": "audio/wav", "data_b64": "AAA="}
+        type="video", raw_block={"type": "video", "media_type": "video/mp4", "data_b64": "AAA="}
     )
+
+
+def test_status_of_and_check_terminal_are_unchanged_by_an_audio_block():
+    """#159's own instance of the invariant ``test_old_reader_block_compat.py`` measures for an
+    *unfamiliar* block: a real, known ``AudioBlock`` in ``run.started.input`` folds to the same
+    status and the same terminal verdict as the identical run without it."""
+    plain = _wire(
+        "run.started", {"invocable": "Greeter", "kind_of_invocable": "agent", "input": [{"type": "text", "text": "hi"}]}
+    )
+    with_audio = _wire(
+        "run.started",
+        {
+            "invocable": "Greeter",
+            "kind_of_invocable": "agent",
+            "input": [
+                {"type": "text", "text": "hi"},
+                {"type": "audio", "media_type": "audio/wav", "data_b64": "AAA="},
+            ],
+        },
+    )
+    completed = _wire(
+        "run.completed",
+        {"output": [{"type": "text", "text": "done"}], "usage": {"input_tokens": 1, "output_tokens": 1}},
+    )
+
+    plain_run = [Event.model_validate(plain), Event.model_validate(completed)]
+    audio_run = [Event.model_validate(with_audio), Event.model_validate(completed)]
+
+    assert status_of(audio_run) is status_of(plain_run) is RunStatus.COMPLETED
+    assert check_terminal(audio_run) is check_terminal(plain_run) is None
 
 
 def test_an_event_written_before_v3_says_so_instead_of_failing_obscurely():

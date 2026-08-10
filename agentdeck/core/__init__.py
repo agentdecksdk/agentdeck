@@ -6,6 +6,7 @@ import-linter contract enforces it.
 
 from agentdeck.core.content import (
     KNOWN_BLOCK_TYPES,
+    AudioBlock,
     ContentBlock,
     DataBlock,
     ImageBlock,
@@ -62,6 +63,7 @@ __all__ = [
     "RESULT_PREVIEW_MAX",
     "TERMINAL_KINDS",
     "ArtifactCreated",
+    "AudioBlock",
     "ContentBlock",
     "ControlObserved",
     "ControlRequested",

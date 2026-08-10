@@ -32,7 +32,7 @@ from agentdeck.core.content import TextBlock
 from agentdeck.core.events import Custom, InputAppended, MessageCompleted, RunCancelled, RunStarted
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
 
     from agents.items import TResponseInputItem
     from agents.memory.session import Session
@@ -146,18 +146,29 @@ def _session_transcript(items: Sequence[TResponseInputItem]) -> list[Message]:
     return transcript
 
 
+def _join_texts(texts: Iterable[str]) -> str:
+    """The one join both reconciliation sides call, so a multi-``TextBlock`` turn reads the same
+    string from the log and from the session instead of drifting by whose join ran. Before
+    ``_to_sdk_input`` could emit a parts list (#161), the two agreed only because the session's
+    content was the bare string this function's caller had already joined."""
+    return "\n".join(texts)
+
+
 def _item_text(content: Any) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        return "".join(part.get("text", "") for part in content if isinstance(part, dict))
+        # A text part is ``input_text`` on the user side, ``output_text`` on the assistant
+        # side — both have a ``text`` key. An image or audio part has neither type nor key,
+        # so filtering on the key itself covers both roles without naming either type.
+        return _join_texts(
+            part["text"] for part in content if isinstance(part, dict) and isinstance(part.get("text"), str)
+        )
     return ""
 
 
 def _text_of(input: Input) -> str:
-    # Joined exactly the way the engine joins a turn's input on the way in, so a replayed
-    # message is the same string the session would have held had the write landed.
-    return "\n".join(block.text for block in input if isinstance(block, TextBlock))
+    return _join_texts(block.text for block in input if isinstance(block, TextBlock))
 
 
 def _as_item(role: Role, text: str) -> TResponseInputItem:

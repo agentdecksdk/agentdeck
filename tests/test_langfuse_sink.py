@@ -329,8 +329,8 @@ def test_a_block_kind_this_version_cannot_render_is_still_mentioned() -> None:
     """The default case earns its keep: a newer writer's block type must not make a run read
     as one with no input at all. Real now that ``UnknownBlock`` (#109) exists — this is no
     longer a stand-in for a shape ``ContentBlock`` couldn't hold."""
-    block = UnknownBlock(type="audio", raw_block={"type": "audio", "uri": "s3://clip.mp3"})
-    assert _render([block]) == ["<audio block>"]
+    block = UnknownBlock(type="video", raw_block={"type": "video", "uri": "s3://clip.mp4"})
+    assert _render([block]) == ["<video block>"]
 
 
 async def test_structured_data_reaches_the_trace_as_json_on_both_ends() -> None:

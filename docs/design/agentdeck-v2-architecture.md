@@ -126,10 +126,11 @@ class InvocableSpec(BaseModel):
 # core/content.py
 class TextBlock(BaseModel):      type: Literal["text"] = "text"; text: str
 class ImageBlock(BaseModel):     type: Literal["image"] = "image"; media_type: str; data_b64: str
+class AudioBlock(BaseModel):     type: Literal["audio"] = "audio"; media_type: str; data_b64: str
 class ResourceBlock(BaseModel):  type: Literal["resource"] = "resource"; uri: str; media_type: str | None = None
 class DataBlock(BaseModel):      type: Literal["data"] = "data"; data: JsonValue
 
-ContentBlock = Annotated[TextBlock | ImageBlock | ResourceBlock | DataBlock, Field(discriminator="type")]
+ContentBlock = Annotated[TextBlock | ImageBlock | AudioBlock | ResourceBlock | DataBlock, Field(discriminator="type")]
 Input = list[ContentBlock]           # replaces `message: Any` / `input: str` everywhere
 ```
 
@@ -149,6 +150,22 @@ they are the caller's own input and the run's own declared result, and a truncat
 cannot be replayed or reconciled; the preview + size + hash treatment stays specific to
 *tool* results, where the bytes are unbounded and engine-chosen. **D8: additive minor**, no
 `v` bump — no field was renamed, removed, or given a new meaning.*)
+
+*(Amended 2026-08-10, issue #159: `AudioBlock` added, mirroring `ImageBlock` field-for-field —
+the prose above named audio as one of the four atoms since this doc's first draft, and the code
+block six lines above it did not, until now. Both `ImageBlock` and `AudioBlock` gained an inline
+cap (1 MB decoded, enforced at construction) at the same time: either can carry a payload large
+enough to make an event log entry unbounded, and the cap's error names `ResourceBlock` as the
+by-reference alternative. **D8: additive minor** — a new discriminated-union member, no field
+renamed or removed; a reader that predates this change still parses the event, meeting the new
+block as `UnknownBlock`.
+
+Inbound and outbound are not symmetric here, and stay that way: the openai-agents engine
+(#161) maps `TextBlock`/`ImageBlock`/`AudioBlock` onto the SDK's own multimodal input parts, but
+nothing on that path *produces* an image or audio block — an agent's output is `TextBlock` or
+`DataBlock` only. `RunCompleted.output` is already typed `Input`, so a model that returns audio
+one day is additive when it happens; carrying it before then would be scaffolding for a caller
+that does not exist.*)
 
 ### 4.2 The Event schema — the keystone
 

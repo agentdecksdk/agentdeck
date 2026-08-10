@@ -67,13 +67,17 @@ class SchemaVersion(CoreModel):
     minor: NonNegativeInt
 
 
-CURRENT_VERSION = SchemaVersion(major=3, minor=0)
+CURRENT_VERSION = SchemaVersion(major=3, minor=1)
 """What this tree writes onto every event. ``major=3`` because this is the change that makes it
 one: replacing the scalar ``v`` with this model is exactly the kind of break a reader must
 recognise to parse at all — the same reason ``v`` went from 1 to 2 when ``namespace`` replaced
 the required ``tenant``. A future additive change (a new kind, a new optional field) bumps
 ``minor`` here and nowhere else; a future breaking one bumps ``major`` and updates the check on
-:class:`Event`."""
+:class:`Event`.
+
+``minor=1`` (#159): ``AudioBlock`` is the first real payload change to take this path rather
+than the envelope one — old readers already tolerate it via ``UnknownBlock``, which is what
+additive means."""
 
 Money = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 """US dollars, constrained where the token counts already were. ``NaN``/``±Infinity`` serialize

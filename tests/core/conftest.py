@@ -12,6 +12,7 @@ import pytest
 
 from agentdeck.core import (
     ArtifactCreated,
+    AudioBlock,
     ControlObserved,
     ControlRequested,
     Custom,
@@ -50,6 +51,7 @@ PAYLOADS = (
         input=[
             TextBlock(text="any slot tuesday?"),
             ImageBlock(media_type="image/png", data_b64="iVBORw0="),
+            AudioBlock(media_type="audio/wav", data_b64="AAA="),
             DataBlock(data={"calendar_id": "cal_9", "attendees": ["sagi", "dana"]}),
         ],
     ),
