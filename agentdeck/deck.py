@@ -654,8 +654,8 @@ class Deck:
         for :meth:`answer`. So a due thread with a matching logged run resumes through the
         Runtime instead — closing that run and freeing its claim — and only a thread with no
         logged run (parked by calling a durable :class:`Workflow`'s own ``run``/``resume``
-        directly, a deliberately log-free path — see the module docstring) falls back to the
-        direct checkpointer resume, since there is no log entry to reconcile.
+        directly, which never opens a run in the log to begin with) falls back to the direct
+        checkpointer resume, since there is no log entry to reconcile.
         """
         now = _require_aware(now) if now is not None else datetime.now(UTC)
         runtime = self._require_open()
