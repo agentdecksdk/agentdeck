@@ -20,8 +20,10 @@ async for event in deck.stream("Support", "and now?", session_id="wa-123"):
 **HTTP and SSE.** `agentdeck-serve` (`agentdeck/serve.py`) runs a FastAPI app wire-compatible
 with v1.2.1: `POST /agents/{name}/chat`, `?stream=true` for an event stream, the same shape for
 `/workflows/{name}`, and `/runs/{run_id}/{pause,cancel,resume}` for [run
-control](/operating/pause-resume-cancel). Every one of those handlers builds a `RunContext` and
-plays it on the same `Runtime` the Python API uses — one canonical log either way.
+control](/operating/pause-resume-cancel). Every one of those handlers calls into the same
+`Runtime` the Python API uses, passing it plain arguments — `name`, `session_id`, and so on. The
+`Runtime` mints the `RunContext` itself for every call; no handler builds one. One canonical log
+either way.
 
 ```bash
 curl -X POST http://localhost:8000/agents/Support/chat -d '{"session_id": "wa-123", "message": "where is my order?"}'
