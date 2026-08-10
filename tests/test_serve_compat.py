@@ -17,7 +17,6 @@ from project_engines import project_engines
 from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.adapters.engines.langgraph import engine as langgraph_engine
-from agentdeck.adapters.engines.openai_agents import engine as openai_agents_engine
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.composition import build_runtime
@@ -101,12 +100,6 @@ def scripted(monkeypatch):
         return build_runtime(engines=project_engines(), store=store), store, model
 
     return _build
-
-
-def test_the_surface_and_the_engine_agree_on_the_structured_output_carrier():
-    """The surface spells the engine's custom-event name out rather than importing it, so this
-    is what keeps the two from drifting apart."""
-    assert surface_compat.STRUCTURED_OUTPUT == openai_agents_engine.STRUCTURED_OUTPUT
 
 
 def test_the_surface_and_the_langgraph_engine_agree_on_the_stream_write_carrier():
@@ -250,8 +243,8 @@ async def test_chat_result_returns_v1s_output_body(project, scripted):
 
 
 async def test_a_structured_output_survives_the_canonical_stream(project, scripted):
-    """``RunCompleted.output`` can only hold text, so the engine carries an ``output_type``
-    result alongside it and the surface renders that instead."""
+    """An ``output_type`` agent's validated result rides ``RunCompleted.output`` as a
+    ``DataBlock``, and the surface renders that directly — no ``custom`` event alongside it."""
     runtime, store, _ = scripted(ScriptedModel(deltas=('{"greeting": "Hello"}',)))
     ctx = run_context("s1")
 
@@ -266,9 +259,7 @@ async def test_a_structured_output_survives_the_canonical_stream(project, script
     )
 
     assert body == {"output": {"greeting": "Hello"}}
-    assert surface_compat.STRUCTURED_OUTPUT in [
-        event.payload.name for event in await store.read("s1", ctx) if event.kind == "custom"
-    ]
+    assert "custom" not in [event.kind for event in await store.read("s1", ctx)]
 
 
 async def test_a_structured_output_reaches_the_streamed_done_frame(project, scripted):

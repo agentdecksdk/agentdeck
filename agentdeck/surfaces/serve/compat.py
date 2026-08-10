@@ -29,12 +29,6 @@ if TYPE_CHECKING:
     from agentdeck.runtime.service import PendingRun
 
 
-# The engine's namespaced carrier for an ``output_type`` result, which ``RunCompleted``
-# can only hold as text. Spelled out rather than imported: a surface that imported an
-# adapter would invert the direction the wiring depends on. A test pins it to the engine's
-# own constant so the two cannot drift.
-STRUCTURED_OUTPUT = "openai_agents.structured_output"
-
 # The langgraph engine's namespaced carrier for a ``get_stream_writer()`` write, which is
 # what v1's ``custom`` frame carries. Spelled out for the same reason, pinned by the same
 # kind of test.
@@ -55,11 +49,16 @@ class _Turn:
         if isinstance(payload, UsageReported):
             # v1 reports the SDK's cumulative Usage, whose `requests` counts model calls.
             self.requests += 1
-        elif isinstance(payload, Custom) and payload.name == STRUCTURED_OUTPUT:
-            self.output = payload.data.get("output")
         elif isinstance(payload, RunCompleted):
             if self.output is None:
-                self.output = "".join(block.text for block in payload.output if isinstance(block, TextBlock))
+                # An `output_type` agent's validated result rides `RunCompleted.output` as a
+                # `DataBlock`; anything else joins as text.
+                data = next((block.data for block in payload.output if isinstance(block, DataBlock)), None)
+                self.output = (
+                    data
+                    if data is not None
+                    else "".join(block.text for block in payload.output if isinstance(block, TextBlock))
+                )
             self.usage = {
                 "requests": self.requests,
                 "input_tokens": payload.usage.input_tokens,
@@ -220,7 +219,6 @@ def _final_state(payload: RunCompleted) -> Any:
 __all__ = [
     "STREAM_WRITE",
     "STREAM_WRITE_KEY",
-    "STRUCTURED_OUTPUT",
     "chat_frames",
     "chat_result",
     "interrupt_inbox",

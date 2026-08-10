@@ -19,6 +19,17 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   own remains an open design question.
 
 
+### Removed
+
+- **The `openai_agents.structured_output` `custom` event** (#105). #101 gave
+  `RunCompleted.output` a `DataBlock` for an `output_type` agent's validated result; the
+  `custom` event carried the same value the older way and was kept only because retiring it
+  inside #101 would have meant editing an open PR's files. `Deck.run()`'s `TurnResult.output`
+  and v1's chat endpoints now read the `DataBlock` straight off `run.completed` — their
+  response bodies are unchanged, but a canonical event stream (`Deck.stream()`, the event
+  store) for a structured-output run now has one fewer event.
+
+
 ### Fixed
 
 - **Docs: `/reference` pages corrected against the current API** (#192). `/reference` no

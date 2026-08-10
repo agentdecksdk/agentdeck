@@ -776,9 +776,8 @@ class _Greeting(BaseModel):
 
 @pytest.mark.asyncio
 async def test_a_structured_run_output_survives_as_validated_data(no_project, monkeypatch):
-    """``RunCompleted.output`` can only hold text; the compat engine carries a validated
-    ``output_type`` result alongside it, and ``run``'s ``TurnResult`` must still surface it as
-    data rather than the stringified JSON the terminal event itself carries."""
+    """An ``output_type`` result rides ``run.completed`` as a ``DataBlock``, and ``run``'s
+    ``TurnResult`` must surface it as data rather than joining it as text."""
     patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=('{"greeting": "hi"}',))))
     deck = Deck(agents=[Agent(name="Structured", instructions="Answer as JSON.", output_type=_Greeting)])
 
