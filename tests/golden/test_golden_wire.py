@@ -12,6 +12,8 @@ SNAPSHOTS = Path(__file__).parent / "snapshots"
 
 UPDATE = os.getenv("AGENTDECK_GOLDEN_UPDATE") == "1"
 THREAD = "t-golden"
+FANOUT_THREAD = "t-golden-fanout"
+FANOUT_STREAM_THREAD = "t-golden-fanout-stream"
 CHAT = {"session_id": "s-golden", "message": "any slot tuesday?"}
 # date / server / content-length are transport noise, not our wire contract.
 RECORDED_HEADERS = ("content-type", "cache-control", "x-accel-buffering")
@@ -26,7 +28,7 @@ def _record(response) -> bytes:
 
 def capture(client) -> dict[str, bytes]:
     """Every recorded exchange, in order — the interrupt cases share one thread."""
-    return {
+    recorded = {
         "01_health.http": _record(client.get("/health")),
         "02_chat.http": _record(client.post("/agents/Greeter/chat", json=CHAT)),
         "03_chat_stream.http": _record(client.post("/agents/Greeter/chat?stream=true", json=CHAT)),
@@ -48,7 +50,27 @@ def capture(client) -> dict[str, bytes]:
         "15_side_effect_stream.http": _record(
             client.post("/workflows/SideEffectFlow?stream=true", json={"request": "x"})
         ),
+        # #122: a fan-out whose one branch interrupts while a sibling completes — the sibling's
+        # `node_update` must reach the wire before the `interrupt` that replaces `done`, not be
+        # dropped with the rest of what the engine drains once the pause is detected.
+        "16_fanout_interrupt.http": _record(
+            client.post(f"/workflows/FanoutInterruptFlow?thread_id={FANOUT_THREAD}", json={"request": "approve?"})
+        ),
+        "17_fanout_interrupt_stream.http": _record(
+            client.post(
+                f"/workflows/FanoutInterruptFlow?stream=true&thread_id={FANOUT_STREAM_THREAD}",
+                json={"request": "approve?"},
+            )
+        ),
     }
+    # Not recorded: #122's Done-when only asks for the pause shape, not a second resume case
+    # (that path is already pinned by 10/11). Left unanswered, though, these two threads would
+    # stay parked in the process-wide `MemorySaver` singleton for the rest of the test session
+    # and leak into whatever else calls `pending()` against it — so both are resumed here purely
+    # to leave the shared checkpointer as clean as ApprovalFlow's own thread already is.
+    for thread in (FANOUT_THREAD, FANOUT_STREAM_THREAD):
+        client.post(f"/workflows/FanoutInterruptFlow/{thread}/resume", json={"value": "yes"})
+    return recorded
 
 
 def test_wire_matches_snapshots(make_client):

@@ -21,6 +21,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   that. A thread with no logged run at all (parked by calling a durable `Workflow`'s own
   `run`/`resume` directly — a deliberately log-free path, out of scope here) still resumes
   the way it always did.
+- **A fan-out workflow whose one branch interrupts while a sibling completes now reports the
+  sibling's `node_update` before the `interrupt`, instead of silently dropping it** (#122). The
+  langgraph engine reports a pause as soon as the interrupting branch asks for one, not once
+  every branch in the same step has finished; a slower sibling's completion used to arrive on
+  the drained tail of that call and be discarded there, even though its write had already
+  landed in the engine's own checkpoint — the checkpoint and the canonical event log disagreed
+  about what had run. The pause is still reported last, and a run with a suspended branch never
+  reports `done`: `RunStatus.status_of` already derived `waiting_human`, non-terminal, from
+  `run.interrupted` alone, so nothing there needed to change. Pinned with a new golden fixture,
+  `FanoutInterruptFlow`, streamed and non-streamed.
 
 ## [3.0.0b1] - 2026-08-10
 
