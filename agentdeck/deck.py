@@ -416,10 +416,24 @@ class Deck:
 
     def _validate_agent_workflow_tools(self, agent: Agent) -> None:
         for tool in agent.tools:
-            if isinstance(tool, Workflow) and tool.name not in self._workflows:
+            if not isinstance(tool, Workflow):
+                continue
+            if tool.name not in self._workflows:
                 raise ConfigError(
                     f"agent {agent.name!r} uses workflow {tool.name!r} as a tool, but it is not in "
                     f"this Deck's workflows=. Available: {sorted(self._workflows)}."
+                )
+            if tool.durable:
+                # `as_tool()` calls `run(args)` with no thread_id, and a durable workflow needs
+                # one to load and persist its checkpoint — so the tool raises the moment a model
+                # calls it. Refusing at build() turns that into a validation error rather than a
+                # surprise mid-turn; giving a tool-invoked workflow a thread is its own design
+                # question (#193), not something to guess at here.
+                raise ConfigError(
+                    f"agent {agent.name!r} uses workflow {tool.name!r} as a tool, but it is "
+                    f"durable=True. A workflow invoked as a tool gets no thread_id, which a "
+                    f"durable workflow requires — set durable=False on {tool.name!r}, or call it "
+                    f"as a root invocable via deck.run() where you can pass a session."
                 )
 
     def _resolve_workflow_tool(self, workflow: Workflow) -> FunctionTool:
