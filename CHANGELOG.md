@@ -294,6 +294,16 @@ of vanishing the moment the call returns.
   `run_workflow_stream` used to do outside the Runtime: a workflow's stream is canonical
   `Event`s, not the old dict shape, whichever method starts it.
 
+### Fixed
+
+- **`Agent(tools=[...])` now rejects a tool it cannot compile at `build()`, instead of building
+  clean and failing at run time inside the SDK (#172).** A bare function or `lambda` used to
+  reach the Agents SDK unwrapped, where it only failed once a run actually started, with a
+  `UserError` about "hosted tools" that named nothing a caller recognised. `build()` (both
+  `Deck.build()` and standalone `Agent.build()`) now raises `ConfigError` naming the agent and
+  the offending tool, pointing at `@function_tool` — structurally, by checking the tool is one
+  of the SDK's own tool types, so the check still constructs no engine and touches no network.
+
 ## [2.0.0] - 2026-08-06
 
 The release where agentdeck becomes a platform rather than a harness. Every turn — chat
