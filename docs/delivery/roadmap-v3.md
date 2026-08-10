@@ -25,8 +25,8 @@ Verified against `dev` at `917290e`, not from the issue text.
 | #159 | **valid** | `AudioBlock` still absent; the design names audio |
 | #161 | **valid, blocked** | needs #159 |
 | #162 | **folds into #181** | its two defects are symptoms of tracing being assembled below the composition root |
-| #163 | **out of v3** | its inventory is stale — `BaseSandboxAgent` and `skills/executor.py` are both deleted. The live question is narrower and sharper: `core/ports/sandbox.py` and `adapters/caps/sandbox/` now have **zero users**, and `authoring/capabilities/` is orphaned. Decide whether sandboxing is a v3 capability or gets deleted |
-| #166 | **valid, but see below** | `Deck(context=...)` is accepted and then refused at run time |
+| #163 | **out of v3** | its inventory is stale — `BaseSandboxAgent` and `skills/executor.py` are both deleted. The live question is narrower and sharper: `core/ports/sandbox.py` and `adapters/caps/sandbox/` now have **zero users**, and `authoring/capabilities/` is orphaned. Deferred out of v3 entirely — #71 deletes the scaffolding |
+| #166 | **valid, resequenced** | the last large feature in v3; off the beta path, with #182 deleting the unusable `context=` until it lands |
 | #172–#176, #179 | **valid** | the beta findings, from a real run |
 | #105 | **valid, moved** | `agentdeck/compat/` is gone; `STRUCTURED_OUTPUT` now lives at `adapters/engines/openai_agents/engine.py:45` |
 | #71 | **rescope — premise dead** | written as "runs after the compat facade proves v1 API parity… the public v1 API itself stays". There is no compat facade and no v1 API; #164 deleted both. Most of its original scope is already executed. What actually remains is listed in Wave 5 |
