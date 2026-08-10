@@ -46,6 +46,7 @@ from agentdeck.adapters.engines.langgraph import LangGraphEngine
 from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine, SessionFactory
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring.agent import Agent
+from agentdeck.authoring.compile import refresh_mcp_status
 from agentdeck.authoring.interrupts import interrupt_result
 from agentdeck.authoring.skills import skills_resolver
 from agentdeck.authoring.timers import wake_at_of
@@ -363,11 +364,18 @@ class Deck:
         Idempotent: a second call is a no-op once ``BUILT`` (or later). Reads local files
         (every ``SKILL.md``, the MCP file) but opens no connection and starts no MCP server —
         engines are named, never constructed, until :meth:`__aenter__` actually needs one.
+
+        Registering the MCP server specs (``MCPLifecycle.configure``, itself network-free) here
+        means an agent's ``mcp=`` compiles against known-but-not-yet-connected names rather than
+        unknown ones — the only warning this can still log is a genuine open-time drop, not a
+        false "not found in config" for a server that will, in fact, connect once opened.
         """
         if self._state != "NEW":
             return self
         skills_by_name = self._skills_obj.build() if self._skills_obj is not None else {}
         mcp_names = frozenset(self._mcp_obj.build()) if self._mcp_obj is not None else frozenset()
+        if self._mcp_obj is not None:
+            MCPLifecycle.configure(self._mcp_obj.config())
         for agent in self._agents.values():
             self._validate_agent_skills(agent, skills_by_name)
             self._validate_agent_mcp(agent, mcp_names)
@@ -428,7 +436,8 @@ class Deck:
 
         Everything ``build()`` deliberately left alone happens here — constructing the real
         engines, the event store, the session factory, and connecting every configured MCP
-        server (soft per-server failure, same as today).
+        server (soft per-server failure, same as today). MCP status on every already-compiled
+        agent is refreshed right after, since ``build()`` resolved it before anything connected.
         """
         if self._state == "CLOSED":
             # CLOSED is terminal: aclose()'s own idempotency guard would otherwise skip
@@ -461,6 +470,14 @@ class Deck:
         )
         await MCPLifecycle.startup(self._mcp_obj.config() if self._mcp_obj is not None else None)
         self._started_mcp = True
+        if self._mcp_obj is not None:
+            # build() compiled every agent's mcp= against MCPLifecycle before any server had
+            # connected, so its tools/banner are stale the moment startup() above finishes —
+            # correct the compiled agent in place before anything can run a turn against it.
+            invocables = self._invocables
+            assert invocables is not None  # build() just above guarantees this
+            agents = list(self._agents.values())
+            refresh_mcp_status({name: invocables[name].native for name in self._agents}, agents)
         self._state = "OPEN"
         return self
 

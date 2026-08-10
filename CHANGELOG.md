@@ -324,6 +324,17 @@ of vanishing the moment the call returns.
   or `workflows/<bundle>/workflow.py`, chaining the original exception as `__cause__`. A
   code-first `Agent`/`Workflow` has no bundle to name, so its build failures are unchanged.
 
+- **An agent declaring `mcp=` opened with `async with deck:` never actually got its MCP
+  servers, even when they connected successfully.** `Deck.build()` compiles every agent
+  before `Deck.__aenter__` connects anything, so the compiled agent's tools and its
+  strict-protocol banner were fixed at build time — permanently "unavailable" — regardless
+  of what connected later. `Deck.__aenter__` now refreshes MCP status on every already-
+  compiled agent right after `MCPLifecycle.startup` connects the real servers, so the agent
+  that actually runs turns carries the servers it is, in fact, connected to. `Deck.build()`
+  also registers the MCP server specs up front (`MCPLifecycle.configure`, still network-free),
+  so a name declared in `mcp=` no longer logs a false "not found in config" warning at build
+  time for a server that will, in fact, connect once the deck opens.
+
 ## [2.0.0] - 2026-08-06
 
 The release where agentdeck becomes a platform rather than a harness. Every turn — chat
