@@ -24,8 +24,8 @@ Verified against `dev` at `917290e`, not from the issue text.
 | #158 | **valid** | confirmed: `clock` still in `composition.py:45` and `runtime/service.py`, accepted and inert |
 | #159 | **valid** | `AudioBlock` still absent; the design names audio |
 | #161 | **valid, blocked** | needs #159 |
-| #162 | **valid** | telemetry client ordering and orphan spans, deferred from #152 |
-| #163 | **rescope** | its inventory is stale — `BaseSandboxAgent` and `skills/executor.py` are both deleted. The live question is narrower and sharper: `core/ports/sandbox.py` and `adapters/caps/sandbox/` now have **zero users**, and `authoring/capabilities/` is orphaned. Decide whether sandboxing is a v3 capability or gets deleted |
+| #162 | **folds into #181** | its two defects are symptoms of tracing being assembled below the composition root |
+| #163 | **out of v3** | its inventory is stale — `BaseSandboxAgent` and `skills/executor.py` are both deleted. The live question is narrower and sharper: `core/ports/sandbox.py` and `adapters/caps/sandbox/` now have **zero users**, and `authoring/capabilities/` is orphaned. Decide whether sandboxing is a v3 capability or gets deleted |
 | #166 | **valid, but see below** | `Deck(context=...)` is accepted and then refused at run time |
 | #172–#176, #179 | **valid** | the beta findings, from a real run |
 | #105 | **valid, moved** | `agentdeck/compat/` is gone; `STRUCTURED_OUTPUT` now lives at `adapters/engines/openai_agents/engine.py:45` |
@@ -33,20 +33,25 @@ Verified against `dev` at `917290e`, not from the issue text.
 
 Nothing is stale enough to close. Four need their text corrected before anyone picks them up.
 
-## The one scope call worth making now
+## Rulings taken (2026-08-10)
 
-**#166 (context injection) should come off the beta path.**
+| # | Ruling | Consequence |
+|---|---|---|
+| 1 | **Sandboxing leaves v3.** #163 is unmilestoned | Wave 4 disappears and #71 stops waiting on a ruling. v3 should not carry `core/ports/sandbox.py` and `adapters/caps/sandbox/` with **zero users**, nor the orphaned `authoring/capabilities/` — #71 deletes them. A designed port can return later; that is additive |
+| 2 | **Observability moves above the deck, and goes last.** #181 | Tracing gets declared where the deck is declared and owned by its lifecycle, rather than assembled underneath the composition root and started on the first run. **#162 folds into it** — both its defects are symptoms of the wrong altitude, so fixing them in place would mean fixing the same ordering twice |
+| 3 | **`Context[T]` is the last large feature.** #166 | Everything after it is correctness, cleanup and #181. It also comes **off the beta path**: `Deck(context=...)` is accepted then refused, which is a false promise, but the fix need not be the eight-step epic — **#182 deletes the parameter until it works**, and re-adding it is additive |
+| 4 | **Multimodal gets a design pass first.** #159, #161 | One plan covering the whole content model before either is implemented, so `AudioBlock` is not bolted on and #161 does not discover the gaps |
 
-It is on `blocks-beta` for an honesty reason, not a feature reason: `Deck(context=MiddleContext)`
-is accepted at construction and then raises if you actually pass a context to `run()`. A
-constructor parameter that cannot be used is a false promise, and a beta should not ship one.
+### What the multimodal plan has to answer
 
-But the fix does not have to be the epic. `plan-context-injection.md` is an eight-step effort
-touching `Context[T]`, callable analysis and a bridge per engine SDK. The cheap honest move is to
-**remove `context=` from the constructor until it works** — deleting a parameter nobody can
-successfully use breaks nothing, and adding it back later is additive rather than breaking.
-
-That turns a blocking epic into a ten-minute deletion, and moves #166 to Wave 3 where it belongs.
+- the full block set, and whether it is closed — `text`, `image`, `resource`, `audio`, `data`, `unknown`
+- how each block reaches each engine, and what an engine does with one it cannot express: raise,
+  drop-with-event, or degrade (today `_to_sdk_input` raises for anything non-text)
+- inbound versus outbound symmetry — can an agent *return* audio, or only receive it?
+- how a block survives the event log and the SSE wire, and what an old reader does with a kind it
+  has never seen (`UnknownBlock` exists — confirm it covers this)
+- binary payloads: inline base64, a resource reference, or both, and the size threshold that decides
+- whether this is one schema change or two, given it touches the envelope #156 freezes
 
 ## Waves
 
@@ -67,19 +72,20 @@ migration, or promise something false?*
 | #175 | every streamed event's class is `Event`, so there is nothing obvious to switch on |
 | #176 | no `__version__` — the first line anyone types, and the one a bug reporter needs |
 | #119 | a build failure names no bundle, which is the same wound as #174 |
-| #166 | reduced to "remove `context=` until it works" per the scope call above |
+| #182 | `Deck(context=...)` is accepted then refused — delete it until #166 lands |
 
 #179 and #172 are one sitting: the doc correction and the guardrail that would have caught the
 misuse. #174 and #119 are also one sitting — both are "discovery failed and told you nothing".
 
-### Wave 1 — correctness · 4 issues
+### Wave 1 — correctness · 3 issues
 
 Real divergences, none of them cosmetic. Independent of each other, parallelisable.
 
-- **#120** two approval inboxes — the deepest of the four, and now public API
+- **#120** two approval inboxes — the deepest of the three, and now public API
 - **#122** fan-out interrupt reporting (rescope first: drop the v1 comparison)
 - **#130** the confirming review round PR #123 never got
-- **#162** telemetry client ordering and orphan spans
+
+`#162` is no longer here — it folds into #181 in Wave 4.
 
 ### Wave 2 — the wire, before it freezes · 4 issues
 
@@ -87,31 +93,35 @@ Everything here changes the event schema or content model. It must precede the s
 should precede a wide beta audience, because each one is a breaking change to anyone reading
 events.
 
-1. **#159** `AudioBlock` — unblocks the next
-2. **#161** multimodal input (blocked on #159)
-3. **#156** event schema versioning — freeze the envelope deliberately
+1. **the multimodal design pass** — one plan for the whole content model (see the ruling above).
+   Nothing below starts until it exists
+2. **#159** `AudioBlock`, then **#161** multimodal input
+3. **#156** event schema versioning — freeze the envelope deliberately, informed by what the plan
+   decided about block kinds
 4. **#105** retire `openai_agents.structured_output` now `DataBlock` exists
 
-### Wave 3 — the config surface and the deferred epic · 2 issues
+### Wave 3 — the config surface, then the last large feature · 2 issues
 
 - **#155** settings restructure — breaking, and #167 (`Preset`, v3.1) is explicitly sequenced
   behind it
-- **#166** context injection proper, once it is no longer a beta blocker
+- **#166** `Context[T]` injection — **the last large thing v3 adds.** It restores the `context=`
+  parameter #182 removed. Everything after this wave is correctness, cleanup and observability
 
-### Wave 4 — the design ruling · 1 issue
+### Wave 4 — observability, last · 1 issue
 
-- **#163** sandboxing. Now a narrower question than when filed: `core/ports/sandbox.py` and
-  `adapters/caps/sandbox/` have zero users, and `authoring/capabilities/` is orphaned. Either
-  sandboxing becomes a designed v3 capability, or all of it is deleted. **This must be decided
-  before Wave 5**, because it determines what Wave 5 deletes.
+- **#181** observability declared above the deck and owned by its lifecycle, instead of assembled
+  underneath the composition root and started on the first run. **#162 folds in** — its two
+  defects are symptoms of that altitude, and fixing them in place would mean fixing the same
+  ordering twice
 
 ### Wave 5 — the pre-stable gate · 3 issues
 
 Last substantive work before `v3.0.0`.
 
-- **#71** cleanup — rescope to what actually remains: `authoring/capabilities/` (orphaned),
-  `Settings.sandbox_env()` and the `SKILL_*` block (no callers), `observability.sandbox_trace_env()`
-  (no callers), and whatever #163 rules on
+- **#71** cleanup — rescoped, and no longer blocked on a sandboxing ruling. With sandboxing out of
+  v3 the answer is settled by default: delete `core/ports/sandbox.py` and `adapters/caps/sandbox/`
+  (zero users), `authoring/capabilities/` (orphaned), `Settings.sandbox_env()` and the `SKILL_*`
+  block (no callers), and `observability.sandbox_trace_env()` (no callers)
 - **#131** simplification — live code heavier than it needs to be
 - **#132** professional gaps — starting with `pyproject.toml` declaring no license, which every
   metadata reader currently sees as unlicensed
@@ -123,20 +133,29 @@ Then tag `v3.0.0`.
 ```
 Wave B ──► v3.0.0b1
                 │
-   ┌────────────┼────────────┬──────────────┐
-   ▼            ▼            ▼              ▼
-Wave 1     #159 ─► #161    #155 ─► #167   #163 (ruling)
-(4 fixes)  #156   #105     (v3.1)           │
-   │            │            │              │
-   └────────────┴────────────┴──────────────┘
-                     ▼
-              Wave 5 — #71 · #131 · #132
-                     ▼
-                  v3.0.0
+   ┌────────────┴─────────────┬─────────────────┐
+   ▼                          ▼                 ▼
+Wave 1                 multimodal plan       #155 ─► #167
+#120 #122 #130          │        │            (v3.1)
+                        ▼        ▼                │
+                   #159►#161   #156  #105         ▼
+                        │        │              #166
+                        └────────┴────────────────┤
+                                                  ▼
+                                          Wave 4 — #181 (+#162)
+                                                  ▼
+                                    Wave 5 — #71 · #131 · #132
+                                                  ▼
+                                               v3.0.0
 ```
 
-Only three hard edges: #161 needs #159, #167 needs #155, and Wave 5 needs #163's ruling.
-Everything else can run in any order or in parallel.
+Hard edges: the multimodal plan gates #159/#161/#156, #161 needs #159, #167 needs #155, and #181
+comes last by ruling. Sandboxing no longer gates anything — it left v3.
+
+## Out of v3
+
+- **#163** sandboxing — deferred entirely. Stays open as the design issue; v3 ships none, and #71
+  deletes the scaffolding rather than preserving it for a design that has not happened.
 
 ## Housekeeping before anyone starts
 
