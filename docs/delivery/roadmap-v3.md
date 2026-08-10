@@ -93,12 +93,15 @@ Everything here changes the event schema or content model. It must precede the s
 should precede a wide beta audience, because each one is a breaking change to anyone reading
 events.
 
-1. **the multimodal design pass** — one plan for the whole content model (see the ruling above).
-   Nothing below starts until it exists
-2. **#159** `AudioBlock`, then **#161** multimodal input
-3. **#156** event schema versioning — freeze the envelope deliberately, informed by what the plan
-   decided about block kinds
-4. **#105** retire `openai_agents.structured_output` now `DataBlock` exists
+1. **the multimodal design pass** — done: `docs/delivery/plan-multimodal.md`
+2. **#156** event schema versioning — **first**, reversing this document's original order. Adding
+   a block kind is exactly the "minor, additive" bump #156 defines, so audio should be the first
+   thing to exercise it rather than an additive change with no way to signal itself
+3. **#159 + #161 together** — `AudioBlock` *and* `ImageBlock` made usable in one slice; they
+   share one code path in `_to_sdk_input`, so splitting them writes and reviews it twice. Both
+   carry the 1 MB decoded inline cap
+4. **#105** retire `openai_agents.structured_output` now `DataBlock` exists — independent of the
+   above, can run in parallel
 
 ### Wave 3 — the config surface, then the last large feature · 2 issues
 
