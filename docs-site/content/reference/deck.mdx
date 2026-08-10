@@ -97,9 +97,9 @@ convenient; either way, include a default case, since an unfamiliar kind still p
 
 ## `TurnResult`
 
-An agent's `run`/`stream` assemble a `TurnResult` from the run's own `run.completed` event — never
-the SDK's own result object, so a caller depends on agentdeck's event schema rather than on
-whichever engine ran the turn:
+An agent's `run` assembles a `TurnResult` from the run's own `run.completed` event — never the
+SDK's own result object, so a caller depends on agentdeck's event schema rather than on whichever
+engine ran the turn. `stream` does not return one; it yields the events themselves, as above.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -154,9 +154,17 @@ caller supplies only the id `pending()` named and the value.
 
 `due_resumes(now=None)` and `tick(now=None)` are a separate, timer-only inbox: `due_resumes` lists
 threads whose `sleep_until` has passed, reading each workflow's own checkpointer rather than the
-Runtime's log, and `tick` resumes every one of them. `now` defaults to the current UTC time and
-must be timezone-aware if given. AgentDeck runs no daemon of its own — a cron job, a systemd
-timer, or a loop calling `tick()` owns the cadence.
+Runtime's log — deliberately, since the checkpoint backend defaults to durable (`sqlite`) while
+the event store defaults to `memory`, and listing off the log alone would stop surviving a
+process restart under that default pairing. `now` defaults to the current UTC time and must be
+timezone-aware if given. AgentDeck runs no daemon of its own — a cron job, a systemd timer, or a
+loop calling `tick()` owns the cadence.
+
+`tick`'s own *resume*, unlike the listing, goes through the Runtime whenever a due thread matches
+a run `pending()` already knows about — closing that run's log entry and freeing its session
+claim, the same as `answer()` does. Only a thread with no logged run (parked by calling a durable
+workflow's own `run`/`resume` directly, a deliberately log-free path) falls back to resuming
+straight off the checkpointer.
 
 ## Serving over HTTP
 
