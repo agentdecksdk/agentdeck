@@ -42,7 +42,6 @@ Deck(
     workflows=[...],    # Workflow instances
     skills="./skills",  # a path, a sequence of paths, or a Skills(...) object
     mcp=".mcp.json",    # a path, or an MCP(...) object
-    context=None,       # reserved; see "What this does not cover"
 )
 ```
 
@@ -168,8 +167,8 @@ to swap in a fake wrapping `fakeredis` without a real Redis server.
 
 ## What this does not cover
 
-`context=` is accepted and stored for forward compatibility, but a non-`None` value at
-`run`/`stream`/`resume` raises: full `Context[T]` injection is its own, larger effort and is not
-wired into this slice. And [Run Control](/concepts/run-control#safe-points) reaches agent runs
+There is no `context=`. Passing application context through to tools and instructions is its
+own, larger effort, and a constructor parameter that cannot yet be used is worse than an absent
+one — it returns, additively, when `Context[T]` lands. And [Run Control](/concepts/run-control#safe-points) reaches agent runs
 today; a workflow (LangGraph) run has no safe point yet, so `pause`/`cancel` record the request
 but nothing acts on it.
