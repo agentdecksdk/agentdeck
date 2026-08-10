@@ -99,13 +99,20 @@ def test_dotted_names_in_prose_still_exist_in_the_package(page: Path) -> None:
     assert not missing, f"{page.name}: named in prose but absent from agentdeck/: {missing}"
 
 
-def test_pinned_install_versions_match_the_package_version() -> None:
-    """A `git+...@vX.Y.Z` pin on the site must name the version this tree actually is.
+INSTALL_LINE = re.compile(r"\b(?:pip install|uv add|pipx install)\b.*\bagentdeck\b", re.IGNORECASE)
 
-    Nothing else catches this: the fence checks above parse Python, and `docs-check.yml` only
-    confirms a page was produced, so a stale pin ships silently — it has three times, most
-    recently telling beta users to install v2.0.0 while reading v3 docs, where every example
-    would have failed.
+
+def test_pinned_install_versions_match_the_package_version() -> None:
+    """Every agentdeck install line on the site must carry a `git+...@vX.Y.Z` pin naming the
+    version this tree actually is.
+
+    Nothing else catches a stale *or missing* pin: the fence checks above parse Python, and
+    `docs-check.yml` only confirms a page was produced. A stale pin has shipped three times,
+    most recently telling beta users to install v2.0.0 while reading v3 docs; an *unqualified*
+    install (no pin at all) is the same failure by omission — `agentdeck[serve]` with no `@v...`
+    resolves to whatever a fresh install picks, not the version the page's own examples were
+    written against. Only fenced shell blocks count — an install line mentioned in prose (e.g. as
+    a contrast, "not something `pip install agentdeck` gives you") is not an instruction to run.
     """
     import tomllib
 
@@ -119,7 +126,15 @@ def test_pinned_install_versions_match_the_package_version() -> None:
         for found in pin.findall(page.read_text())
         if found != version
     ]
-    assert not stale, "stale install pin(s) on the docs site:\n  " + "\n  ".join(stale)
+    stale += [
+        f"{page.relative_to(root)}: unpinned agentdeck install in a `{lang}` block — {line.strip()!r}"
+        for page in _pages()
+        for lang, _meta, body in FENCE.findall(page.read_text())
+        if lang == "bash"
+        for line in body.splitlines()
+        if INSTALL_LINE.search(line) and not pin.search(line)
+    ]
+    assert not stale, "stale or unpinned install pin(s) on the docs site:\n  " + "\n  ".join(stale)
 
 
 def test_every_public_deck_method_is_documented_somewhere() -> None:
