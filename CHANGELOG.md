@@ -10,6 +10,23 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Changed
 
+- **The event envelope's `v` is now a `{major, minor}` object, not an integer** (#156). `major`
+  is what a reader must already understand to parse the envelope at all — `Event` refuses one it
+  does not carry, even for a kind it has never seen, because a major bump can move or remove
+  envelope fields the unknown-kind fallback never checks. `minor` records an additive change (a
+  new kind, a new optional field) that an old reader already tolerates by construction and never
+  needs to consult. This is an intentional wire break: a reader built against the previous
+  scalar `v` cannot parse an event this tree writes.
+
+### Removed
+
+- **`check_contiguous`/`check_terminal` are no longer part of `agentdeck.core`** (#156). Neither
+  was read by a production path — `seq` contiguity follows from how the store assigns it, and
+  the one-terminal-event-last invariant is enforced by `Runtime.run`/`resume` stopping the read
+  loop at a terminal payload — so keeping them in the schema module read as contract they were
+  never part of. Embedders who imported them for their own log-auditing should inline the same
+  two checks (each a few lines over a `list[Event]`) locally.
+
 - **A `durable=True` workflow used as an agent tool now fails `build()`** (#193) instead of
   raising the first time a model calls it. `Workflow.as_tool()` invokes `run(args)` with no
   `thread_id`, which a durable workflow requires to load and persist its checkpoint, so

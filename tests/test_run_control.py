@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from agents import Agent, function_tool
+from event_log_checks import check_contiguous, check_terminal
 from never_yields import NeverYields
 
 # The contract suite's model, reused on purpose: it decides from the *tail* of its input, so a
@@ -31,7 +32,7 @@ from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import CONTROL_POLL_INTERVAL, ControlSignal, Gate, RunPausedError, Signal
-from agentdeck.core.events import RunCompleted, TextDelta, Usage, check_contiguous, check_terminal
+from agentdeck.core.events import RunCompleted, TextDelta, Usage
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.errors import SessionBusyError

@@ -22,6 +22,7 @@ import pytest
 from agents import Agent, function_tool
 from agents.handoffs import Handoff
 from agents.models.interface import Model
+from event_log_checks import check_contiguous
 from openai.types.responses import (
     Response,
     ResponseCompletedEvent,
@@ -36,7 +37,7 @@ from openai.types.responses.response_usage import InputTokensDetails, OutputToke
 from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import RESULT_PREVIEW_MAX, Event, check_contiguous
+from agentdeck.core.events import RESULT_PREVIEW_MAX, Event
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.runtime.service import Runtime
 from agentdeck.surfaces.cli.chat import stream_chat

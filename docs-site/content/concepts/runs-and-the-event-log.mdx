@@ -31,7 +31,7 @@ os.environ["AGENTDECK_EVENTS_URL"] = "./events.sqlite3"
 
 from agentdeck import Deck
 from agentdeck.composition import resolve_event_store
-from agentdeck.core import RunContext, check_contiguous
+from agentdeck.core import RunContext
 from agentdeck.core.status import status_of
 
 
@@ -54,7 +54,9 @@ async def main() -> None:
     events = await store.read_run(ctx.log_key, run_id, ctx)
     for event in events:
         print(event.seq, event.kind)
-    print("gaps:", check_contiguous(events))
+    seqs = {event.seq for event in events}
+    gaps = [n for n in range(max(seqs) + 1) if n not in seqs] if seqs else []
+    print("gaps:", gaps)
     print("status:", status_of(events))
 
 
@@ -86,10 +88,10 @@ in. This run made no tool call, so none of those appear above.
 
 `seq` is per-run and contiguous from zero — `0, 1, 2, …` with no gaps — which is what makes it
 the ordering authority rather than `ts`, the wall-clock timestamp carried alongside it for
-information only. `check_contiguous`, used above, is that check made concrete: it returns the
-missing numbers in one run's events, `[]` when there are none. A consumer that gets events out
-of order, or suspects one went missing, refetches the run and runs this over the result instead
-of guessing from timing.
+information only. The gap check above is that made concrete: the missing numbers in one run's
+events, `[]` when there are none. A consumer that gets events out of order, or suspects one went
+missing, refetches the run and runs the same check over the result instead of guessing from
+timing.
 
 ## Status is a fold, not a field
 

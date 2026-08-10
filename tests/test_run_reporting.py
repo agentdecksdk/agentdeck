@@ -20,6 +20,7 @@ import httpx
 import pytest
 from agents import Agent, RunContextWrapper, function_tool
 from agents.models.interface import Model
+from event_log_checks import check_contiguous, check_terminal
 from langgraph.graph.state import END, StateGraph
 from openai.types.responses import (
     Response,
@@ -37,15 +38,7 @@ from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import DataBlock, coerce_input
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import (
-    Event,
-    ProgressReported,
-    RunCompleted,
-    StatusReported,
-    Usage,
-    check_contiguous,
-    check_terminal,
-)
+from agentdeck.core.events import Event, ProgressReported, RunCompleted, StatusReported, Usage
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.runtime.service import Runtime
@@ -296,7 +289,11 @@ async def test_the_reference_renderer_prints_a_status_and_a_counted_stage(capsys
         yield f"data: {_event(ProgressReported(step='Halfway', current=2)).model_dump_json()}"
         # A kind this renderer has never heard of must not stop it — the default case is the
         # forward-compatibility promise, and a new kind is exactly when it gets tested.
-        yield 'data: {"v": 1, "kind": "future.thing", "seq": 4, "run_id": "r-1", "session_id": null, "namespace": "acme", "origin": "Searcher", "ts": "2026-01-01T12:00:00Z", "payload": {"whatever": 1}}'
+        yield (
+            'data: {"v": {"major": 3, "minor": 0}, "kind": "future.thing", "seq": 4, "run_id": "r-1", '
+            '"session_id": null, "namespace": "acme", "origin": "Searcher", "ts": "2026-01-01T12:00:00Z", '
+            '"payload": {"whatever": 1}}'
+        )
 
     await render(lines())
 

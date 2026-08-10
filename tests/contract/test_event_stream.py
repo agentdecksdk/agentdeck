@@ -11,8 +11,9 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pytest
+from event_log_checks import check_contiguous, check_terminal
 
-from agentdeck.core.events import TERMINAL_KINDS, RunInterrupted, check_contiguous, check_terminal
+from agentdeck.core.events import CURRENT_VERSION, TERMINAL_KINDS, RunInterrupted
 from agentdeck.runtime.service import SUSPENDED_KINDS
 
 if TYPE_CHECKING:
@@ -59,7 +60,7 @@ def test_the_envelope_comes_from_the_context_not_the_engine(case: Case, played: 
     for event in played.events:
         assert (event.namespace, event.run_id, event.session_id) == (ctx.namespace, ctx.run_id, ctx.session_id)
         assert event.origin == case.spec.name
-        assert event.v == 2
+        assert event.v == CURRENT_VERSION
         assert event.kind == event.payload.kind
 
 

@@ -24,6 +24,7 @@ import textwrap
 from typing import TYPE_CHECKING, Any
 
 from agents import Agent, Model
+from event_log_checks import check_contiguous, check_terminal
 from openai.types.responses import (
     Response,
     ResponseCompletedEvent,
@@ -41,7 +42,6 @@ from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
-from agentdeck.core.events import check_contiguous, check_terminal
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.runtime.service import Runtime

@@ -12,6 +12,7 @@ import sys
 import textwrap
 
 import pytest
+from event_log_checks import check_terminal
 from fastapi.testclient import TestClient
 from project_engines import project_engines
 from scripted_model import ScriptedModel, patch_provider, provider_of
@@ -23,7 +24,6 @@ from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.composition import build_runtime
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import check_terminal
 from agentdeck.runtime.service import PendingRun
 from agentdeck.runtime.settings import reset_settings_cache
 from agentdeck.serve import create_app

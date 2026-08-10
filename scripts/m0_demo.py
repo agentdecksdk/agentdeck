@@ -70,7 +70,7 @@ from agentdeck.composition import build_runtime
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
-from agentdeck.core.events import RESULT_PREVIEW_MAX, Event, check_contiguous, check_terminal
+from agentdeck.core.events import RESULT_PREVIEW_MAX, TERMINAL_KINDS, Event
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.errors import ConfigError
 from agentdeck.runtime.discovery import InvocableRegistry
@@ -86,6 +86,32 @@ LONG_RESULT = "Shipment 4412 was received damaged. " * 150
 
 def _banner(title: str) -> None:
     print(f"\n{'=' * 72}\n{title}\n{'=' * 72}")
+
+
+# `check_contiguous`/`check_terminal` are the test suite's own invariant checks, not part of the
+# package — this script keeps its own copies rather than reach into `tests/` from a standalone
+# demo.
+def check_contiguous(events: list[Event]) -> list[int]:
+    """Missing ``seq`` numbers for one run — gaps only, duplicates aren't checked."""
+    run = list(events)
+    if len({event.run_id for event in run}) > 1:
+        raise ValueError("check_contiguous takes one run's events")
+    seqs = {event.seq for event in run}
+    if not seqs:
+        return []
+    return [n for n in range(max(seqs) + 1) if n not in seqs]
+
+
+def check_terminal(events: list[Event]) -> str | None:
+    """``None`` if exactly one terminal event closes the run, else what's wrong."""
+    at = [i for i, event in enumerate(events) if event.kind in TERMINAL_KINDS]
+    if not at:
+        return "no terminal event"
+    if len(at) > 1:
+        return f"{len(at)} terminal events: {[events[i].kind for i in at]}"
+    if at[0] != len(events) - 1:
+        return f"terminal event {events[at[0]].kind!r} at index {at[0]} of {len(events)}, not last"
+    return None
 
 
 def _usage(input_tokens: int = 10, output_tokens: int = 5) -> ResponseUsage:

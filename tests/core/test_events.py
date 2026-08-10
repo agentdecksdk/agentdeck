@@ -7,9 +7,11 @@ from datetime import UTC, datetime
 from typing import get_args
 
 import pytest
+from event_log_checks import check_contiguous, check_terminal
 from pydantic import ValidationError
 
 from agentdeck.core import (
+    CURRENT_VERSION,
     KNOWN_KINDS,
     RESULT_PREVIEW_MAX,
     TERMINAL_KINDS,
@@ -25,25 +27,27 @@ from agentdeck.core import (
     RunFailed,
     RunInterrupted,
     RunResumed,
+    RunStarted,
+    SchemaVersion,
     StatusReported,
     TextBlock,
     TextDelta,
     ToolCallCompleted,
     ToolCallStarted,
+    UnknownBlock,
     UnknownEvent,
     Usage,
-    check_contiguous,
-    check_terminal,
 )
 from agentdeck.core.status import LIFECYCLE_KINDS, RunStatus, status_of
 
 TS = "2026-01-01T12:00:00+00:00"
+WIRE_VERSION = {"major": CURRENT_VERSION.major, "minor": CURRENT_VERSION.minor}
 
 
 def _wire(kind: str, payload: dict) -> dict:
     """As it arrives off the wire: the payload carries the discriminator too."""
     return {
-        "v": 1,
+        "v": WIRE_VERSION,
         "kind": kind,
         "seq": 0,
         "run_id": "run_1",
@@ -237,6 +241,66 @@ def test_seq_and_counters_reject_negatives():
         Event.model_validate({**wire, "seq": -1})
     with pytest.raises(ValidationError):
         Usage(input_tokens=-1, output_tokens=0)
+
+
+# --- schema versioning -----------------------------------------------------------------
+
+
+@pytest.mark.parametrize(("major", "minor"), [(-1, 0), (0, -1)])
+def test_schema_version_components_reject_negatives(major, minor):
+    with pytest.raises(ValidationError):
+        SchemaVersion(major=major, minor=minor)
+
+
+def test_a_higher_minor_within_the_current_major_still_parses():
+    """The additive half of the semantics: a writer one minor ahead of this reader — a kind or an
+    optional field this reader has never seen — is still readable, because nothing about parsing
+    consults ``minor`` at all."""
+    newer = {**WIRE_VERSION, "minor": WIRE_VERSION["minor"] + 1}
+    event = Event.model_validate({**_wire("text.delta", {"message_id": "msg_1", "text": "hi"}), "v": newer})
+    assert event.v == SchemaVersion(major=CURRENT_VERSION.major, minor=CURRENT_VERSION.minor + 1)
+
+
+def test_an_unsupported_major_is_refused_even_for_a_known_kind():
+    wire = _wire("text.delta", {"message_id": "msg_1", "text": "hi"})
+    with pytest.raises(ValidationError, match="major"):
+        Event.model_validate({**wire, "v": {"major": CURRENT_VERSION.major + 1, "minor": 0}})
+
+
+def test_an_unsupported_major_is_refused_even_for_a_kind_this_reader_has_never_seen():
+    """The one case the unknown-kind fallback must not soften: a major bump can move or remove
+    envelope fields the fallback never checks, so a reader that cannot vouch for ``major`` must
+    not vouch for the rest of the envelope either."""
+    wire = _wire("future.thing", {"whatever": 1})
+    with pytest.raises(ValidationError, match="major"):
+        Event.model_validate({**wire, "v": {"major": CURRENT_VERSION.major + 1, "minor": 0}})
+
+
+def test_a_minor_bump_is_how_a_content_block_kind_would_arrive():
+    """The rehearsal a payload change gets to run against these semantics before one exists for
+    real: a block type this tree has never heard of, riding on an event stamped one minor ahead,
+    still parses — the run's own payload typed, the unfamiliar block preserved rather than
+    dropped. Proves the minor half of the semantics is usable by a payload change, not only an
+    envelope one."""
+    newer = {**WIRE_VERSION, "minor": WIRE_VERSION["minor"] + 1}
+    wire = _wire(
+        "run.started",
+        {
+            "invocable": "Greeter",
+            "kind_of_invocable": "agent",
+            "input": [
+                {"type": "text", "text": "book a slot"},
+                {"type": "audio", "media_type": "audio/wav", "data_b64": "AAA="},
+            ],
+        },
+    )
+    event = Event.model_validate({**wire, "v": newer})
+
+    assert event.v == SchemaVersion(major=CURRENT_VERSION.major, minor=CURRENT_VERSION.minor + 1)
+    assert isinstance(event.payload, RunStarted)
+    assert event.payload.input[1] == UnknownBlock(
+        type="audio", raw_block={"type": "audio", "media_type": "audio/wav", "data_b64": "AAA="}
+    )
 
 
 def test_events_do_not_mutate(examples):

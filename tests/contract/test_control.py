@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from agents import Agent
+from event_log_checks import check_contiguous, check_terminal
 from scripted_model import ScriptedModel
 
 from agentdeck.adapters.control.memory import MemoryControlPort
@@ -27,14 +28,7 @@ from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
-from agentdeck.core.events import (
-    MessageCompleted,
-    RunCompleted,
-    TextDelta,
-    Usage,
-    check_contiguous,
-    check_terminal,
-)
+from agentdeck.core.events import MessageCompleted, RunCompleted, TextDelta, Usage
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.runtime.service import Runtime
