@@ -6,7 +6,13 @@ description: Pause a workflow for a person's decision, and answer it from wherev
 # Human Approval
 
 Some steps should not happen until a person says yes. A workflow node can pause for exactly
-that — durably, so the process asking does not have to be the process answering.
+that — durably, so the process asking does not have to be the process answering, provided the
+answering process can see the run at all. `durable=True` covers the graph's own state (LangGraph's
+checkpointer, file-backed by default); `pending()` and `answer()` go through a different store —
+the Runtime's event log — so a second process only sees a paused run if *that* store is shared
+too, which the default (in-process memory) is not. See [Where the log
+lives](/concepts/runs-and-the-event-log#where-the-log-lives) for the backends that cross a
+process boundary.
 
 ```python file=.agentdeck/workflows/quote_approval/workflow.py
 from langgraph.graph import StateGraph
