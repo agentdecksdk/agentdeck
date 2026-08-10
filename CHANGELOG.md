@@ -10,6 +10,17 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Fixed
 
+- **`Deck.tick()`** no longer leaves a ghost `WAITING_HUMAN` run in the event log when it
+  resumes a timer-paused thread that a `Deck.run()`/HTTP call parked (#120): it now resumes
+  such a thread through the Runtime, the same as `Deck.answer()` already did, so the run's
+  log entry closes and its session claim releases instead of blocking a fresh run on the
+  same thread until `stale_run_after` expires. `Deck.due_resumes()`/`Deck.tick()`'s *listing*
+  is unchanged — still each workflow's own checkpointer, not the event log, because by
+  default the checkpoint backend is durable (`sqlite`) while the event store is not
+  (`memory`), and #22's guarantee that a due timer survives a process restart depends on
+  that. A thread with no logged run at all (parked by calling a durable `Workflow`'s own
+  `run`/`resume` directly — a deliberately log-free path, out of scope here) still resumes
+  the way it always did.
 - **A fan-out workflow whose one branch interrupts while a sibling completes now reports the
   sibling's `node_update` before the `interrupt`, instead of silently dropping it** (#122). The
   langgraph engine reports a pause as soon as the interrupting branch asks for one, not once
