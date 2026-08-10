@@ -10,6 +10,24 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Fixed
 
+- **Docs: `/reference` pages corrected against the current API** (#192). `/reference` no
+  longer claims MCP is covered by the Workflows page — it now points at `/reference/deck`
+  (`Deck(mcp=...)`) and `/concepts/agents` (MCP status at build vs. open), where the actual
+  coverage lives. `/reference/deck` no longer says `stream()` assembles a `TurnResult` — only
+  `run()` does; `stream()` yields `AsyncGenerator[Event]`, as the page's own table already
+  said two sections up. `/reference/deck` also now documents the timer/event-log limit:
+  `due_resumes()`/`tick()` still list due timers off each workflow's own checkpointer, but
+  `tick()`'s resume now goes through the Runtime whenever a logged run matches (#191) —
+  closing that run's log entry and freeing its session claim — falling back to the direct
+  checkpointer resume only for a thread with no logged run.
+- `AGENTDECK_LANGFUSE_SERVICE_NAME`'s description no longer says "host process and sandboxed
+  skills" — sandboxed skills were removed in #164; the generated `/reference/settings` page is
+  regenerated to match.
+- `tests/test_docs_site.py::test_pinned_install_versions_match_the_package_version` now also
+  requires every fenced `pip install`/`uv pip install`/`uv add` line naming `agentdeck` on the
+  docs site to carry a version pin matching `pyproject.toml`, not just validating pins that
+  already exist — closing the gap that let `/guides/serve-over-http` ship an unpinned
+  `agentdeck[serve]` install example.
 - **`Deck.tick()`** no longer leaves a ghost `WAITING_HUMAN` run in the event log when it
   resumes a timer-paused thread that a `Deck.run()`/HTTP call parked (#120): it now resumes
   such a thread through the Runtime, the same as `Deck.answer()` already did, so the run's
