@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
+from event_log_checks import check_contiguous, check_terminal
 from never_yields import NeverYields
 from pydantic import ValidationError
 
@@ -28,8 +29,6 @@ from agentdeck.core.events import (
     TextDelta,
     Usage,
     UsageReported,
-    check_contiguous,
-    check_terminal,
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports import EventSinkPort, SessionClaim

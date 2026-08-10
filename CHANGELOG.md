@@ -8,7 +8,35 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Upgrading
+
+- **An event log written before v3.0.0 cannot be read by v3.0.0.** The envelope's `v` was a plain
+  integer up to and including v3.0.0b1 and is now `{major, minor}`, which is a major bump — and a
+  major bump means exactly this: the two are not mutually readable. Only durable stores are
+  affected (`sqlite`, `postgres`, `redis`); the default `memory` store keeps nothing across a
+  restart, so most callers have nothing to migrate. An affected store must be replayed into a new
+  one, or read with the version that wrote it. The first read of an old event says so by name
+  rather than failing as a validation error on a model you have not met.
+
+
 ### Changed
+
+- **The event envelope's `v` is now a `{major, minor}` object, not an integer** (#156). `major`
+  is what a reader must already understand to parse the envelope at all — `Event` refuses one it
+  does not carry, even for a kind it has never seen, because a major bump can move or remove
+  envelope fields the unknown-kind fallback never checks. `minor` records an additive change (a
+  new kind, a new optional field) that an old reader already tolerates by construction and never
+  needs to consult. This is an intentional wire break: a reader built against the previous
+  scalar `v` cannot parse an event this tree writes.
+
+### Removed
+
+- **`check_contiguous`/`check_terminal` are no longer part of `agentdeck.core`** (#156). Neither
+  was read by a production path — `seq` contiguity follows from how the store assigns it, and
+  the one-terminal-event-last invariant is enforced by `Runtime.run`/`resume` stopping the read
+  loop at a terminal payload — so keeping them in the schema module read as contract they were
+  never part of. Embedders who imported them for their own log-auditing should inline the same
+  two checks (each a few lines over a `list[Event]`) locally.
 
 - **A `durable=True` workflow used as an agent tool now fails `build()`** (#193) instead of
   raising the first time a model calls it. `Workflow.as_tool()` invokes `run(args)` with no

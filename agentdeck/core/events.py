@@ -6,8 +6,11 @@ both the ordering authority and a loss check; ``ts`` is informational.
 
 Unknown kinds parse instead of raising — ``Event.model_validate`` lands them as
 :class:`UnknownEvent` — and unknown fields inside a known payload are dropped, so an old reader
-survives a newer writer. Adding a kind or an optional field stays compatible; renaming or
-removing one means bumping ``v``.
+survives a newer writer. Adding a kind or an optional field is a ``minor`` bump, tolerated by
+construction through :class:`UnknownEvent`/``UnknownBlock`` without either side consulting the
+number; renaming, removing, or otherwise changing what a reader must already understand to parse
+at all is a ``major`` bump, and :class:`Event` refuses one it does not carry — see
+:class:`SchemaVersion`.
 
 Run control is three phases, not one event: ``control.requested`` (the signal was written),
 ``control.observed`` (the run reached a safe point and acted), and the verb's own kind for the
@@ -18,7 +21,7 @@ the whole difference between cooperative control and control.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any, Literal, get_args
+from typing import Annotated, Any, Literal, get_args
 
 from pydantic import (
     AwareDatetime,
@@ -35,9 +38,6 @@ from pydantic import (
 from agentdeck.core.base import CoreModel, JsonData
 from agentdeck.core.content import Input  # noqa: TC001 — pydantic resolves field annotations at runtime
 
-if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
-
 RESULT_PREVIEW_MAX = 4096
 
 TERMINAL_KINDS = frozenset({"run.completed", "run.failed", "run.cancelled"})
@@ -50,6 +50,30 @@ A shape, deliberately not a set: closing it to :data:`KNOWN_KINDS` would reject 
 writer invents, the one thing :class:`UnknownEvent` exists to prevent. This refuses only what no
 writer should emit — ``""``, ``"Run Started"``, ``"run..started"``.
 """
+
+
+class SchemaVersion(CoreModel):
+    """The envelope's version, not a free-form semver: ``major`` is what a reader must already
+    understand to parse the envelope at all, ``minor`` is an addition an old reader tolerates by
+    construction — a kind it has never seen lands as ``UnknownEvent``, a block it has never seen
+    lands as ``UnknownBlock``, neither consulting this number to do so. ``minor`` exists to record
+    that provenance, not to gate parsing: :class:`Event` checks ``major`` and nothing else.
+
+    A plain value type on purpose: it can represent a version this reader does not accept
+    (``major=99``), because rejecting one is :class:`Event`'s decision, not this model's.
+    """
+
+    major: NonNegativeInt
+    minor: NonNegativeInt
+
+
+CURRENT_VERSION = SchemaVersion(major=3, minor=0)
+"""What this tree writes onto every event. ``major=3`` because this is the change that makes it
+one: replacing the scalar ``v`` with this model is exactly the kind of break a reader must
+recognise to parse at all — the same reason ``v`` went from 1 to 2 when ``namespace`` replaced
+the required ``tenant``. A future additive change (a new kind, a new optional field) bumps
+``minor`` here and nowhere else; a future breaking one bumps ``major`` and updates the check on
+:class:`Event`."""
 
 Money = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 """US dollars, constrained where the token counts already were. ``NaN``/``±Infinity`` serialize
@@ -366,7 +390,7 @@ class Event(CoreModel):
     released reader dispatches on the payload copy and cannot read a row without it.
     """
 
-    v: int = 2
+    v: SchemaVersion = CURRENT_VERSION
     kind: str = Field(pattern=KIND_PATTERN)
     seq: NonNegativeInt
     run_id: str
@@ -379,6 +403,33 @@ class Event(CoreModel):
     origin: str
     ts: AwareDatetime
     payload: KnownPayload | UnknownEvent
+
+    @field_validator("v", mode="before")
+    @classmethod
+    def _a_pre_v3_scalar_version_says_so(cls, value: object) -> object:
+        """``v`` was a plain integer up to and including v3.0.0b1, so an event out of a store
+        written then fails here rather than at :class:`SchemaVersion`'s own field parsing — where
+        it reads as two unrelated missing-field errors and tells the operator nothing about why
+        their log stopped loading."""
+        if isinstance(value, int) and not isinstance(value, bool):
+            raise ValueError(
+                f"this event was written by schema v{value}, which stored `v` as a plain integer; "
+                f"major {CURRENT_VERSION.major} stores it as {{major, minor}} and cannot read it. "
+                "An event log written before v3.0.0 has to be replayed into a new store, or read "
+                "with the version of agentdeck that wrote it."
+            )
+        return value
+
+    @field_validator("v")
+    @classmethod
+    def _major_version_must_be_supported(cls, value: SchemaVersion) -> SchemaVersion:
+        """A major bump means this reader may not understand the rest of the envelope either, so
+        it is refused outright rather than offered the unknown-kind path: that path only knows how
+        to skip a kind it has never seen, not a wire shape it was never taught."""
+        supported = CURRENT_VERSION.major
+        if value.major != supported:
+            raise ValueError(f"event major version {value.major} unsupported, this reader supports {supported}")
+        return value
 
     @model_validator(mode="wrap")
     @classmethod
@@ -411,26 +462,3 @@ class Event(CoreModel):
         if self.kind != self.payload.kind:
             raise ValueError(f"envelope kind {self.kind!r} does not match payload kind {self.payload.kind!r}")
         return self
-
-
-def check_contiguous(events: Iterable[Event]) -> list[int]:
-    """Missing ``seq`` numbers for one run — gaps only, duplicates aren't checked."""
-    run = list(events)
-    if len({event.run_id for event in run}) > 1:
-        raise ValueError("check_contiguous takes one run's events")
-    seqs = {event.seq for event in run}
-    if not seqs:
-        return []
-    return [n for n in range(max(seqs) + 1) if n not in seqs]
-
-
-def check_terminal(events: Sequence[Event]) -> str | None:
-    """``None`` if exactly one terminal event closes the run, else what's wrong."""
-    at = [i for i, event in enumerate(events) if event.kind in TERMINAL_KINDS]
-    if not at:
-        return "no terminal event"
-    if len(at) > 1:
-        return f"{len(at)} terminal events: {[events[i].kind for i in at]}"
-    if at[0] != len(events) - 1:
-        return f"terminal event {events[at[0]].kind!r} at index {at[0]} of {len(events)}, not last"
-    return None

@@ -22,9 +22,10 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from event_log_checks import check_terminal
 from pydantic import TypeAdapter, ValidationError
 
-from agentdeck.core import Event, UnknownBlock, check_terminal
+from agentdeck.core import CURRENT_VERSION, Event, UnknownBlock
 from agentdeck.core.status import RunStatus, status_of
 
 if TYPE_CHECKING:
@@ -42,7 +43,7 @@ TS = "2026-01-01T12:00:00+00:00"
 
 def _wire(kind: str, payload: dict, seq: int = 0) -> dict[str, Any]:
     return {
-        "v": 1,
+        "v": {"major": CURRENT_VERSION.major, "minor": CURRENT_VERSION.minor},
         "kind": kind,
         "seq": seq,
         "run_id": "run_1",

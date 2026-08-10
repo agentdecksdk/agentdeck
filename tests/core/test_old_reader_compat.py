@@ -38,7 +38,11 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.skip(
     reason="envelope v2 removed the required `tenant` for `namespace` and dropped "
     "RunContextSnapshot — a v1 reader cannot parse a v2 event by construction, so there is "
-    "nothing here to measure. Re-enable with BASELINE moved to the first v3 release."
+    "nothing here to measure. v3.0.0b1 shipped as the first v3 release, which looked like the "
+    "moment to re-enable — but the schema-versioning PR that replaced the scalar `v` with a "
+    "{major, minor} object breaks that same released reader for the same reason: it still "
+    "expects `v: int`. Re-enable with BASELINE moved to the first release that carries the "
+    "object `v`."
 )
 
 BASELINE = "v2.0.0b4"

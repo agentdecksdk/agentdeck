@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 import httpx
 import pytest
+from event_log_checks import check_contiguous, check_terminal
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
@@ -37,7 +38,7 @@ from agentdeck.adapters.engines.langgraph.engine import _to_graph_input
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import Event, check_contiguous, check_terminal
+from agentdeck.core.events import Event
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.runtime.service import Runtime
