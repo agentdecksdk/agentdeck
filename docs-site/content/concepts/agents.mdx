@@ -123,7 +123,6 @@ the `Deck` opens (`async with Deck.from_project() as deck`, its `__aenter__`), r
 every already-compiled agent's MCP status is re-resolved against what actually connected. A
 server that failed to connect at that point is dropped from that agent's tools, with a banner
 prepended to its instructions naming what's missing — it costs that agent the toolset, not the
-whole process. Building an `Agent` on its own (no `Deck` in view) never sees a real connection
-either way, so its `mcp=` compiles as unavailable regardless of the server's actual health.
+whole process.
 
 Next: give an agent deterministic, non-sandboxed powers with [skills](/concepts/skills).
