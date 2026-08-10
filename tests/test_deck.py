@@ -351,6 +351,16 @@ def test_agent_workflow_tool_that_is_registered_builds_cleanly():
     deck.build()  # no raise
 
 
+def test_a_durable_workflow_used_as_a_tool_fails_build_naming_both():
+    """`as_tool()` calls `run(args)` with no thread_id, which a durable workflow requires, so
+    the tool raised the moment a model called it — after building clean (#193)."""
+    durable = Workflow(name="Durable", state=_State, graph=_build_shout_graph, durable=True)
+    deck = Deck(agents=[_greeter(tools=[durable])], workflows=[durable])
+
+    with pytest.raises(ConfigError, match="Greeter.*Durable.*durable=True"):
+        deck.build()
+
+
 # --- a tool build() cannot compile fails loudly, naming the agent and @function_tool -------
 # (#172: a raw callable used to reach the SDK unwrapped and only fail at run time)
 

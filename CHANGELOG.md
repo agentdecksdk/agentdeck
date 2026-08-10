@@ -8,6 +8,17 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Changed
+
+- **A `durable=True` workflow used as an agent tool now fails `build()`** (#193) instead of
+  raising the first time a model calls it. `Workflow.as_tool()` invokes `run(args)` with no
+  `thread_id`, which a durable workflow requires to load and persist its checkpoint, so
+  `Agent(tools=[durable_workflow])` built clean and then threw mid-turn. The error names the
+  agent and the workflow and points at `durable=False`, or calling it as a root invocable via
+  `deck.run()` where a session can be supplied. Giving a tool-invoked workflow a thread of its
+  own remains an open design question.
+
+
 ### Fixed
 
 - **Three docs pages corrected against the current v3 code (#192).** `/guides/human-approval`'s
