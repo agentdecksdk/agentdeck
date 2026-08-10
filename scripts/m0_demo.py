@@ -70,7 +70,7 @@ from agentdeck.composition import build_runtime
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
-from agentdeck.core.events import RESULT_PREVIEW_MAX, check_contiguous, check_terminal, parse_event
+from agentdeck.core.events import RESULT_PREVIEW_MAX, Event, check_contiguous, check_terminal
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.errors import ConfigError
 from agentdeck.runtime.discovery import InvocableRegistry
@@ -332,7 +332,7 @@ async def run_uc1(tmp: Path) -> None:
         assert check_contiguous(run_events) == [], "seq must be contiguous from 0 per run"
         assert run_events[0].seq == 0
     for event in log:
-        assert parse_event(json.loads(event.model_dump_json())) == event, "every event must round-trip"
+        assert Event.model_validate(json.loads(event.model_dump_json())) == event, "every event must round-trip"
 
     [tool_completed] = [event for event in log if event.kind == "tool.call.completed"]
     payload = tool_completed.payload
@@ -408,7 +408,7 @@ async def run_uc2(tmp: Path) -> None:
     ):
         async for line in response.aiter_lines():
             if line.startswith("data: "):
-                event = parse_event(json.loads(line.removeprefix("data: ")))
+                event = Event.model_validate(json.loads(line.removeprefix("data: ")))
                 opened.append(event)
                 print(f"  {event.kind} seq={event.seq}")
     assert [event.kind for event in opened] == ["run.started", "node.updated", "run.interrupted"]
@@ -440,7 +440,7 @@ async def run_uc2(tmp: Path) -> None:
         async with client2.stream("POST", "/v2/resume", json={"thread_id": thread_id, "value": "approved"}) as resp:
             async for line in resp.aiter_lines():
                 if line.startswith("data: "):
-                    event = parse_event(json.loads(line.removeprefix("data: ")))
+                    event = Event.model_validate(json.loads(line.removeprefix("data: ")))
                     resumed.append(event)
                     print(f"  {event.kind} seq={event.seq}")
         assert [event.kind for event in resumed] == ["run.resumed", "node.updated", "run.completed"]

@@ -55,8 +55,8 @@ restate them — read that file before writing any non-trivial code.
 - `core/` imports **stdlib + pydantic only**, no exceptions — enforced by
   `import-linter` (`.importlinter`, `make lint-imports`).
 - Events go through payload classes, never hand-built dicts; consumers use
-  `parse_event` and tolerate `UnknownEvent`. New kinds/envelope changes land only
-  in dedicated schema PRs (`docs/coding-standards.md` §7).
+  `Event.model_validate` and tolerate `UnknownEvent`. New kinds/envelope changes
+  land only in dedicated schema PRs (`docs/coding-standards.md` §7).
 - Golden JSON snapshots (`tests/core/snapshots/`) change only with an explicit,
   PR-declared schema change.
 

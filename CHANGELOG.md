@@ -8,6 +8,12 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [3.0.0b1] - 2026-08-10
+
+First public beta of v3. `Deck` replaces `App` as the single composition root;
+v1's `agents/`, `workflows/` and `app.py` are gone with no re-export shim.
+
+
 ### Removed
 
 - **`Deck(context=...)`** (#182): the parameter was accepted at construction and then refused —
@@ -1301,7 +1307,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v3.0.0b1...HEAD
+[3.0.0b1]: https://github.com/sagi5060/agentdeck/compare/v2.0.0...v3.0.0b1
 [2.0.0]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b4...v2.0.0
 [2.0.0b4]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b3...v2.0.0b4
 [2.0.0b3]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b2...v2.0.0b3
