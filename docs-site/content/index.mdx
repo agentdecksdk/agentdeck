@@ -12,18 +12,16 @@ description: Write the agent. AgentDeck owns everything around it.
 
 You write small Python definitions — agents, skills, workflows. AgentDeck owns everything
 around them: project discovery, settings and provider wiring, tools and MCP servers,
-sandbox capabilities, sessions, streaming, typed workflows with human approval. Execution
-stays in the OpenAI Agents SDK and LangGraph.
+sessions, streaming, typed workflows with human approval. Execution stays in the OpenAI
+Agents SDK and LangGraph.
 
 ## A whole agent
 
 ```python
 # .agentdeck/agents/greeter/agent.py
-from agentdeck.agents import BaseAgent
+from agentdeck import Agent
 
-
-class Greeter(BaseAgent):
-    instructions = "You are a friendly scheduling assistant. Keep replies to one short sentence."
+greeter = Agent(name="Greeter", instructions="You are a friendly scheduling assistant. Keep replies to one short sentence.")
 ```
 
 Nothing registers it — the file's location is the registration. Run it:
@@ -31,12 +29,12 @@ Nothing registers it — the file's location is the registration. Run it:
 ```python
 import asyncio
 
-from agentdeck import App
+from agentdeck import Deck
 
 
 async def main() -> None:
-    async with App.open() as app:
-        result = await app.run_agent("Greeter", "hello")
+    async with Deck.from_project() as deck:
+        result = await deck.run("Greeter", "hello")
         print(result.output)
 
 
@@ -47,9 +45,8 @@ asyncio.run(main())
 
 - **Registration** — drop a file into `.agentdeck/`; discovery does the rest.
 - **Provider and runner config** — layered settings from env, `.env`, and `config.yaml`.
-- **Conversation memory** — `chat()` keeps a session across turns, surfaces, and restarts.
-- **Streaming** — `chat_stream()` and an SSE HTTP surface: same agent, no extra code.
-- **Sandboxing** — shell, filesystem, memory, skills, and compaction declared, not plumbed.
+- **Conversation memory** — `deck.run(..., session_id=...)` keeps a session across turns, surfaces, and restarts.
+- **Streaming** — `deck.stream()` and an SSE HTTP surface: same agent, no extra code.
 - **Workflow machinery** — graph compilation, durability, and human interrupts from a typed state class.
 
 ## What AgentDeck is not

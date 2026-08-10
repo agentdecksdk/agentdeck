@@ -12,12 +12,7 @@ from typing import TYPE_CHECKING
 
 from agentdeck.adapters.engines.langgraph import LangGraphEngine
 from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
-from agentdeck.composition import (
-    resolve_agent_sandbox,
-    resolve_checkpoint,
-    resolve_run_settings,
-    resolve_workflow_workspace,
-)
+from agentdeck.composition import resolve_checkpoint, resolve_run_settings
 
 if TYPE_CHECKING:
     from agentdeck.core.ports import EnginePort
@@ -25,8 +20,8 @@ if TYPE_CHECKING:
 
 def project_engines() -> tuple[EnginePort, ...]:
     return (
-        OpenAIAgentsEngine(settings=resolve_run_settings(), sandbox=resolve_agent_sandbox()),
-        LangGraphEngine(durable_checkpoint=resolve_checkpoint(), workspace=resolve_workflow_workspace()),
+        OpenAIAgentsEngine(settings=resolve_run_settings()),
+        LangGraphEngine(durable_checkpoint=resolve_checkpoint()),
     )
 
 

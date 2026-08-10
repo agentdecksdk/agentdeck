@@ -1,8 +1,8 @@
 """A scripted ``agents.models.interface.Model`` for the tests that drive a real chat turn.
 
-The SDK boundary is the only thing stubbed: everything above it — v1's run config, the
+The SDK boundary is the only thing stubbed: everything above it — the resolved run config, the
 compat engine, the Runtime, the surface's frame rendering — is the code under test. Patch
-``agentdeck.agents.runners.base.OpenAIProvider`` with :func:`provider_of` so v1's resolved
+``agentdeck.authoring.runners.agent.OpenAIProvider`` with :func:`provider_of` so a resolved
 ``RunConfig`` hands out this model instead of reaching for a real endpoint.
 """
 
@@ -178,8 +178,8 @@ def provider_of(model: Model) -> type:
 
 
 PROVIDER_TARGETS = (
-    # v1's runner glue, still what an AgentNode and BaseAgent.run configure a turn through
-    "agentdeck.agents.runners.base.OpenAIProvider",
+    # authoring's direct-call runner, still what an AgentNode and Agent.run configure a turn through
+    "agentdeck.authoring.runners.agent.OpenAIProvider",
     # the openai-agents adapter, which is what every Runtime-played turn configures through
     "agentdeck.adapters.engines.openai_agents.runconfig.OpenAIProvider",
 )

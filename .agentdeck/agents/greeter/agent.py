@@ -1,5 +1,6 @@
-from agentdeck.agents import BaseAgent
+from agentdeck import Agent
 
-
-class Greeter(BaseAgent):
-    instructions = "You are a friendly scheduling assistant. Keep replies to one short sentence."
+greeter = Agent(
+    name="Greeter",
+    instructions="You are a friendly scheduling assistant. Keep replies to one short sentence.",
+)

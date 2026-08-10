@@ -54,6 +54,15 @@ broader than the linter's contracts:
 - `surfaces/` import `runtime/` and `core/` (and their own framework, e.g. FastAPI in
   `surfaces/serve/`), never adapters directly.
 - `authoring/` imports `core/` only; user-facing API compiles to `InvocableSpec`.
+  *(Amended 2026-08-09, #164: `authoring/` also imports `agents` and `langgraph` directly.
+  Phase 4 moved v1's `BaseAgent`/`BaseWorkflow` compilation — building an SDK-native `Agent`,
+  compiling a `StateGraph` — into `authoring/` wholesale ("roughly `app.py`'s composition-root
+  half moved almost verbatim," per `plan-phase4-deck.md`), and that compilation step has always
+  needed both SDKs; the alternative was a third copy of the same logic behind a port neither
+  engine needed one for. Unlike `adapters/`, `authoring/` is not scoped to one external system
+  by design — it compiles the same declaration for whichever engine a name's `InvocableKind`
+  selects, so both SDKs are properly its business. `core/` and `runtime/` stay exactly as
+  restricted; only `authoring/` gains the exception.)*
 - `compat/` is the transition's one licensed border crossing *(added 2026-08-06, #74)*: it
   implements a port while importing v1's glue and v1's Langfuse integration, which is exactly
   what an adapter may not do — so it is not one, and it does not live under `adapters/`. Only

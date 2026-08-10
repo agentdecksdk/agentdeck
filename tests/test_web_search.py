@@ -1,6 +1,6 @@
 import pytest
 
-from agentdeck.agents.web_search import _search
+from agentdeck.authoring.web_search import _search
 from agentdeck.runtime.settings import reset_settings_cache
 
 

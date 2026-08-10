@@ -25,7 +25,7 @@ import pytest
 from agents import Agent, OpenAIProvider
 
 from agentdeck.adapters.engines.openai_agents.runconfig import build_run_config
-from agentdeck.agents.runners.headless import HeadlessRunner
+from agentdeck.authoring.runners.agent import HeadlessRunner
 from agentdeck.composition import resolve_run_settings
 from agentdeck.runtime import observability
 from agentdeck.runtime.settings import reset_settings_cache

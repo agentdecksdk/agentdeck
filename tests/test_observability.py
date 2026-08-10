@@ -66,7 +66,7 @@ def _attr(span, key):
 
 
 def test_chat_session_id_lands_on_the_root_trace(spy):
-    """App.chat(..., session_id="wa-123", ...)'s session id must reach the root span."""
+    """Deck.run(..., session_id="wa-123", ...)'s session id must reach the root span."""
     with trace_run(None, name="Greeter", kind="agent", input="hi", session_id="wa-123"):
         pass
     (span,) = spy.spans

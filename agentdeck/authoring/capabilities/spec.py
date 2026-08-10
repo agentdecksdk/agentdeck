@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from agentdeck.agents.capabilities.compaction import CompactionSpec
-from agentdeck.agents.capabilities.filesystem import FilesystemSpec
-from agentdeck.agents.capabilities.memory import MemorySpec
-from agentdeck.agents.capabilities.shell import ShellSpec
-from agentdeck.agents.capabilities.skills import build_skills
+from agentdeck.authoring.capabilities.compaction import CompactionSpec
+from agentdeck.authoring.capabilities.filesystem import FilesystemSpec
+from agentdeck.authoring.capabilities.memory import MemorySpec
+from agentdeck.authoring.capabilities.shell import ShellSpec
+from agentdeck.authoring.capabilities.skills import build_skills
 
 if TYPE_CHECKING:
     from agents.sandbox.capabilities import Capability

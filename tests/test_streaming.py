@@ -9,12 +9,12 @@ from types import SimpleNamespace
 import pytest
 from scripted_model import ScriptedModel, patch_provider, provider_of
 
-from agentdeck.agents.runners.headless import HeadlessRunner, StreamDone
+from agentdeck.authoring.runners.agent import HeadlessRunner, StreamDone
 
 AGENT_PY = """
 from agents import function_tool
 
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
 
 @function_tool
@@ -23,13 +23,8 @@ def lookup_slot(day: str) -> str:
     return f"{day} 09:00"
 
 
-class Greeter(BaseAgent):
-    instructions = "Greet the user."
-
-
-class Tooler(BaseAgent):
-    instructions = "Use the tool, then answer."
-    tools = [lookup_slot]
+greeter = Agent(name="Greeter", instructions="Greet the user.")
+tooler = Agent(name="Tooler", instructions="Use the tool, then answer.", tools=[lookup_slot])
 """
 
 
@@ -51,9 +46,9 @@ def project(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
-    return App()
+    return Deck.from_project()
 
 
 def _delta_event(text: str) -> SimpleNamespace:
@@ -103,7 +98,7 @@ async def test_run_streamed_yields_deltas_incrementally(project, monkeypatch):
         captured_kwargs.update(kwargs)
         return fake_result
 
-    monkeypatch.setattr("agentdeck.agents.runners.headless.Runner.run_streamed", fake_run_streamed)
+    monkeypatch.setattr("agentdeck.authoring.runners.agent.Runner.run_streamed", fake_run_streamed)
 
     sentinel_session = object()
     chunks = [c async for c in runner.run_streamed("hi", session=sentinel_session)]
@@ -129,7 +124,7 @@ async def test_run_streamed_cancels_sdk_run_on_abandonment(project, monkeypatch)
 
     fake_result = FakeRunResultStreaming(events=[_delta_event("a"), _delta_event("b")], final_output="ab")
     monkeypatch.setattr(
-        "agentdeck.agents.runners.headless.Runner.run_streamed",
+        "agentdeck.authoring.runners.agent.Runner.run_streamed",
         lambda agent, message, **kwargs: fake_result,
     )
 
@@ -140,36 +135,38 @@ async def test_run_streamed_cancels_sdk_run_on_abandonment(project, monkeypatch)
     assert fake_result.cancelled == 1
 
 
-async def test_chat_returns_a_turn_result_not_the_sdks_runresult(project, monkeypatch):
-    """``chat`` used to hand back the SDK's own ``RunResult``; it now plays on the Runtime
-    (issue #137) and returns a :class:`~agentdeck.app.TurnResult` assembled from the run's
+async def test_run_returns_a_turn_result_not_the_sdks_runresult(project, monkeypatch):
+    """``run`` used to hand back the SDK's own ``RunResult``; it now plays on the Runtime
+    and returns a :class:`~agentdeck.deck.TurnResult` assembled from the run's
     own ``run.completed`` — a caller depends on agentdeck's event schema, never on the SDK.
     """
     patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("echo:hi",))))
 
-    result = await project.chat("Greeter", "s1", "hi")
+    async with project:
+        result = await project.run("Greeter", "hi", session_id="s1")
 
     assert result.output == "echo:hi"
     assert result.session_id == "s1"
 
 
-async def test_chat_stream_uses_same_session_as_chat(project, monkeypatch):
-    """One ``session_id`` is one conversation whichever App method ran the turn — the same
+async def test_stream_uses_same_session_as_run(project, monkeypatch):
+    """One ``session_id`` is one conversation whichever Deck method ran the turn — the same
     guarantee the old ``HeadlessRunner``-backed methods gave, now proven at the SDK boundary
-    instead of by stubbing ``HeadlessRunner.from_agent`` directly (which ``chat``/``chat_stream``
+    instead of by stubbing ``HeadlessRunner.from_agent`` directly (which ``run``/``stream``
     no longer call: both play on the Runtime)."""
     from agentdeck.core.events import RunCompleted
 
     model = ScriptedModel(deltas=("echo:hi",))
     patch_provider(monkeypatch, provider_of(model))
 
-    events = [event async for event in project.chat_stream("Greeter", "s1", "first")]
-    result = await project.chat("Greeter", "s1", "second")
+    async with project:
+        events = [event async for event in project.stream("Greeter", "first", session_id="s1")]
+        result = await project.run("Greeter", "second", session_id="s1")
 
     streamed_output = next(e.payload.output[0].text for e in events if isinstance(e.payload, RunCompleted))
     assert streamed_output == "echo:hi" == result.output
     # two model calls, and the second turn's input carries the first turn's own message —
-    # proof the two App methods shared one `session_for("s1")` rather than each starting fresh.
+    # proof the two Deck methods shared one `session_for("s1")` rather than each starting fresh.
     assert model.calls == 2
     assert "first" in str(model.inputs[-1])
 
@@ -193,8 +190,8 @@ def _sse_frames(text: str) -> list[tuple[str, dict]]:
 def serve_client(project, monkeypatch):
     """TestClient over the real FastAPI app, with only the model scripted.
 
-    The endpoint runs on the Runtime App composes, so the stub goes at the SDK boundary
-    (v1's resolved provider) rather than at ``App.chat_stream``: everything in between is
+    The endpoint runs on the Runtime the Deck composes, so the stub goes at the SDK boundary
+    (v1's resolved provider) rather than at ``Deck.chat_stream``: everything in between is
     what these tests are about.
     """
     from fastapi.testclient import TestClient

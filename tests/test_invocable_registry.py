@@ -34,7 +34,6 @@ if TYPE_CHECKING:
 AGENT_PY = '''
 from typing import Any
 
-from agents import Agent
 from agents.models.interface import Model
 from openai.types.responses import (
     Response,
@@ -45,7 +44,7 @@ from openai.types.responses import (
 )
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
 _USAGE = ResponseUsage(
     input_tokens=1,
@@ -88,18 +87,15 @@ class OneLineModel(Model):
         raise NotImplementedError("the fixture bundle only streams")
 
 
-class {agent_name}(BaseAgent):
-    instructions = "Greet the user."
-
-    @classmethod
-    def build(cls):
-        return Agent(name=cls.__name__, instructions=cls.instructions, model=OneLineModel())
+{agent_var} = Agent(name="{agent_name}", instructions="Greet the user.", model=OneLineModel())
 '''
 
 WORKFLOW_PY = """
 from typing import TypedDict
 
-from agentdeck.workflows import END, BaseWorkflow, StateGraph
+from langgraph.graph import END, StateGraph
+
+from agentdeck.authoring import Workflow
 
 
 class State(TypedDict, total=False):
@@ -107,16 +103,15 @@ class State(TypedDict, total=False):
     shouted: str
 
 
-class {workflow_name}(BaseWorkflow):
-    state = State
+def _build_graph():
+    graph = StateGraph(State)
+    graph.add_node("shout", lambda state: {{"shouted": state["input"].upper()}})
+    graph.set_entry_point("shout")
+    graph.add_edge("shout", END)
+    return graph
 
-    @classmethod
-    def build_graph(cls):
-        graph = StateGraph(cls.state)
-        graph.add_node("shout", lambda state: {{"shouted": state["input"].upper()}})
-        graph.set_entry_point("shout")
-        graph.add_edge("shout", END)
-        return graph
+
+{workflow_var} = Workflow(name="{workflow_name}", state=State, graph=_build_graph)
 """
 
 SKILL_MD = """---
@@ -131,10 +126,12 @@ def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, agent: str, wor
     """Write a scratch ``.agentdeck/`` holding one agent, one workflow and one skill, and cd into it."""
     root = tmp_path / ".agentdeck"
     (root / "agents" / "greeter").mkdir(parents=True)
-    (root / "agents" / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY.format(agent_name=agent)))
+    (root / "agents" / "greeter" / "agent.py").write_text(
+        textwrap.dedent(AGENT_PY.format(agent_name=agent, agent_var=agent.lower()))
+    )
     (root / "workflows" / "shout").mkdir(parents=True)
     (root / "workflows" / "shout" / "workflow.py").write_text(
-        textwrap.dedent(WORKFLOW_PY.format(workflow_name=workflow))
+        textwrap.dedent(WORKFLOW_PY.format(workflow_name=workflow, workflow_var=workflow.lower()))
     )
     (root / "skills" / "echo-skill" / "scripts").mkdir(parents=True)
     (root / "skills" / "echo-skill" / "SKILL.md").write_text(SKILL_MD)
@@ -217,7 +214,7 @@ def test_one_name_for_two_bundles_fails_at_load(
     """v1 keeps agents and workflows in separate namespaces; one flat mapping cannot."""
     _project(tmp_path, monkeypatch, agent="Twin", workflow="Twin")
 
-    with pytest.raises(ConfigError, match="two bundles are both named 'Twin'"):
+    with pytest.raises(ConfigError, match="an agent and a workflow are both named 'Twin'"):
         InvocableRegistry(engines).load()
 
 

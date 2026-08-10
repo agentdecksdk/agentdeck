@@ -56,10 +56,10 @@ this a safety net rather than a shape check, and it holds because everything var
 is pinned at the source instead:
 
 - **The model.** `fake_model.ScriptedModel` implements the Agents SDK's `Model`
-  interface directly and is injected by swapping `OpenAIProvider` in
-  `agentdeck.agents.runners.base` (a test-only `monkeypatch.setattr`). No network, no
-  API key, no real model. Response ids (`resp_golden_1`), item ids, token counts and
-  `created_at` are constants in the script.
+  interface directly and is injected by swapping `OpenAIProvider` wherever it is
+  constructed (`scripted_model.patch_provider`, a test-only `monkeypatch.setattr`). No
+  network, no API key, no real model. Response ids (`resp_golden_1`), item ids, token
+  counts and `created_at` are constants in the script.
 - **The script.** Turn 1 returns a `function_call` to the fixture agent's
   `lookup_slot` tool; turn 2 answers in three text deltas
   (`"Tuesday " / "at 9am " / "works."`). Both turns are identical for `get_response`

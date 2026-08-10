@@ -1,0 +1,169 @@
+---
+title: Deck
+description: The composition root — builds a catalog from Agent/Workflow objects or a project directory, and runs every turn on it.
+---
+
+# Deck
+
+`Deck` is the one object a project talks to. Build it directly from `Agent`/`Workflow` objects,
+or discover the same catalog from a project directory with `Deck.from_project()` — either way it
+is the composition root: every turn started through it plays on the same
+[Runtime](/concepts/runs-and-the-event-log) the HTTP surface runs chats on, and is recorded the
+same way.
+
+```python file=.agentdeck/agents/greeter/agent.py
+from agentdeck import Agent
+
+greeter = Agent(name="Greeter", instructions="You are a friendly scheduling assistant. Keep replies to one short sentence.")
+```
+
+```python run
+import asyncio
+
+from agentdeck import Deck
+
+
+async def main() -> None:
+    async with Deck.from_project() as deck:
+        result = await deck.run("Greeter", "hello")
+        print(result.output)
+        print(result.usage)
+        print(result.run_id)
+
+
+asyncio.run(main())
+```
+
+## Construction and lifecycle
+
+```python
+Deck(
+    agents=[...],       # Agent instances
+    workflows=[...],    # Workflow instances
+    skills="./skills",  # a path, a sequence of paths, or a Skills(...) object
+    mcp=".mcp.json",    # a path, or an MCP(...) object
+    context=None,       # reserved; see "What this does not cover"
+)
+```
+
+`Deck.from_project(path=".agentdeck")` discovers the same four arguments from today's directory
+layout (`agents/<bundle>/agent.py`, `workflows/<bundle>/workflow.py`, `skills/*/SKILL.md`,
+`.mcp.json` next to `.agentdeck/`) and hands them to the same constructor — there is one catalog
+mechanism underneath either front door.
+
+The lifecycle is `NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED`:
+
+- **`build()`** validates every name the catalog references (an unknown skill, MCP server, or
+  workflow-as-tool name; an agent and a workflow sharing a root name) and compiles every
+  agent/workflow to an `InvocableSpec`. It reads local files only — no network call, no MCP
+  server started — and is idempotent, so it doubles as a CI check. Calling a turn-starting method
+  without an explicit `build()` still works — `async with deck:` calls it for you.
+- **`async with deck:`** starts everything `build()` left alone: the real engines, the event
+  store, the session factory, and every configured MCP server. This is what a turn-starting
+  method actually needs; calling one before opening raises.
+- **`CLOSED` is terminal.** `aclose()` (or the `async with` block's exit) flushes the Runtime's
+  sinks and closes what this `Deck` itself opened — an `MCP(...)` it holds, always, and the event
+  store it built from settings, but never one passed in through construction. Reopening a closed
+  `Deck` raises; construct a new one instead.
+
+`deck.agents`/`deck.workflows` are read-only mappings once built — mutating either raises.
+
+## Starting a turn
+
+| Method | Signature | Returns |
+|---|---|---|
+| `run` | `(name, input, *, session_id=None, namespace=None, run_id=None)` | `TurnResult` for an agent; the final state (or an `InterruptResult`) for a workflow |
+| `stream` | `(name, input, *, session_id=None, namespace=None, run_id=None)` | `AsyncGenerator[Event]` — the run's own canonical events, live |
+
+`run`/`stream` resolve `name` against whichever catalog holds it — an agent or a workflow — and
+play it on the Runtime, recorded exactly as `POST /agents/{name}/chat` or `POST /workflows/{name}`
+would record it. Pass `session_id=` for a conversational agent turn (same id, same history across
+calls) or a durable workflow's `thread_id` (required when that workflow is `durable = True`, so a
+later call with the same id resumes it). A node that calls `interrupt()` makes a workflow's `run`
+return an `InterruptResult` — `{"type": "interrupt", "payload": ..., "thread_id": ...}` — instead
+of a final state; see [Workflows](/concepts/workflows) for what that means for the node that
+paused, and answer it with `answer()` below.
+
+`stream` yields the same `Event` objects a run's log would hand back after the fact — `text.delta`
+per token for an agent, `node.updated` per completed node for a workflow, a terminal event last —
+not a rendered wire format. This is the one method here that does not return a `TurnResult`,
+because a caller that wants the final answer out of a stream has to fold it from the events, the
+same way any other consumer of the log would.
+
+## `TurnResult`
+
+An agent's `run`/`stream` assemble a `TurnResult` from the run's own `run.completed` event — never
+the SDK's own result object, so a caller depends on agentdeck's event schema rather than on
+whichever engine ran the turn:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `output` | `Any` | the run's structured output (a `DataBlock`'s data), or the joined text of the final message |
+| `usage` | `Usage` | `input_tokens`, `output_tokens`, `usd` (`None` when no price is known for the model) — the run's authoritative total |
+| `run_id` | `str` | this run's id |
+| `session_id` | `str \| None` | the session this turn belongs to, if `session_id=` was given |
+
+Calling `Agent.run()` directly — the class's own headless runner, bypassing `Deck` and the
+Runtime entirely — still returns the SDK's own `RunResult`; see
+[Definitions](/reference/definitions) for that distinction.
+
+## Reading a run back
+
+`Deck` has no public event-log reader — `store` is deliberately not one of its properties. For a
+quick check, `status(run_id)` folds a run's current `RunStatus` from its own events:
+
+```python no-test reason="needs a live run_id from a run this process started"
+current = await deck.status(run_id)  # None if the log has never heard of this run_id
+```
+
+A caller that needs the full log — every event, or every run in a namespace — reaches for the
+same `EventStorePort` the Runtime itself uses, e.g. `agentdeck.composition.resolve_event_store()`,
+or the HTTP surface's own endpoints once a project is served.
+
+## Controlling a run in flight
+
+```python no-test reason="needs a live run_id from a run this process is streaming"
+await deck.pause(run_id, reason="operator stepped away")
+events = await deck.resume(run_id)
+await deck.cancel(run_id, reason="user closed the tab")
+```
+
+`pause` and `cancel` record a request and return immediately — not when the run actually stops,
+which nobody can know at the moment of asking. `resume` plays a paused run's continuation and
+returns the events it produced, or an empty list if there was nothing to resume.
+[Run Control](/concepts/run-control) is the full contract: what a safe point is, why a request is
+not a status change, and what a resume replays.
+
+## Workflow bookkeeping
+
+```python no-test reason="needs a live run_id from a run this process paused"
+pending = await deck.pending()  # every run currently waiting on a human, across the catalog
+result = await deck.answer(pending[0].run_id, "yes")
+```
+
+`pending()` lists every run currently `WAITING_HUMAN`, across every workflow the catalog holds —
+the approval inbox, read off the event log. `answer(run_id, value)` answers the interrupt that run
+is paused on and returns the final state (or the next `InterruptResult`); it looks the run up
+itself (which workflow, which thread, which session) from the same source `pending()` reads, so a
+caller supplies only the id `pending()` named and the value.
+
+`due_resumes(now=None)` and `tick(now=None)` are a separate, timer-only inbox: `due_resumes` lists
+threads whose `sleep_until` has passed, reading each workflow's own checkpointer rather than the
+Runtime's log, and `tick` resumes every one of them. `now` defaults to the current UTC time and
+must be timezone-aware if given. AgentDeck runs no daemon of its own — a cron job, a systemd
+timer, or a loop calling `tick()` owns the cadence.
+
+## Sessions
+
+`session_for(session_id)` returns the SDK conversation-memory session `run`/`stream` use for that
+id: Redis-backed when `AGENTDECK_SESSION_REDIS_URL` is set, an in-process SQLite session otherwise
+(lost on process exit). Pass `session_factory=` to `Deck(...)` to inject one — the seam tests use
+to swap in a fake wrapping `fakeredis` without a real Redis server.
+
+## What this does not cover
+
+`context=` is accepted and stored for forward compatibility, but a non-`None` value at
+`run`/`stream`/`resume` raises: full `Context[T]` injection is its own, larger effort and is not
+wired into this slice. And [Run Control](/concepts/run-control#safe-points) reaches agent runs
+today; a workflow (LangGraph) run has no safe point yet, so `pause`/`cancel` record the request
+but nothing acts on it.

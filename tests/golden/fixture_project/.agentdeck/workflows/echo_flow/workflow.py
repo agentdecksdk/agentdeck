@@ -1,8 +1,9 @@
 """Golden fixture workflow: two deterministic nodes, no interrupt — the ``done`` path."""
 
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
-from agentdeck.workflows import END, BaseWorkflow, StateGraph
+from agentdeck.authoring import Workflow
 
 
 class State(BaseModel):
@@ -11,15 +12,14 @@ class State(BaseModel):
     length: int = 0
 
 
-class EchoFlow(BaseWorkflow):
-    state = State
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("shout", lambda s: {"upper": s.text.upper()})
+    g.add_node("measure", lambda s: {"length": len(s.text)})
+    g.set_entry_point("shout")
+    g.add_edge("shout", "measure")
+    g.add_edge("measure", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("shout", lambda s: {"upper": s.text.upper()})
-        g.add_node("measure", lambda s: {"length": len(s.text)})
-        g.set_entry_point("shout")
-        g.add_edge("shout", "measure")
-        g.add_edge("measure", END)
-        return g
+
+echo_flow = Workflow(name="EchoFlow", state=State, graph=_build_graph)

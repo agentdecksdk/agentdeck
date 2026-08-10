@@ -10,8 +10,8 @@ produces](/concepts/runs-and-the-event-log) — nothing about how a run is playe
 who is watching it. The Python API is the base case: no wire, no translation, just the events
 themselves.
 
-```python no-test reason="run_agent, chat and chat_stream are already runnable in concepts/agents"
-async for event in app.chat_stream("Support", "wa-123", "and now?"):
+```python no-test reason="deck.stream is already runnable in concepts/agents"
+async for event in deck.stream("Support", "and now?", session_id="wa-123"):
     ...  # a text.delta per chunk, message.completed once the reply is in, run.completed last
 ```
 
