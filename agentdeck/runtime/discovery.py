@@ -67,6 +67,7 @@ class InvocableRegistry:
         workflows: Sequence[Workflow] | None = None,
         resolve_skills: Callable[[Sequence[str]], tuple[str, Sequence[FunctionTool]]] | None = None,
         resolve_workflow_tool: Callable[[Workflow], FunctionTool] | None = None,
+        bundle_of: Mapping[str, str] | None = None,
     ) -> Mapping[str, InvocableSpec]:
         """Compile every agent and workflow to an ``InvocableSpec``.
 
@@ -76,43 +77,60 @@ class InvocableRegistry:
         both end up here, so the two build the same way. ``resolve_skills``/
         ``resolve_workflow_tool`` are the catalog-aware hooks ``compile_agent`` needs for
         ``skills=``/a workflow used as a tool; a bare discovery scan passes neither, so an
-        agent declaring either fails loudly rather than compiling silently short.
+        agent declaring either fails loudly rather than compiling silently short. ``bundle_of``
+        names the bundle a discovered ``agents``/``workflows`` entry came from (name -> source
+        path); a caller that already ran its own scan (``Deck.from_project``) supplies it since
+        the association is otherwise lost the moment ``agents``/``workflows`` are handed in as
+        plain instances — a code-first entry has no bundle, so it is simply absent here.
 
         Eager on purpose: a bundle that can't be imported, an agent that can't be built and
         an engine that isn't registered all fail here, not mid-conversation.
         """
+        bundle_of = dict(bundle_of) if bundle_of else {}
         if agents is None:
-            agents = list(self._discover(Agent, type_dir="agents", module_name="agent", label="agent").values())
+            registry = self._discover(Agent, type_dir="agents", module_name="agent", label="agent")
+            agents = list(registry.list().values())
+            bundle_of.update(registry.bundle_files())
         if workflows is None:
-            workflows = list(
-                self._discover(Workflow, type_dir="workflows", module_name="workflow", label="workflow").values()
-            )
+            registry = self._discover(Workflow, type_dir="workflows", module_name="workflow", label="workflow")
+            workflows = list(registry.list().values())
+            bundle_of.update(registry.bundle_files())
         specs: dict[str, InvocableSpec] = {}
-        compiled: dict[str, SDKAgent] = {
-            agent.name: compile_agent(agent, resolve_skills=resolve_skills, resolve_workflow_tool=resolve_workflow_tool)
-            for agent in agents
-        }
+        compiled: dict[str, SDKAgent] = {}
+        for agent in agents:
+            try:
+                compiled[agent.name] = compile_agent(
+                    agent, resolve_skills=resolve_skills, resolve_workflow_tool=resolve_workflow_tool
+                )
+            except Exception as exc:
+                bundle_file = bundle_of.get(agent.name)
+                if bundle_file is None:  # code-first: no bundle to name, so the raw exception stands
+                    raise
+                raise ConfigError(f"{bundle_file} failed to build: {exc}") from exc
         link_handoffs(compiled, agents)
         for agent in agents:
             self._add(specs, agent.name, InvocableKind.AGENT, compiled[agent.name])
         for workflow in workflows:
-            # uncompiled: the langgraph adapter compiles the graph itself, around the checkpointer
-            # ``durable`` names — which is why that flag travels with the spec rather than staying
-            # on the Workflow only the authoring layer can see.
-            self._add(
-                specs,
-                workflow.name,
-                InvocableKind.WORKFLOW,
-                workflow.build_graph(),
-                metadata={DURABLE_KEY: workflow.durable},
-            )
+            try:
+                # uncompiled: the langgraph adapter compiles the graph itself, around the
+                # checkpointer — ``durable`` names, which is why that flag travels with the
+                # spec rather than staying on the Workflow only the authoring layer can see.
+                graph = workflow.build_graph()
+            except Exception as exc:
+                bundle_file = bundle_of.get(workflow.name)
+                if bundle_file is None:
+                    raise
+                raise ConfigError(f"{bundle_file} failed to build: {exc}") from exc
+            self._add(specs, workflow.name, InvocableKind.WORKFLOW, graph, metadata={DURABLE_KEY: workflow.durable})
         return specs
 
-    def _discover(self, base_class: type, *, type_dir: str, module_name: str, label: str) -> dict[str, Any]:
+    def _discover(self, base_class: type, *, type_dir: str, module_name: str, label: str) -> PluginRegistry[Any]:
         package = mount_project_dir()
-        return PluginRegistry(
+        registry = PluginRegistry(
             package, base_class=base_class, module_name=module_name, type_dir=type_dir, label=label
-        ).list(refresh=True)
+        )
+        registry.list(refresh=True)
+        return registry
 
     def _add(
         self,

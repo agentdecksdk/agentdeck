@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [dev, main]
+  # Every pull request, whatever it targets. Filtering by base branch silently skips CI on a
+  # stacked PR (one whose base is another feature branch), so the stack reports "no checks
+  # reported" and merges on nothing but the author's word.
   pull_request:
-    branches: [dev, main]
 
 jobs:
   check:

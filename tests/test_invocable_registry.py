@@ -225,3 +225,41 @@ def test_a_project_dir_that_is_not_there_fails_at_load(
 
     with pytest.raises(FileNotFoundError, match=".agentdeck"):
         InvocableRegistry(engines).load()
+
+
+def test_a_discovered_workflows_build_graph_failure_is_wrapped_at_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, engines: list[EnginePort]
+) -> None:
+    """#119, on the bare ``load()`` path with no ``Deck`` involved (``build_runtime``'s own
+    default caller): the bundle association discovery built internally must still reach the
+    wrap, not just the one ``Deck.from_project`` threads through explicitly.
+    """
+    root = tmp_path / ".agentdeck"
+    (root / "workflows" / "boom").mkdir(parents=True)
+    (root / "workflows" / "boom" / "workflow.py").write_text(
+        textwrap.dedent(
+            """
+            from typing import TypedDict
+
+            from agentdeck.authoring import Workflow
+
+
+            class State(TypedDict, total=False):
+                input: str
+
+
+            def _build_graph():
+                raise ValueError("bad graph")
+
+
+            boom_flow = Workflow(name="BoomFlow", state=State, graph=_build_graph)
+            """
+        )
+    )
+    monkeypatch.chdir(tmp_path)
+    for module in [name for name in sys.modules if name.startswith("agentdeck_project")]:
+        del sys.modules[module]
+
+    with pytest.raises(ConfigError, match="workflows/boom/workflow.py") as excinfo:
+        InvocableRegistry(engines).load()
+    assert isinstance(excinfo.value.__cause__, ValueError)
