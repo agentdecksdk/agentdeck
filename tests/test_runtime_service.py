@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
+from agentdeck.composition import build_runtime
 from agentdeck.core.content import DataBlock, TextBlock
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
@@ -912,8 +913,11 @@ def test_a_staleness_window_of_zero_is_refused() -> None:
 async def test_the_staleness_window_comes_from_settings_when_it_is_not_passed_in(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The default lives in settings, not in the Runtime: an operator whose turns are slower — or
-    whose approvals are — changes it without touching a line of code.
+    """The default lives in settings, resolved by ``build_runtime`` — not in ``Runtime`` itself
+    (issue #155: the bare constructor takes no ambient configuration at all, so a caller who
+    wants the configured window builds through ``build_runtime``, the same as its other
+    adapters). An operator whose turns are slower — or whose approvals are — changes it without
+    touching a line of code.
 
     A whole minute, against a run left open ten minutes ago: staleness is forced by the timestamp,
     never by shrinking the window towards the latency of a claim, which is how a test would come to
@@ -927,7 +931,7 @@ async def test_the_staleness_window_comes_from_settings_when_it_is_not_passed_in
         clock = _Held()
         store = MemoryEventStore(clock=clock)
         await _leave_open(store, clock, "r-0", timedelta(minutes=10))
-        runtime = Runtime([StubEngine()], store, {spec.name: spec})
+        runtime = build_runtime(engines=[StubEngine()], invocables={spec.name: spec}, store=store, sinks=())
 
         events = [
             event
