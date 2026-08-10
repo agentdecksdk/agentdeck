@@ -164,6 +164,17 @@ def test_agentdeck_config_path_redirects_the_shared_yaml(tmp_path, monkeypatch):
     assert resolve_config_path() == redirected
 
 
+def test_sandbox_env_and_skills_settings_are_gone():
+    """Issue #155: sandboxing left v3 in #163 and `SkillExecutor` — `sandbox_env()`'s only
+    caller — was deleted in #164, leaving both with zero callers. A deletion, not the
+    `AGENTDECK_SKILL_*` rename the issue originally proposed."""
+    import agentdeck.runtime.settings as settings_module
+
+    assert not hasattr(settings_module.Settings, "sandbox_env")
+    assert not hasattr(settings_module, "SkillsSettings")
+    assert "skills" not in settings_module.Settings.model_fields
+
+
 def test_the_old_app_config_path_name_is_no_longer_read(tmp_path, monkeypatch):
     """`APP_CONFIG_PATH` was unprefixed and generic; #155 renamed it outright — no shim, no
     fallback. Setting only the old name must resolve as if nothing were set at all."""
