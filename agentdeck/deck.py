@@ -49,7 +49,7 @@ from agentdeck.authoring.agent import Agent
 from agentdeck.authoring.compile import refresh_mcp_status
 from agentdeck.authoring.interrupts import interrupt_result
 from agentdeck.authoring.skills import skills_resolver
-from agentdeck.authoring.timers import wake_at_of
+from agentdeck.authoring.timers import WAKE_AT_KEY, wake_at_of
 from agentdeck.authoring.workflow import Workflow
 from agentdeck.composition import (
     build_runtime,
@@ -674,7 +674,11 @@ class Deck:
                     runtime.resume(
                         logged_run.invocable,
                         logged_run.thread_id,
-                        wake_at,
+                        # The payload's own ISO string, not the parsed `wake_at`: this value
+                        # also becomes the logged `run.resumed`, and a bare `datetime` fails
+                        # that event's JSON validation — recorded as a lost answer, with a
+                        # warning, even though the graph itself would have resumed fine.
+                        pending["payload"][WAKE_AT_KEY],
                         run_id=logged_run.run_id,
                         session_id=logged_run.session_id,
                     )

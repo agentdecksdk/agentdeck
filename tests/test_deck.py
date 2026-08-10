@@ -892,7 +892,7 @@ async def test_answer_of_an_unknown_run_id_raises_not_found(no_project):
 
 
 @pytest.mark.asyncio
-async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost(no_project, monkeypatch):
+async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost(no_project, monkeypatch, caplog):
     """A timer interrupt ``Deck.run()`` parked is the same thread ``Deck.tick()`` finds on the
     checkpointer — the log and the checkpointer already agree on the *listing* (direction one,
     already true post-#164). Resuming it by calling the workflow directly, as ``tick()`` used
@@ -917,8 +917,13 @@ async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost
             due = await deck.due_resumes()
             assert [d["thread_id"] for d in due] == ["t-tick"]
 
-            finished = await deck.tick()
-            assert finished and finished[0].get("woke_at") == str(past)
+            with caplog.at_level("WARNING"):
+                finished = await deck.tick()
+            # the reconciled resume passes the interrupt payload's own ISO string, not the
+            # parsed datetime, so the Runtime logs the answer cleanly instead of warning that
+            # a datetime "cannot be held" and dropping it.
+            assert finished == [{"woke_at": past.isoformat()}]
+            assert not caplog.records, [r.message for r in caplog.records]
 
             # direction 2: resuming through tick() must close the *logged* run too, not just
             # the checkpoint — a ghost WAITING_HUMAN entry is exactly what this pins against.
