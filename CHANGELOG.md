@@ -18,8 +18,40 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   one, or read with the version that wrote it. The first read of an old event says so by name
   rather than failing as a validation error on a model you have not met.
 
+- **A client built on the openai-agents engine's own session (`agents.SQLiteSession`,
+  `agents.extensions.memory.RedisSession`) that inspects or prunes its content parts must add
+  `input_image`/`input_audio` to its matcher** (#161). A turn carrying an image or audio block
+  now writes the SDK's own canonical part types into the session; a matcher written against the
+  old raw shapes (`image_url`, `input_audio` tuples, or similar) silently stops matching, which
+  for a pruning pass means the same image gets re-sent, and re-billed, on every later turn of
+  that conversation instead of being dropped after the turn that needed it.
+
+
+### Added
+
+- **`AudioBlock`** (#159): a fifth content-block kind, mirroring `ImageBlock` field-for-field
+  (`media_type`, `data_b64`) — the same problem (opaque bytes with a MIME type), so a different
+  shape would be asymmetry with no payoff. Additive/minor (`CURRENT_VERSION.minor` 0 → 1): a
+  reader that predates this still parses the event and meets an audio block as `UnknownBlock`.
+- **`ImageBlock` and `AudioBlock` now cap inline data at 1 MB decoded**, raising at construction
+  and naming `ResourceBlock` as the by-reference alternative for anything larger (#159). Base64
+  in an event lands in an append-only log and replays down every SSE connection for the life of
+  that run, so a documented-only limit shipped violated; the cap is deliberately low, since
+  raising it later is compatible and lowering it is not.
 
 ### Changed
+
+- **The openai-agents engine accepts image and audio input, not just text** (#161).
+  `TextBlock`/`ImageBlock`/`AudioBlock` map onto the SDK's own canonical multimodal input parts
+  (`input_text`/`input_image`/`input_audio`), which the SDK's chat-completions converter already
+  accepts and maps down for either API path — agentdeck writes no converter of its own. An
+  all-text turn still sends the identical joined string it always has; only a turn that actually
+  carries media takes the new shape. `ResourceBlock`, `DataBlock`, and any block a newer writer
+  invented still raise `ConfigError`, naming the block kind and the engine, never silently
+  dropped — and an `AudioBlock` under `use_responses=True` raises naming the Responses API,
+  which has no audio input member at this `openai-agents==0.17.0` pin; `use_responses=False`
+  (chat-completions) accepts it. Output is unchanged and stays text/data only: nothing on this
+  path produces an image or audio block.
 
 - **The event envelope's `v` is now a `{major, minor}` object, not an integer** (#156). `major`
   is what a reader must already understand to parse the envelope at all — `Event` refuses one it

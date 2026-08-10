@@ -3,12 +3,24 @@ the one place structured data becomes content."""
 
 from __future__ import annotations
 
+import base64
 from datetime import UTC, datetime
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from agentdeck.core import ContentBlock, DataBlock, ImageBlock, ResourceBlock, TextBlock, UnknownBlock, coerce_input
+from agentdeck.core import (
+    KNOWN_BLOCK_TYPES,
+    AudioBlock,
+    ContentBlock,
+    DataBlock,
+    ImageBlock,
+    ResourceBlock,
+    TextBlock,
+    UnknownBlock,
+    coerce_input,
+)
+from agentdeck.core.content import INLINE_BYTES_CAP
 
 BLOCKS = TypeAdapter(list[ContentBlock])
 
@@ -122,8 +134,8 @@ def test_a_data_block_does_not_mutate():
 
 
 def test_an_unfamiliar_block_type_parses_as_unknown_block():
-    raw = {"type": "audio", "uri": "s3://clip.mp3", "duration_s": 12}
-    assert BLOCKS.validate_python([raw]) == [UnknownBlock(type="audio", raw_block=raw)]
+    raw = {"type": "video", "uri": "s3://clip.mp4", "duration_s": 12}
+    assert BLOCKS.validate_python([raw]) == [UnknownBlock(type="video", raw_block=raw)]
 
 
 @pytest.mark.parametrize(
@@ -139,7 +151,7 @@ def test_an_unknown_block_keeps_a_newer_writer_bytes_exactly(value):
     cannot do while it is free to alter that writer's data on the way through. Its
     ``raw_block`` gets the rule ``DataBlock.data`` already had, for the same reason."""
     with pytest.raises(ValidationError):
-        UnknownBlock(type="audio", raw_block={"v": value})
+        UnknownBlock(type="video", raw_block={"v": value})
 
 
 def test_a_malformed_known_block_still_raises():
@@ -150,7 +162,7 @@ def test_a_malformed_known_block_still_raises():
 
 
 def test_unknown_block_survives_its_own_round_trip():
-    once = BLOCKS.validate_python([{"type": "audio", "uri": "s3://clip.mp3"}])
+    once = BLOCKS.validate_python([{"type": "video", "uri": "s3://clip.mp4"}])
     assert BLOCKS.validate_json(BLOCKS.dump_json(once)) == once  # no double-wrapping
 
 
@@ -161,16 +173,19 @@ def test_a_block_named_raw_block_does_not_slip_past_its_own_schema():
         BLOCKS.validate_python([{"type": "text", "raw_block": {"a": 1}}])
 
 
-def test_unknown_block_refuses_a_known_type():
+@pytest.mark.parametrize("known_type", ["text", "audio"])
+def test_unknown_block_refuses_a_known_type(known_type):
+    """``audio`` is here on purpose (#159): once ``AudioBlock`` is real, the fallback must
+    refuse it exactly the way it already refuses ``text``, not treat it as still unfamiliar."""
     with pytest.raises(ValidationError, match="known block type"):
-        UnknownBlock(type="text", raw_block={})
+        UnknownBlock(type=known_type, raw_block={})
 
 
 def test_a_consumer_skips_unknown_blocks_and_renders_the_rest():
     blocks = BLOCKS.validate_python(
         [
             {"type": "text", "text": "a"},
-            {"type": "audio", "uri": "s3://clip.mp3"},
+            {"type": "video", "uri": "s3://clip.mp4"},
             {"type": "text", "text": "b"},
         ]
     )
@@ -179,5 +194,52 @@ def test_a_consumer_skips_unknown_blocks_and_renders_the_rest():
 
 
 def test_coerce_input_passes_through_an_unknown_block():
-    blocks = [TextBlock(text="hi"), UnknownBlock(type="audio", raw_block={"type": "audio"})]
+    blocks = [TextBlock(text="hi"), UnknownBlock(type="video", raw_block={"type": "video"})]
     assert coerce_input(blocks) == blocks
+
+
+# --- AudioBlock (#159) -------------------------------------------------------------------
+
+
+def test_audio_block_constructs_with_its_two_required_fields():
+    block = AudioBlock(media_type="audio/ogg", data_b64="AAA=")
+    assert block.type == "audio"
+    assert block.media_type == "audio/ogg"
+
+
+def test_audio_block_without_its_required_fields_raises():
+    with pytest.raises(ValidationError):
+        AudioBlock(type="audio")
+
+
+def test_audio_is_a_known_block_type():
+    assert "audio" in KNOWN_BLOCK_TYPES
+
+
+def test_coerce_input_passes_through_an_audio_block():
+    blocks = [AudioBlock(media_type="audio/wav", data_b64="AAA=")]
+    assert coerce_input(blocks) == blocks
+
+
+def test_the_discriminator_routes_audio_to_an_audio_block_not_unknown():
+    block = BLOCKS.validate_python([{"type": "audio", "media_type": "audio/ogg", "data_b64": "AA=="}])[0]
+    assert block == AudioBlock(media_type="audio/ogg", data_b64="AA==")
+    assert not isinstance(block, UnknownBlock)
+
+
+# --- The 1 MB decoded inline cap (#159) --------------------------------------------------
+
+
+def _b64_of(n_bytes: int) -> str:
+    return base64.b64encode(b"x" * n_bytes).decode()
+
+
+@pytest.mark.parametrize("block_cls", [ImageBlock, AudioBlock])
+def test_inline_data_just_under_the_cap_constructs(block_cls):
+    block_cls(media_type="application/octet-stream", data_b64=_b64_of(INLINE_BYTES_CAP))
+
+
+@pytest.mark.parametrize("block_cls", [ImageBlock, AudioBlock])
+def test_inline_data_just_over_the_cap_raises_naming_resource_block(block_cls):
+    with pytest.raises(ValidationError, match="ResourceBlock"):
+        block_cls(media_type="application/octet-stream", data_b64=_b64_of(INLINE_BYTES_CAP + 1))

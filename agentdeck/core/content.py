@@ -10,6 +10,7 @@ the bytes are engine-chosen rather than caller-chosen.
 
 from __future__ import annotations
 
+import base64
 from typing import Annotated, Any, Literal, get_args
 
 from pydantic import (
@@ -23,6 +24,28 @@ from pydantic import (
 
 from agentdeck.core.base import CoreModel, JsonData
 
+INLINE_BYTES_CAP = 1024 * 1024
+"""1 MB decoded, enforced on every inline block (:class:`ImageBlock`, :class:`AudioBlock`).
+
+Base64 in an event lands in an append-only log and replays down every SSE connection for the
+life of that run, so a documented-only limit is a limit that ships violated. Deliberately low:
+raising the cap later is compatible, lowering it is not."""
+
+
+def _capped_inline(value: str) -> str:
+    """Reject inline base64 over :data:`INLINE_BYTES_CAP` decoded bytes.
+
+    ``b64decode`` is called exactly once — the decoded length it returns is also the
+    measurement, so nothing here decodes the payload a second time just to size it.
+    """
+    decoded_size = len(base64.b64decode(value))
+    if decoded_size > INLINE_BYTES_CAP:
+        raise ValueError(
+            f"inline data is {decoded_size} decoded bytes, over the {INLINE_BYTES_CAP}-byte cap — "
+            "use ResourceBlock for anything larger"
+        )
+    return value
+
 
 class TextBlock(CoreModel):
     type: Literal["text"] = "text"
@@ -33,6 +56,24 @@ class ImageBlock(CoreModel):
     type: Literal["image"] = "image"
     media_type: str
     data_b64: str
+
+    @field_validator("data_b64")
+    @classmethod
+    def _cap_inline(cls, value: str) -> str:
+        return _capped_inline(value)
+
+
+class AudioBlock(CoreModel):
+    """Audio bytes inline: a voice note, a recorded call. Held elsewhere -> ``ResourceBlock``."""
+
+    type: Literal["audio"] = "audio"
+    media_type: str
+    data_b64: str
+
+    @field_validator("data_b64")
+    @classmethod
+    def _cap_inline(cls, value: str) -> str:
+        return _capped_inline(value)
 
 
 class ResourceBlock(CoreModel):
@@ -75,7 +116,7 @@ class UnknownBlock(CoreModel):
         return value
 
 
-KnownBlock = Annotated[TextBlock | ImageBlock | ResourceBlock | DataBlock, Field(discriminator="type")]
+KnownBlock = Annotated[TextBlock | ImageBlock | AudioBlock | ResourceBlock | DataBlock, Field(discriminator="type")]
 
 # Both derived by peeling the Annotated, then the union: a block class added above reaches the
 # fallback and ``coerce_input`` without anyone remembering to list it twice more.
