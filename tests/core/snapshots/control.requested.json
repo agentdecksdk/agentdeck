@@ -1,5 +1,8 @@
 {
-  "v": 2,
+  "v": {
+    "major": 3,
+    "minor": 0
+  },
   "kind": "control.requested",
   "seq": 0,
   "run_id": "run_1",
