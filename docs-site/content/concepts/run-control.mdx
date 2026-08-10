@@ -83,9 +83,10 @@ resuming re-enters the engine with the run's original input and the log as histo
 keeps its `run_id`, and `seq` carries on from where it stopped.
 
 The consequence to design for: **work the paused turn had already done can happen again.** The
-model is asked again, and a tool it had already called may be called a second time. Keep tools
-idempotent, put side effects behind `ctx.idempotency_key`, and treat a resumed turn the way you
-treat a resumed LangGraph interrupt node.
+model is asked again, and a tool it had already called may be called a second time. `RunContext`
+has no idempotency-key field to lean on for this — only `run_id`, which does stay the same
+across a resume (see above) if your own side effects want a key to dedupe against. Keep tools
+idempotent, and treat a resumed turn the way you treat a resumed LangGraph interrupt node.
 
 `resume` returns the events the continuation produced — an empty list means there was
 nothing to resume (the run finished, was cancelled, is still running, or another worker got

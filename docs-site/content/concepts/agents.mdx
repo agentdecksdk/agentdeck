@@ -117,7 +117,12 @@ reviewer = Agent(
 
 ## MCP servers degrade instead of crashing
 
-A server named in `mcp=` whose connection failed is dropped at build time — it costs that agent
-the toolset, not the whole process.
+`build()` is deliberately network-free — it registers the server specs but connects nothing, so
+every `mcp=` name compiles against known-but-not-yet-connected servers. Connecting happens when
+the `Deck` opens (`async with Deck.from_project() as deck`, its `__aenter__`), right after which
+every already-compiled agent's MCP status is re-resolved against what actually connected. A
+server that failed to connect at that point is dropped from that agent's tools, with a banner
+prepended to its instructions naming what's missing — it costs that agent the toolset, not the
+whole process.
 
 Next: give an agent deterministic, non-sandboxed powers with [skills](/concepts/skills).
