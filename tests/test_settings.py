@@ -14,6 +14,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+from agentdeck.runtime.settings import get_settings, reset_settings_cache
+
 AGENTDECK_PKG = Path(__file__).resolve().parents[1] / "agentdeck"
 _SUBPROCESS_TIMEOUT = 30
 
@@ -187,3 +191,24 @@ def test_the_old_app_config_path_name_is_no_longer_read(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     assert resolve_config_path() == PACKAGED_DEFAULT_YAML
+
+
+def test_a_retired_v2_env_name_refuses_to_start(monkeypatch):
+    """Nothing binds the old names any more, so a deployment that still exports one would fall
+    back to the default — and for the three store variables that default is in-process memory,
+    i.e. a durable log quietly becoming ephemeral on upgrade."""
+    monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "postgres")
+    reset_settings_cache()
+
+    with pytest.raises(ValueError, match="AGENTDECK_EVENTS_BACKEND is now AGENTDECK_EVENTS"):
+        get_settings()
+
+
+def test_a_retired_name_alongside_its_replacement_is_only_a_leftover(monkeypatch):
+    """Once the new variable is set the migration has happened, so a stale name inherited from a
+    container environment must not stop a correctly-configured process from booting."""
+    monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "postgres")
+    monkeypatch.setenv("AGENTDECK_EVENTS", "memory://")
+    reset_settings_cache()
+
+    get_settings()  # no raise

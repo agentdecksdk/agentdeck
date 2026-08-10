@@ -493,11 +493,52 @@ class Settings(BaseModel):
     tavily: TavilySettings = Field(default_factory=lambda: TavilySettings.model_validate({}))
 
 
+# Names v3 stopped reading, mapped to what replaced them. Nothing binds these any more, so a
+# deployment that still exports one would silently fall back to the default — and for the three
+# store variables that default is in-process memory, i.e. a durable log quietly becoming
+# ephemeral on upgrade. Refusing to start says so instead.
+_RETIRED_ENV_NAMES: Mapping[str, str] = {
+    "AGENTDECK_EVENTS_BACKEND": "AGENTDECK_EVENTS",
+    "AGENTDECK_EVENTS_URL": "AGENTDECK_EVENTS",
+    "AGENTDECK_CONTROL_BACKEND": "AGENTDECK_CONTROL",
+    "AGENTDECK_CONTROL_URL": "AGENTDECK_CONTROL",
+    "AGENTDECK_CHECKPOINT_BACKEND": "AGENTDECK_CHECKPOINT",
+    "AGENTDECK_CHECKPOINT_URL": "AGENTDECK_CHECKPOINT",
+    "AGENTDECK_SESSION_REDIS_URL": "AGENTDECK_SESSION",
+    "AGENTDECK_LANGFUSE_HOST": "AGENTDECK_LANGFUSE_BASE_URL",
+    "APP_CONFIG_PATH": "AGENTDECK_CONFIG_PATH",
+}
+
+
+def _refuse_retired_env_names() -> None:
+    """A v2-era variable still exported, with nothing set in its place, is a configuration the
+    operator believes is in force and is not.
+
+    Only that case: once the replacement is set the migration has happened, and a leftover in an
+    inherited container environment should not stop a correctly-configured process from booting.
+    """
+    found = sorted(
+        name
+        for name, replacement in _RETIRED_ENV_NAMES.items()
+        if os.environ.get(name) and not os.environ.get(replacement)
+    )
+    if not found:
+        return
+    lines = "\n  ".join(f"{name} is now {_RETIRED_ENV_NAMES[name]}" for name in found)
+    raise ValueError(
+        f"these environment variables were replaced in v3 and are no longer read:\n  {lines}\n"
+        "They are a single URL now, whose scheme names the backend "
+        "(memory:// | sqlite://<path> | redis://... | postgresql://...), so a backend and a URL "
+        "can no longer disagree. Unset the old names once you have set the new one."
+    )
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     # Existing process env wins (override=False) so docker-compose / CI exports keep
     # priority over the file; a missing file is a silent no-op.
     load_dotenv(resolve_env_file(), override=False)
+    _refuse_retired_env_names()
     return Settings()
 
 

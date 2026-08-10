@@ -10,6 +10,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Upgrading
 
+- **A retired v2 environment variable now refuses to start, rather than being ignored.** Nothing
+  binds `AGENTDECK_EVENTS_BACKEND`/`_URL`, `AGENTDECK_CONTROL_*`, `AGENTDECK_CHECKPOINT_*`,
+  `AGENTDECK_SESSION_REDIS_URL`, `AGENTDECK_LANGFUSE_HOST` or `APP_CONFIG_PATH` any more, so a
+  deployment that still exports one would fall back to the default — and for the three store
+  variables that default is in-process memory, i.e. a durable event log silently becoming
+  ephemeral on upgrade. Setting one *without* its replacement is now an error naming both. A
+  leftover alongside a correctly-set replacement is fine: the migration has happened, and a stale
+  name inherited from a container environment should not stop a working process from booting.
+
+
 - **An event log written before v3.0.0 cannot be read by v3.0.0.** The envelope's `v` was a plain
   integer up to and including v3.0.0b1 and is now `{major, minor}`, which is a major bump — and a
   major bump means exactly this: the two are not mutually readable. Only durable stores are
