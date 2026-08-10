@@ -213,6 +213,28 @@ def test_resolve_event_store_builds_sqlite_from_a_scheme_url(tmp_path):
     store.close()
 
 
+def test_events_url_is_settable_from_config_yaml_not_only_the_env_var(tmp_path, monkeypatch):
+    """``_bare_env_names`` rewired ``EventsSettings``'s source tuple — this proves the YAML
+    channel it shares with every other layered settings class still reaches the field, and
+    that a real env var still outranks it, the same layering order as everything else."""
+    yaml_path = tmp_path / "config.yaml"
+    db_path = tmp_path / "events.sqlite3"
+    yaml_path.write_text(f"events:\n  url: sqlite://{db_path}\n")
+    monkeypatch.setenv("AGENTDECK_CONFIG_PATH", str(yaml_path))
+    monkeypatch.delenv("AGENTDECK_EVENTS", raising=False)
+    reset_settings_cache()
+    try:
+        store = resolve_event_store(EventsSettings())
+        assert isinstance(store, SqliteEventStore)
+        store.close()
+
+        monkeypatch.setenv("AGENTDECK_EVENTS", "memory://")
+        store = resolve_event_store(EventsSettings())
+        assert isinstance(store, MemoryEventStore)
+    finally:
+        reset_settings_cache()
+
+
 def test_resolve_event_store_rejects_sqlite_with_no_path_after_the_scheme():
     with pytest.raises(ValueError, match="AGENTDECK_EVENTS=sqlite"):
         resolve_event_store(EventsSettings(url="sqlite://"))
@@ -253,9 +275,9 @@ def test_resolve_event_store_builds_postgres_from_a_dsn():
 
 def test_a_memory_scheme_cannot_construct_a_different_stores_class(monkeypatch):
     """Issue #155's core claim, made concrete: with one variable, there is no second decision
-    left to disagree with it. The old paired name is simply not read — ``extra="ignore"``
-    swallows it — so setting it alongside ``AGENTDECK_EVENTS`` cannot steer construction at
-    all, let alone toward a mismatched adapter."""
+    left to disagree with it. ``AGENTDECK_EVENTS_BACKEND``/``AGENTDECK_EVENTS_URL`` have no
+    field left to bind to — so setting them alongside ``AGENTDECK_EVENTS`` cannot steer
+    construction at all, let alone toward a mismatched adapter."""
     monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "postgres")
     monkeypatch.setenv("AGENTDECK_EVENTS_URL", "redis://localhost:6379")
     monkeypatch.setenv("AGENTDECK_EVENTS", "memory://")

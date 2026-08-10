@@ -46,8 +46,9 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   used to boot clean and fail on the first event of the first run; the URL's own scheme now
   *is* the backend, so that mismatch cannot be expressed at all, not merely rejected. No
   deprecation shim — this is the one breaking-release window where renaming is free — so an old
-  name is simply not read (`extra="ignore"` on every settings model swallows it silently, the
-  same as any other unrecognized env var):
+  name is simply never looked up: `_BACKEND` had no field to bind to at all once the pair
+  collapsed to one, and the renamed field (`url`) maps to a different literal env var name than
+  the one it replaced, so setting the old name alongside the new one has no effect either way:
 
   | Old | New |
   | --- | --- |
