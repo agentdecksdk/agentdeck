@@ -32,7 +32,11 @@ class PluginRegistry(Generic[T]):
 
     ``base_class`` is matched by ``isinstance`` — a bundle module holds one or more
     already-constructed ``Agent``/``Workflow`` instances (``authoring``'s ``Agent(...)``,
-    ``Workflow(...)``), not subclasses to discover.
+    ``Workflow(...)``), not subclasses to discover. A bundle that imports cleanly but binds
+    no matching instance raises ``ConfigError`` naming it — shared code that belongs in a
+    ``<type_dir>/`` directory without contributing an invocable of its own opts out with a
+    leading ``_``/``.`` (already excluded from the scan by :meth:`_is_bundle`), the same way
+    a private helper module does anywhere else in the tree.
     """
 
     package: str
@@ -41,6 +45,7 @@ class PluginRegistry(Generic[T]):
     type_dir: str
     label: str = "plugin"
     _cache: dict[str, T] | None = field(default=None, init=False, repr=False)
+    bundle_of: dict[str, str] = field(default_factory=dict, init=False, repr=False)
 
     def list(self, *, refresh: bool = False) -> dict[str, T]:
         """Return the discovered bundles. The result is the live cache — treat
@@ -49,6 +54,15 @@ class PluginRegistry(Generic[T]):
         if refresh or self._cache is None:
             self._cache = self._scan()
         return self._cache
+
+    def bundle_files(self) -> dict[str, str]:
+        """Every discovered name's bundle-relative source path (``{'Greeter': 'agents/greeter/agent.py'}``).
+
+        Empty until :meth:`list` has run. Lets a caller that lost the association between an
+        already-built instance and the bundle it came from (``InvocableRegistry.load()`` taking
+        plain ``Agent``/``Workflow`` sequences) recover it, e.g. to name the bundle in a build error.
+        """
+        return {name: f"{self.type_dir}/{bundle}/{self.module_name}.py" for name, bundle in self.bundle_of.items()}
 
     def get(self, name: str) -> T:
         plugins = self.list()
@@ -66,7 +80,7 @@ class PluginRegistry(Generic[T]):
             self._reject_legacy_layout(project_root)
             return {}
         found: dict[str, T] = {}
-        bundle_of: dict[str, str] = {}  # invocable name -> bundle dir that claimed it, for the collision message
+        self.bundle_of = {}  # invocable name -> bundle dir that claimed it, for the collision message
         for child in sorted(root.iterdir()):
             if not self._is_bundle(child):
                 continue
@@ -76,9 +90,11 @@ class PluginRegistry(Generic[T]):
             except Exception as exc:
                 bundle_file = f"{self.type_dir}/{child.name}/{self.module_name}.py"
                 raise ConfigError(f"{bundle_file} failed to import: {exc}") from exc
+            matched = False
             for attr in vars(module).values():
                 if not isinstance(attr, self.base_class):
                     continue
+                matched = True
                 name = attr.name
                 # Identity, not name: ``vars(module)`` yields one entry per *binding*, so a
                 # bundle aliasing its own instance under a second name (kept after a rename)
@@ -88,11 +104,22 @@ class PluginRegistry(Generic[T]):
                 if claimant is not None and claimant is not attr:
                     raise ConfigError(
                         f"two bundles under '{self.type_dir}/' both define the {self.label} "
-                        f"{name!r}: '{self.type_dir}/{bundle_of[name]}' and "
+                        f"{name!r}: '{self.type_dir}/{self.bundle_of[name]}' and "
                         f"'{self.type_dir}/{child.name}'; one name is one invocable — rename one of them."
                     )
                 found[name] = attr
-                bundle_of[name] = child.name
+                self.bundle_of[name] = child.name
+            if not matched:
+                # v1 scanned for a *subclass*, so a bare declaration (`class Ghost(AgentDeclaration)`)
+                # was itself the agent; here only an *instance* counts, so the natural port of an
+                # existing bundle imports cleanly and contributes nothing, with no error to find it by.
+                bundle_file = f"{self.type_dir}/{child.name}/{self.module_name}.py"
+                var = child.name.replace("-", "_")
+                raise ConfigError(
+                    f"{bundle_file} imported cleanly but defines no {self.label} — a declaration "
+                    f"subclass alone contributes nothing; add `{var} = {self.base_class.__name__}(...)` "
+                    "at module level."
+                )
         return found
 
     def _reject_legacy_layout(self, project_root: Path) -> None:

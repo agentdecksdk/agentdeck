@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from agentdeck.authoring import Agent, AgentDeclaration
+from agentdeck.errors import ConfigError
 
 
 class BookingBase(AgentDeclaration):
@@ -51,3 +52,12 @@ def test_agent_is_immutable_after_construction():
 
     with pytest.raises(AttributeError):
         agent.instructions = "changed"
+
+
+def test_standalone_build_rejects_a_bare_callable_tool():
+    """``Agent.build()`` (no ``Deck``) shares ``compile_agent`` with ``Deck.build()`` (#172) —
+    pinned here so the check can never move to a Deck-only validator without a red test."""
+    agent = Agent(name="booking", instructions="x", tools=[lambda q: q])
+
+    with pytest.raises(ConfigError, match="function_tool"):
+        agent.build()

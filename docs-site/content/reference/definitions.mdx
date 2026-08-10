@@ -24,7 +24,7 @@ from agentdeck import Agent
 | `handoff_description` | `str \| None` | `base.handoff_description` | how this agent describes itself to a peer deciding whether to hand off |
 | `model` | `str \| None` | `base.model` | per-agent override; `None` uses the `OPENAI_MODEL` setting |
 | `model_settings` | `Mapping[str, Any]` | `base.model_settings` | forwarded to `agents.ModelSettings(**model_settings)` |
-| `tools` | `Sequence[Any]` | `base.tools` | plain callables, already-built SDK tools, or a `Workflow` to expose as a tool |
+| `tools` | `Sequence[Any]` | `base.tools` | already-built SDK tool objects, or a `Workflow` to expose as a tool |
 | `handoffs` | `Sequence[Any]` | `base.handoffs` | peer agents this one can transfer to — a registry name (`str`), a built `Agent`, or a `Handoff` |
 | `output_type` | `type \| AgentOutputSchemaBase \| None` | `base.output_type` | a Pydantic model (or `AgentOutputSchema`) for structured output; `None` for free text |
 | `hooks` | `AgentHooks \| None` | `base.hooks` | SDK lifecycle callbacks |
@@ -37,6 +37,21 @@ afterwards. A value explicitly passed here always wins over `base`'s, including 
 value: omission, not falsiness, is what defers to the base. `base=` is keyword-only by
 construction, so `Agent(SomeDeclaration, name=...)` is a `TypeError` rather than a silently
 accepted positional base.
+
+A tool is an Agents SDK tool object, not a plain function — wrap one with `@function_tool` before
+passing it to `tools=`:
+
+```python
+from agents import function_tool
+
+@function_tool
+def find_slots(day: str) -> str:
+    """Find free appointment slots on a given day."""
+    ...
+```
+
+That `agents` import is the one place agentdeck asks you to reach for the SDK directly.
+`build()` rejects a tool that isn't one, naming the agent and the tool.
 
 | Method | Signature | Behavior |
 |---|---|---|
@@ -66,7 +81,7 @@ class BookingBase(AgentDeclaration):
     instructions = "You handle bookings."
     model_settings = {"temperature": 0.2}
 
-booking = Agent(base=BookingBase, name="booking", tools=[find_slots])
+booking = Agent(base=BookingBase, name="booking", tools=[find_slots])  # find_slots: see above
 support = Agent(base=BookingBase, name="support", instructions="You handle support tickets.")
 ```
 

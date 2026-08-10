@@ -13,6 +13,12 @@ workflow-as-tool *do* need one — a root to scan, a graph to call — so both a
 resolver callbacks a ``Deck`` supplies; an ``Agent`` built with neither configured raises a
 clear ``ConfigError`` naming what is missing, instead of silently dropping what it declared.
 
+A bare callable in ``tools=`` is rejected here too, structurally rather than by compiling it
+through an engine (``compile_agent`` builds no engine and touches no network, and this runs
+inside both ``Deck.build()`` and standalone ``Agent.build()`` — the one place both paths meet).
+Otherwise it reaches the SDK unwrapped and only fails once a run actually starts, with a
+``UserError`` about "hosted tools" that names nothing a caller recognises (#172).
+
 ``refresh_mcp_status`` is a second pass over MCP status specifically, the same shape as
 ``link_handoffs`` — needed because ``Deck.build()`` compiles agents before ``Deck.__aenter__``
 ever connects a server, so the first resolution is always stale by the time anything runs.
@@ -20,10 +26,11 @@ ever connects a server, so the first resolution is always stale by the time anyt
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, get_args, get_origin
 
 from agents import Agent as SDKAgent
 from agents import ModelSettings
+from agents import Tool as SDKTool
 
 from agentdeck.adapters.engines.langgraph.checkpointer import resolve_checkpointer
 from agentdeck.adapters.tools.mcp.wiring import mcp_status_banner, resolve_agent_mcp_status
@@ -38,6 +45,14 @@ if TYPE_CHECKING:
 
     from agentdeck.authoring.agent import Agent
     from agentdeck.authoring.workflow import Workflow
+
+# `agents.Tool` is a `Union` of concrete SDK tool classes (`FunctionTool`, `WebSearchTool`, a
+# hosted computer/shell tool, ...) rather than a class of its own, so `isinstance(x, SDKTool)`
+# does not work directly — one member, `ComputerTool[Any]`, is a subscripted generic, which
+# `isinstance` also rejects outright. `get_origin(a) or a` unwraps that one case (and is a
+# no-op for the rest) so this tuple is exactly the concrete classes `isinstance` can check
+# against, computed once rather than on every tool.
+_SDK_TOOL_TYPES: tuple[type[Any], ...] = tuple(get_origin(a) or a for a in get_args(SDKTool))
 
 
 def compile_workflow(workflow: Workflow) -> CompiledStateGraph[Any]:
@@ -89,8 +104,13 @@ def compile_agent(
                     "catalog is configured — pass workflows=... to Deck(...)."
                 )
             resolved_tools.append(resolve_workflow_tool(tool))
-        else:
+        elif isinstance(tool, _SDK_TOOL_TYPES):
             resolved_tools.append(tool)
+        else:
+            raise ConfigError(
+                f"agent {agent.name!r} has a tool that is not an Agents SDK tool object: {tool!r}. "
+                "Wrap a plain function with @function_tool (from `agents`) before passing it to tools=."
+            )
     # Fields the SDK's own dataclass defaults (empty list, `None`) apply to: passing `None`
     # explicitly for `tools`/`mcp_servers` fails its `__post_init__` type check, so an unset
     # value is omitted from the call entirely rather than passed through as `None`.

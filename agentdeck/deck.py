@@ -1,7 +1,14 @@
 """``Deck`` — the v3 composition root: agents, workflows, skills and MCP servers become one
 catalog, either handed in directly or discovered from a project directory.
 
+    from agents import function_tool
+
     from agentdeck import Agent, Deck
+
+    @function_tool
+    def find_slots(day: str) -> str:
+        \"\"\"Find free appointment slots on a given day.\"\"\"
+        ...
 
     booking_agent = Agent(name="booking", instructions="...", tools=[find_slots])
     deck = Deck(agents=[booking_agent], skills="./skills", mcp=".mcp.json")
@@ -277,6 +284,10 @@ class Deck:
         _engines: Sequence[EnginePort | str] | None = None,
         _store: EventStorePort | None = None,
         _session_factory: SessionFactory | None = None,
+        # Not a test seam like the three above: the bundle path each discovered ``agents``/
+        # ``workflows`` entry came from, so a compile failure at build() can still name it —
+        # ``from_project`` is the only caller, since a code-first entry has no bundle to name.
+        _bundle_of: Mapping[str, str] | None = None,
     ) -> None:
         self._agents: Mapping[str, Agent] = _named_mapping(agents, "agents")
         self._workflows: Mapping[str, Workflow] = _named_mapping(workflows, "workflows")
@@ -286,6 +297,7 @@ class Deck:
         self._session_factory_arg = session_factory if session_factory is not None else _session_factory
         self._engines_arg = _engines
         self._store_arg = _store
+        self._bundle_of = _bundle_of or {}
 
         self._state: _State = "NEW"
         self._invocables: Mapping[str, InvocableSpec] | None = None
@@ -306,16 +318,14 @@ class Deck:
         the constructor, same as calling it directly.
         """
         package = mount_project_dir(path)
-        agents = list(
-            PluginRegistry(package, base_class=Agent, module_name="agent", type_dir="agents", label="agent")
-            .list(refresh=True)
-            .values()
+        agent_registry = PluginRegistry(
+            package, base_class=Agent, module_name="agent", type_dir="agents", label="agent"
         )
-        workflows = list(
-            PluginRegistry(package, base_class=Workflow, module_name="workflow", type_dir="workflows", label="workflow")
-            .list(refresh=True)
-            .values()
+        agents = list(agent_registry.list(refresh=True).values())
+        workflow_registry = PluginRegistry(
+            package, base_class=Workflow, module_name="workflow", type_dir="workflows", label="workflow"
         )
+        workflows = list(workflow_registry.list(refresh=True).values())
         project_root = Path(path).resolve()
         # ``.mcp.json`` lives at the project root — a sibling of ``.agentdeck/``, not inside it.
         # For the default ``path`` this is also where ``config.yaml``/``.env`` resolve from
@@ -328,6 +338,7 @@ class Deck:
             workflows=workflows,
             skills=Skills(project_root / "skills"),
             mcp=MCP(mcp_json) if mcp_json.is_file() else None,
+            _bundle_of={**agent_registry.bundle_files(), **workflow_registry.bundle_files()},
             **kwargs,
         )
 
@@ -376,6 +387,7 @@ class Deck:
             workflows=list(self._workflows.values()),
             resolve_skills=skills_resolver(self._skills_obj) if self._skills_obj is not None else None,
             resolve_workflow_tool=self._resolve_workflow_tool,
+            bundle_of=self._bundle_of,
         )
         self._state = "BUILT"
         return self
