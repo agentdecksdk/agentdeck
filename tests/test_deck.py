@@ -930,9 +930,12 @@ async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost
                 finished = await deck.tick()
             # the reconciled resume passes the interrupt payload's own ISO string, not the
             # parsed datetime, so the Runtime logs the answer cleanly instead of warning that
-            # a datetime "cannot be held" and dropping it.
+            # a datetime "cannot be held" and dropping it. `agentdeck.composition`'s own
+            # memory-backend warning (issue #155), logged once when `Deck` opened above, is
+            # expected and unrelated to what this assertion is checking.
             assert finished == [{"woke_at": past.isoformat()}]
-            assert not caplog.records, [r.message for r in caplog.records]
+            other_warnings = [r for r in caplog.records if r.name != "agentdeck.composition"]
+            assert not other_warnings, [r.message for r in other_warnings]
 
             # direction 2: resuming through tick() must close the *logged* run too, not just
             # the checkpoint — a ghost WAITING_HUMAN entry is exactly what this pins against.
