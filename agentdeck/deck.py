@@ -257,11 +257,11 @@ class Deck:
     Construct with ``agents=``/``workflows=`` (bare :class:`~agentdeck.authoring.agent.Agent` /
     :class:`~agentdeck.authoring.workflow.Workflow` instances — never wrapped, per
     ``docs/delivery/deck-capability-wrapper-pattern.md``) and ``skills=``/``mcp=`` (a bare path,
-    a sequence of paths, or the capability object itself — coerced either way). ``context=``
-    declares the type a run's ``context=`` must satisfy; this slice stores it but does not yet
-    validate or inject it (``docs/delivery/plan-context-injection.md`` is its own, larger effort),
-    so a non-``None`` ``context=`` at :meth:`run`/:meth:`stream`/:meth:`resume` raises rather than
-    silently doing nothing with it.
+    a sequence of paths, or the capability object itself — coerced either way).
+
+    There is no ``context=``: declaring a context type is meaningless until something injects
+    one, and a constructor parameter that cannot be used is worse than an absent one. It returns
+    with ``Context[T]`` (``docs/delivery/plan-context-injection.md``), which is additive.
 
     Public properties are :attr:`agents`, :attr:`workflows`, :attr:`skills` and :attr:`settings`
     only — never ``runtime`` or ``store``, the infrastructure this class exists to hide.
@@ -274,7 +274,6 @@ class Deck:
         workflows: Sequence[Workflow] = (),
         skills: str | Path | Sequence[str | Path] | Skills | None = None,
         mcp: str | Path | MCP | None = None,
-        context: type[Any] | None = None,
         session_factory: SessionFactory | None = None,
         # Private-by-name test seams — never part of the documented constructor, exactly like
         # ``tests/contract/``'s need for ``_engines=`` on the Runtime this composes. A bare
@@ -293,7 +292,6 @@ class Deck:
         self._workflows: Mapping[str, Workflow] = _named_mapping(workflows, "workflows")
         self._skills_obj = _coerce_skills(skills)
         self._mcp_obj = _coerce_mcp(mcp)
-        self._context_type = context
         self._session_factory_arg = session_factory if session_factory is not None else _session_factory
         self._engines_arg = _engines
         self._store_arg = _store
@@ -314,7 +312,7 @@ class Deck:
         ``agents=``/``workflows=``/``skills=``/``mcp=`` the plain constructor takes and hands
         them to it, so both front doors build the same catalog.
 
-        ``**kwargs`` forwards anything else (``context=``, the private test seams) straight to
+        ``**kwargs`` forwards anything else (the private test seams) straight to
         the constructor, same as calling it directly.
         """
         package = mount_project_dir(path)
@@ -530,14 +528,6 @@ class Deck:
             f"No agent or workflow named {name!r}. Available: {sorted({*self._agents, *self._workflows})}."
         )
 
-    def _require_no_context(self, context: Any) -> None:
-        # ponytail: ``Context[T]`` injection (docs/delivery/plan-context-injection.md) is its own
-        # multi-step epic — no core `RunContext.data`, no engine bridge — out of scope for this
-        # slice. Refusing a non-`None` value beats the alternative of silently doing nothing with
-        # an application's context, the same reason `compile_agent` refuses undeclared skills.
-        if context is not None:
-            raise ConfigError("context injection is not wired in this slice (docs/delivery/plan-context-injection.md).")
-
     # --- the flat run-control surface -----------------------------------------------------
 
     async def run(
@@ -548,13 +538,11 @@ class Deck:
         session_id: str | None = None,
         namespace: str | None = None,
         run_id: str | None = None,
-        context: Any = None,
     ) -> TurnResult | Any:
         """Run ``name`` — an agent or a workflow, whichever this catalog holds it as — and
         return its outcome: a :class:`TurnResult` for an agent, the final state (or an
         :class:`~agentdeck.authoring.interrupts.InterruptResult`) for a workflow.
         """
-        self._require_no_context(context)
         root = self._root(name)
         runtime = self._require_open()
         content = coerce_input(input) if isinstance(root, Agent) else [_as_state_block(input)]
@@ -572,10 +560,8 @@ class Deck:
         session_id: str | None = None,
         namespace: str | None = None,
         run_id: str | None = None,
-        context: Any = None,
     ) -> AsyncGenerator[Event, None]:
         """Streaming counterpart to :meth:`run`: yields the run's own canonical events."""
-        self._require_no_context(context)
         root = self._root(name)
         runtime = self._require_open()
         content = coerce_input(input) if isinstance(root, Agent) else [_as_state_block(input)]
@@ -596,10 +582,9 @@ class Deck:
         """Ask the run to stop for good at its next safe point. Cancellation is terminal."""
         return await self._require_open().signal(run_id, Signal.CANCEL, reason)
 
-    async def resume(self, run_id: str, reason: str | None = None, *, context: Any = None) -> list[Event]:
+    async def resume(self, run_id: str, reason: str | None = None) -> list[Event]:
         """Continue a paused run, returning every event the continuation produced. Empty means
         nothing was resumed — this run is not paused."""
-        self._require_no_context(context)
         return [event async for event in self._require_open().resume_run(run_id, reason=reason)]
 
     async def status(self, run_id: str) -> RunStatus | None:

@@ -218,6 +218,26 @@ def test_from_project_matches_the_equivalent_code_first_deck(tmp_path, monkeypat
     )
 
 
+# --- context= is gone until Context[T] lands ------------------------------------------------
+
+
+def test_context_is_not_a_constructor_parameter():
+    """It used to be accepted and then refused at run time, which promised something the deck
+    could not do. Gone rather than raising, so the failure is at the call site (#182)."""
+    with pytest.raises(TypeError, match="context"):
+        Deck(agents=[_greeter()], context=object)  # ty: ignore[unknown-argument]
+
+
+@pytest.mark.asyncio
+async def test_run_and_stream_take_no_context_argument(no_project, scripted):
+    deck = Deck(agents=[_greeter()])
+    async with deck:
+        with pytest.raises(TypeError, match="context"):
+            await deck.run("Greeter", "hi", context=object())  # ty: ignore[unknown-argument]
+        with pytest.raises(TypeError, match="context"):
+            await anext(deck.stream("Greeter", "hi", context=object()))  # ty: ignore[unknown-argument]
+
+
 # --- skills= and mcp= each accept a bare path and a capability object -----------------------
 
 

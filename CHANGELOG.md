@@ -8,6 +8,14 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Removed
+
+- **`Deck(context=...)`** (#182): the parameter was accepted at construction and then refused —
+  `run`/`stream`/`resume` raised on any non-`None` value, because nothing injects a context yet.
+  A constructor parameter nobody can use is a false promise, so it is gone until `Context[T]`
+  lands (#166), at which point it returns additively. No working code passed it.
+
+
 v2.0.0 shipped with an explicit compatibility promise for v1's Python API; this entry
 starts retiring it, one PR at a time (#137). First slice: `App`'s turn-starting methods
 now play on the same Runtime the HTTP surface always has, so a Python caller's turn is
