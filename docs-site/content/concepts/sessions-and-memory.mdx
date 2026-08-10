@@ -52,13 +52,14 @@ last one.
 
 ## Where a session lives
 
-`deck.session_for(session_id)` is a thin lookup, not a store of its own: `AGENTDECK_SESSION_REDIS_URL`
-set means every session is a `RedisSession` sharing one Redis client, reachable from any
-worker and surviving a restart; unset, each `session_id` gets one in-process SQLite session,
-held in the `Deck` instance that created it — gone the moment that process exits, invisible to
-any other worker. `AGENTDECK_SESSION_REDIS_KEY_PREFIX` and `AGENTDECK_SESSION_REDIS_TTL` are the
-Redis-only knobs. FR-6's promise — a conversation surviving a process restart — needs Redis
-configured; the fallback is a dev convenience, not a second durable option. Full table:
+`deck.session_for(session_id)` is a thin lookup, not a store of its own: `AGENTDECK_SESSION`
+set to a `redis://` URL means every session is a `RedisSession` sharing one Redis client,
+reachable from any worker and surviving a restart; unset, each `session_id` gets one in-process
+SQLite session, held in the `Deck` instance that created it — gone the moment that process
+exits, invisible to any other worker. `AGENTDECK_SESSION_REDIS_KEY_PREFIX` and
+`AGENTDECK_SESSION_REDIS_TTL` are the Redis-only knobs. FR-6's promise — a conversation
+surviving a process restart — needs Redis configured; the fallback is a dev convenience, not a
+second durable option. Full table:
 [Settings → `SessionSettings`](/reference/settings#sessionsettings).
 
 The same `session_id` names one conversation everywhere it is used — over HTTP

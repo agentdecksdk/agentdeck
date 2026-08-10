@@ -78,7 +78,7 @@ is pinned at the source instead:
   `config.yaml` resolve from cwd at settings-build time (`runtime/settings.py`'s
   `resolve_env_file` / `resolve_config_path`), and `make_client` chdirs to
   `fixture_project` before building settings — that directory has no `config.yaml`, and
-  any `.env` there is overridden for the keys in `_PINNED_ENV`. `APP_CONFIG_PATH` is
+  any `.env` there is overridden for the keys in `_PINNED_ENV`. `AGENTDECK_CONFIG_PATH` is
   still pinned to the packaged `config.default.yaml` as a belt-and-suspenders guard.
   Env vars outside `_PINNED_ENV` are still able to reach a capture; add one here rather
   than normalizing its effect away. The checkpointer is `memory`, and its process-wide

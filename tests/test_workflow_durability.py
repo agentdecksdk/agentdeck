@@ -1,5 +1,5 @@
 """LangGraph checkpointer support for ``Workflow`` (issue #3): ``durable=True``
-compiles with a checkpointer resolved from ``AGENTDECK_CHECKPOINT_*`` settings and
+compiles with a checkpointer resolved from ``AGENTDECK_CHECKPOINT``'s scheme and
 threads ``thread_id`` through so state accumulates per thread; ``durable=False``
 (the default) is byte-for-byte today's behavior.
 """
@@ -66,7 +66,7 @@ def test_durable_true_without_thread_id_raises():
 
 
 def test_durable_memory_backend_resumes_by_thread_id(monkeypatch):
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "memory")
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     reset_settings_cache()
     wf = _make_counter_workflow(durable=True)
 
@@ -87,8 +87,7 @@ def test_durable_sqlite_backend_persists_across_invokes(tmp_path, monkeypatch):
     """Same-loop sequential invokes, mirroring one long-lived server process."""
     pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
     db_path = tmp_path / "checkpoints.sqlite3"
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "sqlite")
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_URL", str(db_path))
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", f"sqlite://{db_path}")
     reset_settings_cache()
     wf = _make_counter_workflow(durable=True)
 
@@ -111,8 +110,7 @@ def test_durable_sqlite_backend_builds_outside_an_event_loop(tmp_path, monkeypat
     """
     pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
     db_path = tmp_path / "checkpoints.sqlite3"
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "sqlite")
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_URL", str(db_path))
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", f"sqlite://{db_path}")
     reset_settings_cache()
     wf = _make_counter_workflow(durable=True)
 
@@ -150,8 +148,7 @@ def test_durable_sqlite_backend_resumes_after_process_restart(tmp_path, monkeypa
     db_path = tmp_path / "checkpoints.sqlite3"
     env = {
         **os.environ,
-        "AGENTDECK_CHECKPOINT_BACKEND": "sqlite",
-        "AGENTDECK_CHECKPOINT_URL": str(db_path),
+        "AGENTDECK_CHECKPOINT": f"sqlite://{db_path}",
     }
 
     first = subprocess.run(
@@ -176,7 +173,7 @@ def test_durable_sqlite_backend_resumes_after_process_restart(tmp_path, monkeypa
 
 
 def test_unknown_backend_raises(monkeypatch):
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "not-a-backend")
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "not-a-backend://nothing")
     reset_settings_cache()
     wf = _make_counter_workflow(durable=True)
 

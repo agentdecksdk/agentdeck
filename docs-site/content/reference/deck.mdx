@@ -189,7 +189,7 @@ that is not open yet.
 ## Sessions
 
 `session_for(session_id)` returns the SDK conversation-memory session `run`/`stream` use for that
-id: Redis-backed when `AGENTDECK_SESSION_REDIS_URL` is set, an in-process SQLite session otherwise
+id: Redis-backed when `AGENTDECK_SESSION` is set, an in-process SQLite session otherwise
 (lost on process exit). Pass `session_factory=` to `Deck(...)` to inject one — the seam tests use
 to swap in a fake wrapping `fakeredis` without a real Redis server.
 

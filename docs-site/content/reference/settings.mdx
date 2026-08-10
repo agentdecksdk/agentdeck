@@ -1,11 +1,11 @@
 ---
 title: Settings
-description: Every AGENTDECK_* (and OPENAI_*/TAVILY_*/SKILL_*) environment variable, generated from agentdeck/runtime/settings.py.
+description: Every AGENTDECK_* (and OPENAI_*/TAVILY_*) environment variable, generated from agentdeck/runtime/settings.py.
 ---
 
 # Settings
 
-Generated from [`agentdeck/runtime/settings.py`](https://github.com/sagi5060/agentdeck/blob/main/agentdeck/runtime/settings.py)'s `LayeredSettings` subclasses — this page cannot drift from the code because `make check` regenerates it and fails if the result differs (`scripts/generate_docs_reference.py`). Every variable is also settable in the shared `config.yaml`, under the section derived from its env-var prefix (`openai:`, `runner:`, … `skill:` for `SKILL_*`, not `skills:`); an env var wins over the file.
+Generated from [`agentdeck/runtime/settings.py`](https://github.com/sagi5060/agentdeck/blob/main/agentdeck/runtime/settings.py)'s `LayeredSettings` subclasses — this page cannot drift from the code because `make check` regenerates it and fails if the result differs (`scripts/generate_docs_reference.py`). Every variable is also settable in the shared `config.yaml`, under the section derived from its env-var prefix (`openai:`, `runner:`, …); an env var wins over the file.
 
 ## `OpenAISettings`
 
@@ -45,8 +45,7 @@ Langfuse LLM-observability export config.
 |---|---|---|---|
 | `AGENTDECK_LANGFUSE_PUBLIC_KEY` | `str` | `''` | Langfuse public key. Tracing stays off unless this and `secret_key` are both set. |
 | `AGENTDECK_LANGFUSE_SECRET_KEY` | `str` | `''` | Langfuse secret key. Tracing stays off unless this and `public_key` are both set. |
-| `AGENTDECK_LANGFUSE_HOST` | `str` | `'http://localhost:3000'` | Legacy Langfuse endpoint (pre-4.x naming). Overridden by `base_url` when that is set. |
-| `AGENTDECK_LANGFUSE_BASE_URL` | `str` | `''` | Langfuse 4.x endpoint. Wins over `host` (kept as the legacy alias) when set. |
+| `AGENTDECK_LANGFUSE_BASE_URL` | `str` | `'http://localhost:3000'` | Langfuse endpoint. |
 | `AGENTDECK_LANGFUSE_ENVIRONMENT` | `str` | `'local'` | Langfuse `environment` tag attached to every exported span. |
 | `AGENTDECK_LANGFUSE_DEBUG` | `bool` | `False` | Enable the Langfuse SDK's own debug logging. |
 | `AGENTDECK_LANGFUSE_SAMPLE_RATE` | `float` | `1.0` | Fraction of traces exported to Langfuse, from 0.0 to 1.0. |
@@ -62,21 +61,19 @@ Tavily web-search API. One knob: `TAVILY_API_KEY` env var (or YAML `tavily: api_
 
 ## `CheckpointSettings`
 
-LangGraph checkpointer backend for `durable=True` workflows.
+LangGraph checkpointer backend for `durable=True` workflows, as one scheme-shaped URL.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_CHECKPOINT_BACKEND` | `str` | `'sqlite'` | Which LangGraph checkpointer backend `durable=True` workflows use: `sqlite` for dev, `postgres` for prod, or `memory` for tests (never persists past the process). |
-| `AGENTDECK_CHECKPOINT_URL` | `str` | `''` | Sqlite file path or Postgres DSN for the checkpointer. Empty sqlite falls back to `.agentdeck/checkpoints.sqlite3`. |
+| `AGENTDECK_CHECKPOINT` | `str` | `'sqlite://.agentdeck/checkpoints.sqlite3'` | LangGraph checkpointer for `durable=True` workflows: `sqlite://<path>` for dev (this default), `postgresql://<dsn>` for prod, or `memory://` for tests (never persists past the process). The scheme names the backend. |
 
 ## `EventsSettings`
 
-Where the Runtime's canonical event log is written.
+Where the Runtime's canonical event log is written, as one scheme-shaped URL.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_EVENTS_BACKEND` | `str` | `'memory'` | Which backend stores the Runtime's canonical event log: `memory` (default, in-process, gone when the process exits), `sqlite`, `redis`, or `postgres` (needs the `[durability]` extra). |
-| `AGENTDECK_EVENTS_URL` | `str` | `''` | File path (sqlite), Redis URL, or Postgres DSN for the event log. Required for every backend except `memory`. |
+| `AGENTDECK_EVENTS` | `str` | `'memory://'` | Where the Runtime's canonical event log is written: `memory://` (default, in-process, gone when the process exits), `sqlite://<path>`, `redis://<url>`/`rediss://<url>`, or `postgresql://<dsn>` (needs the `[durability]` extra). The scheme names the backend. |
 
 ## `ControlSettings`
 
@@ -84,8 +81,7 @@ Where a run's pending control signals live — what pause and cancel are written
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_CONTROL_BACKEND` | `str` | `'memory'` | Which backend stores a run's pending control signals: `memory` (default, reachable only from this process) or `sqlite` (crosses process boundaries — required for the `agentdeck runs signal` CLI to reach a run). |
-| `AGENTDECK_CONTROL_URL` | `str` | `''` | Sqlite file path for the control backend. Required when `backend` is `sqlite`; matches the CLI's `--control-db`. |
+| `AGENTDECK_CONTROL` | `str` | `'memory://'` | Where a run's pending control signals live: `memory://` (default, reachable only from this process) or `sqlite://<path>` (crosses process boundaries — required for the `agentdeck runs signal` CLI to reach a run). The scheme names the backend. |
 
 ## `SessionSettings`
 
@@ -93,12 +89,6 @@ Configuration for Redis-backed agent conversation memory.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_SESSION_REDIS_URL` | `str` or `None` | `None` | Redis URL for `RedisSession`-backed agent conversation memory (`agentdeck.adapters.engines.openai_agents.sessions.SessionFactory`). `None` falls back to one in-process `SQLiteSession` per session key — no persistence across a restart, no sharing across workers. |
+| `AGENTDECK_SESSION` | `str` or `None` | `None` | Redis URL for `RedisSession`-backed agent conversation memory (`agentdeck.adapters.engines.openai_agents.sessions.SessionFactory`). `None` falls back to one in-process `SQLiteSession` per session key — no persistence across a restart, no sharing across workers. |
 | `AGENTDECK_SESSION_REDIS_KEY_PREFIX` | `str` | `'agents:session'` | Key prefix under which `RedisSession` stores conversations in Redis. |
 | `AGENTDECK_SESSION_REDIS_TTL` | `int` or `None` | `None` | Per-session TTL in seconds for Redis-backed conversations. `None` means sessions persist indefinitely. |
-
-## `SkillsSettings`
-
-Captures arbitrary `SKILL_*` keys (env + YAML `skill:`); re-exports as `UPPER_CASE`.
-
-No declared fields — `SkillsSettings` captures arbitrary env vars matching its prefix.

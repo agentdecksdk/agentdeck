@@ -680,3 +680,14 @@ def test_an_unconfigured_process_never_even_imports_the_langfuse_sdk() -> None:
 
     assert done.returncode == 0, done.stderr
     assert "no sink, no sdk" in done.stdout
+
+
+def test_langfuse_settings_has_no_host_or_endpoint_left() -> None:
+    """Issue #155: `base_url` is the only endpoint field now; `host` and the `.endpoint`
+    property that used to pick between them are gone, not merely deprecated. `extra="ignore"`
+    means a stray `host=` is silently dropped rather than raising — `base_url` alone decides."""
+    settings = LangfuseSettings(public_key="pk", secret_key="sk", host="http://localhost:1")
+
+    assert not hasattr(settings, "host")
+    assert not hasattr(settings, "endpoint")
+    assert settings.base_url == "http://localhost:3000"  # the field's own default, unmoved by the ignored kwarg

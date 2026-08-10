@@ -51,11 +51,9 @@ _USAGE = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
 # OPENAI_USE_RESPONSES=false is the same Chat-Completions flag getting-started.mdx documents
 # for a non-OpenAI endpoint.
 _PINNED_ENV = {
-    "AGENTDECK_CHECKPOINT_BACKEND": "memory",
-    "AGENTDECK_CHECKPOINT_URL": "",
-    "AGENTDECK_EVENTS_BACKEND": "memory",
-    "AGENTDECK_EVENTS_URL": "",
-    "AGENTDECK_SESSION_REDIS_URL": "",
+    "AGENTDECK_CHECKPOINT": "memory://",
+    "AGENTDECK_EVENTS": "memory://",
+    "AGENTDECK_SESSION": "",
     "AGENTDECK_LANGFUSE_PUBLIC_KEY": "",
     "AGENTDECK_LANGFUSE_SECRET_KEY": "",
     "AGENTDECK_MCP_SERVERS": "{}",

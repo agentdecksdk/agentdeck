@@ -85,7 +85,10 @@ restate them — read that file before writing any non-trivial code.
 - Golden/goldens (`tests/golden/`, `tests/core/snapshots/`) never auto-update;
   `make golden` regenerates them deliberately, with a PR justification.
 - Layered pydantic-settings; env prefixes are `AGENTDECK_*` (renamed from the
-  original project's `SYSAGENT_*` — never reintroduce the old prefix).
+  original project's `SYSAGENT_*` — never reintroduce the old prefix). Exception:
+  a variable a third-party SDK reads natively keeps its own name — `OPENAI_*`,
+  `TAVILY_*` — since prefixing it would make an operator set the same value twice.
+  Everything agentdeck owns is `AGENTDECK_*`, with no exceptions beyond that list.
 - Compose runs the package as an installed dependency, `.agentdeck/` mounted
   read-only.
 - `openai==2.32.0` is pinned to `openai-agents==0.17.0` — don't loosen it

@@ -35,7 +35,7 @@ from agents import Tool as SDKTool
 from agentdeck.adapters.engines.langgraph.checkpointer import resolve_checkpointer
 from agentdeck.adapters.tools.mcp.wiring import mcp_status_banner, resolve_agent_mcp_status
 from agentdeck.errors import ConfigError, NotFoundError
-from agentdeck.runtime.settings import get_settings
+from agentdeck.runtime.settings import get_settings, parse_backend_url
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -67,7 +67,10 @@ def compile_workflow(workflow: Workflow) -> CompiledStateGraph[Any]:
     if not workflow.durable:
         return graph.compile()
     checkpoint = get_settings().checkpoint
-    return graph.compile(checkpointer=resolve_checkpointer(checkpoint.backend, checkpoint.url))
+    scheme, rest = parse_backend_url(checkpoint.url)
+    backend = "postgres" if scheme == "postgresql" else scheme
+    path_or_dsn = rest if backend == "sqlite" else checkpoint.url
+    return graph.compile(checkpointer=resolve_checkpointer(backend, path_or_dsn))
 
 
 def compile_agent(

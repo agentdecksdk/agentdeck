@@ -203,31 +203,63 @@ async def test_build_runtime_refuses_an_unknown_invocable(project):
 
 
 def test_resolve_event_store_defaults_to_memory():
-    assert isinstance(resolve_event_store(EventsSettings(backend="memory")), MemoryEventStore)
+    assert isinstance(resolve_event_store(EventsSettings()), MemoryEventStore)
 
 
-def test_resolve_event_store_builds_sqlite_from_a_path(tmp_path):
-    store = resolve_event_store(EventsSettings(backend="sqlite", url=str(tmp_path / "events.sqlite3")))
+def test_resolve_event_store_builds_sqlite_from_a_scheme_url(tmp_path):
+    store = resolve_event_store(EventsSettings(url=f"sqlite://{tmp_path / 'events.sqlite3'}"))
 
     assert isinstance(store, SqliteEventStore)
     store.close()
 
 
-def test_resolve_event_store_rejects_sqlite_without_a_path():
-    with pytest.raises(ValueError, match="AGENTDECK_EVENTS_URL"):
-        resolve_event_store(EventsSettings(backend="sqlite"))
+def test_events_url_is_settable_from_config_yaml_not_only_the_env_var(tmp_path, monkeypatch):
+    """``_bare_env_names`` rewired ``EventsSettings``'s source tuple — this proves the YAML
+    channel it shares with every other layered settings class still reaches the field, and
+    that a real env var still outranks it, the same layering order as everything else."""
+    yaml_path = tmp_path / "config.yaml"
+    db_path = tmp_path / "events.sqlite3"
+    yaml_path.write_text(f"events:\n  url: sqlite://{db_path}\n")
+    monkeypatch.setenv("AGENTDECK_CONFIG_PATH", str(yaml_path))
+    monkeypatch.delenv("AGENTDECK_EVENTS", raising=False)
+    reset_settings_cache()
+    try:
+        store = resolve_event_store(EventsSettings())
+        assert isinstance(store, SqliteEventStore)
+        store.close()
+
+        monkeypatch.setenv("AGENTDECK_EVENTS", "memory://")
+        store = resolve_event_store(EventsSettings())
+        assert isinstance(store, MemoryEventStore)
+    finally:
+        reset_settings_cache()
 
 
-def test_resolve_event_store_rejects_an_unknown_backend():
-    with pytest.raises(ValueError, match="unknown event store backend"):
-        resolve_event_store(EventsSettings(backend="not-a-backend"))
+def test_resolve_event_store_rejects_sqlite_with_no_path_after_the_scheme():
+    with pytest.raises(ValueError, match="AGENTDECK_EVENTS=sqlite"):
+        resolve_event_store(EventsSettings(url="sqlite://"))
+
+
+def test_resolve_event_store_rejects_an_unknown_scheme():
+    with pytest.raises(ValueError, match="unknown event store scheme"):
+        resolve_event_store(EventsSettings(url="not-a-backend://nothing"))
 
 
 def test_resolve_event_store_builds_redis_from_a_url():
     """No server needed: the client connects lazily, so wiring is checkable without one."""
     from agentdeck.adapters.stores.redis import RedisEventStore
 
-    store = resolve_event_store(EventsSettings(backend="redis", url="redis://localhost:6379/0"))
+    store = resolve_event_store(EventsSettings(url="redis://localhost:6379/0"))
+
+    assert isinstance(store, RedisEventStore)
+
+
+def test_resolve_event_store_builds_redis_from_a_tls_url():
+    """``rediss://`` is TLS Redis — the old code let any string through to ``Redis.from_url``,
+    and scheme dispatch must not narrow that to plain ``redis://`` only."""
+    from agentdeck.adapters.stores.redis import RedisEventStore
+
+    store = resolve_event_store(EventsSettings(url="rediss://localhost:6380/0"))
 
     assert isinstance(store, RedisEventStore)
 
@@ -236,15 +268,146 @@ def test_resolve_event_store_builds_postgres_from_a_dsn():
     live_stores.require_psycopg()
     from agentdeck.adapters.stores.postgres import PostgresEventStore
 
-    store = resolve_event_store(EventsSettings(backend="postgres", url="postgresql://localhost/whatever"))
+    store = resolve_event_store(EventsSettings(url="postgresql://localhost/whatever"))
 
     assert isinstance(store, PostgresEventStore)
 
 
-@pytest.mark.parametrize("backend", ["redis", "postgres"])
-def test_resolve_event_store_rejects_a_shared_backend_without_a_url(backend):
-    with pytest.raises(ValueError, match="AGENTDECK_EVENTS_URL"):
-        resolve_event_store(EventsSettings(backend=backend))
+def test_a_memory_scheme_cannot_construct_a_different_stores_class(monkeypatch):
+    """Issue #155's core claim, made concrete: with one variable, there is no second decision
+    left to disagree with it. ``AGENTDECK_EVENTS_BACKEND``/``AGENTDECK_EVENTS_URL`` have no
+    field left to bind to — so setting them alongside ``AGENTDECK_EVENTS`` cannot steer
+    construction at all, let alone toward a mismatched adapter."""
+    monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "postgres")
+    monkeypatch.setenv("AGENTDECK_EVENTS_URL", "redis://localhost:6379")
+    monkeypatch.setenv("AGENTDECK_EVENTS", "memory://")
+    reset_settings_cache()
+    try:
+        store = resolve_event_store()
+    finally:
+        reset_settings_cache()
+
+    assert isinstance(store, MemoryEventStore)
+
+
+def test_resolve_control_port_defaults_to_memory():
+    from agentdeck.adapters.control.memory import MemoryControlPort
+    from agentdeck.composition import resolve_control_port
+    from agentdeck.runtime.settings import ControlSettings
+
+    assert isinstance(resolve_control_port(ControlSettings()), MemoryControlPort)
+
+
+def test_resolve_control_port_builds_sqlite_from_a_scheme_url(tmp_path):
+    from agentdeck.adapters.control.sqlite import SqliteControlPort
+    from agentdeck.composition import resolve_control_port
+    from agentdeck.runtime.settings import ControlSettings
+
+    port = resolve_control_port(ControlSettings(url=f"sqlite://{tmp_path / 'control.sqlite3'}"))
+
+    assert isinstance(port, SqliteControlPort)
+
+
+def test_resolve_control_port_rejects_sqlite_with_no_path_after_the_scheme():
+    from agentdeck.composition import resolve_control_port
+    from agentdeck.runtime.settings import ControlSettings
+
+    with pytest.raises(ValueError, match="AGENTDECK_CONTROL=sqlite"):
+        resolve_control_port(ControlSettings(url="sqlite://"))
+
+
+def test_resolve_control_port_rejects_an_unknown_scheme():
+    from agentdeck.composition import resolve_control_port
+    from agentdeck.runtime.settings import ControlSettings
+
+    with pytest.raises(ValueError, match="unknown control backend"):
+        resolve_control_port(ControlSettings(url="not-a-backend://nothing"))
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    # ``memory`` ignores whatever comes back as its second element (``_memory_saver`` takes no
+    # args), so it is the original url, unstripped — only ``sqlite`` strips the scheme.
+    [("memory://", ("memory", "memory://")), ("sqlite://.agentdeck/x.db", ("sqlite", ".agentdeck/x.db"))],
+)
+def test_resolve_checkpoint_derives_backend_and_path_from_the_scheme(url, expected):
+    from types import SimpleNamespace
+
+    from agentdeck.composition import resolve_checkpoint
+    from agentdeck.runtime.settings import CheckpointSettings
+
+    settings = SimpleNamespace(checkpoint=CheckpointSettings(url=url))
+
+    assert resolve_checkpoint(settings) == expected
+
+
+def test_resolve_checkpoint_normalizes_postgresql_to_the_postgres_backend_name():
+    """``resolve_checkpointer`` (the langgraph adapter) speaks ``postgres``, not the URL
+    scheme's own ``postgresql`` — the composition root's job is to make that seam invisible."""
+    from types import SimpleNamespace
+
+    from agentdeck.composition import resolve_checkpoint
+    from agentdeck.runtime.settings import CheckpointSettings
+
+    settings = SimpleNamespace(checkpoint=CheckpointSettings(url="postgresql://user@host/db"))
+
+    assert resolve_checkpoint(settings) == ("postgres", "postgresql://user@host/db")
+
+
+def test_resolve_event_store_warns_when_memory_is_selected(caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="agentdeck.composition"):
+        resolve_event_store(EventsSettings())
+
+    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert [m for m in messages if "AGENTDECK_EVENTS" in m and "memory" in m]
+
+
+def test_resolve_control_port_warns_when_memory_is_selected(caplog):
+    import logging
+
+    from agentdeck.composition import resolve_control_port
+    from agentdeck.runtime.settings import ControlSettings
+
+    with caplog.at_level(logging.WARNING, logger="agentdeck.composition"):
+        resolve_control_port(ControlSettings())
+
+    messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert [m for m in messages if "AGENTDECK_CONTROL" in m and "memory" in m]
+
+
+def test_a_runtime_constructs_with_no_settings_available(monkeypatch):
+    """Issue #155 item 7: ``Runtime`` takes no ambient configuration at all. Settings itself is
+    made to raise, so a bare ``Runtime(...)`` succeeding — with the literal one-hour default —
+    is proof the constructor never reaches for it, not an inference from reading the source."""
+    from datetime import timedelta
+
+    from agentdeck.runtime import settings as settings_module
+
+    def _boom():
+        raise AssertionError("Runtime must not call get_settings() itself")
+
+    monkeypatch.setattr(settings_module, "get_settings", _boom)
+
+    runtime = Runtime([], MemoryEventStore(), {})
+
+    assert runtime._stale_run_after == timedelta(hours=1)  # noqa: SLF001 — the literal default
+
+
+def test_build_runtime_resolves_stale_run_after_from_settings(monkeypatch):
+    """``build_runtime`` is the caller that reads ``AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS``
+    and passes it to ``Runtime`` explicitly — the same as its other five arguments."""
+    from datetime import timedelta
+
+    monkeypatch.setenv("AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS", "123")
+    reset_settings_cache()
+    try:
+        runtime = build_runtime(engines=[], invocables={}, store=MemoryEventStore(), sinks=())
+    finally:
+        reset_settings_cache()
+
+    assert runtime._stale_run_after == timedelta(seconds=123)  # noqa: SLF001 — resolved explicitly by build_runtime
 
 
 def test_choosing_a_store_does_not_make_the_durability_extra_mandatory():

@@ -201,6 +201,13 @@ Adapters: directory named for the external system. Async iterables read as strea
 `supports_steering`). No abbreviations that save under three characters (`ctx` and
 `spec` are blessed by existing usage; invent no new ones).
 
+Environment variables: `AGENTDECK_<SUBGROUP>_<FIELD>`, one variable per decision — a value
+that names a backend among several (a store, a checkpointer) is a URL whose scheme picks the
+backend (`AGENTDECK_EVENTS=redis://...`), never a `_BACKEND`/`_URL` pair that can name two
+different backends at once. Exception: a variable a third-party SDK reads natively keeps its
+own name — `OPENAI_*`, `TAVILY_*` — since prefixing it would make an operator set the same
+value twice for no reason; this is the whole exception list, not a pattern to extend.
+
 ## 10. Docstrings and decision links
 
 Every public module, class, and port method has a docstring stating *what contract it

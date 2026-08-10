@@ -10,6 +10,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Upgrading
 
+- **A retired v2 environment variable now refuses to start, rather than being ignored.** Nothing
+  binds `AGENTDECK_EVENTS_BACKEND`/`_URL`, `AGENTDECK_CONTROL_*`, `AGENTDECK_CHECKPOINT_*`,
+  `AGENTDECK_SESSION_REDIS_URL`, `AGENTDECK_LANGFUSE_HOST` or `APP_CONFIG_PATH` any more, so a
+  deployment that still exports one would fall back to the default — and for the three store
+  variables that default is in-process memory, i.e. a durable event log silently becoming
+  ephemeral on upgrade. Setting one *without* its replacement is now an error naming both. A
+  leftover alongside a correctly-set replacement is fine: the migration has happened, and a stale
+  name inherited from a container environment should not stop a working process from booting.
+
+
 - **An event log written before v3.0.0 cannot be read by v3.0.0.** The envelope's `v` was a plain
   integer up to and including v3.0.0b1 and is now `{major, minor}`, which is a major bump — and a
   major bump means exactly this: the two are not mutually readable. Only durable stores are
@@ -41,6 +51,37 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Changed
 
+- **Breaking: one env var per infrastructure decision, not a `_BACKEND`/`_URL` pair that can
+  disagree** (#155). `AGENTDECK_EVENTS_BACKEND=postgres` with `AGENTDECK_EVENTS_URL=redis://...`
+  used to boot clean and fail on the first event of the first run; the URL's own scheme now
+  *is* the backend, so that mismatch cannot be expressed at all, not merely rejected. No
+  deprecation shim — this is the one breaking-release window where renaming is free — so an old
+  name is simply never looked up: `_BACKEND` had no field to bind to at all once the pair
+  collapsed to one, and the renamed field (`url`) maps to a different literal env var name than
+  the one it replaced, so setting the old name alongside the new one has no effect either way:
+
+  | Old | New |
+  | --- | --- |
+  | `AGENTDECK_EVENTS_BACKEND` + `AGENTDECK_EVENTS_URL` | `AGENTDECK_EVENTS=memory://` / `sqlite://<path>` / `redis://<url>` / `rediss://<url>` / `postgresql://<dsn>` |
+  | `AGENTDECK_CONTROL_BACKEND` + `AGENTDECK_CONTROL_URL` | `AGENTDECK_CONTROL=memory://` / `sqlite://<path>` |
+  | `AGENTDECK_CHECKPOINT_BACKEND` + `AGENTDECK_CHECKPOINT_URL` | `AGENTDECK_CHECKPOINT=memory://` / `sqlite://<path>` (default: `sqlite://.agentdeck/checkpoints.sqlite3`) / `postgresql://<dsn>` |
+  | `AGENTDECK_SESSION_REDIS_URL` | `AGENTDECK_SESSION=redis://<url>` |
+  | `APP_CONFIG_PATH` | `AGENTDECK_CONFIG_PATH` — unprefixed and generic; any other tool claiming that name silently repointed agentdeck's config |
+
+  Selecting `memory://` for `AGENTDECK_EVENTS`/`AGENTDECK_CONTROL` now logs one WARNING at
+  composition time (`resolve_event_store`/`resolve_control_port`) naming what it costs — no
+  cross-process signals, no log after a restart — instead of that being discoverable only in
+  production. `agentdeck-serve`'s own startup-time version of this same warning is gone; the
+  composition-time one covers it and every other entry point besides.
+- **`Runtime.__init__` no longer reads settings** (#155): the five-parameter, ambient-config-free
+  constructor now has a sixth, `stale_run_after`, defaulted to one hour with no `get_settings()`
+  call at all. `build_runtime` resolves `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` and passes it
+  in, the same as its other adapters — an embedder constructing `Runtime(...)` directly, bypassing
+  `build_runtime`, now gets the literal one-hour default rather than whatever the process's
+  settings happened to say.
+- **The prefix rule is written down** (#155): `docs/coding-standards.md` §9 and `CLAUDE.md` now
+  state that `OPENAI_*`/`TAVILY_*` keep their own names because the respective SDKs read them
+  natively — the only exceptions to `AGENTDECK_*`, not an open pattern.
 - **The openai-agents engine accepts image and audio input, not just text** (#161).
   `TextBlock`/`ImageBlock`/`AudioBlock` map onto the SDK's own canonical multimodal input parts
   (`input_text`/`input_image`/`input_audio`), which the SDK's chat-completions converter already
@@ -63,6 +104,14 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Removed
 
+- **`LangfuseSettings.host` and its `endpoint` property are gone** (#155): a pre-4.x
+  compatibility alias for the Langfuse endpoint, with no reason to survive a major version.
+  `base_url` is the only endpoint field now, and it carries `host`'s old default
+  (`http://localhost:3000`) so an unconfigured deployment's effective endpoint is unchanged.
+- **`Settings.sandbox_env()` and the unbounded `SKILL_*` env namespace are gone** (#155).
+  Sandboxing left v3 in #163; `SkillExecutor`, `sandbox_env()`'s only caller, was already
+  deleted in #164, so this was a deletion rather than the `AGENTDECK_SKILL_*` rename the issue
+  originally proposed. `SkillsSettings` and the `skill:` `config.yaml` section go with it.
 - **`check_contiguous`/`check_terminal` are no longer part of `agentdeck.core`** (#156). Neither
   was read by a production path — `seq` contiguity follows from how the store assigns it, and
   the one-terminal-event-last invariant is enforced by `Runtime.run`/`resume` stopping the read
@@ -113,7 +162,7 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 - **Three docs pages corrected against the current v3 code (#192).** `/guides/human-approval`'s
   cross-process example now says what it actually needs: `durable=True` makes the checkpointer
   file-backed, but `pending()`/`answer()` read the event store instead, so a second process only
-  sees a paused run if `AGENTDECK_EVENTS_BACKEND` is pointed at a shared backend too — the
+  sees a paused run if `AGENTDECK_EVENTS` is pointed at a shared backend too — the
   in-process default is not enough on its own. `/guides/serve-over-http`'s install line now pins
   a version (`git+...@v3.0.0b1`), matching `getting-started.mdx` instead of an unqualified
   `agentdeck[serve]`. `/operating/pause-resume-cancel` no longer describes the `503 no control
@@ -122,7 +171,7 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   only by an embedder constructing a bare `Runtime` outside `Deck`.
 - **Seven more docs pages corrected against the current v3 code (#192).** `/` no longer calls
   skills Python definitions (they are `SKILL.md` directories) or claims `session_id` survives a
-  restart by default (it needs `AGENTDECK_SESSION_REDIS_URL`). `/concepts` and
+  restart by default (it needs `AGENTDECK_SESSION`). `/concepts` and
   `/concepts/runs-and-the-event-log` no longer describe SQLite's cross-process story as "shared
   memory" — it is a shared file, openable by several processes on one machine, not across
   machines. `/concepts/agents` describes MCP status as it works today: `build()` stays

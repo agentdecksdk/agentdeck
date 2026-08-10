@@ -6,7 +6,7 @@ services:
     volumes:
       - ./.agentdeck:/work/.agentdeck:ro
     environment:
-      AGENTDECK_SESSION_REDIS_URL: redis://redis:6379/0
+      AGENTDECK_SESSION: redis://redis:6379/0
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-}

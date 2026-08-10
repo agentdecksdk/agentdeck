@@ -26,8 +26,7 @@ greeter = Agent(name="Greeter", instructions="You are a friendly scheduling assi
 import asyncio
 import os
 
-os.environ["AGENTDECK_EVENTS_BACKEND"] = "sqlite"
-os.environ["AGENTDECK_EVENTS_URL"] = "./events.sqlite3"
+os.environ["AGENTDECK_EVENTS"] = "sqlite://./events.sqlite3"
 
 from agentdeck import Deck
 from agentdeck.composition import resolve_event_store
@@ -119,13 +118,12 @@ hand you back the exact context an engine fed the model to produce it.
 
 ## Where the log lives
 
-`AGENTDECK_EVENTS_BACKEND` picks the store: `memory` (the default) keeps it in the process and
-loses it on exit; `sqlite` (with `AGENTDECK_EVENTS_URL` a file path, as above) survives a
-restart; `redis` and `postgres` (a URL or DSN in the same variable) are the two several workers
-can share. SQLite's cross-process story is a shared *file*, not shared memory: several
-processes on the same machine can open it, but a file can't reach a second machine — which is
-exactly why `redis` and `postgres` exist as separate options rather than "just point everyone at
-the same file."
+`AGENTDECK_EVENTS`'s scheme picks the store: `memory://` (the default) keeps it in the process
+and loses it on exit; `sqlite://<path>` (as above) survives a restart; `redis://`/`rediss://`
+and `postgresql://` are the two several workers can share. SQLite's cross-process story is a
+shared *file*, not shared memory: several processes on the same machine can open it, but a
+file can't reach a second machine — which is exactly why `redis` and `postgresql` exist as
+separate options rather than "just point everyone at the same file."
 
 ## A listed exception: timer resumes
 

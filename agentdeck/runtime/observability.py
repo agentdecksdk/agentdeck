@@ -122,7 +122,7 @@ def init_observability(settings: LangfuseSettings | None = None) -> bool:
     Langfuse(
         public_key=lf.public_key,
         secret_key=lf.secret_key,
-        base_url=lf.endpoint,
+        base_url=lf.base_url,
         environment=lf.environment,
         debug=lf.debug,
         sample_rate=lf.sample_rate,
@@ -138,7 +138,7 @@ def init_observability(settings: LangfuseSettings | None = None) -> bool:
     logger.info(
         "Langfuse observability active (service=%s, endpoint=%s, environment=%s)",
         lf.service_name,
-        lf.endpoint,
+        lf.base_url,
         lf.environment,
     )
     return True
@@ -253,8 +253,8 @@ def sandbox_trace_env(settings: LangfuseSettings | None = None) -> dict[str, str
     # the host client so skill spans land in the same Langfuse environment. The bounded
     # OTLP timeout rides along so a down backend can't stall the skill's flush-on-exit.
     env = {
-        "LANGFUSE_HOST": lf.endpoint,
-        "LANGFUSE_BASE_URL": lf.endpoint,
+        "LANGFUSE_HOST": lf.base_url,
+        "LANGFUSE_BASE_URL": lf.base_url,
         "LANGFUSE_PUBLIC_KEY": lf.public_key,
         "LANGFUSE_SECRET_KEY": lf.secret_key,
         "LANGFUSE_TRACING_ENVIRONMENT": lf.environment,

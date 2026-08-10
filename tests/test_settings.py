@@ -14,6 +14,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+from agentdeck.runtime.settings import get_settings, reset_settings_cache
+
 AGENTDECK_PKG = Path(__file__).resolve().parents[1] / "agentdeck"
 _SUBPROCESS_TIMEOUT = 30
 
@@ -35,7 +39,7 @@ def _fake_site_packages_install(root: Path) -> Path:
 def _run(script: str, cwd: Path, site_packages: Path, extra_env: dict[str, str] | None = None) -> str:
     env = dict(os.environ)
     env["PYTHONPATH"] = str(site_packages)
-    for key in ("OPENAI_MODEL", "OPENAI_API_KEY", "OPENAI_BASE_URL", "APP_CONFIG_PATH"):
+    for key in ("OPENAI_MODEL", "OPENAI_API_KEY", "OPENAI_BASE_URL", "AGENTDECK_CONFIG_PATH"):
         env.pop(key, None)
     env.update(extra_env or {})
     result = subprocess.run(
@@ -151,3 +155,60 @@ def test_settings_resolve_cwd_at_first_use_not_at_import(tmp_path):
     model = _run(script, launch_dir, site_packages)
 
     assert model == "from-project"
+
+
+def test_agentdeck_config_path_redirects_the_shared_yaml(tmp_path, monkeypatch):
+    """`AGENTDECK_CONFIG_PATH` is the one name that redirects `config.yaml` — issue #155."""
+    from agentdeck.runtime.settings import resolve_config_path
+
+    redirected = tmp_path / "elsewhere.yaml"
+    redirected.write_text("openai:\n  model: from-redirected-path\n")
+    monkeypatch.setenv("AGENTDECK_CONFIG_PATH", str(redirected))
+
+    assert resolve_config_path() == redirected
+
+
+def test_sandbox_env_and_skills_settings_are_gone():
+    """Issue #155: sandboxing left v3 in #163 and `SkillExecutor` — `sandbox_env()`'s only
+    caller — was deleted in #164, leaving both with zero callers. A deletion, not the
+    `AGENTDECK_SKILL_*` rename the issue originally proposed."""
+    import agentdeck.runtime.settings as settings_module
+
+    assert not hasattr(settings_module.Settings, "sandbox_env")
+    assert not hasattr(settings_module, "SkillsSettings")
+    assert "skills" not in settings_module.Settings.model_fields
+
+
+def test_the_old_app_config_path_name_is_no_longer_read(tmp_path, monkeypatch):
+    """`APP_CONFIG_PATH` was unprefixed and generic; #155 renamed it outright — no shim, no
+    fallback. Setting only the old name must resolve as if nothing were set at all."""
+    from agentdeck.runtime.settings import PACKAGED_DEFAULT_YAML, resolve_config_path
+
+    decoy = tmp_path / "decoy.yaml"
+    decoy.write_text("openai:\n  model: from-old-name-that-must-not-be-read\n")
+    monkeypatch.setenv("APP_CONFIG_PATH", str(decoy))
+    monkeypatch.delenv("AGENTDECK_CONFIG_PATH", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    assert resolve_config_path() == PACKAGED_DEFAULT_YAML
+
+
+def test_a_retired_v2_env_name_refuses_to_start(monkeypatch):
+    """Nothing binds the old names any more, so a deployment that still exports one would fall
+    back to the default — and for the three store variables that default is in-process memory,
+    i.e. a durable log quietly becoming ephemeral on upgrade."""
+    monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "postgres")
+    reset_settings_cache()
+
+    with pytest.raises(ValueError, match="AGENTDECK_EVENTS_BACKEND is now AGENTDECK_EVENTS"):
+        get_settings()
+
+
+def test_a_retired_name_alongside_its_replacement_is_only_a_leftover(monkeypatch):
+    """Once the new variable is set the migration has happened, so a stale name inherited from a
+    container environment must not stop a correctly-configured process from booting."""
+    monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "postgres")
+    monkeypatch.setenv("AGENTDECK_EVENTS", "memory://")
+    reset_settings_cache()
+
+    get_settings()  # no raise

@@ -49,9 +49,9 @@ asyncio.run(main())
 it to whatever is serving. A chat served over HTTP — `POST /agents/{name}/chat`, streamed or not
 — is played by that Runtime, which records the turn as an event log: the run opening, text
 deltas, tool calls, token usage per model call, then the result. The log is in memory by default;
-point `AGENTDECK_EVENTS_BACKEND=sqlite` and `AGENTDECK_EVENTS_URL` at a file to keep it across
-restarts, or `redis` / `postgres` (a URL or a DSN in the same variable) for a log that several
-workers can share — SQLite's file can be opened by several processes on the same machine, but
+set `AGENTDECK_EVENTS=sqlite:///path/to/events.db` to keep it across restarts, or
+`redis://`/`postgresql://` for a log that several workers can share — the URL's own scheme
+picks the backend. SQLite's file can be opened by several processes on the same machine, but
 not from a second one, which is why `redis` and `postgres` exist as separate options rather
 than "just point everyone at the same file." The Python API (`Deck.run`, `Deck.stream`) plays the turn on the same
 Runtime, so it records the same events — same agent, same session, same answer, same log.

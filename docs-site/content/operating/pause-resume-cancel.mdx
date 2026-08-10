@@ -31,10 +31,11 @@ click is harmless.
 Both endpoints also have a `503` — "run control is unavailable: no control backend is
 configured" — in their code path, but it does not happen behind a normally-started
 `agentdeck-serve` (or any `Deck`): `resolve_control_port()` always wires a real `ControlPort`,
-`memory` by default, and refuses to open at all if `AGENTDECK_CONTROL_BACKEND` names anything
-else, which surfaces at startup rather than on a `pause`/`cancel` request. That 503 is reachable
-only from an embedder who builds a `Runtime` directly with no `ControlPort`, bypassing `Deck`
-and `agentdeck-serve` entirely — not a state a deployment following this page can reach.
+`memory://` by default, and refuses to open at all if `AGENTDECK_CONTROL`'s scheme names
+anything it doesn't recognize, which surfaces at startup rather than on a `pause`/`cancel`
+request. That 503 is reachable only from an embedder who builds a `Runtime` directly with no
+`ControlPort`, bypassing `Deck` and `agentdeck-serve` entirely — not a state a deployment
+following this page can reach.
 
 ## Reaching a run in another process
 
@@ -48,8 +49,7 @@ actually "the API server has three workers and you signaled the wrong one."
 Point the control backend at a shared file to fix that:
 
 ```bash
-AGENTDECK_CONTROL_BACKEND=sqlite
-AGENTDECK_CONTROL_URL=./.agentdeck/control.sqlite3
+AGENTDECK_CONTROL=sqlite://./.agentdeck/control.sqlite3
 ```
 
 Then a second terminal can reach the same run by id alone:
