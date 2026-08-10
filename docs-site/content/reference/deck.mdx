@@ -90,6 +90,12 @@ not a rendered wire format. This is the one method here that does not return a `
 because a caller that wants the final answer out of a stream has to fold it from the events, the
 same way any other consumer of the log would.
 
+`type(event)` is always `Event` — it is the envelope, not the discriminator. Switch on
+`event.payload` (a `match` narrows it to `TextDelta`, `MessageCompleted`, `RunCompleted`, …, see
+[Agents](/concepts/agents) for a worked example) or on `event.kind` if a string is more
+convenient; either way, include a default case, since an unfamiliar kind still parses as
+`UnknownEvent` rather than raising.
+
 ## `TurnResult`
 
 An agent's `run`/`stream` assemble a `TurnResult` from the run's own `run.completed` event — never

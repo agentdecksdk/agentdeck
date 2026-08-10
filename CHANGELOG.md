@@ -334,6 +334,17 @@ of vanishing the moment the call returns.
   also registers the MCP server specs up front (`MCPLifecycle.configure`, still network-free),
   so a name declared in `mcp=` no longer logs a false "not found in config" warning at build
   time for a server that will, in fact, connect once the deck opens.
+### Added
+
+- **`agentdeck.__version__`** (#176): the installed distribution's version
+  (`importlib.metadata.version("agentdeck")`), so it can never drift from what
+  `pip`/`uv` actually installed. Falls back to `"0+unknown"` rather than raising when the
+  package has no installed distribution to read (e.g. a bare source checkout).
+- Docs: `deck.stream()`'s worked example ([Agents](/concepts/agents)) now discriminates
+  events by `match`ing on `event.payload` instead of printing the envelope, and
+  [Deck](/reference/deck) says so in prose — `type(event)` is always `Event`; the
+  discriminator is the payload's own `kind`, reachable as `event.payload` or `event.kind`
+  (#175).
 
 ## [2.0.0] - 2026-08-06
 
