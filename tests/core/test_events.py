@@ -303,6 +303,16 @@ def test_a_minor_bump_is_how_a_content_block_kind_would_arrive():
     )
 
 
+def test_an_event_written_before_v3_says_so_instead_of_failing_obscurely():
+    """Every event in a store written by v2.0.0 or v3.0.0b1 has a scalar ``v``, so an operator who
+    upgrades meets this on the first read. Without the before-validator it surfaces as two
+    missing-field errors on a model they have never heard of."""
+    wire = _wire("run.started", {"invocable": "Greeter", "kind_of_invocable": "agent", "input": []})
+
+    with pytest.raises(ValidationError, match="replayed into a new store"):
+        Event.model_validate({**wire, "v": 2})
+
+
 def test_events_do_not_mutate(examples):
     event = examples["text.delta"]
     with pytest.raises(ValidationError):

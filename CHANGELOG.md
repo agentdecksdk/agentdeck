@@ -8,6 +8,17 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Upgrading
+
+- **An event log written before v3.0.0 cannot be read by v3.0.0.** The envelope's `v` was a plain
+  integer up to and including v3.0.0b1 and is now `{major, minor}`, which is a major bump — and a
+  major bump means exactly this: the two are not mutually readable. Only durable stores are
+  affected (`sqlite`, `postgres`, `redis`); the default `memory` store keeps nothing across a
+  restart, so most callers have nothing to migrate. An affected store must be replayed into a new
+  one, or read with the version that wrote it. The first read of an old event says so by name
+  rather than failing as a validation error on a model you have not met.
+
+
 ### Changed
 
 - **The event envelope's `v` is now a `{major, minor}` object, not an integer** (#156). `major`

@@ -404,6 +404,22 @@ class Event(CoreModel):
     ts: AwareDatetime
     payload: KnownPayload | UnknownEvent
 
+    @field_validator("v", mode="before")
+    @classmethod
+    def _a_pre_v3_scalar_version_says_so(cls, value: object) -> object:
+        """``v`` was a plain integer up to and including v3.0.0b1, so an event out of a store
+        written then fails here rather than at :class:`SchemaVersion`'s own field parsing — where
+        it reads as two unrelated missing-field errors and tells the operator nothing about why
+        their log stopped loading."""
+        if isinstance(value, int) and not isinstance(value, bool):
+            raise ValueError(
+                f"this event was written by schema v{value}, which stored `v` as a plain integer; "
+                f"major {CURRENT_VERSION.major} stores it as {{major, minor}} and cannot read it. "
+                "An event log written before v3.0.0 has to be replayed into a new store, or read "
+                "with the version of agentdeck that wrote it."
+            )
+        return value
+
     @field_validator("v")
     @classmethod
     def _major_version_must_be_supported(cls, value: SchemaVersion) -> SchemaVersion:
