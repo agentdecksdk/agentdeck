@@ -158,6 +158,26 @@ Runtime's log, and `tick` resumes every one of them. `now` defaults to the curre
 must be timezone-aware if given. AgentDeck runs no daemon of its own — a cron job, a systemd
 timer, or a loop calling `tick()` owns the cadence.
 
+## Serving over HTTP
+
+`asgi()` returns an ASGI application — a FastAPI app whose lifespan **opens the deck on startup
+and closes it on shutdown**, so a served deck needs no separate `async with`:
+
+```python
+from agentdeck import Deck
+
+deck = Deck.from_project("./.agentdeck")
+app = deck.asgi()                          # uvicorn yourmodule:app
+```
+
+That is all `agentdeck serve` is. It also means you can mount a deck inside an existing service
+and have it open and close with the host app.
+
+Two details worth knowing. The FastAPI import is deferred inside the method, so `agentdeck.deck`
+stays importable without the `[serve]` extra — you only need it to actually serve. And requests
+arriving before the lifespan has run get `503 {"status": "starting"}` rather than touching a deck
+that is not open yet.
+
 ## Sessions
 
 `session_for(session_id)` returns the SDK conversation-memory session `run`/`stream` use for that

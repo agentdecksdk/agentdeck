@@ -97,3 +97,40 @@ def test_dotted_names_in_prose_still_exist_in_the_package(page: Path) -> None:
     source = _package_source()
     missing = sorted({name for name in DOTTED.findall(_prose(page)) if name.split(".")[-1] not in source})
     assert not missing, f"{page.name}: named in prose but absent from agentdeck/: {missing}"
+
+
+def test_pinned_install_versions_match_the_package_version() -> None:
+    """A `git+...@vX.Y.Z` pin on the site must name the version this tree actually is.
+
+    Nothing else catches this: the fence checks above parse Python, and `docs-check.yml` only
+    confirms a page was produced, so a stale pin ships silently — it has three times, most
+    recently telling beta users to install v2.0.0 while reading v3 docs, where every example
+    would have failed.
+    """
+    import tomllib
+
+    root = Path(__file__).resolve().parents[1]
+    version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+    pin = re.compile(r"agentdeck(?:\.git)?@v([0-9][^\"'\s)]*)")
+
+    stale = [
+        f"{page.relative_to(root)}: pins v{found} but pyproject says {version}"
+        for page in _pages()
+        for found in pin.findall(page.read_text())
+        if found != version
+    ]
+    assert not stale, "stale install pin(s) on the docs site:\n  " + "\n  ".join(stale)
+
+
+def test_every_public_deck_method_is_documented_somewhere() -> None:
+    """`Deck` is the API this release exists to offer, so a public name absent from the whole
+    site is undiscoverable — `asgi()` was, and it is how you serve a deck.
+
+    Introspects the class rather than grepping source, so a `def` inside a docstring example
+    cannot be mistaken for surface.
+    """
+    from agentdeck import Deck
+
+    documented = " ".join(page.read_text() for page in _pages())
+    missing = sorted(name for name in vars(Deck) if not name.startswith("_") and name not in documented)
+    assert not missing, f"public Deck names documented nowhere on the site: {missing}"
