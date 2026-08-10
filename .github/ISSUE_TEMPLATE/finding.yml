@@ -1,0 +1,172 @@
+name: Finding
+description: Something observed that needs attention and a deeper look — not yet a bug, not yet a plan
+labels: [finding]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A **finding** records something you *saw*, not something you want done.
+
+        It does not have to be a bug. It may turn out to be correct behavior, a documentation
+        gap, a misunderstanding, or the visible edge of something larger. The point is to get it
+        written down with its evidence while it is fresh, so it can be triaged rather than
+        forgotten.
+
+        **Two rules make a finding worth filing:**
+
+        1. **Do not propose a fix.** A finding that arrives with a solution gets reviewed as that
+           solution instead of as the observation, and the observation is the valuable part. If
+           you already know the fix and it is clearly right, file a bug report or a feature
+           request instead.
+        2. **Anchor it to something checkable** — a commit or version, plus a reproduction, a
+           test, a CI run, or a `file:line`. A finding nobody else can get back to is an opinion.
+           If you cannot reproduce it, say so explicitly in "What is not yet known"; that is a
+           legitimate finding, but it must be stated rather than implied.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Where was this observed?
+      options:
+        - Authoring (Agent / Workflow / declarations)
+        - Deck (composition, lifecycle, build)
+        - Skills
+        - MCP
+        - Serving / HTTP
+        - Runtime / engines
+        - Stores / durability
+        - Observability
+        - Documentation
+        - Developer experience (install, imports, errors, naming)
+        - CI / tooling
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: observation
+    attributes:
+      label: What was observed
+      description: |
+        The plain fact, as neutrally as you can state it: what you did, and what happened.
+        Resist explaining what it means — that goes further down.
+      placeholder: |
+        Passing a plain function to `Agent(tools=[...])` builds without complaint, then fails
+        at run time inside the SDK.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: |
+        The smallest thing someone else can run to see it — a snippet, a command, a test
+        invocation, or the steps in order. If it is not reproducible, write "not reproducible"
+        here and explain the circumstances in "What is not yet known".
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence — verbatim
+      description: |
+        The receipts, copied not paraphrased: the traceback, the failing assertion, the log
+        lines, the HTTP response, the command output. Trim it to what matters, but do not
+        rewrite it — the exact wording is often the finding.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version, commit, or branch
+      description: |
+        Required. Where exactly you saw this — a released version, a commit SHA, a branch, or a
+        PR number. "Latest" is not an anchor.
+      placeholder: "3.0.0 · feat/164-deck-composition-api · aa2d3c5 · PR #165"
+    validations:
+      required: true
+  - type: textarea
+    id: reference
+    attributes:
+      label: Reference
+      description: |
+        What else pins this down — at least one, more is better:
+        a test name (`tests/test_deck.py::test_x`), a `file:line`, a CI run URL, a docs page,
+        a log or trace ID, a related issue or PR.
+      placeholder: |
+        agentdeck/authoring/compile.py:88
+        tests/test_deck.py::test_build_rejects_uncompilable_tools (does not exist yet)
+        https://github.com/sagi5060/agentdeck/actions/runs/31326035214
+    validations:
+      required: true
+  - type: dropdown
+    id: basis
+    attributes:
+      label: How do you know?
+      options:
+        - I ran it and saw this happen
+        - A test or CI run reported it
+        - I read the code and believe this is what it does
+        - Someone else reported it and I am recording it
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it might matter
+      description: |
+        Your hypothesis, stated as a hypothesis. Who hits this, and what does it cost them? It
+        is fine for the answer to be "possibly nothing, but it looked wrong."
+    validations:
+      required: true
+  - type: textarea
+    id: unknowns
+    attributes:
+      label: What is not yet known
+      description: |
+        The heart of a finding. What would someone have to check to decide whether this is real
+        and how bad it is? List the questions you could not answer, and say plainly if you could
+        not reproduce it or only saw it once.
+    validations:
+      required: true
+  - type: dropdown
+    id: reach
+    attributes:
+      label: How far does it reach, as far as you can tell?
+      description: A guess is fine — this is triage input, not a commitment.
+      options:
+        - Unknown / did not investigate
+        - One code path or one call
+        - One subsystem
+        - Anyone using this feature
+        - Anyone using agentdeck at all
+    validations:
+      required: true
+  - type: checkboxes
+    id: could-be-fine
+    attributes:
+      label: Could this be correct behavior?
+      description: Think about it honestly before submitting — it changes how this gets triaged.
+      options:
+        - label: I considered that this might be intended, and I still think it is worth a look.
+          required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: |
+        Only where it could matter — Python version, OS, model provider and base URL, relevant
+        `AGENTDECK_*` settings, installed extras. A finding from reading code can leave this
+        empty. Never paste credentials or API keys.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and findings and did not find this one.
+          required: true
+        - label: The evidence above is copied verbatim, not from memory.
+          required: true
+        - label: I removed credentials, API keys, and other sensitive data.
+          required: true
