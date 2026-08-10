@@ -319,13 +319,13 @@ class LangfuseSettings(LayeredSettings):
     environment: str = Field(default="local", description="Langfuse `environment` tag attached to every exported span.")
     debug: bool = Field(default=False, description="Enable the Langfuse SDK's own debug logging.")
     sample_rate: float = Field(default=1.0, description="Fraction of traces exported to Langfuse, from 0.0 to 1.0.")
-    # OTel resource ``service.name`` for every exported span (host + sandboxed skills).
+    # OTel resource ``service.name`` for every exported span.
     # Without it OpenTelemetry falls back to ``unknown_service``, leaving traces
     # unattributed in the Langfuse UI.
     service_name: str = Field(
         default="agentdeck",
-        description="OpenTelemetry resource `service.name` for every exported span (host process and sandboxed "
-        "skills). Without it, spans fall back to `unknown_service` and are unattributed in the Langfuse UI.",
+        description="OpenTelemetry resource `service.name` for every exported span. Without it, spans fall back "
+        "to `unknown_service` and are unattributed in the Langfuse UI.",
     )
 
     @property
