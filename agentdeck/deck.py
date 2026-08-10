@@ -1,7 +1,14 @@
 """``Deck`` — the v3 composition root: agents, workflows, skills and MCP servers become one
 catalog, either handed in directly or discovered from a project directory.
 
+    from agents import function_tool
+
     from agentdeck import Agent, Deck
+
+    @function_tool
+    def find_slots(day: str) -> str:
+        \"\"\"Find free appointment slots on a given day.\"\"\"
+        ...
 
     booking_agent = Agent(name="booking", instructions="...", tools=[find_slots])
     deck = Deck(agents=[booking_agent], skills="./skills", mcp=".mcp.json")

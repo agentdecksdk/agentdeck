@@ -24,6 +24,12 @@ Resolves #88. Blocks phases 5–6.
 
 ## Target shape
 
+*Amended 2026-08-10 (#179): `tools=[find_slots, book_slot]` below reads as plain callables.
+That was never implemented and is not today's contract — a tool is an Agents SDK tool object
+(`@function_tool`-wrapped); accepting bare callables is a future ability, out of scope. Left
+as this delivery record originally read; `docs-site/content/reference/definitions.mdx` states
+the actual contract.*
+
 ```python
 booking_agent = Agent(
     name="booking",

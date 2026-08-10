@@ -56,6 +56,10 @@ class Agent:
     ``Agent(SomeDeclaration, name=...)`` is a ``TypeError`` rather than a silently-accepted
     positional base. A value explicitly passed here always wins over ``base``'s, including an
     explicit empty value — omission, not falsiness, is what defers to the base.
+
+    ``tools=`` takes already-built Agents SDK tool objects, not plain functions — wrap one with
+    ``@function_tool`` (``from agents import function_tool``) first. ``build()`` rejects a tool
+    that isn't one, naming the agent and the tool.
     """
 
     __slots__ = (
