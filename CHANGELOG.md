@@ -309,6 +309,20 @@ of vanishing the moment the call returns.
   `build()` per the fix above instead of the SDK at run time. They now show a tool built with
   `@function_tool` (`from agents import function_tool`), the only place agentdeck asks you to
   reach for the SDK directly; `Agent`'s own docstring gains the same statement of the contract.
+- **A bundle that defines only an `AgentDeclaration`/`WorkflowDeclaration` subclass, and never
+  instantiates an `Agent`/`Workflow`, now fails `Deck.from_project()` loudly (#174) instead of
+  contributing nothing with no error or warning.** v1 scanned for a subclass — a bare
+  `class Ghost(AgentDeclaration): ...` *was* the agent — so this is the natural shape of an
+  existing bundle ported to v3, which scans for instances instead. The error names the bundle
+  file and what to add (e.g. `` greeter = Agent(...) ``). A bundle directory that legitimately
+  holds shared code and no invocable of its own opts out the same way it already could for the
+  import/collision checks: give it a leading `_`/`.`.
+- **A discovered agent's or workflow's compile failure now names its bundle path** (#119,
+  following up #82/#117, which wrapped only import failures). `Deck.from_project()` (and any
+  bare `InvocableRegistry.load()` that discovers its own catalog) wraps a `compile_agent`/
+  `build_graph()` exception in a `ConfigError` naming the offending `agents/<bundle>/agent.py`
+  or `workflows/<bundle>/workflow.py`, chaining the original exception as `__cause__`. A
+  code-first `Agent`/`Workflow` has no bundle to name, so its build failures are unchanged.
 
 ## [2.0.0] - 2026-08-06
 
