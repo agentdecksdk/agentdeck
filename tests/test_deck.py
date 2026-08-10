@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import socket
 import textwrap
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -17,6 +18,7 @@ from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring import Agent, Workflow
+from agentdeck.authoring.timers import sleep_until
 from agentdeck.core.context import RunContext
 from agentdeck.deck import Deck, TurnResult
 from agentdeck.errors import ConfigError, NotFoundError
@@ -100,6 +102,21 @@ def _build_approval_graph() -> StateGraph:
 
 def _approval_workflow(name: str = "Approval") -> Workflow:
     return Workflow(name=name, state=_ApprovalState, durable=True, graph=_build_approval_graph)
+
+
+class _TimerState(BaseModel):
+    woke_at: str = ""
+
+
+def _timer_workflow(name: str, when: Any) -> Workflow:
+    def _build_graph() -> StateGraph:
+        graph = StateGraph(_TimerState)
+        graph.add_node("wait", lambda s: {"woke_at": str(sleep_until(when))})
+        graph.set_entry_point("wait")
+        graph.add_edge("wait", END)
+        return graph
+
+    return Workflow(name=name, state=_TimerState, durable=True, graph=_build_graph)
 
 
 def _write_skill(root, dirname: str, *, description: str = "does a thing") -> None:
@@ -869,6 +886,49 @@ async def test_answer_of_an_unknown_run_id_raises_not_found(no_project):
     async with deck:
         with pytest.raises(NotFoundError, match="nonexistent"):
             await deck.answer("nonexistent", "yes")
+
+
+# --- tick() resumes a Deck.run() interrupt through the Runtime, not a checkpointer ghost ----
+
+
+@pytest.mark.asyncio
+async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost(no_project, monkeypatch):
+    """A timer interrupt ``Deck.run()`` parked is the same thread ``Deck.tick()`` finds on the
+    checkpointer — the log and the checkpointer already agree on the *listing* (direction one,
+    already true post-#164). Resuming it by calling the workflow directly, as ``tick()`` used
+    to, never told the event log: the run stayed ``WAITING_HUMAN`` forever and kept holding its
+    session claim (direction two — the still-live half of #120). ``tick()`` must resume through
+    the Runtime instead, so the log's run closes and a fresh run on the same thread does not
+    hit a stale-lock ``SessionBusyError``.
+    """
+    from agentdeck.runtime.settings import reset_settings_cache
+
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "memory")
+    reset_settings_cache()
+    past = datetime.now(UTC) - timedelta(days=1)
+    try:
+        deck = Deck(workflows=[_timer_workflow("Timer", past)])
+
+        async with deck:
+            paused = await deck.run("Timer", {}, session_id="t-tick")
+            assert paused["type"] == "interrupt"
+
+            # direction 1: the checkpointer-sourced listing already sees a Deck.run() interrupt.
+            due = await deck.due_resumes()
+            assert [d["thread_id"] for d in due] == ["t-tick"]
+
+            finished = await deck.tick()
+            assert finished and finished[0].get("woke_at") == str(past)
+
+            # direction 2: resuming through tick() must close the *logged* run too, not just
+            # the checkpoint — a ghost WAITING_HUMAN entry is exactly what this pins against.
+            assert await deck.pending() == []
+
+            # ...and release the session claim it was holding, not leave it stale-locked.
+            again = await deck.run("Timer", {}, session_id="t-tick")
+            assert again["type"] == "interrupt"
+    finally:
+        reset_settings_cache()
 
 
 @pytest.mark.asyncio
