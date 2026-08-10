@@ -9,7 +9,7 @@ documented change — never something to "fix" by re-recording without reading t
 
 ## What is recorded
 
-`test_golden_wire.py::capture` performs eleven requests against the real
+`test_golden_wire.py::capture` performs requests against the real
 `agentdeck.serve.create_app()` app via `fastapi.testclient.TestClient`, in this order:
 
 | snapshot | request |
@@ -27,6 +27,10 @@ documented change — never something to "fix" by re-recording without reading t
 | `11_pending_after_resume.http` | `GET /workflows/ApprovalFlow/pending` once answered |
 | `12_workflow_error.http` | `POST /workflows/BoomFlow` — node raises; 500 `{"detail": "internal error"}` |
 | `13_workflow_error_stream.http` | the same `?stream=true` — in-band `error` frame |
+| `14_side_effect.http` | `POST /workflows/SideEffectFlow` — a node with no update; `"delta": null` |
+| `15_side_effect_stream.http` | the same `?stream=true` |
+| `16_fanout_interrupt.http` | `POST /workflows/FanoutInterruptFlow` — one branch interrupts while a sibling completes; the terminal body is the interrupt (#122) |
+| `17_fanout_interrupt_stream.http` | the same `?stream=true` — the completed sibling's `node_update` reaches the wire before `interrupt` replaces `done` |
 
 Cases 12/13 exist for the one wire contract with a security property: an `AgentdeckError`
 that isn't a `NotFoundError` may carry secrets (skill stderr, config values), so the
@@ -97,6 +101,9 @@ section — an undocumented normalization is a hole in the safety net.
   pending/resume path.
 - `workflows/boom_flow/workflow.py` — one node raising a secret-shaped `SkillError`; the
   500 and SSE-`error` paths.
+- `workflows/fanout_interrupt_flow/workflow.py` — a fan-out with one interrupting branch and
+  one slower sibling that completes; pins the sibling's node update reaching the wire before
+  the pause replaces `done` (#122).
 
 ## Running and re-recording
 
