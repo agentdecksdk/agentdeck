@@ -4,9 +4,10 @@ A node that logs or notifies and returns nothing is the commonest LangGraph node
 is, and LangGraph reports its update as ``None`` — which v1's wire showed as ``"delta": null``.
 """
 
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
-from agentdeck.workflows import END, BaseWorkflow, StateGraph
+from agentdeck.authoring import Workflow
 
 
 class State(BaseModel):
@@ -18,13 +19,12 @@ def _notify(_state):
     return None
 
 
-class SideEffectFlow(BaseWorkflow):
-    state = State
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("notify", _notify)
+    g.set_entry_point("notify")
+    g.add_edge("notify", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("notify", _notify)
-        g.set_entry_point("notify")
-        g.add_edge("notify", END)
-        return g
+
+side_effect_flow = Workflow(name="SideEffectFlow", state=State, graph=_build_graph)

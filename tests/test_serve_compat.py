@@ -33,42 +33,38 @@ from agentdeck.surfaces.serve.compat import chat_frames, chat_result, interrupt_
 AGENT_PY = """
 from pydantic import BaseModel
 
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
 
 class Greeting(BaseModel):
     greeting: str
 
 
-class Greeter(BaseAgent):
-    instructions = "Greet the user."
-
-
-class Structured(BaseAgent):
-    instructions = "Answer as JSON."
-    output_type = Greeting
+greeter = Agent(name="Greeter", instructions="Greet the user.")
+structured = Agent(name="Structured", instructions="Answer as JSON.", output_type=Greeting)
 """
 
 WORKFLOW_PY = """
 from typing import TypedDict
 
-from agentdeck.workflows import END, BaseWorkflow, StateGraph
+from langgraph.graph import END, StateGraph
+
+from agentdeck.authoring import Workflow
 
 
 class State(TypedDict, total=False):
     input: str
 
 
-class Shout(BaseWorkflow):
-    state = State
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("shout", lambda s: {"input": s["input"].upper()})
+    g.set_entry_point("shout")
+    g.add_edge("shout", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("shout", lambda s: {"input": s["input"].upper()})
-        g.set_entry_point("shout")
-        g.add_edge("shout", END)
-        return g
+
+shout = Workflow(name="Shout", state=State, graph=_build_graph)
 """
 
 
@@ -418,18 +414,17 @@ def test_a_workflow_is_not_reachable_through_the_agents_route(project, monkeypat
 async def test_the_runtime_and_the_python_api_share_one_conversation(project, monkeypatch):
     """v1 kept one session per id whichever entry point ran the turn; the compat engine
     takes v1's own session lookup so that stays true across the two paths."""
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
     model = ScriptedModel(deltas=("Hello",))
     patch_provider(monkeypatch, provider_of(model))
-    app = App()
-    app.load()
+    deck = Deck.from_project()
 
-    async for _ in app.runtime.run("Greeter", coerce_input("over http"), session_id="s1"):
-        pass
-    await app.chat("Greeter", "s1", "over python")
+    async with deck:
+        async for _ in deck._runtime.run("Greeter", coerce_input("over http"), session_id="s1"):
+            pass
+        await deck.run("Greeter", "over python", session_id="s1")
 
     # the Python API's turn opened on the Runtime turn's message, so both wrote one session
     assert json.dumps(model.inputs[0], default=str).count("over") == 1
     assert "over http" in json.dumps(model.inputs[-1], default=str)
-    await app.aclose()

@@ -9,33 +9,29 @@ from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, SkillError
 from agentdeck.runtime.registry import PluginRegistry
-from agentdeck.skills.executor import SkillEnvError, SkillExecutionError
 
 AGENT_PY = """
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
-class Greeter(BaseAgent):
-    instructions = "Greet the user."
+greeter = Agent(name="Greeter", instructions="Greet the user.")
 """
 
-# Same class name as AGENT_PY's, authored under a second bundle — the "copied greeter/,
-# forgot to rename the class" repro from #82.
+# Same invocable name as AGENT_PY's, authored under a second bundle — the "copied greeter/,
+# forgot to rename it" repro from #82.
 GREETER_V2_AGENT_PY = """
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
-class Greeter(BaseAgent):
-    instructions = "Greet the user, v2."
+greeter = Agent(name="Greeter", instructions="Greet the user, v2.")
 """
 
-# One bundle, one class, bound under a second name — an alias kept after a rename. Not a
-# collision: it is the same class object claiming its own name twice, not two classes.
+# One bundle, one instance, bound under a second name — an alias kept after a rename. Not a
+# collision: it is the same object claiming its own name twice, not two different agents.
 ALIASED_AGENT_PY = """
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
-class Greeter(BaseAgent):
-    instructions = "Greet the user."
+greeter = Agent(name="Greeter", instructions="Greet the user.")
 
-GreeterAgent = Greeter
+greeter_agent = greeter
 """
 
 
@@ -85,11 +81,8 @@ def test_not_found_error_message_is_plain():
     assert str(NotFoundError("no such thing")) == "no such thing"
 
 
-def test_skill_errors_are_agentdeck_errors():
-    assert issubclass(SkillEnvError, SkillError)
-    assert issubclass(SkillEnvError, AgentdeckError)
-    assert issubclass(SkillExecutionError, SkillError)
-    assert issubclass(SkillExecutionError, AgentdeckError)
+def test_skill_error_is_an_agentdeck_error():
+    assert issubclass(SkillError, AgentdeckError)
 
 
 def test_unknown_agent_chat_returns_404_with_body(project):
@@ -104,10 +97,10 @@ def test_unknown_agent_chat_returns_404_with_body(project):
 
 def test_two_same_kind_bundles_sharing_a_class_name_raise_naming_both(duplicate_class_name_project):
     """#82: a copied bundle that forgot to rename its class must not silently shadow the original."""
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
     with pytest.raises(ConfigError) as excinfo:
-        App().load()
+        Deck.from_project()
     message = str(excinfo.value)
     # Quoted, not bare substrings: "agents/greeter" is itself a substring of
     # "agents/greeter-v2", so a bare-substring check passes even if the message only
@@ -123,10 +116,10 @@ def test_one_bundle_aliasing_its_own_class_is_not_a_collision(aliased_class_proj
     ``vars(module)`` yields one entry per *binding*, not per class — ``GreeterAgent = Greeter``
     must not trip the same-name guard against itself.
     """
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
-    inventory = App().load()
-    assert inventory["agents"] == ["Greeter"]
+    deck = Deck.from_project()
+    assert list(deck.agents) == ["Greeter"]
 
 
 def test_bundle_import_failure_is_wrapped_with_its_path(tmp_path, monkeypatch):
@@ -137,11 +130,25 @@ def test_bundle_import_failure_is_wrapped_with_its_path(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
     with pytest.raises(ConfigError, match="agents/broken/agent.py") as excinfo:
-        App().load()
+        Deck.from_project()
     assert isinstance(excinfo.value.__cause__, RuntimeError)
+
+
+def test_old_layout_raises_clear_config_error(tmp_path, monkeypatch):
+    """A pre-0.3 project (bundles straight under the project root) fails loudly, not silently."""
+    root = tmp_path / ".agentdeck"
+    (root / "greeter").mkdir(parents=True)
+    (root / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
+    monkeypatch.chdir(tmp_path)
+    for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
+        del sys.modules[mod]
+    from agentdeck.deck import Deck
+
+    with pytest.raises(ConfigError, match="agents/<bundle>/agent.py"):
+        Deck.from_project()
 
 
 def test_skill_error_returns_500_without_leaking_stderr(project, monkeypatch):
@@ -150,7 +157,7 @@ def test_skill_error_returns_500_without_leaking_stderr(project, monkeypatch):
     secret = "Traceback: AWS_SECRET_ACCESS_KEY=hunter2"
     # The turn fails at the SDK boundary, so the error travels the whole real path — engine,
     # Runtime, surface — the way a failing tool or skill inside a turn does.
-    model = ScriptedModel(raises=SkillExecutionError("greeter", 1, secret))
+    model = ScriptedModel(raises=SkillError(secret))
     patch_provider(monkeypatch, provider_of(model))
 
     with TestClient(create_app()) as client:

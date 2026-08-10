@@ -5,8 +5,8 @@ memory is its own, never read by consumers).
 rewritten: it mints per-id :class:`agents.extensions.memory.RedisSession`
 objects sharing one Redis client. ``ExecutionStore`` is the adapter's own seam on top of
 it: Redis-backed when a factory is configured, one in-process
-:class:`agents.SQLiteSession` per key otherwise — the same fallback ``agentdeck.app.App``
-already uses for v1 chat, so both callers of the SDK agree on what "no Redis configured"
+:class:`agents.SQLiteSession` per key otherwise — the same fallback ``agentdeck.deck.Deck``
+uses for its chat methods, so both callers of the SDK agree on what "no Redis configured"
 means. Nothing outside this adapter directory may import either class.
 """
 

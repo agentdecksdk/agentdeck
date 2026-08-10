@@ -5,7 +5,7 @@ description: Run agentdeck behind FastAPI, and talk to an agent from outside the
 
 # Serve Over HTTP
 
-`app.run_agent(...)` is a script talking to itself. A real deployment has a client in one
+`deck.run(...)` is a script talking to itself. A real deployment has a client in one
 process and agentdeck in another — `agentdeck-serve` is a FastAPI app wrapping the same
 Runtime that call would have used, so a turn started over HTTP lands in the same event log a
 Python caller's turn would.

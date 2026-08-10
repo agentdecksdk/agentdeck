@@ -1,18 +1,17 @@
 ---
 title: Core Concepts
-description: The four things you write, and what AgentDeck does around them.
+description: The things you write, and what AgentDeck does around them.
 ---
 
 # Core Concepts
 
 AgentDeck owns configuration; the OpenAI Agents SDK and LangGraph own execution. You write
-four kinds of definition, and the platform supplies everything around them.
+a few kinds of definition, and the platform supplies everything around them.
 
 | You write | It is | Runs on |
 |---|---|---|
-| [Agent](/concepts/agents) | a class with instructions, tools, handoffs | OpenAI Agents SDK |
-| [Capabilities](/concepts/capabilities) | a declaration of sandbox powers | SDK sandbox |
-| [Skill](/concepts/skills) | a directory: `SKILL.md` + a script | subprocess in the sandbox |
+| [Agent](/concepts/agents) | keyword arguments: instructions, tools, handoffs | OpenAI Agents SDK |
+| [Skill](/concepts/skills) | a directory: `SKILL.md` + optional scripts | disclosed into an agent's own execution |
 | [Workflow](/concepts/workflows) | typed state + a graph | LangGraph |
 
 ## The shape of a project
@@ -22,23 +21,23 @@ no catalog file, no `__init__.py`, no decorator to remember.
 
 ```text
 .agentdeck/
-├── agents/greeter/agent.py            # a BaseAgent subclass
-├── workflows/new_booking/workflow.py  # a BaseWorkflow subclass
-└── skills/parse-request/              # SKILL.md + scripts/run.py
+├── agents/greeter/agent.py            # an Agent(...)
+├── workflows/new_booking/workflow.py  # a Workflow(...)
+└── skills/parse-request/              # SKILL.md + scripts/
 ```
 
-`App` discovers, imports, builds, and compiles all of it, and fails fast if anything is
+`Deck.from_project()` discovers, imports, and compiles all of it, and fails fast if anything is
 broken:
 
 ```python
 import asyncio
 
-from agentdeck import App
+from agentdeck import Deck
 
 
 async def main() -> None:
-    async with App.open() as app:
-        print(app.load())  # {'agents': [...], 'workflows': [...], 'skills': [...]}
+    async with Deck.from_project() as deck:
+        print(sorted(deck.agents), sorted(deck.workflows))
 
 
 asyncio.run(main())
@@ -46,26 +45,26 @@ asyncio.run(main())
 
 ## What runs a turn
 
-`App` is also the composition root: it wires the discovered project into one runtime and
-hands it to whatever is serving. A chat served over HTTP — `POST /agents/{name}/chat`, streamed
-or not — is played by that runtime, which records the turn as an event log: the run opening,
-text deltas, tool calls, token usage per model call, then the result. The log is in memory by
-default; point `AGENTDECK_EVENTS_BACKEND=sqlite` and `AGENTDECK_EVENTS_URL` at a file to keep it
-across restarts, or `redis` / `postgres` (a URL or a DSN in the same variable) for a log that
-several workers can share — SQLite needs shared memory between processes, so one file behind more
-than one machine is not supported. The Python API (`App.chat`, `App.chat_stream`) plays the turn on the same Runtime, so it records
-the same events — same agent, same session, same answer, same log.
+`Deck` is also the composition root: it wires the discovered project into one Runtime and hands
+it to whatever is serving. A chat served over HTTP — `POST /agents/{name}/chat`, streamed or not
+— is played by that Runtime, which records the turn as an event log: the run opening, text
+deltas, tool calls, token usage per model call, then the result. The log is in memory by default;
+point `AGENTDECK_EVENTS_BACKEND=sqlite` and `AGENTDECK_EVENTS_URL` at a file to keep it across
+restarts, or `redis` / `postgres` (a URL or a DSN in the same variable) for a log that several
+workers can share — SQLite needs shared memory between processes, so one file behind more than one
+machine is not supported. The Python API (`Deck.run`, `Deck.stream`) plays the turn on the same
+Runtime, so it records the same events — same agent, same session, same answer, same log.
 
 ## The division of labor
 
 Deterministic code mutates external state; models decide. A model call never writes to
-your systems directly — a node, a tool, or a skill does, and those are ordinary Python you
-can test without a model.
+your systems directly — a node or a tool does, and those are ordinary Python you can test
+without a model.
 
 Agents, workflows, and skills compose in any direction: an agent can be a workflow node
 ([`AgentNode`](/concepts/workflows)), a workflow can be an agent's tool
-(`BaseWorkflow.as_tool()`), and a skill can be both a workflow node and an agent
-capability.
+(`Workflow.as_tool()`), and a skill can be declared on any agent that needs it, workflow node
+or not.
 
 Whatever the shape, a run in flight stays governable: it can be paused, resumed and cancelled
 by its id, at documented safe points — see [Run Control](/concepts/run-control).

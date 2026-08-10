@@ -1,12 +1,10 @@
-"""MCP server registry + process lifecycle, driven by the shared settings config.
+"""MCP server registry + process lifecycle.
 
-Agents name the servers they need; this owns how to reach them. Servers are the
-``mcp.servers`` settings group (packaged default in ``config.default.yaml``),
-keyed by name and overridable via ``AGENTDECK_MCP_SERVERS`` (JSON, deep-merged)::
+Agents name the servers they need; this owns how to reach them. The composition root
+(``Deck``/``App``) hands :meth:`MCPLifecycle.configure`/:meth:`startup` the ``{name: spec}``
+config it read from its own source — an ``MCP(...)`` capability object's ``.mcp.json``, today::
 
-    mcp:
-      servers:
-        agentdeck: {type: http, url: http://host.docker.internal:8765/mcp, headers: {}}
+    {"mcpServers": {"agentdeck": {"type": "http", "url": "http://host.docker.internal:8765/mcp"}}}
 
 Every server connects at startup; connect failures are **soft** — the server is
 marked unavailable and the backend still boots. Agents referencing an
@@ -25,33 +23,12 @@ from typing import TYPE_CHECKING, Any
 from agentdeck.adapters.tools.mcp.transport import MCPServerStreamableHttpResilient
 from agentdeck.errors import ConfigError
 
-# ponytail: the config still comes from process-global v1 settings, which is why this
-# adapter reaches into `runtime`. Agents built at import time resolve servers before any
-# composition root has run, so there is nobody to pass the config in yet; when `App`
-# becomes that root the argument is threaded through and this import goes away.
-from agentdeck.runtime.settings import get_settings
-
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from agents.mcp import MCPServer
 
-    from agentdeck.runtime.settings import McpSettings
-
 logger = logging.getLogger(__name__)
-
-
-def load_mcp_config(settings: McpSettings | None = None) -> dict[str, dict[str, Any]]:
-    """Return ``{name: server_spec}`` from the ``mcp:`` settings group, or ``{}``.
-
-    Uses process settings unless an explicit :class:`McpSettings` is passed (tests).
-    No servers configured means the backend boots with none — same fail-open rule.
-    """
-    mcp = settings if settings is not None else get_settings().mcp
-    config = mcp.as_config()
-    if not config:
-        logger.info("No MCP servers configured (mcp.servers empty); none will be connected.")
-    return config
 
 
 def _build_server(name: str, spec: dict[str, Any]) -> MCPServer:
@@ -108,9 +85,15 @@ class MCPLifecycle:
 
     @classmethod
     def configure(cls, config: dict[str, dict[str, Any]] | None = None) -> None:
-        """Load server specs without connecting. Safe to call sync (import-time builds)."""
-        if config is None:
-            config = load_mcp_config()
+        """Load server specs without connecting. Safe to call sync (import-time builds).
+
+        ``config`` is the composition root's own ``{name: spec}`` — an ``MCP(...)``
+        capability object's ``.config()``, typically. No config (or ``None``) means no
+        servers — the same fail-open rule a project with no ``.mcp.json`` has always had.
+        """
+        config = config or {}
+        if not config:
+            logger.info("No MCP servers configured; none will be connected.")
         cls._config = config
         for name, spec in config.items():
             if name in cls._servers or name in cls._failed:
@@ -166,7 +149,7 @@ class MCPLifecycle:
 
         Lets agents declared at import time wire up the same instance the lifecycle
         connects later. ``None`` when the name is unknown or its connect failed —
-        callers (``BaseAgent._kwargs``) filter that out to boot with reduced capability.
+        callers (``authoring.compile.compile_agent``) filter that out to boot with reduced capability.
         """
         if name in cls._failed:
             return None
@@ -192,4 +175,4 @@ class MCPLifecycle:
         cls._lock = None
 
 
-__all__ = ["MCPLifecycle", "load_mcp_config"]
+__all__ = ["MCPLifecycle"]

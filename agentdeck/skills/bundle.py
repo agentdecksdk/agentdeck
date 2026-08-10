@@ -1,23 +1,16 @@
-"""Parse a skill bundle directory and discover bundles under a root path."""
+"""Parse one ``SKILL.md`` bundle directory."""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import yaml
 
-from agentdeck.errors import ConfigError, NotFoundError
+from agentdeck.errors import ConfigError
 
-if TYPE_CHECKING:
-    from collections.abc import Iterable
-
-    from agentdeck.skills.output import SkillOutputSchema
-
-DEFAULT_ENTRY_SCRIPT = "run.py"
-SCRIPTS_DIRNAME = "scripts"
 SKILL_MD_FILENAME = "SKILL.md"
 
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
@@ -50,74 +43,6 @@ class SkillBundle:
             body=body,
         )
 
-    @property
-    def scripts_dir(self) -> Path:
-        return self.path / SCRIPTS_DIRNAME
-
-    def entry_script_path(self, name: str = DEFAULT_ENTRY_SCRIPT) -> Path:
-        return self.scripts_dir / name
-
-    @property
-    def required_env_keys(self) -> tuple[str, ...]:
-        return _env_keys(self.frontmatter, "required")
-
-    @property
-    def optional_env_keys(self) -> tuple[str, ...]:
-        return _env_keys(self.frontmatter, "optional")
-
-    @property
-    def output_schema(self) -> type[SkillOutputSchema] | None:
-        """Typed output class from ``metadata.output_schema`` — workflow-only."""
-        if (decl := self._schema_decl()) is None:
-            return None
-        from agentdeck.skills.output import load_schema
-
-        return load_schema(self.path / decl[0], decl[1])
-
-    def _schema_decl(self) -> tuple[str, str] | None:
-        metadata = self.frontmatter.get("metadata") or {}
-        spec = metadata.get("output_schema") if isinstance(metadata, dict) else None
-        if not spec:
-            return None
-        rel, sep, cls_name = str(spec).partition(":")
-        if not sep or not rel.strip() or not cls_name.strip():
-            raise ConfigError(
-                f"{self.name}: metadata.output_schema must be 'relative/path.py:ClassName', got {spec!r}.",
-            )
-        return rel.strip(), cls_name.strip()
-
-
-@dataclass(slots=True)
-class SkillRegistry:
-    """Auto-discovers :class:`SkillBundle` directories under ``root``."""
-
-    root: Path
-    _cache: dict[str, SkillBundle] | None = field(default=None, init=False, repr=False)
-
-    def __post_init__(self) -> None:
-        self.root = Path(self.root).expanduser().resolve()
-
-    def list(self, *, refresh: bool = False) -> dict[str, SkillBundle]:
-        if refresh or self._cache is None:
-            self._cache = {b.name: b for b in self._scan()}
-        return dict(self._cache)
-
-    def get(self, name: str) -> SkillBundle:
-        skills = self.list()
-        try:
-            return skills[name]
-        except KeyError:
-            raise NotFoundError(
-                f"No skill named {name!r} under {self.root}. Available: {sorted(skills)}.",
-            ) from None
-
-    def _scan(self) -> Iterable[SkillBundle]:
-        if not self.root.is_dir():
-            return
-        for child in sorted(self.root.iterdir()):
-            if child.is_dir() and not child.name.startswith(("_", ".")) and (child / SKILL_MD_FILENAME).is_file():
-                yield SkillBundle.from_path(child)
-
 
 def _str_field(frontmatter: dict[str, Any], key: str) -> str:
     value = frontmatter.get(key)
@@ -137,13 +62,4 @@ def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
     return data, text[match.end() :]
 
 
-def _env_keys(frontmatter: dict[str, Any], kind: str) -> tuple[str, ...]:
-    metadata = frontmatter.get("metadata") or {}
-    env = metadata.get("env") if isinstance(metadata, dict) else None
-    section = env.get(kind) if isinstance(env, dict) else None
-    if isinstance(section, dict | list):
-        return tuple(str(k) for k in section)
-    return ()
-
-
-__all__ = ["SkillBundle", "SkillRegistry"]
+__all__ = ["SKILL_MD_FILENAME", "SkillBundle"]

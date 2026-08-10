@@ -12,8 +12,10 @@ import pytest
 pytest.importorskip("fastapi")
 
 APPROVAL_WORKFLOW_PY = """
+from langgraph.graph import END, StateGraph
+from langgraph.types import interrupt
 from pydantic import BaseModel
-from agentdeck.workflows import END, BaseWorkflow, StateGraph, interrupt
+from agentdeck.authoring import Workflow
 
 class State(BaseModel):
     request: str = ""
@@ -21,21 +23,18 @@ class State(BaseModel):
     decision: str = ""
     outcome: str = ""
 
-class ApprovalFlow(BaseWorkflow):
-    state = State
-    durable = True
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("prepare", lambda s: {"prepared": s.prepared + 1})
+    g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
+    g.add_node("done", lambda s: {"outcome": "booked" if s.decision == "yes" else "dropped"})
+    g.set_entry_point("prepare")
+    g.add_edge("prepare", "ask")
+    g.add_edge("ask", "done")
+    g.add_edge("done", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("prepare", lambda s: {"prepared": s.prepared + 1})
-        g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
-        g.add_node("done", lambda s: {"outcome": "booked" if s.decision == "yes" else "dropped"})
-        g.set_entry_point("prepare")
-        g.add_edge("prepare", "ask")
-        g.add_edge("ask", "done")
-        g.add_edge("done", END)
-        return g
+approval_flow = Workflow(name="ApprovalFlow", state=State, durable=True, graph=_build_graph)
 """
 
 
@@ -198,15 +197,16 @@ def test_a_second_run_on_a_thread_parked_on_an_approval_is_a_409(client, query, 
 
 
 def test_resuming_a_thread_already_answered_out_of_band_is_a_404_not_a_dropped_value(client):
-    """The HTTP inbox projects the event log while ``App.pending_interrupts`` reads the graph's
-    checkpointer, so the two disagree the moment one of them is used: a thread answered through
-    the Python API leaves the log's entry behind as a ghost. Resuming a ghost replays a thread
-    that already reached ``END``, which langgraph does happily — returning its stale final state
-    and dropping this caller's value on the floor. Answering 404 is the only honest report.
+    """A thread answered once, through either front door, must not be resumable a second time.
+    Resuming an already-answered thread replays it past ``END``, which langgraph does happily —
+    returning its stale final state and dropping this caller's value on the floor. Answering
+    404 is the only honest report, and it has to hold whichever door answered it first.
     """
     deck = client.app.state.deck
     client.post("/workflows/ApprovalFlow?thread_id=t-ghost", json={"request": "tue 9am"})
-    answered = _in_the_servers_loop(client, deck.resume_workflow, "ApprovalFlow", "t-ghost", "yes")
+    pending = _in_the_servers_loop(client, deck.pending)
+    [mine] = [run for run in pending if run.thread_id == "t-ghost"]
+    answered = _in_the_servers_loop(client, deck.answer, mine.run_id, "yes")
     assert answered["outcome"] == "booked"
 
     ghost = client.post("/workflows/ApprovalFlow/t-ghost/resume", json={"value": "no"})

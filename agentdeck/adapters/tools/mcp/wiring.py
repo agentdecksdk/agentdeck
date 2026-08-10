@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 def resolve_agent_mcp_status(names: Iterable[str]) -> tuple[list[MCPServer], list[str]]:
     """Split declared names into ``(available_servers, missing_names)``.
 
-    "Missing" = unknown to the registry or its connect failed. ``BaseAgent._kwargs``
+    "Missing" = unknown to the registry or its connect failed. ``authoring.compile.compile_agent``
     feeds the missing list to :func:`mcp_status_banner`.
     """
     available: list[MCPServer] = []

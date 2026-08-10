@@ -5,7 +5,7 @@ reach a run's ``ControlPort`` from a different OS process than the one streaming
 
 A recorded ``resume`` here only lifts a pause that has not landed yet: continuing a run that
 already stopped means playing it on, which needs the event log and so belongs to a process
-holding a Runtime (``App.resume_run``, ``POST /runs/{id}/resume``), not to this file.
+holding a Runtime (``Deck.resume``, ``POST /runs/{id}/resume``), not to this file.
 
 A top-level composition root, like ``serve.py``: it wires the SQLite ``ControlPort``
 adapter directly, which is why it lives outside ``surfaces/`` — surfaces never import an

@@ -10,12 +10,14 @@ import sys
 import textwrap
 
 import pytest
+from langgraph.graph import END, StateGraph
+from langgraph.types import interrupt
 from pydantic import BaseModel
 
+from agentdeck.authoring import Workflow
 from agentdeck.core.context import RunContext
-from agentdeck.errors import ConfigError, NotFoundError
+from agentdeck.errors import ConfigError
 from agentdeck.runtime.settings import reset_settings_cache
-from agentdeck.workflows import END, BaseWorkflow, StateGraph, interrupt
 
 
 class ApprovalState(BaseModel):
@@ -25,33 +27,27 @@ class ApprovalState(BaseModel):
     outcome: str = ""
 
 
-def _make_approval_workflow(*, durable: bool) -> type[BaseWorkflow]:
-    """Prepare -> ask a human -> approved/rejected branch. Fresh class per test
-    (``_compiled`` is cached on the class itself)."""
+def _build_approval_graph():
+    g = StateGraph(ApprovalState)
+    g.add_node("prepare", lambda s: {"prepared": s.prepared + 1})
+    g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
+    g.add_node("approved", lambda s: {"outcome": f"booked:{s.request}"})
+    g.add_node("rejected", lambda s: {"outcome": "dropped"})
+    g.set_entry_point("prepare")
+    g.add_edge("prepare", "ask")
+    g.add_conditional_edges(
+        "ask",
+        lambda s: "approved" if s.decision == "yes" else "rejected",
+        {"approved": "approved", "rejected": "rejected"},
+    )
+    g.add_edge("approved", END)
+    g.add_edge("rejected", END)
+    return g
 
-    class ApprovalFlow(BaseWorkflow):
-        state = ApprovalState
 
-        @classmethod
-        def build_graph(cls):
-            g = StateGraph(cls.state)
-            g.add_node("prepare", lambda s: {"prepared": s.prepared + 1})
-            g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
-            g.add_node("approved", lambda s: {"outcome": f"booked:{s.request}"})
-            g.add_node("rejected", lambda s: {"outcome": "dropped"})
-            g.set_entry_point("prepare")
-            g.add_edge("prepare", "ask")
-            g.add_conditional_edges(
-                "ask",
-                lambda s: "approved" if s.decision == "yes" else "rejected",
-                {"approved": "approved", "rejected": "rejected"},
-            )
-            g.add_edge("approved", END)
-            g.add_edge("rejected", END)
-            return g
-
-    ApprovalFlow.durable = durable
-    return ApprovalFlow
+def _make_approval_workflow(*, durable: bool) -> Workflow:
+    """Prepare -> ask a human -> approved/rejected branch. Fresh ``Workflow`` per test."""
+    return Workflow(name="ApprovalFlow", state=ApprovalState, durable=durable, graph=_build_approval_graph)
 
 
 def run_context(session_id: str | None = None) -> RunContext:
@@ -165,8 +161,10 @@ def test_workflow_without_interrupts_still_returns_its_final_state():
 
 
 APPROVAL_WORKFLOW_PY = """
+from langgraph.graph import END, StateGraph
+from langgraph.types import interrupt
 from pydantic import BaseModel
-from agentdeck.workflows import END, BaseWorkflow, StateGraph, interrupt
+from agentdeck.authoring import Workflow
 
 class State(BaseModel):
     request: str = ""
@@ -174,42 +172,37 @@ class State(BaseModel):
     decision: str = ""
     outcome: str = ""
 
-class ApprovalFlow(BaseWorkflow):
-    state = State
-    durable = True
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("prepare", lambda s: {"prepared": s.prepared + 1})
+    g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
+    g.add_node("done", lambda s: {"outcome": "booked" if s.decision == "yes" else "dropped"})
+    g.set_entry_point("prepare")
+    g.add_edge("prepare", "ask")
+    g.add_edge("ask", "done")
+    g.add_edge("done", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("prepare", lambda s: {"prepared": s.prepared + 1})
-        g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
-        g.add_node("done", lambda s: {"outcome": "booked" if s.decision == "yes" else "dropped"})
-        g.set_entry_point("prepare")
-        g.add_edge("prepare", "ask")
-        g.add_edge("ask", "done")
-        g.add_edge("done", END)
-        return g
+approval_flow = Workflow(name="ApprovalFlow", state=State, durable=True, graph=_build_graph)
 """
 
 
 PLAIN_WORKFLOW_PY = """
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
-from agentdeck.workflows import END, BaseWorkflow, StateGraph
+from agentdeck.authoring import Workflow
 
 class State(BaseModel):
     text: str = ""
 
-class PlainFlow(BaseWorkflow):
-    state = State
-    durable = True
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("shout", lambda s: {"text": s.text.upper()})
+    g.set_entry_point("shout")
+    g.add_edge("shout", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("shout", lambda s: {"text": s.text.upper()})
-        g.set_entry_point("shout")
-        g.add_edge("shout", END)
-        return g
+plain_flow = Workflow(name="PlainFlow", state=State, durable=True, graph=_build_graph)
 """
 
 
@@ -226,112 +219,105 @@ def app_project(tmp_path, monkeypatch):
     # the project alias is process-global; drop stale mounts from other tests
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
-    return App()
-
-
-async def test_streamed_run_ends_with_an_interrupt_event(app_project):
-    """The streaming surface: node updates, then an interrupt event *instead of* ``done``."""
-    events = [
-        event
-        async for event in app_project.run_workflow_stream("ApprovalFlow", {"request": "tue 9am"}, thread_id="t-stream")
-    ]
-
-    assert events == [
-        {"type": "node_update", "node": "prepare", "delta": {"prepared": 1}},
-        {"type": "interrupt", "payload": {"question": "tue 9am"}, "thread_id": "t-stream"},
-    ]
-    inbox = await app_project.pending_interrupts("ApprovalFlow")
-    assert [p for p in inbox if p["thread_id"] == "t-stream"] == [events[-1]]
+    return Deck.from_project()
 
 
-async def test_a_run_started_via_run_workflow_stream_cannot_be_resumed_via_resume_workflow(app_project):
-    """A pause used to resume the same way regardless of which App method started the run,
-    because both read and wrote the same checkpointer. That symmetry breaks once
-    ``resume_workflow`` plays on the Runtime (issue #137): it looks the paused run up in the
-    event log, and ``run_workflow_stream`` — left out of that reroute — writes nothing there.
-    A caller needing both the log and a live stream on one thread starts on ``run_workflow``
-    (or ``resume_workflow``) instead, the way ``test_app_surface_pauses_lists_and_resumes`` does.
-    """
-    async for _ in app_project.run_workflow_stream("ApprovalFlow", {"request": "tue 9am"}, thread_id="t-stream-2"):
-        pass
+async def test_stream_ends_with_a_run_interrupted_event(app_project):
+    """The streaming surface: a node-updated event, then run-interrupted *instead of*
+    run-completed — and the same pause the Runtime's own inbox lists."""
+    async with app_project:
+        events = [
+            event async for event in app_project.stream("ApprovalFlow", {"request": "tue 9am"}, session_id="t-stream")
+        ]
 
-    with pytest.raises(NotFoundError, match="t-stream-2"):
-        await app_project.resume_workflow("ApprovalFlow", "t-stream-2", "yes")
+        assert [event.kind for event in events] == ["run.started", "node.updated", "run.interrupted"]
+        assert events[1].payload.node == "prepare"
+        assert events[1].payload.state_patch == {"prepared": 1}
+        assert events[2].payload.payload == {"question": "tue 9am"}
+        assert events[2].payload.thread_id == "t-stream"
 
+        [pending] = [run for run in await app_project.pending() if run.thread_id == "t-stream"]
 
-async def test_streamed_durable_run_without_an_interrupt_still_ends_with_done(app_project):
-    """No regression for #9's shape: only a paused run swaps ``done`` for an interrupt."""
-    events = [event async for event in app_project.run_workflow_stream("PlainFlow", {"text": "hi"}, thread_id="t-p")]
-
-    assert events == [
-        {"type": "node_update", "node": "shout", "delta": {"text": "HI"}},
-        {"type": "done", "state": {"text": "HI"}},
-    ]
+        # a run started on `stream` is answerable by `answer`, the inversion of what
+        # `run_workflow_stream` (deleted with the rest of v1's surface) could never do
+        result = await app_project.answer(pending.run_id, "yes")
+    assert result["outcome"] == "booked"
 
 
-def test_app_surface_pauses_lists_and_resumes(app_project):
-    """``App`` is the entry point: run -> pending_interrupts() (no name = every workflow) -> resume."""
-    app = app_project
+async def test_stream_without_an_interrupt_still_ends_with_run_completed(app_project):
+    """No regression for #9's shape: only a paused run swaps run-completed for run-interrupted."""
+    async with app_project:
+        events = [event async for event in app_project.stream("PlainFlow", {"text": "hi"}, session_id="t-p")]
+
+    assert [event.kind for event in events] == ["run.started", "node.updated", "run.completed"]
+    assert events[1].payload.node == "shout"
+    assert events[1].payload.state_patch == {"text": "HI"}
+
+
+def test_deck_surface_runs_lists_and_answers(app_project):
+    """``Deck`` is the entry point: run -> pending() (every workflow) -> answer, by run_id."""
+    deck = app_project
 
     async def _scenario():
-        paused = await app.run_workflow("ApprovalFlow", {"request": "tue 9am"}, thread_id="t-app")
-        pending = await app.pending_interrupts()
-        resumed = await app.resume_workflow("ApprovalFlow", "t-app", "no")
-        # both run_workflow and resume_workflow write to the event log now (issue #137) —
-        # read it back rather than trusting each call's own bookkeeping.
-        events = await app.store.read("t-app", RunContext(run_id="reader", session_id="t-app"))
-        return paused, pending, resumed, [event.kind for event in events]
+        async with deck:
+            paused = await deck.run("ApprovalFlow", {"request": "tue 9am"}, session_id="t-app")
+            pending = await deck.pending()
+            # other tests in this process share the cached memory saver, so filter to this thread
+            [mine] = [run for run in pending if run.thread_id == "t-app"]
+            resumed = await deck.answer(mine.run_id, "no")
+            # both run and answer write to the event log now —
+            # read it back rather than trusting each call's own bookkeeping.
+            events = await deck._runtime.store.read("t-app", RunContext(run_id="reader", session_id="t-app"))
+            return paused, mine, resumed, [event.kind for event in events]
 
-    paused, pending, resumed, kinds = asyncio.run(_scenario())
+    paused, mine, resumed, kinds = asyncio.run(_scenario())
 
     assert kinds[0] == "run.started"
-    assert "run.interrupted" in kinds  # the pause `run_workflow` produced
-    assert "run.resumed" in kinds  # resume_workflow's own claim, not a fresh run
+    assert "run.interrupted" in kinds  # the pause `run` produced
+    assert "run.resumed" in kinds  # answer's own claim, not a fresh run
     assert kinds[-1] == "run.completed"
 
     assert paused == {"type": "interrupt", "payload": {"question": "tue 9am"}, "thread_id": "t-app"}
-    # other tests in this process share the cached memory saver, so filter to this thread
-    assert [p for p in pending if p["thread_id"] == "t-app"] == [paused]
+    assert mine.payload == {"question": "tue 9am"}
     assert resumed["outcome"] == "dropped"
 
 
 _RESTART_SCRIPT = """
 import asyncio, json, sys
+from langgraph.graph import END, StateGraph
+from langgraph.types import interrupt
 from pydantic import BaseModel
-from agentdeck.workflows import END, BaseWorkflow, StateGraph, interrupt
+from agentdeck.authoring import Workflow
 
 class State(BaseModel):
     request: str = ""
     decision: str = ""
     outcome: str = ""
 
-class ApprovalFlow(BaseWorkflow):
-    state = State
-    durable = True
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
+    g.add_node("approved", lambda s: {"outcome": "booked:" + s.request})
+    g.add_node("rejected", lambda s: {"outcome": "dropped"})
+    g.set_entry_point("ask")
+    g.add_conditional_edges(
+        "ask",
+        lambda s: "approved" if s.decision == "yes" else "rejected",
+        {"approved": "approved", "rejected": "rejected"},
+    )
+    g.add_edge("approved", END)
+    g.add_edge("rejected", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
-        g.add_node("approved", lambda s: {"outcome": "booked:" + s.request})
-        g.add_node("rejected", lambda s: {"outcome": "dropped"})
-        g.set_entry_point("ask")
-        g.add_conditional_edges(
-            "ask",
-            lambda s: "approved" if s.decision == "yes" else "rejected",
-            {"approved": "approved", "rejected": "rejected"},
-        )
-        g.add_edge("approved", END)
-        g.add_edge("rejected", END)
-        return g
+approval_flow = Workflow(name="ApprovalFlow", state=State, durable=True, graph=_build_graph)
 
 async def main():
     if sys.argv[1] == "start":
-        return await ApprovalFlow.run({"request": "tue 9am"}, thread_id="restart-hitl")
-    pending = await ApprovalFlow.pending()
-    resumed = await ApprovalFlow.resume("restart-hitl", sys.argv[2])
+        return await approval_flow.run({"request": "tue 9am"}, thread_id="restart-hitl")
+    pending = await approval_flow.pending()
+    resumed = await approval_flow.resume("restart-hitl", sys.argv[2])
     return {"pending": pending, "resumed": resumed}
 
 print(json.dumps(asyncio.run(main())))

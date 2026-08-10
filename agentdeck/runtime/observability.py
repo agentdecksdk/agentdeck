@@ -4,37 +4,27 @@ One primitive, one identity mechanism: :func:`trace_run` opens a single observat
 propagates the ambient session identity via Langfuse's native ``propagate_attributes``
 (OpenTelemetry context). The Langfuse span processor then stamps ``session.id`` /
 ``user.id`` / ``trace.name`` onto *every* span created within, whether it comes from the
-OpenAI Agents SDK (OpenInference), a LangGraph node, or a sandboxed skill that adopted the
-``TRACEPARENT``/``BAGGAGE`` carriers. Called at the run root (agent turn / workflow) it
-names the trace and carries its I/O; called again for a nested unit (a skill) it re-affirms
-the same identity
-and, because it becomes the current OTel span, makes that unit's sandboxed LLM calls nest
-under a named span instead of floating up to the root. No per-LLM-call code, no bridge.
+OpenAI Agents SDK (OpenInference) or a LangGraph node. Called at the run root (agent turn /
+workflow) it names the trace and carries its I/O. No per-LLM-call code, no bridge.
 
 :func:`init_observability` instruments the OpenAI **Agents SDK** (OpenInference's
 ``OpenAIAgentsInstrumentor``) so every agent, generation, and — crucially — every TOOL
 call (MCP, shell ``exec_command``, function tools, ``as_tool`` sub-agents) becomes a span
-with its input/output, natively nested. Sandboxed skills add their own generations from the
-subprocess (see below). :func:`trace_run` sits on top only to name the trace + carry
-trace-level I/O + propagate the session; the tool/agent tree comes from the SDK.
+with its input/output, natively nested. :func:`trace_run` sits on top only to name the
+trace + carry trace-level I/O + propagate the session; the tool/agent tree comes from the SDK.
 
 The one cosmetic cost of SDK-level instrumentation is a couple of wrapper spans per run
 (the SDK "workflow"/"turn" spans); the ``sandbox.*`` lifecycle noise is filtered out (see
 :func:`_should_export_span`).
 
-Three runtimes, fed here:
+Two runtimes, fed here:
 
 * **agents** (host) — a turn wraps ``Runner.run`` in :func:`trace_run` (``kind="agent"``);
   OpenInference nests the agent → generation → tool spans (and any ``as_tool`` sub-agent)
   under it, so the full orchestration + every tool result is visible.
-* **workflows** (host) — a run wraps ``graph.ainvoke`` in :func:`trace_run`, and each skill
-  invocation is wrapped again (``kind="tool"``, in :class:`~agentdeck.skills.SkillExecutor`),
-  so every skill's LLM call nests under one named skill span under one run root. No
+* **workflows** (host) — a run wraps ``graph.ainvoke`` in :func:`trace_run`; a skill activated
+  inside an agent node nests under that agent's own span, the same as any other tool call. No
   LangChain callback needed.
-* **sandboxed skills** (subprocess) — :func:`sandbox_trace_env` hands the skill the
-  ``LANGFUSE_*`` env plus ``TRACEPARENT``/``BAGGAGE`` (of whatever span is current when the
-  sandbox opens — the skill span); ``skill_runtime.install_tracing`` calls ``get_client()``
-  on it, so the skill's spans nest under the caller's active span.
 
 Disabled (no keys) → every function is a cheap no-op. Bootstrap is idempotent.
 """

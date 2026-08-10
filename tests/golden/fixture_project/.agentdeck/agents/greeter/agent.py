@@ -4,7 +4,7 @@ tool-call turn followed by a text turn.
 
 from agents import function_tool
 
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
 
 @function_tool
@@ -13,6 +13,4 @@ def lookup_slot(day: str) -> str:
     return f"{day} 09:00"
 
 
-class Greeter(BaseAgent):
-    instructions = "Greet the user and check one slot."
-    tools = [lookup_slot]
+greeter = Agent(name="Greeter", instructions="Greet the user and check one slot.", tools=[lookup_slot])

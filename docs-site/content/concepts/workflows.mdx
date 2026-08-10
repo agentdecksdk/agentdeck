@@ -6,14 +6,14 @@ description: Typed state, a LangGraph graph, and durable pauses for humans.
 # Workflows
 
 A workflow is a Pydantic state class plus a graph. You build the graph with LangGraph's
-`StateGraph`; AgentDeck compiles it, opens one sandbox workspace for the whole run, and
-shares that workspace with every node — including any agent a node invokes.
+`StateGraph`; AgentDeck compiles it and plays it on the Runtime the same way it plays an agent.
 
 ```python
 # .agentdeck/workflows/new_booking/workflow.py
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
-from agentdeck.workflows import END, BaseWorkflow, StateGraph
+from agentdeck import Workflow
 
 
 class BookingState(BaseModel):
@@ -21,20 +21,19 @@ class BookingState(BaseModel):
     quote: str = ""
 
 
-class NewBooking(BaseWorkflow):
-    state = BookingState
+def _quote(state: BookingState) -> dict:
+    return {"quote": f"€420 for {state.request}"}
 
-    @classmethod
-    def build_graph(cls) -> StateGraph:
-        graph = StateGraph(cls.state)
-        graph.add_node("quote", cls.quote)
-        graph.set_entry_point("quote")
-        graph.add_edge("quote", END)
-        return graph
 
-    @staticmethod
-    def quote(state: BookingState) -> dict:
-        return {"quote": f"€420 for {state.request}"}
+def _build_graph() -> StateGraph:
+    graph = StateGraph(BookingState)
+    graph.add_node("quote", _quote)
+    graph.set_entry_point("quote")
+    graph.add_edge("quote", END)
+    return graph
+
+
+new_booking = Workflow(name="NewBooking", state=BookingState, graph=_build_graph)
 ```
 
 Run it by name; the return value is the final state:
@@ -42,12 +41,12 @@ Run it by name; the return value is the final state:
 ```python
 import asyncio
 
-from agentdeck import App
+from agentdeck import Deck
 
 
 async def main() -> None:
-    async with App.open() as app:
-        state = await app.run_workflow("NewBooking", {"request": "Berlin -> Munich"})
+    async with Deck.from_project() as deck:
+        state = await deck.run("NewBooking", {"request": "Berlin -> Munich"})
         print(state["quote"])
 
 
@@ -58,50 +57,49 @@ asyncio.run(main())
 
 | Node | What it does |
 |---|---|
-| `AgentNode` | runs a `BaseAgent` subclass as a node; forwards its text deltas to the graph's custom stream |
-| `SandboxAgentNode` | same, for a sandbox agent sharing the workflow's workspace |
-| `SkillNode` | runs a [skill](/concepts/skills), optionally parsing stdout into a typed field |
-| `LoadFileNode` | pulls a file out of the sandbox back into state |
+| `AgentNode(agent)` | runs an [`Agent`](/reference/definitions) as a node; forwards its text deltas to the graph's custom stream |
+| `LoadFileNode` | pulls a file's contents into state — the host filesystem for an absolute path |
 
-`SkillNode(bundle, into="parsed")` stores the skill's typed output on that state field —
-which requires the bundle to declare `metadata.output_schema` in `SKILL.md`, otherwise it
-raises immediately rather than at runtime. `update=(state, result) -> dict` is the
-schema-less escape hatch.
+```python
+from agentdeck.authoring import AgentNode
+
+graph.add_node("draft", AgentNode(drafting_agent, input_key="request", output_key="draft"))
+```
+
+An agent used inside a workflow node compiles standalone, with no `Deck` catalog in view: its own
+MCP servers resolve the same way a root agent's do, but `handoffs=`/`skills=` naming another
+catalog entry do not — put those on a root agent instead.
 
 ## Durability and human approval
 
-Set `durable = True` and the graph compiles with a checkpointer (`AGENTDECK_CHECKPOINT_*`),
-so a run is identified by `thread_id` and survives the process dying. Only then can a node
-pause for a human:
+Set `durable=True` and the graph compiles with a checkpointer (`AGENTDECK_CHECKPOINT_*`), so a run
+is identified by `session_id` (its `thread_id`) and survives the process dying. Only then can a
+node pause for a human:
 
 ```python
-from agentdeck.workflows import BaseWorkflow, interrupt
+from langgraph.types import interrupt
 
 
-class Approval(BaseWorkflow):
-    durable = True
-
-    @staticmethod
-    def confirm(state) -> dict:
-        decision = interrupt({"question": "Send this quote?"})
-        return {"approved": decision == "yes"}
+def _confirm(state) -> dict:
+    decision = interrupt({"question": "Send this quote?"})
+    return {"approved": decision == "yes"}
 ```
 
 A paused run returns an `InterruptResult` — `{"type": "interrupt", "payload": …,
-"thread_id": …}` — instead of a final state. Answer it with the thread id:
+"thread_id": …}` — instead of a final state. List it in the inbox and answer it by `run_id`:
 
 ```python
 import asyncio
 
-from agentdeck import App
+from agentdeck import Deck
 
 
 async def main() -> None:
-    async with App.open() as app:
-        paused = await app.run_workflow("Approval", {}, thread_id="quote-42")
+    async with Deck.from_project() as deck:
+        paused = await deck.run("Approval", {}, session_id="quote-42")
         if paused["type"] == "interrupt":
-            await app.resume_workflow("Approval", "quote-42", "yes")
-        print(await app.pending_interrupts())  # the approval inbox
+            [mine] = [p for p in await deck.pending() if p.thread_id == "quote-42"]
+            await deck.answer(mine.run_id, "yes")
 
 
 asyncio.run(main())
@@ -121,14 +119,14 @@ interrupt machinery with a `{"type": "timer", "wake_at": …}` payload — so a 
 thread is distinguishable from a human-paused one in the inbox. Naive datetimes are
 rejected.
 
-AgentDeck runs no daemon: you own the cadence. `App.due_resumes()` lists timer threads whose
-moment has passed, and `App.tick()` resumes every one of them.
+AgentDeck runs no daemon: you own the cadence. `Deck.due_resumes()` lists timer threads whose
+moment has passed, and `Deck.tick()` resumes every one of them.
 
 ## Streaming and composition
 
-`App.run_workflow_stream()` yields a `node_update` per completed node, a `custom` event per
-`get_stream_writer()` call, then one terminal `done` carrying the final state — and an
-`interrupt` event in place of `done` when the run pauses.
+`Deck.stream()` yields a `node.updated` event per completed node and a `custom` event per
+`get_stream_writer()` call, then one terminal `run.completed` carrying the final state — or a
+`run.interrupted` event in its place when the run pauses.
 
-`BaseWorkflow.as_tool()` turns the whole workflow into a tool an agent can call, which is
-how a conversation reaches deterministic multi-step work.
+`Workflow.as_tool()` turns the whole workflow into a tool an agent can call (pass it in
+`Agent(tools=[...])`), which is how a conversation reaches deterministic multi-step work.

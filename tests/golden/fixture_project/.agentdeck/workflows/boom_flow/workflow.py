@@ -3,10 +3,11 @@
 The message is deliberately secret-shaped — `serve.py` must never echo it.
 """
 
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
+from agentdeck.authoring import Workflow
 from agentdeck.errors import SkillError
-from agentdeck.workflows import END, BaseWorkflow, StateGraph
 
 SECRET = "stderr: AGENTDECK_TOKEN=sk-do-not-leak"
 
@@ -19,13 +20,12 @@ class State(BaseModel):
     text: str = ""
 
 
-class BoomFlow(BaseWorkflow):
-    state = State
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("explode", _explode)
+    g.set_entry_point("explode")
+    g.add_edge("explode", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("explode", _explode)
-        g.set_entry_point("explode")
-        g.add_edge("explode", END)
-        return g
+
+boom_flow = Workflow(name="BoomFlow", state=State, graph=_build_graph)

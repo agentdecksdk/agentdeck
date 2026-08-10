@@ -1,84 +1,81 @@
 ---
 title: Skills
-description: Deterministic work in a subprocess, described by SKILL.md.
+description: Progressive knowledge disclosure into an agent's own execution, described by SKILL.md.
 ---
 
 # Skills
 
-A skill is a directory with prose and a script. The prose tells a model when and how to use
-it; the script does the work in a subprocess where nothing is left to chance.
+A skill is a directory with one file of prose: `SKILL.md`. It is not a program to run — an
+agent's own instructions gain a name and a description per declared skill, and a `load_skill`
+tool it can call to read the full body once it decides one applies. No subprocess, no separate
+executable contract.
 
 ```text
 .agentdeck/skills/parse-request/
 ├── SKILL.md            # frontmatter + instructions for the model
-├── scripts/run.py      # the entry point
-└── output.py           # optional: typed output for workflows
+└── scripts/            # optional: anything the instructions tell the model to run itself
 ```
 
 ## SKILL.md
 
-YAML frontmatter, then prose. `name` defaults to the directory name; `description` is what a
-model reads when deciding whether this skill applies.
+YAML frontmatter, then prose. `name` must match the directory name; `description` is what
+`disclosure_text` puts in an agent's instructions when deciding whether this skill applies —
+both are required, or `Deck.build()` fails naming the bundle.
 
 ```markdown
 ---
 name: parse-request
 description: Extract pickup, dropoff, and date from a free-text booking request.
-metadata:
-  output_schema: "output.py:ParseRequestOutput"
 ---
 
-Run `scripts/run.py "<request text>"`. It prints one `key=value` line per field:
-
-    pickup=Berlin
-    dropoff=Munich
-    date=2026-08-12
+Split the request on "->". The part before is the pickup city, the part after is the dropoff
+city. If a date appears, use it; otherwise ask the user for one.
 ```
 
-## The contract with an agent is stdout
-
-An agent sees exactly two things: the SKILL.md prose, and the `key=value` lines the script
-prints. That's the whole interface — no imports, no shared types.
+## Declaring a skill on an agent
 
 ```python
-# .agentdeck/skills/parse-request/scripts/run.py
-import sys
+# .agentdeck/agents/booking/agent.py
+from agentdeck import Agent
 
-
-def main() -> None:
-    request = sys.argv[1]
-    print(f"pickup={request.split('->')[0].strip()}")
-    print(f"dropoff={request.split('->')[1].strip()}")
-
-
-main()
+booking = Agent(name="Booking", instructions="Help the user book a ride.", skills=["parse-request"])
 ```
-
-## Typed output is workflow-only
-
-A workflow can lift those same lines into a Pydantic model, so graph code gets a typed
-object instead of parsing text:
 
 ```python
-# .agentdeck/skills/parse-request/output.py
-from agentdeck.skills import SkillOutputSchema
+from agentdeck import Deck
 
-
-class ParseRequestOutput(SkillOutputSchema):
-    pickup: str
-    dropoff: str
+deck = Deck(agents=[booking], skills="./skills")  # or Deck.from_project(), discovering skills/*
 ```
 
-`from_result` lifts each declared field from the matching stdout line. Declare it in
-frontmatter as `metadata.output_schema`, then a [`SkillNode`](/concepts/workflows) can store
-the parsed object straight into state.
+`skills=` on the `Deck` is one or more root directories, scanned direct-child only
+(`<root>/<name>/SKILL.md`, never recursive) and merged into one name-keyed registry — a name
+declared under two roots fails `build()` naming both. `Agent(skills=[...])` names which of those
+this particular agent may use; a name absent from the roots, or from a `Deck` with no `skills=`
+at all, fails `build()` the same way an unknown handoff or MCP server does.
 
-**Schemas are workflow-side only.** Never import a skill's schema module from agent code:
-the agent's contract is the prose and the `key=value` lines, and coupling an agent to the
-typed schema breaks the one interface both sides agreed on.
+## What an agent actually sees
 
-## Why a subprocess
+Two things, and only two: the disclosure block appended to its instructions (every declared
+skill's name and description, never the body), and a `load_skill(name)` tool scoped to that
+agent's own `skills=[...]` — a name outside that list is unreachable even though the registry
+knows it.
 
-The script runs the same way every time, exits with a status, and can be tested with no
-model in the loop. Model calls decide *whether* to run it; the script decides what happens
-— which is the division of labor that makes a run reproducible.
+```text
+### Skills available
+Each entry below is a name and a description. Call `load_skill(name)` to read the
+full instructions before following one.
+- parse-request: Extract pickup, dropoff, and date from a free-text booking request.
+```
+
+The model decides whether a skill applies from the description alone, then calls `load_skill` to
+read the full `SKILL.md` body before following it — the same two-step a human would take skimming
+a table of contents before opening a page.
+
+## Why not a subprocess
+
+A skill used to be a script AgentDeck ran in a subprocess, with a typed-output contract for
+workflows. That executable model is gone: nothing in the package or its tests used the typed
+output path, and running arbitrary scripts is a sandboxing concern that is disabled and tracked
+separately. A skill today is instructions plus what the agent itself already has — its own
+tools — so anything a skill's script used to do, an ordinary `tool=` callable does instead, with
+the skill's `SKILL.md` describing when to reach for it.

@@ -3,7 +3,7 @@
 final state — plus ``AgentNode`` forwarding its nested agent's deltas into the custom stream.
 
 The two endpoint tests at the bottom drive the whole real path instead of stubbing
-``App.run_workflow_stream``, which the streamed endpoint no longer calls (#102): it renders
+``Deck.run_workflow_stream``, which the streamed endpoint no longer calls: it renders
 v1's frames from the canonical events of a Runtime run.
 """
 
@@ -16,17 +16,17 @@ from types import SimpleNamespace
 import pytest
 
 AGENT_PY = """
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
-class Greeter(BaseAgent):
-    instructions = "Greet the user."
+greeter = Agent(name="Greeter", instructions="Greet the user.")
 """
 
 WRITER_WORKFLOW_PY = """
 from langgraph.config import get_stream_writer
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 from agentdeck.errors import SkillError
-from agentdeck.workflows import END, BaseWorkflow, StateGraph
+from agentdeck.authoring import Workflow
 
 SECRET = "stderr: AGENTDECK_TOKEN=sk-do-not-leak"
 
@@ -38,77 +38,71 @@ def _write(state):
     get_stream_writer()("chunk")
     return {"count": 1}
 
-class WriterFlow(BaseWorkflow):
-    state = State
+def _build_writer_graph():
+    g = StateGraph(State)
+    g.add_node("shout", lambda s: {"text": s.text.upper()})
+    g.add_node("write", _write)
+    g.set_entry_point("shout")
+    g.add_edge("shout", "write")
+    g.add_edge("write", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("shout", lambda s: {"text": s.text.upper()})
-        g.add_node("write", _write)
-        g.set_entry_point("shout")
-        g.add_edge("shout", "write")
-        g.add_edge("write", END)
-        return g
+writer_flow = Workflow(name="WriterFlow", state=State, graph=_build_writer_graph)
 
 def _explode(state):
     raise SkillError(SECRET)
 
-class HalfwayFlow(BaseWorkflow):
-    state = State
+def _build_halfway_graph():
+    g = StateGraph(State)
+    g.add_node("shout", lambda s: {"text": s.text.upper()})
+    g.add_node("explode", _explode)
+    g.set_entry_point("shout")
+    g.add_edge("shout", "explode")
+    g.add_edge("explode", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("shout", lambda s: {"text": s.text.upper()})
-        g.add_node("explode", _explode)
-        g.set_entry_point("shout")
-        g.add_edge("shout", "explode")
-        g.add_edge("explode", END)
-        return g
+halfway_flow = Workflow(name="HalfwayFlow", state=State, graph=_build_halfway_graph)
 """
 
 TWO_STEP_WORKFLOW_PY = """
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
-from agentdeck.workflows import END, BaseWorkflow, StateGraph
+from agentdeck.authoring import Workflow
 
 class State(BaseModel):
     text: str = ""
     count: int = 0
 
-class TwoStepFlow(BaseWorkflow):
-    state = State
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("shout", lambda s: {"text": s.text.upper()})
+    g.add_node("count_up", lambda s: {"count": s.count + 1})
+    g.set_entry_point("shout")
+    g.add_edge("shout", "count_up")
+    g.add_edge("count_up", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("shout", lambda s: {"text": s.text.upper()})
-        g.add_node("count_up", lambda s: {"count": s.count + 1})
-        g.set_entry_point("shout")
-        g.add_edge("shout", "count_up")
-        g.add_edge("count_up", END)
-        return g
+two_step_flow = Workflow(name="TwoStepFlow", state=State, graph=_build_graph)
 """
 
 AGENT_FLOW_WORKFLOW_PY = """
+from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
-from agentdeck.workflows import END, AgentNode, BaseWorkflow, StateGraph
-from agentdeck_project.agents.greeter.agent import Greeter
+from agentdeck.authoring import AgentNode, Workflow
+from agentdeck_project.agents.greeter.agent import greeter
 
 class State(BaseModel):
     input: str = ""
     output: str = ""
 
-class ChatFlow(BaseWorkflow):
-    state = State
+def _build_graph():
+    g = StateGraph(State)
+    g.add_node("greet", AgentNode(greeter, input_key="input", output_key="output"))
+    g.set_entry_point("greet")
+    g.add_edge("greet", END)
+    return g
 
-    @classmethod
-    def build_graph(cls):
-        g = StateGraph(cls.state)
-        g.add_node("greet", AgentNode(Greeter, input_key="input", output_key="output"))
-        g.set_entry_point("greet")
-        g.add_edge("greet", END)
-        return g
+chat_flow = Workflow(name="ChatFlow", state=State, graph=_build_graph)
 """
 
 
@@ -126,9 +120,9 @@ def project(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
-    return App()
+    return Deck.from_project()
 
 
 def _delta_event(text: str) -> SimpleNamespace:
@@ -163,46 +157,50 @@ async def _collect(agen):
     return [event async for event in agen]
 
 
-async def test_run_workflow_stream_yields_one_node_update_per_node_then_done(project):
-    events = await _collect(project.run_workflow_stream("TwoStepFlow", {"text": "hi"}))
+async def test_stream_yields_one_node_updated_event_per_node_then_run_completed(project):
+    from agentdeck.core.events import NodeUpdated
 
-    assert events == [
-        {"type": "node_update", "node": "shout", "delta": {"text": "HI"}},
-        {"type": "node_update", "node": "count_up", "delta": {"count": 1}},
-        {"type": "done", "state": {"text": "HI", "count": 1}},
-    ]
+    async with project:
+        events = await _collect(project.stream("TwoStepFlow", {"text": "hi"}))
+
+    assert [event.kind for event in events] == ["run.started", "node.updated", "node.updated", "run.completed"]
+    updates = [event.payload for event in events if isinstance(event.payload, NodeUpdated)]
+    assert [(u.node, u.state_patch) for u in updates] == [("shout", {"text": "HI"}), ("count_up", {"count": 1})]
 
 
-async def test_run_workflow_stream_agent_node_forwards_deltas_via_custom_stream(project, monkeypatch):
+async def test_stream_agent_node_forwards_deltas_via_custom_events(project, monkeypatch):
+    from agentdeck.adapters.engines.langgraph.engine import STREAM_WRITE, STREAM_WRITE_KEY
+    from agentdeck.core.events import Custom, NodeUpdated
+
     events = [_delta_event("Hel"), _delta_event("lo"), _delta_event("!")]
     fake_result = FakeRunResultStreaming(events=events, final_output="Hello!")
 
     def boom(agent, message, **kwargs):
-        raise AssertionError("run_workflow_stream() must not touch Runner.run")
+        raise AssertionError("stream() must not touch Runner.run")
 
-    monkeypatch.setattr("agentdeck.agents.runners.headless.Runner.run", boom)
+    monkeypatch.setattr("agentdeck.authoring.runners.agent.Runner.run", boom)
     monkeypatch.setattr(
-        "agentdeck.agents.runners.headless.Runner.run_streamed",
+        "agentdeck.authoring.runners.agent.Runner.run_streamed",
         lambda agent, message, **kwargs: fake_result,
     )
 
-    stream_events = await _collect(project.run_workflow_stream("ChatFlow", {"input": "hi"}))
+    async with project:
+        stream_events = await _collect(project.stream("ChatFlow", {"input": "hi"}))
 
-    custom_events = [e for e in stream_events if e["type"] == "custom"]
-    assert custom_events == [
-        {"type": "custom", "data": "Hel"},
-        {"type": "custom", "data": "lo"},
-        {"type": "custom", "data": "!"},
+    customs = [
+        event.payload.data[STREAM_WRITE_KEY]
+        for event in stream_events
+        if isinstance(event.payload, Custom) and event.payload.name == STREAM_WRITE
     ]
-    assert stream_events[-1] == {"type": "done", "state": {"input": "hi", "output": "Hello!"}}
-    # node_update still fires once the agent node resolves, carrying the final output only.
-    node_updates = [e for e in stream_events if e["type"] == "node_update"]
-    assert node_updates == [{"type": "node_update", "node": "greet", "delta": {"output": "Hello!"}}]
+    assert customs == ["Hel", "lo", "!"]
+    # node.updated still fires once the agent node resolves, carrying the final output only.
+    updates = [event.payload for event in stream_events if isinstance(event.payload, NodeUpdated)]
+    assert [(u.node, u.state_patch) for u in updates] == [("greet", {"output": "Hello!"})]
 
 
-async def test_run_workflow_now_drives_the_graph_through_the_runtimes_stream(project, monkeypatch):
-    """``run_workflow`` used to call the compiled graph's ``ainvoke`` once; now that it plays
-    on the Runtime (issue #137) it drives the same ``astream`` every other invocable does,
+async def test_run_now_drives_the_graph_through_the_runtimes_stream(project, monkeypatch):
+    """``run`` used to call the compiled graph's ``ainvoke`` once; now that it plays
+    on the Runtime it drives the same ``astream`` every other invocable does,
     consumed to its end rather than left for a caller to iterate — ``ainvoke`` is never
     touched at all.
     """
@@ -215,13 +213,14 @@ async def test_run_workflow_now_drives_the_graph_through_the_runtimes_stream(pro
 
     monkeypatch.setattr(project.workflows.get("TwoStepFlow").build(), "ainvoke", spy_ainvoke)
 
-    out = await project.run_workflow("TwoStepFlow", {"text": "hi"})
+    async with project:
+        out = await project.run("TwoStepFlow", {"text": "hi"})
 
     assert out == {"text": "HI", "count": 1}
     assert calls == []  # astream, not ainvoke — the Runtime's own path for every invocable
 
 
-async def test_agent_node_now_uses_run_streamed_even_via_plain_run_workflow(project, monkeypatch):
+async def test_agent_node_now_uses_run_streamed_even_via_plain_run(project, monkeypatch):
     """The invariant this used to guarantee — a plain ``run_workflow()`` call never touches
     ``Runner.run_streamed`` — no longer holds once workflows play on the Runtime: v1's compat
     engine turns nested-agent streaming on unconditionally, because one Runtime run produces
@@ -240,10 +239,11 @@ async def test_agent_node_now_uses_run_streamed_even_via_plain_run_workflow(proj
         run_streamed_calls.append((agent, message))
         return FakeRunResultStreaming(events=[], final_output="Hello!")
 
-    monkeypatch.setattr("agentdeck.agents.runners.headless.Runner.run", fake_run)
-    monkeypatch.setattr("agentdeck.agents.runners.headless.Runner.run_streamed", fake_run_streamed)
+    monkeypatch.setattr("agentdeck.authoring.runners.agent.Runner.run", fake_run)
+    monkeypatch.setattr("agentdeck.authoring.runners.agent.Runner.run_streamed", fake_run_streamed)
 
-    out = await project.run_workflow("ChatFlow", {"input": "hi"})
+    async with project:
+        out = await project.run("ChatFlow", {"input": "hi"})
 
     assert out == {"input": "hi", "output": "Hello!"}
     assert run_calls == []

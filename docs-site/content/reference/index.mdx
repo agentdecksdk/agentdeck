@@ -16,15 +16,15 @@ neither can drift out from under a settings or CLI change:
 The rest of the public surface is behavioral rather than tabular, so it stays hand-written
 prose and isn't part of this generator:
 
-- [App](/reference/app) — the single entry point: lifecycle, the turn-starting methods, and
+- [Deck](/reference/deck) — the composition root: lifecycle, the turn-starting methods, and
   what `TurnResult` carries.
-- [Definitions](/reference/definitions) — `BaseAgent`, `BaseSandboxAgent`, and `BaseWorkflow`,
-  the classes a project subclasses.
-- [Capabilities](/reference/capabilities) — `CapabilitiesSpec` and each sandbox capability spec.
+- [Definitions](/reference/definitions) — `Agent`/`AgentDeclaration` and `Workflow`/
+  `WorkflowDeclaration`, the authoring API a project builds.
+- [Capabilities](/reference/capabilities) — currently disabled; see the page for why.
 
 Not yet published as pages:
 
-- Skill bundles and typed outputs
-- Workflow nodes (`AgentNode`, `SandboxAgentNode`, `SkillNode`, `LoadFileNode`) — covered today
-  in [Workflows](/concepts/workflows)
+- `Skills` and `MCP`, the capability objects a `Deck` composes — covered today in
+  [Skills](/concepts/skills) and [Workflows](/concepts/workflows)
+- Workflow nodes (`AgentNode`, `LoadFileNode`) — covered today in [Workflows](/concepts/workflows)
 - HTTP endpoints

@@ -1,91 +1,103 @@
 ---
 title: Definitions
-description: BaseAgent, BaseSandboxAgent, and BaseWorkflow — the classes a project subclasses, field by field.
+description: Agent, AgentDeclaration, Workflow, and WorkflowDeclaration — the authoring API, field by field.
 ---
 
 # Definitions
 
-Three classes are what a project actually subclasses. [Agents](/concepts/agents),
+Two constructors are what a project actually builds. [Agents](/concepts/agents),
 [Capabilities](/concepts/capabilities), and [Workflows](/concepts/workflows) cover why each
-attribute exists and how they compose; this page is the exhaustive one — every class attribute
-and every method, with its type and default.
+argument exists and how they compose; this page is the exhaustive one — every field and every
+method, with its type and default.
 
-## `BaseAgent`
+## `Agent`
 
 ```python
-from agentdeck.agents import BaseAgent
+from agentdeck import Agent
 ```
 
-| Attribute | Type | Default | Purpose |
+| Argument | Type | Default | Purpose |
 |---|---|---|---|
-| `name` | `str` | `""` | registry key and SDK agent name; falls back to the class name when empty |
-| `instructions` | `str` | `""` | the system prompt |
-| `handoff_description` | `str \| None` | `None` | how this agent describes itself to a peer deciding whether to hand off |
-| `model` | `str \| None` | `None` | per-agent override; `None` uses the `OPENAI_MODEL` setting |
-| `model_settings` | `Mapping[str, Any]` | `{}` | forwarded to `agents.ModelSettings(**model_settings)` |
-| `tools` | `Sequence[Any]` | `()` | already-built SDK tools |
-| `handoffs` | `Sequence[Any]` | `()` | peer agents this one can transfer to — a class, a registry name (`str`), a built `Agent`, or a `Handoff` |
-| `output_type` | `type \| AgentOutputSchemaBase \| None` | `None` | a Pydantic model (or `AgentOutputSchema`) for structured output; `None` for free text |
-| `hooks` | `AgentHooks \| None` | `None` | SDK lifecycle callbacks |
-| `mcp_server_names` | `Sequence[str]` | `()` | names from the `mcp:` settings group this agent depends on |
-| `subagents` | `Sequence[str]` | `()` | registry names spawnable via the `spawn_subagent` tool |
+| `base` | `type[AgentDeclaration] \| None` | `None` | a shareable set of defaults (see below); keyword-only |
+| `name` | `str` | `base.name`, or the base class name | registry key and SDK agent name |
+| `instructions` | `str` | `base.instructions` | the system prompt |
+| `handoff_description` | `str \| None` | `base.handoff_description` | how this agent describes itself to a peer deciding whether to hand off |
+| `model` | `str \| None` | `base.model` | per-agent override; `None` uses the `OPENAI_MODEL` setting |
+| `model_settings` | `Mapping[str, Any]` | `base.model_settings` | forwarded to `agents.ModelSettings(**model_settings)` |
+| `tools` | `Sequence[Any]` | `base.tools` | plain callables, already-built SDK tools, or a `Workflow` to expose as a tool |
+| `handoffs` | `Sequence[Any]` | `base.handoffs` | peer agents this one can transfer to — a registry name (`str`), a built `Agent`, or a `Handoff` |
+| `output_type` | `type \| AgentOutputSchemaBase \| None` | `base.output_type` | a Pydantic model (or `AgentOutputSchema`) for structured output; `None` for free text |
+| `hooks` | `AgentHooks \| None` | `base.hooks` | SDK lifecycle callbacks |
+| `skills` | `Sequence[str]` | `base.skills` | names resolved against the owning `Deck`'s `skills=` roots |
+| `mcp` | `Sequence[str]` | `base.mcp` | names resolved against the owning `Deck`'s `mcp=` file |
 
-`build()` reads these into `Agent(**kwargs)`; an empty attribute drops out of the call so the SDK
-applies its own default instead of an explicit empty one. Two methods matter beyond that:
+`Agent` is immutable once constructed (`AttributeError` on assignment) — a `Deck` compiles it once
+at `build()`, and nothing about the compiled result can drift out from under a mutation
+afterwards. A value explicitly passed here always wins over `base`'s, including an explicit empty
+value: omission, not falsiness, is what defers to the base. `base=` is keyword-only by
+construction, so `Agent(SomeDeclaration, name=...)` is a `TypeError` rather than a silently
+accepted positional base.
 
 | Method | Signature | Behavior |
 |---|---|---|
-| `build()` | `() -> agents.Agent` | builds a fresh SDK agent from the class attributes above — no caching across calls |
+| `build()` | `() -> agents.Agent` | compiles a fresh SDK agent from the fields above — no caching, and no catalog: handoffs by name and `tools=[a_workflow]` need `Deck.build()`'s two-pass compile instead |
 | `run()` | `(message=None, **runner_options) -> agents.RunResult` | one-shot **headless** run |
-| `as_tool()` | `(**as_tool_kwargs) -> FunctionTool` | exposes this agent as a tool another agent can call |
 
-`BaseAgent.run()` is not `App.run_agent()`. It builds the agent and calls the SDK's own
-`Runner.run` directly — no Runtime, no event log, and it returns the SDK's `RunResult`, not a
-`TurnResult`. Reach for it inside a script or a test that only needs one headless call and does
-not care about the log; reach for `App.run_agent` (see [App](/reference/app)) for anything that
-should be recorded and readable back afterwards.
+`Agent.run()` is not `Deck.run()`. It calls the SDK's own `Runner.run` directly — no Runtime, no
+event log, and it returns the SDK's `RunResult`, not a `TurnResult`. Reach for it inside a script
+or a test that only needs one headless call and does not care about the log; reach for
+`Deck.run()` (see [Deck](/reference/deck)) for anything that should be recorded and readable back
+afterwards.
 
-An unknown name in `handoffs` raises `NotFoundError` naming the agents that do exist. MCP servers
-named in `mcp_server_names` that are missing from config, or whose connection failed, are dropped
-at build time rather than raised — an unreachable MCP host costs that agent its toolset, not the
-whole process.
+`skills=`/`mcp=` names unresolved against the owning `Deck`'s catalog fail `Deck.build()` naming
+the offending agent and the names it declared that nothing provides.
 
-## `BaseSandboxAgent`
+### `AgentDeclaration`
 
 ```python
-from agentdeck.agents import BaseSandboxAgent, CapabilitiesSpec
+from agentdeck.authoring import AgentDeclaration
 ```
 
-Subclasses `BaseAgent` and adds one attribute:
-
-| Attribute | Type | Default | Purpose |
-|---|---|---|---|
-| `capabilities` | `CapabilitiesSpec` | `CapabilitiesSpec()` | sandbox powers: shell, filesystem, memory, compaction, skills — see [Capabilities](/reference/capabilities) |
-
-`build()` returns an `agents.sandbox.SandboxAgent` instead of a plain `Agent`, built from the same
-`BaseAgent` attributes plus `capabilities.build(agent_model=cls.model)`. `run()` and `as_tool()`
-are inherited unchanged.
-
-## `BaseWorkflow`
+A reusable set of defaults: subclass it, set class attributes, and pass the subclass as `base=`
+to as many `Agent(...)` calls as need it.
 
 ```python
-from agentdeck.workflows import BaseWorkflow, StateGraph, END
+class BookingBase(AgentDeclaration):
+    instructions = "You handle bookings."
+    model_settings = {"temperature": 0.2}
+
+booking = Agent(base=BookingBase, name="booking", tools=[find_slots])
+support = Agent(base=BookingBase, name="support", instructions="You handle support tickets.")
 ```
 
-| Attribute | Type | Default | Purpose |
-|---|---|---|---|
-| `name` | `str` | `""` | registry key; falls back to the class name when empty |
-| `description` | `str` | `""` | tool description when exposed via `as_tool()`; falls back to the class docstring's first line |
-| `state` | `type` (a Pydantic model) | *required* | the graph's state schema — override on every subclass |
-| `durable` | `bool` | `False` | compiles with a checkpointer (`AGENTDECK_CHECKPOINT_*`) when `True`, so a run can resume by `thread_id` after the process dies |
+`AgentDeclaration` is never constructed or run directly — every attribute it carries is a
+`ClassVar`, and it exists only to be named as `Agent(base=...)`.
 
-Override `build_graph()` — it must return an unbuilt `StateGraph` — and the rest is method-driven:
+## `Workflow`
+
+```python
+from agentdeck import Workflow
+```
+
+| Argument | Type | Default | Purpose |
+|---|---|---|---|
+| `base` | `type[WorkflowDeclaration] \| None` | `None` | a shareable graph-building declaration (see below); keyword-only |
+| `name` | `str` | `base.name`, or the base class name | registry key |
+| `description` | `str` | `base.description` | tool description when exposed via `as_tool()` |
+| `state` | `type` (a Pydantic model) | `base.state` | the graph's state schema — required one way or the other |
+| `durable` | `bool` | `base.durable` (`False`) | compiles with a checkpointer (`AGENTDECK_CHECKPOINT_*`) when `True`, so a run can resume by `thread_id` after the process dies |
+| `graph` | `() -> StateGraph` | `base.build_graph` | a bare graph-building factory, in place of overriding `build_graph()` on a `base=` |
+
+Exactly one of `base=` (a `WorkflowDeclaration` subclass overriding `build_graph()`) or `graph=`
+(a bare `() -> StateGraph` factory) supplies the graph — the same override-on-construction shape
+`Agent(base=...)` has, so the two constructors read as one pattern. `Workflow` is immutable once
+constructed, for the same reason `Agent` is.
 
 | Method | Signature | Behavior |
 |---|---|---|
-| `build_graph()` | `() -> StateGraph` | required override; the graph, uncompiled |
-| `build()` | `() -> CompiledStateGraph` | compiles (and caches) the graph, with a checkpointer iff `durable` |
-| `run()` | `(state=None, *, thread_id=None, **runner_options) -> Any` | runs the graph once; returns the final state or an `InterruptResult` |
+| `build_graph()` | `() -> StateGraph` | the graph, uncompiled — delegates to `graph=`/`base.build_graph()` |
+| `build()` | `() -> CompiledStateGraph` | compiles the graph, with a checkpointer iff `durable` |
+| `run()` | `(state=None, *, thread_id=None, **runner_options) -> Any` | runs the graph once, direct-call (no event log); returns the final state or an `InterruptResult` |
 | `run_stream()` | `(state=None, *, thread_id=None, **runner_options) -> AsyncIterator` | `node_update`/`custom` events, then `done` — or an `InterruptResult` in its place |
 | `resume()` | `(thread_id, value, **runner_options) -> Any` | continues a paused run; `interrupt()` returns `value` |
 | `pending()` | `() -> list[InterruptResult]` | every thread of this workflow currently paused on an interrupt |
@@ -96,15 +108,38 @@ Override `build_graph()` — it must return an unbuilt `StateGraph` — and the 
 no checkpointer to resume from. `thread_id` is required when `durable` is `True` (a `ValueError`
 otherwise) and ignored when it is not.
 
-The same asymmetry as `BaseAgent.run()` applies here. Calling `SomeWorkflow.run(...)` directly
-drives the compiled graph and writes nothing to the event log; `App.run_workflow` and
-`App.resume_workflow` are what the Runtime actually plays, and record the run — see
-[App](/reference/app). `App.run_workflow_stream` is the one App method that calls this class's own
-`run_stream()` directly rather than through the Runtime, which is why it is also the one that
-keeps no log of its own.
+The same asymmetry as `Agent.run()` applies here. Calling `some_workflow.run(...)` directly drives
+the compiled graph and writes nothing to the event log; `Deck.run()` and `Deck.answer()` are what
+the Runtime actually plays, and record the run — see [Deck](/reference/deck). `Deck.stream()`
+plays a workflow the same way, so nothing on `Deck` calls `run_stream()` — it stays useful for a
+script or a test that wants the raw graph stream with no log.
 
 `as_tool()` requires `state` to be a Pydantic model (`TypeError` otherwise, since the tool's JSON
 schema comes from `state.model_json_schema()`). `defaults` pins specific state fields to fixed
 values regardless of what the model passes, and strips those fields from the schema the model
 sees; `output_keys` filters the final state down to a subset of channels in the tool's return
 value. Both are optional — the default is the whole schema, the whole final state.
+
+### `WorkflowDeclaration`
+
+```python
+from agentdeck.authoring import WorkflowDeclaration
+```
+
+Override `state` and `build_graph()`:
+
+```python
+class Booking(WorkflowDeclaration):
+    state = BookingState
+    durable = True
+
+    @classmethod
+    def build_graph(cls):
+        g = StateGraph(cls.state)
+        ...
+        return g
+
+booking_flow = Workflow(base=Booking, name="Booking")
+```
+
+Never constructed or run directly — it exists only to be named as `Workflow(base=...)`.

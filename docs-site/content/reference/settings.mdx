@@ -52,14 +52,6 @@ Langfuse LLM-observability export config.
 | `AGENTDECK_LANGFUSE_SAMPLE_RATE` | `float` | `1.0` | Fraction of traces exported to Langfuse, from 0.0 to 1.0. |
 | `AGENTDECK_LANGFUSE_SERVICE_NAME` | `str` | `'agentdeck'` | OpenTelemetry resource `service.name` for every exported span (host process and sandboxed skills). Without it, spans fall back to `unknown_service` and are unattributed in the Langfuse UI. |
 
-## `McpSettings`
-
-Named MCP servers an agent can depend on (transport / URL / headers).
-
-| Env var | Type | Default | Description |
-|---|---|---|---|
-| `AGENTDECK_MCP_SERVERS` | `dict[str, McpServerSettings]` | `{}` | Named MCP servers, keyed by the name `BaseAgent.mcp_server_names` references. Set as a JSON object (e.g. `{"agentdeck":{"url":"http://host:8765/mcp"}}`) — deep-merged per server over the YAML `mcp:` default. |
-
 ## `TavilySettings`
 
 Tavily web-search API. One knob: `TAVILY_API_KEY` env var (or YAML `tavily: api_key:`).

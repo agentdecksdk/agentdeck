@@ -1,34 +1,34 @@
-"""String-name handoffs (#12): break bidirectional import cycles between agent bundles."""
+"""String-name handoffs (#12): break bidirectional import cycles between agent bundles.
+
+Resolution moved from ``BaseAgent.build()``'s own disk lookup (v1) to
+``InvocableRegistry.load()``'s two-pass compile (``authoring.compile.link_handoffs``,
+#164): every agent in a project is discovered before any handoff is resolved, so a
+cycle between two bundle files still needs no import from one to the other.
+"""
 
 import sys
 import textwrap
 
 import pytest
 
-from agentdeck.agents.registry import AgentRegistry
 from agentdeck.errors import NotFoundError
 
 BOOKING_AGENT_PY = """
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
-class BookingAgent(BaseAgent):
-    handoff_description = "books things"
-    handoffs = ["CancelAgent"]
+booking_agent = Agent(name="BookingAgent", handoff_description="books things", handoffs=["CancelAgent"])
 """
 
 CANCEL_AGENT_PY = """
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
-class CancelAgent(BaseAgent):
-    handoff_description = "cancels things"
-    handoffs = ["BookingAgent"]
+cancel_agent = Agent(name="CancelAgent", handoff_description="cancels things", handoffs=["BookingAgent"])
 """
 
 GHOST_AGENT_PY = """
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 
-class GhostAgent(BaseAgent):
-    handoffs = ["NoSuchAgent"]
+ghost_agent = Agent(name="GhostAgent", handoffs=["NoSuchAgent"])
 """
 
 
@@ -41,9 +41,9 @@ def _mount(tmp_path, monkeypatch, bundles: dict[str, str]):
     # the project alias is process-global; drop stale mounts from other tests
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
-    from agentdeck import App
+    from agentdeck.deck import Deck
 
-    return App()
+    return Deck.from_project()
 
 
 @pytest.fixture
@@ -57,22 +57,24 @@ def ghost_project(tmp_path, monkeypatch):
 
 
 def test_mutual_string_handoffs_both_build(mutual_project):
-    registry = AgentRegistry("agentdeck_project")
-    booking_cls = registry.get("BookingAgent")
-    cancel_cls = registry.get("CancelAgent")
+    from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
+    from agentdeck.runtime.discovery import InvocableRegistry
 
-    booking = booking_cls.build()
-    cancel = cancel_cls.build()
+    specs = InvocableRegistry([OpenAIAgentsEngine()]).load()
+    booking = specs["BookingAgent"].native
+    cancel = specs["CancelAgent"].native
 
     assert [h.name for h in booking.handoffs] == ["CancelAgent"]
     assert [h.name for h in cancel.handoffs] == ["BookingAgent"]
-    assert booking.handoffs[0].handoffs[0] is booking  # cycle resolves to the same instance, not a placeholder
+    assert booking.handoffs[0] is cancel  # cycle resolves to the same compiled instance, not a placeholder
+    assert cancel.handoffs[0] is booking
 
 
-def test_app_load_green_with_mutual_handoffs(mutual_project):
-    assert sorted(mutual_project.load()["agents"]) == ["BookingAgent", "CancelAgent"]
+def test_deck_builds_green_with_mutual_handoffs(mutual_project):
+    mutual_project.build()
+    assert sorted(mutual_project.agents) == ["BookingAgent", "CancelAgent"]
 
 
 def test_unknown_handoff_name_raises_not_found_error(ghost_project):
     with pytest.raises(NotFoundError, match="GhostAgent"):
-        ghost_project.load()
+        ghost_project.build()

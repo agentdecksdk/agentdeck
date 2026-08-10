@@ -1,12 +1,16 @@
-"""Minimal HTTP surface: serve the ./.agentdeck project over FastAPI.
+"""Minimal HTTP surface: serve a project over FastAPI.
 
     agentdeck-serve                  # console script; HOST / PORT env override
 
-Every endpoint below runs on the v2 ``Runtime`` that ``App`` composes: the handler builds a
+Every endpoint below runs on the v2 ``Runtime`` a ``Deck`` composes: the handler builds a
 ``RunContext``, calls ``Runtime.run`` / ``Runtime.resume`` / ``Runtime.pending``, and hands the
 canonical events to ``surfaces/serve/compat.py``, which renders v1's frames. So a turn — chat
 or workflow — leaves one canonical event log behind. The wire below is unchanged by that; that
 is the point, and ``tests/golden/`` is what proves it.
+
+``create_app()`` is ``Deck.from_project().asgi()`` — kept as a module-level function because the
+console script and every existing test import it by name; ``build_asgi_app(deck)`` is what
+:meth:`agentdeck.deck.Deck.asgi` actually calls, for a ``Deck`` built any other way.
 
 Endpoints:
     GET  /health                     -> {"status": "ok", agents, workflows, skills}
@@ -40,9 +44,9 @@ Endpoints:
                                         the continuation this call played — 409 if the run is
                                         not paused
 
-The workflow inbox above reads the event log, while ``App.pending_interrupts()`` still reads
+The workflow inbox above reads the event log, while ``Deck.due_resumes()`` still reads
 the graph's checkpointer — so the two disagree once approvals are driven through both doors
-(see the CHANGELOG; #120 joins them).
+(see the CHANGELOG for the plan to join them).
 """
 
 from __future__ import annotations
@@ -52,15 +56,13 @@ import os
 from contextlib import aclosing, asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from agentdeck.app import App
-from agentdeck.core.content import DataBlock, coerce_input
+from agentdeck.core.content import coerce_input
 from agentdeck.core.status import status_of
 from agentdeck.errors import AgentdeckError, NotFoundError, SessionBusyError
 from agentdeck.surfaces.serve.compat import (
     chat_frames,
     chat_result,
     interrupt_inbox,
-    resume_result,
     workflow_frames,
     workflow_result,
 )
@@ -71,19 +73,44 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from agentdeck.core.events import Event
+    from agentdeck.deck import Deck
 
 logger = logging.getLogger(__name__)
 
 
 def create_app() -> Any:
+    from agentdeck.deck import Deck
+
+    return Deck.from_project().asgi()
+
+
+def _require_agent(deck: Deck, name: str) -> None:
+    """v1's 404 wording, owned here now that ``Deck`` exposes only the public ``agents``
+    mapping — a route that needs "unknown agent" as a client-facing miss checks membership
+    itself rather than reaching for a private lookup."""
+    if name not in deck.agents:
+        raise NotFoundError(f"No agent named {name!r}. Available: {sorted(deck.agents)}.")
+
+
+def _require_workflow(deck: Deck, name: str) -> None:
+    if name not in deck.workflows:
+        raise NotFoundError(f"No workflow named {name!r}. Available: {sorted(deck.workflows)}.")
+
+
+def build_asgi_app(deck: Deck) -> Any:
+    """The FastAPI app whose lifespan opens and closes ``deck`` — what
+    :meth:`agentdeck.deck.Deck.asgi` calls. Kept here, not in ``deck.py``: this is the one
+    module allowed to import FastAPI and the v1 wire-rendering helpers, the same rule every
+    other adapter directory follows for its own external system.
+    """
     from fastapi import FastAPI, HTTPException, Request
     from fastapi.responses import JSONResponse, StreamingResponse
 
     @asynccontextmanager
     async def lifespan(api: FastAPI) -> AsyncIterator[None]:
-        # App.open() closes the Redis session client + MCP servers on shutdown
+        # `async with deck` closes the Redis session client + MCP servers on shutdown
         # (including SIGTERM from `compose stop`), so no connection is leaked.
-        async with App.open() as deck:
+        async with deck:
             _warn_if_event_log_is_in_memory(deck)
             api.state.deck = deck
             yield
@@ -92,7 +119,7 @@ def create_app() -> Any:
     api = FastAPI(title="agentdeck", lifespan=lifespan)
     api.state.deck = None  # set by the lifespan; None means "not started yet"
 
-    def deck() -> App:
+    def _deck() -> Deck:
         if api.state.deck is None:
             raise HTTPException(status_code=503, detail="agentdeck is not started")
         return api.state.deck
@@ -123,7 +150,7 @@ def create_app() -> Any:
     async def health() -> Any:
         if api.state.deck is None:
             return JSONResponse({"status": "starting"}, status_code=503)
-        return {"status": "ok", **api.state.deck.inventory}
+        return {"status": "ok", **_inventory(api.state.deck)}
 
     @api.post("/agents/{name}/chat")
     async def chat(name: str, body: dict[str, Any], stream: bool = False) -> Any:
@@ -144,12 +171,11 @@ def create_app() -> Any:
             raise HTTPException(
                 status_code=422, detail=f"message must be a string, got {type(message).__name__}"
             ) from exc
-        app = deck()  # resolve before streaming so a pre-startup 503 keeps its status code
-        # Resolved against the agent registry, not the Runtime's invocables: this route is
-        # agents-only (a workflow name must still 404 here), and the registry's message is
-        # the one v1 answers with.
-        app.agents.get(name)
-        run = app.runtime.run(name, content, session_id=session_id)
+        deck = _deck()  # resolve before streaming so a pre-startup 503 keeps its status code
+        # Resolved against the agent catalog, not the Runtime's invocables: this route is
+        # agents-only (a workflow name must still 404 here), and the message matches v1's own.
+        _require_agent(deck, name)
+        run = deck.stream(name, content, session_id=session_id)
         if stream:
             return StreamingResponse(
                 chat_frames(await _opened(run)),
@@ -161,13 +187,13 @@ def create_app() -> Any:
 
     @api.post("/workflows/{name}")
     async def run_workflow(name: str, state: dict[str, Any], stream: bool = False, thread_id: str | None = None) -> Any:
-        app = deck()  # resolve before streaming so a pre-startup 503 keeps its status code
-        # Workflows-only, resolved against the workflow registry rather than the Runtime's
+        deck = _deck()  # resolve before streaming so a pre-startup 503 keeps its status code
+        # Workflows-only, resolved against the workflow catalog rather than the Runtime's
         # invocables: an agent name must still 404 here, with v1's message.
-        app.workflows.get(name)
+        _require_workflow(deck, name)
         # The posted state *is* the graph's input, and the thread the caller named is the
         # session it runs under: one turn per thread at a time, and a resume can find it later.
-        run = app.runtime.run(name, [DataBlock(data=state)], session_id=thread_id)
+        run = deck.stream(name, state, session_id=thread_id)
         if stream:
             return StreamingResponse(
                 workflow_frames(await _opened(run)),
@@ -178,15 +204,15 @@ def create_app() -> Any:
 
     @api.post("/runs/{run_id}/pause")
     async def pause_run(run_id: str, body: dict[str, Any] | None = None) -> Any:
-        return await _control(deck().pause_run, run_id, body, "pause")
+        return await _control(_deck().pause, run_id, body, "pause")
 
     @api.post("/runs/{run_id}/cancel")
     async def cancel_run(run_id: str, body: dict[str, Any] | None = None) -> Any:
-        return await _control(deck().cancel_run, run_id, body, "cancel")
+        return await _control(_deck().cancel, run_id, body, "cancel")
 
     @api.post("/runs/{run_id}/resume")
     async def resume_run(run_id: str, body: dict[str, Any] | None = None) -> Any:
-        events = await deck().resume_run(run_id, _reason(body))
+        events = await _deck().resume(run_id, _reason(body))
         if not events:
             # 409, not 404: the run may well exist and simply not be paused — running,
             # finished, cancelled, or already picked up by another worker. All of those are the
@@ -218,35 +244,44 @@ def create_app() -> Any:
 
     @api.get("/workflows/{name}/pending")
     async def pending_interrupts(name: str) -> Any:
-        app = deck()
-        app.workflows.get(name)
-        return interrupt_inbox(await app.runtime.pending(), name)
+        deck = _deck()
+        _require_workflow(deck, name)
+        return interrupt_inbox(await deck.pending(), name)
 
     @api.post("/workflows/{name}/{thread_id}/resume")
     async def resume_workflow(name: str, thread_id: str, body: dict[str, Any]) -> Any:
         if "value" not in body:
             raise HTTPException(status_code=422, detail="missing field: value")
-        app = deck()
-        app.workflows.get(name)
+        deck = _deck()
+        _require_workflow(deck, name)
+        # v1's own 404 names the thread, not a run_id the caller never posted — so the lookup
+        # stays here rather than moving into Deck.answer, whose own miss talks about run_id.
         paused = next(
-            (run for run in await app.runtime.pending() if run.invocable == name and run.thread_id == thread_id),
+            (run for run in await deck.pending() if run.invocable == name and run.thread_id == thread_id),
             None,
         )
         if paused is None:
             raise NotFoundError(f"No paused run of {name!r} on thread {thread_id!r}.")
-        result = await resume_result(
-            app.runtime.resume(name, thread_id, body["value"], run_id=paused.run_id, session_id=paused.session_id)
-        )
-        if result is None:
-            # This caller's answer changed nothing: either the claim went to somebody else
-            # between the listing and the resume, or the log's entry was a ghost — a thread
-            # already answered through the Python API, whose inbox is the checkpointer rather
-            # than the log. Either way there is no paused run here, and saying so beats handing
-            # back the stale final state a replayed thread produces while dropping the answer.
-            raise NotFoundError(f"No paused run of {name!r} on thread {thread_id!r}.")
-        return result
+        return await deck.answer(paused.run_id, body["value"])
 
     return api
+
+
+def _inventory(deck: Deck) -> dict[str, list[str]]:
+    """v1's ``{"agents": [...], "workflows": [...], "skills": [...]}`` — built from ``Deck``'s
+    own properties rather than a separate cache, since they are already read-only mappings.
+
+    ``skills.list()``, not ``.build()``: ``build()`` re-scans disk and overwrites the registry
+    every call, which would make a hot probe endpoint re-read every ``SKILL.md`` on each request
+    and let one edited after startup change what ``load_skill`` returns mid-run — the catalog is
+    supposed to be immutable once ``BUILT``. ``Deck.build()`` already populated the cache
+    ``list()`` reads.
+    """
+    return {
+        "agents": sorted(deck.agents),
+        "workflows": sorted(deck.workflows),
+        "skills": sorted(deck.skills.list()) if deck.skills is not None else [],
+    }
 
 
 async def _opened(run: AsyncGenerator[Event, None]) -> AsyncGenerator[Event, None]:
@@ -273,7 +308,7 @@ async def _opened(run: AsyncGenerator[Event, None]) -> AsyncGenerator[Event, Non
     return replayed()
 
 
-def _warn_if_event_log_is_in_memory(deck: App) -> None:
+def _warn_if_event_log_is_in_memory(deck: Deck) -> None:
     """Say so once at startup: the default event store is fine for a session and wrong for a
     server. It never evicts, every v1 request is unnamespaced, and a run reads its whole
     log before it starts — so one long conversation costs quadratic reads and the process

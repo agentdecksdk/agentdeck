@@ -17,10 +17,9 @@ from agentdeck.adapters.tools.mcp import (
     MCPLifecycle,
     MCPServerStreamableHttpResilient,
     MCPToolSource,
-    load_mcp_config,
     mcp_status_banner,
 )
-from agentdeck.agents import BaseAgent
+from agentdeck.authoring import Agent
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports import ToolSet, ToolSourcePort
 
@@ -44,9 +43,8 @@ BANNER = (
 )
 
 
-class Researcher(BaseAgent):
-    instructions = INSTRUCTIONS
-    mcp_server_names = ("knowledge",)
+def _researcher() -> Agent:
+    return Agent(name="Researcher", instructions=INSTRUCTIONS, mcp=("knowledge",))
 
 
 def _spec(*names):
@@ -185,20 +183,20 @@ def test_the_banner_names_every_missing_server():
     assert "`a`, `b`" in mcp_status_banner(["a", "b"])
 
 
-def test_v1_agent_prompt_is_untouched_while_its_server_is_up(connect):
+def test_agent_prompt_is_untouched_while_its_server_is_up(connect):
     _start({"knowledge": KNOWLEDGE})
 
-    agent = Researcher.build()
+    agent = _researcher().build()
 
     assert agent.instructions == INSTRUCTIONS  # byte-identical, so prompt caches keep hitting
     assert [server.name for server in agent.mcp_servers] == ["knowledge"]
 
 
-def test_v1_agent_prompt_carries_the_banner_while_its_server_is_down(connect):
+def test_agent_prompt_carries_the_banner_while_its_server_is_down(connect):
     connect.add("knowledge")
     _start({"knowledge": KNOWLEDGE})
 
-    agent = Researcher.build()
+    agent = _researcher().build()
 
     assert agent.instructions == BANNER + INSTRUCTIONS
     assert agent.mcp_servers == []
@@ -225,15 +223,3 @@ def test_the_mcp_client_is_banned_outside_this_adapter(tmp_path):
 
     assert "TID251" in result.stdout
     assert "`agents.mcp` is banned" in result.stdout
-
-
-def test_the_v1_import_paths_re_export_the_relocated_objects():
-    """``agentdeck.agents.mcp`` is a shim: same objects, so patching one patches both."""
-    import agentdeck.agents as v1_agents
-    import agentdeck.agents.mcp as v1_mcp
-
-    assert v1_mcp.MCPLifecycle is MCPLifecycle
-    assert v1_agents.MCPLifecycle is MCPLifecycle
-    assert v1_mcp.mcp_status_banner is mcp_status_banner
-    assert v1_mcp.MCPServerStreamableHttpResilient is MCPServerStreamableHttpResilient
-    assert v1_mcp.load_mcp_config is load_mcp_config

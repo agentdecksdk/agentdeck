@@ -190,14 +190,109 @@ of vanishing the moment the call returns.
 
 ### Known limits
 
-- `App.run_workflow_stream` is unchanged: it still drives the compiled graph directly and
-  writes nothing to the event log, so a run started there cannot be found — and so cannot be
-  resumed — by the now-Runtime-backed `resume_workflow`. Start on `run_workflow` (or
-  `resume_workflow`) instead if one thread needs both the log and a live stream.
-- `App.tick()` and `App.due_resumes()` still resume a paused workflow through its LangGraph
-  checkpointer rather than the Runtime (#120), so a timer-paused run started through the new
-  `run_workflow` is resumed outside the log: its own log entry stays `WAITING_HUMAN` until
-  `stale_run_after` reclaims it.
+- `Deck.tick()` and `Deck.due_resumes()` still resume a paused workflow through its LangGraph
+  checkpointer rather than the Runtime (#120), so a timer-paused run started through `run` is
+  resumed outside the log: its own log entry stays `WAITING_HUMAN` until `stale_run_after`
+  reclaims it.
+
+### Changed
+
+- **Breaking (v3.0.0 in progress, #164):** a bundle's `agent.py`/`workflow.py` now builds an
+  `Agent(...)`/`Workflow(...)` instance from `agentdeck.authoring` instead of subclassing
+  `BaseAgent`/`BaseWorkflow`. `agentdeck.agents` and `agentdeck.workflows` are removed;
+  `LoadFileNode` and `AgentNode` move to `agentdeck.authoring.nodes`, the capability mixins
+  move to `agentdeck.authoring.capabilities`, and `web_search` moves to
+  `agentdeck.authoring.web_search`. `Agent.mcp` replaces `BaseAgent.mcp_server_names`.
+  Subagent delegation (`BaseAgent.subagents`) and the sandboxed agent path
+  (`BaseSandboxAgent`, `SandboxAgentNode`) are dropped rather than ported — sandboxing is
+  disabled and tracked separately (#163); a workflow that needs a sub-run composes another
+  `Agent`/`Workflow` and calls it directly. `SkillNode` is removed along with it — a workflow
+  invokes a skill through its executor, not a graph node. This is the first slice of the
+  `Deck` composition API (#164); `App` still serves `.agentdeck/` projects unchanged for now
+  and is removed once `Deck` replaces it later in the same effort.
+- **Breaking (v3.0.0 in progress, #164): a skill is disclosed into an agent's own execution, not
+  run as a program.** `agentdeck.skills.Skills` is the new capability object — one or more root
+  directories, scanned direct-child only (`<root>/<name>/SKILL.md`, never recursive) and merged
+  into one name-keyed registry at `build()`; a name declared under two roots fails naming both
+  paths. `build()` also enforces what a permissive scan would not: a `SKILL.md`'s frontmatter
+  `name` must match its directory name, and it must declare a non-empty `description` — pass
+  `validate=False` for the old lenient fallback. `agentdeck.skills.SkillRegistry` (single root,
+  no validation) is removed; `App.skills` is now a `Skills` over `.agentdeck/skills`. The
+  executable skill model — `SkillExecutor`, `SkillOutputSchema`, the `skill_runtime` subprocess
+  package, and the sandboxed `scripts/run.py` contract they wrapped — is removed outright rather
+  than ported: nothing in the package or its tests used it, and sandboxing is disabled and
+  tracked separately (#163). An activated skill now reaches an agent as an instructions-block
+  (name + description per declared skill) plus a `load_skill(name)` tool that reads the full
+  `SKILL.md` body on demand, scoped to that agent's own `skills=[...]`; `SkillError` (the base
+  exception a workflow node may still raise itself) is unaffected.
+- **Breaking (v3.0.0 in progress, #164): named MCP servers move to a `.mcp.json` file,
+  reversing #78.** `agentdeck.mcp.MCP` parses one file's `mcpServers` object (the shape Claude
+  Code already uses) and validates every entry; `Agent.mcp` resolves names against it through
+  `Deck`'s own `build()`. The `mcp:` section of `config.yaml`/`config.default.yaml` and the
+  `AGENTDECK_MCP_SERVERS` env var are removed — `McpSettings` is gone, and `McpServerSettings`
+  (the per-server shape, unchanged) moves from `agentdeck.runtime.settings` to `agentdeck.mcp`.
+  `App` now reads `.mcp.json` from the project root (a sibling of `.agentdeck/`, not inside it)
+  when present, and boots with no servers when it is absent — the same fail-open behavior an
+  empty `mcp.servers` always had. `MCPLifecycle.configure`/`.startup` no longer fall back to
+  process settings; a caller now always hands them the config to use.
+
+### Added
+
+- **`agentdeck.deck.Deck`**, the v3 composition root (#164): `Deck(agents=..., workflows=...,
+  skills=..., mcp=..., context=...)` builds and runs a catalog from Python objects with no
+  `.agentdeck/` project on disk, and `Deck.from_project(path)` discovers the same four arguments
+  from today's directory layout — both end at the same constructor, so there is one catalog
+  mechanism either way. Lifecycle is `NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED`:
+  `build()` validates every name a catalog references (an unknown skill, MCP server, or
+  workflow-as-tool name; an agent and a workflow sharing a root name) and compiles every
+  agent/workflow to an `InvocableSpec`, reading only local files — no network call, no MCP
+  server started, and idempotent, so it doubles as a CI check. `deck.agents`/`deck.workflows`
+  are read-only mappings once built; `run`/`stream`/`pause`/`cancel`/`resume`/`status`/`pending`
+  require an opened deck (`async with deck: ...`), which is also what starts every configured
+  MCP server and composes the Runtime. Closing tears down only what a Deck itself instantiated
+  — an `MCP(...)` it holds, always, and an event store it built from settings — never a store
+  handed in through the (private, test-only) `_store=` seam. `Deck.run`/`.stream`/`.resume`
+  accept `context=` for forward compatibility but raise on a non-`None` value: full `Context[T]`
+  injection is its own, larger effort (`docs/delivery/plan-context-injection.md`) and is not
+  wired into this slice. `App` is unchanged and still serves `.agentdeck/` projects; `Deck`
+  replaces it as the documented entry point once `agentdeck serve` and the CLI move onto it.
+- **`Deck.asgi()`**: the ASGI app `agentdeck serve` runs, built from a `Deck` instead of an
+  `App` (#164). `agentdeck.serve.create_app()` — the console script's entry point, and every
+  existing test's — is now `Deck.from_project().asgi()`; the lifespan opens and closes that same
+  `Deck` (`async with deck: ...`) instead of building an `App` of its own. The HTTP contract has
+  not moved: every route, status code and event-stream shape is identical, which
+  `tests/golden/`'s byte-for-byte snapshots confirm. `GET /health`'s inventory now reads off
+  `Deck.agents`/`.workflows`/`.skills` directly rather than a cached dict, with the same three
+  keys in the same shape.
+- **`Deck.answer(run_id, value)`** (#164): answers the interrupt the run named by `run_id` is
+  paused on, in place of `resume_workflow(name, thread_id, value)`'s five-argument shape.
+  Pairs with `pending()` — list the inbox, then answer one run by the `run_id` it named there;
+  the lookup a caller used to do by hand (which invocable, which thread, which session) now
+  travels with the pending entry.
+- `agentdeck.__init__` now also exports `Agent` and `Workflow` alongside `Deck` (#164), so
+  `from agentdeck import Agent, Deck, Workflow` covers the whole composition surface without
+  reaching into `agentdeck.authoring`.
+
+### Removed
+
+- **Breaking (v3.0.0, #164): `App`, `agentdeck.app`, `agentdeck.agents` and
+  `agentdeck.workflows` are gone, with no re-export shim.** `Deck` (`agentdeck.deck.Deck`, also
+  exported as `agentdeck.Deck`) is the one composition root now: `Deck(...)` in place of
+  `App()`, `Deck.from_project()` in place of discovery-on-construction. `agentdeck serve`'s
+  console script and HTTP contract are unchanged from the previous slice
+  (`Deck.from_project().asgi()`); everything else that called `App` migrates to `Deck` per the
+  surface change below.
+- **Breaking (v3.0.0, #164): `Deck`'s Python API is `run`/`stream`/`pause`/`cancel`/`status`/
+  `resume`/`pending`/`answer` only.** `run_agent`, `chat`, `chat_stream`, `run_workflow`,
+  `run_workflow_stream` and `resume_workflow` — v1's method names, carried onto `Deck`
+  unchanged in the previous slice — are removed outright, and `pending_interrupts` is no
+  longer public (folded into `due_resumes`, which stays). None of the six were ever called by
+  `agentdeck.serve` — it always drove the Runtime directly — so the HTTP surface and
+  `tests/golden/`'s byte-for-byte wire are unaffected; only the Python API changes. `run`
+  covers `run_agent`/`chat`/`run_workflow` uniformly (pass `session_id=` for a conversational
+  or threaded turn), and `stream` covers `chat_stream` the same way — including, now, what
+  `run_workflow_stream` used to do outside the Runtime: a workflow's stream is canonical
+  `Event`s, not the old dict shape, whichever method starts it.
 
 ## [2.0.0] - 2026-08-06
 
