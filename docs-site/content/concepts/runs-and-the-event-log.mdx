@@ -92,6 +92,20 @@ events, `[]` when there are none. A consumer that gets events out of order, or s
 missing, refetches the run and runs the same check over the result instead of guessing from
 timing.
 
+## Every event says which schema wrote it
+
+Each envelope carries `v`, a `{major, minor}` pair, and the two halves mean different things.
+**`major`** is what a reader must already understand to parse the envelope at all: reading a log
+whose `major` this version does not support fails on the first event, by name, rather than as a
+validation error on a model you have never met. **`minor`** records an addition an old reader
+already tolerates by construction — a kind it has never seen arrives as `UnknownEvent`, a content
+block it has never seen as `UnknownBlock`, and neither consults the number to do it.
+
+So a minor bump is safe to read with an older version and a major bump is not, which is also the
+migration rule: a durable log written by an incompatible major has to be replayed into a new store,
+or read with the version that wrote it. Only `sqlite`, `postgresql` and `redis` are affected —
+`memory://` keeps nothing across a restart, so there is nothing to migrate.
+
 ## Status is a fold, not a field
 
 A run's status — `pending`, `running`, `paused`, `waiting_human`, `completed`, `failed`, or
