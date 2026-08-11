@@ -126,38 +126,35 @@ Per-slice notes:
   "There is no `context=`" as a deliberate promise. The `test_every_public_deck_method_is_documented_somewhere`
   guard in `tests/test_docs_site.py` will notice the changed signatures.
 
-## Rulings needed before slice 3
+## Rulings
 
 Two questions the design plan could not have answered, because the API it describes did not exist
-yet. Neither blocks slices 1–2.
+yet. **Both are now settled**, and neither ever blocked slices 1–2.
 
-### A. Does `answer()` take a context? And what does `tick()` do without one?
+### A. Does `answer()` take a context? — **RULED 2026-08-11, and mostly dissolved**
 
-`Deck.answer(run_id, value)`, `tick()` and `due_resumes()` became public API in #164 — after the
-plan was written. It covers `run()` and `resume()` ("`resume()` resupplies it", Lifecycle) and is
-silent on all three.
+This began as a question about `tick()`, which was an autonomous timer resume with nobody present
+to supply a context. Under Ruling 10 every context-requiring root must receive a compatible
+instance before execution, and a context is a live object never serialized into the log — so a
+durable, context-requiring workflow that slept was un-resumable, and no option short of the deck
+holding a provider fixed it.
 
-`answer()` is answerable either way. **`tick()` is not.** It is an autonomous timer resume with
-nobody present to supply anything, and under Ruling 10 —
+**The durable-timer feature was removed from v3 instead** (#212). `sleep_until`, `tick()` and
+`due_resumes()` are gone, so the autonomous-resume case no longer exists and `Deck(context_provider=...)`
+is not needed. It was the right call for reasons that had nothing to do with context: `tick()` was
+covering for two disagreeing paused-run inboxes rather than being a designed feature. When timers
+return, #212 lists this as one of the five things their design must settle *first* rather than
+discover.
 
-> Every root whose graph requires context must receive a compatible instance, checked **before
-> execution**.
+What remains is the easy half. **`answer()` takes an optional `context=`, mirroring `run()`** —
+mandatory under Ruling 10 when the graph requires one. Same shape as `run()`, no new concept, and
+a human answering an interrupt is present to supply it.
 
-— a durable, context-requiring workflow that sleeps becomes **un-resumable by `tick()`**. Context
-is explicitly never serialized into the event log (Lifecycle), so it cannot be recovered from the
-checkpoint either. The options, in the order I would take them:
-
-1. **`Deck(context_provider=...)`** — a zero-arg callable the deck holds, used by `tick()` and
-   defaulted from `Deck(context=...)`'s instance if one was given. Fits the ownership rule the
-   Deck already has, and makes the autonomous path a first-class case rather than an exception.
-2. **`tick()` skips such a thread and emits an event saying why.** Honest and cheap, but it means
-   a documented combination of features (durable + timer + context) silently does nothing, which
-   is the exact failure class Wave B was about.
-3. **`tick(context=...)`** — pushes the problem to the cron job, which has no idea which workflows
-   are due or what each one needs.
-
-I would take (1). It is additive, it keeps Ruling 10 intact, and it is the only option where the
-feature combination works.
+The general form of the problem outlives the specific fix, and slice 4 should not forget it: a
+context cannot cross the HTTP surface, because it is a live Python object the plan says is never
+serialized. So a context-requiring invocable is reachable from embedded Python callers and not
+from `asgi()`. That is a real boundary, and the reference has to state it rather than let a user
+find it in production.
 
 ### B. Does `reporter` move off `configurable`? — **RULED 2026-08-11: no**
 
