@@ -54,6 +54,11 @@ A relative path stays relative (`sqlite://./events.sqlite3`); a third slash make
 Several processes on the same machine can share a SQLite file — which is what makes `agentdeck
 runs signal` able to reach a run in another terminal — but a file cannot reach a second machine.
 
+The two SQLite users do not have the same requirements, which surprises people: the event log
+and the control port use the standard library, but the SQLite *checkpointer* is LangGraph's and
+needs the `durability` extra. So the checkpointer default only works if you installed that
+extra — and a `durable=True` workflow raises an `ImportError` naming it if you did not.
+
 **Several workers, or more than one machine.** The event log has to be a service, and so does
 the session store:
 
@@ -66,7 +71,7 @@ export AGENTDECK_CONTROL=sqlite:///var/lib/agentdeck/control.sqlite3
 
 `postgresql://` — for the event log and the checkpointer both — needs the `durability` extra.
 `redis://` for either the event log or sessions needs nothing extra. The control port has no
-networked backend today: a signal still only reaches a run from the same machine.
+networked backend at all today: a signal still only reaches a run from the same machine.
 
 **Tests.** `memory://` for all three that offer it, including
 `AGENTDECK_CHECKPOINT=memory://`, so nothing survives the test that wrote it and no file is left
