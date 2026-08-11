@@ -27,7 +27,6 @@ from agents import Agent, OpenAIProvider
 from agentdeck.adapters.engines.openai_agents.runconfig import build_run_config
 from agentdeck.authoring.runners.agent import HeadlessRunner
 from agentdeck.composition import resolve_run_settings
-from agentdeck.runtime import observability
 from agentdeck.runtime.settings import reset_settings_cache
 
 if TYPE_CHECKING:
@@ -137,10 +136,6 @@ def resolved_run_configs(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[.
     def resolve(**env: str) -> list[dict[str, object]]:
         for key, value in (_SETTINGS_ENV | env).items():
             monkeypatch.setenv(key, value)
-        # `init_observability` latches on a module global, and its answer is what decides
-        # v1's `tracing_disabled` — without this, a test that ran earlier in the process
-        # picks the value asserted here.
-        monkeypatch.setattr(observability, "_initialized", False)
         reset_settings_cache()
         v1 = HeadlessRunner.from_agent(Agent(name="parity"))
         settings = resolve_run_settings()

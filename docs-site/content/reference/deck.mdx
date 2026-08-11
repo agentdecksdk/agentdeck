@@ -38,17 +38,18 @@ asyncio.run(main())
 
 ```python
 Deck(
-    agents=[...],       # Agent instances
-    workflows=[...],    # Workflow instances
-    skills="./skills",  # a path, a sequence of paths, or a Skills(...) object
-    mcp=".mcp.json",    # a path, or an MCP(...) object
+    agents=[...],                   # Agent instances
+    workflows=[...],                # Workflow instances
+    skills="./skills",              # a path, a sequence of paths, or a Skills(...) object
+    mcp=".mcp.json",                # a path, or an MCP(...) object
+    observability=Langfuse(),       # tracing for everything this deck runs; omit for none
 )
 ```
 
-`Deck.from_project(path=".agentdeck")` discovers the same four arguments from today's directory
-layout (`agents/<bundle>/agent.py`, `workflows/<bundle>/workflow.py`, `skills/*/SKILL.md`,
-`.mcp.json` next to `.agentdeck/`) and hands them to the same constructor — there is one catalog
-mechanism underneath either front door.
+`Deck.from_project(path=".agentdeck")` discovers the same four catalog arguments from today's
+directory layout (`agents/<bundle>/agent.py`, `workflows/<bundle>/workflow.py`,
+`skills/*/SKILL.md`, `.mcp.json` next to `.agentdeck/`) and hands them to the same constructor —
+there is one catalog mechanism underneath either front door.
 
 The lifecycle is `NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED`:
 
@@ -58,12 +59,12 @@ The lifecycle is `NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED`:
   server started — and is idempotent, so it doubles as a CI check. Calling a turn-starting method
   without an explicit `build()` still works — `async with deck:` calls it for you.
 - **`async with deck:`** starts everything `build()` left alone: the real engines, the event
-  store, the session factory, and every configured MCP server. This is what a turn-starting
-  method actually needs; calling one before opening raises.
+  store, the session factory, the tracing client, and every configured MCP server. This is what
+  a turn-starting method actually needs; calling one before opening raises.
 - **`CLOSED` is terminal.** `aclose()` (or the `async with` block's exit) flushes the Runtime's
   sinks and closes what this `Deck` itself opened — an `MCP(...)` it holds, always, and the event
-  store it built from settings, but never one passed in through construction. Reopening a closed
-  `Deck` raises; construct a new one instead.
+  store and tracing client it built from settings, but never one passed in through construction.
+  Reopening a closed `Deck` raises; construct a new one instead.
 
 **One `Deck` per process.** Constructing a second one while the first is still live raises
 `ConfigError`, naming both projects. The restriction is real rather than stylistic: every project
@@ -207,6 +208,54 @@ Two details worth knowing. The FastAPI import is deferred inside the method, so 
 stays importable without the `[serve]` extra — you only need it to actually serve. And requests
 arriving before the lifespan has run get `503 {"status": "starting"}` rather than touching a deck
 that is not open yet.
+
+## Observability
+
+Tracing is declared where the deck is declared, and owned by its lifecycle. `Langfuse(...)` is a
+capability object like `Skills(...)` and `MCP(...)`: it holds the configuration, builds the client
+when the deck opens, and is torn down when the deck closes.
+
+```python
+from agentdeck import Agent, Deck
+from agentdeck.observability import Langfuse
+
+deck = Deck(agents=[booking], observability=Langfuse())
+
+async with deck:                     # tracing starts here, once, before any run
+    await deck.run("booking", "hi")  # never mid-run
+```
+
+| Form | What it means |
+|---|---|
+| *(argument omitted)* | Tracing off. No client, no warning, no cost — this is the default. |
+| `Langfuse()` | Read `AGENTDECK_LANGFUSE_*` (see [Settings](/reference/settings)). |
+| `Langfuse(public_key=…, secret_key=…, base_url=…, environment=…, sample_rate=…, service_name=…, debug=…)` | Say it in code. Any field given here wins over the environment; the rest still come from it. |
+| `Langfuse(client=…)` | Use a Langfuse SDK client you built yourself. |
+
+The lifecycle is the same one the rest of the deck follows:
+
+- **`build()`** resolves the configuration and refuses an unusable one — it constructs no client
+  and opens no connection, so a deck with tracing configured still validates in CI with nothing
+  reachable. Declaring `observability=Langfuse()` with no keys anywhere raises `ConfigError`
+  naming what to set; a deck that should not trace omits the argument instead.
+- **Opening** builds the client, once, and registers the sink before the Runtime exists — so no
+  run can be the thing that turns tracing on, and every run of this deck is traced the same way.
+- **Closing** flushes what the sink has buffered, then shuts the client down **if this deck built
+  it**. A client passed as `client=` is never shut down; it was yours before the deck saw it.
+
+One run is one trace. Traces are rendered from the [canonical event
+stream](/concepts/runs-and-the-event-log), which is why an agent turn and a workflow run are
+traced by the same code and both carry their `session_id` — the deck does not instrument the
+OpenAI Agents SDK, and nothing opens a span outside the sink.
+
+There is no `deck.observability` property, for the same reason there is no `runtime` or `store`:
+nothing needs one, and adding a property later is additive while removing one is not.
+
+<Callout type="info">
+  Needs the `observability` extra: `pip install "agentdeck[observability]"`. Without it, importing
+  `agentdeck.observability` still works and `build()` still validates — the SDK is only imported
+  when a deck that declared tracing actually opens.
+</Callout>
 
 ## Sessions
 

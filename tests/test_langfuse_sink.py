@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
-from agentdeck.adapters.telemetry.langfuse import LangfuseSink, langfuse_sink
+from agentdeck.adapters.telemetry.langfuse import LangfuseSink
 from agentdeck.adapters.telemetry.langfuse.sink import _render
 from agentdeck.core.content import DataBlock, ImageBlock, TextBlock, UnknownBlock
 from agentdeck.core.context import RunContext
@@ -659,27 +659,29 @@ async def test_a_run_still_open_at_shutdown_is_closed_so_its_trace_can_be_shippe
     assert "1 langfuse traces were still open at shutdown" in [record.getMessage() for record in caplog.records]
 
 
-def test_langfuse_without_keys_yields_no_sink_to_register() -> None:
-    assert langfuse_sink(LangfuseSettings(public_key="", secret_key="")) is None
-    assert langfuse_sink(LangfuseSettings(public_key="pk-lf-1", secret_key="")) is None
+def test_langfuse_without_keys_is_not_a_usable_configuration() -> None:
+    """Configured is both keys and nothing less. Which object refuses an unconfigured
+    Langfuse moved to the capability (``tests/test_observability.py``); that it *is* refused
+    is this model's own rule, and the sink's reason for only ever existing when it holds."""
+    assert LangfuseSettings(public_key="", secret_key="").enabled is False
+    assert LangfuseSettings(public_key="pk-lf-1", secret_key="").enabled is False
+    assert LangfuseSettings(public_key="pk-lf-1", secret_key="sk-lf-1").enabled is True
 
 
-def test_an_unconfigured_process_never_even_imports_the_langfuse_sdk() -> None:
+def test_importing_the_telemetry_adapter_never_imports_the_langfuse_sdk() -> None:
     """A subprocess, because in-process ``sys.modules`` cannot unsee an import another test
     made — and "no overhead when unconfigured" has to mean the SDK was never loaded.
     """
     probe = (
         "import sys;"
-        "from agentdeck.adapters.telemetry.langfuse import langfuse_sink;"
-        "from agentdeck.runtime.settings import LangfuseSettings;"
-        "assert langfuse_sink(LangfuseSettings(public_key='', secret_key='')) is None;"
+        "import agentdeck.adapters.telemetry.langfuse;"
         "assert 'langfuse' not in sys.modules, sorted(m for m in sys.modules if 'langfuse' in m);"
-        "print('no sink, no sdk')"
+        "print('no client, no sdk')"
     )
     done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=120)
 
     assert done.returncode == 0, done.stderr
-    assert "no sink, no sdk" in done.stdout
+    assert "no client, no sdk" in done.stdout
 
 
 def test_langfuse_settings_has_no_host_or_endpoint_left() -> None:

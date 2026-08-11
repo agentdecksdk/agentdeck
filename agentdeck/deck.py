@@ -28,7 +28,8 @@ agent/workflow to an ``InvocableSpec`` — reading local files, never the networ
 The catalog is immutable from construction: :attr:`agents` and :attr:`workflows` are read-only
 mappings, so nothing after ``build()`` can invalidate what it already checked. Opening starts
 what ``build()`` deliberately left alone — the MCP lifecycle, the Runtime's engines and event
-store — and closing tears down only what this Deck itself started (the ownership rule:
+store, the telemetry client — and closing tears down only what this Deck itself started (the
+ownership rule:
 configuration this Deck instantiated is its to close; an object the caller constructed and
 handed in stays the caller's).
 """
@@ -64,6 +65,7 @@ from agentdeck.core.control import Signal
 from agentdeck.core.events import NodeUpdated, RunCompleted, RunInterrupted
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.mcp import MCP
+from agentdeck.observability import Langfuse
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.registry import PROJECT_DIR, PluginRegistry, mount_project_dir
 from agentdeck.runtime.settings import Settings, get_settings
@@ -78,7 +80,7 @@ if TYPE_CHECKING:
     from agentdeck.authoring.interrupts import InterruptResult
     from agentdeck.core.events import Event, Usage
     from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import EnginePort, EventStorePort
+    from agentdeck.core.ports import EnginePort, EventSinkPort, EventStorePort
     from agentdeck.core.status import RunStatus
     from agentdeck.runtime.service import PendingRun, Runtime
 
@@ -290,6 +292,12 @@ class Deck:
     ``docs/delivery/deck-capability-wrapper-pattern.md``) and ``skills=``/``mcp=`` (a bare path,
     a sequence of paths, or the capability object itself — coerced either way).
 
+    ``observability=Langfuse(...)`` turns tracing on for everything this Deck runs. It starts
+    once, when the Deck opens, and stops when it closes; omitting it is how a Deck runs with
+    tracing off, silently. There is no ``deck.observability`` property, for the reason there is
+    no ``runtime`` or ``store``: nothing needs one, and a property is additive later while
+    removing one is not.
+
     There is no ``context=``: declaring a context type is meaningless until something injects
     one, and a constructor parameter that cannot be used is worse than an absent one. It returns
     with ``Context[T]`` (``docs/delivery/plan-context-injection.md``), which is additive.
@@ -309,6 +317,7 @@ class Deck:
         workflows: Sequence[Workflow] = (),
         skills: str | Path | Sequence[str | Path] | Skills | None = None,
         mcp: str | Path | MCP | None = None,
+        observability: Langfuse | None = None,
         session_factory: SessionFactory | None = None,
         # Private-by-name test seams — never part of the documented constructor, exactly like
         # ``tests/contract/``'s need for ``_engines=`` on the Runtime this composes. A bare
@@ -330,6 +339,7 @@ class Deck:
         self._workflows: Mapping[str, Workflow] = _named_mapping(workflows, "workflows")
         self._skills_obj = _coerce_skills(skills)
         self._mcp_obj = _coerce_mcp(mcp)
+        self._observability = observability
         self._session_factory_arg = session_factory if session_factory is not None else _session_factory
         self._engines_arg = _engines
         self._store_arg = _store
@@ -342,6 +352,7 @@ class Deck:
         self._runtime: Runtime | None = None
         self._sessions: ExecutionStore | None = None
         self._owns_store = False
+        self._started_observability = False
         self._started_mcp = False
         self._closed = False
         # Last, so a constructor that raises above (a duplicate name, an unreadable capability)
@@ -353,6 +364,12 @@ class Deck:
         """The ``./.agentdeck`` (or ``path``) directory layout, unchanged — discovers the same
         ``agents=``/``workflows=``/``skills=``/``mcp=`` the plain constructor takes and hands
         them to it, so both front doors build the same catalog.
+
+        ``observability=`` is discovered too, from ``AGENTDECK_LANGFUSE_*``: for the directory
+        front door the environment *is* where a project says what it wants, the same way
+        ``.mcp.json`` is, and ``agentdeck serve`` has no other place to say it. A code-first
+        ``Deck(...)`` is never enabled this way — there the argument is the declaration. Pass
+        ``observability=`` explicitly to override either way.
 
         ``**kwargs`` forwards anything else (the private test seams) straight to
         the constructor, same as calling it directly.
@@ -376,6 +393,8 @@ class Deck:
         # the caller also runs from its parent. Its absence means "no servers" rather than a
         # configuration error, the same fail-open rule an empty ``mcp.servers`` map always had.
         mcp_json = project_root.parent / ".mcp.json"
+        if "observability" not in kwargs and get_settings().langfuse.enabled:
+            kwargs["observability"] = Langfuse()
         return cls(
             agents=agents,
             workflows=workflows,
@@ -413,9 +432,14 @@ class Deck:
         means an agent's ``mcp=`` compiles against known-but-not-yet-connected names rather than
         unknown ones — the only warning this can still log is a genuine open-time drop, not a
         false "not found in config" for a server that will, in fact, connect once opened.
+
+        ``observability=`` is checked the same way: its configuration is resolved and refused
+        if unusable, and no telemetry client is constructed and no exporter contacted.
         """
         if self._state != "NEW":
             return self
+        if self._observability is not None:
+            self._observability.build()
         skills_by_name = self._skills_obj.build() if self._skills_obj is not None else {}
         mcp_names = frozenset(self._mcp_obj.build()) if self._mcp_obj is not None else frozenset()
         if self._mcp_obj is not None:
@@ -493,9 +517,14 @@ class Deck:
         """Open: build (if not yet), start the MCP lifecycle, and compose the Runtime.
 
         Everything ``build()`` deliberately left alone happens here — constructing the real
-        engines, the event store, the session factory, and connecting every configured MCP
-        server (soft per-server failure, same as today). MCP status on every already-compiled
-        agent is refreshed right after, since ``build()`` resolved it before anything connected.
+        engines, the event store, the session factory, the telemetry client, and connecting
+        every configured MCP server (soft per-server failure, same as today). MCP status on
+        every already-compiled agent is refreshed right after, since ``build()`` resolved it
+        before anything connected.
+
+        Tracing starts exactly once, here, and before the Runtime exists: its sink has to be
+        registered when the Runtime is assembled, so a run can never be the thing that turns
+        observability on — the ordering #181 and #162 are both about.
         """
         if self._state == "CLOSED":
             # CLOSED is terminal: aclose()'s own idempotency guard would otherwise skip
@@ -520,10 +549,15 @@ class Deck:
             )
         self._owns_store = self._store_arg is None
         store = self._store_arg if self._store_arg is not None else resolve_event_store()
+        sinks: tuple[EventSinkPort, ...] = ()
+        if self._observability is not None:
+            sinks = (self._observability.open(),)
+            self._started_observability = True
         self._runtime = build_runtime(
             engines=self._engine_instances,
             invocables=self._invocables,
             store=store,
+            sinks=sinks,
             control=resolve_control_port(),
         )
         await MCPLifecycle.startup(self._mcp_obj.config() if self._mcp_obj is not None else None)
@@ -548,13 +582,17 @@ class Deck:
         The ownership rule with no exemption: an ``MCP(...)`` this Deck holds is configuration
         it is the one to shut down, regardless of whether the caller built the object or a bare
         path was coerced into one. A store passed in via the private ``_store=`` seam is never
-        touched — it was the caller's before this Deck ever saw it. Idempotent, and reachable
-        from every state — a Deck built but never opened still has a process claim to give up.
+        touched — it was the caller's before this Deck ever saw it, and neither is a telemetry
+        client handed to ``Langfuse(client=...)``. Idempotent, and reachable from every state —
+        a Deck built but never opened still has a process claim to give up.
         """
         if self._closed:
             return
         self._closed = True
         try:
+            # Before the telemetry teardown below, which is what makes it safe: draining closes
+            # the sinks, and the Langfuse sink's close is what finishes its open observations
+            # and pushes the SDK's buffer out.
             if self._runtime is not None:
                 await self._runtime.drain()
             if self._sessions is not None:
@@ -562,6 +600,9 @@ class Deck:
             if self._owns_store and self._runtime is not None:
                 await _aclose_store(self._runtime.store)
         finally:
+            if self._started_observability and self._observability is not None:
+                self._started_observability = False
+                await self._observability.aclose()
             if self._started_mcp:
                 self._started_mcp = False
                 await MCPLifecycle.shutdown()

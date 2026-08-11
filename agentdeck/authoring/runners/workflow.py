@@ -4,6 +4,10 @@ Used by :meth:`~agentdeck.authoring.workflow.Workflow.run`/``run_stream`` — a 
 workflow run never touches this; it goes through ``adapters/engines/langgraph/engine.py``
 instead. Sandbox scoping (v1's ``open_sandbox`` around every invocation) is gone with
 ``BaseSandboxAgent``: no workflow compiled through ``authoring`` needs one in v3.
+
+Like the agent runner beside it, this opens no spans of its own — tracing is a Deck-level
+capability rendered from the canonical event stream, and a direct call bypasses that stream
+entirely, the same way it bypasses the event log.
 """
 
 from __future__ import annotations
@@ -16,7 +20,6 @@ from langchain_core.runnables import RunnableConfig
 from agentdeck.adapters.engines.langgraph.engine import STREAM_CONFIGURABLE_KEY
 from agentdeck.authoring.compile import compile_workflow
 from agentdeck.authoring.state import coerce_input
-from agentdeck.runtime.observability import init_observability, trace_run
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -42,7 +45,6 @@ class BaseWorkflowRunner:
         config: RunnableConfig | None = None,
         **runner_options: Any,
     ) -> Self:
-        init_observability()
         return cls(
             workflow=workflow,
             graph=compile_workflow(workflow),
@@ -65,10 +67,7 @@ class DevWorkflowRunner(BaseWorkflowRunner):
 
     async def run(self, state: Any = None) -> Any:
         initial = coerce_input(state, self.workflow.state)
-        with trace_run(name=self.workflow.name, input=initial) as tr:
-            result = await self.graph.ainvoke(initial, config=self.config)
-            tr.set_output(result)
-            return result
+        return await self.graph.ainvoke(initial, config=self.config)
 
     async def run_stream(self, state: Any = None) -> AsyncIterator[dict[str, Any]]:
         """One ``astream`` over ``["updates", "custom"]``: a ``node_update`` event per
@@ -78,25 +77,23 @@ class DevWorkflowRunner(BaseWorkflowRunner):
         """
         initial = coerce_input(state, self.workflow.state)
         final_state: Any = initial
-        with trace_run(name=self.workflow.name, input=initial) as tr:
-            stream_config: RunnableConfig = {
-                **self.config,
-                "configurable": {**self.config.get("configurable", {}), STREAM_CONFIGURABLE_KEY: True},
-            }
-            stream = cast(
-                "AsyncIterator[tuple[str, Any]]",
-                self.graph.astream(initial, config=stream_config, stream_mode=["updates", "custom", "values"]),
-            )
-            async for mode, chunk in stream:
-                if mode == "updates":
-                    for node, delta in cast("dict[str, Any]", chunk).items():
-                        yield {"type": "node_update", "node": node, "delta": delta}
-                elif mode == "custom":
-                    yield {"type": "custom", "data": chunk}
-                else:  # "values" — tracked for the final state, not surfaced as its own event
-                    final_state = chunk
-            tr.set_output(final_state)
-            yield {"type": "done", "state": final_state}
+        stream_config: RunnableConfig = {
+            **self.config,
+            "configurable": {**self.config.get("configurable", {}), STREAM_CONFIGURABLE_KEY: True},
+        }
+        stream = cast(
+            "AsyncIterator[tuple[str, Any]]",
+            self.graph.astream(initial, config=stream_config, stream_mode=["updates", "custom", "values"]),
+        )
+        async for mode, chunk in stream:
+            if mode == "updates":
+                for node, delta in cast("dict[str, Any]", chunk).items():
+                    yield {"type": "node_update", "node": node, "delta": delta}
+            elif mode == "custom":
+                yield {"type": "custom", "data": chunk}
+            else:  # "values" — tracked for the final state, not surfaced as its own event
+                final_state = chunk
+        yield {"type": "done", "state": final_state}
 
 
 __all__ = ["BaseWorkflowRunner", "DevWorkflowRunner"]
