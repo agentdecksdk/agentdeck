@@ -112,13 +112,14 @@ because a caller that wants the final answer out of a stream has to fold it from
 same way any other consumer of the log would.
 
 `context=` supplies the application's own environment for one run — a database handle, a client,
-whatever the code the run reaches needs. A tool that declares an `agentdeck.Context` parameter
-receives it as `ctx.data`, by reference; see [Definitions](/reference/definitions) for how a tool
-declares one. Three things it deliberately is not: the model never sees it (the context parameter
-is absent from the tool schema), it is never written to the event log, and it cannot cross the
-HTTP surface — a live Python object has no wire form, so a context-requiring agent is reachable
-from an embedded Python caller and not from `asgi()`. Agents only for now: passing `context=` for
-a workflow raises rather than accepting a value nothing would read.
+whatever the code the run reaches needs. A tool, a dynamic-instructions callable, an agent hook
+or a workflow node that declares an `agentdeck.Context` parameter receives it as `ctx.data`, by
+reference; see [Definitions](/reference/definitions) for how each declares one. Both engines
+carry it, through their own native runtime-context channel rather than anything agentdeck
+invented. Three things it deliberately is not: the model never sees it (the context parameter is
+absent from the tool schema), it is never written to the event log, and it cannot cross the HTTP
+surface — a live Python object has no wire form, so a context-requiring root is reachable from an
+embedded Python caller and not from `asgi()`.
 
 `type(event)` is always `Event` — it is the envelope, not the discriminator. Switch on
 `event.payload` (a `match` narrows it to `TextDelta`, `MessageCompleted`, `RunCompleted`, …, see
@@ -183,6 +184,12 @@ is paused on and returns the final state (or the next `InterruptResult`); it loo
 itself (which workflow, which thread, which session) from the same source `pending()` reads, so a
 caller supplies only the id `pending()` named and the value.
 
+`answer(run_id, value, context=...)` and `resume(run_id, context=...)` take the same `context=`
+`run` does, and it has to be supplied again: the value is never serialized, so the run's own copy
+is gone by the time anybody picks it up. Omitting it is not "keep what the run had" — there is
+nothing kept, and the resumed run reads `None`. An interrupted node re-runs from its start, so
+that is the pass where a missing context shows up.
+
 `due_resumes(now=None)` and `tick(now=None)` are a separate, timer-only inbox: `due_resumes` lists
 threads whose `sleep_until` has passed, reading each workflow's own checkpointer rather than the
 Runtime's log — deliberately, since the checkpoint backend defaults to durable (`sqlite`) while
@@ -226,10 +233,11 @@ to swap in a fake wrapping `fakeredis` without a real Redis server.
 
 ## What this does not cover
 
-There is no `context=` on `Deck(...)` itself, and `run(context=)` reaches agent tools only —
-workflow nodes, dynamic instructions, hooks and skills do not receive one yet, and `answer()`,
-`resume()` and `tick()` do not take one. A constructor-level declaration buys build-time
-compatibility checks that do not exist, so it stays absent rather than accepted-and-unused. And
+There is no `context=` on `Deck(...)` itself, and skills do not receive one yet. `tick()` does not
+take one either, so a durable, context-requiring workflow that sleeps is not resumable by the
+timer inbox — an autonomous resume has nobody present to resupply what was never written down. A
+constructor-level declaration buys build-time compatibility checks that do not exist, so it stays
+absent rather than accepted-and-unused. And
 [Run Control](/concepts/run-control#safe-points) reaches agent runs
 today; a workflow (LangGraph) run has no safe point yet, so `pause`/`cancel` record the request
 but nothing acts on it.

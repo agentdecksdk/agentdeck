@@ -20,14 +20,14 @@ from agentdeck import Agent
 |---|---|---|---|
 | `base` | `type[AgentDeclaration] \| None` | `None` | a shareable set of defaults (see below); keyword-only |
 | `name` | `str` | `base.name`, or the base class name | registry key and SDK agent name |
-| `instructions` | `str` | `base.instructions` | the system prompt |
+| `instructions` | `str \| Callable` | `base.instructions` | the system prompt, or a callable computing it per turn |
 | `handoff_description` | `str \| None` | `base.handoff_description` | how this agent describes itself to a peer deciding whether to hand off |
 | `model` | `str \| None` | `base.model` | per-agent override; `None` uses the `OPENAI_MODEL` setting |
 | `model_settings` | `Mapping[str, Any]` | `base.model_settings` | forwarded to `agents.ModelSettings(**model_settings)` |
 | `tools` | `Sequence[Any]` | `base.tools` | plain functions (compiled at `build()`), already-built SDK tool objects, or a `Workflow` to expose as a tool |
 | `handoffs` | `Sequence[Any]` | `base.handoffs` | peer agents this one can transfer to — a registry name (`str`), a built `Agent`, or a `Handoff` |
 | `output_type` | `type \| AgentOutputSchemaBase \| None` | `base.output_type` | a Pydantic model (or `AgentOutputSchema`) for structured output; `None` for free text |
-| `hooks` | `AgentHooks \| None` | `base.hooks` | SDK lifecycle callbacks |
+| `hooks` | `AgentHooks \| None` | `base.hooks` | SDK lifecycle callbacks; a method may declare a `Context` first instead of the SDK's wrapper |
 | `skills` | `Sequence[str]` | `base.skills` | names resolved against the owning `Deck`'s `skills=` roots |
 | `mcp` | `Sequence[str]` | `base.mcp` | names resolved against the owning `Deck`'s `mcp=` file |
 
@@ -66,6 +66,14 @@ honest schema to show the model and no way to tell "declares no context" from "c
 An already-built Agents SDK tool object (`@function_tool`, `WebSearchTool()`, …) is still
 accepted and passed straight through. It is **engine-native**: agentdeck introspects nothing
 about it, it gets no portability guarantee, and it cannot receive a `Context`.
+
+The same annotation works at the other three injection sites, with the same rules. `instructions=`
+may be a callable taking at most one `Context[T]` and nothing else, in which case only the string
+it returns reaches the model. A `hooks=` method may name a `Context[T]` where the SDK's own
+wrapper would go — it has to be the first parameter, since that is where the SDK passes its
+context — and a hooks object declaring none is passed through untouched. A workflow node takes
+one alongside its `state`, and the two stay strictly separate: `state` is the workflow's mutable
+data, `ctx.data` is the environment the run was handed.
 
 | Method | Signature | Behavior |
 |---|---|---|

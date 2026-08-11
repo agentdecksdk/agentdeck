@@ -58,8 +58,22 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   named. `ctx.data` is the very object passed in, by reference; `ctx.reporter`, `ctx.run_id`,
   `ctx.session_id` and `await ctx.checkpoint()` come with it. **The model never sees it**: the
   context parameter is absent from the tool schema sent to the model, and the value is never
-  written to the event log. Available on `run()` and `stream()` for agents; passing `context=`
-  for a workflow raises rather than accepting a value nothing would read yet.
+  written to the event log.
+
+- **`Context[T]` on both engines, and at every injection site** (#166). A **workflow node** takes
+  one alongside its `state` — the value travels on LangGraph's own runtime-context channel
+  (`context=` / `Runtime[T]`), not on `configurable`, which keeps `thread_id`, the reporter and
+  the stream flag exactly as before. An **instructions callable** may declare one, and only the
+  string it returns reaches the model. An **agent hook** may name a `Context[T]` first, where the
+  SDK's own wrapper would go; a hooks object declaring none is passed through untouched. A node,
+  an instructions callable and a hook all go through the same analysis a tool does, so
+  "declares two `Context[...]` parameters" is one `build()` error with one message everywhere. A
+  contract test parametrized over both engines pins that the two bridges deliver the same thing.
+
+- **`answer(run_id, value, context=...)` and `resume(run_id, context=...)`** (#166), mirroring
+  `run()`. Context is resupplied, never recovered: the value is deliberately never serialized, so
+  the caller picking a paused run back up is the only one who still has it. `tick()` takes none
+  and remains unable to resume a context-requiring workflow.
 
 - **`SECURITY.md` and `CODE_OF_CONDUCT.md`** (#132). The security policy says where to report a
   vulnerability and what is in scope — including the two things that are deliberately *not*: a
@@ -232,6 +246,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 
 ### Fixed
+
+- **A resumed run silently lost its application context** (#166). `resume()` and `resume_run()`
+  minted a fresh `RunContext` with no `data=` at all, so a run paused or interrupted with a
+  `context=` came back with `None` — and because the value is never serialized, nothing in the
+  log could be compared against what should have been there. A callable written defensively as
+  `if ctx.data:` would have returned a plausible wrong answer with no error anywhere. Only ever
+  reachable on this development line, since `run(context=)` and this landed in the same release.
 
 - `Deck.from_project()` reading a *previous* project's bundle files (#204). Mounting a project
   rebound the module alias but left its already-imported submodules cached, so a second project

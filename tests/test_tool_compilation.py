@@ -361,7 +361,9 @@ async def test_the_context_is_never_written_to_the_event_log(no_project, monkeyp
     assert "Calendar" not in dumped
 
 
-# --- context= on a workflow raises rather than being accepted and ignored ---------------------------
+# --- a workflow run is unaffected by all of this -----------------------------------------------------
+# ``context=`` on a workflow used to raise here; it works now, and lives in
+# ``tests/test_node_compilation.py`` with the rest of the langgraph bridge.
 
 
 class _ShoutState(BaseModel):
@@ -381,27 +383,15 @@ def _shout_workflow() -> Workflow:
 
 
 @pytest.mark.asyncio
-async def test_context_on_a_workflow_run_raises_instead_of_being_silently_dropped(no_project) -> None:
-    """Only the openai-agents bridge injects a context today. A workflow that took one and never
-    handed it to a node would be exactly the accepted-then-ignored promise this arc avoids."""
+async def test_a_workflow_whose_nodes_declare_nothing_ignores_a_context(no_project, monkeypatch) -> None:
+    """Accepted and unread is fine here, exactly as it is for an agent with no declaring tool:
+    the node asked for nothing, so there is nothing to hand it."""
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     deck = Deck(workflows=[_shout_workflow()])
     deck.build()
 
     async with deck:
-        with pytest.raises(ConfigError, match="not supported for workflow"):
-            await deck.run("Shout", {"input": "hi"}, context=Calendar())
-
-
-@pytest.mark.asyncio
-async def test_context_on_a_workflow_stream_raises_on_the_first_step(no_project) -> None:
-    """``stream`` is an async generator, so its refusal lands when it is first iterated."""
-    deck = Deck(workflows=[_shout_workflow()])
-    deck.build()
-
-    async with deck:
-        with pytest.raises(ConfigError, match="not supported for workflow"):
-            async for _ in deck.stream("Shout", {"input": "hi"}, context=Calendar()):
-                pass
+        assert await deck.run("Shout", {"input": "hi"}, context=Calendar()) == {"input": "hi", "shouted": "HI"}
 
 
 @pytest.mark.asyncio

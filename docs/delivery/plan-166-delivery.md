@@ -164,6 +164,35 @@ Per-slice notes:
   Not shippable-broken today only because PR #210 stays draft until slice 4 — `run(context=)`
   turned on in slice 2, so the path is already reachable on the branch. Do not let this arc reach
   `dev` with it open.
+
+  ***Settled 2026-08-11, implementing slice 3.***
+  - **A node whose signature cannot be read is left alone, not refused** — the opposite of slice
+    2's ruling for a *tool*, and for the reason that ruling gave: a tool must publish a
+    model-visible schema at build time, so an unreadable signature has no honest one to offer. A
+    node publishes no schema, so running it exactly as langgraph would have is a change to
+    nothing. Refusing would also be a regression here, unlike for tools: #172 already rejected
+    every bare callable in `tools=`, while a graph full of decorated nodes works today.
+  - **A node is bridged by rewriting the graph, in `authoring/graphs.py`, at `build()`.** langgraph
+    injects by parameter *name* (`runtime`, `config`, `writer`, `store`), so a `Context[...]`
+    annotation under any name reaches a node only if something puts it there — and the author
+    builds the `StateGraph` themselves, so the graph AgentDeck is handed is the only seam. Only a
+    node langgraph itself wrapped as a plain callable is touched; any other `Runnable` is
+    engine-native and untouched. The one internal reach is reading the callable back off
+    `RunnableCallable.func`/`.afunc`, which is the price of not owning `add_node`.
+  - **The bridge forwards every other langgraph-injected parameter**, so a node declaring
+    `config: RunnableConfig` next to its context still reaches the reporter where Ruling B left
+    it. Nothing about `configurable` moved.
+  - **Hooks are bridged per method, and the context must be the hook's first parameter.** The SDK
+    calls hooks positionally with its wrapper first; a substitution anywhere else could only be a
+    guess about which remaining argument was meant. A hooks object declaring no `Context[...]` is
+    returned as it was given — engine-native, zero regression.
+  - **A callable in `instructions=` composes its MCP banner and skills disclosure at call time**
+    rather than at compile time. `refresh_mcp_status`'s prefix surgery measures a string, and a
+    closure has no prefix to measure; composing per turn makes that pass a no-op for callables
+    instead of a source of stale banners.
+  - **The headless `Workflow.run()` path is deliberately not bridged.** It has no `RunContext` to
+    unwrap, so a node declaring one there meets the invocation-time safety net naming it. The
+    bridge is wired at `InvocableRegistry.load()`, which is the path every `Deck` run takes.
 - **Slice 4.** Must rewrite `docs-site/content/reference/deck.mdx`, which currently ends on
   "There is no `context=`" as a deliberate promise. The `test_every_public_deck_method_is_documented_somewhere`
   guard in `tests/test_docs_site.py` will notice the changed signatures.
