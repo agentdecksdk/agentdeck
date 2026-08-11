@@ -194,10 +194,34 @@ explicit composition is a documented front door and works cleanly. Worth a v3.1 
 whether `.agentdeck/` should have a supported shared-module convention, and worth a line in the
 docs, since nothing currently tells anyone this before they hit it.
 
+**Found in slice 2 — `DataBlock` cannot be sent *to* a model, so structured input has no typed
+form.** Ruling 2 says page context travels as data in the input, and `DataBlock` is the block
+type that exists for exactly that. It raises:
+
+```
+ConfigError: openai-agents engine cannot send a 'data' block to the model;
+it accepts text, image, and audio (chat-completions only) input blocks
+```
+
+`DataBlock` is an *output* block in practice — the engine produces one for structured output and
+refuses one on input. **Consequence:** every embedded application that wants to hand the model
+structured context invents its own prose preamble, and no two will agree on a format. This
+application's is `<context>…</context>`, in `server.py:page_context_input`. **Verdict: does not
+block v3** — a page slug is something the model reads, and reading is what text is for. Worth a
+v3.1 issue: either the engine should render a `DataBlock` as JSON text rather than refusing it,
+or the block table should say plainly which types are input-capable. Today
+`reference/deck.mdx` lists all five under *What `input` accepts* and qualifies it a paragraph
+later, which is accurate but reads as an afterthought.
+
+**Confirmed in slice 2 — ruling 3 holds, and it works.** The application's own route delivers the
+context to a tool on a served run: `tests/test_ask_agentdeck_server.py` scripts a model that
+calls `read_doc`, and the tool answers out of `docs.data.pages`. Through `Deck.asgi()` that is
+impossible by construction. Forty lines of FastAPI is the whole cost.
+
 | Predicted | The question it forces |
 |---|---|
-| `asgi()` cannot serve an app that needs a context (fact 5) | Is the packaged surface for demos only? If a real embedded app always writes its own route, the docs should say so plainly — or `asgi()` should grow a context factory (v3.1) |
-| The frozen chat body has no room for per-run metadata (fact 4) | Page context works fine as input data. But every embedded app will want a structured side channel; is that a v3.1 wire addition, and does #156's minor-bump machinery already cover it? |
+| ~~`asgi()` cannot serve an app that needs a context~~ — **confirmed, slice 2** | Is the packaged surface for demos only? A real embedded app writes its own route, and the docs should say so plainly rather than leaving it to be discovered. v3.1: should `asgi()` take a context factory? |
+| ~~The frozen chat body has no room for per-run metadata~~ — **confirmed, slice 2**, and sharper than predicted: the *content model* has no room either, since `DataBlock` is refused on input | Is a structured per-run metadata channel a v3.1 wire addition, and does #156's minor-bump machinery already cover it? |
 | One deck per process (#204) | The backend is one process with one deck, so this costs nothing here. Confirming that is worth as much as finding a problem |
 
 Anything the ledger records is **fixed before the tag only if it makes the reference app

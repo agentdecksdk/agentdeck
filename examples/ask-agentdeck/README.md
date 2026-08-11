@@ -6,7 +6,8 @@ read in one sitting.
 
 ```bash
 export OPENAI_MODEL=gpt-4.1-mini OPENAI_API_KEY=sk-...
-python run.py "how do I create an agent?"
+python run.py "how do I create an agent?"                    # one question, headless
+uvicorn ask_agentdeck.server:app --port 8100                 # the route the docs panel calls
 ```
 
 ## What it is
@@ -17,7 +18,13 @@ One agent, two tools, one context.
 |---|---|
 | `ask_agentdeck/corpus.py` | `DocsCorpus` — every `.mdx` page under `docs-site/content/`, read once and keyed by the slug the site serves it under |
 | `ask_agentdeck/agent.py` | the two tools, the instructions, and the `Agent(...)` |
+| `ask_agentdeck/server.py` | one `POST /ask` route over `deck.stream()`, streaming canonical events |
 | `run.py` | composes the `Deck` and asks one question |
+
+```bash
+curl -N -X POST localhost:8100/ask -H 'content-type: application/json' \
+  -d '{"question":"explain what this page is for","page":"concepts/skills"}'
+```
 
 ## The three things worth copying
 
@@ -50,6 +57,36 @@ async with Deck(agents=[ask], context=DocsCorpus) as deck:
 check every `Context[...]` in the catalog — both tools and the instructions callable — before a
 question is ever asked. Declaring the wrong type raises `ContextTypeError` naming both, which
 `tests/test_ask_agentdeck.py` pins.
+
+## Why it serves itself instead of using `Deck.asgi()`
+
+agentdeck packages an HTTP surface. This application cannot use it, for two independent reasons —
+and finding that out is a large part of what this example exists for.
+
+- **A run through `asgi()` carries `context=None`.** There is no wire form for a live Python
+  object, so the packaged surface cannot deliver one. Both tools here need the `DocsCorpus`.
+- **Its chat body is exactly `{"session_id", "message"}`**, frozen byte-for-byte by
+  `tests/golden/`. The page the reader is on has nowhere to go in it.
+
+So `server.py` is forty lines of FastAPI over `deck.stream()`. Each SSE frame is one canonical
+`Event`, dumped as written — no translation layer, so a browser switching on `event.kind` reads
+exactly what a later process reading the run back would read.
+
+The page context travels as **text**, not as a `Context` and not as a `DataBlock`:
+
+```
+<context>
+The reader is on the documentation page: concepts/skills
+</context>
+
+explain what this page is for
+```
+
+A `Context[T]` cannot cross HTTP — that is the documented boundary, and the right one, because a
+page slug is data a browser sent rather than a live object this server owns. `DataBlock` is the
+typed way to put JSON in an input and the engine refuses it: *"cannot send a 'data' block to the
+model; it accepts text, image, and audio."* Both are recorded as findings in
+`docs/delivery/plan-219-delivery.md`.
 
 ## Why `Deck(agents=[...])` and not `Deck.from_project()`
 
