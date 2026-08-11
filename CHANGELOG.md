@@ -72,6 +72,12 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Changed
 
+- **The README now says what agentdeck is before it shows any code** (#132): what it is, who it
+  is for, what it deliberately does not do, and how it divides work with the OpenAI Agents SDK
+  and LangGraph. It links `CONTRIBUTING.md`, `SECURITY.md` and the docs site rather than
+  restating them, and its install pin, its Python example and its docs links are all checked by
+  the test suite.
+
 - **Breaking: one env var per infrastructure decision, not a `_BACKEND`/`_URL` pair that can
   disagree** (#155). `AGENTDECK_EVENTS_BACKEND=postgres` with `AGENTDECK_EVENTS_URL=redis://...`
   used to boot clean and fail on the first event of the first run; the URL's own scheme now
