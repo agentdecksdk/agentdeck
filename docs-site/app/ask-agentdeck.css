@@ -1,0 +1,200 @@
+/* Ask AgentDeck panel — brand palette from brand.css, no new tokens. */
+
+.ask-launch {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 40;
+  padding: 0.6rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--brand-navy);
+  color: #fff;
+  font-family: var(--font-display), sans-serif;
+  font-size: 0.875rem;
+  font-weight: 600;
+  box-shadow: 0 6px 20px rgb(8 61 119 / 25%);
+  cursor: pointer;
+}
+
+.ask-launch:hover {
+  background: var(--brand-magenta);
+}
+
+.ask-panel {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  width: min(30rem, calc(100vw - 2.5rem));
+  height: min(34rem, calc(100vh - 6rem));
+  border: 1px solid var(--brand-soft-gray);
+  border-radius: 0.75rem;
+  background: var(--brand-canvas);
+  box-shadow: 0 12px 40px rgb(15 23 42 / 18%);
+  overflow: hidden;
+}
+
+.dark .ask-panel {
+  background: var(--brand-ink);
+  border-color: rgb(148 163 184 / 25%);
+}
+
+.ask-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--brand-soft-gray);
+  font-family: var(--font-display), sans-serif;
+}
+
+.dark .ask-head {
+  border-color: rgb(148 163 184 / 25%);
+}
+
+.ask-page {
+  flex: 1;
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+  color: var(--brand-cool-gray);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ask-head button {
+  border: 0;
+  background: none;
+  font-size: 1.35rem;
+  line-height: 1;
+  color: var(--brand-cool-gray);
+  cursor: pointer;
+}
+
+.ask-transcript {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.9rem;
+  font-size: 0.875rem;
+}
+
+.ask-hint,
+.ask-reading {
+  color: var(--brand-cool-gray);
+  font-size: 0.8rem;
+}
+
+.ask-reading {
+  font-family: ui-monospace, monospace;
+  margin: 0.2rem 0 0.4rem;
+}
+
+.ask-turn + .ask-turn {
+  margin-top: 1.1rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--brand-soft-gray);
+}
+
+.ask-question {
+  font-weight: 600;
+  margin: 0;
+}
+
+.ask-error {
+  color: var(--brand-magenta);
+  font-size: 0.8rem;
+}
+
+/* The answer is model-written markdown, so every element it can emit needs a rule — an
+   unstyled table or code block in a 30rem panel is unreadable. */
+.ask-answer :is(p, ul, ol, table) {
+  margin: 0.5rem 0;
+}
+
+.ask-answer :is(ul, ol) {
+  padding-left: 1.2rem;
+  list-style: revert;
+}
+
+.ask-answer code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.82em;
+  background: rgb(148 163 184 / 18%);
+  padding: 0.1em 0.3em;
+  border-radius: 0.25rem;
+}
+
+.ask-answer pre {
+  overflow-x: auto;
+  padding: 0.7rem;
+  border-radius: 0.4rem;
+  background: rgb(15 23 42 / 92%);
+  color: #e2e8f0;
+}
+
+.ask-answer pre code {
+  background: none;
+  padding: 0;
+}
+
+.ask-answer table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.ask-answer :is(th, td) {
+  border: 1px solid var(--brand-soft-gray);
+  padding: 0.25rem 0.4rem;
+  text-align: left;
+}
+
+.ask-answer a {
+  color: var(--brand-navy);
+  text-decoration: underline;
+}
+
+.dark .ask-answer a {
+  color: var(--brand-magenta);
+}
+
+.ask-form {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.7rem;
+  border-top: 1px solid var(--brand-soft-gray);
+}
+
+.dark .ask-form {
+  border-color: rgb(148 163 184 / 25%);
+}
+
+.ask-form input {
+  flex: 1;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--brand-soft-gray);
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.ask-form button {
+  padding: 0.45rem 0.9rem;
+  border: 0;
+  border-radius: 0.4rem;
+  background: var(--brand-navy);
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ask-form button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

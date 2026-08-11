@@ -34,6 +34,9 @@ golden:         ## re-record the wire + schema snapshots — deliberate, never a
 docs-reference: ## regenerate docs-site/content/reference/{settings,cli}.mdx from the code
 	.venv/bin/python scripts/generate_docs_reference.py
 
+eval-docs-agent: ## Ask AgentDeck grounding, against a real model — not in the gate (see examples/ask-agentdeck/eval.py)
+	cd examples/ask-agentdeck && ../../.venv/bin/python eval.py
+
 check: lint typecheck lint-imports test   ## full gate
 
 fmt:            ## ruff format + autofix

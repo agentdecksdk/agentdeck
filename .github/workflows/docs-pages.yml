@@ -39,6 +39,17 @@ jobs:
 
       - name: Build static documentation
         run: npm run build
+        env:
+          # Baked into the bundle at build time — the site is a static export, so there is no
+          # runtime config to read. A repository variable rather than a literal, so pointing the
+          # panel somewhere else is a settings change and not a commit. Unset, the bundle falls
+          # back to localhost, and the panel degrades with a message naming the URL it tried.
+          #
+          # This must be https: Pages is served over TLS and a browser hard-blocks an HTTPS page
+          # calling http://, which is the real reason the backend needs a tunnel rather than a
+          # port forward. Never put a secret here — NEXT_PUBLIC_* is public by construction, and
+          # everything under it is readable in the shipped JavaScript.
+          NEXT_PUBLIC_AGENTDECK_API_URL: ${{ vars.ASK_AGENTDECK_API_URL }}
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

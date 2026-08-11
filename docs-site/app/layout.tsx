@@ -4,8 +4,10 @@ import { Footer, Layout, Navbar } from 'nextra-theme-docs'
 import { Head } from 'nextra/components'
 import { getPageMap } from 'nextra/page-map'
 import type { ReactNode } from 'react'
+import { AskAgentDeck } from './ask-agentdeck'
 import 'nextra-theme-docs/style.css'
 import './brand.css'
+import './ask-agentdeck.css'
 
 // Self-hosted at build time — the static export makes no external font request.
 const body = Inter({ subsets: ['latin'], variable: '--font-body', display: 'swap' })
@@ -46,6 +48,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         >
           {children}
         </Layout>
+        <AskAgentDeck />
       </body>
     </html>
   )
