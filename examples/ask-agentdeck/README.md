@@ -142,6 +142,44 @@ Worth being precise about, because this is an unauthenticated endpoint that spen
 | **The tools** | `read_doc` is a dict lookup on a slug, not a file read, so no slug reaches the filesystem and there is no path to traverse. The corpus is the published documentation, which is public anyway. |
 | **Cost** | Rate-limited per client, `ASK_AGENTDECK_RATE_LIMIT` questions per five minutes, plus length caps on every field. CORS is *not* a control here — it constrains browsers and a `curl` ignores it. For anything beyond one process behind one tunnel, add a Cloudflare rate-limiting rule at the edge so the traffic never reaches the machine. |
 
+### Prompt injection: what is guarded, and what is not
+
+The browser is attacker-controlled, so `page` and `selection` are attacker-controlled. Being
+straight about which half of this is actually solved:
+
+**Guarded — the structure of the prompt cannot be forged.**
+
+- `page` is checked against the corpus and dropped unless it names a real page. The only values
+  that survive are 22 known strings, which removes the field as a vector rather than sanitising
+  it.
+- `selection` is arbitrary text and cannot be allowlisted, so the `<context>` delimiter is
+  stripped from it. Without that, a planted `</context>` closes the block early and everything
+  after it reads to the model as instruction rather than as quoted material.
+- Both are pinned by tests, because this is the class of thing that regresses silently.
+
+**Not guarded — what the model chooses to say.**
+
+The topic rule ("answer questions about AgentDeck, from the documentation") is an *instruction*,
+and instructions are persuadable. Someone determined can get this endpoint to write them a poem.
+There is no topic classifier, no output filter, and no jailbreak detection, and adding a
+model-graded guard would double the cost and latency of every question to prevent something whose
+worst outcome is an off-topic paragraph.
+
+That is a deliberate trade, and it rests on the blast radius being small by construction:
+
+- **The agent has two tools and both are read-only over public documentation.** There is no
+  write, no shell, no network, no database. Nothing a jailbreak reaches is anything a reader
+  could not already get by browsing the site.
+- **`read_doc` is a dict lookup on a slug**, not a file read — so no input reaches the
+  filesystem and there is no path to traverse.
+- **The cost is capped** by the rate limit and the length caps, which is the abuse that actually
+  matters here.
+
+So the realistic worst case is a rate-limited stranger making the assistant say something silly
+under your domain name. If that becomes unacceptable, the fix is an edge rule or a cheap
+classifier ahead of the run — not more prompt text, which is what the model is already ignoring
+in that scenario.
+
 ## Tests
 
 `tests/test_ask_agentdeck.py`, in the main suite, offline. It checks the composition properties

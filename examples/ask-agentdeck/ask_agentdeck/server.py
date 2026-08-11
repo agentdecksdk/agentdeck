@@ -25,6 +25,7 @@ change to suit one consumer.
 from __future__ import annotations
 
 import os
+import re
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from http import HTTPStatus
@@ -69,6 +70,9 @@ ALLOWED_ORIGINS = os.environ.get("ASK_AGENTDECK_ORIGINS", "http://localhost:3030
 # *type name* and the engine's, never the exception text (`runtime/service.py:655`).
 PUBLIC_KINDS = frozenset({"run.started", "text.delta", "tool.call.started", "run.completed", "run.failed"})
 
+_DELIMITER = re.compile(r"</?context>", re.IGNORECASE)
+"""The preamble's own tags, removed from anything a caller supplied."""
+
 MAX_QUESTION = 2000
 """A docs question is a sentence. The cap is what stops this being a free prompt-relay to
 whatever model the deck is pointed at."""
@@ -102,8 +106,24 @@ class Question(BaseModel):
     session_id: str | None = Field(default=None, max_length=100)
 
 
-def page_context_input(asked: Question) -> str:
+def page_context_input(asked: Question, corpus: DocsCorpus | None = None) -> str:
     """The question, with what the reader is looking at prefixed as text.
+
+    **Both prefixed fields are attacker-controlled**, because the browser is. They are prompt
+    input, so they get treated as such:
+
+    - `page` is checked against the corpus and dropped if it names no real page. A slug that is
+      not a slug is meaningless anyway, which makes this both the security fix and the correct
+      behaviour — and it removes the field as an injection vector completely, since the only
+      values that survive are 22 known strings.
+    - `selection` cannot be validated that way; it is arbitrary text by definition. So the
+      delimiter is stripped out of it. Without that, a `selection` containing `</context>`
+      closes the block early and everything after it reads to the model as instructions rather
+      than as quoted material — the ordinary way a delimiter-based preamble is broken.
+
+    Neither makes the model *obey* only what it should; see this example's README on what is and
+    is not guarded. They stop the structure of the prompt being forged, which is the part that
+    can actually be fixed here.
 
     **Text, not a `DataBlock`, and not a `Context`.** Both of the tidier-looking options are
     closed:
@@ -120,13 +140,15 @@ def page_context_input(asked: Question) -> str:
     finding: whether the wire should carry a structured per-run metadata channel is a v3.1
     question, not a v3 one.
     """
-    if not asked.page and not asked.selection:
+    page = asked.page if corpus is not None and asked.page in corpus.pages else None
+    selection = _DELIMITER.sub("", asked.selection) if asked.selection else None
+    if not page and not selection:
         return asked.question
     lines = ["<context>"]
-    if asked.page:
-        lines.append(f"The reader is on the documentation page: {asked.page}")
-    if asked.selection:
-        lines.append(f"They have this selected:\n{asked.selection}")
+    if page:
+        lines.append(f"The reader is on the documentation page: {page}")
+    if selection:
+        lines.append(f"They have this selected:\n{selection}")
     lines += ["</context>", "", asked.question]
     return "\n".join(lines)
 
@@ -165,7 +187,7 @@ def build_app(corpus: DocsCorpus | None = None) -> FastAPI:
             )
         stream = app.state.deck.stream(
             AGENT,
-            page_context_input(asked),
+            page_context_input(asked, app.state.corpus),
             context=app.state.corpus,
             session_id=asked.session_id,
         )
