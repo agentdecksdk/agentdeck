@@ -1,6 +1,6 @@
 ---
 title: Capabilities
-description: Sandbox powers — currently disabled, tracked for a future return.
+description: Sandbox powers — not part of v3, and no longer in the codebase.
 ---
 
 # Capabilities
@@ -9,14 +9,17 @@ Capabilities were what an agent was *allowed to do* inside a sandbox: run comman
 remember things, compact its own context. They were declared on `BaseSandboxAgent`, the
 subclassing entry point v1 offered for a sandboxed agent.
 
-`BaseSandboxAgent` (and the `SandboxAgentNode` machinery around it) is not part
-of the current [`Agent`](/reference/definitions) API — sandboxing is disabled rather than ported,
-tracked separately for a future slice. The underlying spec classes
-(`CapabilitiesSpec`, `ShellSpec`, `FilesystemSpec`, `MemorySpec`, `CompactionSpec`, at
-`agentdeck.authoring.capabilities`) still exist in the codebase, but nothing in `Agent`/`Deck`
-constructs one today — there is no `capabilities=` argument to pass one to.
+Sandboxing is not part of v3. `BaseSandboxAgent` and the machinery around it went with the v1
+API, and the spec classes that described a sandboxed agent's powers (`CapabilitiesSpec`,
+`ShellSpec`, `FilesystemSpec`, `MemorySpec`, `CompactionSpec`) have now been removed too —
+nothing in `Agent`/`Deck` ever constructed one, and there was no `capabilities=` argument to
+pass one to. Keeping unreachable scaffolding in the tree only made the feature look closer than
+it is.
 
-If you need one of these before sandboxing returns: [Skills](/concepts/skills) covers the
-deterministic, non-sandboxed half of the same picture (progressive disclosure of instructions and
-scripts into an agent's own execution), and a plain Python `tool=` callable covers most of what
-`shell`/`filesystem` gave a sandboxed agent for a specific, narrower task.
+It can come back: reintroducing a sandbox port and the declarations that feed it is additive,
+so nothing here is a one-way door.
+
+Until then: [Skills](/concepts/skills) covers the deterministic, non-sandboxed half of the same
+picture (progressive disclosure of instructions and scripts into an agent's own execution), and
+a plain Python `tool=` callable covers most of what `shell`/`filesystem` gave a sandboxed agent
+for a specific, narrower task.

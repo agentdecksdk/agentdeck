@@ -104,6 +104,29 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Removed
 
+- **The sandbox scaffolding is gone** (#71). Sandboxing left v3 by ruling (#163 stays open as
+  the design issue), and the tree was carrying a port with no consumer, an adapter with no
+  caller and spec classes nothing constructed. Deleted: `agentdeck.core.ports.sandbox` in full
+  (`SandboxPort`, `ExecResult`, `bind_sandbox`, `current_sandbox`, `require_sandbox`, plus the
+  `SandboxPort`/`ExecResult` re-exports from `agentdeck.core.ports`); `agentdeck.adapters.caps`
+  in full (`UnixSandbox`, `open_sandbox`, `input_file_targets`); `agentdeck.authoring.capabilities`
+  in full (`CapabilitiesSpec`, `ShellSpec`, `FilesystemSpec`, `MemorySpec`, `CompactionSpec`);
+  and `agentdeck.runtime.capture.CAPTURE_ENV`, whose only reader was the deleted adapter
+  (`Capture` and `CaptureActor` stay — the tracer still uses them). Re-adding a designed port
+  later is additive, so nothing here is a one-way door.
+- **`LoadFileNode` now refuses a relative path** (#71) instead of resolving it through the
+  sandbox. That branch could only ever raise — nothing in v3 opened a sandbox for it to find —
+  so the node raises the refusal itself, still a `RuntimeError`, with a message that names the
+  absolute path it wants. It deliberately does *not* fall back to the process working
+  directory: quietly reading the host filesystem for a path a model influenced is the widening
+  the sandbox existed to prevent.
+- **`agentdeck.runtime.observability.sandbox_trace_env()` is gone** (#71): it built the
+  `LANGFUSE_*`/`TRACEPARENT` env for a sandboxed skill subprocess, and had no callers left once
+  sandboxing left v3. Same finding as `Settings.sandbox_env()` below, which #155 took early.
+- **`agentdeck.surfaces.serve.compat.resume_result()` is gone** (#71): the v1 resume endpoint
+  answers through `Deck.answer()` and has not gone through this helper since the v3 cutover.
+  The v1 resume wire format is unchanged — it is covered by the golden replay, which is
+  byte-identical.
 - **`LangfuseSettings.host` and its `endpoint` property are gone** (#155): a pre-4.x
   compatibility alias for the Langfuse endpoint, with no reason to survive a major version.
   `base_url` is the only endpoint field now, and it carries `host`'s old default
