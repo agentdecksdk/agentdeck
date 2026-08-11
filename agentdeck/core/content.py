@@ -20,6 +20,7 @@ from pydantic import (
     ValidatorFunctionWrapHandler,
     WrapValidator,
     field_validator,
+    model_serializer,
 )
 
 from agentdeck.core.base import CoreModel, JsonData
@@ -114,6 +115,13 @@ class UnknownBlock(CoreModel):
         if value in KNOWN_BLOCK_TYPES:
             raise ValueError(f"{value!r} is a known block type — use its block class")
         return value
+
+    @model_serializer
+    def _dump_raw_block(self) -> dict[str, JsonData]:
+        """Dump ``raw_block`` verbatim instead of nesting it under ``{type, raw_block}``: the
+        wrapping is a parse-time artifact, so a reader that re-emits an unknown block must see
+        the same dict it read, not one nested one level deeper."""
+        return self.raw_block
 
 
 KnownBlock = Annotated[TextBlock | ImageBlock | AudioBlock | ResourceBlock | DataBlock, Field(discriminator="type")]

@@ -204,6 +204,12 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   reports `done`: `RunStatus.status_of` already derived `waiting_human`, non-terminal, from
   `run.interrupted` alone, so nothing there needed to change. Pinned with a new golden fixture,
   `FanoutInterruptFlow`, streamed and non-streamed.
+- **`UnknownBlock` now dumps its original payload verbatim instead of nesting it under
+  `raw_block`** (#200). Parsing an unfamiliar content block and dumping it straight back used to
+  produce `{"type": ..., "raw_block": {...}}` rather than the block that was actually read —
+  harmless today since nothing relays events, but a relay (#129's protocol adapters) would have
+  nested the payload one level deeper on every hop it passed through, silently. Known block
+  kinds (`text`/`image`/`resource`/`data`/`audio`) are unaffected.
 
 ## [3.0.0b1] - 2026-08-10
 

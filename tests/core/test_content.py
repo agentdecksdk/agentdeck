@@ -166,6 +166,15 @@ def test_unknown_block_survives_its_own_round_trip():
     assert BLOCKS.validate_json(BLOCKS.dump_json(once)) == once  # no double-wrapping
 
 
+def test_unknown_block_dumps_as_the_original_dict_not_nested_under_raw_block():
+    """The finding (#200): parse then dump must be the identity, not
+    ``{"type": ..., "raw_block": {...}}`` — a reader that re-emits the block would otherwise see
+    the payload nested one level deeper on every hop."""
+    raw = {"type": "video", "media_type": "video/mp4", "data_b64": "AAA="}
+    block = BLOCKS.validate_python([raw])[0]
+    assert BLOCKS.dump_python([block], mode="json") == [raw]
+
+
 def test_a_block_named_raw_block_does_not_slip_past_its_own_schema():
     """The UnknownBlock arm must not become a bypass for a malformed known block: a known
     type with a `raw_block` field must still raise, not validate as UnknownBlock."""
