@@ -1,7 +1,6 @@
 """chat_stream / run_streamed / the SSE endpoint: no live model, fakes the SDK boundary."""
 
 import json
-import sys
 import textwrap
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -40,15 +39,22 @@ def _usage_frame(requests: int, input_tokens: int, output_tokens: int) -> dict[s
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
+    """The project directory only — a deck of this suite's own and the server's are two
+    different decks, and one Deck holds the process at a time."""
     root = tmp_path / ".agentdeck"
     (root / "agents" / "greeter").mkdir(parents=True)
     (root / "agents" / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
     monkeypatch.chdir(tmp_path)
-    for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
-        del sys.modules[mod]
+    return tmp_path
+
+
+@pytest.fixture
+async def deck(project):  # noqa: ARG001 — the project dir is what `from_project()` discovers
     from agentdeck.deck import Deck
 
-    return Deck.from_project()
+    deck = Deck.from_project()
+    yield deck
+    await deck.aclose()
 
 
 def _delta_event(text: str) -> SimpleNamespace:
@@ -86,8 +92,8 @@ class FakeRunResultStreaming:
         self.cancelled += 1
 
 
-async def test_run_streamed_yields_deltas_incrementally(project, monkeypatch):
-    agent_cls = project.agents.get("Greeter")
+async def test_run_streamed_yields_deltas_incrementally(deck, monkeypatch):
+    agent_cls = deck.agents.get("Greeter")
     runner = HeadlessRunner.from_agent(agent_cls.build())
 
     events = [_delta_event("Hel"), _other_event(), _delta_event("lo"), _delta_event("!")]
@@ -117,9 +123,9 @@ async def test_run_streamed_yields_deltas_incrementally(project, monkeypatch):
     assert captured_kwargs["session"] is sentinel_session
 
 
-async def test_run_streamed_cancels_sdk_run_on_abandonment(project, monkeypatch):
+async def test_run_streamed_cancels_sdk_run_on_abandonment(deck, monkeypatch):
     """A caller that stops mid-stream (client disconnect) must not leave the run loop alive."""
-    agent_cls = project.agents.get("Greeter")
+    agent_cls = deck.agents.get("Greeter")
     runner = HeadlessRunner.from_agent(agent_cls.build())
 
     fake_result = FakeRunResultStreaming(events=[_delta_event("a"), _delta_event("b")], final_output="ab")
@@ -135,21 +141,21 @@ async def test_run_streamed_cancels_sdk_run_on_abandonment(project, monkeypatch)
     assert fake_result.cancelled == 1
 
 
-async def test_run_returns_a_turn_result_not_the_sdks_runresult(project, monkeypatch):
+async def test_run_returns_a_turn_result_not_the_sdks_runresult(deck, monkeypatch):
     """``run`` used to hand back the SDK's own ``RunResult``; it now plays on the Runtime
     and returns a :class:`~agentdeck.deck.TurnResult` assembled from the run's
     own ``run.completed`` — a caller depends on agentdeck's event schema, never on the SDK.
     """
     patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("echo:hi",))))
 
-    async with project:
-        result = await project.run("Greeter", "hi", session_id="s1")
+    async with deck:
+        result = await deck.run("Greeter", "hi", session_id="s1")
 
     assert result.output == "echo:hi"
     assert result.session_id == "s1"
 
 
-async def test_stream_uses_same_session_as_run(project, monkeypatch):
+async def test_stream_uses_same_session_as_run(deck, monkeypatch):
     """One ``session_id`` is one conversation whichever Deck method ran the turn — the same
     guarantee the old ``HeadlessRunner``-backed methods gave, now proven at the SDK boundary
     instead of by stubbing ``HeadlessRunner.from_agent`` directly (which ``run``/``stream``
@@ -159,9 +165,9 @@ async def test_stream_uses_same_session_as_run(project, monkeypatch):
     model = ScriptedModel(deltas=("echo:hi",))
     patch_provider(monkeypatch, provider_of(model))
 
-    async with project:
-        events = [event async for event in project.stream("Greeter", "first", session_id="s1")]
-        result = await project.run("Greeter", "second", session_id="s1")
+    async with deck:
+        events = [event async for event in deck.stream("Greeter", "first", session_id="s1")]
+        result = await deck.run("Greeter", "second", session_id="s1")
 
     streamed_output = next(e.payload.output[0].text for e in events if isinstance(e.payload, RunCompleted))
     assert streamed_output == "echo:hi" == result.output

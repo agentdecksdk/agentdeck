@@ -28,6 +28,12 @@ def _greeter(name: str = "Greeter", **kwargs: Any) -> Agent:
     return Agent(name=name, instructions="Greet the user.", **kwargs)
 
 
+def _hand_the_process_on() -> None:
+    """One Deck holds the process at a time; a handful of cases below compare two catalogs
+    built back to back. They open neither deck, so there is no `aclose()` to release it."""
+    Deck._release()
+
+
 @pytest.fixture
 def scripted(monkeypatch):
     """Patches the model provider every real agent run in this file plays against, so a turn
@@ -189,6 +195,7 @@ def test_from_project_matches_the_equivalent_code_first_deck(tmp_path, monkeypat
     monkeypatch.chdir(tmp_path)
 
     from_project = Deck.from_project()
+    _hand_the_process_on()
     code_first = Deck(agents=[_greeter()], workflows=[_shout_workflow()], skills=Skills(root / "skills"))
 
     def agent_shape(agent: Agent) -> tuple[str, str, tuple[str, ...], tuple[str, ...]]:
@@ -218,6 +225,98 @@ def test_from_project_matches_the_equivalent_code_first_deck(tmp_path, monkeypat
     )
 
 
+# --- one Deck per process -------------------------------------------------------------------
+
+
+def _write_agent_project(root, *, bundle: str, agent: str):
+    """A ``.agentdeck`` under ``root`` holding one agent named ``agent`` in ``agents/<bundle>/``."""
+    project = root / ".agentdeck"
+    (project / "agents" / bundle).mkdir(parents=True)
+    (project / "agents" / bundle / "agent.py").write_text(
+        textwrap.dedent(f"""
+        from agentdeck.authoring import Agent
+
+        it = Agent(name="{agent}", instructions="Greet the user.")
+        """)
+    )
+    return project
+
+
+@pytest.mark.asyncio
+async def test_a_second_live_deck_is_refused_naming_both_projects(tmp_path):
+    """Every project mounts under one module alias, so the second deck used to inherit the
+    first's bundles in silence. v3 refuses it instead, and says which two projects collided."""
+    alpha = _write_agent_project(tmp_path / "alpha", bundle="greeter", agent="Alpha")
+    beta = _write_agent_project(tmp_path / "beta", bundle="greeter", agent="Beta")
+    deck = Deck.from_project(alpha)
+
+    with pytest.raises(ConfigError) as refused:
+        Deck.from_project(beta)
+
+    message = str(refused.value)
+    assert str(alpha) in message
+    assert str(beta) in message
+    assert "#213" in message  # the deferred multi-deck work, so the refusal is not a dead end
+    await deck.aclose()
+
+
+@pytest.mark.parametrize("build_first", [False, True])
+@pytest.mark.asyncio
+async def test_a_closed_deck_hands_the_process_to_the_next_one(no_project, build_first):
+    """Sequential decks are the supported shape, and `aclose()` is reachable from `NEW` and
+    `BUILT` alike — a deck that was never opened still holds the process until it is closed."""
+    first = Deck(agents=[_greeter()])
+    if build_first:
+        first.build()
+    await first.aclose()
+
+    second = Deck(agents=[_greeter(name="Second")])
+
+    assert set(second.build().agents) == {"Second"}
+
+
+def test_a_construction_that_failed_does_not_hold_the_process(no_project):
+    """The claim is the last thing the constructor does: a Deck that raised on its way up never
+    took the process, so one bad call cannot poison every later one."""
+    with pytest.raises(ConfigError, match="Dup"):
+        Deck(agents=[_greeter(name="Dup"), _greeter(name="Dup")])
+
+    assert set(Deck(agents=[_greeter()]).agents) == {"Greeter"}
+
+
+@pytest.mark.asyncio
+async def test_closing_a_stale_deck_leaves_the_live_ones_claim_alone(no_project):
+    """A deck only ever releases *its own* claim. The suite reaches this state through the
+    internal release hook, since the constructor is what makes it unreachable otherwise."""
+    stale = Deck(agents=[_greeter()])
+    _hand_the_process_on()
+    live = Deck(agents=[_greeter()])
+
+    await stale.aclose()
+
+    with pytest.raises(ConfigError, match="already live"):
+        Deck(agents=[_greeter()])
+    await live.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_sequential_deck_reads_its_own_bundles_not_the_previous_projects(tmp_path):
+    """#204's own reproduction: two projects whose bundle directories share a name. Rebinding
+    the alias parent leaves ``<alias>.agents.greeter.agent`` in ``sys.modules``, so without the
+    eviction the second deck imports the first project's file and discovers its agent."""
+    alpha = _write_agent_project(tmp_path / "alpha", bundle="greeter", agent="Alpha")
+    beta = _write_agent_project(tmp_path / "beta", bundle="greeter", agent="Beta")
+
+    first = Deck.from_project(alpha)
+    assert set(first.agents) == {"Alpha"}
+    await first.aclose()
+
+    second = Deck.from_project(beta)
+
+    assert set(second.agents) == {"Beta"}
+    await second.aclose()
+
+
 # --- context= is gone until Context[T] lands ------------------------------------------------
 
 
@@ -245,6 +344,7 @@ def test_skills_coercion_accepts_a_bare_path_and_a_capability_object(tmp_path):
     _write_skill(tmp_path, "booking")
 
     from_path = Deck(skills=tmp_path)
+    _hand_the_process_on()
     from_object = Deck(skills=Skills(tmp_path))
 
     assert set(from_path.skills.build()) == set(from_object.skills.build()) == {"booking"}
@@ -255,6 +355,7 @@ def test_mcp_coercion_accepts_a_bare_path_and_a_capability_object(tmp_path):
     mcp_json.write_text(json.dumps({"mcpServers": {"docs": {"url": "http://host/mcp"}}}))
 
     from_path = Deck(mcp=mcp_json)
+    _hand_the_process_on()
     from_object = Deck(mcp=MCP(mcp_json))
 
     from_path.build()
@@ -520,6 +621,7 @@ async def test_mcp_refresh_keeps_a_skills_disclosure_intact(no_project, tmp_path
     reference.build()
     expected_instructions = reference._invocables["Greeter"].native.instructions
 
+    _hand_the_process_on()
     deck = Deck(agents=[_greeter(skills=["booking"], mcp=["calendar"])], skills=tmp_path, mcp=_write_mcp_json(tmp_path))
     deck.build()
     stale = deck._invocables["Greeter"].native.instructions
