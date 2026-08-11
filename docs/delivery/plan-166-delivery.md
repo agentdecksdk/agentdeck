@@ -206,7 +206,7 @@ Per-slice notes:
 Two questions the design plan could not have answered, because the API it describes did not exist
 yet. **B is settled; A is open.** Neither blocks slices 1–2.
 
-### A. Does `answer()` take a context? And what does `tick()` do without one? — **OPEN**
+### A. Does `answer()` take a context? And what does `tick()` do without one? — **RULED**
 
 `Deck.answer(run_id, value)`, `tick()` and `due_resumes()` became public API in #164, after the
 plan was written. It covers `run()` and `resume()` ("`resume()` resupplies it", Lifecycle) and is
@@ -241,8 +241,25 @@ either. The options:
 3. **`tick(context=...)`** — pushes the problem to the cron job, which has no idea which workflows
    are due or what each needs.
 
-I would take (1). It is additive and the only option where the combination works. It is needed by
-**slice 4**, not before.
+**RULED 2026-08-11: ship the limitation, documented. None of the three.**
+
+`tick()` gains nothing, `Deck` gains no `context_provider`, and the combination of *durable +
+`sleep_until` + `Context[T]`* is simply not supported in v3.0.0 — stated in the reference rather
+than worked around. Slice 3 already wrote it into `docs-site/content/reference/deck.mdx`.
+
+The reasoning: option 1 adds public API for a combination nobody has asked for, days before a
+stable tag that freezes it — and a `context_provider` is a second, quieter way to supply context
+alongside `run(context=)`, on a milestone named *one way to work*. Option 2 spends design effort
+on a skip path for the same unrequested combination. The honest move is to say what does not work
+and leave the surface clean; adding a provider later is additive, and by then there may be a real
+caller to shape it around.
+
+**What slice 4 owes this ruling** is not code but precision. The reference must say which
+combination is unsupported and what happens if you build it — not a vague caveat. Today a
+`tick()` resume of a context-requiring workflow replays with `data=None`, which surfaces wherever
+the node first touches it, so the docs should name that rather than let it be discovered.
+
+Revisit if a real user hits it: the provider is additive and this ruling costs nothing to reverse.
 
 The wider form of this outlives whichever option wins, and slice 4 must state it: **a context
 cannot cross the HTTP surface at all**, because it is a live Python object the plan says is never
