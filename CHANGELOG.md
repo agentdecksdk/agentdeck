@@ -78,6 +78,14 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   unreachable. There is no `deck.observers` property, for the same reason there is no `runtime`
   or `store`.
 
+  `Langfuse(sdk_spans=True)` adds the raw layer on top of the semantic one: OpenInference maps
+  every agent, generation and tool call the Agents SDK makes, with its input and output — detail
+  the event log does not record. **It arrives as a second, separate trace per run rather than
+  nested under the first**, because nesting would need the engine to establish an OTel context and
+  the engines are barred from the Langfuse SDK by design. Off by default and documented as
+  unnested, so nobody meets a trace they did not ask for — which is what #162 was filed about.
+  Correlating the two layers is tracked separately.
+
 - **`EventSinkPort.start()`** (#181) — an `async` no-op by default, called once while the Deck
   opens, before any run, and pairing with the existing `close()`. A sink that holds a client, a
   connection or a file opens it there rather than on whichever event it happens to see first.

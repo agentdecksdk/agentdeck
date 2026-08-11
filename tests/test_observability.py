@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 from scripted_model import ScriptedModel, patch_provider, provider_of
 
+from agentdeck import observers
 from agentdeck.adapters.telemetry.langfuse import client as langfuse_client
 from agentdeck.core.ports import EventSinkPort
 from agentdeck.errors import ConfigError
@@ -579,13 +580,20 @@ async def test_a_workflow_turn_driving_an_agent_exports_exactly_one_trace_root(
     assert "openinference.instrumentation.openai_agents" not in sys.modules
 
 
-def test_nothing_in_the_package_instruments_the_agents_sdk():
+def test_only_the_opt_in_observer_instruments_the_agents_sdk():
     """The other half of the orphan fix, pinned by name rather than by count.
 
     ``OpenAIAgentsInstrumentor().instrument()`` is what put OpenInference spans on the global
-    tracer provider with no root to hang off. Nothing calls it any more; a caller that came
-    back would restore the second tree without failing the count test above, which only covers
-    the paths it exercises.
+    tracer provider with no root to hang off. It is reachable again, but only through
+    ``Langfuse(sdk_spans=True)`` — a caller who asked for the raw layer and was told in the
+    reference that it arrives as a separate trace.
+
+    What must not come back is a *second* caller: instrumentation is process-global and
+    one-way, so one installed from anywhere else would follow every later Deck, including
+    decks that asked for the semantic layer alone. Checked by name, because such a caller would
+    not fail the count test above — that only covers the paths it exercises — and would not
+    fail ``test_sdk_spans_are_off_unless_asked_for`` either, which patches this module's own
+    hook.
     """
     found = subprocess.run(
         ["git", "grep", "-l", "OpenAIAgentsInstrumentor", "--", "agentdeck/"],
@@ -594,7 +602,10 @@ def test_nothing_in_the_package_instruments_the_agents_sdk():
         timeout=60,
     )
 
-    assert found.stdout == "", f"the Agents-SDK instrumentor is back in {found.stdout.split()}"
+    assert found.stdout.split() == ["agentdeck/observers.py"], (
+        f"the Agents-SDK instrumentor is reachable from {found.stdout.split()}; it belongs to "
+        "Langfuse(sdk_spans=True) alone"
+    )
 
 
 # --- the one construction point ------------------------------------------------------------------
@@ -642,3 +653,44 @@ def test_build_client_names_the_otel_service_and_bounds_the_exporter(monkeypatch
     assert os.environ["OTEL_SERVICE_NAME"] == "booking-svc"
     assert os.environ["OTEL_EXPORTER_OTLP_TRACES_TIMEOUT"] == "5"
     assert (constructed["public_key"], constructed["environment"]) == ("pk", "prod")
+
+
+# --- the raw SDK layer, opt-in --------------------------------------------------------------
+
+
+async def test_sdk_spans_are_off_unless_asked_for(telemetry, langfuse_keys, monkeypatch):
+    """Instrumentation is process-global and one-way: once installed it outlives the Deck that
+    installed it and follows every later one. So the default has to be *no*, and a test has to
+    hold it there — a leak here would not fail the run that caused it.
+    """
+    langfuse_keys()
+    instrumented = []
+    monkeypatch.setattr(observers, "instrument_agents_sdk", lambda: instrumented.append(True))
+
+    await observers.Langfuse().start()
+
+    assert instrumented == [], "the default observer instrumented the SDK without being asked"
+
+
+async def test_sdk_spans_true_instruments_after_the_client_exists(telemetry, langfuse_keys, monkeypatch):
+    """Order matters and is asserted, not assumed: the client registers Langfuse's span
+    processor on the global OTel provider, and the instrumentation appends to it. Instrumenting
+    first would append to a provider Langfuse has not claimed yet.
+
+    Also stops the flag rotting into a no-op — a `sdk_spans=True` that quietly does nothing is
+    the ghost declaration this observer refuses everywhere else.
+    """
+    langfuse_keys()
+    order: list[str] = []
+    monkeypatch.setattr(observers, "instrument_agents_sdk", lambda: order.append("instrument"))
+    real_sink = langfuse_client.langfuse_sink
+
+    def _spy(settings):
+        order.append("client")
+        return real_sink(settings)
+
+    monkeypatch.setattr(langfuse_client, "langfuse_sink", _spy)
+
+    await observers.Langfuse(sdk_spans=True).start()
+
+    assert order == ["client", "instrument"]

@@ -231,9 +231,28 @@ async with deck:                      # every observer starts here, once, before
 | `[observer, …]` | Exactly these, in order. Naming any observer suppresses the settings-derived `Langfuse()` — a deck told which taps to open does not open another behind your back, so include it explicitly if you want it alongside your own. |
 | `()` | None at all, even where the environment configures Langfuse. |
 
-`Langfuse()` takes no arguments: it is configured entirely by `AGENTDECK_LANGFUSE_*`, so there is
-one place to set the endpoint, environment, sample rate and service name rather than two. Naming
-it with no keys configured raises `ConfigError` at open, rather than tracing nothing quietly.
+`Langfuse()` is configured entirely by `AGENTDECK_LANGFUSE_*`, so there is one place to set the
+endpoint, environment, sample rate and service name rather than two. Naming it with no keys
+configured raises `ConfigError` at open, rather than tracing nothing quietly.
+
+#### Two layers, and only one is on by default
+
+| | |
+|---|---|
+| **semantic** (always) | Each run rendered from the canonical event log — what happened. Identical for an agent turn and a workflow run, because both are traced from the same events. |
+| **raw** (`sdk_spans=True`) | OpenInference maps every agent, generation and tool call the Agents SDK makes, with its input and output — detail the event log does not record. |
+
+```python
+deck = Deck(agents=[booking], observers=[Langfuse(sdk_spans=True)])
+```
+
+**The raw layer arrives as a second, separate trace per run — it is not nested under the first.**
+Nesting would require the engine to establish an OTel context, and the engines are barred from the
+Langfuse SDK by design (`.importlinter`'s `langfuse-is-telemetry-private`). So a turn with
+`sdk_spans=True` shows up in Langfuse as two traces: the agentdeck one, and the SDK's own.
+
+That is why it is opt-in. Reach for it when you are debugging *how* a turn ran — latency, retries,
+what a tool actually received — and leave it off when you want one clean trace per run.
 
 ### Writing your own
 
