@@ -251,16 +251,26 @@ def _origin(project_path: Path | None) -> str:
     return str(project_path) if project_path is not None else "a code-first Deck(...), no project dir"
 
 
+def _refuse_second_deck(incoming: str) -> None:
+    """Raise if a Deck already holds the process. Separate from :func:`_claim_process` because
+    ``from_project`` has to refuse *before* it mounts: mounting evicts the live Deck's cached
+    bundle modules and rebinds the alias to the new root, so refusing afterwards would leave the
+    surviving Deck pointing at a project it does not own — fine until a durable workflow resumes
+    and re-imports a bundle class, which would then resolve against the wrong directory."""
+    if _live_deck is None:
+        return
+    raise ConfigError(
+        f"a Deck is already live in this process ({_origin(_live_deck._project_path)}); "
+        f"agentdeck v3 supports one Deck per process, so this one ({incoming}) would read the "
+        "first one's bundles and share its MCP servers. Close the first with "
+        "`await deck.aclose()` before constructing another. Two decks side by side is "
+        "deferred — agentdeck issue #213."
+    )
+
+
 def _claim_process(deck: Deck) -> None:
     global _live_deck
-    if _live_deck is not None:
-        raise ConfigError(
-            f"a Deck is already live in this process ({_origin(_live_deck._project_path)}); "
-            f"agentdeck v3 supports one Deck per process, so this one "
-            f"({_origin(deck._project_path)}) would read the first one's bundles and share its "
-            "MCP servers. Close the first with `await deck.aclose()` before constructing another. "
-            "Two decks side by side is deferred — agentdeck issue #213."
-        )
+    _refuse_second_deck(_origin(deck._project_path))
     _live_deck = deck
 
 
@@ -347,6 +357,9 @@ class Deck:
         ``**kwargs`` forwards anything else (the private test seams) straight to
         the constructor, same as calling it directly.
         """
+        # Before mounting, not after: see :func:`_refuse_second_deck`. The constructor claims
+        # the process, but by then this method has already evicted and rebound the alias.
+        _refuse_second_deck(str(Path(path).resolve()))
         package = mount_project_dir(path)
         agent_registry = PluginRegistry(
             package, base_class=Agent, module_name="agent", type_dir="agents", label="agent"

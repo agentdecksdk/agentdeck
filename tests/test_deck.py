@@ -4,8 +4,10 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import socket
+import sys
 import textwrap
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -274,6 +276,31 @@ async def test_a_second_live_deck_is_refused_naming_both_projects(tmp_path):
     assert str(alpha) in message
     assert str(beta) in message
     assert "#213" in message  # the deferred multi-deck work, so the refusal is not a dead end
+    await deck.aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_refused_second_deck_leaves_the_live_ones_namespace_alone(tmp_path):
+    """The refusal must not damage the deck it protects.
+
+    ``from_project`` mounts before it constructs, and mounting evicts the alias' cached
+    submodules and repoints it at the new root — so refusing inside ``__init__`` alone would
+    leave the surviving deck's namespace resolving against a project it does not own. Harmless
+    while it only reads live objects, and not harmless the moment a durable workflow resumes and
+    re-imports a bundle class. Hence the pre-mount refusal, pinned here.
+    """
+    alpha = _write_agent_project(tmp_path / "alpha", bundle="greeter", agent="Alpha")
+    beta = _write_agent_project(tmp_path / "beta", bundle="greeter", agent="Beta")
+    deck = Deck.from_project(alpha)
+    deck.build()
+
+    with pytest.raises(ConfigError):
+        Deck.from_project(beta)
+
+    alias = sys.modules["agentdeck_project"]
+    assert alias.__path__ == [str(alpha)], "the refused project stole the alias"
+    reimported = importlib.import_module("agentdeck_project.agents.greeter.agent")
+    assert reimported.it.name == "Alpha", "a re-import after the refusal resolved to the wrong project"
     await deck.aclose()
 
 
