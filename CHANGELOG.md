@@ -45,6 +45,14 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Added
 
+- **`SECURITY.md` and `CODE_OF_CONDUCT.md`** (#132). The security policy says where to report a
+  vulnerability and what is in scope — including the two things that are deliberately *not*: a
+  model-chosen tool call runs with the full privileges of the host process, and nothing is
+  sandboxed. The code of conduct is the Contributor Covenant 2.1, unmodified.
+- **Package classifiers**, so PyPI and every metadata reader can see what agentdeck is and which
+  Pythons it supports (#132). A test keeps the classified Python versions in step with
+  `requires-python`, and asserts the built metadata still names the MIT license.
+
 - **`AudioBlock`** (#159): a fifth content-block kind, mirroring `ImageBlock` field-for-field
   (`media_type`, `data_b64`) — the same problem (opaque bytes with a MIME type), so a different
   shape would be asymmetry with no payoff. Additive/minor (`CURRENT_VERSION.minor` 0 → 1): a
