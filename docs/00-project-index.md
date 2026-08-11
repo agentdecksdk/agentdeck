@@ -1,8 +1,20 @@
-# 00 — AgentDeck v2 Project Index
+# 00 — AgentDeck Project Index
 
 **The one file to read first.** It maps every document, establishes which one wins when
 they disagree, reconciles the known deltas between them, and gives the execution order.
-Date: 2026-08-04.
+Date: 2026-08-04. Amended 2026-08-11.
+
+> **Amendment 2026-08-11 — v3 is built.** This file was written during the v2 effort and titled
+> for it; the title is now version-free, because it outlives any one release. Two things it said
+> are no longer true and are corrected below: §4's `NOW` arrow pointed at a cutover that has since
+> finished, and §1 listed only the v2-era document set, which the v3 cutover has roughly doubled
+> (§1b). The precedence rules in §2 and the delta ledger in §3 are unchanged and still hold —
+> nothing in them was about the cutover.
+>
+> The v2/v3 naming in the *design* documents is deliberate and stays: `agentdeck-v2-architecture.md`
+> and `adr-d5-two-stores.md` describe the layout and import law that shipped as v3. They were
+> written under the earlier number; renaming files to chase a version bump is churn, and §6's rule
+> is a dated amendment, not a rewrite.
 
 ---
 
@@ -22,8 +34,28 @@ Date: 2026-08-04.
 | 10 | `delivery/milestone-0-findings.md` | M0's go/no-go checkpoint: falsifier review, schema-as-built diff, learning note, decision log, keep/harden/discard | delivery, engineers |
 | 11 | `design/adr-d11-store-assigns-seq-and-time.md` | Decision record: the store assigns `seq` and `ts` in the same atomic step that persists an event. **Supersedes** `claim_start`'s "a store never reads a clock" and the envelope-stamping split in doc #3 | engineers |
 
-**Reading orders.** New engineer: 1 → 3 (through §9) → 4 → 8 → 6 → 10 → 5. Product/stakeholder:
-1 → 2 → 3 Appendix B. Implementer starting today: 7 → 8 → 6 → 10.
+## 1b. The v3 cutover set (added 2026-08-11)
+
+Everything written after the table above, in the order the work happened. §6's rule — one row here
+per new spec doc — had fallen behind by thirteen documents; this closes it.
+
+| File | What it is |
+|---|---|
+| `coding-standards.md` | **The standards of record**: typing, errors, the async/event-path law, test structure, naming, dependencies, security, PR/commit discipline. `CLAUDE.md` points every agent here before any non-trivial code |
+| `delivery/plan-v2-cutover.md` | The cutover plan: phases 0–4, and ruling 1 (v1's public API is dropped, not facaded) — the decision that renumbered the release train |
+| `delivery/decision-v3-entry-point.md` | The entry-point brief that produced `Deck`: options weighed, `App` retired, two front doors and one catalog |
+| `delivery/plan-phase4-deck.md` / `review-phase4-deck.md` | Phase 4's build plan and its review round |
+| `delivery/plan-skills.md` | Skills as `SKILL.md` prose plus `key=value` stdout, and why an agent never imports a skill's schema |
+| `delivery/plan-multimodal.md` | The content model end to end — the full block set, per-engine reach, inline caps — gating `AudioBlock`/`ImageBlock` |
+| `delivery/plan-context-injection.md` | The original `Context[T]` design |
+| `delivery/plan-166-delivery.md` / `review-context-injection.md` | What moved under that design once it met both engines, sliced for delivery; and the review |
+| `delivery/roadmap-v3.md` | Every open v3.0.0 issue assessed against the tree, the rulings taken, and the waves. **Delivered** — see its closing note |
+| `delivery/beta-user-report-v3.md` | A real `v3.0.0b1` run by a first-time user; source of the Wave B findings |
+| `delivery/deck-capability-wrapper-pattern.md` | The wrapper shape a `Deck` argument takes when a capability needs one |
+
+**Reading orders.** New engineer: `coding-standards.md` → 1 → 3 (through §9) → 4 → 8 →
+`delivery/decision-v3-entry-point.md`. Product/stakeholder: 1 → 2 → 3 Appendix B. Historical
+(how it was built): 7 → 8 → 6 → 10 → 5.
 
 ## 2. Precedence — which document wins
 
@@ -77,10 +109,16 @@ Documents were written in conversation order and later ones refine earlier ones.
         DONE, `delivery/milestone-0-findings.md`, `scripts/m0_demo.py`, #57]
     Epic Story 2 (the seam, full quality — re-sequenced per the
         findings note) → v2.0.0 tagged 2026-08-06
-NOW ──▶ v3.0.0 the cutover: phases 0–3 done on `feat/v3-cutover`;
-        phase 4 (`authoring/`) blocked on the entry-point ruling      [#88 —
+    v3.0.0 the cutover: phases 0–4 done, `App` and the v1 API
+        deleted (#164), `Deck` the one composition root
+        → v3.0.0b1 tagged 2026-08-10                                  [#88 —
         plan: `delivery/plan-v2-cutover.md`, brief:
         `delivery/decision-v3-entry-point.md`]
+    Waves 1–5 on top of the beta: correctness, the wire, the config
+        surface, `Context[T]`, observability, cleanup                 [all
+        delivered — `delivery/roadmap-v3.md`]
+NOW ──▶ the pre-stable gate: one reference application (#219) and the
+        simplification pass (#131), then tag v3.0.0
     ──▶ v3.1 batteries → v3.2 rooms & reach → v3.3 operate          [PRD §6]
 ```
 

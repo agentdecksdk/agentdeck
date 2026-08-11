@@ -1,7 +1,26 @@
 # Roadmap — finishing v3
 
-**Status:** proposed · **Date:** 2026-08-10 · **Baseline:** `dev` at `917290e`, with #164 merged
-(`a5cd353` — `Deck`, `authoring/`, the end of `App`).
+**Status:** delivered · **Date:** 2026-08-10 · **Closed:** 2026-08-11 · **Baseline:** `dev` at
+`917290e`, with #164 merged (`a5cd353` — `Deck`, `authoring/`, the end of `App`).
+
+> **Closing note, 2026-08-11 — every wave shipped.** `dev` at `27c4923`. Wave B tagged
+> `v3.0.0b1`; Waves 1–5 landed on top of it, in the sequence below and for the reasons below. The
+> four rulings all held: sandboxing left v3, observability went last and above the deck,
+> `Context[T]` was the final large feature, and multimodal got its design pass first.
+>
+> Two waves changed shape on contact and the change is worth recording. **Wave 2** reversed its own
+> order — #156 (schema versioning) went first, so `AudioBlock` could be the first thing to exercise
+> a minor bump rather than an additive change with no way to announce itself. **#166** turned out
+> to be four stacked slices rather than one, because the two engines inject a runtime context
+> differently: the OpenAI SDK recognises its wrapper *by type*, LangGraph *by parameter name*, so a
+> LangGraph node has to be rewritten rather than merely handed a value. `plan-166-delivery.md`
+> records that and the rest of what moved.
+>
+> **What is left before the stable tag** is not on this roadmap, because it was filed after this
+> document was written: **#219** (one real reference application, as release-level validation of
+> the frozen surface) and **#131** (the simplification pass). Everything deferred out of v3 is
+> either in *Out of v3* below or on the `v3.1 — batteries` milestone: #211, #212, #213, #217 and
+> #218 were all filed while executing these waves.
 
 Every open issue on the `v3.0.0 — one way to work` milestone, assessed against the tree as it
 stands *after* the phase-4 merge, and sequenced. Several were written before that merge and

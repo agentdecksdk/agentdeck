@@ -169,6 +169,42 @@ return an `InterruptResult` — `{"type": "interrupt", "payload": ..., "thread_i
 of a final state; see [Workflows](/concepts/workflows) for what that means for the node that
 paused, and answer it with `answer()` below.
 
+### What `input` accepts
+
+A `str` — the common case, and unchanged — or a **list of content blocks**, which is how a turn
+carries anything that is not text. A string is coerced to one `text` block on the way in, so the
+two forms meet as the same thing before any engine sees them.
+
+| Block | Fields | For |
+|---|---|---|
+| `TextBlock` | `text` | prose |
+| `ImageBlock` | `media_type`, `data_b64` | an image inline, base64 |
+| `AudioBlock` | `media_type`, `data_b64` | audio inline, base64 — a voice note, a recorded call |
+| `ResourceBlock` | `uri`, `media_type` | bytes held elsewhere, referenced rather than carried |
+| `DataBlock` | `data` | JSON as content — a structured result, a workflow's state |
+
+```python no-test reason="needs an image file and a live model that accepts one"
+import base64
+
+from agentdeck.core import ImageBlock, TextBlock
+
+photo = base64.b64encode(open("receipt.png", "rb").read()).decode()
+result = await deck.run(
+    "Intake",
+    [TextBlock(text="What is the total on this receipt?"), ImageBlock(media_type="image/png", data_b64=photo)],
+)
+```
+
+Inline blocks are capped at **1 MB decoded**, enforced at construction rather than documented and
+hoped for: base64 in an event lands in an append-only log and replays down every SSE connection
+for the life of that run. Anything larger belongs in a `ResourceBlock`.
+
+An engine that cannot express a block raises `ConfigError` naming the block type, rather than
+dropping it — a turn that silently loses its image is worse than one that refuses. Two known
+limits on the openai-agents engine at the pinned `openai-agents==0.17.0`: `AudioBlock` needs the
+Chat-Completions path (`OPENAI_USE_RESPONSES=false`), and `ResourceBlock`/`DataBlock` are not sent
+to the model at all.
+
 `stream` yields the same `Event` objects a run's log would hand back after the fact — `text.delta`
 per token for an agent, `node.updated` per completed node for a workflow, a terminal event last —
 not a rendered wire format. This is the one method here that does not return a `TurnResult`,

@@ -1,7 +1,17 @@
 # AgentDeck v2 — Project Brief
 
-**Owner:** Sagi · **Date:** 2026-08-04 · **Status:** design complete, execution starting
+**Owner:** Sagi · **Date:** 2026-08-04 · **Status:** delivered as v3 (amended 2026-08-11)
 **Repo:** `Sagi5060/agentdeck` (baseline v1.2.1) · **Doc set:** see `00-project-index.md`
+
+> **Amendment 2026-08-11.** The effort this brief opens shipped, under a different number: ruling
+> 1 of `delivery/plan-v2-cutover.md` dropped v1's public API rather than facading it, which made
+> the release breaking and renumbered v2 → v3. The *what* and *why* below are unchanged and were
+> the right bet; two items in the scope list did not survive contact and are recorded here rather
+> than edited out of it. **Caller-injected capabilities** and the sandbox behind them are deferred
+> entirely (#163) — v3 ships no sandbox, and the scaffolding for one was deleted rather than kept
+> warm. **ACP** did not land in v3; serving a deck over standard agent protocols is #129, on
+> `v3.1 — batteries`. Everything else in "one core, one event stream, every capability built
+> once" is what `Deck` and the Runtime now are.
 
 ## What
 

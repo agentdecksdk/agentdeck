@@ -62,8 +62,11 @@ non-trivial change; this list is the two-minute version.
 - **agentdeck owns configuration, not execution.** Execution stays in the
   OpenAI Agents SDK / LangGraph. If your change runs things, it belongs in a
   bundle or an app, not here.
-- **The `App` entry point serves `./.agentdeck/` only.** Don't add alternative
-  catalog mechanisms.
+- **`Deck` is the one composition root.** `Deck(agents=…, workflows=…)` and
+  `Deck.from_project()`, which discovers the same arguments from `./.agentdeck/`
+  — two front doors, one catalog. Don't add a third, and don't add alternative
+  catalog mechanisms behind the ones that exist.
+- **One `Deck` per process.** Constructing a second while one is live raises.
 - **Typed boundaries**: new public functions carry annotations. `ty` must pass,
   but never by contorting the code — at deliberate SDK shims, or where appeasing
   the checker would make the code smellier, use a narrow `# ty: ignore[rule]`
