@@ -33,6 +33,7 @@ def test_the_examples_directory_has_not_moved() -> None:
     pass the file silently rather than fail it.
     """
     assert [p.name for p in DECKS] == [
+        "agent-with-a-skill",
         "chat-agent-with-a-tool",
         "existing-langgraph-agent",
         "workflow-with-an-approval",
@@ -49,6 +50,19 @@ def test_the_chat_example_declares_an_agent_holding_its_tool() -> None:
     deck = Deck.from_project(EXAMPLES / "chat-agent-with-a-tool" / ".agentdeck").build()
     assert sorted(deck.agents) == ["OrderDesk"]
     assert [tool.name for tool in deck.agents["OrderDesk"].tools] == ["order_status"]
+
+
+def test_the_skill_example_declares_an_agent_holding_its_skill() -> None:
+    """The skill is this example's whole subject. ``skills=["shift-notes"]`` is a *name*, resolved
+    against the discovered bundles at build time, so a renamed directory or a frontmatter ``name``
+    that stops matching it fails here rather than at the first model call.
+    """
+    deck = Deck.from_project(EXAMPLES / "agent-with-a-skill" / ".agentdeck").build()
+    assert sorted(deck.agents) == ["HandoverDesk"]
+    assert [tool.name for tool in deck.agents["HandoverDesk"].tools] == ["lookup_shift", "file_handover_note"]
+    assert deck.agents["HandoverDesk"].skills == ("shift-notes",)
+    assert deck.skills is not None, "the example declares a skill, so discovery must have found a root"
+    assert sorted(deck.skills.build()) == ["shift-notes"]
 
 
 def test_the_approval_example_declares_a_durable_workflow() -> None:
