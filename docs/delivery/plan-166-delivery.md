@@ -117,6 +117,19 @@ Per-slice notes:
   its message. Also the first place the plan's "the model never sees `ctx.data`" guarantee becomes
   testable — assert the context parameter is absent from the generated tool schema, not just that
   the call works.
+
+  **`reliable=False` must be settled on slice 2's first day** — added after slice 1, which
+  surfaced it. `analyze_callable` reports honestly whether static inspection could be trusted, but
+  slice 1 has nowhere to hand that answer; the invocation-time safety net is step 3's, which is
+  slice 2. The failure mode to design against: a signature-destroying decorator makes an
+  unreliable analysis fall through to the static path and read as *"no context declared"*, so the
+  argument silently goes missing and the tool runs without its context. Unreliable must never
+  default to "no context" — it must reach the runtime check, or refuse.
+
+  Slice 1 also read a bare `Context` (no type argument) as `Context[Any]`, since none of the three
+  documents cover it. The alternative — leaving it unparameterised — hands an AgentDeck internal to
+  slice 2's schema builder, which is exactly the leak the design's strongest rule forbids. Confirm
+  or overturn while implementing the schema builder, and write it down either way.
 - **Slice 3.** The contract test parametrized over both engines is a **done-when, not a nice to
   have**: the plan names it as "the only thing keeping them honest", and two bridges producing one
   advertised behavior is the top risk in the whole feature. Hooks belong here, not in slice 2 —
