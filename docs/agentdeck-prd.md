@@ -44,6 +44,24 @@ be paused, cancelled, steered, or gated on approval — durably, across restarts
 Priorities: **P0** = this initiative (Milestone 0 + core epic) · **P1** = next epics,
 already designed · **P2** = designed at concept level, scheduled later.
 
+> **Amendment 2026-08-11 — what v3.0.0 actually ships against these requirements.** This section
+> is the product's whole arc, not one release, so most P1/P2 items are simply not due yet. Three
+> P0 statements below were overtaken by rulings and would otherwise read as promises v3 broke:
+>
+> - **FR-1** — "existing v1.2.1 projects load unchanged" no longer holds. #164 deleted `App` and
+>   the v1 public API outright (`plan-v2-cutover.md` ruling 1); the `.agentdeck/` layout and the
+>   no-registration rule are unchanged, the Python entry point is not.
+> - **FR-3** — "sandbox is the default capability backing" is deferred, not delivered. #163 left
+>   v3 by ruling and #71 deleted the scaffolding. Tools and MCP servers are declarative as
+>   described; nothing is sandboxed, and `SECURITY.md` says so to users.
+> - **FR-14** — ACP did not land in v3. Protocol surfaces beyond HTTP/SSE are #129, on
+>   `v3.1 — batteries`. FR-13's v1.2.1 wire compatibility *is* delivered, frozen byte-for-byte and
+>   replayed by `tests/golden/` on every run.
+>
+> One requirement gained a mechanism this document did not anticipate: **`Context[T]`** (#166) is
+> how an application's own environment — a database handle, a client — reaches a tool or node,
+> which is the need FR-14's "caller-injected capabilities" was reaching for, minus the sandbox.
+
 ### 4.1 Authoring & composition
 
 - **FR-1 (P0)** Define an agent/workflow/skill by dropping a conventional file into `.agentdeck/`; no registration. Existing v1.2.1 projects load unchanged.
