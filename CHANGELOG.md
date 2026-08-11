@@ -52,6 +52,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 - **Package classifiers**, so PyPI and every metadata reader can see what agentdeck is and which
   Pythons it supports (#132). A test keeps the classified Python versions in step with
   `requires-python`, and asserts the built metadata still names the MIT license.
+- **`examples/`: two decks you can copy** (#132) — a chat agent with a tool, and a workflow that
+  pauses for a human approval. Each is a complete project directory with a `run.py` and a README,
+  and each is built by the test suite on every run, so neither can quietly stop working. The
+  approval example makes no model call at all and runs offline.
+- **A docs-site page on choosing a store backend**: the four independent storage decisions, one
+  environment variable each, and the trap where `durable=True` parks an approval that a second
+  process cannot see because the event log is still in memory.
 
 - **`AudioBlock`** (#159): a fifth content-block kind, mirroring `ImageBlock` field-for-field
   (`media_type`, `data_b64`) — the same problem (opaque bytes with a MIME type), so a different

@@ -13,7 +13,8 @@ from pathlib import Path
 
 import pytest
 
-CONTENT = Path(__file__).resolve().parents[1] / "docs-site" / "content"
+ROOT = Path(__file__).resolve().parents[1]
+CONTENT = ROOT / "docs-site" / "content"
 FENCE = re.compile(r"^[ \t]*```(\w+)([^\n]*)\n(.*?)^[ \t]*```", re.MULTILINE | re.DOTALL)
 # Absolute markdown links only: relative hrefs, reference-style links and MDX <Cards> are invisible here.
 LINK = re.compile(r"\]\((/[^)\s]*)\)")
@@ -27,6 +28,17 @@ def _pages() -> tuple[Path, ...]:
     pages = tuple(sorted(CONTENT.rglob("*.mdx")))
     assert pages, f"no .mdx pages under {CONTENT} — the content dir moved"
     return pages
+
+
+@cache
+def _repo_markdown() -> tuple[Path, ...]:
+    """The prose outside the site that a reader still meets first: the README (which is also the
+    package's PyPI description) and the copyable decks under ``examples/``. Same rot, same
+    checks, and nothing else was looking at them.
+    """
+    files = (ROOT / "README.md", *sorted(ROOT.glob("examples/*/README.md")))
+    assert all(path.is_file() for path in files), f"a repo markdown file moved: {files}"
+    return files
 
 
 def _assert_agentdeck_imports_exist(src: str, page: Path) -> None:
@@ -103,8 +115,8 @@ INSTALL_LINE = re.compile(r"\b(?:pip install|uv add|pipx install)\b.*\bagentdeck
 
 
 def test_pinned_install_versions_match_the_package_version() -> None:
-    """Every agentdeck install line on the site must carry a `git+...@vX.Y.Z` pin naming the
-    version this tree actually is.
+    """Every agentdeck install line on the site, in the README, or in an example must carry a
+    `git+...@vX.Y.Z` pin naming the version this tree actually is.
 
     Nothing else catches a stale *or missing* pin: the fence checks above parse Python, and
     `docs-check.yml` only confirms a page was produced. A stale pin has shipped three times,
@@ -119,22 +131,48 @@ def test_pinned_install_versions_match_the_package_version() -> None:
     root = Path(__file__).resolve().parents[1]
     version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
     pin = re.compile(r"agentdeck(?:\.git)?@v([0-9][^\"'\s)]*)")
+    documents = (*_pages(), *_repo_markdown())
 
     stale = [
         f"{page.relative_to(root)}: pins v{found} but pyproject says {version}"
-        for page in _pages()
+        for page in documents
         for found in pin.findall(page.read_text())
         if found != version
     ]
     stale += [
         f"{page.relative_to(root)}: unpinned agentdeck install in a `{lang}` block — {line.strip()!r}"
-        for page in _pages()
+        for page in documents
         for lang, _meta, body in FENCE.findall(page.read_text())
         if lang == "bash"
         for line in body.splitlines()
         if INSTALL_LINE.search(line) and not pin.search(line)
     ]
-    assert not stale, "stale or unpinned install pin(s) on the docs site:\n  " + "\n  ".join(stale)
+    assert not stale, "stale or unpinned install pin(s):\n  " + "\n  ".join(stale)
+
+
+@pytest.mark.parametrize("document", _repo_markdown(), ids=lambda p: str(p))
+def test_python_fences_in_repo_markdown_resolve(document: Path) -> None:
+    """The README and the example READMEs get the same stage-1 treatment as the site's pages:
+    parsed, with every name they import from `agentdeck` confirmed to exist.
+    """
+    for lang, _meta, src in FENCE.findall(document.read_text()):
+        if lang in PYTHON:
+            _assert_agentdeck_imports_exist(src, document)
+
+
+SITE_LINK = re.compile(r"https://sagi5060\.github\.io/agentdeck/([\w/-]*)")
+
+
+@pytest.mark.parametrize("document", _repo_markdown(), ids=lambda p: str(p))
+def test_docs_site_links_in_repo_markdown_reach_a_real_page(document: Path) -> None:
+    """A README links the published site by absolute URL, which no build step resolves — a page
+    renamed on the site leaves a 404 behind in the one file most readers start from.
+    """
+    for slug in SITE_LINK.findall(document.read_text()):
+        slug = slug.strip("/")
+        assert not slug or (CONTENT / f"{slug}.mdx").exists() or (CONTENT / slug / "index.mdx").exists(), (
+            f"{document.name}: docs-site link /{slug} has no page"
+        )
 
 
 def test_every_public_deck_method_is_documented_somewhere() -> None:

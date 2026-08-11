@@ -1,0 +1,65 @@
+"""Anti-rot checks for the copyable decks under ``examples/``.
+
+Each example is **built, never run**. ``Deck.build()`` validates the whole catalog — it
+discovers every bundle, imports it, checks its skills and MCP names, and compiles each agent
+and workflow to an ``InvocableSpec`` — while opening no connection, starting no MCP server and
+making no model call. That is what makes it the right check here: a broken example fails to
+build, and the suite stays offline and deterministic.
+
+Do not "fix" this into ``deck.run(...)``. A chat turn needs a real model, and no test in this
+suite is allowed to reach one; the docs suite already executes turns against a scripted local
+endpoint, and that is where a run-level example check would belong.
+
+One ``Deck`` per test function, deliberately: discovery mounts every project under a single
+module alias, so two live decks in one process read each other's bundles.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from test_docs_site import _assert_agentdeck_imports_exist
+
+from agentdeck import Deck
+
+EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
+DECKS = sorted(p.parent for p in EXAMPLES.glob("*/.agentdeck"))
+
+
+def test_the_examples_directory_has_not_moved() -> None:
+    """Every other test here is parametrized over what the glob found, so an empty glob would
+    pass the file silently rather than fail it.
+    """
+    assert [p.name for p in DECKS] == ["chat-agent-with-a-tool", "workflow-with-an-approval"]
+
+
+@pytest.mark.parametrize("example", DECKS, ids=lambda p: p.name)
+def test_every_example_deck_builds(example: Path) -> None:
+    deck = Deck.from_project(example / ".agentdeck").build()
+    assert sorted(deck.agents) or sorted(deck.workflows), f"{example.name} discovered nothing"
+
+
+def test_the_chat_example_declares_an_agent_holding_its_tool() -> None:
+    deck = Deck.from_project(EXAMPLES / "chat-agent-with-a-tool" / ".agentdeck").build()
+    assert sorted(deck.agents) == ["OrderDesk"]
+    assert [tool.name for tool in deck.agents["OrderDesk"].tools] == ["order_status"]
+
+
+def test_the_approval_example_declares_a_durable_workflow() -> None:
+    """``durable=True`` is what gives the workflow a checkpointer, and without one ``interrupt()``
+    raises instead of parking the run — the example's whole subject.
+    """
+    deck = Deck.from_project(EXAMPLES / "workflow-with-an-approval" / ".agentdeck").build()
+    assert sorted(deck.workflows) == ["RefundApproval"]
+    assert deck.workflows["RefundApproval"].durable is True
+
+
+@pytest.mark.parametrize("example", DECKS, ids=lambda p: p.name)
+def test_every_example_has_the_run_script_its_readme_tells_you_to_run(example: Path) -> None:
+    """``python run.py`` is an instruction, and an instruction naming a file that does not exist
+    (or no longer imports what it imports) is the rot this whole issue is about.
+    """
+    script = example / "run.py"
+    assert script.is_file(), f"{example.name}/README.md says `python run.py`, but there is none"
+    _assert_agentdeck_imports_exist(script.read_text(), script)
