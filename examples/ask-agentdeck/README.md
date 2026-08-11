@@ -140,7 +140,20 @@ Worth being precise about, because this is an unauthenticated endpoint that spen
 | **Failure messages** | `run.failed` carries the exception's *type name* and the engine's, never its text. That is agentdeck's own design, not something this application adds. |
 | **The API key** | Only in the backend process. The static bundle is public by construction; `NEXT_PUBLIC_*` is readable in the shipped JavaScript, and nothing but the API URL goes there. |
 | **The tools** | `read_doc` is a dict lookup on a slug, not a file read, so no slug reaches the filesystem and there is no path to traverse. The corpus is the published documentation, which is public anyway. |
-| **Cost** | Rate-limited per client, `ASK_AGENTDECK_RATE_LIMIT` questions per five minutes, plus length caps on every field. CORS is *not* a control here — it constrains browsers and a `curl` ignores it. For anything beyond one process behind one tunnel, add a Cloudflare rate-limiting rule at the edge so the traffic never reaches the machine. |
+| **Cost** | **Three conversations per client per rolling day, twenty turns each** — sixty turns is the hard ceiling on what this can be made to spend. Plus 2000-character caps on `question` and `selection`, and a 900-token cap on the answer. CORS is *not* a control here: it constrains browsers and a `curl` ignores it. |
+
+The quota is deliberately shaped as *conversations* rather than a flat request count, because
+the two halves stop different things. **Turns per session** bound the conversation: a session
+re-sends its whole history to the model every turn, so an unbounded one costs quadratically
+while its context window fills with the caller's own text — that is how you overload this
+without ever sending a long message. **Sessions per day** stop the obvious way around that,
+which is to finish twenty turns and start again. A caller who omits `session_id` gets one bucket
+rather than a free pass, or the whole quota would be opt-in.
+
+`ASK_AGENTDECK_SESSIONS_PER_DAY` and `ASK_AGENTDECK_TURNS_PER_SESSION` change the numbers. The
+counting is in-process and per-IP, which is right for one backend behind one tunnel and wrong
+the moment there are two replicas or a caller with addresses to spare — the upgrade for that is
+a Cloudflare rate-limiting rule at the edge, where the traffic never reaches the machine.
 
 ### Prompt injection: what is guarded, and what is not
 

@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections import defaultdict, deque
+from collections import Counter, defaultdict
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from time import monotonic
@@ -77,15 +77,24 @@ MAX_QUESTION = 2000
 """A docs question is a sentence. The cap is what stops this being a free prompt-relay to
 whatever model the deck is pointed at."""
 
-RATE_LIMIT = int(os.environ.get("ASK_AGENTDECK_RATE_LIMIT", "20"))
-RATE_WINDOW = 300.0
-"""Questions per client per five minutes. The endpoint is unauthenticated on purpose — a docs
-assistant that asks you to log in is not a docs assistant — so this is what stands between the
-hostname and someone else's model bill. Deliberately generous for a reader, useless for a script.
+SESSIONS_PER_DAY = int(os.environ.get("ASK_AGENTDECK_SESSIONS_PER_DAY", "3"))
+TURNS_PER_SESSION = int(os.environ.get("ASK_AGENTDECK_TURNS_PER_SESSION", "20"))
+DAY = 86_400.0
+"""The whole quota: three conversations a client may start in a day, twenty turns in each.
 
-# ponytail: in-process and per-IP, which is right for one process behind one tunnel. A second
-# replica, or an attacker with addresses to spare, needs Cloudflare's own rate limiting at the
-# edge — see this example's README.
+Sixty turns per client per day is the hard ceiling on what this endpoint can be made to spend,
+and it is deliberately shaped as *conversations* rather than as a flat request count, because
+the two limits stop different things:
+
+- **Turns per session** bound the conversation. A session re-sends its whole history to the
+  model on every turn, so an unbounded one costs quadratically while its context window fills
+  with a caller's own text — that is how you overload this without ever sending a long message.
+- **Sessions per day** stop the obvious way around the first: starting a fresh conversation
+  every twenty turns and carrying on.
+
+Generous for reading documentation, useless as a free model. The endpoint is unauthenticated on
+purpose — a docs assistant that asks you to log in is not a docs assistant — so this is the
+whole of what stands between a public hostname and someone else's bill.
 """
 
 
@@ -166,7 +175,7 @@ def build_app(corpus: DocsCorpus | None = None) -> FastAPI:
         resolved = corpus or DocsCorpus()
         async with Deck(agents=[ask], context=DocsCorpus) as deck:
             app.state.deck, app.state.corpus = deck, resolved
-            app.state.limiter = RateLimiter(RATE_LIMIT, RATE_WINDOW)
+            app.state.quota = Quota(SESSIONS_PER_DAY, TURNS_PER_SESSION)
             yield
 
     app = FastAPI(title="Ask AgentDeck", lifespan=lifespan)
@@ -180,11 +189,12 @@ def build_app(corpus: DocsCorpus | None = None) -> FastAPI:
 
     @app.post("/ask")
     async def answer(asked: Question, request: Request) -> StreamingResponse:
-        if not app.state.limiter.allow(request.client.host if request.client else "unknown"):
-            raise HTTPException(
-                status_code=HTTPStatus.TOO_MANY_REQUESTS,
-                detail=f"more than {RATE_LIMIT} questions in {int(RATE_WINDOW / 60)} minutes — try again shortly",
-            )
+        client = request.client.host if request.client else "unknown"
+        # A caller that sends no session id still gets one bucket rather than a free pass —
+        # otherwise "omit the field" is the way around the whole quota.
+        refusal = app.state.quota.refuse(client, asked.session_id or "-")
+        if refusal is not None:
+            raise HTTPException(status_code=HTTPStatus.TOO_MANY_REQUESTS, detail=refusal)
         stream = app.state.deck.stream(
             AGENT,
             page_context_input(asked, app.state.corpus),
@@ -202,23 +212,48 @@ def build_app(corpus: DocsCorpus | None = None) -> FastAPI:
     return app
 
 
-class RateLimiter:
-    """One deque of timestamps per client, trimmed to the window on each look."""
+class Quota:
+    """Sessions per client per day, and turns per session. Both counted in this process.
 
-    def __init__(self, limit: int, window: float) -> None:
-        self._limit, self._window, self._seen = limit, window, defaultdict(deque)
+    # ponytail: in-memory, per-IP, single process — right for one backend behind one tunnel, and
+    # wrong the moment there are two replicas or a caller with addresses to spare. The upgrade is
+    # Cloudflare's own rate limiting at the edge, where the traffic never reaches the machine;
+    # this stays as the floor underneath it.
+    """
 
-    def allow(self, client: str) -> bool:
+    def __init__(self, sessions_per_day: int, turns_per_session: int, day: float = DAY) -> None:
+        self._sessions_per_day, self._turns_per_session, self._day = sessions_per_day, turns_per_session, day
+        self._started: dict[str, dict[str, float]] = defaultdict(dict)
+        self._turns: Counter[tuple[str, str]] = Counter()
+
+    def refuse(self, client: str, session: str) -> str | None:
+        """The reason to refuse this turn, or ``None`` to allow it and count it."""
         now = monotonic()
-        seen: deque[float] = self._seen[client]
-        while seen and now - seen[0] > self._window:
-            seen.popleft()
-        if len(seen) >= self._limit:
-            return False
-        seen.append(now)
-        return True
+        started = self._started[client]
+        for stale in [name for name, at in started.items() if now - at > self._day]:
+            del started[stale]
+            del self._turns[client, stale]
+
+        if session not in started:
+            if len(started) >= self._sessions_per_day:
+                return f"{self._sessions_per_day} conversations already today — this resets on a rolling 24 hours"
+            started[session] = now
+
+        if self._turns[client, session] >= self._turns_per_session:
+            return f"this conversation has reached {self._turns_per_session} turns — start a new one"
+        self._turns[client, session] += 1
+        return None
 
 
 app = build_app()
 
-__all__ = ["PUBLIC_KINDS", "Question", "RateLimiter", "app", "build_app", "page_context_input"]
+__all__ = [
+    "PUBLIC_KINDS",
+    "SESSIONS_PER_DAY",
+    "TURNS_PER_SESSION",
+    "Question",
+    "Quota",
+    "app",
+    "build_app",
+    "page_context_input",
+]

@@ -68,6 +68,14 @@ ask = Agent(
     name="AskAgentDeck",
     instructions=instructions,
     tools=[search_docs, read_doc],
+    # `max_tokens` is the only *structural* answer to "can someone use this to write their essay
+    # instead of asking about the docs". The instruction above says to stay on topic, and an
+    # instruction is persuadable; a token ceiling is not. A grounded docs answer with a code
+    # example fits comfortably here, and nothing worth stealing a model for does.
+    #
+    # `temperature` low for the same reason it is low on any lookup: this agent's job is to
+    # report what a page says, and creative variation in that is a defect.
+    model_settings={"max_tokens": 900, "temperature": 0.1},
 )
 
 __all__ = ["INSTRUCTIONS", "ask", "instructions", "read_doc", "search_docs"]

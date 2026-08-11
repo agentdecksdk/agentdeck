@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import sys
 import threading
+from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -30,11 +31,12 @@ EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "ask-agentdeck"
 if str(EXAMPLE) not in sys.path:
     sys.path.insert(0, str(EXAMPLE))
 
+from ask_agentdeck.agent import ask  # noqa: E402 — needs the path above
 from ask_agentdeck.corpus import DocsCorpus  # noqa: E402 — needs the path above
 from ask_agentdeck.server import (  # noqa: E402 — needs the path above
     PUBLIC_KINDS,
     Question,
-    RateLimiter,
+    Quota,
     build_app,
     page_context_input,
 )
@@ -234,12 +236,56 @@ def test_a_long_selection_is_refused_at_the_boundary(client: TestClient) -> None
     assert refused.status_code == 422
 
 
-def test_questions_are_rate_limited_per_client() -> None:
-    """Unauthenticated on purpose — a docs assistant that asks you to log in is not one — so this
-    is what stands between a public hostname and someone else's model bill."""
-    limiter = RateLimiter(limit=2, window=300.0)
-    assert [limiter.allow("1.2.3.4") for _ in range(3)] == [True, True, False]
-    assert limiter.allow("5.6.7.8"), "one noisy client must not lock everyone else out"
+def test_a_conversation_cannot_grow_without_bound() -> None:
+    """A session re-sends its whole history to the model every turn, so an unbounded one costs
+    quadratically while filling the context window with a caller's own text — the way to overload
+    this endpoint without ever sending a long message.
+    """
+    quota = Quota(sessions_per_day=3, turns_per_session=2)
+    assert [quota.refuse("1.2.3.4", "chat") for _ in range(3)] == [
+        None,
+        None,
+        "this conversation has reached 2 turns — start a new one",
+    ]
+
+
+def test_a_client_cannot_dodge_the_turn_cap_by_starting_new_conversations() -> None:
+    """The turn cap alone is trivially beaten: finish a conversation, start another. Sixty turns
+    a day is the actual ceiling, and it only holds because both limits are enforced.
+    """
+    quota = Quota(sessions_per_day=2, turns_per_session=1)
+    assert quota.refuse("1.2.3.4", "first") is None
+    assert quota.refuse("1.2.3.4", "second") is None
+    assert "2 conversations already today" in str(quota.refuse("1.2.3.4", "third"))
+    assert quota.refuse("5.6.7.8", "first") is None, "one heavy client must not lock everyone else out"
+
+
+def test_omitting_the_session_id_is_not_a_way_around_the_quota() -> None:
+    """Otherwise the whole quota is opt-in, and the way to opt out is to leave a field blank."""
+    quota = Quota(sessions_per_day=3, turns_per_session=1)
+    assert quota.refuse("1.2.3.4", "-") is None
+    assert quota.refuse("1.2.3.4", "-") is not None
+
+
+def test_yesterdays_conversations_do_not_count_against_today() -> None:
+    """Rolling 24 hours, not a permanent ban — and the expiry is what keeps the bookkeeping for
+    one client bounded rather than growing for as long as the process runs."""
+    quota = Quota(sessions_per_day=1, turns_per_session=1, day=0.0)
+    assert quota.refuse("1.2.3.4", "yesterday") is None
+    assert quota.refuse("1.2.3.4", "today") is None
+
+
+def test_the_answer_is_token_capped() -> None:
+    """The only *structural* answer to "can someone use this to write their essay". The topic
+    instruction is persuadable; a token ceiling is not.
+    """
+    assert ask.model_settings["max_tokens"] <= 1000
+
+
+def test_the_quota_refuses_over_http_with_429(client: TestClient) -> None:
+    """The limits are only real if the route enforces them, not merely if `Quota` can count."""
+    codes = {client.post("/ask", json={"question": "hi", "session_id": f"s{n // 20}"}).status_code for n in range(70)}
+    assert HTTPStatus.TOO_MANY_REQUESTS in codes
 
 
 def test_a_session_id_is_carried_onto_the_run(client: TestClient) -> None:
