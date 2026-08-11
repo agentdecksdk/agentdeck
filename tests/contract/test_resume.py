@@ -9,8 +9,9 @@ import asyncio
 from typing import TYPE_CHECKING
 
 import pytest
+from event_log_checks import check_contiguous, check_terminal
 
-from agentdeck.core.events import RunInterrupted, check_contiguous, check_terminal
+from agentdeck.core.events import RunInterrupted
 
 if TYPE_CHECKING:
     from case_types import Case

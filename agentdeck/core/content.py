@@ -10,6 +10,7 @@ the bytes are engine-chosen rather than caller-chosen.
 
 from __future__ import annotations
 
+import base64
 from typing import Annotated, Any, Literal, get_args
 
 from pydantic import (
@@ -19,9 +20,32 @@ from pydantic import (
     ValidatorFunctionWrapHandler,
     WrapValidator,
     field_validator,
+    model_serializer,
 )
 
 from agentdeck.core.base import CoreModel, JsonData
+
+INLINE_BYTES_CAP = 1024 * 1024
+"""1 MB decoded, enforced on every inline block (:class:`ImageBlock`, :class:`AudioBlock`).
+
+Base64 in an event lands in an append-only log and replays down every SSE connection for the
+life of that run, so a documented-only limit is a limit that ships violated. Deliberately low:
+raising the cap later is compatible, lowering it is not."""
+
+
+def _capped_inline(value: str) -> str:
+    """Reject inline base64 over :data:`INLINE_BYTES_CAP` decoded bytes.
+
+    ``b64decode`` is called exactly once — the decoded length it returns is also the
+    measurement, so nothing here decodes the payload a second time just to size it.
+    """
+    decoded_size = len(base64.b64decode(value))
+    if decoded_size > INLINE_BYTES_CAP:
+        raise ValueError(
+            f"inline data is {decoded_size} decoded bytes, over the {INLINE_BYTES_CAP}-byte cap — "
+            "use ResourceBlock for anything larger"
+        )
+    return value
 
 
 class TextBlock(CoreModel):
@@ -33,6 +57,24 @@ class ImageBlock(CoreModel):
     type: Literal["image"] = "image"
     media_type: str
     data_b64: str
+
+    @field_validator("data_b64")
+    @classmethod
+    def _cap_inline(cls, value: str) -> str:
+        return _capped_inline(value)
+
+
+class AudioBlock(CoreModel):
+    """Audio bytes inline: a voice note, a recorded call. Held elsewhere -> ``ResourceBlock``."""
+
+    type: Literal["audio"] = "audio"
+    media_type: str
+    data_b64: str
+
+    @field_validator("data_b64")
+    @classmethod
+    def _cap_inline(cls, value: str) -> str:
+        return _capped_inline(value)
 
 
 class ResourceBlock(CoreModel):
@@ -74,8 +116,15 @@ class UnknownBlock(CoreModel):
             raise ValueError(f"{value!r} is a known block type — use its block class")
         return value
 
+    @model_serializer
+    def _dump_raw_block(self) -> dict[str, JsonData]:
+        """Dump ``raw_block`` verbatim instead of nesting it under ``{type, raw_block}``: the
+        wrapping is a parse-time artifact, so a reader that re-emits an unknown block must see
+        the same dict it read, not one nested one level deeper."""
+        return self.raw_block
 
-KnownBlock = Annotated[TextBlock | ImageBlock | ResourceBlock | DataBlock, Field(discriminator="type")]
+
+KnownBlock = Annotated[TextBlock | ImageBlock | AudioBlock | ResourceBlock | DataBlock, Field(discriminator="type")]
 
 # Both derived by peeling the Annotated, then the union: a block class added above reaches the
 # fallback and ``coerce_input`` without anyone remembering to list it twice more.
@@ -85,8 +134,11 @@ KNOWN_BLOCK_TYPES: frozenset[str] = frozenset(b.model_fields["type"].default for
 def _fallback_to_unknown_block(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
     """Reshape an unfamiliar block into :class:`UnknownBlock` instead of failing the union.
 
-    A stored ``UnknownBlock`` (``{type, raw_block}``) validates against the union member directly,
-    so ``handler`` succeeds and it is never re-wrapped — which is what lets it round-trip.
+    ``UnknownBlock`` dumps as its own ``raw_block`` verbatim (its ``model_serializer``), so a
+    second parse meets the original dict again rather than ``{type, raw_block}`` — ``handler``
+    fails on it exactly as it did the first time, and this re-wraps it into an equal
+    ``UnknownBlock``. The serializer is what makes parse-then-dump the identity; this function
+    runs on every parse, not only the first.
     """
     try:
         return handler(value)

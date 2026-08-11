@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import warnings
 from collections import deque
 from contextlib import aclosing, suppress
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
@@ -40,11 +40,9 @@ from agentdeck.core.reporting import Reporter
 from agentdeck.core.status import RunStatus
 from agentdeck.errors import NotFoundError, SessionBusyError, StoreError
 from agentdeck.runtime.dispatch import SinkDispatch
-from agentdeck.runtime.settings import get_settings
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Callable, Mapping, Sequence
-    from datetime import datetime, timedelta
+    from collections.abc import AsyncGenerator, Mapping, Sequence
     from typing import Any
 
     from agentdeck.core.content import Input
@@ -56,6 +54,11 @@ logger = logging.getLogger(__name__)
 
 # A run ending on one of these is waiting, not finished: its terminal event arrives on resume.
 SUSPENDED_KINDS = frozenset({"run.interrupted", "run.paused"})
+
+# Mirrors ``RuntimeSettings.stale_run_after_seconds``'s own default (60.0 * 60.0) — duplicated
+# rather than imported so a bare ``Runtime()`` needs no settings at all; ``build_runtime`` is
+# the caller that resolves the configured value and passes it in.
+_DEFAULT_STALE_RUN_AFTER = timedelta(hours=1)
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,15 +76,15 @@ class Runtime:
     """Runs invocables and emits one canonical event stream, whatever engine did the work.
 
     Sinks are optional and buffered — each gets its own bounded queue, so the run is never
-    pinned to one. ``clock`` no longer decides anything: the store stamps every event's ``ts``
-    in the write that persists it (ADR-D11), so a caller that wants to hold time still injects
-    a clock into the store instead. It is still accepted, does nothing, and warns — silently
-    ignoring it is how a caller ends up asserting against wall time believing it froze it.
-    Removing the keyword is a breaking change and is owed its own PR (#158).
+    pinned to one. The store stamps every event's ``ts`` in the write that persists it
+    (ADR-D11); a caller that wants to hold time injects a clock into the store instead —
+    ``MemoryEventStore(clock=...)``, ``RedisEventStore(clock=...)``.
 
-    ``stale_run_after`` is how long a run may go silent before it stops holding its session,
-    defaulted from ``AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`` and passed explicitly by tests
-    that would have to wait it out. ``control_poll_interval`` is how long a run may reuse the
+    ``stale_run_after`` is how long a run may go silent before it stops holding its session.
+    ``Runtime`` takes no ambient configuration at all — it defaults to one hour and never reads
+    settings itself; ``build_runtime`` is the caller that resolves
+    ``AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`` and passes the configured value in, the same
+    as its five peer arguments. ``control_poll_interval`` is how long a run may reuse the
     control answer it already has: it trades cancel latency against the read rate a run costs
     a shared ``ControlPort``, and ``0`` buys the tightest latency at one read per safe point.
     """
@@ -92,24 +95,16 @@ class Runtime:
         store: EventStorePort,
         invocables: Mapping[str, InvocableSpec],
         sinks: Sequence[EventSinkPort] = (),
-        clock: Callable[[], datetime] | None = None,
         control: ControlPort | None = None,
-        stale_run_after: timedelta | None = None,
+        stale_run_after: timedelta = _DEFAULT_STALE_RUN_AFTER,
         control_poll_interval: float = CONTROL_POLL_INTERVAL,
     ) -> None:
-        if clock is not None:
-            warnings.warn(
-                "Runtime(clock=...) is inert: the store stamps every event's ts inside the write "
-                "that persists it (ADR-D11). Inject the clock into the store instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
         self._engines = {engine.engine: engine for engine in engines}
         self._store = store
         self._invocables = invocables
         self._sinks = tuple(SinkDispatch(sink) for sink in sinks)
         self._control = control
-        self._stale_run_after = get_settings().runtime.stale_run_after if stale_run_after is None else stale_run_after
+        self._stale_run_after = stale_run_after
         self._control_poll_interval = control_poll_interval
 
     @property

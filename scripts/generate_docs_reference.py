@@ -48,9 +48,10 @@ _REPO_CLI_URL = "https://github.com/sagi5060/agentdeck/blob/main/agentdeck/cli.p
 
 def _settings_classes() -> list[type[LayeredSettings]]:
     """Only the subclasses *defined in* ``settings.py`` — not every ``LayeredSettings`` that
-    happens to be loaded in the process. ``agentdeck.agents.capabilities.shell.ShellSpec`` is
-    also one, but it is a capability spec: DS-D2 keeps those hand-written, so this table must
-    not pick it up just because something imported it first.
+    happens to be loaded in the process. Nothing outside that module subclasses it today (the
+    capability specs that used to did, and are gone), so the filter is currently a no-op — it
+    stays because this page is the env-var table, and a subclass declared elsewhere for some
+    other purpose must not land in it just because something imported it first.
     """
     return [cls for cls in LayeredSettings.__subclasses__() if cls.__module__ == settings_module.__name__]
 
@@ -90,6 +91,10 @@ def _description(field_name: str, info: FieldInfo, cls: type[LayeredSettings]) -
 
 
 def _env_var(cls: type[LayeredSettings], field_name: str) -> str:
+    # A field in ``_bare_env_names`` is read from that exact name, ignoring env_prefix — one
+    # variable per decision (``AGENTDECK_EVENTS``), not ``<PREFIX>_<FIELD>``.
+    if bare := cls._bare_env_names.get(field_name):
+        return bare
     prefix = cls.model_config.get("env_prefix", "")
     return f"{prefix}{field_name}".upper()
 
@@ -98,7 +103,7 @@ def render_settings_mdx() -> str:
     lines = [
         "---",
         "title: Settings",
-        "description: Every AGENTDECK_* (and OPENAI_*/TAVILY_*/SKILL_*) environment variable, "
+        "description: Every AGENTDECK_* (and OPENAI_*/TAVILY_*) environment variable, "
         "generated from agentdeck/runtime/settings.py.",
         "---",
         "",
@@ -108,7 +113,7 @@ def render_settings_mdx() -> str:
         "subclasses — this page cannot drift from the code because `make check` regenerates it and "
         "fails if the result differs (`scripts/generate_docs_reference.py`). Every variable is also "
         "settable in the shared `config.yaml`, under the section derived from its env-var prefix "
-        "(`openai:`, `runner:`, … `skill:` for `SKILL_*`, not `skills:`); an env var wins over the file.",
+        "(`openai:`, `runner:`, …); an env var wins over the file.",
         "",
     ]
     for cls in _settings_classes():

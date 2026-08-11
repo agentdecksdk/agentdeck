@@ -1,7 +1,7 @@
 # agentdeck
 
-Declarative harness over the OpenAI Agents SDK + LangGraph, being rebuilt into a
-small engine-agnostic core (one event schema, one Runtime, pluggable engine and
+Declarative harness over the OpenAI Agents SDK + LangGraph, rebuilt as a small
+engine-agnostic core (one event schema, one Runtime, pluggable engine and
 protocol adapters) — see `docs/project-brief.md` for the why.
 
 **Start at `docs/00-project-index.md`** — it maps every design/delivery doc,
@@ -13,42 +13,48 @@ restate them — read that file before writing any non-trivial code.
 
 ## Where things stand
 
-- **v1 (shipped, frozen behavior):** `agentdeck/agents/`, `agentdeck/workflows/`,
-  `agentdeck/skills/`, `agentdeck/runtime/capture.py` — the bundle harness
-  described below. Still the live public surface; changes must preserve the
-  `.agentdeck/` layout, public API, and SSE wire format byte-for-byte (enforced
-  by `tests/golden/`, replayed on every `make test`).
-- **v2 (in progress, this branch):** `agentdeck/core/` — event schema and ports —
-  is being built per `docs/prompts/pr1-event-schema-prompt.md`, against the
-  design in `docs/design/agentdeck-v2-architecture.md` and
-  `docs/design/adr-d5-two-stores.md`. Target layout and import law:
-  `docs/coding-standards.md` §3. Modules move from v1 to v2 **only** as scheduled
-  in `docs/delivery/epic-agentdeck-v2-core.md` — no opportunistic migration.
+**v3 is the live surface, and v1 is gone.** `App`, `agentdeck/agents/`,
+`agentdeck/workflows/` and the sandbox/skill-runtime machinery were deleted in
+#164 and #71 — if a doc still describes them, the doc is stale, not the tree.
 
-## v1 architecture rules (current shipped behavior)
+- **`agentdeck/deck.py`** — `Deck`, the one composition root. Two front doors,
+  one catalog underneath: `Deck(agents=…, workflows=…, skills=…, mcp=…)` and
+  `Deck.from_project()`, which discovers the same four arguments from
+  `./.agentdeck/` (`agents/<bundle>/agent.py`, `workflows/<bundle>/workflow.py`,
+  `skills/*/SKILL.md`). Lifecycle is
+  `NEW → build() → BUILT → (async with) → OPEN → CLOSED`, and CLOSED is terminal.
+- **`agentdeck/authoring/`** — declarations (`Agent`, `Workflow`, nodes,
+  skills) compiled to an `InvocableSpec`. **`agentdeck/core/`** — event schema,
+  content blocks and ports. **`agentdeck/runtime/`** — execution.
+  **`agentdeck/adapters/`** — engines, stores, control, telemetry, MCP.
+- **The v1 HTTP/SSE wire is still frozen byte-for-byte**, served by
+  `surfaces/serve/compat.py` and enforced by `tests/golden/`, replayed on every
+  `make test`. That contract outlived the code that first produced it.
+- **What's left before `v3.0.0`:** `docs/delivery/roadmap-v3.md` — it holds the
+  waves, the rulings taken, and a relevancy verdict per open issue.
 
-- agentdeck owns **configuration only** — settings, capabilities, discovery,
-  runner glue, graph compilation. Execution stays in the Agents SDK / LangGraph.
-  Don't move execution logic into agentdeck.
-- Single entry point: `App` (`agentdeck/app.py`). It always serves the
-  `./.agentdeck/` project dir — bundles are `agents/<bundle>/agent.py`,
-  `workflows/<bundle>/workflow.py`, `skills/*/SKILL.md`. No other catalog
-  mechanism.
-- Skill output schemas are **workflow-only**: never import `SkillOutputSchema`
-  or a skill's typed schema module from agent code. The agent's contract with a
-  skill is SKILL.md prose + `key=value` stdout lines.
-- `runtime/capture.py` is the one host↔sandbox wire contract (`CAPTURE_ENV`,
-  `Capture`). Both sides import it; don't duplicate the constant.
-- `skills/skill_runtime/` is copied into sandbox venvs — keep its imports
-  minimal (currently imports `agentdeck.runtime.capture`, a known caveat when
-  sandboxing is enabled).
+Design of record: `docs/design/agentdeck-v2-architecture.md` and
+`docs/design/adr-d5-two-stores.md` (both still name the effort "v2"; the layout
+and import law they describe are what shipped). Layout and import law also in
+`docs/coding-standards.md` §3.
+
+## Architecture rules
+
+- agentdeck owns **configuration only** — settings, discovery, runner glue,
+  graph compilation. Execution stays in the Agents SDK / LangGraph. Don't move
+  execution logic into agentdeck.
+- An agent's contract with a skill is SKILL.md prose + `key=value` stdout lines.
+  Never import a skill's typed schema module from agent code.
 - Model calls never mutate external state directly; deterministic code does.
 - A node calling `interrupt()` re-runs **from its start** when the workflow
   resumes — everything before the `interrupt()` call executes twice. Interrupt
   nodes must be pure; side effects (external mutations, sent messages) belong in
   earlier nodes. Interrupts require `durable = True` (a checkpointer).
+- **Sandboxing is not part of v3** (#163, deferred). Nothing is sandboxed, no
+  context crosses a process boundary, and the scaffolding for it was deleted —
+  don't reintroduce a port for it without that ruling being revisited.
 
-## v2 in progress — non-negotiables
+## v3 non-negotiables
 
 (Full detail, incl. typing/errors/async/tests/naming: `docs/coding-standards.md`.)
 
@@ -85,7 +91,10 @@ restate them — read that file before writing any non-trivial code.
 - Golden/goldens (`tests/golden/`, `tests/core/snapshots/`) never auto-update;
   `make golden` regenerates them deliberately, with a PR justification.
 - Layered pydantic-settings; env prefixes are `AGENTDECK_*` (renamed from the
-  original project's `SYSAGENT_*` — never reintroduce the old prefix).
+  original project's `SYSAGENT_*` — never reintroduce the old prefix). Exception:
+  a variable a third-party SDK reads natively keeps its own name — `OPENAI_*`,
+  `TAVILY_*` — since prefixing it would make an operator set the same value twice.
+  Everything agentdeck owns is `AGENTDECK_*`, with no exceptions beyond that list.
 - Compose runs the package as an installed dependency, `.agentdeck/` mounted
   read-only.
 - `openai==2.32.0` is pinned to `openai-agents==0.17.0` — don't loosen it

@@ -6,6 +6,14 @@ state (the SDK session) is engine-private (ADR-D5): the session, not the log, is
 feeds the model. The log passed in as ``history`` is read for exactly one purpose — the
 turn-start reconciliation in ``reconcile.py``, which repairs a session left behind by a
 crash between the log write and the session write.
+
+Input is multimodal (``_to_sdk_input`` maps ``TextBlock``/``ImageBlock``/``AudioBlock`` onto the
+SDK's own canonical parts); output is not. Nothing in this run loop produces an image or audio
+block — ``_run_completed`` only ever builds ``TextBlock``/``DataBlock`` — so an agent can *see*
+a photo or a voice note and never *return* one. Audio is chat-completions only: at the pinned
+``openai-agents==0.17.0``/``openai==2.32.0``, the Responses API's content list has no audio
+member, so an ``AudioBlock`` under ``use_responses=True`` raises rather than reaching the
+endpoint and coming back as an opaque 400.
 """
 
 from __future__ import annotations
@@ -24,32 +32,24 @@ from agentdeck.adapters.engines.openai_agents.reconcile import reconcile
 from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings, build_run_config
 from agentdeck.adapters.engines.openai_agents.sessions import ExecutionStore
 from agentdeck.adapters.engines.openai_agents.translate import translate
-from agentdeck.core.content import DataBlock, TextBlock, coerce_input
+from agentdeck.core.content import AudioBlock, DataBlock, ImageBlock, TextBlock, coerce_input
 from agentdeck.core.control import ControlSignalled
-from agentdeck.core.events import Custom, RunCompleted, Usage, UsageReported
+from agentdeck.core.events import RunCompleted, Usage, UsageReported
 from agentdeck.core.ports import EnginePort
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Sequence
 
+    from agents.items import TResponseInputItem
     from agents.memory.session import Session
     from agents.result import RunResultStreaming
     from agents.usage import Usage as SDKUsage
 
-    from agentdeck.core.content import Input
+    from agentdeck.core.content import ContentBlock, Input
     from agentdeck.core.context import RunContext
     from agentdeck.core.events import Event, KnownPayload
     from agentdeck.core.invocable import InvocableSpec
-
-STRUCTURED_OUTPUT = "openai_agents.structured_output"
-"""Where an ``output_type`` agent's validated result travels *in addition to*
-``RunCompleted.output``.
-
-Redundant by construction — the same object rides the terminal event as a ``DataBlock`` — and
-kept anyway, because ``surfaces/serve/compat.py`` reads this event to build v1's ``done``
-frame. Retiring it moves that wire, which is a change of its own rather than a side effect
-of this one (D10: an engine namespaces a ``custom`` event, it never mints a kind)."""
 
 SandboxScope = Callable[[Agent[Any]], AbstractAsyncContextManager[Any]]
 """How this engine opens whatever sandbox an agent needs: given the agent, a scope yielding
@@ -120,7 +120,8 @@ class OpenAIAgentsEngine(EnginePort):
                 # Two stores disagreeing is worth a place in the record, not just a log line;
                 # the run itself still has the session it needs and plays on.
                 yield diverged
-        async with self._launch(agent, _to_sdk_input(input), ctx, session) as launch:
+        message = _to_sdk_input(input, use_responses=self._settings.use_responses)
+        async with self._launch(agent, message, ctx, session) as launch:
             result = launch.result
             tool_names: dict[str, str] = {}
             # The SDK's run loop is a detached task; an abandoned generator must cancel it
@@ -161,7 +162,7 @@ class OpenAIAgentsEngine(EnginePort):
 
     @asynccontextmanager
     async def _launch(
-        self, agent: Agent[Any], message: str, ctx: RunContext, session: Session | None
+        self, agent: Agent[Any], message: str | list[TResponseInputItem], ctx: RunContext, session: Session | None
     ) -> AsyncIterator[Launch]:
         """Start the run and hold whatever scope it needs open until the stream is drained.
 
@@ -193,11 +194,7 @@ class OpenAIAgentsEngine(EnginePort):
         return payload if payload is not None else _usage_reported(event)
 
     def _terminal(self, result: RunResultStreaming) -> Sequence[KnownPayload]:
-        completed = _run_completed(result)
-        structured = [block.data for block in completed.output if isinstance(block, DataBlock)]
-        if not structured:
-            return (completed,)
-        return (Custom(name=STRUCTURED_OUTPUT, data={"output": structured[0]}), completed)
+        return (_run_completed(result),)
 
     async def resume(
         self,
@@ -238,13 +235,51 @@ def _agent_of(spec: InvocableSpec) -> Agent[Any]:
     return spec.native
 
 
-def _to_sdk_input(input: Input) -> str:
-    # M0 scope is plain-text chat; images/resources are a follow-up, not a silent
-    # drop — better to raise now than answer a question the model never saw.
+def _to_sdk_input(input: Input, *, use_responses: bool) -> str | list[TResponseInputItem]:
+    """All-text input still returns the joined ``str`` it always has, byte for byte — every
+    existing session item, reconcile transcript and stored event stays unchanged, and only a
+    turn that actually carries media takes the branch below.
+
+    That branch emits the SDK's own canonical (Responses) item shape — ``input_text`` /
+    ``input_image`` / ``input_audio`` parts — rather than a converter agentdeck writes itself:
+    ``agents.models.chatcmpl_converter.Converter`` already accepts these parts and maps them
+    down to Chat-Completions parts, so one emitted shape works on both API paths.
+    """
     texts = [block.text for block in input if isinstance(block, TextBlock)]
-    if len(texts) != len(input):
-        raise ConfigError("openai-agents engine (M0) only supports text input blocks")
-    return "\n".join(texts)
+    if len(texts) == len(input):
+        return "\n".join(texts)
+    item = {"role": "user", "content": [_part_of(block, use_responses=use_responses) for block in input]}
+    return cast("list[TResponseInputItem]", [item])
+
+
+def _part_of(block: ContentBlock, *, use_responses: bool) -> dict[str, Any]:
+    if isinstance(block, TextBlock):
+        return {"type": "input_text", "text": block.text}
+    if isinstance(block, ImageBlock):
+        return {"type": "input_image", "image_url": f"data:{block.media_type};base64,{block.data_b64}"}
+    if isinstance(block, AudioBlock):
+        if use_responses:
+            raise ConfigError(
+                "openai-agents engine cannot send an 'audio' block over the Responses API: "
+                "ResponseInputMessageContentListParam carries no audio member at this pin "
+                "(openai-agents==0.17.0) — set use_responses=False (chat-completions) to send audio"
+            )
+        return {
+            "type": "input_audio",
+            "input_audio": {"data": block.data_b64, "format": _audio_format(block.media_type)},
+        }
+    raise ConfigError(
+        f"openai-agents engine cannot send a {block.type!r} block to the model; "
+        "it accepts text, image, and audio (chat-completions only) input blocks"
+    )
+
+
+def _audio_format(media_type: str) -> str:
+    """``audio/ogg; codecs=opus`` (a WhatsApp voice note's own media type) becomes ``ogg``: the
+    subtype with parameters stripped, unvalidated against openai's own ``Literal["mp3", "wav"]``
+    — the chat-completions converter passes the string through unchanged, and a provider such
+    as Gemini's OpenAI-compatible endpoint accepts ``ogg``."""
+    return media_type.split(";", 1)[0].strip().rsplit("/", 1)[-1]
 
 
 def _run_completed(result: RunResultStreaming) -> RunCompleted:
@@ -283,4 +318,4 @@ def _usage_of(result: RunResultStreaming) -> Usage:
     return Usage(input_tokens=usage.input_tokens, output_tokens=usage.output_tokens)
 
 
-__all__ = ["STRUCTURED_OUTPUT", "Launch", "OpenAIAgentsEngine", "SandboxScope"]
+__all__ = ["Launch", "OpenAIAgentsEngine", "SandboxScope"]

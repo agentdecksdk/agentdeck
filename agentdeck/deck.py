@@ -49,7 +49,7 @@ from agentdeck.authoring.agent import Agent
 from agentdeck.authoring.compile import refresh_mcp_status
 from agentdeck.authoring.interrupts import interrupt_result
 from agentdeck.authoring.skills import skills_resolver
-from agentdeck.authoring.timers import wake_at_of
+from agentdeck.authoring.timers import WAKE_AT_KEY, wake_at_of
 from agentdeck.authoring.workflow import Workflow
 from agentdeck.composition import (
     build_runtime,
@@ -61,7 +61,7 @@ from agentdeck.composition import (
 from agentdeck.core.content import DataBlock, TextBlock, coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
-from agentdeck.core.events import Custom, NodeUpdated, RunCompleted, RunInterrupted
+from agentdeck.core.events import NodeUpdated, RunCompleted, RunInterrupted
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.mcp import MCP
 from agentdeck.runtime.discovery import InvocableRegistry
@@ -86,12 +86,6 @@ if TYPE_CHECKING:
 # never an instance, so ``build()`` can validate "an engine is registered" without constructing
 # anything that could touch the network. See the module docstring's lifecycle note.
 _DEFAULT_ENGINE_NAMES: tuple[str, str] = (OpenAIAgentsEngine.engine, LangGraphEngine.engine)
-
-# Duplicated from ``app.py`` rather than imported: v1's `App` is deleted in the same effort this
-# class replaces it for, so importing from a module about to disappear would only have to be
-# undone again. See the openai-agents engine's own copy for why the constant is spelled out
-# rather than imported from there.
-_LEGACY_STRUCTURED_OUTPUT = "openai_agents.structured_output"
 
 _State = Literal["NEW", "BUILT", "OPEN", "CLOSED"]
 
@@ -143,7 +137,7 @@ def _new_context(session_id: str | None = None) -> RunContext:
 
 
 async def _turn_result(events: AsyncGenerator[Event, None]) -> TurnResult:
-    """A run's own ``run.completed`` (plus whatever it names, en route), as a :class:`TurnResult`.
+    """A run's own ``run.completed`` as a :class:`TurnResult`.
 
     Drains ``events`` to its natural end rather than returning the moment ``run.completed``
     is seen — closing the Runtime's generator any earlier throws ``GeneratorExit`` into it one
@@ -153,19 +147,14 @@ async def _turn_result(events: AsyncGenerator[Event, None]) -> TurnResult:
     Raises if the stream ends without one: the engine's own exception already reached the
     caller in that case, so the only way this is hit is a run suspended by a pause or a cancel.
     """
-    structured: Any = None
     result: TurnResult | None = None
     async with aclosing(events):
         async for event in events:
             payload = event.payload
-            if isinstance(payload, Custom) and payload.name == _LEGACY_STRUCTURED_OUTPUT:
-                structured = payload.data.get("output")
-            elif isinstance(payload, RunCompleted):
+            if isinstance(payload, RunCompleted):
                 data = next((block.data for block in payload.output if isinstance(block, DataBlock)), None)
                 if data is not None:
                     output = data
-                elif structured is not None:
-                    output = structured
                 else:
                     output = "".join(block.text for block in payload.output if isinstance(block, TextBlock))
                 result = TurnResult(
@@ -460,10 +449,24 @@ class Deck:
 
     def _validate_agent_workflow_tools(self, agent: Agent) -> None:
         for tool in agent.tools:
-            if isinstance(tool, Workflow) and tool.name not in self._workflows:
+            if not isinstance(tool, Workflow):
+                continue
+            if tool.name not in self._workflows:
                 raise ConfigError(
                     f"agent {agent.name!r} uses workflow {tool.name!r} as a tool, but it is not in "
                     f"this Deck's workflows=. Available: {sorted(self._workflows)}."
+                )
+            if tool.durable:
+                # `as_tool()` calls `run(args)` with no thread_id, and a durable workflow needs
+                # one to load and persist its checkpoint — so the tool raises the moment a model
+                # calls it. Refusing at build() turns that into a validation error rather than a
+                # surprise mid-turn; giving a tool-invoked workflow a thread is its own design
+                # question (#193), not something to guess at here.
+                raise ConfigError(
+                    f"agent {agent.name!r} uses workflow {tool.name!r} as a tool, but it is "
+                    f"durable=True. A workflow invoked as a tool gets no thread_id, which a "
+                    f"durable workflow requires — set durable=False on {tool.name!r}, or call it "
+                    f"as a root invocable via deck.run() where you can pass a session."
                 )
 
     def _resolve_workflow_tool(self, workflow: Workflow) -> FunctionTool:
@@ -673,7 +676,16 @@ class Deck:
         return result
 
     async def due_resumes(self, now: datetime | None = None) -> list[InterruptResult]:
-        """Timer-paused threads (``sleep_until``) whose wake time has passed."""
+        """Timer-paused threads (``sleep_until``) whose wake time has passed.
+
+        Listed off each workflow's own checkpointer rather than :meth:`pending`'s event log
+        (see :meth:`_pending_interrupts`) — a choice, not an oversight: by default the
+        checkpoint backend is durable (``sqlite``) while the event store is not (``memory``),
+        so a process that restarts keeps the checkpoint's memory of a parked thread but not
+        the log's. Routing this listing through the log alone would silently stop surviving a
+        restart under that (default) configuration, which is exactly #22's own guarantee
+        (``tests/test_workflow_timers.py::test_tick_survives_a_process_restart``).
+        """
         now = _require_aware(now) if now is not None else datetime.now(UTC)
         pending = await self._pending_interrupts()
         return [p for p in pending if (wake_at := wake_at_of(p["payload"])) is not None and wake_at <= now]
@@ -688,14 +700,50 @@ class Deck:
         return pending
 
     async def tick(self, now: datetime | None = None) -> list[Any]:
-        """Resume every thread whose ``sleep_until`` timer is due."""
+        """Resume every thread whose ``sleep_until`` timer is due.
+
+        A thread the checkpointer lists as due may *also* be a run :meth:`pending` already
+        knows about — parked by a ``Deck.run()``/HTTP call that went through the Runtime, the
+        same as any other interrupt. Resuming such a thread by calling the workflow directly
+        (as this used to) never told the log: the run stayed ``WAITING_HUMAN`` and kept
+        holding its session claim forever, a ghost indistinguishable from the one #114 fixed
+        for :meth:`answer`. So a due thread with a matching logged run resumes through the
+        Runtime instead — closing that run and freeing its claim — and only a thread with no
+        logged run (parked by calling a durable :class:`Workflow`'s own ``run``/``resume``
+        directly, which never opens a run in the log to begin with) falls back to the direct
+        checkpointer resume, since there is no log entry to reconcile.
+        """
         now = _require_aware(now) if now is not None else datetime.now(UTC)
+        runtime = self._require_open()
+        logged = {(run.invocable, run.thread_id): run for run in await runtime.pending()}
         results = []
         for workflow in self._workflows.values():
             for pending in await workflow.pending():
                 wake_at = wake_at_of(pending["payload"])
-                if wake_at is not None and wake_at <= now:
+                if wake_at is None or wake_at > now:
+                    continue
+                logged_run = logged.get((workflow.name, pending["thread_id"]))
+                if logged_run is None:
                     results.append(await workflow.resume(pending["thread_id"], wake_at))
+                    continue
+                result, applied = await _workflow_result(
+                    runtime.resume(
+                        logged_run.invocable,
+                        logged_run.thread_id,
+                        # The payload's own ISO string, not the parsed `wake_at`: this value
+                        # also becomes the logged `run.resumed`, and a bare `datetime` fails
+                        # that event's JSON validation — recorded as a lost answer, with a
+                        # warning, even though the graph itself would have resumed fine.
+                        pending["payload"][WAKE_AT_KEY],
+                        run_id=logged_run.run_id,
+                        session_id=logged_run.session_id,
+                    )
+                )
+                # A lost race (some other caller already resumed this run) leaves nothing to
+                # report — not a fallback to the direct resume, which would just re-enter a
+                # thread the winner has already moved on from.
+                if applied:
+                    results.append(result)
         return results
 
     def session_for(self, session_id: str) -> Session:

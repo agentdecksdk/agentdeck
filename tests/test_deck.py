@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import socket
 import textwrap
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -17,6 +18,7 @@ from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring import Agent, Workflow
+from agentdeck.authoring.timers import sleep_until
 from agentdeck.core.context import RunContext
 from agentdeck.deck import Deck, TurnResult
 from agentdeck.errors import ConfigError, NotFoundError
@@ -108,6 +110,21 @@ def _approval_workflow(name: str = "Approval") -> Workflow:
     return Workflow(name=name, state=_ApprovalState, durable=True, graph=_build_approval_graph)
 
 
+class _TimerState(BaseModel):
+    woke_at: str = ""
+
+
+def _timer_workflow(name: str, when: Any) -> Workflow:
+    def _build_graph() -> StateGraph:
+        graph = StateGraph(_TimerState)
+        graph.add_node("wait", lambda s: {"woke_at": str(sleep_until(when))})
+        graph.set_entry_point("wait")
+        graph.add_edge("wait", END)
+        return graph
+
+    return Workflow(name=name, state=_TimerState, durable=True, graph=_build_graph)
+
+
 def _write_skill(root, dirname: str, *, description: str = "does a thing") -> None:
     skill_dir = root / dirname
     skill_dir.mkdir(parents=True)
@@ -147,7 +164,7 @@ async def test_deck_builds_and_runs_an_agent_with_no_project_on_disk(no_project,
 
 @pytest.mark.asyncio
 async def test_deck_runs_a_workflow_with_no_project_on_disk(no_project, monkeypatch):
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "memory")
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     deck = Deck(workflows=[_shout_workflow()])
     deck.build()
 
@@ -433,6 +450,16 @@ def test_agent_workflow_tool_that_is_registered_builds_cleanly():
     deck = Deck(agents=[_greeter(tools=[workflow])], workflows=[workflow])
 
     deck.build()  # no raise
+
+
+def test_a_durable_workflow_used_as_a_tool_fails_build_naming_both():
+    """`as_tool()` calls `run(args)` with no thread_id, which a durable workflow requires, so
+    the tool raised the moment a model called it — after building clean (#193)."""
+    durable = Workflow(name="Durable", state=_State, graph=_build_shout_graph, durable=True)
+    deck = Deck(agents=[_greeter(tools=[durable])], workflows=[durable])
+
+    with pytest.raises(ConfigError, match="Greeter.*Durable.*durable=True"):
+        deck.build()
 
 
 # --- a tool build() cannot compile fails loudly, naming the agent and @function_tool -------
@@ -783,7 +810,7 @@ def _reader_ctx(session_id: str | None) -> RunContext:
 async def test_run_with_no_input_defaults_a_workflow_to_an_empty_object(no_project, monkeypatch):
     """``state=None``'s old meaning ("no updates") has to survive wrapping it in a
     ``DataBlock``, which cannot carry ``None`` as a graph's state."""
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "memory")
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     deck = Deck(workflows=[_shout_workflow()])
 
     async with deck:
@@ -851,9 +878,8 @@ class _Greeting(BaseModel):
 
 @pytest.mark.asyncio
 async def test_a_structured_run_output_survives_as_validated_data(no_project, monkeypatch):
-    """``RunCompleted.output`` can only hold text; the compat engine carries a validated
-    ``output_type`` result alongside it, and ``run``'s ``TurnResult`` must still surface it as
-    data rather than the stringified JSON the terminal event itself carries."""
+    """An ``output_type`` result rides ``run.completed`` as a ``DataBlock``, and ``run``'s
+    ``TurnResult`` must surface it as data rather than joining it as text."""
     patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=('{"greeting": "hi"}',))))
     deck = Deck(agents=[Agent(name="Structured", instructions="Answer as JSON.", output_type=_Greeting)])
 
@@ -944,7 +970,7 @@ async def test_pending_lists_a_paused_run_and_answer_completes_it(no_project, mo
     the ``run_id`` it named there — no name, thread id, or session id supplied by hand."""
     from agentdeck.runtime.settings import reset_settings_cache
 
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "memory")
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     reset_settings_cache()
     try:
         deck = Deck(workflows=[_approval_workflow()])
@@ -971,6 +997,57 @@ async def test_answer_of_an_unknown_run_id_raises_not_found(no_project):
     async with deck:
         with pytest.raises(NotFoundError, match="nonexistent"):
             await deck.answer("nonexistent", "yes")
+
+
+# --- tick() resumes a Deck.run() interrupt through the Runtime, not a checkpointer ghost ----
+
+
+@pytest.mark.asyncio
+async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost(no_project, monkeypatch, caplog):
+    """A timer interrupt ``Deck.run()`` parked is the same thread ``Deck.tick()`` finds on the
+    checkpointer — the log and the checkpointer already agree on the *listing* (direction one,
+    already true post-#164). Resuming it by calling the workflow directly, as ``tick()`` used
+    to, never told the event log: the run stayed ``WAITING_HUMAN`` forever and kept holding its
+    session claim (direction two — the still-live half of #120). ``tick()`` must resume through
+    the Runtime instead, so the log's run closes and a fresh run on the same thread does not
+    hit a stale-lock ``SessionBusyError``.
+    """
+    from agentdeck.runtime.settings import reset_settings_cache
+
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
+    reset_settings_cache()
+    past = datetime.now(UTC) - timedelta(days=1)
+    try:
+        deck = Deck(workflows=[_timer_workflow("Timer", past)])
+
+        async with deck:
+            paused = await deck.run("Timer", {}, session_id="t-tick")
+            assert paused["type"] == "interrupt"
+
+            # direction 1: the checkpointer-sourced listing already sees a Deck.run() interrupt.
+            due = await deck.due_resumes()
+            assert [d["thread_id"] for d in due] == ["t-tick"]
+
+            with caplog.at_level("WARNING"):
+                finished = await deck.tick()
+            # the reconciled resume passes the interrupt payload's own ISO string, not the
+            # parsed datetime, so the Runtime logs the answer cleanly instead of warning that
+            # a datetime "cannot be held" and dropping it. `agentdeck.composition`'s own
+            # memory-backend warning (issue #155), logged once when `Deck` opened above, is
+            # expected and unrelated to what this assertion is checking.
+            assert finished == [{"woke_at": past.isoformat()}]
+            other_warnings = [r for r in caplog.records if r.name != "agentdeck.composition"]
+            assert not other_warnings, [r.message for r in other_warnings]
+
+            # direction 2: resuming through tick() must close the *logged* run too, not just
+            # the checkpoint — a ghost WAITING_HUMAN entry is exactly what this pins against.
+            assert await deck.pending() == []
+
+            # ...and release the session claim it was holding, not leave it stale-locked.
+            again = await deck.run("Timer", {}, session_id="t-tick")
+            assert again["type"] == "interrupt"
+    finally:
+        reset_settings_cache()
 
 
 @pytest.mark.asyncio

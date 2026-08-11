@@ -58,7 +58,7 @@ asyncio.run(main())
 | Node | What it does |
 |---|---|
 | `AgentNode(agent)` | runs an [`Agent`](/reference/definitions) as a node; forwards its text deltas to the graph's custom stream |
-| `LoadFileNode` | pulls a file's contents into state — the host filesystem for an absolute path |
+| `LoadFileNode` | pulls a file's contents into state from the host filesystem; the path must be absolute |
 
 ```python
 from agentdeck.authoring import AgentNode
@@ -122,6 +122,16 @@ rejected.
 AgentDeck runs no daemon: you own the cadence. `Deck.due_resumes()` lists timer threads whose
 moment has passed, and `Deck.tick()` resumes every one of them.
 
+**Known limit: the listing reads the checkpointer, not the event log.** Both calls find due
+threads through each workflow's own LangGraph checkpointer rather than the [event
+log](/concepts/runs-and-the-event-log#a-listed-exception-timer-resumes) — deliberately, since
+the checkpoint backend defaults to durable (`sqlite`) while the event store defaults to
+`memory`, and a due timer surviving a process restart depends on the checkpointer's own
+durability. `tick()` still resumes a due thread *through the Runtime* when it matches a run
+`Deck.pending()` already knows about, so that resume itself is recorded in the log like any
+other; only a thread with no logged run at all falls back to resuming straight off the
+checkpointer.
+
 ## Streaming and composition
 
 `Deck.stream()` yields a `node.updated` event per completed node and a `custom` event per
@@ -130,3 +140,15 @@ moment has passed, and `Deck.tick()` resumes every one of them.
 
 `Workflow.as_tool()` turns the whole workflow into a tool an agent can call (pass it in
 `Agent(tools=[...])`), which is how a conversation reaches deterministic multi-step work.
+
+**A workflow exposed as a tool must be `durable=False`.** A tool call carries no thread, and a
+durable workflow needs one to load and persist its checkpoint — so `build()` rejects the
+combination rather than letting it fail the first time a model reaches for the tool:
+
+```
+agent 'booking' uses workflow 'Onboarding' as a tool, but it is durable=True.
+```
+
+If the work genuinely needs to survive a restart or pause for a human, it is a root invocable,
+not an ability: call it with `deck.run("Onboarding", state, session_id=...)`, where you control
+the thread.

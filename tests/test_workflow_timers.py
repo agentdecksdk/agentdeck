@@ -18,7 +18,7 @@ from agentdeck.runtime.settings import reset_settings_cache
 
 @pytest.fixture(autouse=True)
 def _memory_checkpointer(monkeypatch):
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "memory")
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     reset_settings_cache()
     yield
     reset_settings_cache()
@@ -195,8 +195,7 @@ def test_tick_survives_a_process_restart(tmp_path):
     (bundle / "workflow.py").write_text(textwrap.dedent(_RESTART_WORKFLOW_PY))
     env = {
         **os.environ,
-        "AGENTDECK_CHECKPOINT_BACKEND": "sqlite",
-        "AGENTDECK_CHECKPOINT_URL": str(tmp_path / "checkpoints.sqlite3"),
+        "AGENTDECK_CHECKPOINT": f"sqlite://{tmp_path / 'checkpoints.sqlite3'}",
     }
 
     paused = json.loads(_run_script("start", str(tmp_path), env))

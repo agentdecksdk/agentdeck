@@ -9,7 +9,7 @@ Two pages here are generated straight from the code, not written by hand — `ma
 regenerates both and fails if a committed page differs from what the code produces, so
 neither can drift out from under a settings or CLI change:
 
-- [Settings](/reference/settings) — every `AGENTDECK_*` (and `OPENAI_*`/`TAVILY_*`/`SKILL_*`)
+- [Settings](/reference/settings) — every `AGENTDECK_*` (and `OPENAI_*`/`TAVILY_*`)
   environment variable, from `agentdeck/runtime/settings.py`.
 - [CLI](/reference/cli) — the `agentdeck` command tree, from `agentdeck/cli.py`.
 
@@ -20,11 +20,14 @@ prose and isn't part of this generator:
   what `TurnResult` carries.
 - [Definitions](/reference/definitions) — `Agent`/`AgentDeclaration` and `Workflow`/
   `WorkflowDeclaration`, the authoring API a project builds.
-- [Capabilities](/reference/capabilities) — currently disabled; see the page for why.
+- [Capabilities](/reference/capabilities) — removed with the sandbox; see the page for why.
 
 Not yet published as pages:
 
-- `Skills` and `MCP`, the capability objects a `Deck` composes — covered today in
-  [Skills](/concepts/skills) and [Workflows](/concepts/workflows)
+- `Skills`, the capability object a `Deck` composes — covered today in
+  [Skills](/concepts/skills)
+- `MCP`, the other capability object a `Deck` composes — its constructor argument is on
+  [Deck](/reference/deck#construction-and-lifecycle), and how a connection failure degrades an
+  agent rather than crashing the process is on [Agents](/concepts/agents#mcp-servers-degrade-instead-of-crashing)
 - Workflow nodes (`AgentNode`, `LoadFileNode`) — covered today in [Workflows](/concepts/workflows)
 - HTTP endpoints

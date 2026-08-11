@@ -46,5 +46,5 @@ from agentdeck.runtime.settings import get_settings
 s = get_settings()  # cached
 s.openai.model
 s.runner.max_turns
-s.checkpoint.backend  # sqlite | postgres | memory — durable=True workflows
+s.checkpoint.url  # e.g. "sqlite://.agentdeck/checkpoints.sqlite3" — the scheme names the backend
 ```

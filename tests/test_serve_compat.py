@@ -12,18 +12,17 @@ import sys
 import textwrap
 
 import pytest
+from event_log_checks import check_terminal
 from fastapi.testclient import TestClient
 from project_engines import project_engines
 from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.adapters.engines.langgraph import engine as langgraph_engine
-from agentdeck.adapters.engines.openai_agents import engine as openai_agents_engine
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.composition import build_runtime
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import check_terminal
 from agentdeck.runtime.service import PendingRun
 from agentdeck.runtime.settings import reset_settings_cache
 from agentdeck.serve import create_app
@@ -101,12 +100,6 @@ def scripted(monkeypatch):
         return build_runtime(engines=project_engines(), store=store), store, model
 
     return _build
-
-
-def test_the_surface_and_the_engine_agree_on_the_structured_output_carrier():
-    """The surface spells the engine's custom-event name out rather than importing it, so this
-    is what keeps the two from drifting apart."""
-    assert surface_compat.STRUCTURED_OUTPUT == openai_agents_engine.STRUCTURED_OUTPUT
 
 
 def test_the_surface_and_the_langgraph_engine_agree_on_the_stream_write_carrier():
@@ -250,8 +243,8 @@ async def test_chat_result_returns_v1s_output_body(project, scripted):
 
 
 async def test_a_structured_output_survives_the_canonical_stream(project, scripted):
-    """``RunCompleted.output`` can only hold text, so the engine carries an ``output_type``
-    result alongside it and the surface renders that instead."""
+    """An ``output_type`` agent's validated result rides ``RunCompleted.output`` as a
+    ``DataBlock``, and the surface renders that directly — no ``custom`` event alongside it."""
     runtime, store, _ = scripted(ScriptedModel(deltas=('{"greeting": "Hello"}',)))
     ctx = run_context("s1")
 
@@ -266,9 +259,7 @@ async def test_a_structured_output_survives_the_canonical_stream(project, script
     )
 
     assert body == {"output": {"greeting": "Hello"}}
-    assert surface_compat.STRUCTURED_OUTPUT in [
-        event.payload.name for event in await store.read("s1", ctx) if event.kind == "custom"
-    ]
+    assert "custom" not in [event.kind for event in await store.read("s1", ctx)]
 
 
 async def test_a_structured_output_reaches_the_streamed_done_frame(project, scripted):
@@ -299,8 +290,7 @@ def test_the_endpoint_logs_its_run_to_the_configured_event_store(project, monkey
     endpoints are checked — one of them silently falling back to v1 glue would otherwise pass
     every other test in the suite, goldens included."""
     db = tmp_path / "events.sqlite3"
-    monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "sqlite")
-    monkeypatch.setenv("AGENTDECK_EVENTS_URL", str(db))
+    monkeypatch.setenv("AGENTDECK_EVENTS", f"sqlite://{db}")
     patch_provider(monkeypatch, provider_of(ScriptedModel()))
     reset_settings_cache()
     try:
@@ -330,8 +320,7 @@ def test_the_workflow_endpoint_logs_its_run_to_the_configured_event_store(projec
     patch, and the final state as a data block — which is what makes it replayable.
     """
     db = tmp_path / "events.sqlite3"
-    monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "sqlite")
-    monkeypatch.setenv("AGENTDECK_EVENTS_URL", str(db))
+    monkeypatch.setenv("AGENTDECK_EVENTS", f"sqlite://{db}")
     patch_provider(monkeypatch, provider_of(ScriptedModel()))
     reset_settings_cache()
     try:
@@ -386,18 +375,20 @@ def test_a_session_id_that_is_not_a_string_is_a_422(project, monkeypatch, sessio
 
 def test_the_server_warns_once_when_the_event_log_is_in_memory(project, monkeypatch, caplog):
     """The default store never evicts and dies with the process; an operator should not have to
-    read the source to find that out."""
-    monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "memory")
+    read the source to find that out. The warning now comes from the composition root
+    (``resolve_event_store``, run once when ``Deck`` opens), not a server-specific check —
+    surfaced here to prove it still reaches an operator watching the server's own logs."""
+    monkeypatch.setenv("AGENTDECK_EVENTS", "memory://")
     patch_provider(monkeypatch, provider_of(ScriptedModel()))
     reset_settings_cache()
     try:
-        with caplog.at_level(logging.WARNING, logger="agentdeck.serve"), TestClient(create_app()):
+        with caplog.at_level(logging.WARNING, logger="agentdeck.composition"), TestClient(create_app()):
             pass
     finally:
         reset_settings_cache()
 
     warnings = [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING]
-    assert [message for message in warnings if "AGENTDECK_EVENTS_BACKEND=sqlite" in message]
+    assert [message for message in warnings if "AGENTDECK_EVENTS=sqlite" in message]
 
 
 def test_a_workflow_is_not_reachable_through_the_agents_route(project, monkeypatch):

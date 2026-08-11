@@ -109,9 +109,11 @@ def build_asgi_app(deck: Deck) -> Any:
     @asynccontextmanager
     async def lifespan(api: FastAPI) -> AsyncIterator[None]:
         # `async with deck` closes the Redis session client + MCP servers on shutdown
-        # (including SIGTERM from `compose stop`), so no connection is leaked.
+        # (including SIGTERM from `compose stop`), so no connection is leaked. Opening it is
+        # also where `resolve_event_store`/`resolve_control_port` run, which is where a
+        # `memory://` backend now logs its own "won't survive a restart" warning — composition
+        # time, not a server-specific check here.
         async with deck:
-            _warn_if_event_log_is_in_memory(deck)
             api.state.deck = deck
             yield
             api.state.deck = None
@@ -306,20 +308,6 @@ async def _opened(run: AsyncGenerator[Event, None]) -> AsyncGenerator[Event, Non
                 yield event
 
     return replayed()
-
-
-def _warn_if_event_log_is_in_memory(deck: Deck) -> None:
-    """Say so once at startup: the default event store is fine for a session and wrong for a
-    server. It never evicts, every v1 request is unnamespaced, and a run reads its whole
-    log before it starts — so one long conversation costs quadratic reads and the process
-    keeps every event it ever saw. A warning, not a refusal: dev servers want this default.
-    """
-    if deck.settings.events.backend.strip().lower() == "memory":
-        logger.warning(
-            "event log backend is 'memory': it never evicts and is lost on restart. "
-            "Set AGENTDECK_EVENTS_BACKEND=sqlite and AGENTDECK_EVENTS_URL=<file> for a durable log, "
-            "or redis/postgres for one several workers can share."
-        )
 
 
 def main() -> None:

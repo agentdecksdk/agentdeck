@@ -6,6 +6,7 @@ import-linter contract enforces it.
 
 from agentdeck.core.content import (
     KNOWN_BLOCK_TYPES,
+    AudioBlock,
     ContentBlock,
     DataBlock,
     ImageBlock,
@@ -18,6 +19,7 @@ from agentdeck.core.content import (
 )
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import (
+    CURRENT_VERSION,
     KNOWN_KINDS,
     RESULT_PREVIEW_MAX,
     TERMINAL_KINDS,
@@ -40,6 +42,7 @@ from agentdeck.core.events import (
     RunResumed,
     RunStarted,
     SafePoint,
+    SchemaVersion,
     StatusReported,
     TextDelta,
     ThoughtDelta,
@@ -48,19 +51,19 @@ from agentdeck.core.events import (
     UnknownEvent,
     Usage,
     UsageReported,
-    check_contiguous,
-    check_terminal,
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.reporting import Reporter
 from agentdeck.core.status import RunStatus, can_resume, status_of
 
 __all__ = [
+    "CURRENT_VERSION",
     "KNOWN_BLOCK_TYPES",
     "KNOWN_KINDS",
     "RESULT_PREVIEW_MAX",
     "TERMINAL_KINDS",
     "ArtifactCreated",
+    "AudioBlock",
     "ContentBlock",
     "ControlObserved",
     "ControlRequested",
@@ -90,6 +93,7 @@ __all__ = [
     "RunStarted",
     "RunStatus",
     "SafePoint",
+    "SchemaVersion",
     "StatusReported",
     "TextBlock",
     "TextDelta",
@@ -101,8 +105,6 @@ __all__ = [
     "Usage",
     "UsageReported",
     "can_resume",
-    "check_contiguous",
-    "check_terminal",
     "coerce_input",
     "status_of",
 ]

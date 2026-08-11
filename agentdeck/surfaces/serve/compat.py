@@ -29,12 +29,6 @@ if TYPE_CHECKING:
     from agentdeck.runtime.service import PendingRun
 
 
-# The engine's namespaced carrier for an ``output_type`` result, which ``RunCompleted``
-# can only hold as text. Spelled out rather than imported: a surface that imported an
-# adapter would invert the direction the wiring depends on. A test pins it to the engine's
-# own constant so the two cannot drift.
-STRUCTURED_OUTPUT = "openai_agents.structured_output"
-
 # The langgraph engine's namespaced carrier for a ``get_stream_writer()`` write, which is
 # what v1's ``custom`` frame carries. Spelled out for the same reason, pinned by the same
 # kind of test.
@@ -55,11 +49,16 @@ class _Turn:
         if isinstance(payload, UsageReported):
             # v1 reports the SDK's cumulative Usage, whose `requests` counts model calls.
             self.requests += 1
-        elif isinstance(payload, Custom) and payload.name == STRUCTURED_OUTPUT:
-            self.output = payload.data.get("output")
         elif isinstance(payload, RunCompleted):
             if self.output is None:
-                self.output = "".join(block.text for block in payload.output if isinstance(block, TextBlock))
+                # An `output_type` agent's validated result rides `RunCompleted.output` as a
+                # `DataBlock`; anything else joins as text.
+                data = next((block.data for block in payload.output if isinstance(block, DataBlock)), None)
+                self.output = (
+                    data
+                    if data is not None
+                    else "".join(block.text for block in payload.output if isinstance(block, TextBlock))
+                )
             self.usage = {
                 "requests": self.requests,
                 "input_tokens": payload.usage.input_tokens,
@@ -139,21 +138,6 @@ async def workflow_result(events: AsyncGenerator[Event, None]) -> Any:
     return result
 
 
-async def resume_result(events: AsyncGenerator[Event, None]) -> Any:
-    """v1's non-streamed resume body — or ``None`` when this caller's answer changed nothing.
-
-    There are two ways for a resume to change nothing, and neither may be reported as success.
-    The claim went to another caller, so nothing was read from the engine at all; or the thread
-    had already reached ``END`` — langgraph replays such a thread happily, handing back its
-    stale final state while dropping the resume value on the floor, which is the worst answer
-    available. A resume that really landed re-runs the node that paused, so one ``node.updated``
-    (or the ``run.interrupted`` of a node that paused again before completing) is what proves
-    the answer was applied.
-    """
-    result, applied = await _terminal(events)
-    return result if applied else None
-
-
 def interrupt_inbox(pending: Sequence[PendingRun], invocable: str) -> list[dict[str, Any]]:
     """v1's approval inbox for one workflow: every thread of it currently waiting on a human.
 
@@ -220,11 +204,9 @@ def _final_state(payload: RunCompleted) -> Any:
 __all__ = [
     "STREAM_WRITE",
     "STREAM_WRITE_KEY",
-    "STRUCTURED_OUTPUT",
     "chat_frames",
     "chat_result",
     "interrupt_inbox",
-    "resume_result",
     "workflow_frames",
     "workflow_result",
 ]

@@ -26,12 +26,11 @@ greeter = Agent(name="Greeter", instructions="You are a friendly scheduling assi
 import asyncio
 import os
 
-os.environ["AGENTDECK_EVENTS_BACKEND"] = "sqlite"
-os.environ["AGENTDECK_EVENTS_URL"] = "./events.sqlite3"
+os.environ["AGENTDECK_EVENTS"] = "sqlite://./events.sqlite3"
 
 from agentdeck import Deck
 from agentdeck.composition import resolve_event_store
-from agentdeck.core import RunContext, check_contiguous
+from agentdeck.core import RunContext
 from agentdeck.core.status import status_of
 
 
@@ -54,7 +53,9 @@ async def main() -> None:
     events = await store.read_run(ctx.log_key, run_id, ctx)
     for event in events:
         print(event.seq, event.kind)
-    print("gaps:", check_contiguous(events))
+    seqs = {event.seq for event in events}
+    gaps = [n for n in range(max(seqs) + 1) if n not in seqs] if seqs else []
+    print("gaps:", gaps)
     print("status:", status_of(events))
 
 
@@ -86,10 +87,10 @@ in. This run made no tool call, so none of those appear above.
 
 `seq` is per-run and contiguous from zero — `0, 1, 2, …` with no gaps — which is what makes it
 the ordering authority rather than `ts`, the wall-clock timestamp carried alongside it for
-information only. `check_contiguous`, used above, is that check made concrete: it returns the
-missing numbers in one run's events, `[]` when there are none. A consumer that gets events out
-of order, or suspects one went missing, refetches the run and runs this over the result instead
-of guessing from timing.
+information only. The gap check above is that made concrete: the missing numbers in one run's
+events, `[]` when there are none. A consumer that gets events out of order, or suspects one went
+missing, refetches the run and runs the same check over the result instead of guessing from
+timing.
 
 ## Status is a fold, not a field
 
@@ -117,12 +118,27 @@ hand you back the exact context an engine fed the model to produce it.
 
 ## Where the log lives
 
-`AGENTDECK_EVENTS_BACKEND` picks the store: `memory` (the default) keeps it in the process and
-loses it on exit; `sqlite` (with `AGENTDECK_EVENTS_URL` a file path, as above) survives a
-restart; `redis` and `postgres` (a URL or DSN in the same variable) are the two several workers
-can share. SQLite's cross-process story rests on shared memory between processes on one machine
-— one file behind more than one *machine* is not supported, which is exactly why `redis` and
-`postgres` exist as separate options rather than "just point everyone at the same file."
+`AGENTDECK_EVENTS`'s scheme picks the store: `memory://` (the default) keeps it in the process
+and loses it on exit; `sqlite://<path>` (as above) survives a restart; `redis://`/`rediss://`
+and `postgresql://` are the two several workers can share. SQLite's cross-process story is a
+shared *file*, not shared memory: several processes on the same machine can open it, but a
+file can't reach a second machine — which is exactly why `redis` and `postgresql` exist as
+separate options rather than "just point everyone at the same file."
+
+## A listed exception: timer resumes
+
+The claim at the top of this page — every consumer of a run reads this log — has one carve-out.
+`Deck.due_resumes()` lists which timer-paused workflow threads are due, and `Deck.tick()` resumes
+them, by reading each workflow's own LangGraph checkpointer, not this log. That is deliberate:
+the checkpoint backend defaults to durable (`sqlite`) while the event store defaults to
+`memory`, so listing off the log alone would stop surviving a process restart under the default
+configuration — exactly the guarantee a due timer keeps its wake-up call across one restart.
+When a due thread also has a run `Deck.pending()` already knows about (parked by a `Deck.run()`
+or HTTP call, which does go through the Runtime), `tick()` resumes it *through the Runtime*, so
+that resume itself lands in the log like any other; only a thread with no logged run at all —
+parked by calling a durable `Workflow`'s own `run`/`resume` directly — falls back to resuming
+straight off the checkpointer, since there is no log entry to reconcile. See [Workflows →
+Timers](/concepts/workflows#timers) for where this shows up in practice.
 
 Next: [Run Control](/concepts/run-control) covers what a run in flight can be asked to do, and
 how those requests land in this same log.

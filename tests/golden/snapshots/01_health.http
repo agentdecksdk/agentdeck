@@ -1,4 +1,4 @@
 HTTP 200
 content-type: application/json
 
-{"status":"ok","agents":["Greeter"],"workflows":["ApprovalFlow","BoomFlow","EchoFlow","SideEffectFlow"],"skills":[]}
+{"status":"ok","agents":["Greeter"],"workflows":["ApprovalFlow","BoomFlow","EchoFlow","FanoutInterruptFlow","SideEffectFlow"],"skills":[]}

@@ -1,5 +1,8 @@
 {
-  "v": 2,
+  "v": {
+    "major": 3,
+    "minor": 1
+  },
   "kind": "custom",
   "seq": 0,
   "run_id": "run_1",

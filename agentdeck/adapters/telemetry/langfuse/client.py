@@ -46,7 +46,7 @@ def _build_client(settings: LangfuseSettings) -> Any:
     return Langfuse(
         public_key=settings.public_key,
         secret_key=settings.secret_key,
-        base_url=settings.endpoint,
+        base_url=settings.base_url,
         environment=settings.environment,
         debug=settings.debug,
         sample_rate=settings.sample_rate,

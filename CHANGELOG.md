@@ -8,6 +8,60 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Upgrading
+
+- **A retired v2 environment variable now refuses to start, rather than being ignored.** Nothing
+  binds `AGENTDECK_EVENTS_BACKEND`/`_URL`, `AGENTDECK_CONTROL_*`, `AGENTDECK_CHECKPOINT_*`,
+  `AGENTDECK_SESSION_REDIS_URL`, `AGENTDECK_LANGFUSE_HOST` or `APP_CONFIG_PATH` any more, so a
+  deployment that still exports one would fall back to the default — and for the three store
+  variables that default is in-process memory, i.e. a durable event log silently becoming
+  ephemeral on upgrade. Setting one *without* its replacement is now an error naming both. A
+  leftover alongside a correctly-set replacement is fine: the migration has happened, and a stale
+  name inherited from a container environment should not stop a working process from booting.
+
+
+- **An event log written before v3.0.0 cannot be read by v3.0.0.** The envelope's `v` was a plain
+  integer up to and including v3.0.0b1 and is now `{major, minor}`, which is a major bump — and a
+  major bump means exactly this: the two are not mutually readable. Only durable stores are
+  affected (`sqlite`, `postgres`, `redis`); the default `memory` store keeps nothing across a
+  restart, so most callers have nothing to migrate. An affected store must be replayed into a new
+  one, or read with the version that wrote it. The first read of an old event says so by name
+  rather than failing as a validation error on a model you have not met.
+
+- **`Runtime(clock=...)` and `build_runtime(clock=...)` are gone.** Both keywords stopped
+  deciding anything once ADR-D11 moved timestamp assignment into the store; a caller that held
+  time through either one now gets a `TypeError` instead of a run whose timestamps quietly kept
+  moving. Pass the clock to the store instead: `MemoryEventStore(clock=...)`,
+  `RedisEventStore(clock=...)`.
+
+- **A client built on the openai-agents engine's own session (`agents.SQLiteSession`,
+  `agents.extensions.memory.RedisSession`) that inspects or prunes its content parts must add
+  `input_image`/`input_audio` to its matcher** (#161). A turn carrying an image or audio block
+  now writes the SDK's own canonical part types into the session; a matcher written against the
+  old raw shapes (`image_url`, `input_audio` tuples, or similar) silently stops matching, which
+  for a pruning pass means the same image gets re-sent, and re-billed, on every later turn of
+  that conversation instead of being dropped after the turn that needed it.
+
+- **A program holding two `Deck` instances at once now raises instead of quietly misbehaving**
+  (#204). One deck at a time is unchanged, including a deck mounted inside an existing service
+  through `asgi()`. What breaks is a script that validates several projects in a loop, or a
+  notebook that re-runs its `Deck.from_project()` cell: close the first (`await deck.aclose()`,
+  or run it under `async with`) before constructing the next. Today those programs appear to
+  work while the second deck reads the first one's bundles, so the raise is the change you want.
+
+
+### Added
+
+- **`AudioBlock`** (#159): a fifth content-block kind, mirroring `ImageBlock` field-for-field
+  (`media_type`, `data_b64`) — the same problem (opaque bytes with a MIME type), so a different
+  shape would be asymmetry with no payoff. Additive/minor (`CURRENT_VERSION.minor` 0 → 1): a
+  reader that predates this still parses the event and meets an audio block as `UnknownBlock`.
+- **`ImageBlock` and `AudioBlock` now cap inline data at 1 MB decoded**, raising at construction
+  and naming `ResourceBlock` as the by-reference alternative for anything larger (#159). Base64
+  in an event lands in an append-only log and replays down every SSE connection for the life of
+  that run, so a documented-only limit shipped violated; the cap is deliberately low, since
+  raising it later is compatible and lowering it is not.
+
 ### Changed
 
 - **Breaking:** **one `Deck` per process, enforced at construction** (#204). Constructing a
@@ -18,12 +72,124 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   construction and released by `aclose()`. Two decks side by side is a capability we intend to
   add (#213); until then a deck per tenant is a process per tenant, which is what the code has
   in fact always done.
-  - *Upgrading:* one deck at a time still works exactly as before, including a `Deck` mounted
-    inside an existing service through `asgi()`. What breaks is a program holding two at once —
-    a script that validates several projects in a loop, a notebook that re-runs a
-    `Deck.from_project()` cell. Close the first (`await deck.aclose()`, or run it under
-    `async with`) before constructing the next. Today those programs appear to work and quietly
-    give the second deck the first one's agents, so a raise is the change you want.
+
+- **Breaking: one env var per infrastructure decision, not a `_BACKEND`/`_URL` pair that can
+  disagree** (#155). `AGENTDECK_EVENTS_BACKEND=postgres` with `AGENTDECK_EVENTS_URL=redis://...`
+  used to boot clean and fail on the first event of the first run; the URL's own scheme now
+  *is* the backend, so that mismatch cannot be expressed at all, not merely rejected. No
+  deprecation shim — this is the one breaking-release window where renaming is free — so an old
+  name is simply never looked up: `_BACKEND` had no field to bind to at all once the pair
+  collapsed to one, and the renamed field (`url`) maps to a different literal env var name than
+  the one it replaced, so setting the old name alongside the new one has no effect either way:
+
+  | Old | New |
+  | --- | --- |
+  | `AGENTDECK_EVENTS_BACKEND` + `AGENTDECK_EVENTS_URL` | `AGENTDECK_EVENTS=memory://` / `sqlite://<path>` / `redis://<url>` / `rediss://<url>` / `postgresql://<dsn>` |
+  | `AGENTDECK_CONTROL_BACKEND` + `AGENTDECK_CONTROL_URL` | `AGENTDECK_CONTROL=memory://` / `sqlite://<path>` |
+  | `AGENTDECK_CHECKPOINT_BACKEND` + `AGENTDECK_CHECKPOINT_URL` | `AGENTDECK_CHECKPOINT=memory://` / `sqlite://<path>` (default: `sqlite://.agentdeck/checkpoints.sqlite3`) / `postgresql://<dsn>` |
+  | `AGENTDECK_SESSION_REDIS_URL` | `AGENTDECK_SESSION=redis://<url>` |
+  | `APP_CONFIG_PATH` | `AGENTDECK_CONFIG_PATH` — unprefixed and generic; any other tool claiming that name silently repointed agentdeck's config |
+
+  Selecting `memory://` for `AGENTDECK_EVENTS`/`AGENTDECK_CONTROL` now logs one WARNING at
+  composition time (`resolve_event_store`/`resolve_control_port`) naming what it costs — no
+  cross-process signals, no log after a restart — instead of that being discoverable only in
+  production. `agentdeck-serve`'s own startup-time version of this same warning is gone; the
+  composition-time one covers it and every other entry point besides.
+- **`Runtime.__init__` no longer reads settings** (#155): the five-parameter, ambient-config-free
+  constructor now has a sixth, `stale_run_after`, defaulted to one hour with no `get_settings()`
+  call at all. `build_runtime` resolves `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` and passes it
+  in, the same as its other adapters — an embedder constructing `Runtime(...)` directly, bypassing
+  `build_runtime`, now gets the literal one-hour default rather than whatever the process's
+  settings happened to say.
+- **The prefix rule is written down** (#155): `docs/coding-standards.md` §9 and `CLAUDE.md` now
+  state that `OPENAI_*`/`TAVILY_*` keep their own names because the respective SDKs read them
+  natively — the only exceptions to `AGENTDECK_*`, not an open pattern.
+- **The openai-agents engine accepts image and audio input, not just text** (#161).
+  `TextBlock`/`ImageBlock`/`AudioBlock` map onto the SDK's own canonical multimodal input parts
+  (`input_text`/`input_image`/`input_audio`), which the SDK's chat-completions converter already
+  accepts and maps down for either API path — agentdeck writes no converter of its own. An
+  all-text turn still sends the identical joined string it always has; only a turn that actually
+  carries media takes the new shape. `ResourceBlock`, `DataBlock`, and any block a newer writer
+  invented still raise `ConfigError`, naming the block kind and the engine, never silently
+  dropped — and an `AudioBlock` under `use_responses=True` raises naming the Responses API,
+  which has no audio input member at this `openai-agents==0.17.0` pin; `use_responses=False`
+  (chat-completions) accepts it. Output is unchanged and stays text/data only: nothing on this
+  path produces an image or audio block.
+
+- **The event envelope's `v` is now a `{major, minor}` object, not an integer** (#156). `major`
+  is what a reader must already understand to parse the envelope at all — `Event` refuses one it
+  does not carry, even for a kind it has never seen, because a major bump can move or remove
+  envelope fields the unknown-kind fallback never checks. `minor` records an additive change (a
+  new kind, a new optional field) that an old reader already tolerates by construction and never
+  needs to consult. This is an intentional wire break: a reader built against the previous
+  scalar `v` cannot parse an event this tree writes.
+
+- **Breaking: `Runtime.__init__` and `build_runtime` no longer accept `clock`** (#158). ADR-D11
+  moved timestamp assignment into the store, so the keyword has decided nothing since #154,
+  which made it inert and warn rather than remove it outright; a caller still passing it now
+  gets a `TypeError` instead of a silently-ignored no-op. Holding time still works at the seam
+  that owns the clock — `MemoryEventStore(clock=...)`, `RedisEventStore(clock=...)` — which is
+  unaffected by this change.
+
+### Removed
+
+- **The sandbox scaffolding is gone** (#71). Sandboxing left v3 by ruling (#163 stays open as
+  the design issue), and the tree was carrying a port with no consumer, an adapter with no
+  caller and spec classes nothing constructed. Deleted: `agentdeck.core.ports.sandbox` in full
+  (`SandboxPort`, `ExecResult`, `bind_sandbox`, `current_sandbox`, `require_sandbox`, plus the
+  `SandboxPort`/`ExecResult` re-exports from `agentdeck.core.ports`); `agentdeck.adapters.caps`
+  in full (`UnixSandbox`, `open_sandbox`, `input_file_targets`); `agentdeck.authoring.capabilities`
+  in full (`CapabilitiesSpec`, `ShellSpec`, `FilesystemSpec`, `MemorySpec`, `CompactionSpec`);
+  and `agentdeck.runtime.capture.CAPTURE_ENV`, whose only reader was the deleted adapter
+  (`Capture` and `CaptureActor` stay — the tracer still uses them). Re-adding a designed port
+  later is additive, so nothing here is a one-way door.
+- **`LoadFileNode` now refuses a relative path** (#71) instead of resolving it through the
+  sandbox. That branch could only ever raise — nothing in v3 opened a sandbox for it to find —
+  so the node raises the refusal itself, still a `RuntimeError`, with a message that names the
+  absolute path it wants. It deliberately does *not* fall back to the process working
+  directory: quietly reading the host filesystem for a path a model influenced is the widening
+  the sandbox existed to prevent.
+- **`agentdeck.runtime.observability.sandbox_trace_env()` is gone** (#71): it built the
+  `LANGFUSE_*`/`TRACEPARENT` env for a sandboxed skill subprocess, and had no callers left once
+  sandboxing left v3. Same finding as `Settings.sandbox_env()` below, which #155 took early.
+- **`agentdeck.surfaces.serve.compat.resume_result()` is gone** (#71): the v1 resume endpoint
+  answers through `Deck.answer()` and has not gone through this helper since the v3 cutover.
+  The v1 resume wire format is unchanged — it is covered by the golden replay, which is
+  byte-identical.
+- **`LangfuseSettings.host` and its `endpoint` property are gone** (#155): a pre-4.x
+  compatibility alias for the Langfuse endpoint, with no reason to survive a major version.
+  `base_url` is the only endpoint field now, and it carries `host`'s old default
+  (`http://localhost:3000`) so an unconfigured deployment's effective endpoint is unchanged.
+- **`Settings.sandbox_env()` and the unbounded `SKILL_*` env namespace are gone** (#155).
+  Sandboxing left v3 in #163; `SkillExecutor`, `sandbox_env()`'s only caller, was already
+  deleted in #164, so this was a deletion rather than the `AGENTDECK_SKILL_*` rename the issue
+  originally proposed. `SkillsSettings` and the `skill:` `config.yaml` section go with it.
+- **`check_contiguous`/`check_terminal` are no longer part of `agentdeck.core`** (#156). Neither
+  was read by a production path — `seq` contiguity follows from how the store assigns it, and
+  the one-terminal-event-last invariant is enforced by `Runtime.run`/`resume` stopping the read
+  loop at a terminal payload — so keeping them in the schema module read as contract they were
+  never part of. Embedders who imported them for their own log-auditing should inline the same
+  two checks (each a few lines over a `list[Event]`) locally.
+
+- **A `durable=True` workflow used as an agent tool now fails `build()`** (#193) instead of
+  raising the first time a model calls it. `Workflow.as_tool()` invokes `run(args)` with no
+  `thread_id`, which a durable workflow requires to load and persist its checkpoint, so
+  `Agent(tools=[durable_workflow])` built clean and then threw mid-turn. The error names the
+  agent and the workflow and points at `durable=False`, or calling it as a root invocable via
+  `deck.run()` where a session can be supplied. Giving a tool-invoked workflow a thread of its
+  own remains an open design question.
+
+
+### Removed
+
+- **The `openai_agents.structured_output` `custom` event** (#105). #101 gave
+  `RunCompleted.output` a `DataBlock` for an `output_type` agent's validated result; the
+  `custom` event carried the same value the older way and was kept only because retiring it
+  inside #101 would have meant editing an open PR's files. `Deck.run()`'s `TurnResult.output`
+  and v1's chat endpoints now read the `DataBlock` straight off `run.completed` — their
+  response bodies are unchanged, but a canonical event stream (`Deck.stream()`, the event
+  store) for a structured-output run now has one fewer event.
+
 
 ### Fixed
 
@@ -32,6 +198,76 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   whose bundle directory happened to share a name — two `agents/greeter/` — got the first one's
   module back from `sys.modules`. Stale submodules are now evicted on mount, which also means
   editing a bundle and rebuilding in the same process picks the edit up.
+
+- **Docs: `/reference` pages corrected against the current API** (#192). `/reference` no
+  longer claims MCP is covered by the Workflows page — it now points at `/reference/deck`
+  (`Deck(mcp=...)`) and `/concepts/agents` (MCP status at build vs. open), where the actual
+  coverage lives. `/reference/deck` no longer says `stream()` assembles a `TurnResult` — only
+  `run()` does; `stream()` yields `AsyncGenerator[Event]`, as the page's own table already
+  said two sections up. `/reference/deck` also now documents the timer/event-log limit:
+  `due_resumes()`/`tick()` still list due timers off each workflow's own checkpointer, but
+  `tick()`'s resume now goes through the Runtime whenever a logged run matches (#191) —
+  closing that run's log entry and freeing its session claim — falling back to the direct
+  checkpointer resume only for a thread with no logged run.
+- `AGENTDECK_LANGFUSE_SERVICE_NAME`'s description no longer says "host process and sandboxed
+  skills" — sandboxed skills were removed in #164; the generated `/reference/settings` page is
+  regenerated to match.
+- `tests/test_docs_site.py::test_pinned_install_versions_match_the_package_version` now also
+  requires every fenced `pip install`/`uv pip install`/`uv add` line naming `agentdeck` on the
+  docs site to carry a version pin matching `pyproject.toml`, not just validating pins that
+  already exist — closing the gap that let `/guides/serve-over-http` ship an unpinned
+  `agentdeck[serve]` install example.
+- **Three docs pages corrected against the current v3 code (#192).** `/guides/human-approval`'s
+  cross-process example now says what it actually needs: `durable=True` makes the checkpointer
+  file-backed, but `pending()`/`answer()` read the event store instead, so a second process only
+  sees a paused run if `AGENTDECK_EVENTS` is pointed at a shared backend too — the
+  in-process default is not enough on its own. `/guides/serve-over-http`'s install line now pins
+  a version (`git+...@v3.0.0b1`), matching `getting-started.mdx` instead of an unqualified
+  `agentdeck[serve]`. `/operating/pause-resume-cancel` no longer describes the `503 no control
+  backend configured` response as a deployment state operators can hit: `resolve_control_port()`
+  always wires a real `ControlPort` for `Deck`/`agentdeck-serve`, so that response is reachable
+  only by an embedder constructing a bare `Runtime` outside `Deck`.
+- **Seven more docs pages corrected against the current v3 code (#192).** `/` no longer calls
+  skills Python definitions (they are `SKILL.md` directories) or claims `session_id` survives a
+  restart by default (it needs `AGENTDECK_SESSION`). `/concepts` and
+  `/concepts/runs-and-the-event-log` no longer describe SQLite's cross-process story as "shared
+  memory" — it is a shared file, openable by several processes on one machine, not across
+  machines. `/concepts/agents` describes MCP status as it works today: `build()` stays
+  network-free, and status is re-resolved when the `Deck` opens (`__aenter__`, right after
+  `MCPLifecycle.startup`), not "dropped at build time". `/concepts/protocols-and-surfaces` no
+  longer says an HTTP handler builds a `RunContext` — the `Runtime` mints it for every caller.
+  `/concepts/run-control` no longer recommends `ctx.idempotency_key`, a field `RunContext` does
+  not have. `/concepts/runs-and-the-event-log` and `/concepts/workflows` now document that
+  `Deck.due_resumes()`/`Deck.tick()`'s *listing* of due timers reads each workflow's own
+  checkpointer, not the event log, for the same #22-driven reason as the `Deck.tick()` fix
+  below.
+- **`Deck.tick()`** no longer leaves a ghost `WAITING_HUMAN` run in the event log when it
+  resumes a timer-paused thread that a `Deck.run()`/HTTP call parked (#120): it now resumes
+  such a thread through the Runtime, the same as `Deck.answer()` already did, so the run's
+  log entry closes and its session claim releases instead of blocking a fresh run on the
+  same thread until `stale_run_after` expires. `Deck.due_resumes()`/`Deck.tick()`'s *listing*
+  is unchanged — still each workflow's own checkpointer, not the event log, because by
+  default the checkpoint backend is durable (`sqlite`) while the event store is not
+  (`memory`), and #22's guarantee that a due timer survives a process restart depends on
+  that. A thread with no logged run at all (parked by calling a durable `Workflow`'s own
+  `run`/`resume` directly — a deliberately log-free path, out of scope here) still resumes
+  the way it always did.
+- **A fan-out workflow whose one branch interrupts while a sibling completes now reports the
+  sibling's `node_update` before the `interrupt`, instead of silently dropping it** (#122). The
+  langgraph engine reports a pause as soon as the interrupting branch asks for one, not once
+  every branch in the same step has finished; a slower sibling's completion used to arrive on
+  the drained tail of that call and be discarded there, even though its write had already
+  landed in the engine's own checkpoint — the checkpoint and the canonical event log disagreed
+  about what had run. The pause is still reported last, and a run with a suspended branch never
+  reports `done`: `RunStatus.status_of` already derived `waiting_human`, non-terminal, from
+  `run.interrupted` alone, so nothing there needed to change. Pinned with a new golden fixture,
+  `FanoutInterruptFlow`, streamed and non-streamed.
+- **`UnknownBlock` now dumps its original payload verbatim instead of nesting it under
+  `raw_block`** (#200). Parsing an unfamiliar content block and dumping it straight back used to
+  produce `{"type": ..., "raw_block": {...}}` rather than the block that was actually read —
+  harmless today since nothing relays events, but a relay (#129's protocol adapters) would have
+  nested the payload one level deeper on every hop it passed through, silently. Known block
+  kinds (`text`/`image`/`resource`/`data`/`audio`) are unaffected.
 
 ## [3.0.0b1] - 2026-08-10
 

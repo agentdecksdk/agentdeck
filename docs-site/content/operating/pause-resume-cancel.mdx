@@ -26,10 +26,16 @@ those three cases is an error worth retrying differently; they are all "there wa
 to resume."
 
 `pause` or `cancel` on a run that already ended is accepted and does nothing, so a double
-click is harmless. Both can also answer `503` — "run control is unavailable: no control
-backend is configured" — which is not the run's fault. It means the process serving the
-request has no `ControlPort` at all, which is a deployment problem to fix before retrying the
-same call.
+click is harmless.
+
+Both endpoints also have a `503` — "run control is unavailable: no control backend is
+configured" — in their code path, but it does not happen behind a normally-started
+`agentdeck-serve` (or any `Deck`): `resolve_control_port()` always wires a real `ControlPort`,
+`memory://` by default, and refuses to open at all if `AGENTDECK_CONTROL`'s scheme names
+anything it doesn't recognize, which surfaces at startup rather than on a `pause`/`cancel`
+request. That 503 is reachable only from an embedder who builds a `Runtime` directly with no
+`ControlPort`, bypassing `Deck` and `agentdeck-serve` entirely — not a state a deployment
+following this page can reach.
 
 ## Reaching a run in another process
 
@@ -43,8 +49,7 @@ actually "the API server has three workers and you signaled the wrong one."
 Point the control backend at a shared file to fix that:
 
 ```bash
-AGENTDECK_CONTROL_BACKEND=sqlite
-AGENTDECK_CONTROL_URL=./.agentdeck/control.sqlite3
+AGENTDECK_CONTROL=sqlite://./.agentdeck/control.sqlite3
 ```
 
 Then a second terminal can reach the same run by id alone:

@@ -49,7 +49,7 @@ interrupted node re-runs from its start on resume, so keep it pure and put side
 effects in earlier nodes.
 
 `session_id=` keeps history across calls — Redis when
-`AGENTDECK_SESSION_REDIS_URL` is set, in-process SQLite otherwise.
+`AGENTDECK_SESSION` is set, in-process SQLite otherwise.
 
 `async with Deck.from_project() as deck:` starts the MCP lifecycle and
 guarantees `aclose()` on exit (even on error), so the Redis client and MCP
@@ -83,11 +83,11 @@ above are unchanged.
 Layered pydantic-settings: process env / `.env` / YAML
 (`agentdeck/runtime/config.default.yaml`). Key vars: `OPENAI_API_KEY`,
 `OPENAI_BASE_URL`, `OPENAI_MODEL`, `AGENTDECK_RUNNER_*`,
-`AGENTDECK_SESSION_*`,
-`AGENTDECK_EVENTS_*` (where the event log goes: `memory` by default, or
-`sqlite` plus a file path to keep it across restarts). Named MCP servers go in
-a `.mcp.json` file at the project root (a sibling of `.agentdeck/`), not an env var.
-See `agentdeck/runtime/settings.py`.
+`AGENTDECK_SESSION`,
+`AGENTDECK_EVENTS` (where the event log goes — the URL's scheme names the backend:
+`memory://` by default, or `sqlite://<path>` to keep it across restarts). Named MCP
+servers go in a `.mcp.json` file at the project root (a sibling of `.agentdeck/`), not
+an env var. See `agentdeck/runtime/settings.py`.
 
 ## Development
 

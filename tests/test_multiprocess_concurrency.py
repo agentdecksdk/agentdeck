@@ -30,9 +30,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import concurrency_worker as worker
+from event_log_checks import check_contiguous, check_terminal
 
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
-from agentdeck.core.events import check_contiguous, check_terminal
 from agentdeck.core.status import RunStatus, status_of
 
 if TYPE_CHECKING:

@@ -39,6 +39,7 @@ from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.runtime.service import Runtime
+from agentdeck.runtime.settings import get_settings
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -207,8 +208,19 @@ def spec(model: Model) -> InvocableSpec:
 
 
 def runtime_over(store: SqliteEventStore, sessions: ExecutionStore, model: Model) -> Runtime:
-    """A whole stack over one log and one durable session — a server, as far as a turn cares."""
-    return Runtime([OpenAIAgentsEngine(sessions)], store, {AGENT: spec(model)})
+    """A whole stack over one log and one durable session — a server, as far as a turn cares.
+
+    ``Runtime`` itself reads no settings, so the staleness window this test relies on
+    (``AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS``, set in the subprocess env by
+    ``test_crash_reconciliation.py``) is resolved here explicitly, the same way
+    ``build_runtime`` would.
+    """
+    return Runtime(
+        [OpenAIAgentsEngine(sessions)],
+        store,
+        {AGENT: spec(model)},
+        stale_run_after=get_settings().runtime.stale_run_after,
+    )
 
 
 def _response(output: list[Any]) -> Response:

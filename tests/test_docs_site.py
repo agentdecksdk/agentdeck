@@ -97,3 +97,55 @@ def test_dotted_names_in_prose_still_exist_in_the_package(page: Path) -> None:
     source = _package_source()
     missing = sorted({name for name in DOTTED.findall(_prose(page)) if name.split(".")[-1] not in source})
     assert not missing, f"{page.name}: named in prose but absent from agentdeck/: {missing}"
+
+
+INSTALL_LINE = re.compile(r"\b(?:pip install|uv add|pipx install)\b.*\bagentdeck\b", re.IGNORECASE)
+
+
+def test_pinned_install_versions_match_the_package_version() -> None:
+    """Every agentdeck install line on the site must carry a `git+...@vX.Y.Z` pin naming the
+    version this tree actually is.
+
+    Nothing else catches a stale *or missing* pin: the fence checks above parse Python, and
+    `docs-check.yml` only confirms a page was produced. A stale pin has shipped three times,
+    most recently telling beta users to install v2.0.0 while reading v3 docs; an *unqualified*
+    install (no pin at all) is the same failure by omission — `agentdeck[serve]` with no `@v...`
+    resolves to whatever a fresh install picks, not the version the page's own examples were
+    written against. Only fenced shell blocks count — an install line mentioned in prose (e.g. as
+    a contrast, "not something `pip install agentdeck` gives you") is not an instruction to run.
+    """
+    import tomllib
+
+    root = Path(__file__).resolve().parents[1]
+    version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+    pin = re.compile(r"agentdeck(?:\.git)?@v([0-9][^\"'\s)]*)")
+
+    stale = [
+        f"{page.relative_to(root)}: pins v{found} but pyproject says {version}"
+        for page in _pages()
+        for found in pin.findall(page.read_text())
+        if found != version
+    ]
+    stale += [
+        f"{page.relative_to(root)}: unpinned agentdeck install in a `{lang}` block — {line.strip()!r}"
+        for page in _pages()
+        for lang, _meta, body in FENCE.findall(page.read_text())
+        if lang == "bash"
+        for line in body.splitlines()
+        if INSTALL_LINE.search(line) and not pin.search(line)
+    ]
+    assert not stale, "stale or unpinned install pin(s) on the docs site:\n  " + "\n  ".join(stale)
+
+
+def test_every_public_deck_method_is_documented_somewhere() -> None:
+    """`Deck` is the API this release exists to offer, so a public name absent from the whole
+    site is undiscoverable — `asgi()` was, and it is how you serve a deck.
+
+    Introspects the class rather than grepping source, so a `def` inside a docstring example
+    cannot be mistaken for surface.
+    """
+    from agentdeck import Deck
+
+    documented = " ".join(page.read_text() for page in _pages())
+    missing = sorted(name for name in vars(Deck) if not name.startswith("_") and name not in documented)
+    assert not missing, f"public Deck names documented nowhere on the site: {missing}"

@@ -269,8 +269,20 @@ class LangGraphEngine(EnginePort):
                     # having nothing to await. Draining first also orders the two records the
                     # only safe way round — the engine's checkpoint is durable before the
                     # canonical log says the run is waiting on a human.
-                    async for _ in stream:
-                        pass
+                    #
+                    # A sibling branch in the same superstep that is still running when the
+                    # interrupt is detected finishes somewhere in this drain — langgraph
+                    # reports the pause as soon as one branch asks for it, not once the whole
+                    # step is done. Forwarding what the drain turns up (#122) means such a
+                    # branch's report is not silently thrown away with the rest of the drain:
+                    # its checkpoint write already landed (that is what draining guarantees),
+                    # so the canonical log should say so too. The pause itself is still last —
+                    # every other event report the wire renders is well-defined for a run that
+                    # then went on to finish; the pause is the one report a client must be able
+                    # to treat as "nothing more is coming this call", so it never precedes
+                    # events that actually happened.
+                    async for payload in self._drain_after_interrupt(stream):
+                        yield payload
                     yield pause
                     return  # the graph suspended; its terminal event arrives on resume
                 for node, patch in chunk.items():
@@ -279,6 +291,30 @@ class LangGraphEngine(EnginePort):
             output=[DataBlock(data=self._as_data(state, "final state"))],
             usage=Usage(input_tokens=0, output_tokens=0),
         )
+
+    async def _drain_after_interrupt(
+        self, stream: AsyncIterator[tuple[str, Any]]
+    ) -> AsyncGenerator[KnownPayload, None]:
+        """The rest of ``stream`` once one branch has already asked to pause.
+
+        Reported the same way the main loop would report it — ``NodeUpdated`` per node,
+        ``Custom`` per stream write — except a second interrupt in the same superstep is not
+        one this engine acts on: ``_play`` already reports only the first (``_interrupted``
+        reads ``interrupt[0]``), so two branches interrupting at once is out of scope here
+        rather than silently mis-paired with the wrong pause. A trailing ``values`` chunk is
+        the graph's state at drain time, not an event any consumer reads — the run that
+        produced it never reaches ``RunCompleted``, so there is nothing to attach it to.
+        """
+        async for mode, chunk in stream:
+            if mode == "values":
+                continue
+            if mode == "custom":
+                yield Custom(name=STREAM_WRITE, data={STREAM_WRITE_KEY: self._as_json(chunk)})
+                continue
+            for node, patch in chunk.items():
+                if node == _INTERRUPT_KEY:
+                    continue
+                yield NodeUpdated(node=node, state_patch=self._as_patch(patch, node))
 
     def _interrupted(self, interrupt: Any, thread_id: str) -> RunInterrupted:
         value = interrupt.value

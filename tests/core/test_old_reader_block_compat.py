@@ -22,9 +22,10 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from event_log_checks import check_terminal
 from pydantic import TypeAdapter, ValidationError
 
-from agentdeck.core import Event, UnknownBlock, check_terminal
+from agentdeck.core import CURRENT_VERSION, Event, UnknownBlock
 from agentdeck.core.status import RunStatus, status_of
 
 if TYPE_CHECKING:
@@ -33,16 +34,17 @@ if TYPE_CHECKING:
 BASELINE = "v2.0.0b4"
 """The newest released reader — same tag `test_old_reader_compat.py` measures against."""
 
-# Not one of TextBlock/ImageBlock/ResourceBlock/DataBlock on either side of #109; that is the
-# whole point of "a type dev has never seen".
-UNFAMILIAR_BLOCK = {"type": "audio", "uri": "s3://clips/9.mp3", "duration_s": 12}
+# Not one of TextBlock/ImageBlock/AudioBlock/ResourceBlock/DataBlock on either side of #109; that
+# is the whole point of "a type dev has never seen". Audio stopped being an example of this once
+# AudioBlock became real (#159) — "video" is what stays unknown on both sides now.
+UNFAMILIAR_BLOCK = {"type": "video", "uri": "s3://clips/9.mp4", "duration_s": 12}
 
 TS = "2026-01-01T12:00:00+00:00"
 
 
 def _wire(kind: str, payload: dict, seq: int = 0) -> dict[str, Any]:
     return {
-        "v": 1,
+        "v": {"major": CURRENT_VERSION.major, "minor": CURRENT_VERSION.minor},
         "kind": kind,
         "seq": seq,
         "run_id": "run_1",
@@ -108,7 +110,7 @@ def test_this_tree_parses_the_same_block_as_unknown_and_keeps_it_raw() -> None:
         },
     )
     event = Event.model_validate(wire)  # must not raise — the fix under test
-    assert event.payload.input[1] == UnknownBlock(type="audio", raw_block=UNFAMILIAR_BLOCK)  # raw block kept
+    assert event.payload.input[1] == UnknownBlock(type="video", raw_block=UNFAMILIAR_BLOCK)  # raw block kept
 
 
 def test_this_tree_round_trips_the_event_carrying_it() -> None:

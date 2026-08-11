@@ -68,10 +68,8 @@ _OTLP_EXPORTER_LOGGER = "opentelemetry.exporter.otlp.proto.http.trace_exporter"
 def degrade_export_quietly() -> None:
     """Bound OTLP export retries and silence their transient-failure WARNINGs.
 
-    Called host-side before the client is built and mirrored in the sandbox (the subprocess
-    reads :data:`_EXPORT_TIMEOUT_ENV` from :func:`sandbox_trace_env` and re-quiets the
-    logger in ``skill_runtime.install_tracing``), so a down Langfuse degrades gracefully in
-    every process. Idempotent.
+    Called before the client is built, so a down Langfuse degrades gracefully rather than
+    stalling and spamming a real run. Idempotent.
     """
     os.environ.setdefault(_EXPORT_TIMEOUT_ENV, _EXPORT_TIMEOUT_SECONDS)
     logging.getLogger(_OTLP_EXPORTER_LOGGER).setLevel(logging.ERROR)
@@ -122,7 +120,7 @@ def init_observability(settings: LangfuseSettings | None = None) -> bool:
     Langfuse(
         public_key=lf.public_key,
         secret_key=lf.secret_key,
-        base_url=lf.endpoint,
+        base_url=lf.base_url,
         environment=lf.environment,
         debug=lf.debug,
         sample_rate=lf.sample_rate,
@@ -138,7 +136,7 @@ def init_observability(settings: LangfuseSettings | None = None) -> bool:
     logger.info(
         "Langfuse observability active (service=%s, endpoint=%s, environment=%s)",
         lf.service_name,
-        lf.endpoint,
+        lf.base_url,
         lf.environment,
     )
     return True
@@ -233,43 +231,4 @@ def trace_run(
         yield RunTrace(span)
 
 
-def sandbox_trace_env(settings: LangfuseSettings | None = None) -> dict[str, str]:
-    """The Langfuse env a sandboxed skill needs, or ``{}`` when disabled.
-
-    A skill runs in its own process and can't inherit the host's config, so we hand it
-    the same ``LANGFUSE_*`` env the SDK reads natively (``get_client()`` owns the OTLP
-    endpoint, auth and flush), the shared ``OTEL_SERVICE_NAME``, and the W3C
-    ``TRACEPARENT``/``BAGGAGE`` carriers so its spans nest under the caller's active span
-    and keep Langfuse's trace attributes. A sandbox injects it alongside
-    ``SANDBOX_CAPTURE``. Does not require :func:`init_observability`: a skill run outside an
-    agent/workflow still exports, just as a root trace (no carrier to adopt).
-    """
-    lf = settings if settings is not None else get_settings().langfuse
-    if not lf.enabled:
-        return {}
-    from opentelemetry.propagate import inject  # ty: ignore[unresolved-import] — [observability] extra
-
-    # Standard LANGFUSE_* env — get_client() reads these natively; environment matches
-    # the host client so skill spans land in the same Langfuse environment. The bounded
-    # OTLP timeout rides along so a down backend can't stall the skill's flush-on-exit.
-    env = {
-        "LANGFUSE_HOST": lf.endpoint,
-        "LANGFUSE_BASE_URL": lf.endpoint,
-        "LANGFUSE_PUBLIC_KEY": lf.public_key,
-        "LANGFUSE_SECRET_KEY": lf.secret_key,
-        "LANGFUSE_TRACING_ENVIRONMENT": lf.environment,
-        "OTEL_SERVICE_NAME": lf.service_name,
-        _EXPORT_TIMEOUT_ENV: os.environ.get(_EXPORT_TIMEOUT_ENV, _EXPORT_TIMEOUT_SECONDS),
-    }
-    # The global W3C propagator carries the active span (trace-context) and Langfuse's
-    # trace attributes (baggage) across the process edge in one shot.
-    carrier: dict[str, str] = {}
-    inject(carrier)
-    if traceparent := carrier.get("traceparent"):
-        env["TRACEPARENT"] = traceparent  # W3C trace-context; adopted as the sandbox span's parent
-    if baggage := carrier.get("baggage"):
-        env["BAGGAGE"] = baggage  # W3C baggage; keeps Langfuse trace attrs across the process edge
-    return env
-
-
-__all__ = ["RunTrace", "init_observability", "sandbox_trace_env", "trace_run"]
+__all__ = ["RunTrace", "init_observability", "trace_run"]

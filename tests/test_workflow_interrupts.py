@@ -61,7 +61,7 @@ def run_context(session_id: str | None = None) -> RunContext:
 
 @pytest.fixture(autouse=True)
 def _memory_checkpointer(monkeypatch):
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT_BACKEND", "memory")
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     reset_settings_cache()
     yield
     reset_settings_cache()
@@ -347,8 +347,7 @@ def test_interrupt_survives_a_process_restart(tmp_path, decision, outcome):
     pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
     env = {
         **os.environ,
-        "AGENTDECK_CHECKPOINT_BACKEND": "sqlite",
-        "AGENTDECK_CHECKPOINT_URL": str(tmp_path / "checkpoints.sqlite3"),
+        "AGENTDECK_CHECKPOINT": f"sqlite://{tmp_path / 'checkpoints.sqlite3'}",
     }
 
     paused = json.loads(_run_script("start", decision, env))
