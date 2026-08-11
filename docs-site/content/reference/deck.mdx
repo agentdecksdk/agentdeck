@@ -71,8 +71,8 @@ The lifecycle is `NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED`:
 
 | Method | Signature | Returns |
 |---|---|---|
-| `run` | `(name, input, *, session_id=None, namespace=None, run_id=None)` | `TurnResult` for an agent; the final state (or an `InterruptResult`) for a workflow |
-| `stream` | `(name, input, *, session_id=None, namespace=None, run_id=None)` | `AsyncGenerator[Event]` — the run's own canonical events, live |
+| `run` | `(name, input, *, context=None, session_id=None, namespace=None, run_id=None)` | `TurnResult` for an agent; the final state (or an `InterruptResult`) for a workflow |
+| `stream` | `(name, input, *, context=None, session_id=None, namespace=None, run_id=None)` | `AsyncGenerator[Event]` — the run's own canonical events, live |
 
 `run`/`stream` resolve `name` against whichever catalog holds it — an agent or a workflow — and
 play it on the Runtime, recorded exactly as `POST /agents/{name}/chat` or `POST /workflows/{name}`
@@ -88,6 +88,15 @@ per token for an agent, `node.updated` per completed node for a workflow, a term
 not a rendered wire format. This is the one method here that does not return a `TurnResult`,
 because a caller that wants the final answer out of a stream has to fold it from the events, the
 same way any other consumer of the log would.
+
+`context=` supplies the application's own environment for one run — a database handle, a client,
+whatever the code the run reaches needs. A tool that declares an `agentdeck.Context` parameter
+receives it as `ctx.data`, by reference; see [Definitions](/reference/definitions) for how a tool
+declares one. Three things it deliberately is not: the model never sees it (the context parameter
+is absent from the tool schema), it is never written to the event log, and it cannot cross the
+HTTP surface — a live Python object has no wire form, so a context-requiring agent is reachable
+from an embedded Python caller and not from `asgi()`. Agents only for now: passing `context=` for
+a workflow raises rather than accepting a value nothing would read.
 
 `type(event)` is always `Event` — it is the envelope, not the discriminator. Switch on
 `event.payload` (a `match` narrows it to `TextDelta`, `MessageCompleted`, `RunCompleted`, …, see
@@ -195,8 +204,10 @@ to swap in a fake wrapping `fakeredis` without a real Redis server.
 
 ## What this does not cover
 
-There is no `context=`. Passing application context through to tools and instructions is its
-own, larger effort, and a constructor parameter that cannot yet be used is worse than an absent
-one — it returns, additively, when `Context[T]` lands. And [Run Control](/concepts/run-control#safe-points) reaches agent runs
+There is no `context=` on `Deck(...)` itself, and `run(context=)` reaches agent tools only —
+workflow nodes, dynamic instructions, hooks and skills do not receive one yet, and `answer()`,
+`resume()` and `tick()` do not take one. A constructor-level declaration buys build-time
+compatibility checks that do not exist, so it stays absent rather than accepted-and-unused. And
+[Run Control](/concepts/run-control#safe-points) reaches agent runs
 today; a workflow (LangGraph) run has no safe point yet, so `pause`/`cancel` record the request
 but nothing acts on it.

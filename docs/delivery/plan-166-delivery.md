@@ -130,6 +130,19 @@ Per-slice notes:
   documents cover it. The alternative — leaving it unparameterised — hands an AgentDeck internal to
   slice 2's schema builder, which is exactly the leak the design's strongest rule forbids. Confirm
   or overturn while implementing the schema builder, and write it down either way.
+
+  ***Settled 2026-08-11, implementing slice 2.***
+  - **`reliable=False` refuses at `build()`**, rather than reaching a runtime check. For a *tool*
+    there is nothing to defer to: the model-visible schema has to exist at build time, so an
+    unreadable signature has no honest one to offer, and deferring would mean emitting a schema
+    that is fiction. Refusal is also strictly non-regressive — #172 rejected every bare callable
+    today, so nothing that works now stops working. The invocation-time net still exists, for the
+    case that genuinely can only be caught late: a compiled tool played by a run carrying
+    something other than a `RunContext` raises naming the callable instead of calling it with an
+    argument missing.
+  - **Bare `Context` confirmed as `Context[Any]`**, with the schema builder now in hand: it
+    injects, and the parameter is absent from `params_json_schema` exactly as a parameterised one
+    is. A test pins both halves.
 - **Slice 3.** The contract test parametrized over both engines is a **done-when, not a nice to
   have**: the plan names it as "the only thing keeping them honest", and two bridges producing one
   advertised behavior is the top risk in the whole feature. Hooks belong here, not in slice 2 —

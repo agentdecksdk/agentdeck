@@ -45,6 +45,14 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Added
 
+- **`agentdeck.Context` and `deck.run(..., context=obj)`** (#166): an application value — a
+  database handle, a client, whatever the code a run reaches needs — supplied once per run and
+  received by any tool that declares a `Context[...]` parameter, whatever that parameter is
+  named. `ctx.data` is the very object passed in, by reference; `ctx.reporter`, `ctx.run_id`,
+  `ctx.session_id` and `await ctx.checkpoint()` come with it. **The model never sees it**: the
+  context parameter is absent from the tool schema sent to the model, and the value is never
+  written to the event log. Available on `run()` and `stream()` for agents; passing `context=`
+  for a workflow raises rather than accepting a value nothing would read yet.
 - **`AudioBlock`** (#159): a fifth content-block kind, mirroring `ImageBlock` field-for-field
   (`media_type`, `data_b64`) — the same problem (opaque bytes with a MIME type), so a different
   shape would be asymmetry with no payoff. Additive/minor (`CURRENT_VERSION.minor` 0 → 1): a
@@ -57,6 +65,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Changed
 
+- **`tools=` now takes plain functions, and compiles them** (#166) — reversing the guardrail
+  #172 shipped, which rejected a bare callable and told you to wrap it with `@function_tool`.
+  A function annotated `Context[...]` *cannot* be pre-decorated, because `@function_tool` would
+  put that parameter in the schema the model sees, so the plain callable had to become the
+  canonical declaration. An already-built Agents SDK tool object is still accepted, unchanged
+  and passed straight through — it is engine-native, introspected by nothing, and carries no
+  portability guarantee. The one thing still refused at `build()` is a callable whose signature
+  cannot be read (a decorator that dropped `functools.wraps` is the usual cause): there is no
+  honest schema to show the model, and no way to tell "declares no context" from "could not
+  look", so compiling it would silently drop an argument the function needs.
 - **Breaking: one env var per infrastructure decision, not a `_BACKEND`/`_URL` pair that can
   disagree** (#155). `AGENTDECK_EVENTS_BACKEND=postgres` with `AGENTDECK_EVENTS_URL=redis://...`
   used to boot clean and fail on the first event of the first run; the URL's own scheme now

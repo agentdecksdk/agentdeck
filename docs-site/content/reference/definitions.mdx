@@ -38,20 +38,34 @@ value: omission, not falsiness, is what defers to the base. `base=` is keyword-o
 construction, so `Agent(SomeDeclaration, name=...)` is a `TypeError` rather than a silently
 accepted positional base.
 
-A tool is an Agents SDK tool object, not a plain function — wrap one with `@function_tool` before
-passing it to `tools=`:
+A tool is a plain function. `build()` compiles it: the name comes from the function, the
+description from its docstring, and the schema the model sees from its annotated parameters.
 
 ```python
-from agents import function_tool
-
-@function_tool
 def find_slots(day: str) -> str:
     """Find free appointment slots on a given day."""
     ...
 ```
 
-That `agents` import is the one place agentdeck asks you to reach for the SDK directly.
-`build()` rejects a tool that isn't one, naming the agent and the tool.
+One parameter is not shown to the model. A parameter annotated `agentdeck.Context[T]` receives
+the value passed to `deck.run(..., context=...)` — see [Deck](/reference/deck) — and is absent
+from the tool schema entirely, whatever it is named:
+
+```python
+from agentdeck import Context
+
+def find_slots(day: str, environment: Context[Calendar]) -> str:
+    """Find free appointment slots on a given day."""
+    return environment.data.lookup(day)
+```
+
+Declaring two such parameters is a `build()` error. So is a callable whose signature cannot be
+read — a decorator that dropped `functools.wraps` is the usual cause — since there is then no
+honest schema to show the model and no way to tell "declares no context" from "could not look".
+
+An already-built Agents SDK tool object (`@function_tool`, `WebSearchTool()`, …) is still
+accepted and passed straight through. It is **engine-native**: agentdeck introspects nothing
+about it, it gets no portability guarantee, and it cannot receive a `Context`.
 
 | Method | Signature | Behavior |
 |---|---|---|

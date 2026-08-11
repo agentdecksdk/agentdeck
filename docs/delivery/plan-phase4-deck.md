@@ -30,6 +30,11 @@ That was never implemented and is not today's contract — a tool is an Agents S
 as this delivery record originally read; `docs-site/content/reference/definitions.mdx` states
 the actual contract.*
 
+*Amended 2026-08-11 (#166): the future ability arrived. `tools=` takes plain callables and
+compiles them, because a parameter annotated `Context[T]` cannot be pre-decorated —
+`@function_tool` would put it in the model-visible schema. A pre-built SDK tool object is still
+accepted as engine-native. The block below is now literal rather than aspirational.*
+
 ```python
 booking_agent = Agent(
     name="booking",
