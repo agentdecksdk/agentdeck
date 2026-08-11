@@ -36,8 +36,8 @@ from agentdeck.runtime.settings import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
-    from datetime import datetime, timedelta
+    from collections.abc import Mapping, Sequence
+    from datetime import timedelta
 
     from agentdeck.core.invocable import InvocableSpec
     from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort
@@ -52,7 +52,6 @@ def build_runtime(
     store: EventStorePort | None = None,
     sinks: Sequence[EventSinkPort] | None = None,
     control: ControlPort | None = None,
-    clock: Callable[[], datetime] | None = None,
     stale_run_after: timedelta | None = None,
 ) -> Runtime:
     """Wire ``engines`` into a Runtime over the project's invocables.
@@ -63,12 +62,11 @@ def build_runtime(
     ``RuntimeSettings.stale_run_after``, and ``sinks`` to the configured telemetry —
     passing ``sinks=()`` is how a caller asks for none at all.
 
-    ``clock`` no longer reaches anything that stamps an event. Timestamps are assigned by the
-    store, in the same write that persists the event (ADR-D11), so holding time still means
-    building the store with a clock — ``MemoryEventStore(clock=...)``, ``RedisEventStore(clock=...)``
-    — and the two SQL stores read their backend's clock so that N workers on one database
-    compare one clock rather than N. The keyword is still accepted and still forwarded, it
-    decides nothing, and passing it warns. Removal is #158.
+    Timestamps are assigned by the store, in the same write that persists the event
+    (ADR-D11), so holding time means building the store with a clock —
+    ``MemoryEventStore(clock=...)``, ``RedisEventStore(clock=...)`` — and the two SQL stores
+    read their backend's clock so that N workers on one database compare one clock rather
+    than N.
     """
     engines = tuple(engines)
     specs = InvocableRegistry(engines).load() if invocables is None else invocables
@@ -82,9 +80,7 @@ def build_runtime(
         # engine at once. ``None`` when Langfuse has no keys, which registers nothing at all.
         telemetry = langfuse_sink()
         sinks = () if telemetry is None else (telemetry,)
-    if clock is None:
-        return Runtime(engines, store, specs, sinks=sinks, control=control, stale_run_after=stale_run_after)
-    return Runtime(engines, store, specs, sinks=sinks, clock=clock, control=control, stale_run_after=stale_run_after)
+    return Runtime(engines, store, specs, sinks=sinks, control=control, stale_run_after=stale_run_after)
 
 
 def resolve_run_settings(settings: Settings | None = None) -> RunSettings:

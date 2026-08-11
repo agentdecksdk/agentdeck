@@ -64,7 +64,6 @@ Documents were written in conversation order and later ones refine earlier ones.
 | `prompts/pr1-event-schema-prompt.md:34,121` | "assigned by the Runtime" / "seq is assigned only by the Runtime" | Superseded by precedence rule 3 above. Prompts are frozen (§6 below), so **not edited** |
 | `core/ports/store.py` docstrings, `runtime/service.py:5,536-538`, `test_runtime_service.py:890` | All asserted or pinned Runtime-assigned `seq` | **Applied 2026-08-08** — port and `_drain` docstrings rewritten; the gap assertion flips `[2]` → `[]` |
 | Design doc envelope-stamping split | Predated ADR-D11 | **Applied 2026-08-08** — dated amendment added beside it; the envelope line in §4.2 names the store |
-| `Runtime(clock=...)` / `build_runtime(clock=...)` | Inert since ADR-D11: nothing above the store stamps a `ts`, so the keyword is accepted and forwarded to nothing | Open — documented as inert rather than removed; dropping a public keyword is a breaking change owed its own PR |
 
 ## 4. Execution order (single source of truth for "what's next")
 
