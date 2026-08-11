@@ -8,7 +8,6 @@ v1's frames from the canonical events of a Runtime run.
 """
 
 import json
-import sys
 import textwrap
 from dataclasses import dataclass, field
 from types import SimpleNamespace
@@ -108,6 +107,8 @@ chat_flow = Workflow(name="ChatFlow", state=State, graph=_build_graph)
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
+    """The project directory only — a deck of this suite's own and the server's are two
+    different decks, and one Deck holds the process at a time."""
     root = tmp_path / ".agentdeck"
     (root / "agents" / "greeter").mkdir(parents=True)
     (root / "agents" / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
@@ -118,11 +119,16 @@ def project(tmp_path, monkeypatch):
     (root / "workflows" / "writer").mkdir(parents=True)
     (root / "workflows" / "writer" / "workflow.py").write_text(textwrap.dedent(WRITER_WORKFLOW_PY))
     monkeypatch.chdir(tmp_path)
-    for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
-        del sys.modules[mod]
+    return tmp_path
+
+
+@pytest.fixture
+async def deck(project):  # noqa: ARG001 — the project dir is what `from_project()` discovers
     from agentdeck.deck import Deck
 
-    return Deck.from_project()
+    deck = Deck.from_project()
+    yield deck
+    await deck.aclose()
 
 
 def _delta_event(text: str) -> SimpleNamespace:
@@ -157,18 +163,18 @@ async def _collect(agen):
     return [event async for event in agen]
 
 
-async def test_stream_yields_one_node_updated_event_per_node_then_run_completed(project):
+async def test_stream_yields_one_node_updated_event_per_node_then_run_completed(deck):
     from agentdeck.core.events import NodeUpdated
 
-    async with project:
-        events = await _collect(project.stream("TwoStepFlow", {"text": "hi"}))
+    async with deck:
+        events = await _collect(deck.stream("TwoStepFlow", {"text": "hi"}))
 
     assert [event.kind for event in events] == ["run.started", "node.updated", "node.updated", "run.completed"]
     updates = [event.payload for event in events if isinstance(event.payload, NodeUpdated)]
     assert [(u.node, u.state_patch) for u in updates] == [("shout", {"text": "HI"}), ("count_up", {"count": 1})]
 
 
-async def test_stream_agent_node_forwards_deltas_via_custom_events(project, monkeypatch):
+async def test_stream_agent_node_forwards_deltas_via_custom_events(deck, monkeypatch):
     from agentdeck.adapters.engines.langgraph.engine import STREAM_WRITE, STREAM_WRITE_KEY
     from agentdeck.core.events import Custom, NodeUpdated
 
@@ -184,8 +190,8 @@ async def test_stream_agent_node_forwards_deltas_via_custom_events(project, monk
         lambda agent, message, **kwargs: fake_result,
     )
 
-    async with project:
-        stream_events = await _collect(project.stream("ChatFlow", {"input": "hi"}))
+    async with deck:
+        stream_events = await _collect(deck.stream("ChatFlow", {"input": "hi"}))
 
     customs = [
         event.payload.data[STREAM_WRITE_KEY]
@@ -198,29 +204,29 @@ async def test_stream_agent_node_forwards_deltas_via_custom_events(project, monk
     assert [(u.node, u.state_patch) for u in updates] == [("greet", {"output": "Hello!"})]
 
 
-async def test_run_now_drives_the_graph_through_the_runtimes_stream(project, monkeypatch):
+async def test_run_now_drives_the_graph_through_the_runtimes_stream(deck, monkeypatch):
     """``run`` used to call the compiled graph's ``ainvoke`` once; now that it plays
     on the Runtime it drives the same ``astream`` every other invocable does,
     consumed to its end rather than left for a caller to iterate — ``ainvoke`` is never
     touched at all.
     """
     calls = []
-    real_ainvoke = project.workflows.get("TwoStepFlow").build().ainvoke
+    real_ainvoke = deck.workflows.get("TwoStepFlow").build().ainvoke
 
     async def spy_ainvoke(*args, **kwargs):
         calls.append((args, kwargs))
         return await real_ainvoke(*args, **kwargs)
 
-    monkeypatch.setattr(project.workflows.get("TwoStepFlow").build(), "ainvoke", spy_ainvoke)
+    monkeypatch.setattr(deck.workflows.get("TwoStepFlow").build(), "ainvoke", spy_ainvoke)
 
-    async with project:
-        out = await project.run("TwoStepFlow", {"text": "hi"})
+    async with deck:
+        out = await deck.run("TwoStepFlow", {"text": "hi"})
 
     assert out == {"text": "HI", "count": 1}
     assert calls == []  # astream, not ainvoke — the Runtime's own path for every invocable
 
 
-async def test_agent_node_now_uses_run_streamed_even_via_plain_run(project, monkeypatch):
+async def test_agent_node_now_uses_run_streamed_even_via_plain_run(deck, monkeypatch):
     """The invariant this used to guarantee — a plain ``run_workflow()`` call never touches
     ``Runner.run_streamed`` — no longer holds once workflows play on the Runtime: v1's compat
     engine turns nested-agent streaming on unconditionally, because one Runtime run produces
@@ -242,8 +248,8 @@ async def test_agent_node_now_uses_run_streamed_even_via_plain_run(project, monk
     monkeypatch.setattr("agentdeck.authoring.runners.agent.Runner.run", fake_run)
     monkeypatch.setattr("agentdeck.authoring.runners.agent.Runner.run_streamed", fake_run_streamed)
 
-    async with project:
-        out = await project.run("ChatFlow", {"input": "hi"})
+    async with deck:
+        out = await deck.run("ChatFlow", {"input": "hi"})
 
     assert out == {"input": "hi", "output": "Hello!"}
     assert run_calls == []

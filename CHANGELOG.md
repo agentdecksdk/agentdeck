@@ -42,6 +42,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   for a pruning pass means the same image gets re-sent, and re-billed, on every later turn of
   that conversation instead of being dropped after the turn that needed it.
 
+- **A program holding two `Deck` instances at once now raises instead of quietly misbehaving**
+  (#204). One deck at a time is unchanged, including a deck mounted inside an existing service
+  through `asgi()`. What breaks is a script that validates several projects in a loop, or a
+  notebook that re-runs its `Deck.from_project()` cell: close the first (`await deck.aclose()`,
+  or run it under `async with`) before constructing the next. Today those programs appear to
+  work while the second deck reads the first one's bundles, so the raise is the change you want.
+
 
 ### Added
 
@@ -56,6 +63,15 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   raising it later is compatible and lowering it is not.
 
 ### Changed
+
+- **Breaking:** **one `Deck` per process, enforced at construction** (#204). Constructing a
+  second `Deck` while the first is still live now raises `ConfigError` naming both projects;
+  before, it succeeded and the second deck silently inherited the first one's bundles, because
+  every project mounts under a single module alias and MCP servers are registered process-wide.
+  A deck built but never opened holds the process just the same — the claim is taken at
+  construction and released by `aclose()`. Two decks side by side is a capability we intend to
+  add (#213); until then a deck per tenant is a process per tenant, which is what the code has
+  in fact always done.
 
 - **Breaking: one env var per infrastructure decision, not a `_BACKEND`/`_URL` pair that can
   disagree** (#155). `AGENTDECK_EVENTS_BACKEND=postgres` with `AGENTDECK_EVENTS_URL=redis://...`
@@ -176,6 +192,12 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 
 ### Fixed
+
+- `Deck.from_project()` reading a *previous* project's bundle files (#204). Mounting a project
+  rebound the module alias but left its already-imported submodules cached, so a second project
+  whose bundle directory happened to share a name — two `agents/greeter/` — got the first one's
+  module back from `sys.modules`. Stale submodules are now evicted on mount, which also means
+  editing a bundle and rebuilding in the same process picks the edit up.
 
 - **Docs: `/reference` pages corrected against the current API** (#192). `/reference` no
   longer claims MCP is covered by the Workflows page — it now points at `/reference/deck`
