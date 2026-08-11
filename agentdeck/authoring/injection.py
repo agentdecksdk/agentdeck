@@ -15,6 +15,11 @@ A parameter is injected because of its annotation, never its name: exactly one `
 parameter is injected whatever it is called, zero means an ordinary callable, and two is a
 configuration error rather than a choice AgentDeck makes for the author.
 
+The requirement each analysis reports is also what a deck's own ``context=`` declaration is
+checked against, which is why :func:`check_context_type` lives beside the analysis rather than
+in whichever compiler happens to hold the answer first — four compilers deciding separately
+what "compatible" means is the same drift two copies of the analysis would be.
+
 The fence, since this is the seam where it will be tested: permissions, approvals, retries and
 telemetry all have a natural home in callable compilation, and none of them are v3.
 """
@@ -22,16 +27,23 @@ telemetry all have a natural home in callable compilation, and none of them are 
 from __future__ import annotations
 
 import inspect
+import types
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, get_args, get_origin, get_type_hints
+from typing import TYPE_CHECKING, Any, Union, get_args, get_origin, get_type_hints
 
 from agentdeck.core.context import Context
-from agentdeck.errors import ConfigError
+from agentdeck.errors import ConfigError, ContextTypeError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Mapping
 
 _VARIADIC = (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+
+_UNION_FORMS = frozenset({types.UnionType, Union})
+"""Both spellings of a union origin. ``A | B`` and ``Union[A, B]`` are one object from 3.14 on
+and two before it, and the older one is *itself a class* — so falling through to ``issubclass``
+would compare a context type against ``UnionType`` and refuse every union that is in fact fine.
+"""
 
 _NOT_A_CONTEXT = object()
 """Distinguishes "this parameter is not a ``Context``" from a genuine ``Context[None]``."""
@@ -131,10 +143,91 @@ def _resolved(parameters: Iterable[inspect.Parameter], hints: Mapping[str, objec
             yield parameter
 
 
+def declared_context_type(value: object) -> object | None:
+    """Validate a deck's ``context=`` declaration and hand it back, or refuse it.
+
+    The declaration is a *type*, and the natural mistake is to pass the value instead. Refused
+    rather than accepted, because an instance makes every compatibility check below defer: the
+    parameter would read as a guarantee and buy nothing, which is the accepted-and-useless shape
+    it was deleted for once already. A parameterised generic (``Mapping[str, Any]``) is a type
+    this can check against; a union is not, so it is refused here rather than quietly deferred
+    at every callable in the catalog.
+    """
+    if value is None:
+        return None
+    origin = get_origin(value)
+    if origin not in _UNION_FORMS and isinstance(origin or value, type):
+        return value
+    raise ConfigError(
+        f"Deck(context=...) declares the type of the application context this deck's callables "
+        f"require, and {value!r} is not one. Pass the class (Deck(context=MiddleContext)); the "
+        f"value itself goes to the run (deck.run(..., context=middle_context))."
+    )
+
+
+def check_context_type(analysis: CallableAnalysis, declared: object | None) -> None:
+    """Refuse ``analysis``'s ``Context[T]`` requirement when a deck's declared type cannot meet it.
+
+    A no-op unless both halves are present: a deck that declares no ``context=`` keeps every
+    requirement unchecked at build time, exactly as it was before the declaration existed, and a
+    callable declaring no ``Context[...]`` has nothing to check.
+
+    Deliberately not a type checker. Only what the runtime can actually answer is answered —
+    an exact type, a subtype, ``Any``, a runtime ABC, a protocol ``issubclass`` will decide on.
+    Everything else defers, and stands or falls at invocation instead of on a guess here.
+    """
+    if declared is None or analysis.context_parameter is None:
+        return
+    required = analysis.context_type
+    if _satisfies(get_origin(declared) or declared, required) is not False:
+        return
+    raise ContextTypeError(
+        f"{describe_callable(analysis.target)} requires {_name(required)}, but this deck provides "
+        f"{_name(declared)}. Declare Deck(context=...) with a type {_name(required)} accepts, or widen "
+        f"the annotation on parameter {analysis.context_parameter!r}."
+    )
+
+
+def _satisfies(declared: object, required: object) -> bool | None:
+    """Whether ``declared`` meets ``required`` — or ``None`` when the runtime cannot say.
+
+    ``None`` is the whole reason this returns three values rather than two: a structural
+    ``Protocol`` that ``issubclass`` refuses to decide on, a ``TypeVar``, an annotation that is
+    not a class at all. Reporting those as incompatible would refuse a build that is very likely
+    correct, and reporting them as compatible would claim a guarantee nobody checked.
+    """
+    if required is Any or declared is Any:
+        return True
+    if get_origin(required) in _UNION_FORMS:
+        arms = [_satisfies(declared, arm) for arm in get_args(required)]
+        if True in arms:
+            return True
+        return None if None in arms else False
+    # `Mapping[str, Any]` is not a class and `issubclass` rejects it outright; its origin is the
+    # runtime ABC, which is the part of the annotation the runtime can actually check.
+    target = get_origin(required) or required
+    if not isinstance(declared, type) or not isinstance(target, type):
+        return None
+    try:
+        return issubclass(declared, target)
+    except TypeError:
+        return None
+
+
+def _name(annotation: object) -> str:
+    return getattr(annotation, "__name__", None) or str(annotation)
+
+
 def describe_callable(target: Callable[..., object]) -> str:
     """How every message about ``target`` names it — the author's own name for the function,
     so an error points at their code rather than at whatever AgentDeck compiled it into."""
     return getattr(target, "__qualname__", None) or repr(target)
 
 
-__all__ = ["CallableAnalysis", "analyze_callable", "describe_callable"]
+__all__ = [
+    "CallableAnalysis",
+    "analyze_callable",
+    "check_context_type",
+    "declared_context_type",
+    "describe_callable",
+]

@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 
 from agents import RunContextWrapper, function_tool
 
-from agentdeck.authoring.injection import analyze_callable, describe_callable
+from agentdeck.authoring.injection import analyze_callable, check_context_type, describe_callable
 from agentdeck.core.context import Context, RunContext
 from agentdeck.errors import ConfigError
 
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from agentdeck.authoring.injection import CallableAnalysis
 
 
-def compile_tool(target: Callable[..., Any]) -> FunctionTool:
+def compile_tool(target: Callable[..., Any], *, context_type: object | None = None) -> FunctionTool:
     """Build the SDK tool for ``target``, injecting its ``Context[...]`` parameter if it has one.
 
     A callable whose signature could not be recovered is refused rather than compiled. The
@@ -45,6 +45,10 @@ def compile_tool(target: Callable[..., Any]) -> FunctionTool:
     honest one to offer — and "no ``Context`` parameter was found" is not a finding about such a
     callable, it is the absence of one. Guessing there is nothing to inject would drop the
     argument at the first call, silently.
+
+    ``context_type`` is the owning deck's ``Deck(context=...)`` declaration, or ``None`` when it
+    made none; an incompatible requirement raises :class:`ContextTypeError` here rather than
+    reaching a run that could only fail on the first call.
     """
     analysis = analyze_callable(target)
     if not analysis.reliable:
@@ -55,6 +59,7 @@ def compile_tool(target: Callable[..., Any]) -> FunctionTool:
             "fix the decorator, or pass a pre-built Agents SDK tool object instead (engine-native: "
             "it gets no portability guarantee)."
         )
+    check_context_type(analysis, context_type)
     if analysis.context_parameter is None:
         return function_tool(target)
     return function_tool(_bridge(analysis))

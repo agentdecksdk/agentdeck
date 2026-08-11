@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from agents.lifecycle import AgentHooks
 
-from agentdeck.authoring.injection import analyze_callable, describe_callable
+from agentdeck.authoring.injection import analyze_callable, check_context_type, describe_callable
 from agentdeck.core.context import Context, RunContext
 from agentdeck.errors import ConfigError
 
@@ -37,11 +37,13 @@ HOOK_METHODS: frozenset[str] = frozenset(
 here, so a hook the SDK adds is bridged without this module being edited to notice."""
 
 
-def compile_hooks(hooks: Any) -> Any:
+def compile_hooks(hooks: Any, *, context_type: object | None = None) -> Any:
     """Return ``hooks`` with each ``Context[...]``-declaring method bridged, or unchanged.
 
     Raises :class:`ConfigError` naming the method when its context parameter is not first, or
-    when it declares more than one (through the shared analysis).
+    when it declares more than one (through the shared analysis) — and
+    :class:`ContextTypeError`, also named after the method, when ``context_type`` cannot satisfy
+    what it requires.
     """
     if hooks is None:
         return None
@@ -52,8 +54,12 @@ def compile_hooks(hooks: Any) -> Any:
             continue  # not overridden: the SDK's own no-op, with nothing to inject into
         try:
             analysis = analyze_callable(method)
+            check_context_type(analysis, context_type)
         except ConfigError as refused:
-            raise ConfigError(f"{_describe(hooks)}.{name}: {refused}") from refused
+            # Re-raised as its own class, not as a bare ConfigError: a ContextTypeError that
+            # arrives at the caller as its supertype is a distinction the API promises and this
+            # one line would erase.
+            raise type(refused)(f"{_describe(hooks)}.{name}: {refused}") from refused
         if not analysis.reliable or analysis.context_parameter is None:
             continue
         first = next(iter(inspect.signature(inspect.unwrap(method)).parameters), None)

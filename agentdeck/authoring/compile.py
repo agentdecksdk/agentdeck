@@ -89,12 +89,16 @@ def compile_agent(
     *,
     resolve_skills: Callable[[Sequence[str]], tuple[str, Sequence[FunctionTool]]] | None = None,
     resolve_workflow_tool: Callable[[Workflow], FunctionTool] | None = None,
+    context_type: object | None = None,
 ) -> SDKAgent:
     """Build the SDK ``Agent`` for ``agent``, minus handoffs (see module docstring).
 
     Raises :class:`ConfigError` rather than silently dropping ``skills=``/a workflow tool when
     no resolver was supplied — the caller (``Deck.build()``, or a bare compile with neither
     configured) must be the one to say why, not the compiled agent by omission.
+
+    ``context_type`` is the owning deck's ``Deck(context=...)`` declaration, checked against
+    every ``Context[...]`` this agent's tools, instructions and hooks require.
     """
     banner, mcp_servers = _resolve_mcp(agent)
     disclosure = ""
@@ -122,9 +126,11 @@ def compile_agent(
             resolved_tools.append(tool)
         elif callable(tool):
             try:
-                resolved_tools.append(compile_tool(tool))
+                resolved_tools.append(compile_tool(tool, context_type=context_type))
             except ConfigError as refused:
-                raise ConfigError(f"agent {agent.name!r}: {refused}") from refused
+                # Re-raised as its own class: a ContextTypeError flattened to its supertype here
+                # would reach the caller as a different error than the one the API promises.
+                raise type(refused)(f"agent {agent.name!r}: {refused}") from refused
         else:
             raise ConfigError(
                 f"agent {agent.name!r} has a tool that is neither a callable nor an Agents SDK tool object: {tool!r}."
@@ -134,13 +140,13 @@ def compile_agent(
     # value is omitted from the call entirely rather than passed through as `None`.
     fields: dict[str, Any] = {
         "name": agent.name,
-        "instructions": _instructions(agent, banner, disclosure),
+        "instructions": _instructions(agent, banner, disclosure, context_type),
         "handoff_description": agent.handoff_description,
         "model": agent.model,
         "model_settings": ModelSettings(**agent.model_settings) if agent.model_settings else None,
         "tools": resolved_tools or None,
         "output_type": agent.output_type,
-        "hooks": compile_hooks(agent.hooks),
+        "hooks": compile_hooks(agent.hooks, context_type=context_type),
         "mcp_servers": mcp_servers or None,
     }
     sdk_agent = SDKAgent(**{k: v for k, v in fields.items() if v is not None})
@@ -205,7 +211,7 @@ def refresh_mcp_status(compiled: Mapping[str, SDKAgent], agents: Sequence[Agent]
         sdk_agent.mcp_servers = mcp_servers
 
 
-def _instructions(agent: Agent, banner: str, disclosure: str) -> Any:
+def _instructions(agent: Agent, banner: str, disclosure: str, context_type: object | None = None) -> Any:
     """What the SDK agent's ``instructions`` field becomes: the composed string, or the
     dynamic-instructions callable that composes the same three parts per turn.
 
@@ -215,7 +221,7 @@ def _instructions(agent: Agent, banner: str, disclosure: str) -> Any:
     """
     if not callable(agent.instructions):
         return banner + agent.instructions + disclosure
-    compiled = compile_instructions(agent.instructions)
+    compiled = compile_instructions(agent.instructions, context_type=context_type)
 
     async def instructions(wrapper: Any, sdk_agent: Any) -> str:
         banner_now, _ = _resolve_mcp(agent)

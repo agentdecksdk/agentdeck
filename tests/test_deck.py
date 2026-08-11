@@ -361,15 +361,17 @@ async def test_a_sequential_deck_reads_its_own_bundles_not_the_previous_projects
     await second.aclose()
 
 
-# --- context= is a per-run argument; the constructor still has none -------------------------
+# --- context= is a type on the constructor and a value per run --------------------------------
 
 
-def test_context_is_not_a_constructor_parameter():
-    """The deck-level declaration was accepted and then refused at run time, which promised
-    something the deck could not do. Still gone rather than raising, so the failure is at the
-    call site (#182) — what returned in #166 is the per-run argument below, which works."""
-    with pytest.raises(TypeError, match="context"):
-        Deck(agents=[_greeter()], context=object)  # ty: ignore[unknown-argument]
+def test_the_constructor_declares_a_context_type_and_the_run_supplies_the_value():
+    """The parameter was deleted in #182 for being accepted and then refused at run time. It is
+    back because it now does something: the type it declares is what ``build()`` checks every
+    ``Context[...]`` in the catalog against (``tests/test_context_validation.py``), while the
+    value still arrives per run."""
+    deck = Deck(agents=[_greeter()], context=object)
+
+    assert deck.build() is deck
 
 
 @pytest.mark.asyncio

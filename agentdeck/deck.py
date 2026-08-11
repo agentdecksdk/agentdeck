@@ -47,6 +47,7 @@ from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgent
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring.agent import Agent
 from agentdeck.authoring.compile import refresh_mcp_status
+from agentdeck.authoring.injection import declared_context_type
 from agentdeck.authoring.interrupts import interrupt_result
 from agentdeck.authoring.skills import skills_resolver
 from agentdeck.authoring.timers import WAKE_AT_KEY, wake_at_of
@@ -290,12 +291,13 @@ class Deck:
     ``docs/delivery/deck-capability-wrapper-pattern.md``) and ``skills=``/``mcp=`` (a bare path,
     a sequence of paths, or the capability object itself — coerced either way).
 
-    There is no ``context=`` on the *constructor* yet — declaring a context type buys build-time
-    compatibility checks that do not exist, and a parameter that cannot be used is worse than an
-    absent one. Supplying a context per run does work, on either engine: :meth:`run`,
-    :meth:`stream`, :meth:`answer` and :meth:`resume` take ``context=``, and a tool, a
-    dynamic-instructions callable or a workflow node declaring a
-    :class:`~agentdeck.core.context.Context` parameter receives it.
+    ``context=`` declares the *type* of the application context this catalog's callables receive
+    — the class, not an instance of it. The value itself arrives per run (:meth:`run`,
+    :meth:`stream`, :meth:`answer`, :meth:`resume`), and a tool, a dynamic-instructions callable,
+    an agent hook or a workflow node declaring a :class:`~agentdeck.core.context.Context`
+    parameter receives it. Declaring the type is what makes :meth:`build` able to check every
+    such parameter against it before anything runs; a deck that declares none still runs exactly
+    the same, with the requirement unchecked until the callable is played.
 
     Public properties are :attr:`agents`, :attr:`workflows`, :attr:`skills` and :attr:`settings`
     only — never ``runtime`` or ``store``, the infrastructure this class exists to hide.
@@ -312,6 +314,7 @@ class Deck:
         workflows: Sequence[Workflow] = (),
         skills: str | Path | Sequence[str | Path] | Skills | None = None,
         mcp: str | Path | MCP | None = None,
+        context: object = None,
         session_factory: SessionFactory | None = None,
         # Private-by-name test seams — never part of the documented constructor, exactly like
         # ``tests/contract/``'s need for ``_engines=`` on the Runtime this composes. A bare
@@ -333,6 +336,7 @@ class Deck:
         self._workflows: Mapping[str, Workflow] = _named_mapping(workflows, "workflows")
         self._skills_obj = _coerce_skills(skills)
         self._mcp_obj = _coerce_mcp(mcp)
+        self._context_type = declared_context_type(context)
         self._session_factory_arg = session_factory if session_factory is not None else _session_factory
         self._engines_arg = _engines
         self._store_arg = _store
@@ -416,6 +420,12 @@ class Deck:
         means an agent's ``mcp=`` compiles against known-but-not-yet-connected names rather than
         unknown ones — the only warning this can still log is a genuine open-time drop, not a
         false "not found in config" for a server that will, in fact, connect once opened.
+
+        When this Deck declared ``context=``, every ``Context[...]`` a tool, an instructions
+        callable, a hook or a workflow node requires is checked against it here, and an
+        incompatible one raises :class:`~agentdeck.errors.ContextTypeError` naming both types.
+        Only what the runtime can decide is decided — see
+        :func:`~agentdeck.authoring.injection.check_context_type` for what defers instead.
         """
         if self._state != "NEW":
             return self
@@ -435,6 +445,7 @@ class Deck:
             resolve_skills=skills_resolver(self._skills_obj) if self._skills_obj is not None else None,
             resolve_workflow_tool=self._resolve_workflow_tool,
             bundle_of=self._bundle_of,
+            context_type=self._context_type,
         )
         self._state = "BUILT"
         return self

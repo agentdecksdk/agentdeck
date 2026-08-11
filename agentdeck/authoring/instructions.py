@@ -20,7 +20,7 @@ from __future__ import annotations
 import inspect
 from typing import TYPE_CHECKING, Any
 
-from agentdeck.authoring.injection import analyze_callable, describe_callable
+from agentdeck.authoring.injection import analyze_callable, check_context_type, describe_callable
 from agentdeck.core.context import Context, RunContext
 from agentdeck.errors import ConfigError
 
@@ -28,7 +28,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 
-def compile_instructions(target: Callable[..., Any]) -> Callable[[Any, Any], Any]:
+def compile_instructions(
+    target: Callable[..., Any], *, context_type: object | None = None
+) -> Callable[[Any, Any], Any]:
     """Build the SDK dynamic-instructions callable for ``target``.
 
     Refused rather than compiled when the signature could not be read: the same reasoning as a
@@ -49,6 +51,7 @@ def compile_instructions(target: Callable[..., Any]) -> Callable[[Any, Any], Any
             f"{named} is used as instructions but declares parameter(s) nothing supplies ({extra}); "
             "an instructions callable takes at most one Context[...] parameter and nothing else."
         )
+    check_context_type(analysis, context_type)
     context_parameter = analysis.context_parameter
 
     # Exactly two parameters, because that is what the SDK's own signature check demands before

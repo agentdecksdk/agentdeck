@@ -28,6 +28,15 @@ class ConfigError(AgentdeckError):
     """Invalid or incomplete configuration."""
 
 
+class ContextTypeError(ConfigError):
+    """A callable requires a ``Context[T]`` this deck's declared context type cannot satisfy.
+
+    A configuration error rather than a kind of its own: it is raised at ``Deck.build()``,
+    alongside every other "this catalog does not hold together" refusal, and a caller already
+    catching :class:`ConfigError` around ``build()`` keeps catching it.
+    """
+
+
 class SessionBusyError(AgentdeckError):
     """A turn was asked for on a session that already has a run in flight.
 
@@ -47,4 +56,12 @@ class StoreError(AgentdeckError):
     """
 
 
-__all__ = ["AgentdeckError", "ConfigError", "NotFoundError", "SessionBusyError", "SkillError", "StoreError"]
+__all__ = [
+    "AgentdeckError",
+    "ConfigError",
+    "ContextTypeError",
+    "NotFoundError",
+    "SessionBusyError",
+    "SkillError",
+    "StoreError",
+]

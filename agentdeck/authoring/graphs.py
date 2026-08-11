@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 from langgraph.utils.runnable import RunnableCallable
 
-from agentdeck.authoring.injection import analyze_callable, describe_callable
+from agentdeck.authoring.injection import analyze_callable, check_context_type, describe_callable
 from agentdeck.core.context import Context, RunContext
 from agentdeck.errors import ConfigError
 
@@ -48,12 +48,14 @@ into one that declares this.
 """
 
 
-def bridge_context_nodes(graph: StateGraph[Any]) -> StateGraph[Any]:
+def bridge_context_nodes(graph: StateGraph[Any], *, context_type: object | None = None) -> StateGraph[Any]:
     """Rewrite every node of ``graph`` that declares a ``Context[...]`` parameter, in place.
 
     Returns the same graph, so a caller can wrap ``build_graph()`` in one expression. Raises
     :class:`ConfigError` naming the node when a node's callable declares more than one
-    ``Context[...]`` parameter — at ``build()``, the same moment an agent's tool would.
+    ``Context[...]`` parameter — at ``build()``, the same moment an agent's tool would — and
+    :class:`ContextTypeError`, also naming the node, when ``context_type`` (the owning deck's
+    ``Deck(context=...)`` declaration) cannot satisfy what the node requires.
     """
     # A list, because the loop replaces entries as it goes.
     for name, node in list(graph.nodes.items()):
@@ -68,8 +70,11 @@ def bridge_context_nodes(graph: StateGraph[Any]) -> StateGraph[Any]:
             continue
         try:
             analysis = analyze_callable(target)
+            check_context_type(analysis, context_type)
         except ConfigError as refused:
-            raise ConfigError(f"node {name!r}: {refused}") from refused
+            # Re-raised as its own class: a ContextTypeError flattened to its supertype here
+            # would reach the caller as a different error than the one the API promises.
+            raise type(refused)(f"node {name!r}: {refused}") from refused
         if not analysis.reliable or analysis.context_parameter is None:
             continue
         graph.nodes[name] = dataclasses.replace(
