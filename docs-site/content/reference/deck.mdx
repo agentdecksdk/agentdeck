@@ -171,9 +171,13 @@ paused, and answer it with `answer()` below.
 
 ### What `input` accepts
 
-A `str` — the common case, and unchanged — or a **list of content blocks**, which is how a turn
-carries anything that is not text. A string is coerced to one `text` block on the way in, so the
-two forms meet as the same thing before any engine sees them.
+For an **agent** turn: a `str` — the common case, and unchanged — or a **list of content blocks**,
+which is how a turn carries anything that is not text. A string is coerced to one `text` block on
+the way in, so the two forms meet as the same thing before any engine sees them.
+
+For a **workflow**, `input` is its initial state — the mapping its first node reads, e.g.
+`deck.run("RefundApproval", {"order_id": "A-1003"})`. It is JSON data, not content, and the log
+records it as one `data` block; see [Workflows](/concepts/workflows) for what a node does with it.
 
 | Block | Fields | For |
 |---|---|---|
