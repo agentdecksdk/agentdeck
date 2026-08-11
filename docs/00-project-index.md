@@ -50,6 +50,7 @@ per new spec doc — had fallen behind by thirteen documents; this closes it.
 | `delivery/plan-context-injection.md` | The original `Context[T]` design |
 | `delivery/plan-166-delivery.md` / `review-context-injection.md` | What moved under that design once it met both engines, sliced for delivery; and the review |
 | `delivery/roadmap-v3.md` | Every open v3.0.0 issue assessed against the tree, the rulings taken, and the waves. **Delivered** — see its closing note |
+| `delivery/plan-219-delivery.md` | Ask AgentDeck (#219) — the reference application as release-level validation of the frozen v3 surface: six rulings, four slices, and the friction ledger that is its real deliverable |
 | `delivery/beta-user-report-v3.md` | A real `v3.0.0b1` run by a first-time user; source of the Wave B findings |
 | `delivery/deck-capability-wrapper-pattern.md` | The wrapper shape a `Deck` argument takes when a capability needs one |
 
