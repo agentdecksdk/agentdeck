@@ -51,6 +51,7 @@ per new spec doc — had fallen behind by thirteen documents; this closes it.
 | `delivery/plan-166-delivery.md` / `review-context-injection.md` | What moved under that design once it met both engines, sliced for delivery; and the review |
 | `delivery/roadmap-v3.md` | Every open v3.0.0 issue assessed against the tree, the rulings taken, and the waves. **Delivered** — see its closing note |
 | `delivery/plan-219-delivery.md` | Ask AgentDeck (#219) — the reference application as release-level validation of the frozen v3 surface: six rulings, four slices, and the friction ledger that is its real deliverable |
+| `delivery/roadmap-v3.1.md` | **What's next.** Every open issue assessed against the tree after v3.0.0, the rulings needed, and the backlog sorted into v3.1 / v3.2 / v3.3 — including the reference app's ledger findings, filed as issues |
 | `delivery/beta-user-report-v3.md` | A real `v3.0.0b1` run by a first-time user; source of the Wave B findings |
 | `delivery/deck-capability-wrapper-pattern.md` | The wrapper shape a `Deck` argument takes when a capability needs one |
 
@@ -118,9 +119,12 @@ Documents were written in conversation order and later ones refine earlier ones.
     Waves 1–5 on top of the beta: correctness, the wire, the config
         surface, `Context[T]`, observability, cleanup                 [all
         delivered — `delivery/roadmap-v3.md`]
-NOW ──▶ the pre-stable gate: one reference application (#219) and the
-        simplification pass (#131), then tag v3.0.0
-    ──▶ v3.1 batteries → v3.2 rooms & reach → v3.3 operate          [PRD §6]
+    the pre-stable gate: the reference application (#219); #131 folded
+        into it → **v3.0.0 tagged 2026-08-11**, docs site deployed,
+        Ask AgentDeck live                                            [plan:
+        `delivery/plan-219-delivery.md`]
+NOW ──▶ v3.1 batteries → v3.2 rooms & reach → v3.3 operate          [PRD §6 —
+        the backlog sorted into those three: `delivery/roadmap-v3.1.md`]
 ```
 
 **Amendment 2026-08-08.** v3.0.0 was not in this order when it was written: the epic

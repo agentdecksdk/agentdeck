@@ -16,11 +16,16 @@
 > LangGraph node has to be rewritten rather than merely handed a value. `plan-166-delivery.md`
 > records that and the rest of what moved.
 >
-> **What is left before the stable tag** is not on this roadmap, because it was filed after this
-> document was written: **#219** (one real reference application, as release-level validation of
-> the frozen surface) and **#131** (the simplification pass). Everything deferred out of v3 is
-> either in *Out of v3* below or on the `v3.1 — batteries` milestone: #211, #212, #213, #217 and
-> #218 were all filed while executing these waves.
+> **Amended later the same day — v3.0.0 is tagged.** The two things left when the note above was
+> written are settled: **#219** shipped as the reference application (`plan-219-delivery.md`),
+> and **#131** was folded into it by ruling and moved to v3.1 rather than run as an open-ended
+> sweep hours before a tag. `v3.0.0` was tagged from `ca03ae8`, the docs site deployed with it,
+> and Ask AgentDeck answers on `ask.agentdecksdk.com`.
+>
+> Everything deferred out of v3 is either in *Out of v3* below or on a later milestone: #211,
+> #212, #213, #217 and #218 were filed while executing these waves, and #223, #226, #227 and #228
+> came out of the reference application's own friction ledger. **What happens next is
+> `delivery/roadmap-v3.1.md`**, which supersedes this document as the answer to "what now".
 
 Every open issue on the `v3.0.0 — one way to work` milestone, assessed against the tree as it
 stands *after* the phase-4 merge, and sequenced. Several were written before that merge and
