@@ -16,10 +16,6 @@ import re
 from functools import cache
 from math import log
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from collections.abc import Iterable
 
 # examples/ask-agentdeck/ask_agentdeck/corpus.py -> the repo root
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -27,6 +23,7 @@ DEFAULT_CONTENT_ROOT = _REPO_ROOT / "docs-site" / "content"
 
 _TITLE = re.compile(r"^title:\s*(.+)$", re.MULTILINE)
 _WORD = re.compile(r"[a-z0-9_]+")
+_FRONTMATTER = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
 
 
 class DocsCorpus:
@@ -97,16 +94,34 @@ class DocsCorpus:
             if any(per_page[slug] for per_page in found.values())
         ]
         scored.sort(key=lambda pair: (-pair[0], pair[1]))
-        return [(slug, self._excerpt(slug, found)) for _score, slug in scored[:5]]
+        return [(slug, self._excerpt(slug, weights)) for _score, slug in scored[:5]]
 
-    def _excerpt(self, slug: str, words: Iterable[str]) -> str:
-        """The first line mentioning any query word, so a result says *why* it matched."""
-        matchers = [_matcher(word) for word in words]
-        for line in self.pages[slug].splitlines():
-            stripped = line.strip()
-            if len(stripped) > 20 and any(pattern.search(stripped.lower()) for pattern in matchers):
-                return stripped[:200]
-        return self.title_of(slug)
+    def _excerpt(self, slug: str, weights: dict[str, float]) -> str:
+        """Lines showing *why* the page matched — rarest query word first, frontmatter skipped.
+
+        This is the most load-bearing thirty lines in the app, because the excerpt is what
+        decides whether the agent bothers to read the page. Returning the first line matching
+        *any* query word produced the worst failure this has had: *"can I send an image to an
+        agent"* correctly ranked `reference/deck` first, and then handed back that page's
+        frontmatter ``description:`` line, which mentions no image. The agent read the excerpt,
+        concluded the documentation did not cover images, and refused a question the page
+        answers in full. A confident wrong refusal is worse than the invented API the grounding
+        rule exists to prevent, because it looks like diligence.
+
+        So: skip the frontmatter, and lead with the rarest word — ``image`` is what the question
+        was about, ``send`` and ``agent`` are on every page.
+        """
+        body = _FRONTMATTER.sub("", self.pages[slug], count=1)
+        lines = [stripped for line in body.splitlines() if len(stripped := line.strip()) > 20]
+        picked: list[str] = []
+        for word in sorted(weights, key=lambda w: -weights[w]):
+            pattern = _matcher(word)
+            hit = next((line for line in lines if pattern.search(line.lower()) and line not in picked), None)
+            if hit is not None:
+                picked.append(hit)
+            if len(picked) == 2:
+                break
+        return " … ".join(line[:160] for line in picked) or self.title_of(slug)
 
 
 # Words that appear on nearly every page, so scoring on them ranks by page length instead of by
