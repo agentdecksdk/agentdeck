@@ -28,6 +28,12 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   one, or read with the version that wrote it. The first read of an old event says so by name
   rather than failing as a validation error on a model you have not met.
 
+- **`Runtime(clock=...)` and `build_runtime(clock=...)` are gone.** Both keywords stopped
+  deciding anything once ADR-D11 moved timestamp assignment into the store; a caller that held
+  time through either one now gets a `TypeError` instead of a run whose timestamps quietly kept
+  moving. Pass the clock to the store instead: `MemoryEventStore(clock=...)`,
+  `RedisEventStore(clock=...)`.
+
 - **A client built on the openai-agents engine's own session (`agents.SQLiteSession`,
   `agents.extensions.memory.RedisSession`) that inspects or prunes its content parts must add
   `input_image`/`input_audio` to its matcher** (#161). A turn carrying an image or audio block
