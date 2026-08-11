@@ -169,8 +169,8 @@ async def test_build_runtime_discovers_the_project_when_given_no_invocables(proj
 
 async def test_build_runtime_takes_explicit_specs_and_a_store_that_holds_time_still(project):
     """A caller with specs in hand skips discovery, and freezes time by handing in a store with a
-    clock — which is the only seam that decides a ``ts`` now (ADR-D11). ``build_runtime``'s own
-    ``clock`` keyword no longer reaches anything that stamps an event."""
+    clock — the only seam that decides a ``ts`` now (ADR-D11); ``build_runtime`` has no ``clock``
+    keyword of its own."""
     frozen = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     engines = project_engines()
     specs = InvocableRegistry(engines).load()

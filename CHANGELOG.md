@@ -102,6 +102,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   needs to consult. This is an intentional wire break: a reader built against the previous
   scalar `v` cannot parse an event this tree writes.
 
+- **Breaking: `Runtime.__init__` and `build_runtime` no longer accept `clock`** (#158). ADR-D11
+  moved timestamp assignment into the store, so the keyword has decided nothing since #154,
+  which made it inert and warn rather than remove it outright; a caller still passing it now
+  gets a `TypeError` instead of a silently-ignored no-op. Holding time still works at the seam
+  that owns the clock — `MemoryEventStore(clock=...)`, `RedisEventStore(clock=...)` — which is
+  unaffected by this change.
+
 ### Removed
 
 - **`LangfuseSettings.host` and its `endpoint` property are gone** (#155): a pre-4.x
