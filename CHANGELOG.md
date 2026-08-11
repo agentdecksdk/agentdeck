@@ -8,6 +8,31 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** **one `Deck` per process, enforced at construction** (#204). Constructing a
+  second `Deck` while the first is still live now raises `ConfigError` naming both projects;
+  before, it succeeded and the second deck silently inherited the first one's bundles, because
+  every project mounts under a single module alias and MCP servers are registered process-wide.
+  A deck built but never opened holds the process just the same — the claim is taken at
+  construction and released by `aclose()`. Two decks side by side is a capability we intend to
+  add (#213); until then a deck per tenant is a process per tenant, which is what the code has
+  in fact always done.
+  - *Upgrading:* one deck at a time still works exactly as before, including a `Deck` mounted
+    inside an existing service through `asgi()`. What breaks is a program holding two at once —
+    a script that validates several projects in a loop, a notebook that re-runs a
+    `Deck.from_project()` cell. Close the first (`await deck.aclose()`, or run it under
+    `async with`) before constructing the next. Today those programs appear to work and quietly
+    give the second deck the first one's agents, so a raise is the change you want.
+
+### Fixed
+
+- `Deck.from_project()` reading a *previous* project's bundle files (#204). Mounting a project
+  rebound the module alias but left its already-imported submodules cached, so a second project
+  whose bundle directory happened to share a name — two `agents/greeter/` — got the first one's
+  module back from `sys.modules`. Stale submodules are now evicted on mount, which also means
+  editing a bundle and rebuilding in the same process picks the edit up.
+
 ## [3.0.0b1] - 2026-08-10
 
 First public beta of v3. `Deck` replaces `App` as the single composition root;

@@ -65,6 +65,28 @@ The lifecycle is `NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED`:
   store it built from settings, but never one passed in through construction. Reopening a closed
   `Deck` raises; construct a new one instead.
 
+**One `Deck` per process.** Constructing a second one while the first is still live raises
+`ConfigError`, naming both projects. The restriction is real rather than stylistic: every project
+is mounted under a single module alias and MCP servers are registered process-wide, so two decks
+side by side would read each other's bundles and share each other's servers. Decks one after
+another are fine — close the first, construct the next:
+
+```python
+async def validate_every_project() -> None:
+    async with Deck.from_project("./alpha/.agentdeck"):
+        ...
+
+    # the first deck is closed by the time this one is constructed
+    async with Deck.from_project("./beta/.agentdeck"):
+        ...
+```
+
+A script that validates several projects in a loop needs that `aclose()` between them; a service
+that mounts one deck's `asgi()` inside an existing app is unaffected, since that is still one
+deck. Running two side by side is a capability we intend to add, tracked in
+[issue #213](https://github.com/sagi5060/agentdeck/issues/213) — until then, a deck per tenant is
+a process per tenant.
+
 `deck.agents`/`deck.workflows` are read-only mappings once built — mutating either raises.
 
 ## Starting a turn
