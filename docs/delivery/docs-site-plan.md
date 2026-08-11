@@ -163,6 +163,16 @@ above wants its own issue; nav drift is gated for top-level pages only, not nest
 - [ ] Examples: the pages **are** the source — there is no `examples/` dir in the repo today, so nothing is copied and nothing needs an identity check. If a repo `examples/` dir is ever added, it is generated from these pages, not maintained beside them
 - [ ] Done when: a reader with no prior context installs and runs an agent in under 5 minutes on a clean machine (PRD §7), walked manually once
 
+**Amended 2026-08-11 (#132):** a repo `examples/` dir now exists and is *not* generated from these
+pages. #132 asked for two decks a reader can copy whole — a project directory, a `run.py`, a
+README — which a page's fence cannot be, since a fence is a fragment of a walkthrough. The
+identity check this row wanted is met a different way: `tests/test_examples.py` builds every
+example on every `make check`, and the install pin, the python fences and the docs-site links in
+each example's README are checked by `tests/test_docs_site.py` alongside the site's own pages. So
+the pages and `examples/` are two sources that cannot silently disagree with the *code*, though
+nothing forces them to stay worded alike — deliberately: the examples say "here is a whole
+project", the pages say "here is the one idea".
+
 ### DS-2 — v2.0 core (gated on epic Stories 2–5)
 
 - [ ] Concepts/runs-and-the-event-log + Reference/event-kinds — a **table generator** over the frozen schema's golden JSON (kind, payload fields, when emitted), nothing more; a generator that grows past a table is the API-reference pipeline DS-D2 refused
