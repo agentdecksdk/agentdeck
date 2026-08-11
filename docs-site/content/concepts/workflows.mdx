@@ -58,7 +58,7 @@ asyncio.run(main())
 | Node | What it does |
 |---|---|
 | `AgentNode(agent)` | runs an [`Agent`](/reference/definitions) as a node; forwards its text deltas to the graph's custom stream |
-| `LoadFileNode` | pulls a file's contents into state — the host filesystem for an absolute path |
+| `LoadFileNode` | pulls a file's contents into state from the host filesystem; the path must be absolute |
 
 ```python
 from agentdeck.authoring import AgentNode

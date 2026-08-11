@@ -619,6 +619,12 @@ the adapter, so no port method describes it. `write_text`, `ApprovalPort` and pe
 `RunContext` are absent for the same reason: nothing called them. Split when a consumer genuinely
 wants one half.)*
 
+*(Amended 2026-08-11, #71: **deleted.** Sandboxing left v3 by ruling (`docs/delivery/roadmap-v3.md`
+ruling 1), and the three consumers this seam was cut for never materialised — `core/ports/sandbox.py`
+and `adapters/caps/sandbox/` are gone, along with the `authoring/capabilities/` specs nothing
+constructed. The block below and the mapping rows further down are the design as it stood, kept as
+record. Re-adding a designed port is additive, so nothing here is foreclosed.)*
+
 ```python
 # core/ports/sandbox.py — caller-injected (§10); the sandbox is ONE implementation
 class SandboxPort(ABC):

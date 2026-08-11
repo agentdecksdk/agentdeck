@@ -43,14 +43,11 @@ broader than the linter's contracts:
   MCP server has to be an SDK object to be attachable to an SDK agent. It imports the MCP
   client and nothing else of the SDK, and `agents.mcp` is banned everywhere else, by ruff
   TID251 rather than import-linter, which cannot name an external subpackage.)*
-  *(Amended 2026-08-09, #152: `adapters/caps/sandbox/` is the third and last holder of
-  `agents` — `agents.sandbox` **is** the sandbox, the same way `agents.mcp` is the MCP
-  attachment point, so the adapter that implements `SandboxPort` over it has nowhere else to
-  import from. It takes `agents.sandbox` and `agents.run_config` only. This is what the port
-  buys: `SandboxPort`'s three consumers — the openai-agents engine, the authoring nodes and
-  `skills/` — reach the sandbox through `core/ports/sandbox.py` and import no SDK at all,
-  which is the property the rule exists to protect. A fourth holder needs its own amendment
-  and a reason of this shape, not a precedent from these two.)*
+  *(Amended 2026-08-09, #152, **retired 2026-08-11, #71**: `adapters/caps/sandbox/` was the
+  third holder of `agents`. Sandboxing left v3 (roadmap-v3.md ruling 1, #163), so the
+  directory, `core/ports/sandbox.py` and the third licence are all gone — `agents` again has
+  exactly two holders, `adapters/engines/openai_agents/` and `adapters/tools/mcp/`. A third
+  needs its own amendment and a reason of #152's shape, not a precedent from a retired one.)*
 - `surfaces/` import `runtime/` and `core/` (and their own framework, e.g. FastAPI in
   `surfaces/serve/`), never adapters directly.
 - `authoring/` imports `core/` only; user-facing API compiles to `InvocableSpec`.

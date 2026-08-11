@@ -1,16 +1,15 @@
 ---
 title: Capabilities
-description: CapabilitiesSpec and each sandbox capability spec — currently disabled, tracked for a future return.
+description: The sandbox capability specs — removed; sandboxing is not part of v3.
 ---
 
 # Capabilities
 
-[Capabilities](/concepts/capabilities) covers the state of this feature: sandboxing is disabled
-in the current `Agent`/`Deck` API, tracked separately for a future slice. There is no
-`capabilities=` argument on `Agent` today, and no page here can make one exist.
+[Capabilities](/concepts/capabilities) covers the state of this feature: sandboxing is not part
+of v3, so there is no `capabilities=` argument on `Agent` and no page here can make one exist.
 
-The spec classes this page used to document field by field —
-`CapabilitiesSpec`, `ShellSpec`, `FilesystemSpec`, `MemorySpec`, `CompactionSpec` — still live in
-the codebase at `agentdeck.authoring.capabilities`, unchanged in shape, waiting for whatever
-construction path sandboxing returns through. Read their docstrings directly if you need the
-field-by-field detail before this page comes back.
+The spec classes this page used to document field by field — `CapabilitiesSpec`, `ShellSpec`,
+`FilesystemSpec`, `MemorySpec`, `CompactionSpec` — have been removed from the codebase along
+with the rest of the sandbox scaffolding. Nothing constructed them, so nothing imports them.
+Read them in the git history if you need the shape they had; this page comes back when the
+feature does.
