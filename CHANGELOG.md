@@ -84,7 +84,7 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   nested under the first**, because nesting would need the engine to establish an OTel context and
   the engines are barred from the Langfuse SDK by design. Off by default and documented as
   unnested, so nobody meets a trace they did not ask for — which is what #162 was filed about.
-  Correlating the two layers is tracked separately.
+  Correlating the two layers is #218.
 
 - **`EventSinkPort.start()`** (#181) — an `async` no-op by default, called once while the Deck
   opens, before any run, and pairing with the existing `close()`. A sink that holds a client, a

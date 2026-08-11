@@ -56,7 +56,7 @@ class Langfuse(EventSinkPort):
     Nesting would require the engine to establish an OTel context, and ``.importlinter``'s
     ``langfuse-is-telemetry-private`` bars the engines from the Langfuse SDK deliberately. So
     this is opt-in and says so, rather than being on by default and surprising anyone with a
-    trace they did not ask for — which is the shape #162 was filed about.
+    trace they did not ask for — which is the shape #162 was filed about. Nesting them is #218.
 
     Constructing this reads nothing and opens nothing. :meth:`start` — which the Deck calls
     once, as it opens, before any run — is where the settings are read, the SDK is first
