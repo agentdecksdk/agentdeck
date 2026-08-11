@@ -117,6 +117,14 @@ async def test_the_envelope_timestamp_comes_from_the_stores_clock() -> None:
     assert {event.ts for event in events} == {TS}
 
 
+def test_runtime_no_longer_accepts_a_clock_keyword() -> None:
+    """``clock`` is gone, not silently swallowed — a caller still passing it must get a
+    ``TypeError`` naming the unexpected keyword, never an ignored no-op."""
+    spec = stub_spec("Greeter", DONE)
+    with pytest.raises(TypeError, match="clock"):
+        Runtime([StubEngine()], MemoryEventStore(), {spec.name: spec}, clock=lambda: TS)  # type: ignore[call-arg]
+
+
 async def test_run_started_carries_what_the_run_was_asked_for() -> None:
     """No context snapshot: everything it held was recorded and read by nothing, so
     ``run.started`` carries the ask and the envelope carries where it ran."""

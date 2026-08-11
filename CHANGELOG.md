@@ -28,6 +28,12 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   one, or read with the version that wrote it. The first read of an old event says so by name
   rather than failing as a validation error on a model you have not met.
 
+- **`Runtime(clock=...)` and `build_runtime(clock=...)` are gone.** Both keywords stopped
+  deciding anything once ADR-D11 moved timestamp assignment into the store; a caller that held
+  time through either one now gets a `TypeError` instead of a run whose timestamps quietly kept
+  moving. Pass the clock to the store instead: `MemoryEventStore(clock=...)`,
+  `RedisEventStore(clock=...)`.
+
 - **A client built on the openai-agents engine's own session (`agents.SQLiteSession`,
   `agents.extensions.memory.RedisSession`) that inspects or prunes its content parts must add
   `input_image`/`input_audio` to its matcher** (#161). A turn carrying an image or audio block
@@ -101,6 +107,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   new kind, a new optional field) that an old reader already tolerates by construction and never
   needs to consult. This is an intentional wire break: a reader built against the previous
   scalar `v` cannot parse an event this tree writes.
+
+- **Breaking: `Runtime.__init__` and `build_runtime` no longer accept `clock`** (#158). ADR-D11
+  moved timestamp assignment into the store, so the keyword has decided nothing since #154,
+  which made it inert and warn rather than remove it outright; a caller still passing it now
+  gets a `TypeError` instead of a silently-ignored no-op. Holding time still works at the seam
+  that owns the clock — `MemoryEventStore(clock=...)`, `RedisEventStore(clock=...)` — which is
+  unaffected by this change.
 
 ### Removed
 
