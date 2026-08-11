@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 from agentdeck.authoring.agent import Agent
 from agentdeck.authoring.compile import compile_agent, link_handoffs
+from agentdeck.authoring.graphs import bridge_context_nodes
 from agentdeck.authoring.workflow import Workflow
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.errors import ConfigError
@@ -44,6 +45,13 @@ ENGINE_FOR_KIND: Final[Mapping[InvocableKind, str]] = {
 DURABLE_KEY: Final[str] = "durable"
 
 
+def _wrapped(exc: Exception) -> type[ConfigError]:
+    """The class a bundle failure is re-raised as: the original's, when it is already one of
+    ours, so a ``ContextTypeError`` does not reach the caller flattened into its supertype.
+    """
+    return type(exc) if isinstance(exc, ConfigError) else ConfigError
+
+
 class InvocableRegistry:
     """The one registry of what a project can run — from ``.agentdeck/`` bundles, or from a
     code-first ``agents=``/``workflows=`` list a :class:`~agentdeck.Deck` already holds.
@@ -68,6 +76,7 @@ class InvocableRegistry:
         resolve_skills: Callable[[Sequence[str]], tuple[str, Sequence[FunctionTool]]] | None = None,
         resolve_workflow_tool: Callable[[Workflow], FunctionTool] | None = None,
         bundle_of: Mapping[str, str] | None = None,
+        context_type: object | None = None,
     ) -> Mapping[str, InvocableSpec]:
         """Compile every agent and workflow to an ``InvocableSpec``.
 
@@ -82,6 +91,8 @@ class InvocableRegistry:
         path); a caller that already ran its own scan (``Deck.from_project``) supplies it since
         the association is otherwise lost the moment ``agents``/``workflows`` are handed in as
         plain instances — a code-first entry has no bundle, so it is simply absent here.
+        ``context_type`` is the owning deck's ``Deck(context=...)`` declaration, checked against
+        every ``Context[...]`` requirement in the catalog as each entry compiles.
 
         Eager on purpose: a bundle that can't be imported, an agent that can't be built and
         an engine that isn't registered all fail here, not mid-conversation.
@@ -100,13 +111,16 @@ class InvocableRegistry:
         for agent in agents:
             try:
                 compiled[agent.name] = compile_agent(
-                    agent, resolve_skills=resolve_skills, resolve_workflow_tool=resolve_workflow_tool
+                    agent,
+                    resolve_skills=resolve_skills,
+                    resolve_workflow_tool=resolve_workflow_tool,
+                    context_type=context_type,
                 )
             except Exception as exc:
                 bundle_file = bundle_of.get(agent.name)
                 if bundle_file is None:  # code-first: no bundle to name, so the raw exception stands
                     raise
-                raise ConfigError(f"{bundle_file} failed to build: {exc}") from exc
+                raise _wrapped(exc)(f"{bundle_file} failed to build: {exc}") from exc
         link_handoffs(compiled, agents)
         for agent in agents:
             self._add(specs, agent.name, InvocableKind.AGENT, compiled[agent.name])
@@ -115,12 +129,14 @@ class InvocableRegistry:
                 # uncompiled: the langgraph adapter compiles the graph itself, around the
                 # checkpointer — ``durable`` names, which is why that flag travels with the
                 # spec rather than staying on the Workflow only the authoring layer can see.
-                graph = workflow.build_graph()
+                # Bridged here rather than in the adapter so a node declaring two
+                # ``Context[...]`` parameters fails at build(), exactly where a tool's would.
+                graph = bridge_context_nodes(workflow.build_graph(), context_type=context_type)
             except Exception as exc:
                 bundle_file = bundle_of.get(workflow.name)
                 if bundle_file is None:
                     raise
-                raise ConfigError(f"{bundle_file} failed to build: {exc}") from exc
+                raise _wrapped(exc)(f"{bundle_file} failed to build: {exc}") from exc
             self._add(specs, workflow.name, InvocableKind.WORKFLOW, graph, metadata={DURABLE_KEY: workflow.durable})
         return specs
 

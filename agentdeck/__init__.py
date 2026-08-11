@@ -11,8 +11,17 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _version
 
 from agentdeck.authoring import Agent, Workflow
+from agentdeck.core.context import Context
 from agentdeck.deck import Deck, TurnResult
-from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, SessionBusyError, SkillError, StoreError
+from agentdeck.errors import (
+    AgentdeckError,
+    ConfigError,
+    ContextTypeError,
+    NotFoundError,
+    SessionBusyError,
+    SkillError,
+    StoreError,
+)
 
 try:
     __version__ = _version("agentdeck")
@@ -25,6 +34,8 @@ __all__ = [
     "Agent",
     "AgentdeckError",
     "ConfigError",
+    "Context",
+    "ContextTypeError",
     "Deck",
     "NotFoundError",
     "SessionBusyError",

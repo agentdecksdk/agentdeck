@@ -28,8 +28,8 @@ scheduler = Agent(
 )
 ```
 
-`tools` takes already-built SDK tools — `@function_tool` is how you build one from a plain
-function. Run the agent the same way as any other:
+`tools` takes plain functions and compiles each one — `@function_tool` above is optional, and an
+already-built SDK tool object is accepted unchanged. Run the agent the same way as any other:
 
 ```python run
 import asyncio

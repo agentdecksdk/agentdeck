@@ -120,11 +120,17 @@ class Runtime:
         name: str,
         input: Input,
         *,
+        context: object = None,
         session_id: str | None = None,
         namespace: str | None = None,
         run_id: str | None = None,
     ) -> AsyncGenerator[Event, None]:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
+
+        ``context`` is the application's own value for this run, reaching a callable that declares
+        a ``Context[...]`` parameter and nothing else. It is held by reference for the run's whole
+        life and never written to the log — the record says what a run was asked to do, not which
+        live objects it held.
 
         One turn per session at a time: opening the run is a conditional append that fails if
         the session already has one in flight, so a second concurrent turn raises
@@ -136,7 +142,9 @@ class Runtime:
         closed this generator or had its own task cancelled under it.
         """
         spec, engine = self._resolve(name)
-        ctx, reports = self._bind(self._context(run_id=run_id, session_id=session_id, namespace=namespace))
+        ctx, reports = self._bind(
+            self._context(run_id=run_id, session_id=session_id, namespace=namespace, data=context)
+        )
         # ponytail: whole log per run — window it (or hand the engine a summary) once a
         # session's history outgrows one read, which a real store will notice long before this does
         history = await self._store.read(ctx.log_key, ctx)
@@ -172,11 +180,17 @@ class Runtime:
         thread_id: str,
         value: Any,
         *,
+        context: object = None,
         run_id: str,
         session_id: str | None = None,
         namespace: str | None = None,
     ) -> AsyncGenerator[Event, None]:
         """Continue a run this Runtime suspended earlier.
+
+        ``context`` is resupplied, never recovered: the value is held by reference for one run
+        and deliberately never written to the log, so a run picked up here starts with whatever
+        this caller hands it. Omitting it is not "keep what the run had" — it is ``None``, and a
+        node that read ``ctx.data`` before the interrupt reads ``None`` after it.
 
         The store's conditional append makes the ``WAITING_HUMAN`` -> ``RUNNING`` transition
         atomic, so exactly one caller wins even when the callers are separate processes; the
@@ -189,7 +203,9 @@ class Runtime:
         run — is a no-op: nothing is read from the engine, nothing is yielded.
         """
         spec, engine = self._resolve(name)
-        ctx, reports = self._bind(self._context(run_id=run_id, session_id=session_id, namespace=namespace))
+        ctx, reports = self._bind(
+            self._context(run_id=run_id, session_id=session_id, namespace=namespace, data=context)
+        )
         opening = await self._claim_resume(spec, ctx, value)
         if opening is None:
             return
@@ -199,10 +215,18 @@ class Runtime:
                 yield event
 
     async def resume_run(
-        self, run_id: str, *, namespace: str | None = None, reason: str | None = None
+        self,
+        run_id: str,
+        *,
+        context: object = None,
+        namespace: str | None = None,
+        reason: str | None = None,
     ) -> AsyncGenerator[Event, None]:
         """Continue a run that paused at a safe point: same ``run_id``, same log, ``seq``
         counting on from where it stopped.
+
+        ``context`` is resupplied here for the same reason it is on :meth:`resume` — the value
+        never reached the log, so the caller lifting the pause is the only one who still has it.
 
         The engine is re-entered rather than un-suspended, because a paused turn left no stack
         to return to: the log is the checkpoint, so the run is played again from its own
@@ -220,7 +244,7 @@ class Runtime:
         run ends ``cancelled`` and is never played on — cancel stays terminal, and asking to
         resume a run somebody cancelled does not quietly override them.
         """
-        ctx = self._context(run_id=run_id, namespace=namespace)
+        ctx = self._context(run_id=run_id, namespace=namespace, data=context)
         found = await self._paused(run_id, ctx)
         if found is None:
             return
@@ -502,7 +526,12 @@ class Runtime:
         await asyncio.gather(*(dispatch.close() for dispatch in self._sinks), return_exceptions=True)
 
     def _context(
-        self, *, run_id: str | None = None, session_id: str | None = None, namespace: str | None = None
+        self,
+        *,
+        run_id: str | None = None,
+        session_id: str | None = None,
+        namespace: str | None = None,
+        data: object = None,
     ) -> RunContext:
         """Mint this run's context — the one place a ``RunContext`` is built for a caller.
 
@@ -511,7 +540,7 @@ class Runtime:
         ``run_id`` wrong is not a type error but a silent no-op, so it is minted here unless a
         caller has a reason of its own.
         """
-        return RunContext(run_id=run_id or str(uuid4()), session_id=session_id, namespace=namespace)
+        return RunContext(run_id=run_id or str(uuid4()), session_id=session_id, namespace=namespace, data=data)
 
     def _bind(self, ctx: RunContext) -> tuple[RunContext, deque[KnownPayload]]:
         """Give this run its control gate and its report buffer, and hand back both.

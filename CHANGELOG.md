@@ -52,6 +52,47 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Added
 
+- **Context injection: `agentdeck.Context`, `Deck(context=T)` and `context=` on every run**
+  (#166). An application value — a database handle, a client, whatever the code a run reaches
+  needs — enters once at the run boundary and is delivered to any callable that *declares* it.
+
+  **Declaring it.** Annotate a parameter `Context[T]`, whatever you name it: a tool, an
+  `instructions=` callable, an agent hook (first parameter, where the SDK's own wrapper goes), or
+  a workflow node alongside its `state`. `ctx.data` is the very object passed in, by reference;
+  `ctx.reporter`, `ctx.run_id`, `ctx.session_id` and `await ctx.checkpoint()` come with it. A
+  plain function in `tools=` is now compiled rather than rejected — a context-declaring tool
+  cannot be pre-wrapped with `@function_tool`, since that would put the context parameter in the
+  model-visible schema.
+
+  **The model never sees it.** The context parameter is absent from the tool schema sent to the
+  model, an instructions callable contributes only its return value to the prompt, and the value
+  is never written to the event log.
+
+  **Supplying it.** `deck.run(..., context=obj)` and `deck.stream(...)`, plus
+  `answer(run_id, value, context=...)` and `resume(run_id, context=...)` — resupplied, never
+  recovered, because the value is deliberately never serialized, so the caller picking a paused
+  run back up is the only one who still has it.
+
+  **Both engines, one contract.** The value travels on each engine's own runtime-context channel
+  — the SDK's `RunContextWrapper`, LangGraph's `Runtime[T]` — never on `configurable`, which
+  keeps `thread_id`, the reporter and the stream flag exactly as before. A contract test
+  parametrized over both engines pins that the two bridges deliver the same thing.
+
+  **Checking it.** `Deck(context=MiddleContext)` declares the context *type* (the class, not an
+  instance), and `build()` then checks every `Context[...]` in the catalog against it, raising
+  `ContextTypeError` naming both types. It decides only what the runtime can decide — exact type,
+  subtype, `Any`, a runtime ABC's origin, a protocol `issubclass` will rule on, a union arm by arm
+  — and defers everything else (a structural protocol, a `TypeVar`, an engine-native tool object)
+  to invocation rather than guessing. A deck that declares no `context=` is unchanged: nothing is
+  checked, and `run(context=...)` works exactly the same.
+
+  **Where it does not reach**, all documented in the `Deck` reference: a context cannot cross the
+  HTTP surface at all (no wire form for a live object, so a served run carries `None`); `tick()`
+  takes none, so *durable + `sleep_until` + `Context[T]`* is unsupported in v3.0.0 and a timer
+  resume replays with `ctx.data` set to `None`; the headless `Agent.run()` and
+  `Workflow.run()`/`as_tool()` paths pass none either; and a skill is prose, not a callable, so
+  there is nothing there to inject into.
+
 - **`Deck(observers=[...])` — the event stream has a declared set of observers, and they start
   with the deck** (#181). An observer is any `EventSinkPort` — telemetry, cost accounting, audit
   — and the Runtime fans every run out to all of them, each with its own bounded queue.
@@ -119,6 +160,17 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   raising it later is compatible and lowering it is not.
 
 ### Changed
+
+- **`tools=` now takes plain functions, and compiles them** (#166) — reversing the guardrail
+  #172 shipped, which rejected a bare callable and told you to wrap it with `@function_tool`.
+  A function annotated `Context[...]` *cannot* be pre-decorated, because `@function_tool` would
+  put that parameter in the schema the model sees, so the plain callable had to become the
+  canonical declaration. An already-built Agents SDK tool object is still accepted, unchanged
+  and passed straight through — it is engine-native, introspected by nothing, and carries no
+  portability guarantee. The one thing still refused at `build()` is a callable whose signature
+  cannot be read (a decorator that dropped `functools.wraps` is the usual cause): there is no
+  honest schema to show the model, and no way to tell "declares no context" from "could not
+  look", so compiling it would silently drop an argument the function needs.
 
 - **Breaking:** **`build_runtime(sinks=…)` no longer defaults to the configured telemetry**
   (#181, #162). It defaults to no sinks at all, and the composition *function* reads no Langfuse
@@ -272,6 +324,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 
 ### Fixed
+
+- **A resumed run silently lost its application context** (#166). `resume()` and `resume_run()`
+  minted a fresh `RunContext` with no `data=` at all, so a run paused or interrupted with a
+  `context=` came back with `None` — and because the value is never serialized, nothing in the
+  log could be compared against what should have been there. A callable written defensively as
+  `if ctx.data:` would have returned a plausible wrong answer with no error anywhere. Only ever
+  reachable on this development line, since `run(context=)` and this landed in the same release.
 
 - **The Langfuse span filter never applied, because the client that carried it was never the
   one that ran** (#162). `build_runtime()` constructed a client from settings while the Runtime

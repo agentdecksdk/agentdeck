@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     from agents.agent_output import AgentOutputSchemaBase
     from agents.lifecycle import AgentHooks
@@ -34,7 +34,7 @@ class AgentDeclaration:
     """
 
     name: ClassVar[str | None] = None
-    instructions: ClassVar[str] = ""
+    instructions: ClassVar[str | Callable[..., Any]] = ""
     handoff_description: ClassVar[str | None] = None
     model: ClassVar[str | None] = None
     model_settings: ClassVar[Mapping[str, Any]] = {}
@@ -57,9 +57,17 @@ class Agent:
     positional base. A value explicitly passed here always wins over ``base``'s, including an
     explicit empty value — omission, not falsiness, is what defers to the base.
 
-    ``tools=`` takes already-built Agents SDK tool objects, not plain functions — wrap one with
-    ``@function_tool`` (``from agents import function_tool``) first. ``build()`` rejects a tool
-    that isn't one, naming the agent and the tool.
+    ``instructions=`` takes a plain string, or a callable ``build()`` compiles into the SDK's
+    dynamic-instructions shape — one declaring a ``Context[...]`` parameter receives the run's
+    environment, and **only what it returns** reaches the model. ``hooks=`` stays an Agents SDK
+    ``AgentHooks`` object; a hook method that declares ``Context[...]`` first is bridged the
+    same way, and one that does not is passed through untouched.
+
+    ``tools=`` takes plain functions — ``build()`` compiles each one, which is what lets a
+    parameter annotated ``Context[...]`` be injected without ever appearing in the schema the
+    model sees. An already-built Agents SDK tool object is still accepted and passed straight
+    through as engine-native, introspected by nothing here. A callable whose signature cannot be
+    read is refused at ``build()``, naming the agent and the callable.
     """
 
     __slots__ = (
@@ -81,7 +89,7 @@ class Agent:
     # checker infers attributes from would not need, but immutability (see `__setattr__`
     # below) does.
     name: str
-    instructions: str
+    instructions: str | Callable[..., Any]
     handoff_description: str | None
     model: str | None
     model_settings: dict[str, Any]
@@ -97,7 +105,7 @@ class Agent:
         *,
         base: type[AgentDeclaration] | None = None,
         name: str = _UNSET,
-        instructions: str = _UNSET,
+        instructions: str | Callable[..., Any] = _UNSET,
         handoff_description: str | None = _UNSET,
         model: str | None = _UNSET,
         model_settings: Mapping[str, Any] = _UNSET,

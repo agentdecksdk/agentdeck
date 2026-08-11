@@ -42,6 +42,7 @@ Deck(
     workflows=[...],                # Workflow instances
     skills="./skills",              # a path, a sequence of paths, or a Skills(...) object
     mcp=".mcp.json",                # a path, or an MCP(...) object
+    context=Calendar,               # the *type* of the per-run context, if this catalog wants one
     observers=[Langfuse()],         # taps on the event stream; None reads settings, () means none
 )
 ```
@@ -90,12 +91,74 @@ a process per tenant.
 
 `deck.agents`/`deck.workflows` are read-only mappings once built — mutating either raises.
 
+## Declaring the context type
+
+`context=` on the constructor is the **type** of the application context this catalog's callables
+receive. The value itself never goes here — it arrives per run, on `run`/`stream`/`answer`/`resume`
+below. Declaring the type is what lets `build()` check it against every `Context[...]` parameter in
+the catalog before anything runs:
+
+```python run
+from agentdeck import Agent, Context, ContextTypeError, Deck
+
+
+class Calendar:
+    def find(self, day: str) -> str:
+        return f"{day} 09:00"
+
+
+class Warehouse:
+    """A different application environment entirely."""
+
+
+def find_slots(day: str, environment: Context[Calendar]) -> str:
+    """Find free appointment slots on a given day."""
+    return environment.data.find(day)
+
+
+booking = Agent(name="Booking", instructions="Book things.", tools=[find_slots])
+
+try:
+    Deck(agents=[booking], context=Warehouse).build()
+except ContextTypeError as refused:
+    print(refused)
+```
+
+Every injection site is walked: an agent's tools, its `instructions=` callable, its `hooks=`
+methods, and every node of every workflow. The message names the callable (or the node, or the
+hook method), what it requires, and what the deck provides.
+
+What counts as compatible is what the *runtime* can decide, and nothing more:
+
+| Requirement | Verdict |
+|---|---|
+| the exact declared type | compatible |
+| a supertype of it (the deck declares a subclass) | compatible |
+| `Context[Any]`, or a bare `Context` | compatible with anything |
+| a runtime ABC — `Mapping[str, Any]`, `Sequence[str]` | checked against the ABC, ignoring its parameters |
+| a `@runtime_checkable` protocol with only methods | checked structurally |
+| a union — `Context[Calendar \| None]` | compatible if any arm is |
+| a protocol `issubclass` refuses to rule on, a `TypeVar` | **deferred** — accepted here, decided at invocation |
+| an already-built SDK tool object, a node whose signature cannot be read | **deferred** — nothing to introspect |
+
+`build()` is not a partial type checker and does not try to become one. Where no runtime answer
+exists it accepts and lets the requirement stand or fall when the callable actually runs —
+refusing on a guess would reject builds a static checker would pass. `ContextTypeError` is a
+subclass of `ConfigError`, so a caller already catching `ConfigError` around `build()` keeps
+catching it.
+
+Declaring nothing is the third case, and the default: no `context=` on the constructor means no
+build-time check at all. `run(context=...)` still works exactly the same — the declaration buys
+the check, not the capability. Passing an *instance* where the type belongs
+(`Deck(context=my_calendar)`) is refused at construction, since every check would then silently
+defer and the parameter would promise something it never delivered.
+
 ## Starting a turn
 
 | Method | Signature | Returns |
 |---|---|---|
-| `run` | `(name, input, *, session_id=None, namespace=None, run_id=None)` | `TurnResult` for an agent; the final state (or an `InterruptResult`) for a workflow |
-| `stream` | `(name, input, *, session_id=None, namespace=None, run_id=None)` | `AsyncGenerator[Event]` — the run's own canonical events, live |
+| `run` | `(name, input, *, context=None, session_id=None, namespace=None, run_id=None)` | `TurnResult` for an agent; the final state (or an `InterruptResult`) for a workflow |
+| `stream` | `(name, input, *, context=None, session_id=None, namespace=None, run_id=None)` | `AsyncGenerator[Event]` — the run's own canonical events, live |
 
 `run`/`stream` resolve `name` against whichever catalog holds it — an agent or a workflow — and
 play it on the Runtime, recorded exactly as `POST /agents/{name}/chat` or `POST /workflows/{name}`
@@ -111,6 +174,18 @@ per token for an agent, `node.updated` per completed node for a workflow, a term
 not a rendered wire format. This is the one method here that does not return a `TurnResult`,
 because a caller that wants the final answer out of a stream has to fold it from the events, the
 same way any other consumer of the log would.
+
+`context=` supplies the application's own environment for one run — a database handle, a client,
+whatever the code the run reaches needs. A tool, a dynamic-instructions callable, an agent hook
+or a workflow node that declares an `agentdeck.Context` parameter receives it as `ctx.data`, by
+reference; see [Definitions](/reference/definitions) for how each declares one. Both engines
+carry it, through their own native runtime-context channel rather than anything agentdeck
+invented. Three things it deliberately is not: the model never sees it (the context parameter is
+absent from the tool schema), it is never written to the event log, and it cannot cross the HTTP
+surface — a live Python object has no wire form, so a context-requiring root is reachable from an
+embedded Python caller and not from `asgi()`. That boundary and three others are set out under
+[Where a context does not reach](#where-a-context-does-not-reach) below; read it before you build
+one into a served or timer-driven path.
 
 `type(event)` is always `Event` — it is the envelope, not the discriminator. Switch on
 `event.payload` (a `match` narrows it to `TextDelta`, `MessageCompleted`, `RunCompleted`, …, see
@@ -175,6 +250,12 @@ is paused on and returns the final state (or the next `InterruptResult`); it loo
 itself (which workflow, which thread, which session) from the same source `pending()` reads, so a
 caller supplies only the id `pending()` named and the value.
 
+`answer(run_id, value, context=...)` and `resume(run_id, context=...)` take the same `context=`
+`run` does, and it has to be supplied again: the value is never serialized, so the run's own copy
+is gone by the time anybody picks it up. Omitting it is not "keep what the run had" — there is
+nothing kept, and the resumed run reads `None`. An interrupted node re-runs from its start, so
+that is the pass where a missing context shows up.
+
 `due_resumes(now=None)` and `tick(now=None)` are a separate, timer-only inbox: `due_resumes` lists
 threads whose `sleep_until` has passed, reading each workflow's own checkpointer rather than the
 Runtime's log — deliberately, since the checkpoint backend defaults to durable (`sqlite`) while
@@ -187,7 +268,9 @@ loop calling `tick()` owns the cadence.
 a run `pending()` already knows about — closing that run's log entry and freeing its session
 claim, the same as `answer()` does. Only a thread with no logged run (parked by calling a durable
 workflow's own `run`/`resume` directly, a deliberately log-free path) falls back to resuming
-straight off the checkpointer.
+straight off the checkpointer. Neither route carries a context —
+[see below](#where-a-context-does-not-reach) for what a timer-driven resume does to a graph that
+needed one.
 
 ## Serving over HTTP
 
@@ -208,6 +291,10 @@ Two details worth knowing. The FastAPI import is deferred inside the method, so 
 stays importable without the `[serve]` extra — you only need it to actually serve. And requests
 arriving before the lifespan has run get `503 {"status": "starting"}` rather than touching a deck
 that is not open yet.
+
+A third, if any of this catalog's callables declare a context: **it does not reach a served run.**
+A context is a live Python object with no wire form, so an HTTP-started run always carries `None`
+— [see below](#where-a-context-does-not-reach).
 
 ## Observers
 
@@ -314,10 +401,44 @@ id: Redis-backed when `AGENTDECK_SESSION` is set, an in-process SQLite session o
 (lost on process exit). Pass `session_factory=` to `Deck(...)` to inject one — the seam tests use
 to swap in a fake wrapping `fakeredis` without a real Redis server.
 
-## What this does not cover
+## Where a context does not reach
 
-There is no `context=`. Passing application context through to tools and instructions is its
-own, larger effort, and a constructor parameter that cannot yet be used is worse than an absent
-one — it returns, additively, when `Context[T]` lands. And [Run Control](/concepts/run-control#safe-points) reaches agent runs
-today; a workflow (LangGraph) run has no safe point yet, so `pause`/`cancel` record the request
-but nothing acts on it.
+Four boundaries, all of them consequences of the same fact: a context is a live Python object that
+is never serialized, so it exists only for as long as some caller is holding it.
+
+**A context cannot cross the HTTP surface at all.** There is no wire form for a live object, and
+`asgi()` invents none. An agent or workflow whose callables require a context is therefore
+reachable from an embedded Python caller — `deck.run(...)`, `deck.answer(...)` — and **not** from
+a served deck. `POST /agents/{name}/chat` will run it with `ctx.data` set to `None`. If a root
+needs a context, do not serve it; drive it from the process that holds the object.
+
+**`tick()` cannot resume a context-requiring workflow.** The unsupported combination is
+specifically *`durable = True`* + a node that pauses on `sleep_until` + any node in that graph
+declaring `Context[T]`. `tick()` takes no `context=` — an autonomous resume has nobody present to
+supply one, and the original value was never written to the log or the checkpoint, so there is
+nothing to recover either. What actually happens is not an error: the thread resumes and the graph
+replays with `ctx.data` set to `None`. That surfaces wherever the node first touches it — an
+`AttributeError` on `None` if it reaches for an attribute, or, for a node written defensively as
+`if ctx.data:`, a plausible wrong answer and no failure at all. This is a real limitation of
+v3.0.0, stated rather than worked around: there is no deck-level context provider and no way to
+supply one to the timer inbox. `answer(run_id, value, context=...)` and
+`resume(run_id, context=...)` are the resumes that do take a context, because a caller is present.
+
+**The headless runners pass no context.** `Agent.run()` calls the SDK's own `Runner.run` with no
+context object, so a tool that declares one fails when the model calls it — the compiled tool
+refuses rather than running short an argument, saying the run "carries NoneType rather than an
+AgentDeck run context". `Workflow.run()`, `Workflow.resume()` and `as_tool()` are further out
+still: the bridge that injects a context into a node is installed when a `Deck` builds its
+catalog, and those paths never install it, so a `Context[...]` node reached that way dies with
+LangGraph's own `TypeError: <node>() missing 1 required positional argument`. Both are the price
+of leaving a deliberately log-free convenience alone; `Deck.run()` is the path with the contract.
+
+**Skills never receive a context.** A skill is progressive disclosure of prose — a `SKILL.md` an
+agent reads through the generated `load_skill` tool — not a program agentdeck runs. There is no
+callable to inject into, so there is nothing here that a future release would "add": a skill that
+needs application state is an ordinary tool with a `Context[...]` parameter.
+
+## What else this does not cover
+
+[Run Control](/concepts/run-control#safe-points) reaches agent runs today; a workflow (LangGraph)
+run has no safe point yet, so `pause`/`cancel` record the request but nothing acts on it.

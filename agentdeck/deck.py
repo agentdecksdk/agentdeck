@@ -47,6 +47,7 @@ from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgent
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring.agent import Agent
 from agentdeck.authoring.compile import refresh_mcp_status
+from agentdeck.authoring.injection import declared_context_type
 from agentdeck.authoring.interrupts import interrupt_result
 from agentdeck.authoring.skills import skills_resolver
 from agentdeck.authoring.timers import WAKE_AT_KEY, wake_at_of
@@ -308,6 +309,14 @@ class Deck:
     ``docs/delivery/deck-capability-wrapper-pattern.md``) and ``skills=``/``mcp=`` (a bare path,
     a sequence of paths, or the capability object itself — coerced either way).
 
+    ``context=`` declares the *type* of the application context this catalog's callables receive
+    — the class, not an instance of it. The value itself arrives per run (:meth:`run`,
+    :meth:`stream`, :meth:`answer`, :meth:`resume`), and a tool, a dynamic-instructions callable,
+    an agent hook or a workflow node declaring a :class:`~agentdeck.core.context.Context`
+    parameter receives it. Declaring the type is what makes :meth:`build` able to check every
+    such parameter against it before anything runs; a deck that declares none still runs exactly
+    the same, with the requirement unchecked until the callable is played.
+
     ``observers=`` are the read-only taps on this Deck's event stream — telemetry, cost, audit,
     any :class:`~agentdeck.core.ports.EventSinkPort`, and :class:`agentdeck.observers.Langfuse`
     is the one agentdeck ships. Each one's ``start()`` is called once, while the Deck opens,
@@ -321,9 +330,6 @@ class Deck:
     There is no ``deck.observers`` property, for the reason there is no ``runtime`` or ``store``:
     nothing needs one, and a property is additive later while removing one is not.
 
-    There is no ``context=``: declaring a context type is meaningless until something injects
-    one, and a constructor parameter that cannot be used is worse than an absent one. It returns
-    with ``Context[T]`` (``docs/delivery/plan-context-injection.md``), which is additive.
 
     Public properties are :attr:`agents`, :attr:`workflows`, :attr:`skills` and :attr:`settings`
     only — never ``runtime`` or ``store``, the infrastructure this class exists to hide.
@@ -340,6 +346,7 @@ class Deck:
         workflows: Sequence[Workflow] = (),
         skills: str | Path | Sequence[str | Path] | Skills | None = None,
         mcp: str | Path | MCP | None = None,
+        context: object = None,
         observers: Sequence[EventSinkPort] | None = None,
         session_factory: SessionFactory | None = None,
         # Private-by-name test seams — never part of the documented constructor, exactly like
@@ -362,6 +369,7 @@ class Deck:
         self._workflows: Mapping[str, Workflow] = _named_mapping(workflows, "workflows")
         self._skills_obj = _coerce_skills(skills)
         self._mcp_obj = _coerce_mcp(mcp)
+        self._context_type = declared_context_type(context)
         self._observers_arg = observers
         self._session_factory_arg = session_factory if session_factory is not None else _session_factory
         self._engines_arg = _engines
@@ -448,6 +456,12 @@ class Deck:
         unknown ones — the only warning this can still log is a genuine open-time drop, not a
         false "not found in config" for a server that will, in fact, connect once opened.
 
+        When this Deck declared ``context=``, every ``Context[...]`` a tool, an instructions
+        callable, a hook or a workflow node requires is checked against it here, and an
+        incompatible one raises :class:`~agentdeck.errors.ContextTypeError` naming both types.
+        Only what the runtime can decide is decided — see
+        :func:`~agentdeck.authoring.injection.check_context_type` for what defers instead.
+
         ``observers=`` are shape-checked here for the same reason, and *only* shape-checked:
         no observer is started, no telemetry client is constructed and no exporter is contacted,
         so a deck with Langfuse configured still validates where Langfuse is unreachable.
@@ -471,6 +485,7 @@ class Deck:
             resolve_skills=skills_resolver(self._skills_obj) if self._skills_obj is not None else None,
             resolve_workflow_tool=self._resolve_workflow_tool,
             bundle_of=self._bundle_of,
+            context_type=self._context_type,
         )
         self._state = "BUILT"
         return self
@@ -683,6 +698,7 @@ class Deck:
         name: str,
         input: Any,
         *,
+        context: object = None,
         session_id: str | None = None,
         namespace: str | None = None,
         run_id: str | None = None,
@@ -690,11 +706,17 @@ class Deck:
         """Run ``name`` — an agent or a workflow, whichever this catalog holds it as — and
         return its outcome: a :class:`TurnResult` for an agent, the final state (or an
         :class:`~agentdeck.authoring.interrupts.InterruptResult`) for a workflow.
+
+        ``context`` is the application's own environment for this run — a database handle, a
+        client, whatever the code the run reaches needs. A tool, a dynamic-instructions callable
+        or a workflow node that declares a :class:`~agentdeck.core.context.Context` parameter
+        receives it; the model never does, and it is never written to the event log. The same
+        object serves the whole run, by reference.
         """
         root = self._root(name)
         runtime = self._require_open()
         content = coerce_input(input) if isinstance(root, Agent) else [_as_state_block(input)]
-        run = runtime.run(name, content, session_id=session_id, namespace=namespace, run_id=run_id)
+        run = runtime.run(name, content, context=context, session_id=session_id, namespace=namespace, run_id=run_id)
         if isinstance(root, Agent):
             return await _turn_result(run)
         result, _ = await _workflow_result(run)
@@ -705,6 +727,7 @@ class Deck:
         name: str,
         input: Any,
         *,
+        context: object = None,
         session_id: str | None = None,
         namespace: str | None = None,
         run_id: str | None = None,
@@ -714,7 +737,7 @@ class Deck:
         runtime = self._require_open()
         content = coerce_input(input) if isinstance(root, Agent) else [_as_state_block(input)]
         async with aclosing(
-            runtime.run(name, content, session_id=session_id, namespace=namespace, run_id=run_id)
+            runtime.run(name, content, context=context, session_id=session_id, namespace=namespace, run_id=run_id)
         ) as run:
             async for event in run:
                 yield event
@@ -730,10 +753,13 @@ class Deck:
         """Ask the run to stop for good at its next safe point. Cancellation is terminal."""
         return await self._require_open().signal(run_id, Signal.CANCEL, reason)
 
-    async def resume(self, run_id: str, reason: str | None = None) -> list[Event]:
+    async def resume(self, run_id: str, reason: str | None = None, *, context: object = None) -> list[Event]:
         """Continue a paused run, returning every event the continuation produced. Empty means
-        nothing was resumed — this run is not paused."""
-        return [event async for event in self._require_open().resume_run(run_id, reason=reason)]
+        nothing was resumed — this run is not paused.
+
+        ``context`` is resupplied, not remembered: the run's original value was never written to
+        the log, so a run that needs one and is lifted without it resumes with ``None``."""
+        return [event async for event in self._require_open().resume_run(run_id, context=context, reason=reason)]
 
     async def status(self, run_id: str) -> RunStatus | None:
         """This run's current status, or ``None`` if the log has never heard of it."""
@@ -748,11 +774,16 @@ class Deck:
         """Every run currently waiting on a human, across this Deck's whole catalog."""
         return await self._require_open().pending(namespace=namespace)
 
-    async def answer(self, run_id: str, value: Any) -> Any:
+    async def answer(self, run_id: str, value: Any, *, context: object = None) -> Any:
         """Answer the interrupt the run named by ``run_id`` is paused on; returns the final
         state or the next interrupt. Pairs with :meth:`pending`: list the inbox, answer one run
         by the ``run_id`` it named there — the lookup this needs (invocable, thread, session)
         travels with it, so a caller supplies only the id and the value.
+
+        ``context`` mirrors :meth:`run`'s, and has to be supplied again: the value is never
+        serialized, so the interrupted run's own copy is gone by the time anybody answers it. A
+        node that read ``ctx.data`` before the interrupt re-runs from its start on resume, so
+        omitting the context here is what makes it read ``None`` the second time.
         """
         runtime = self._require_open()
         pending = next((run for run in await runtime.pending() if run.run_id == run_id), None)
@@ -760,7 +791,12 @@ class Deck:
             raise NotFoundError(f"No pending run {run_id!r}.")
         result, applied = await _workflow_result(
             runtime.resume(
-                pending.invocable, pending.thread_id, value, run_id=pending.run_id, session_id=pending.session_id
+                pending.invocable,
+                pending.thread_id,
+                value,
+                context=context,
+                run_id=pending.run_id,
+                session_id=pending.session_id,
             )
         )
         if not applied:

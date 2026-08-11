@@ -194,7 +194,7 @@ class LangGraphEngine(EnginePort):
         # The workspace is a ContextVar scope, so the stream it wraps has to be closed from
         # inside it — an abandoned generator releases it from the wrong context.
         scope = self._workspace() if self._workspace is not None else nullcontext(None)
-        async with scope, aclosing(self._play(self._graph_for(spec), graph_input, config)) as stream:
+        async with scope, aclosing(self._play(self._graph_for(spec), graph_input, config, ctx)) as stream:
             async for payload in stream:
                 if isinstance(payload, RunInterrupted) and durable is False:
                     raise ConfigError(
@@ -242,6 +242,7 @@ class LangGraphEngine(EnginePort):
         graph: CompiledStateGraph[Any, Any, Any, Any],
         graph_input: Any,
         config: RunnableConfig,
+        ctx: RunContext,
     ) -> AsyncGenerator[KnownPayload, None]:
         thread_id = config["configurable"]["thread_id"]
         # A values chunk always precedes the first update (the initial state), so the empty
@@ -250,7 +251,13 @@ class LangGraphEngine(EnginePort):
         # astream's stub only declares the single-mode shape; multi-mode yields (mode, chunk) tuples.
         stream = cast(
             "AsyncIterator[tuple[str, Any]]",
-            graph.astream(graph_input, config=config, stream_mode=_STREAM_MODES),
+            # The run context travels as langgraph's own runtime context, which is what reaches
+            # a node: `authoring.graphs` compiles a node declaring ``Context[...]`` into one
+            # declaring ``runtime``, and reads the carrier back off ``runtime.context`` there.
+            # Distinct from ``configurable`` on purpose — langgraph draws the same
+            # state-vs-runtime-context line, and application data does not belong beside a
+            # thread id. Resuming goes through the same call, so a resumed run is resupplied.
+            graph.astream(graph_input, config=config, context=ctx, stream_mode=_STREAM_MODES),
         )
         async for mode, chunk in stream:
             if mode == "values":

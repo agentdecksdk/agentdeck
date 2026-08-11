@@ -29,8 +29,9 @@ from agentdeck.adapters.control.memory import MemoryControlPort
 from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
 from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
+from agentdeck.authoring.tools import compile_tool
 from agentdeck.core.content import coerce_input
-from agentdeck.core.context import RunContext
+from agentdeck.core.context import Context, RunContext  # noqa: TC001 — ``peek`` resolves it at runtime
 from agentdeck.core.control import CONTROL_POLL_INTERVAL, ControlSignal, Gate, RunPausedError, Signal
 from agentdeck.core.events import RunCompleted, TextDelta, Usage
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
@@ -41,6 +42,10 @@ from agentdeck.runtime.service import Runtime
 if TYPE_CHECKING:
     from agentdeck.core.events import Event
     from agentdeck.core.ports import ControlPort, EventStorePort
+
+
+class Calendar:
+    """An application object a run is handed — the subject of the two resupply tests below."""
 
 
 class CountingControlPort(MemoryControlPort):
@@ -386,6 +391,81 @@ async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None
     assert check_terminal(log) is None
     assert check_contiguous(log) == []
     assert await control.poll(ctx.run_id) == ControlSignal(verb=Signal.RESUME, reason=None)
+
+
+async def test_lifting_a_pause_resupplies_the_run_s_application_context() -> None:
+    """``resume_run`` mints a fresh ``RunContext``, and used to mint it with no ``data=`` at all
+    — so a run paused mid-tool replayed with its application context gone.
+
+    Undetectable from inside: the context is never serialized, so nothing in the log can be
+    compared against what should have been there. A tool written defensively as ``if ctx.data:``
+    would have degraded in silence. This asserts the second pass sees the very same object.
+    """
+    calendar = Calendar()
+    seen: list[Any] = []
+    control = MemoryControlPort()
+
+    async def peek(environment: Context[Calendar]) -> str:
+        """Look at the run's environment."""
+        seen.append(environment.data)
+        if len(seen) == 1:
+            await control.signal("r-1", Signal.PAUSE, "asked while a tool was running")
+        return "looked"
+
+    model = TailScriptedModel("done", tool_name="peek")
+    runtime, _ = _agent_runtime(model, control, tools=[compile_tool(peek)])
+    ctx = _ctx()
+
+    paused = [
+        event
+        async for event in runtime.run(
+            "Chatty",
+            coerce_input("what happened"),
+            context=calendar,
+            run_id=(ctx).run_id,
+            session_id=(ctx).session_id,
+            namespace=(ctx).namespace,
+        )
+    ]
+    resumed = [event async for event in runtime.resume_run(ctx.run_id, context=calendar, namespace=ctx.namespace)]
+
+    assert _kinds(paused)[-1] == "run.paused"
+    assert _kinds(resumed)[-1] == "run.completed"
+    # The replay called the tool a second time; both calls held the caller's own object.
+    assert seen == [calendar, calendar]
+    assert seen[1] is calendar
+
+
+async def test_lifting_a_pause_without_a_context_replays_with_none() -> None:
+    """The other half of "resupplied, never recovered": omitting it is not "keep what the run
+    had", because the run's value was never written down for anyone to keep."""
+    seen: list[Any] = []
+    control = MemoryControlPort()
+
+    async def peek(environment: Context[Calendar]) -> str:
+        """Look at the run's environment."""
+        seen.append(environment.data)
+        if len(seen) == 1:
+            await control.signal("r-1", Signal.PAUSE, "asked while a tool was running")
+        return "looked"
+
+    runtime, _ = _agent_runtime(TailScriptedModel("done", tool_name="peek"), control, tools=[compile_tool(peek)])
+    ctx = _ctx()
+
+    async for _ in runtime.run(
+        "Chatty",
+        coerce_input("what happened"),
+        context=Calendar(),
+        run_id=(ctx).run_id,
+        session_id=(ctx).session_id,
+        namespace=(ctx).namespace,
+    ):
+        pass
+    async for _ in runtime.resume_run(ctx.run_id, namespace=ctx.namespace):
+        pass
+
+    assert seen[0] is not None
+    assert seen[1] is None
 
 
 # --- the Runtime's answers -----------------------------------------------------------------

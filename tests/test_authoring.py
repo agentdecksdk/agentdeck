@@ -54,10 +54,23 @@ def test_agent_is_immutable_after_construction():
         agent.instructions = "changed"
 
 
-def test_standalone_build_rejects_a_bare_callable_tool():
-    """``Agent.build()`` (no ``Deck``) shares ``compile_agent`` with ``Deck.build()`` (#172) —
-    pinned here so the check can never move to a Deck-only validator without a red test."""
+def test_standalone_build_compiles_a_bare_callable_tool():
+    """``Agent.build()`` (no ``Deck``) shares ``compile_agent`` with ``Deck.build()``, so a plain
+    callable becomes a real SDK tool on both paths — pinned here so tool compilation can never
+    move to a Deck-only step without a red test."""
     agent = Agent(name="booking", instructions="x", tools=[lambda q: q])
 
-    with pytest.raises(ConfigError, match="function_tool"):
+    (tool,) = agent.build().tools
+
+    assert sorted(tool.params_json_schema["properties"]) == ["q"]
+
+
+def test_standalone_build_rejects_a_tool_whose_signature_cannot_be_read():
+    """The other half of the same seam: refusal is not a Deck-only check either."""
+
+    def wrapper(*args, **kwargs): ...
+
+    agent = Agent(name="booking", instructions="x", tools=[wrapper])
+
+    with pytest.raises(ConfigError, match="signature could not be read"):
         agent.build()
