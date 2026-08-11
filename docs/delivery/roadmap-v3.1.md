@@ -1,15 +1,16 @@
 # Roadmap — after v3.0.0
 
-**Status:** proposed · **Date:** 2026-08-11 · **Baseline:** `dev` at `ca03ae8`, v3.0.0 tagged and
+**Status:** rulings taken, milestones set · **Date:** 2026-08-11 · **Baseline:** `dev` at `ca03ae8`, v3.0.0 tagged and
 released, docs site deployed, the reference application answering on `ask.agentdecksdk.com`.
 
 Thirty-five open issues, assessed against the tree as it stands *after* the v3.0.0 tag, and
 sequenced. Many were written against v1 or v2 and name classes that no longer exist; those are
 called out rather than silently carried, exactly as `roadmap-v3.md` did before them.
 
-**Thirty-five is a backlog, not a release.** The largest question this document asks is not what
-to build first but what belongs in v3.1 at all — §4 proposes a split across the PRD's own
-phasing, and it needs a ruling before anything is picked up.
+**Thirty-five is a backlog, not a release.** The largest question was not what to build first but
+what belongs in v3.1 at all. It is answered in §3: **v3.1 is hardening** — making what exists more
+correct, more robust, more trustworthy, and shipping no new capability. §4 is the split as set,
+and the GitHub milestones match it.
 
 ## 0. Where the inputs came from
 
@@ -81,80 +82,111 @@ deployed reference application runs Gemini through the OpenAI-compatible endpoin
 configuration where a handoff returns a bare 400. AgentDeck's own live deployment sits on the
 bug.
 
-## 3. Rulings needed before anything starts
+## 3. Rulings taken (2026-08-11)
 
-Each with a recommendation, because a bare question is not a proposal.
-
-| # | Ruling | Recommendation |
+| # | Ruling | Consequence |
 |---|---|---|
-| 1 | **What is v3.1 *about*?** A release needs a sentence, or it becomes whatever got finished | **"Batteries you reach for on day two"**: testing (#26), retries (#27), presets (#38), approval nodes (#36), MCP filters (#35). Correctness fixes ride along; everything speculative waits |
-| 2 | **#211 — where a reporter comes from.** Explicitly deferred to "after this release", and it is now after | Take it early. It is a design question, and design questions block implementation, not the reverse |
-| 3 | **#131 — what does the simplification pass mean now?** It was folded into QA, and QA happened as #219 | Rescope to what #219 actually surfaced, or close it. An open-ended sweep with no findings attached is the churn it was deferred to avoid |
-| 4 | **#227 — is `asgi()` a demo surface or a real one?** | Decide before anyone writes a context factory. Both answers are defensible; shipping neither is not |
-| 5 | **#225 — build-me-the-thing.** Big, and it fights every guard v3.0.0 added | Not v3.1. It needs its own design pass, and #219's ledger should be read first |
-| 6 | **#129 — protocols (A2A, MCP server, OpenAI-compatible).** | v3.2 "rooms & reach", per the PRD's own naming. It is a surface expansion, not a battery |
+| 1 | **v3.1 is hardening, not batteries.** Make what exists more correct, more robust, more trustworthy; ship no new user-facing capability | The milestone is renamed. The proposal that stood here was half new abilities — retries aside, presets, approval nodes, MCP filters and `Preset` are things to reach for, not things to trust, and they moved to **v3.2 — batteries**. The PRD's phase names shift one slot to make room, which is the honest bookkeeping: a hardening release was not in the original plan because the original plan had not shipped anything yet |
+| 2 | **#211 goes early.** Deferred to "after this release", and it is now after | It is a design question, and design questions block implementation rather than the reverse. Same for **#227** |
+| 3 | **#131 stays, rescoped by the ruling above.** | Under a hardening theme, "undo over-engineering" stops being an open-ended sweep and becomes the release's own subject. It is no longer churn ahead of a tag; it is the point |
+| 4 | **#227 — `asgi()`: demo surface or real one — is a v3.1 ruling.** | Both answers are defensible. Shipping neither is what stops |
+| 5 | **#225 is unmilestoned.** Big, and it fights every guard v3.0.0 added | It needs its own design pass, and #219's ledger should be read first. Filed, not scheduled — the same treatment #163 gets |
+| 6 | **#129 protocols → v3.3 "rooms & reach".** | A surface expansion, not a battery and not hardening |
+| 7 | **#25 splits from #34.** Auth was going to wait on the multi-user identity answer | Its own issue says *"minimal: a static bearer token… no users/roles/OAuth"*, and an unauthenticated mutating HTTP surface is a hardening defect on its own terms. The shared token lands in v3.1; per-user credentials (#34) stay in v3.3 where the identity question lives |
 
-## 4. The proposed split
+### Why #27 is hardening and #35 is not
 
-The PRD (§6) already names three phases. Sorting the backlog into them is what turns thirty-five
-issues into three releases.
+The line was drawn on **what happens when nothing is added**. A durable workflow today dies on a
+transient 429 mid-graph and cannot resume — that is a robustness defect with a declarative fix
+(#27), and it stays. An agent that receives more MCP tools than it needs still works; filtering
+them is a capability (#35), and it moves. Same test applied to every issue in §4.
 
-### v3.1 — batteries · 14 issues
+## 4. The split, as set
 
-Additive on the frozen API, each one something a user reaches for on their second day.
+Milestones updated 2026-08-11 to match.
 
-- **Foundations first:** #26 (testing harness) — everything downstream is cheaper after it
-- **Correctness:** #178, #177, #212, #128, #217, #223
-- **Batteries:** #27 (retries), #38 (hosted-tool presets), #36 (approval/action nodes), #35 (MCP filters), #167 (`Preset`)
-- **Design debt:** #211 (reporter), #227 (`asgi()` ruling)
+### v3.1 — hardening · 15 issues
 
-### v3.2 — rooms & reach · 6 issues
+*Make what exists more correct, more robust, more trustworthy. No new user-facing capability.*
 
-Everything that widens who can reach a deck, and from where.
+**Foundation — do this first.** #26 `agentdeck.testing`. Three hand-rolled scripted models in the
+repo say it is overdue, and every other issue here needs a test against a model.
 
-- #129 protocols · #34 per-user MCP credentials · #25 serve auth · #46 steering · #213 two decks · #24 inbox scale
+**Defects.** #178 (handoffs 400 against a non-OpenAI base URL — the configuration AgentDeck's own
+deployment runs on), #177 (`usage.usd` never carries a cost), #212 (two paused-run inboxes
+disagree), #128 (a workflow run has no safe point, so pause and cancel cannot reach it), #218
+(the raw SDK layer is a second trace, not nested), #223 (the settings page names no YAML keys),
+#226 (`DataBlock` refused on input).
 
-These belong together: they are all "more than one caller", and solving them one at a time
-produces four incompatible answers to the same identity question.
+**Resilience.** #27 declarative node retries — a durable workflow dies on a transient failure
+today and cannot resume.
 
-### v3.3 — operate · 3 issues
+**Security.** #25 a bearer token on the mutating endpoints. Split from #34 by ruling 7: the
+shared-token case does not need the multi-user answer, and an unauthenticated mutating surface is
+a defect on its own.
 
-- #218 trace nesting · #37 skill installation · #20's script half (behind #163)
+**Test infrastructure.** #217 — two concurrent runs share one Redis prefix and Postgres schema.
+
+**Simplification.** #131, now the release's own subject rather than a sweep bolted onto one.
+
+**Design questions blocking the above.** #211 (where a reporter comes from), #227 (`asgi()`
+demo-or-real), #228 (a bundle cannot share a type with its host).
+
+### v3.2 — batteries · 4 issues
+
+*Additive on the frozen API, once the surface underneath is trustworthy.*
+
+#35 MCP tool filters · #36 approval and external-action nodes · #38 hosted-tool presets ·
+#167 zero-config `Preset`
+
+### v3.3 — rooms & reach · 5 issues
+
+*More than one caller.* #129 protocols · #34 per-user MCP credentials · #46 steering ·
+#213 two decks side by side · #24 inbox scale and parallel interrupts
+
+These stay together deliberately: they are one identity question wearing five hats, and solving
+them separately produces five incompatible answers.
 
 ### Parallel, never release-blocking
 
 **docs-site**: #224 (health check), #133 (coverage), #135 (design pass), #140 (Docusaurus).
-**Unmilestoned by ruling**: #163 (sandboxing), which #20's remainder and #37 both wait on.
 
-### Needs its own design pass before it is scheduled
+### Unmilestoned — a question before it is a task
 
-**#225**, **#226**, **#228**, **#131** — each is a question before it is a task.
+**#163** sandboxing (by standing ruling) · **#20**'s script half and **#37** skill installation,
+both of which wait on it · **#225** build-me-the-thing, which needs its own design pass and
+fights every guard v3.0.0 added.
 
 ## 5. Dependency graph
 
 ```
-        #26 testing harness  ─────────────┐  (cheapens every test below)
+        #26 agentdeck.testing ────────────┐  (gates nothing, discounts everything)
                                           ▼
-v3.1    #178 #177 #212 #128 #217 #223   correctness
-        #27 #38 #36 #35 #167            batteries
-        #211 ─► reporter design          #227 ─► asgi ruling
+v3.1    #178 #177 #212 #128 #218 #223 #226   defects
+        #27 retries · #25 bearer token       resilience · security
+        #217 test isolation · #131 simplify
+        #211 ─► reporter design
+        #227 ─► asgi ruling ──────────────┐
+        #228 ─► shared-module ruling      │
+                                          ▼
+v3.2    #35 · #36 · #38 · #167          batteries, on a trusted surface
                                           │
         ┌─────────────────────────────────┘
         ▼
-v3.2    #25 auth ─┬─► #34 per-user MCP creds
-                  └─► #129 protocols
-        #46 steering ·  #213 two decks ·  #24 inbox scale
-                                          │
-        ▼
-v3.3    #218  ·  #163 ─► #20 scripts, #37 install
+v3.3    #25's token ─► #34 per-user creds ─► #129 protocols
+        #46 steering · #213 two decks · #24 inbox scale
+                       (one identity question, five hats)
+
+        #163 ─► #20 scripts, #37 install     unscheduled, by ruling
 ```
 
-Hard edges: #26 gates nothing formally but discounts everything; #34 needs #25's identity answer;
-#20's remainder and #37 both wait on #163; #211 and #227 are rulings that gate their own
-implementations.
+Hard edges: **#34 needs #25's answer**, which is why the minimal token lands a release earlier
+than the identity model. **#227 gates any `asgi()` work**, including whether a context factory is
+a thing that should exist. **#20's remainder and #37 both wait on #163**, which is unscheduled,
+so neither is schedulable. #26 gates nothing formally and should still go first.
 
 ## 6. Housekeeping before anyone starts
 
 Five issues need their text corrected so the next person does not implement against a tree that
-no longer exists: **#24**, **#35**, **#37**, **#38**, **#20**. Three should be closed with a
-comment explaining what replaced them: **#28**, **#43**, **#44**.
+no longer exists: **#24**, **#35**, **#37**, **#38**, **#20**. Three were closed on 2026-08-11 with a comment
+explaining what replaced them: **#28**, **#43**, **#44**.
