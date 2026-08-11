@@ -218,8 +218,10 @@ def _instructions(agent: Agent, banner: str, disclosure: str) -> Any:
     compiled = compile_instructions(agent.instructions)
 
     async def instructions(wrapper: Any, sdk_agent: Any) -> str:
-        fresh, _ = _resolve_mcp(agent)
-        return fresh + str(await compiled(wrapper, sdk_agent)) + disclosure
+        banner_now, _ = _resolve_mcp(agent)
+        # Concatenated rather than coerced: a callable that returned something other than a
+        # string has a bug, and a silent ``str()`` here would put its repr in the prompt.
+        return banner_now + await compiled(wrapper, sdk_agent) + disclosure
 
     return instructions
 

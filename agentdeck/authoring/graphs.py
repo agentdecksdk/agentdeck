@@ -55,7 +55,8 @@ def bridge_context_nodes(graph: StateGraph[Any]) -> StateGraph[Any]:
     :class:`ConfigError` naming the node when a node's callable declares more than one
     ``Context[...]`` parameter — at ``build()``, the same moment an agent's tool would.
     """
-    for name, node in graph.nodes.items():
+    # A list, because the loop replaces entries as it goes.
+    for name, node in list(graph.nodes.items()):
         # `.func`/`.afunc` are how langgraph's own `coerce_to_runnable` stores the callable it
         # was handed: `func` for a sync one, `afunc` alone for an async one. Reading them back
         # is the coupling this module accepts in exchange for leaving `add_node` untouched.

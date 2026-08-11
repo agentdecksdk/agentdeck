@@ -141,9 +141,9 @@ async def test_a_sync_node_declaring_a_context_runs_off_the_event_loop(no_projec
 
 @pytest.mark.asyncio
 async def test_a_node_keeps_the_langgraph_parameters_it_also_declared(no_project) -> None:
-    """``reporter`` stays on ``configurable`` (the wider question is #211), so a node reaching it
-    through ``config`` must keep working next to an injected context — the bridge forwards every
-    parameter langgraph fills rather than swallowing them."""
+    """``reporter`` stays on ``configurable``, so a node reaching it through ``config`` must keep
+    working next to an injected context — the bridge forwards every parameter langgraph fills
+    rather than swallowing them."""
     reached: list[Any] = []
 
     async def book(state: _State, config: RunnableConfig, environment: Context[Calendar]) -> dict[str, Any]:
