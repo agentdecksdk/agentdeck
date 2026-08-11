@@ -292,9 +292,10 @@ class Deck:
 
     There is no ``context=`` on the *constructor* yet — declaring a context type buys build-time
     compatibility checks that do not exist, and a parameter that cannot be used is worse than an
-    absent one. Supplying a context per run does work: :meth:`run` and :meth:`stream` take
-    ``context=`` for an agent, and a tool declaring a :class:`~agentdeck.core.context.Context`
-    parameter receives it.
+    absent one. Supplying a context per run does work, on either engine: :meth:`run`,
+    :meth:`stream`, :meth:`answer` and :meth:`resume` take ``context=``, and a tool, a
+    dynamic-instructions callable or a workflow node declaring a
+    :class:`~agentdeck.core.context.Context` parameter receives it.
 
     Public properties are :attr:`agents`, :attr:`workflows`, :attr:`skills` and :attr:`settings`
     only — never ``runtime`` or ``store``, the infrastructure this class exists to hide.
@@ -599,23 +600,6 @@ class Deck:
             f"No agent or workflow named {name!r}. Available: {sorted({*self._agents, *self._workflows})}."
         )
 
-    def _root_of_run(self, name: str, context: object) -> Agent | Workflow:
-        """The invocable :meth:`run`/:meth:`stream` will play, with ``context=`` refused where
-        nothing would consume it.
-
-        Only the openai-agents bridge injects a context today, so a workflow given one would take
-        it, run, and hand the model-facing code nothing — accepted-and-ignored, which is the exact
-        false promise that had ``Deck(context=...)`` deleted before it worked.
-        """
-        root = self._root(name)
-        if context is not None and not isinstance(root, Agent):
-            raise ConfigError(
-                f"context= is not supported for workflow {name!r} yet: only agent runs inject it "
-                "today, and a workflow would accept the value and never hand it to a node. Run the "
-                "agent with it, or leave it unset until LangGraph carries it too."
-            )
-        return root
-
     # --- the flat run-control surface -----------------------------------------------------
 
     async def run(
@@ -633,11 +617,12 @@ class Deck:
         :class:`~agentdeck.authoring.interrupts.InterruptResult`) for a workflow.
 
         ``context`` is the application's own environment for this run — a database handle, a
-        client, whatever the code the run reaches needs. A tool that declares a
-        :class:`~agentdeck.core.context.Context` parameter receives it; the model never does, and
-        it is never written to the event log. The same object serves the whole run, by reference.
+        client, whatever the code the run reaches needs. A tool, a dynamic-instructions callable
+        or a workflow node that declares a :class:`~agentdeck.core.context.Context` parameter
+        receives it; the model never does, and it is never written to the event log. The same
+        object serves the whole run, by reference.
         """
-        root = self._root_of_run(name, context)
+        root = self._root(name)
         runtime = self._require_open()
         content = coerce_input(input) if isinstance(root, Agent) else [_as_state_block(input)]
         run = runtime.run(name, content, context=context, session_id=session_id, namespace=namespace, run_id=run_id)
@@ -657,7 +642,7 @@ class Deck:
         run_id: str | None = None,
     ) -> AsyncGenerator[Event, None]:
         """Streaming counterpart to :meth:`run`: yields the run's own canonical events."""
-        root = self._root_of_run(name, context)
+        root = self._root(name)
         runtime = self._require_open()
         content = coerce_input(input) if isinstance(root, Agent) else [_as_state_block(input)]
         async with aclosing(
@@ -677,10 +662,13 @@ class Deck:
         """Ask the run to stop for good at its next safe point. Cancellation is terminal."""
         return await self._require_open().signal(run_id, Signal.CANCEL, reason)
 
-    async def resume(self, run_id: str, reason: str | None = None) -> list[Event]:
+    async def resume(self, run_id: str, reason: str | None = None, *, context: object = None) -> list[Event]:
         """Continue a paused run, returning every event the continuation produced. Empty means
-        nothing was resumed — this run is not paused."""
-        return [event async for event in self._require_open().resume_run(run_id, reason=reason)]
+        nothing was resumed — this run is not paused.
+
+        ``context`` is resupplied, not remembered: the run's original value was never written to
+        the log, so a run that needs one and is lifted without it resumes with ``None``."""
+        return [event async for event in self._require_open().resume_run(run_id, context=context, reason=reason)]
 
     async def status(self, run_id: str) -> RunStatus | None:
         """This run's current status, or ``None`` if the log has never heard of it."""
@@ -695,11 +683,16 @@ class Deck:
         """Every run currently waiting on a human, across this Deck's whole catalog."""
         return await self._require_open().pending(namespace=namespace)
 
-    async def answer(self, run_id: str, value: Any) -> Any:
+    async def answer(self, run_id: str, value: Any, *, context: object = None) -> Any:
         """Answer the interrupt the run named by ``run_id`` is paused on; returns the final
         state or the next interrupt. Pairs with :meth:`pending`: list the inbox, answer one run
         by the ``run_id`` it named there — the lookup this needs (invocable, thread, session)
         travels with it, so a caller supplies only the id and the value.
+
+        ``context`` mirrors :meth:`run`'s, and has to be supplied again: the value is never
+        serialized, so the interrupted run's own copy is gone by the time anybody answers it. A
+        node that read ``ctx.data`` before the interrupt re-runs from its start on resume, so
+        omitting the context here is what makes it read ``None`` the second time.
         """
         runtime = self._require_open()
         pending = next((run for run in await runtime.pending() if run.run_id == run_id), None)
@@ -707,7 +700,12 @@ class Deck:
             raise NotFoundError(f"No pending run {run_id!r}.")
         result, applied = await _workflow_result(
             runtime.resume(
-                pending.invocable, pending.thread_id, value, run_id=pending.run_id, session_id=pending.session_id
+                pending.invocable,
+                pending.thread_id,
+                value,
+                context=context,
+                run_id=pending.run_id,
+                session_id=pending.session_id,
             )
         )
         if not applied:

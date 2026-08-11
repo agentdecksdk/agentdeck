@@ -180,11 +180,17 @@ class Runtime:
         thread_id: str,
         value: Any,
         *,
+        context: object = None,
         run_id: str,
         session_id: str | None = None,
         namespace: str | None = None,
     ) -> AsyncGenerator[Event, None]:
         """Continue a run this Runtime suspended earlier.
+
+        ``context`` is resupplied, never recovered: the value is held by reference for one run
+        and deliberately never written to the log, so a run picked up here starts with whatever
+        this caller hands it. Omitting it is not "keep what the run had" — it is ``None``, and a
+        node that read ``ctx.data`` before the interrupt reads ``None`` after it.
 
         The store's conditional append makes the ``WAITING_HUMAN`` -> ``RUNNING`` transition
         atomic, so exactly one caller wins even when the callers are separate processes; the
@@ -197,7 +203,9 @@ class Runtime:
         run — is a no-op: nothing is read from the engine, nothing is yielded.
         """
         spec, engine = self._resolve(name)
-        ctx, reports = self._bind(self._context(run_id=run_id, session_id=session_id, namespace=namespace))
+        ctx, reports = self._bind(
+            self._context(run_id=run_id, session_id=session_id, namespace=namespace, data=context)
+        )
         opening = await self._claim_resume(spec, ctx, value)
         if opening is None:
             return
@@ -207,10 +215,18 @@ class Runtime:
                 yield event
 
     async def resume_run(
-        self, run_id: str, *, namespace: str | None = None, reason: str | None = None
+        self,
+        run_id: str,
+        *,
+        context: object = None,
+        namespace: str | None = None,
+        reason: str | None = None,
     ) -> AsyncGenerator[Event, None]:
         """Continue a run that paused at a safe point: same ``run_id``, same log, ``seq``
         counting on from where it stopped.
+
+        ``context`` is resupplied here for the same reason it is on :meth:`resume` — the value
+        never reached the log, so the caller lifting the pause is the only one who still has it.
 
         The engine is re-entered rather than un-suspended, because a paused turn left no stack
         to return to: the log is the checkpoint, so the run is played again from its own
@@ -228,7 +244,7 @@ class Runtime:
         run ends ``cancelled`` and is never played on — cancel stays terminal, and asking to
         resume a run somebody cancelled does not quietly override them.
         """
-        ctx = self._context(run_id=run_id, namespace=namespace)
+        ctx = self._context(run_id=run_id, namespace=namespace, data=context)
         found = await self._paused(run_id, ctx)
         if found is None:
             return

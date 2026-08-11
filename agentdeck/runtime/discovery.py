@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 from agentdeck.authoring.agent import Agent
 from agentdeck.authoring.compile import compile_agent, link_handoffs
+from agentdeck.authoring.graphs import bridge_context_nodes
 from agentdeck.authoring.workflow import Workflow
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.errors import ConfigError
@@ -115,7 +116,9 @@ class InvocableRegistry:
                 # uncompiled: the langgraph adapter compiles the graph itself, around the
                 # checkpointer — ``durable`` names, which is why that flag travels with the
                 # spec rather than staying on the Workflow only the authoring layer can see.
-                graph = workflow.build_graph()
+                # Bridged here rather than in the adapter so a node declaring two
+                # ``Context[...]`` parameters fails at build(), exactly where a tool's would.
+                graph = bridge_context_nodes(workflow.build_graph())
             except Exception as exc:
                 bundle_file = bundle_of.get(workflow.name)
                 if bundle_file is None:
