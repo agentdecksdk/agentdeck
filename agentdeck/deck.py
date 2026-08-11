@@ -597,21 +597,20 @@ class Deck:
         The ownership rule with no exemption: an ``MCP(...)`` this Deck holds is configuration
         it is the one to shut down, regardless of whether the caller built the object or a bare
         path was coerced into one. A store passed in via the private ``_store=`` seam is never
-        touched — it was the caller's before this Deck ever saw it, and neither is a sink passed
-        to ``sinks=``. Idempotent, and reachable from every state — a Deck built but never opened
-        still has a process claim to give up.
+        touched — it was the caller's before this Deck ever saw it. Idempotent, and reachable
+        from every state — a Deck built but never opened still has a process claim to give up.
 
-        Every sink is told its stream has ended, including a caller's own: that is
-        ``EventSinkPort.close``\'s whole job — "write out whatever is still buffered" — and
-        skipping it to respect ownership would throw away exactly the audit or cost records the
-        caller registered the sink to keep. Ownership decides what this Deck *constructs*, not
-        who gets told the stream is over.
+        For sinks the rule bites at construction, not here: a Deck given ``sinks=`` builds no
+        telemetry client of its own. Every sink still gets its ``close``, a caller's own
+        included, because that call means "the stream has ended, write out what you buffered" —
+        skipping it to look respectful of ownership would discard exactly the audit or cost
+        records the sink was registered to keep.
 
         Nothing shuts the Langfuse SDK down. Measured against langfuse 4.14.1, the SDK holds one
         resource manager per public key in a process-global cache and ``shutdown()`` marks it
         dead without evicting it — so the next Deck opened in this process (sequential decks are
         supported; see :func:`_refuse_second_deck`) would be handed the dead one and export
-        nothing, silently. Flushing is what the deck owes; the SDK\'s own ``atexit`` stops its
+        nothing, silently. Flushing is what the deck owes; the SDK's own ``atexit`` stops its
         threads at the scope that resource actually has.
         """
         if self._closed:
