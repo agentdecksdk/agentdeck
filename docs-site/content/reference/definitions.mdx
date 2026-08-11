@@ -24,7 +24,7 @@ from agentdeck import Agent
 | `handoff_description` | `str \| None` | `base.handoff_description` | how this agent describes itself to a peer deciding whether to hand off |
 | `model` | `str \| None` | `base.model` | per-agent override; `None` uses the `OPENAI_MODEL` setting |
 | `model_settings` | `Mapping[str, Any]` | `base.model_settings` | forwarded to `agents.ModelSettings(**model_settings)` |
-| `tools` | `Sequence[Any]` | `base.tools` | already-built SDK tool objects, or a `Workflow` to expose as a tool |
+| `tools` | `Sequence[Any]` | `base.tools` | plain functions (compiled at `build()`), already-built SDK tool objects, or a `Workflow` to expose as a tool |
 | `handoffs` | `Sequence[Any]` | `base.handoffs` | peer agents this one can transfer to — a registry name (`str`), a built `Agent`, or a `Handoff` |
 | `output_type` | `type \| AgentOutputSchemaBase \| None` | `base.output_type` | a Pydantic model (or `AgentOutputSchema`) for structured output; `None` for free text |
 | `hooks` | `AgentHooks \| None` | `base.hooks` | SDK lifecycle callbacks |
