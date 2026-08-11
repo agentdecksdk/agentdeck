@@ -5,6 +5,11 @@ node) — a Runtime-driven turn never touches this; it goes through
 ``adapters/engines/openai_agents/engine.py`` instead. Sandbox attachment (v1's
 ``BaseRunner.attach_sandbox``) is gone with ``BaseSandboxAgent``: no agent compiled through
 ``authoring`` needs one in v3 (sandboxing is disabled, tracked in #163).
+
+This runner opens no spans of its own. Tracing is a Deck-level capability
+(``agentdeck.observability.Langfuse``) rendered from the canonical event stream by the
+telemetry sink; a runner that also opened a root observation is what produced the second,
+sessionless trace tree #162 reported.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ import httpx
 from agents import Agent, ModelSettings, OpenAIProvider, RunConfig, Runner, RunResult
 from openai import AsyncOpenAI
 
-from agentdeck.runtime.observability import init_observability, trace_run
+from agentdeck.adapters.engines.openai_agents.runconfig import tracing_enabled
 from agentdeck.runtime.settings import Settings, default_use_responses, get_settings
 
 if TYPE_CHECKING:
@@ -36,11 +41,6 @@ class StreamDone:
 
     final_output: Any = None
     usage: dict[str, int] = field(default_factory=dict)
-
-
-def _session_id(session: Any) -> str | None:
-    """Pull the chat session id off the SDK session (``SQLiteSession``/``RedisSession``), if any."""
-    return getattr(session, "session_id", None)
 
 
 def _usage_of(result: Any) -> dict[str, int]:
@@ -91,7 +91,7 @@ class BaseRunner:
             workflow_name=runner.workflow_name,
             model=openai.model,
             nest_handoff_history=True,
-            tracing_disabled=not init_observability(),
+            tracing_disabled=not tracing_enabled(),
             model_provider=OpenAIProvider(
                 openai_client=AsyncOpenAI(
                     base_url=openai.base_url or None,
@@ -133,40 +133,32 @@ class HeadlessRunner(BaseRunner):
     """Single-invocation runner: no sandbox, no event log."""
 
     async def run(self, message: Any = None, *, session: Any = None) -> RunResult:
-        with trace_run(name=self.agent.name, kind="agent", input=message, session_id=_session_id(session)) as tr:
-            result = await Runner.run(
-                self.agent,
-                message,
-                run_config=self.run_config,
-                max_turns=self.max_turns,
-                session=session,
-            )
-            tr.set_output(result.final_output)
-            return result
+        return await Runner.run(
+            self.agent,
+            message,
+            run_config=self.run_config,
+            max_turns=self.max_turns,
+            session=session,
+        )
 
     async def run_streamed(self, message: Any = None, *, session: Any = None) -> AsyncIterator[str | StreamDone]:
         """Async-generator counterpart to :meth:`run`: yields text deltas, then one :class:`StreamDone`."""
-        with trace_run(name=self.agent.name, kind="agent", input=message, session_id=_session_id(session)) as tr:
-            result = Runner.run_streamed(
-                self.agent,
-                message,
-                run_config=self.run_config,
-                max_turns=self.max_turns,
-                session=session,
-            )
-            stream = cast("AsyncGenerator[Any, None]", result.stream_events())
-            try:
-                async with aclosing(stream) as events:
-                    async for event in events:
-                        if event.type == "raw_response_event" and event.data.type == "response.output_text.delta":
-                            yield event.data.delta
-            except BaseException as exc:  # includes GeneratorExit / CancelledError on abandonment
-                tr.set_output(error=f"{type(exc).__name__}: {exc}")
-                raise
-            finally:
-                result.cancel()
-            tr.set_output(result.final_output)
-            yield StreamDone(final_output=result.final_output, usage=_usage_of(result))
+        result = Runner.run_streamed(
+            self.agent,
+            message,
+            run_config=self.run_config,
+            max_turns=self.max_turns,
+            session=session,
+        )
+        stream = cast("AsyncGenerator[Any, None]", result.stream_events())
+        try:
+            async with aclosing(stream) as events:
+                async for event in events:
+                    if event.type == "raw_response_event" and event.data.type == "response.output_text.delta":
+                        yield event.data.delta
+        finally:
+            result.cancel()
+        yield StreamDone(final_output=result.final_output, usage=_usage_of(result))
 
 
 __all__ = ["BaseRunner", "HeadlessRunner", "StreamDone"]

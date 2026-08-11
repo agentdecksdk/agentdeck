@@ -1,10 +1,10 @@
 """The Langfuse SDK boundary: the only module in the package that names ``langfuse``.
 
-Two jobs. :func:`langfuse_sink` answers "is Langfuse configured?" with a sink or with
-``None`` — nothing is imported and no client is built until the answer is yes, so an
-unconfigured process pays for none of this. :class:`LangfuseTracer` is the SDK-backed
-``Tracer``: it opens observations and hands back handles, and every call it makes is
-in-memory. Delivery belongs to the SDK's batching span processor, which ships from a
+Two jobs. :func:`langfuse_sink` builds the client and the sink over it — the one place in the
+package a client is constructed, reached only when a ``Deck`` that asked for tracing is
+opening, so nothing is imported and no client exists before then. :class:`LangfuseTracer` is
+the SDK-backed ``Tracer``: it opens observations and hands back handles, and every call it
+makes is in-memory. Delivery belongs to the SDK's batching span processor, which ships from a
 background thread, so ``emit`` never waits on the network; the sink's ``close`` is what makes
 that buffer leave the process at shutdown, instead of trusting an ``atexit`` a killed process
 never runs.
@@ -12,10 +12,11 @@ never runs.
 
 from __future__ import annotations
 
+import logging
+import os
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.adapters.telemetry.langfuse.sink import LangfuseSink
-from agentdeck.runtime.settings import get_settings
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -24,25 +25,47 @@ if TYPE_CHECKING:
     from agentdeck.core.events import Usage
     from agentdeck.runtime.settings import LangfuseSettings
 
+# Graceful degradation when Langfuse is unreachable. The OTLP HTTP exporter retries a failed
+# batch with exponential backoff *up to its timeout*, logging a WARNING each try; against a
+# dead backend that is pure noise that also blocks flush-on-exit. The per-export timeout is
+# bounded (seconds — the exporter reads this env, default 10) so retries give up fast, and the
+# exporter's log level is raised so transient-retry WARNINGs stay silent. A genuine,
+# non-retryable config error (bad keys, 4xx) is logged at ERROR and still surfaces.
+_EXPORT_TIMEOUT_ENV = "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT"
+_EXPORT_TIMEOUT_SECONDS = "5"
+_OTLP_EXPORTER_LOGGER = "opentelemetry.exporter.otlp.proto.http.trace_exporter"
 
-def langfuse_sink(settings: LangfuseSettings | None = None) -> LangfuseSink | None:
-    """The sink to register with the Runtime, or ``None`` when Langfuse has no keys.
 
-    The composition root spreads the result into ``Runtime(sinks=...)``: unconfigured means
-    no sink in that list at all, so an unconfigured run never reaches this adapter and never
-    pays a queue, a task or an import for it.
+def langfuse_sink(settings: LangfuseSettings) -> LangfuseSink:
+    """The sink to register with the Runtime, over a client built for ``settings``.
+
+    Called once, by a ``Deck`` that was asked for tracing, as it opens — never from settings by
+    whatever happens to be assembling a Runtime. Takes the settings rather than reading them,
+    so "is tracing wanted?" is answered by the caller and this module only answers "how".
     """
-    langfuse = settings if settings is not None else get_settings().langfuse
-    if not langfuse.enabled:
-        return None
-    return LangfuseSink(LangfuseTracer(_build_client(langfuse)))
+    return LangfuseSink(LangfuseTracer(build_client(settings)))
 
 
-def _build_client(settings: LangfuseSettings) -> Any:
+def build_client(settings: LangfuseSettings) -> Any:
     """Construct the SDK client. Imported here, never at module scope, so the optional
-    ``[observability]`` extra stays optional."""
+    ``[observability]`` extra stays optional.
+
+    One client, built once, is a hard requirement rather than a preference. The SDK caches a
+    ``LangfuseResourceManager`` per public key and returns the cached one from every later
+    ``Langfuse(...)`` call, discarding that call's arguments — so a second construction cannot
+    change the environment, the sample rate or the span filter the first one set, and it is not
+    a second client either. Shutting one down does not evict it from that cache, which is why
+    nothing here shuts one down: see ``Deck.aclose``.
+    """
     from langfuse import Langfuse  # ty: ignore[unresolved-import] — [observability] extra
 
+    # Name the OTel resource before the SDK builds its TracerProvider — ``Resource.create``
+    # reads ``OTEL_SERVICE_NAME``, so this replaces the default ``unknown_service``. Respect an
+    # operator-set value.
+    os.environ.setdefault("OTEL_SERVICE_NAME", settings.service_name)
+    # Bound + quiet the exporter before it is built, so a down Langfuse can't slow or spam a run.
+    os.environ.setdefault(_EXPORT_TIMEOUT_ENV, _EXPORT_TIMEOUT_SECONDS)
+    logging.getLogger(_OTLP_EXPORTER_LOGGER).setLevel(logging.ERROR)
     return Langfuse(
         public_key=settings.public_key,
         secret_key=settings.secret_key,
@@ -154,4 +177,4 @@ def _cost_details(usage: Usage | None) -> dict[str, float] | None:
     return {"total": usage.usd}
 
 
-__all__ = ["LangfuseTracer", "langfuse_sink"]
+__all__ = ["LangfuseTracer", "build_client", "langfuse_sink"]

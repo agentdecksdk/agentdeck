@@ -23,7 +23,6 @@ from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
-from agentdeck.adapters.telemetry.langfuse.client import langfuse_sink
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import (
@@ -50,7 +49,7 @@ def build_runtime(
     engines: Sequence[EnginePort],
     invocables: Mapping[str, InvocableSpec] | None = None,
     store: EventStorePort | None = None,
-    sinks: Sequence[EventSinkPort] | None = None,
+    sinks: Sequence[EventSinkPort] = (),
     control: ControlPort | None = None,
     stale_run_after: timedelta | None = None,
 ) -> Runtime:
@@ -58,9 +57,14 @@ def build_runtime(
 
     ``invocables`` defaults to discovery over ``./.agentdeck`` — pass a mapping to run
     specs built in code instead. ``store`` defaults to the configured event store,
-    ``control`` to the configured control port, ``stale_run_after`` to
-    ``RuntimeSettings.stale_run_after``, and ``sinks`` to the configured telemetry —
-    passing ``sinks=()`` is how a caller asks for none at all.
+    ``control`` to the configured control port, and ``stale_run_after`` to
+    ``RuntimeSettings.stale_run_after``.
+
+    ``sinks`` defaults to none, and telemetry in particular is *not* resolved here. A sink can
+    hold a live client with background threads, and resolving one while a Runtime is assembled
+    built that client before anyone had said whether they wanted it — the ordering behind #162.
+    :func:`resolve_observers` is what reads settings, and ``Deck.__aenter__`` is what calls it,
+    once, as it opens.
 
     Timestamps are assigned by the store, in the same write that persists the event
     (ADR-D11), so holding time means building the store with a clock —
@@ -74,13 +78,24 @@ def build_runtime(
     control = control or resolve_control_port()
     if stale_run_after is None:
         stale_run_after = get_settings().runtime.stale_run_after
-    if sinks is None:
-        # Telemetry is a reader of the event stream, so it is wired here rather than opened
-        # by whatever happens to be running: one sink covers agents, workflows and every
-        # engine at once. ``None`` when Langfuse has no keys, which registers nothing at all.
-        telemetry = langfuse_sink()
-        sinks = () if telemetry is None else (telemetry,)
     return Runtime(engines, store, specs, sinks=sinks, control=control, stale_run_after=stale_run_after)
+
+
+def resolve_observers() -> tuple[EventSinkPort, ...]:
+    """The observers a Deck opens when its caller named none: Langfuse, if configured.
+
+    Nothing is built here either — :class:`~agentdeck.observers.Langfuse` reads its settings
+    and constructs its client in ``start()``, which the Deck calls as it opens. This function
+    only answers "did the environment ask for one?", so it stays as free of network and of the
+    optional ``[observability]`` extra as the rest of ``build()``'s path.
+
+    One observer today, and the shape stays plural: the Runtime already fans out to as many
+    taps as it is given, and a caller with a cost or audit observer of its own passes
+    ``observers=`` to ``Deck`` instead of coming through here.
+    """
+    from agentdeck.observers import Langfuse
+
+    return (Langfuse(),) if get_settings().langfuse.enabled else ()
 
 
 def resolve_run_settings(settings: Settings | None = None) -> RunSettings:
@@ -193,5 +208,6 @@ __all__ = [
     "resolve_checkpoint",
     "resolve_control_port",
     "resolve_event_store",
+    "resolve_observers",
     "resolve_run_settings",
 ]

@@ -190,20 +190,25 @@ source_modules =
 forbidden_modules =
     mcp
 
-# Langfuse as a sink (#77): tracing is a reader of the event stream now, so the Langfuse SDK
+# Langfuse as a sink (#77): tracing is a reader of the event stream, so the Langfuse SDK
 # belongs to the telemetry adapter alone — an engine or a surface opening a span itself is
-# what left workflows untraced in the first place. `langfuse` is a top-level distribution,
-# so import-linter can name it directly; the MCP ban above needed ruff only because
-# `agents.mcp` is a subpackage. v1's `runtime/observability.py` still instruments the SDK for
-# v1 runs and stays deliberately outside this list, which is why `agentdeck.runtime` appears
-# here as its two v2 modules rather than whole.
+# what left workflows untraced in the first place, and a *second* module constructing a client
+# is what made #162's span filter never apply. `langfuse` is a top-level distribution, so
+# import-linter can name it directly; the MCP ban above needed ruff only because `agents.mcp`
+# is a subpackage. `agentdeck.runtime` is listed whole now that `runtime/observability.py` —
+# the second altitude this contract had to carve an exception for — is gone, and
+# `agentdeck.authoring` joins it, since a direct-call runner opening spans of its own is what
+# left #162's orphan trees. `agentdeck.composition` and `agentdeck.deck` cannot be listed: the
+# composition root resolves the sink on purpose (`resolve_sinks`), so every path from them
+# reaches the SDK. That one place constructs the client, and that `build_runtime` is not it,
+# are pinned by name in `tests/test_observability.py` instead.
 [importlinter:contract:langfuse-is-telemetry-private]
-name = only the telemetry adapter imports the Langfuse SDK (v2 modules)
+name = only the telemetry adapter imports the Langfuse SDK
 type = forbidden
 source_modules =
     agentdeck.core
-    agentdeck.runtime.service
-    agentdeck.runtime.dispatch
+    agentdeck.runtime
+    agentdeck.authoring
     agentdeck.adapters.stores
     agentdeck.adapters.control
     agentdeck.adapters.engines
@@ -232,6 +237,7 @@ forbidden_modules =
     agentdeck.authoring
     agentdeck.skills
     agentdeck.mcp
+    agentdeck.observers
     agentdeck.surfaces
     agentdeck.serve
     agentdeck.deck

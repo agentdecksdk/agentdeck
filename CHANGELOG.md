@@ -93,6 +93,47 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `Workflow.run()`/`as_tool()` paths pass none either; and a skill is prose, not a callable, so
   there is nothing there to inject into.
 
+- **`Deck(observers=[...])` — the event stream has a declared set of observers, and they start
+  with the deck** (#181). An observer is any `EventSinkPort` — telemetry, cost accounting, audit
+  — and the Runtime fans every run out to all of them, each with its own bounded queue.
+  `agentdeck.observers.Langfuse` is the one agentdeck ships.
+
+  ```python
+  from agentdeck import Deck
+  from agentdeck.observers import Langfuse
+
+  deck = Deck(agents=[booking], observers=[Langfuse(), my_audit_observer])
+  async with deck:                 # every observer starts here, once, before any run
+      await deck.run("booking", "hello")
+  ```
+
+  Three states: `observers=None` (the default) starts the configured Langfuse observer if
+  `AGENTDECK_LANGFUSE_*` names one and nothing otherwise, exactly as before; a sequence starts
+  exactly those, in order, and suppresses the settings-derived one; `observers=()` starts none.
+
+  The altitude is the point. Observers start during `__aenter__`, before the Runtime exists and
+  before any run can begin — they are no longer assembled underneath the composition root from
+  settings, nor started by whichever run happened to come first. `build()` shape-checks
+  `observers=` and does nothing else: nothing is started, no telemetry client is constructed and
+  no exporter contacted, so a deck with Langfuse configured still validates where Langfuse is
+  unreachable. There is no `deck.observers` property, for the same reason there is no `runtime`
+  or `store`.
+
+  `Langfuse(sdk_spans=True)` adds the raw layer on top of the semantic one: OpenInference maps
+  every agent, generation and tool call the Agents SDK makes, with its input and output — detail
+  the event log does not record. **It arrives as a second, separate trace per run rather than
+  nested under the first**, because nesting would need the engine to establish an OTel context and
+  the engines are barred from the Langfuse SDK by design. Off by default and documented as
+  unnested, so nobody meets a trace they did not ask for — which is what #162 was filed about.
+  Correlating the two layers is #218.
+
+- **`EventSinkPort.start()`** (#181) — an `async` no-op by default, called once while the Deck
+  opens, before any run, and pairing with the existing `close()`. A sink that holds a client, a
+  connection or a file opens it there rather than on whichever event it happens to see first.
+  Additive: an existing sink that only implements `emit` is unaffected. Raising from `start()`
+  refuses the open rather than leaving a deck running with an observer that silently never
+  worked — which is what `Langfuse()` does when no keys are configured.
+
 - **`SECURITY.md` and `CODE_OF_CONDUCT.md`** (#132). The security policy says where to report a
   vulnerability and what is in scope — including the two things that are deliberately *not*: a
   model-chosen tool call runs with the full privileges of the host process, and nothing is
@@ -130,6 +171,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   cannot be read (a decorator that dropped `functools.wraps` is the usual cause): there is no
   honest schema to show the model, and no way to tell "declares no context" from "could not
   look", so compiling it would silently drop an argument the function needs.
+
+- **Breaking:** **`build_runtime(sinks=…)` no longer defaults to the configured telemetry**
+  (#181, #162). It defaults to no sinks at all, and the composition *function* reads no Langfuse
+  keys — an observer opens a live client, so when one is constructed is a lifecycle decision, and
+  doing it while a Runtime was assembled is what #162's first defect was. Resolving from settings
+  moved to `agentdeck.composition.resolve_observers()`, which `Deck.__aenter__` calls (and then
+  `start()`s the result) as it opens; a `Deck` behaves exactly as before. A caller that hand-wired
+  `build_runtime(...)` and relied on it picking Langfuse up from the environment now gets an
+  untraced Runtime — pass the observers yourself, remembering to `await observer.start()` first,
+  or open a `Deck`. `sinks=None` is no longer accepted; the parameter is a plain sequence.
 
 - **The README now says what agentdeck is before it shows any code** (#132): what it is, who it
   is for, what it deliberately does not do, and how it divides work with the OpenAI Agents SDK
@@ -205,6 +256,15 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Removed
 
+- **`agentdeck.runtime.observability` is gone** (#181, #162), and with it `init_observability`,
+  `trace_run`, `RunTrace`, `degrade_export_quietly` and the `_should_export_span` filter. It was
+  a second place tracing was assembled, below the composition root and started by the first run
+  — the source of both defects fixed below. Traces are rendered from the canonical event stream
+  by `agentdeck.adapters.telemetry.langfuse`, which was already the design of record; what this
+  removes is the parallel mechanism. A direct `Workflow.run()` or `Agent`-node turn, which
+  bypasses the event stream the same way it bypasses the event log, is therefore no longer
+  traced — run it through a `Deck` to trace it.
+
 - **The sandbox scaffolding is gone** (#71). Sandboxing left v3 by ruling (#163 stays open as
   the design issue), and the tree was carrying a port with no consumer, an adapter with no
   caller and spec classes nothing constructed. Deleted: `agentdeck.core.ports.sandbox` in full
@@ -271,6 +331,22 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   log could be compared against what should have been there. A callable written defensively as
   `if ctx.data:` would have returned a plausible wrong answer with no error anywhere. Only ever
   reachable on this development line, since `run(context=)` and this landed in the same release.
+
+- **The Langfuse span filter never applied, because the client that carried it was never the
+  one that ran** (#162). `build_runtime()` constructed a client from settings while the Runtime
+  was assembled, with no `should_export_span`; `init_observability()` constructed a second one
+  later, on the first run, with the filter. Confirmed against langfuse 4.14.1: the SDK caches
+  one `LangfuseResourceManager` per public key and returns it from every later `Langfuse(...)`,
+  discarding that call's arguments — so the second construction was not a second client and its
+  filter was silently dropped. There is one construction point now, reached only when a deck
+  opens, and the filter is gone with the `sandbox.*` spans it existed to drop (sandboxing left
+  v3 in #163/#71, so nothing emits them any more).
+
+- **An agent turn exported one trace too many with Langfuse on** (#162). `init_observability()`
+  installed the OpenInference `OpenAIAgentsInstrumentor`, but the `trace_run` root that used to
+  group those spans and carry `session.id` was gone — so the SDK's spans exported as a second,
+  sessionless tree beside the sink's own trace. Nothing instruments the Agents SDK any more and
+  the direct-call runners open no observations, so one run is one trace again.
 
 - `Deck.from_project()` reading a *previous* project's bundle files (#204). Mounting a project
   rebound the module alias but left its already-imported submodules cached, so a second project

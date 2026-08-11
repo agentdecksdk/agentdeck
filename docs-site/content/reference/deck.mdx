@@ -38,18 +38,19 @@ asyncio.run(main())
 
 ```python
 Deck(
-    agents=[...],       # Agent instances
-    workflows=[...],    # Workflow instances
-    skills="./skills",  # a path, a sequence of paths, or a Skills(...) object
-    mcp=".mcp.json",    # a path, or an MCP(...) object
-    context=Calendar,   # the *type* of the per-run context, if this catalog declares one
+    agents=[...],                   # Agent instances
+    workflows=[...],                # Workflow instances
+    skills="./skills",              # a path, a sequence of paths, or a Skills(...) object
+    mcp=".mcp.json",                # a path, or an MCP(...) object
+    context=Calendar,               # the *type* of the per-run context, if this catalog wants one
+    observers=[Langfuse()],         # taps on the event stream; None reads settings, () means none
 )
 ```
 
-`Deck.from_project(path=".agentdeck")` discovers the same four catalog arguments from today's directory
-layout (`agents/<bundle>/agent.py`, `workflows/<bundle>/workflow.py`, `skills/*/SKILL.md`,
-`.mcp.json` next to `.agentdeck/`) and hands them to the same constructor — there is one catalog
-mechanism underneath either front door.
+`Deck.from_project(path=".agentdeck")` discovers the same four catalog arguments from today's
+directory layout (`agents/<bundle>/agent.py`, `workflows/<bundle>/workflow.py`,
+`skills/*/SKILL.md`, `.mcp.json` next to `.agentdeck/`) and hands them to the same constructor —
+there is one catalog mechanism underneath either front door.
 
 The lifecycle is `NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED`:
 
@@ -59,10 +60,10 @@ The lifecycle is `NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED`:
   server started — and is idempotent, so it doubles as a CI check. Calling a turn-starting method
   without an explicit `build()` still works — `async with deck:` calls it for you.
 - **`async with deck:`** starts everything `build()` left alone: the real engines, the event
-  store, the session factory, and every configured MCP server. This is what a turn-starting
-  method actually needs; calling one before opening raises.
-- **`CLOSED` is terminal.** `aclose()` (or the `async with` block's exit) flushes the Runtime's
-  sinks and closes what this `Deck` itself opened — an `MCP(...)` it holds, always, and the event
+  store, the session factory, the observers, and every configured MCP server. This is what a
+  turn-starting method actually needs; calling one before opening raises.
+- **`CLOSED` is terminal.** `aclose()` (or the `async with` block's exit) closes the Runtime's
+  observers and tears down what this `Deck` itself opened — an `MCP(...)` it holds, always, and the event
   store it built from settings, but never one passed in through construction. Reopening a closed
   `Deck` raises; construct a new one instead.
 
@@ -294,6 +295,104 @@ that is not open yet.
 A third, if any of this catalog's callables declare a context: **it does not reach a served run.**
 A context is a live Python object with no wire form, so an HTTP-started run always carries `None`
 — [see below](#where-a-context-does-not-reach).
+
+## Observers
+
+The event log is the hub. An **observer** is a read-only tap on it — telemetry, cost accounting,
+audit — and a deck can have as many as it likes. `observers=` is where they are declared, and
+they start with the deck.
+
+```python
+from agentdeck import Deck
+from agentdeck.observers import Langfuse
+
+deck = Deck(agents=[booking], observers=[Langfuse()])
+
+async with deck:                      # every observer starts here, once, before any run
+    await deck.run("booking", "hi")   # never mid-run
+```
+
+| `observers=` | What starts |
+|---|---|
+| *(omitted, or `None`)* | The configured `Langfuse()` observer if `AGENTDECK_LANGFUSE_PUBLIC_KEY` and `AGENTDECK_LANGFUSE_SECRET_KEY` are both set (see [Settings](/reference/settings)); nothing otherwise, with no warning. |
+| `[observer, …]` | Exactly these, in order. Naming any observer suppresses the settings-derived `Langfuse()` — a deck told which taps to open does not open another behind your back, so include it explicitly if you want it alongside your own. |
+| `()` | None at all, even where the environment configures Langfuse. |
+
+`Langfuse()` is configured entirely by `AGENTDECK_LANGFUSE_*`, so there is one place to set the
+endpoint, environment, sample rate and service name rather than two. Naming it with no keys
+configured raises `ConfigError` at open, rather than tracing nothing quietly.
+
+#### Two layers, and only one is on by default
+
+| | |
+|---|---|
+| **semantic** (always) | Each run rendered from the canonical event log — what happened. Identical for an agent turn and a workflow run, because both are traced from the same events. |
+| **raw** (`sdk_spans=True`) | OpenInference maps every agent, generation and tool call the Agents SDK makes, with its input and output — detail the event log does not record. |
+
+```python
+deck = Deck(agents=[booking], observers=[Langfuse(sdk_spans=True)])
+```
+
+**The raw layer arrives as a second, separate trace per run — it is not nested under the first.**
+Nesting would require the engine to establish an OTel context, and the engines are barred from the
+Langfuse SDK by design (`.importlinter`'s `langfuse-is-telemetry-private`). So a turn with
+`sdk_spans=True` shows up in Langfuse as two traces: the agentdeck one, and the SDK's own.
+
+That is why it is opt-in. Reach for it when you are debugging *how* a turn ran — latency, retries,
+what a tool actually received — and leave it off when you want one clean trace per run.
+
+### Writing your own
+
+An observer implements `EventSinkPort` — one required method, two optional lifecycle hooks:
+
+```python
+from agentdeck.core.ports import EventSinkPort
+
+
+class CostObserver(EventSinkPort):
+    async def start(self) -> None:
+        ...   # open a client or a file; called once, at deck open, before any run
+
+    async def emit(self, event) -> None:
+        ...   # in-memory work only; never awaits a round trip
+
+    async def close(self) -> None:
+        ...   # the stream has ended: write out whatever is buffered
+```
+
+`start()` and `close()` both default to no-ops, so an observer that only needs `emit` defines
+only `emit`. Raising from `start()` refuses the deck's open — better than a deck that runs with
+an observer which silently never worked.
+
+The lifecycle is the one the rest of the deck follows:
+
+- **`build()`** checks that everything in `observers=` is an `EventSinkPort` and does nothing
+  else. Nothing is started, no telemetry client is constructed, no exporter contacted — so a deck
+  with Langfuse configured still validates in CI with nothing reachable.
+- **Opening** calls each `start()` in order and registers every observer before the Runtime
+  exists, so no run can be the thing that turns observability on.
+- **Closing** tells every observer its stream has ended, which is what makes it write out
+  whatever it buffered. What the deck *constructs* it owns; naming `observers=` means the deck
+  builds no Langfuse client of its own.
+
+An observer is fire-and-forget by contract: each has its own bounded queue, one that is slow or
+raises costs its own backlog and never a run, and one that keeps failing is disabled and later
+retried. An observer that cannot afford to lose an event reads the store instead.
+
+One run is one trace. Traces are rendered from the [canonical event
+stream](/concepts/runs-and-the-event-log), which is why an agent turn and a workflow run are
+traced by the same code and both carry their `session_id` — nothing instruments the OpenAI
+Agents SDK, and nothing opens a span outside an observer. A direct `Workflow.run()`, which
+bypasses the Runtime, therefore bypasses the observers too.
+
+There is no `deck.observers` property, for the same reason there is no `runtime` or `store`:
+nothing needs one, and adding a property later is additive while removing one is not.
+
+<Callout type="info">
+  `Langfuse()` needs the `observability` extra: `pip install "agentdeck[observability]"`. Without
+  it, a deck with no Langfuse keys is unaffected — the SDK is imported when the observer starts,
+  not when it is constructed.
+</Callout>
 
 ## Sessions
 
