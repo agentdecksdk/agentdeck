@@ -159,20 +159,20 @@ checkpoint either. The options, in the order I would take them:
 I would take (1). It is additive, it keeps Ruling 10 intact, and it is the only option where the
 feature combination works.
 
-### B. Does `reporter` move off `configurable`?
+### B. Does `reporter` move off `configurable`? — **RULED 2026-08-11: no**
 
-Per §3. Three ways:
+Per §3. **Smallest change, or none.** Application context moves to `Runtime[T]`; `reporter` and
+`agentdeck_stream` stay on `configurable` exactly as they are. The plan's "`thread_id` — and
+nothing else" is amended to "nothing else *application-owned*", which is the distinction that
+actually matters; no code moves.
 
-1. **Move application context to `Runtime[T]`; leave `reporter` and `agentdeck_stream` where they
-   are.** Smallest diff, no behavior change, and `configurable` keeps two AgentDeck keys — the
-   plan's "nothing else" becomes "nothing else *application-owned*", which is the distinction that
-   actually matters.
-2. **Move everything to `Runtime[T]`.** Cleaner line, and `Runtime[T]` is genuinely the channel
-   for this. But it breaks every workflow reading `config["configurable"]["reporter"]` and
-   contradicts a documented decision, for tidiness rather than capability.
-3. Defer, and let slice 3 decide with the code in front of it.
+If `Context[T]` lands, `ctx.reporter` arrives with it additively at no extra cost — that is what
+"v3 supports the ability" means here, and it settles nothing beyond that.
 
-I would take (1), and amend the plan's sentence rather than the code.
+The larger question — whether reach is an explicit parameter or an ambient accessor, whether
+LangGraph's transport should be `Runtime[T]` rather than a config channel, and whether a
+deck-level sink parameter belongs — is **#211**, deliberately deferred past the v3.0.0 release.
+Slice 3 must not pre-empt it: leave the key, and do not deprecate it in passing.
 
 ## Risks
 
