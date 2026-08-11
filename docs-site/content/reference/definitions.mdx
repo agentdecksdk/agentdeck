@@ -62,6 +62,10 @@ def find_slots(day: str, environment: Context[Calendar]) -> str:
 Declaring two such parameters is a `build()` error. So is a callable whose signature cannot be
 read — a decorator that dropped `functools.wraps` is the usual cause — since there is then no
 honest schema to show the model and no way to tell "declares no context" from "could not look".
+And so is a `T` the owning deck's `Deck(context=...)` cannot satisfy, when it declared one: a
+`ContextTypeError` naming both types, at `build()`. See
+[Deck](/reference/deck#declaring-the-context-type) for what counts as compatible and what is
+deferred to invocation instead.
 
 An already-built Agents SDK tool object (`@function_tool`, `WebSearchTool()`, …) is still
 accepted and passed straight through. It is **engine-native**: agentdeck introspects nothing
@@ -85,6 +89,10 @@ event log, and it returns the SDK's `RunResult`, not a `TurnResult`. Reach for i
 or a test that only needs one headless call and does not care about the log; reach for
 `Deck.run()` (see [Deck](/reference/deck)) for anything that should be recorded and readable back
 afterwards.
+
+It also passes no context. There is no `context=` on the headless runner, so a tool declaring one
+refuses when the model calls it, saying the run "carries NoneType rather than an AgentDeck run
+context". A context-declaring agent is a `Deck.run()` agent.
 
 `skills=`/`mcp=` names unresolved against the owning `Deck`'s catalog fail `Deck.build()` naming
 the offending agent and the names it declared that nothing provides.
@@ -150,6 +158,12 @@ the compiled graph and writes nothing to the event log; `Deck.run()` and `Deck.a
 the Runtime actually plays, and record the run — see [Deck](/reference/deck). `Deck.stream()`
 plays a workflow the same way, so nothing on `Deck` calls `run_stream()` — it stays useful for a
 script or a test that wants the raw graph stream with no log.
+
+The asymmetry goes further for a node that declares a `Context[T]`. The bridge that puts a context
+into a node is installed when a `Deck` builds its catalog, so `run()`, `resume()` and `as_tool()`
+never install it: such a node reached by one of those paths dies with LangGraph's own
+`TypeError: <node>() missing 1 required positional argument`, not with agentdeck's message. Loud
+and immediate, but it is the raw engine error — the price of leaving a log-free convenience alone.
 
 `as_tool()` requires `state` to be a Pydantic model (`TypeError` otherwise, since the tool's JSON
 schema comes from `state.model_json_schema()`), and requires `durable=False` — a tool call

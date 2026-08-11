@@ -201,6 +201,41 @@ Per-slice notes:
   "There is no `context=`" as a deliberate promise. The `test_every_public_deck_method_is_documented_somewhere`
   guard in `tests/test_docs_site.py` will notice the changed signatures.
 
+  ***Settled 2026-08-11, implementing slice 4.***
+  - **Ruling 10's invocation-time half is deliberately not implemented.** `build()` checks the
+    declared type against every requirement; nothing checks at `run()` that a root whose graph
+    requires a context actually received one, and nothing `isinstance`-checks the value against
+    the declaration. Not an omission — the two would contradict what this arc has already
+    settled and shipped. Ruling A's documented behavior for the unsupported combination *is* a
+    replay with `data=None` ("surfaces wherever the node first touches it"), slice 3 shipped and
+    documented the same for a `resume()`/`answer()` lifted without one, and
+    `test_a_run_without_a_context_reaches_a_declaring_tool_with_none` pins it for `run()`. A
+    pre-execution refusal would turn all three into errors. It stays additive and reversible: if
+    a real caller wants "required", it is a later, opt-in decision, not one to take days before
+    a stable tag.
+  - **The declaration is checked only when made, and only when it is a type.** No `context=` on
+    the constructor means no build-time check at all, so every deck built against slices 1–3 is
+    unaffected. An *instance* (`Deck(context=my_calendar)`) or a union is refused at
+    construction rather than accepted: both make every check below defer, which is the
+    accepted-and-useless shape #182 deleted the parameter for.
+  - **Step 8 has no code subject, and the plan is wrong about it.** The design plan's step 8
+    ("Skills — in-process `Context[T]`") predates #71/#164: a v3 skill is a `SKILL.md` an agent
+    reads through the generated `load_skill` tool, and the executable half — `skill_runtime`, the
+    sandbox scaffolding — was deleted. There is no user callable at a skill to inject into, so
+    the honest implementation is a sentence in the reference saying a skill never receives a
+    context and that a skill needing application state is an ordinary tool. Nothing was built.
+  - **Four sites flattened the error class, and had to be fixed with it.** `compile.py`,
+    `graphs.py`, `hooks.py` and `discovery.py` each re-raise a compilation failure with a name
+    prepended (`agent 'X': …`, `node 'y': …`, `<file> failed to build: …`), all as a bare
+    `ConfigError`. Left alone, `ContextTypeError` would have been unobservable from outside the
+    unit tests — the class the plan names as the user-visible type, erased by the wrap. Each now
+    re-raises the original's class.
+  - **Union annotations are the one real trap in the compatibility check.** `get_origin(A | B)`
+    is `types.UnionType` on 3.13 and `typing.Union` on 3.14, and *both are classes* — so a check
+    that normalises through `get_origin` and falls through to `issubclass` compares the declared
+    type against `UnionType` itself and refuses every union. `Context[Calendar | None]` already
+    appears in slice 2's own tests. Handled arm by arm, with a named regression test.
+
 ## Rulings
 
 Two questions the design plan could not have answered, because the API it describes did not exist
@@ -259,13 +294,20 @@ combination is unsupported and what happens if you build it — not a vague cave
 `tick()` resume of a context-requiring workflow replays with `data=None`, which surfaces wherever
 the node first touches it, so the docs should name that rather than let it be discovered.
 
+*Delivered 2026-08-11:* `reference/deck.mdx` gained a "Where a context does not reach" section
+naming the triple (`durable = True` + `sleep_until` + `Context[T]`), the mechanism (`ctx.data` is
+`None` on the replay), and both ways it shows up — an `AttributeError` on `None`, or a plausible
+wrong answer from a node written as `if ctx.data:`. No workaround is offered, because there is
+none.
+
 Revisit if a real user hits it: the provider is additive and this ruling costs nothing to reverse.
 
 The wider form of this outlives whichever option wins, and slice 4 must state it: **a context
 cannot cross the HTTP surface at all**, because it is a live Python object the plan says is never
 serialized. A context-requiring invocable is therefore reachable from embedded Python callers and
 not from `asgi()`. That is a real boundary, and the reference has to say so rather than let a user
-find it in production.
+find it in production. *Stated in the same section, alongside the two headless paths that pass no
+context either (`Agent.run()`, `Workflow.run()`/`as_tool()`) and the skills non-case.*
 
 ### B. Does `reporter` move off `configurable`? — **RULED 2026-08-11: no**
 

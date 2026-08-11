@@ -52,28 +52,46 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Added
 
-- **`agentdeck.Context` and `deck.run(..., context=obj)`** (#166): an application value — a
-  database handle, a client, whatever the code a run reaches needs — supplied once per run and
-  received by any tool that declares a `Context[...]` parameter, whatever that parameter is
-  named. `ctx.data` is the very object passed in, by reference; `ctx.reporter`, `ctx.run_id`,
-  `ctx.session_id` and `await ctx.checkpoint()` come with it. **The model never sees it**: the
-  context parameter is absent from the tool schema sent to the model, and the value is never
-  written to the event log.
+- **Context injection: `agentdeck.Context`, `Deck(context=T)` and `context=` on every run**
+  (#166). An application value — a database handle, a client, whatever the code a run reaches
+  needs — enters once at the run boundary and is delivered to any callable that *declares* it.
 
-- **`Context[T]` on both engines, and at every injection site** (#166). A **workflow node** takes
-  one alongside its `state` — the value travels on LangGraph's own runtime-context channel
-  (`context=` / `Runtime[T]`), not on `configurable`, which keeps `thread_id`, the reporter and
-  the stream flag exactly as before. An **instructions callable** may declare one, and only the
-  string it returns reaches the model. An **agent hook** may name a `Context[T]` first, where the
-  SDK's own wrapper would go; a hooks object declaring none is passed through untouched. A node,
-  an instructions callable and a hook all go through the same analysis a tool does, so
-  "declares two `Context[...]` parameters" is one `build()` error with one message everywhere. A
-  contract test parametrized over both engines pins that the two bridges deliver the same thing.
+  **Declaring it.** Annotate a parameter `Context[T]`, whatever you name it: a tool, an
+  `instructions=` callable, an agent hook (first parameter, where the SDK's own wrapper goes), or
+  a workflow node alongside its `state`. `ctx.data` is the very object passed in, by reference;
+  `ctx.reporter`, `ctx.run_id`, `ctx.session_id` and `await ctx.checkpoint()` come with it. A
+  plain function in `tools=` is now compiled rather than rejected — a context-declaring tool
+  cannot be pre-wrapped with `@function_tool`, since that would put the context parameter in the
+  model-visible schema.
 
-- **`answer(run_id, value, context=...)` and `resume(run_id, context=...)`** (#166), mirroring
-  `run()`. Context is resupplied, never recovered: the value is deliberately never serialized, so
-  the caller picking a paused run back up is the only one who still has it. `tick()` takes none
-  and remains unable to resume a context-requiring workflow.
+  **The model never sees it.** The context parameter is absent from the tool schema sent to the
+  model, an instructions callable contributes only its return value to the prompt, and the value
+  is never written to the event log.
+
+  **Supplying it.** `deck.run(..., context=obj)` and `deck.stream(...)`, plus
+  `answer(run_id, value, context=...)` and `resume(run_id, context=...)` — resupplied, never
+  recovered, because the value is deliberately never serialized, so the caller picking a paused
+  run back up is the only one who still has it.
+
+  **Both engines, one contract.** The value travels on each engine's own runtime-context channel
+  — the SDK's `RunContextWrapper`, LangGraph's `Runtime[T]` — never on `configurable`, which
+  keeps `thread_id`, the reporter and the stream flag exactly as before. A contract test
+  parametrized over both engines pins that the two bridges deliver the same thing.
+
+  **Checking it.** `Deck(context=MiddleContext)` declares the context *type* (the class, not an
+  instance), and `build()` then checks every `Context[...]` in the catalog against it, raising
+  `ContextTypeError` naming both types. It decides only what the runtime can decide — exact type,
+  subtype, `Any`, a runtime ABC's origin, a protocol `issubclass` will rule on, a union arm by arm
+  — and defers everything else (a structural protocol, a `TypeVar`, an engine-native tool object)
+  to invocation rather than guessing. A deck that declares no `context=` is unchanged: nothing is
+  checked, and `run(context=...)` works exactly the same.
+
+  **Where it does not reach**, all documented in the `Deck` reference: a context cannot cross the
+  HTTP surface at all (no wire form for a live object, so a served run carries `None`); `tick()`
+  takes none, so *durable + `sleep_until` + `Context[T]`* is unsupported in v3.0.0 and a timer
+  resume replays with `ctx.data` set to `None`; the headless `Agent.run()` and
+  `Workflow.run()`/`as_tool()` paths pass none either; and a skill is prose, not a callable, so
+  there is nothing there to inject into.
 
 - **`SECURITY.md` and `CODE_OF_CONDUCT.md`** (#132). The security policy says where to report a
   vulnerability and what is in scope — including the two things that are deliberately *not*: a
