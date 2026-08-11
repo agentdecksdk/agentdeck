@@ -48,9 +48,10 @@ _REPO_CLI_URL = "https://github.com/sagi5060/agentdeck/blob/main/agentdeck/cli.p
 
 def _settings_classes() -> list[type[LayeredSettings]]:
     """Only the subclasses *defined in* ``settings.py`` — not every ``LayeredSettings`` that
-    happens to be loaded in the process. ``agentdeck.agents.capabilities.shell.ShellSpec`` is
-    also one, but it is a capability spec: DS-D2 keeps those hand-written, so this table must
-    not pick it up just because something imported it first.
+    happens to be loaded in the process. Nothing outside that module subclasses it today (the
+    capability specs that used to did, and are gone), so the filter is currently a no-op — it
+    stays because this page is the env-var table, and a subclass declared elsewhere for some
+    other purpose must not land in it just because something imported it first.
     """
     return [cls for cls in LayeredSettings.__subclasses__() if cls.__module__ == settings_module.__name__]
 
