@@ -148,6 +148,22 @@ Per-slice notes:
   advertised behavior is the top risk in the whole feature. Hooks belong here, not in slice 2 —
   the design plan mentions them in both step 4 and step 6, and doing them twice is the default
   failure if nobody says which.
+
+  **`resume()` loses the context, silently — slice 3 must close it.** Found by slice 2 and
+  verified in the tree: `Runtime.run` passes `data=context` (`runtime/service.py:146`), while
+  `resume_run` (`:231`) and the workflow resume path (`:200`) mint their `RunContext` with no
+  `data=` at all, so it defaults to `None`. A run paused and resumed therefore replays with its
+  context gone. The design plan already rules the right behavior — *"`resume()` resupplies it"*
+  (Lifecycle) — so this is unimplemented, not undecided.
+
+  It is the worst-shaped bug in the arc: **undetectable from inside**, because context is never
+  serialized, so nothing in the log can be compared against what should have been there. A tool
+  reading `ctx.data.client` gets an `AttributeError` on `None` at best; one written defensively
+  as `if ctx.data:` degrades in silence and returns a plausible wrong answer.
+
+  Not shippable-broken today only because PR #210 stays draft until slice 4 — `run(context=)`
+  turned on in slice 2, so the path is already reachable on the branch. Do not let this arc reach
+  `dev` with it open.
 - **Slice 4.** Must rewrite `docs-site/content/reference/deck.mdx`, which currently ends on
   "There is no `context=`" as a deliberate promise. The `test_every_public_deck_method_is_documented_somewhere`
   guard in `tests/test_docs_site.py` will notice the changed signatures.
