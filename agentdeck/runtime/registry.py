@@ -149,6 +149,12 @@ def mount_project_dir(root: str | Path = PROJECT_DIR) -> str:
     resolved = Path(root).resolve()
     if not resolved.is_dir():
         raise FileNotFoundError(f"project dir not found: {resolved}")
+    # Rebinding the alias parent leaves its already-imported submodules in ``sys.modules``,
+    # so ``agentdeck_project.agents.greeter.agent`` answers from cache and the new root is
+    # never consulted: a second project reusing a bundle name would get the first one's
+    # module, and editing a bundle in place would not survive a rebuild.
+    for cached in [name for name in sys.modules if name.startswith(f"{_PROJECT_ALIAS}.")]:
+        del sys.modules[cached]
     module = types.ModuleType(_PROJECT_ALIAS)
     module.__path__ = [str(resolved)]
     module.__spec__ = ModuleSpec(_PROJECT_ALIAS, None, is_package=True)

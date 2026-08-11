@@ -240,6 +240,48 @@ def _coerce_mcp(value: str | Path | MCP | None) -> MCP | None:
     return MCP(value)
 
 
+# The one Deck currently holding the process, or ``None``. Discovery mounts every project under
+# a single module alias and the MCP lifecycle keys its servers class-wide, so a second live Deck
+# reads the first one's bundles and shares its servers. Enforced here rather than made to work:
+# v3 is single-deck by ruling, and this refuses the case loudly instead of failing open.
+_live_deck: Deck | None = None
+
+
+def _origin(project_path: Path | None) -> str:
+    return str(project_path) if project_path is not None else "a code-first Deck(...), no project dir"
+
+
+def _refuse_second_deck(incoming: str) -> None:
+    """Raise if a Deck already holds the process. Separate from :func:`_claim_process` because
+    ``from_project`` has to refuse *before* it mounts: mounting evicts the live Deck's cached
+    bundle modules and rebinds the alias to the new root, so refusing afterwards would leave the
+    surviving Deck pointing at a project it does not own — fine until a durable workflow resumes
+    and re-imports a bundle class, which would then resolve against the wrong directory."""
+    if _live_deck is None:
+        return
+    raise ConfigError(
+        f"a Deck is already live in this process ({_origin(_live_deck._project_path)}); "
+        f"agentdeck v3 supports one Deck per process, so this one ({incoming}) would read the "
+        "first one's bundles and share its MCP servers. Close the first with "
+        "`await deck.aclose()` before constructing another. Two decks side by side is "
+        "deferred — agentdeck issue #213."
+    )
+
+
+def _claim_process(deck: Deck) -> None:
+    global _live_deck
+    _refuse_second_deck(_origin(deck._project_path))
+    _live_deck = deck
+
+
+def _release_process(deck: Deck) -> None:
+    # Only its own claim: a Deck closed after a later one took the process must not free that
+    # later one's slot.
+    global _live_deck
+    if _live_deck is deck:
+        _live_deck = None
+
+
 class Deck:
     """One catalog of agents, workflows, skills and MCP servers, and the lifecycle over it.
 
@@ -256,6 +298,10 @@ class Deck:
 
     Public properties are :attr:`agents`, :attr:`workflows`, :attr:`skills` and :attr:`settings`
     only — never ``runtime`` or ``store``, the infrastructure this class exists to hide.
+
+    **One Deck per process.** Constructing a second one while the first is still open raises
+    ``ConfigError`` naming both projects. Sequential decks are fine: close one, construct the
+    next. Two side by side is deferred to agentdeck issue #213.
     """
 
     def __init__(
@@ -274,10 +320,13 @@ class Deck:
         _engines: Sequence[EnginePort | str] | None = None,
         _store: EventStorePort | None = None,
         _session_factory: SessionFactory | None = None,
-        # Not a test seam like the three above: the bundle path each discovered ``agents``/
+        # Not a test seam like the two below: the bundle path each discovered ``agents``/
         # ``workflows`` entry came from, so a compile failure at build() can still name it —
         # ``from_project`` is the only caller, since a code-first entry has no bundle to name.
         _bundle_of: Mapping[str, str] | None = None,
+        # Likewise ``from_project``'s alone: the project this catalog was discovered from, so
+        # the one-Deck-per-process refusal can name it.
+        _project_path: Path | None = None,
     ) -> None:
         self._agents: Mapping[str, Agent] = _named_mapping(agents, "agents")
         self._workflows: Mapping[str, Workflow] = _named_mapping(workflows, "workflows")
@@ -287,6 +336,7 @@ class Deck:
         self._engines_arg = _engines
         self._store_arg = _store
         self._bundle_of = _bundle_of or {}
+        self._project_path = _project_path
 
         self._state: _State = "NEW"
         self._invocables: Mapping[str, InvocableSpec] | None = None
@@ -296,6 +346,9 @@ class Deck:
         self._owns_store = False
         self._started_mcp = False
         self._closed = False
+        # Last, so a constructor that raises above (a duplicate name, an unreadable capability)
+        # leaves the process free for the next attempt instead of poisoning it.
+        _claim_process(self)
 
     @classmethod
     def from_project(cls, path: str | Path = PROJECT_DIR, **kwargs: Any) -> Deck:
@@ -306,6 +359,9 @@ class Deck:
         ``**kwargs`` forwards anything else (the private test seams) straight to
         the constructor, same as calling it directly.
         """
+        # Before mounting, not after: see :func:`_refuse_second_deck`. The constructor claims
+        # the process, but by then this method has already evicted and rebound the alias.
+        _refuse_second_deck(str(Path(path).resolve()))
         package = mount_project_dir(path)
         agent_registry = PluginRegistry(
             package, base_class=Agent, module_name="agent", type_dir="agents", label="agent"
@@ -328,6 +384,7 @@ class Deck:
             skills=Skills(project_root / "skills"),
             mcp=MCP(mcp_json) if mcp_json.is_file() else None,
             _bundle_of={**agent_registry.bundle_files(), **workflow_registry.bundle_files()},
+            _project_path=project_root,
             **kwargs,
         )
 
@@ -493,7 +550,8 @@ class Deck:
         The ownership rule with no exemption: an ``MCP(...)`` this Deck holds is configuration
         it is the one to shut down, regardless of whether the caller built the object or a bare
         path was coerced into one. A store passed in via the private ``_store=`` seam is never
-        touched — it was the caller's before this Deck ever saw it. Idempotent.
+        touched — it was the caller's before this Deck ever saw it. Idempotent, and reachable
+        from every state — a Deck built but never opened still has a process claim to give up.
         """
         if self._closed:
             return
@@ -510,6 +568,14 @@ class Deck:
                 self._started_mcp = False
                 await MCPLifecycle.shutdown()
             self._state = "CLOSED"
+            _release_process(self)
+
+    @staticmethod
+    def _release() -> None:
+        # The test suite's safety net for the process claim: a Deck constructed by a sync test
+        # and never opened has no `await deck.aclose()` to release it. Not public API.
+        global _live_deck
+        _live_deck = None
 
     def _ensure_sessions(self) -> ExecutionStore:
         if self._sessions is None:

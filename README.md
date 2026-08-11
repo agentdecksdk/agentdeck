@@ -1,100 +1,143 @@
 # agentdeck
 
-Declarative harness over the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python)
-and [LangGraph](https://langchain-ai.github.io/langgraph/). agentdeck owns
-**configuration** — settings, capabilities, skills, runners, graph compilation,
-plug-in discovery. Execution stays in the SDK / LangGraph.
+[![CI](https://github.com/sagi5060/agentdeck/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/sagi5060/agentdeck/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-agentdeck-informational.svg)](https://sagi5060.github.io/agentdeck/)
+
+**A harness for agents you have to operate.** You write agents, workflows and skills as small
+Python declarations in a `.agentdeck/` directory. agentdeck supplies everything around them —
+discovery, layered settings, provider wiring, sessions, streaming, MCP servers, typed workflows
+with human approval, an HTTP surface, and one ordered event log for every run — and leaves the
+running of a turn to the engines underneath.
+
+That division is the whole design. **agentdeck owns configuration; the
+[OpenAI Agents SDK](https://github.com/openai/openai-agents-python) and
+[LangGraph](https://langchain-ai.github.io/langgraph/) own execution.** There is no agent loop
+here, no graph engine, and no reimplementation of either — an `Agent` compiles to an SDK agent, a
+`Workflow` compiles to a LangGraph graph, and both are run by their own engine. What agentdeck
+adds is the part those libraries deliberately leave to you: where definitions live, how they are
+configured, and what you can see and do while a run is in flight.
+
+## Who it is for
+
+You want this if you are putting agents somewhere they have to keep working: several agents and
+workflows in one project, a chat surface and a batch path over the same definitions, runs you
+need to inspect afterwards, approvals that outlive the process that asked for them.
+
+You do not want this if you are writing one script that calls one model — use the Agents SDK
+directly, and come back when the wiring around it has become the work. You also do not want it
+if you have already built your own harness: agentdeck is opinionated about project layout and
+configuration, and those opinions are the product.
+
+## What it deliberately does not do
+
+- **No DSL.** Definitions are Python. There is no YAML agent format, and there will not be one.
+- **No execution engine of its own.** Bugs in the agent loop or in graph execution belong
+  upstream, and improvements there arrive without agentdeck doing anything.
+- **No sandbox.** Tools, skills and workflow nodes are ordinary Python in your process, and a
+  model-chosen tool call is trusted by design. See [SECURITY.md](SECURITY.md) before you give an
+  agent something destructive.
+- **No auth, no multi-tenancy, no hosted control plane, no marketplace.** `namespace` labels a
+  run; it does not authenticate anyone. Put a real gateway in front of the HTTP surface.
+- **No model routing, evaluation framework, or prompt management.** One OpenAI-compatible
+  endpoint per process, configured by environment.
 
 ## Install
 
 ```bash
-git clone https://github.com/sagi5060/agentdeck.git
-cd agentdeck
-uv venv
-uv pip install -e ".[dev,serve]"     # or: make install
+uv venv && source .venv/bin/activate
+uv pip install "agentdeck[serve] @ git+https://github.com/sagi5060/agentdeck.git@v3.0.0b1"
+export OPENAI_MODEL=gpt-4.1-mini OPENAI_API_KEY=sk-...
 ```
 
-## Quick start
+Not on PyPI yet — install from git at a tag. `OPENAI_BASE_URL` points it at any
+OpenAI-compatible endpoint instead (a gateway, vLLM, Ollama). Extras: `serve` for the HTTP
+surface, `durability` for the Postgres/SQLite stores, `observability` for Langfuse tracing.
 
-Everything you define lives in a `.agentdeck/` directory next to where you run:
+Contributing to agentdeck itself is a different setup — see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
+## The smallest real thing
+
+Everything you define lives in a `.agentdeck/` directory next to where you run. The path *is*
+the registration: no catalog file, no `__init__.py`, no decorator to remember.
 
 ```text
 .agentdeck/
-├── agents/greeter/agent.py          # an Agent(...)
+├── agents/greeter/agent.py            # an Agent(...)
 ├── workflows/new_booking/workflow.py  # a Workflow(...)
-└── skills/parse-request/            # skill bundles: SKILL.md
+└── skills/parse-request/              # SKILL.md + optional scripts
 ```
 
-No `__init__.py`, no registration — dirs are discovered by convention
-(`agents/<bundle>/agent.py`, `workflows/<bundle>/workflow.py`, `skills/*/SKILL.md`).
+One file is a complete agent:
 
 ```python
+# .agentdeck/agents/greeter/agent.py
+from agentdeck import Agent
+
+greeter = Agent(name="Greeter", instructions="You are a friendly scheduling assistant.")
+```
+
+`Deck` discovers, compiles and validates all of it, then runs it:
+
+```python
+import asyncio
+
 from agentdeck import Deck
 
-async with Deck.from_project() as deck:  # discovers and compiles ./.agentdeck; fails fast
-    result = await deck.run("Greeter", "hello")                          # one-shot
-    state = await deck.run("NewBooking", {"request": "..."})            # one workflow run
-    turn = await deck.run("Greeter", "hi", session_id="wa-123")         # multi-turn
 
-    async for event in deck.stream("Greeter", "hi", session_id="wa-123"):  # streamed turn
-        ...  # the run's own canonical Events: text.delta per chunk, run.completed last
+async def main() -> None:
+    async with Deck.from_project() as deck:          # discovers ./.agentdeck, fails fast
+        result = await deck.run("Greeter", "hello")
+        print(result.output)
+
+        turn = await deck.run("Greeter", "hi", session_id="wa-123")   # remembers across calls
+        async for event in deck.stream("Greeter", "and then?", session_id="wa-123"):
+            print(event.kind)                        # text.delta … run.completed
+
+
+asyncio.run(main())
 ```
 
-A `durable=True` workflow can pause for a human: a node calls
-`interrupt(payload)`, `run` returns
-`{"type": "interrupt", "payload": ..., "thread_id": ...}`, and the decision comes
-back later — possibly in another process — via `deck.pending()` (the approval
-inbox, listed by `run_id`) followed by `deck.answer(run_id, value)`. The
-interrupted node re-runs from its start on resume, so keep it pure and put side
-effects in earlier nodes.
+Two runnable projects — a chat agent with a tool, and a workflow that pauses for a human
+approval — are in [`examples/`](examples/). Both are built by the test suite, so neither can
+quietly stop working.
 
-`session_id=` keeps history across calls — Redis when
-`AGENTDECK_SESSION` is set, in-process SQLite otherwise.
+## What you get around your definitions
 
-`async with Deck.from_project() as deck:` starts the MCP lifecycle and
-guarantees `aclose()` on exit (even on error), so the Redis client and MCP
-servers are never leaked. `agentdeck-serve` does exactly this in its FastAPI
-lifespan.
+- **Sessions** — `session_id=` keeps a conversation across calls and across surfaces, in memory
+  or in Redis.
+- **One event log per run** — every turn, however it was started, appends to the same ordered
+  log: text deltas, tool calls, token usage, the result. Status is folded from it, not stored.
+- **Run control** — a run in flight can be paused, resumed or cancelled by id, at documented
+  safe points, from another process.
+- **Human approval** — a `durable=True` workflow node calls `interrupt()`, the run parks, and
+  `deck.pending()` / `deck.answer()` finish it later, possibly somewhere else.
+- **An HTTP surface** — `agentdeck-serve` puts chat, SSE streaming, workflows, and the approval
+  inbox behind FastAPI without any code of yours.
+- **Tools, skills and MCP** — SDK tools as plain functions, skills as `SKILL.md` directories,
+  and named MCP servers from a `.mcp.json` beside your project.
 
-## Serve
+## Documentation
 
-```bash
-agentdeck-serve                  # FastAPI on :8000 (needs the [serve] extra)
-# or with Redis-backed sessions:
-docker compose up
-```
+The full docs are at **[sagi5060.github.io/agentdeck](https://sagi5060.github.io/agentdeck/)**:
 
-| Endpoint | Does |
-|---|---|
-| `GET /health` | inventory of loaded agents / workflows / skills |
-| `POST /agents/{name}/chat` | `{"session_id", "message"}` → `{"output"}` |
-| `POST /agents/{name}/chat?stream=true` | same body → SSE: `delta` frames, then one `done` frame with `{"output", "usage"}` (or an `error` frame if the turn fails) |
-| `POST /workflows/{name}` | JSON state in → final state out (optional `?thread_id=` for durable runs) |
-| `POST /workflows/{name}?stream=true` | SSE: `node_update`/`custom` frames, then one `done` frame with the final state — or one `interrupt` frame if the run paused |
-| `GET /workflows/{name}/pending` | threads paused on a human decision — the approval inbox |
-| `POST /workflows/{name}/{thread_id}/resume` | `{"value": ...}` → final state, or the next interrupt |
+- [Getting Started](https://sagi5060.github.io/agentdeck/getting-started) — install, configure,
+  first agent
+- [Core Concepts](https://sagi5060.github.io/agentdeck/concepts) — agents, workflows, skills,
+  the event log, run control
+- [Choosing a Store Backend](https://sagi5060.github.io/agentdeck/concepts/choosing-a-store-backend)
+  — what to set before you deploy anything
+- [Reference](https://sagi5060.github.io/agentdeck/reference) — every setting and every `Deck`
+  method, generated from the code
 
-Every endpoint above is served by the `Runtime` the `Deck` composes, so every
-turn — chat or workflow — is recorded as one canonical event log; the frames
-above are unchanged.
+## Project
 
-## Configuration
+agentdeck is beta software under active development; breaking changes are listed in
+[CHANGELOG.md](CHANGELOG.md).
 
-Layered pydantic-settings: process env / `.env` / YAML
-(`agentdeck/runtime/config.default.yaml`). Key vars: `OPENAI_API_KEY`,
-`OPENAI_BASE_URL`, `OPENAI_MODEL`, `AGENTDECK_RUNNER_*`,
-`AGENTDECK_SESSION`,
-`AGENTDECK_EVENTS` (where the event log goes — the URL's scheme names the backend:
-`memory://` by default, or `sqlite://<path>` to keep it across restarts). Named MCP
-servers go in a `.mcp.json` file at the project root (a sibling of `.agentdeck/`), not
-an env var. See `agentdeck/runtime/settings.py`.
-
-## Development
-
-```bash
-make test      # pytest
-make lint      # ruff check
-make build     # sdist + wheel into dist/
-```
-
-Framework internals are documented in [`agentdeck/README.md`](agentdeck/README.md).
+- **Contributing** — [CONTRIBUTING.md](CONTRIBUTING.md). PRs target `dev`; `make check` is the
+  gate. Framework internals are laid out in [`agentdeck/README.md`](agentdeck/README.md).
+- **Security** — [SECURITY.md](SECURITY.md), including what is deliberately out of scope.
+- **Code of conduct** — [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+- **License** — MIT, see [LICENSE](LICENSE).

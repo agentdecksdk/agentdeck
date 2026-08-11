@@ -42,6 +42,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   for a pruning pass means the same image gets re-sent, and re-billed, on every later turn of
   that conversation instead of being dropped after the turn that needed it.
 
+- **A program holding two `Deck` instances at once now raises instead of quietly misbehaving**
+  (#204). One deck at a time is unchanged, including a deck mounted inside an existing service
+  through `asgi()`. What breaks is a script that validates several projects in a loop, or a
+  notebook that re-runs its `Deck.from_project()` cell: close the first (`await deck.aclose()`,
+  or run it under `async with`) before constructing the next. Today those programs appear to
+  work while the second deck reads the first one's bundles, so the raise is the change you want.
+
 
 ### Added
 
@@ -53,6 +60,22 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   context parameter is absent from the tool schema sent to the model, and the value is never
   written to the event log. Available on `run()` and `stream()` for agents; passing `context=`
   for a workflow raises rather than accepting a value nothing would read yet.
+
+- **`SECURITY.md` and `CODE_OF_CONDUCT.md`** (#132). The security policy says where to report a
+  vulnerability and what is in scope — including the two things that are deliberately *not*: a
+  model-chosen tool call runs with the full privileges of the host process, and nothing is
+  sandboxed. The code of conduct is the Contributor Covenant 2.1, unmodified.
+- **Package classifiers**, so PyPI and every metadata reader can see what agentdeck is and which
+  Pythons it supports (#132). A test keeps the classified Python versions in step with
+  `requires-python`, and asserts the built metadata still names the MIT license.
+- **`examples/`: two decks you can copy** (#132) — a chat agent with a tool, and a workflow that
+  pauses for a human approval. Each is a complete project directory with a `run.py` and a README,
+  and each is built by the test suite on every run, so neither can quietly stop working. The
+  approval example makes no model call at all and runs offline.
+- **A docs-site page on choosing a store backend**: the four independent storage decisions, one
+  environment variable each, and the trap where `durable=True` parks an approval that a second
+  process cannot see because the event log is still in memory.
+
 - **`AudioBlock`** (#159): a fifth content-block kind, mirroring `ImageBlock` field-for-field
   (`media_type`, `data_b64`) — the same problem (opaque bytes with a MIME type), so a different
   shape would be asymmetry with no payoff. Additive/minor (`CURRENT_VERSION.minor` 0 → 1): a
@@ -75,6 +98,21 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   cannot be read (a decorator that dropped `functools.wraps` is the usual cause): there is no
   honest schema to show the model, and no way to tell "declares no context" from "could not
   look", so compiling it would silently drop an argument the function needs.
+
+- **The README now says what agentdeck is before it shows any code** (#132): what it is, who it
+  is for, what it deliberately does not do, and how it divides work with the OpenAI Agents SDK
+  and LangGraph. It links `CONTRIBUTING.md`, `SECURITY.md` and the docs site rather than
+  restating them, and its install pin, its Python example and its docs links are all checked by
+  the test suite.
+- **Breaking:** **one `Deck` per process, enforced at construction** (#204). Constructing a
+  second `Deck` while the first is still live now raises `ConfigError` naming both projects;
+  before, it succeeded and the second deck silently inherited the first one's bundles, because
+  every project mounts under a single module alias and MCP servers are registered process-wide.
+  A deck built but never opened holds the process just the same — the claim is taken at
+  construction and released by `aclose()`. Two decks side by side is a capability we intend to
+  add (#213); until then a deck per tenant is a process per tenant, which is what the code has
+  in fact always done.
+
 - **Breaking: one env var per infrastructure decision, not a `_BACKEND`/`_URL` pair that can
   disagree** (#155). `AGENTDECK_EVENTS_BACKEND=postgres` with `AGENTDECK_EVENTS_URL=redis://...`
   used to boot clean and fail on the first event of the first run; the URL's own scheme now
@@ -194,6 +232,12 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 
 ### Fixed
+
+- `Deck.from_project()` reading a *previous* project's bundle files (#204). Mounting a project
+  rebound the module alias but left its already-imported submodules cached, so a second project
+  whose bundle directory happened to share a name — two `agents/greeter/` — got the first one's
+  module back from `sys.modules`. Stale submodules are now evicted on mount, which also means
+  editing a bundle and rebuilding in the same process picks the edit up.
 
 - **Docs: `/reference` pages corrected against the current API** (#192). `/reference` no
   longer claims MCP is covered by the Workflows page — it now points at `/reference/deck`

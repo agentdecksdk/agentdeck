@@ -13,7 +13,8 @@ test:           ## run the test suite (includes the golden replay suite)
 	.venv/bin/pytest tests/ -q
 
 lint:           ## ruff check
-	.venv/bin/ruff check agentdeck/ tests/
+	# examples/ too: they are code a reader copies, and nothing else in the gate reads them.
+	.venv/bin/ruff check agentdeck/ tests/ examples/
 
 typecheck:      ## ty type check
 	.venv/bin/ty check agentdeck
