@@ -190,9 +190,13 @@ Per-slice notes:
     rather than at compile time. `refresh_mcp_status`'s prefix surgery measures a string, and a
     closure has no prefix to measure; composing per turn makes that pass a no-op for callables
     instead of a source of stale banners.
-  - **The headless `Workflow.run()` path is deliberately not bridged.** It has no `RunContext` to
-    unwrap, so a node declaring one there meets the invocation-time safety net naming it. The
-    bridge is wired at `InvocableRegistry.load()`, which is the path every `Deck` run takes.
+  - **The headless `Workflow.run()`/`as_tool()` paths are deliberately not bridged.** Neither has
+    a `RunContext` to unwrap, and the bridge is wired at `InvocableRegistry.load()` — the path
+    every `Deck` run takes. Verified rather than assumed: a `Context`-declaring node run that way
+    dies with langgraph's own `TypeError: book() missing 1 required positional argument`, *not*
+    with the bridge's safety net, because the safety net lives inside the bridge that path never
+    installs. Loud and immediate, but less legible than the compiled path's message — which is
+    the cost of leaving a log-free dev convenience alone.
 - **Slice 4.** Must rewrite `docs-site/content/reference/deck.mdx`, which currently ends on
   "There is no `context=`" as a deliberate promise. The `test_every_public_deck_method_is_documented_somewhere`
   guard in `tests/test_docs_site.py` will notice the changed signatures.
