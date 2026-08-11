@@ -1,0 +1,113 @@
+---
+title: Choosing a Store Backend
+description: Four independent storage decisions, one environment variable each, and what each default costs you.
+---
+
+# Choosing a Store Backend
+
+AgentDeck keeps four different things somewhere, and each one is its own decision with its own
+environment variable. They are independent on purpose — nothing makes them agree — so a
+deployment that sets one and forgets the others is the normal way to get a "durable" system that
+loses half of what it was supposed to keep.
+
+Every one of them is a single URL whose **scheme picks the backend**. There is no separate
+"backend" variable to disagree with the URL.
+
+| Variable | Holds | Default | Reaches another process? |
+|---|---|---|---|
+| `AGENTDECK_EVENTS` | the canonical event log — every run, every turn | `memory://` | no |
+| `AGENTDECK_CHECKPOINT` | LangGraph's state for `durable=True` workflows | `sqlite://.agentdeck/checkpoints.sqlite3` | same machine |
+| `AGENTDECK_SESSION` | an agent's conversation history per `session_id` | unset (in-process SQLite) | no |
+| `AGENTDECK_CONTROL` | pending pause/cancel signals for a live run | `memory://` | no |
+
+The exhaustive field list, including the Redis-only session knobs, is in the [settings
+reference](/reference/settings) — this page is about which value to pick and what happens if you
+pick wrong.
+
+## The defaults are a laptop, not a deployment
+
+Out of the box everything except the checkpointer lives inside the running process. That is the
+right default for writing an agent — no services to start, nothing to clean up — and it is
+wrong for anything you leave running. Two log lines say so at startup, one for the event log and
+one for the control port; they are not noise.
+
+What the defaults actually cost:
+
+- **The event log is gone on restart**, and it never evicts while the process lives, so a
+  long-running server accumulates every event it has ever emitted in memory.
+- **A second worker sees nothing.** Not a stale view — *nothing*. It has its own log, its own
+  session store, and its own control port.
+- **The checkpointer is the exception**: it defaults to a SQLite file, so a `durable=True`
+  workflow that paused genuinely survives a restart, even when the log of that run does not.
+
+## Which value to set
+
+**One process, and you want the log to survive a restart.** SQLite everywhere it is offered:
+
+```bash
+export AGENTDECK_EVENTS=sqlite:///var/lib/agentdeck/events.sqlite3
+export AGENTDECK_CONTROL=sqlite:///var/lib/agentdeck/control.sqlite3
+# AGENTDECK_CHECKPOINT already defaults to a SQLite file
+```
+
+A relative path stays relative (`sqlite://./events.sqlite3`); a third slash makes it absolute.
+Several processes on the same machine can share a SQLite file — which is what makes `agentdeck
+runs signal` able to reach a run in another terminal — but a file cannot reach a second machine.
+
+The two SQLite users do not have the same requirements, which surprises people: the event log
+and the control port use the standard library, but the SQLite *checkpointer* is LangGraph's and
+needs the `durability` extra. So the checkpointer default only works if you installed that
+extra — and a `durable=True` workflow raises an `ImportError` naming it if you did not.
+
+**Several workers, or more than one machine.** The event log has to be a service, and so does
+the session store:
+
+```bash
+export AGENTDECK_EVENTS=postgresql://user:pw@db/agentdeck     # or redis://cache:6379/0
+export AGENTDECK_CHECKPOINT=postgresql://user:pw@db/agentdeck
+export AGENTDECK_SESSION=redis://cache:6379/1
+export AGENTDECK_CONTROL=sqlite:///var/lib/agentdeck/control.sqlite3
+```
+
+`postgresql://` — for the event log and the checkpointer both — needs the `durability` extra.
+`redis://` for either the event log or sessions needs nothing extra. The control port has no
+networked backend at all today: a signal still only reaches a run from the same machine.
+
+**Tests.** `memory://` for all three that offer it, including
+`AGENTDECK_CHECKPOINT=memory://`, so nothing survives the test that wrote it and no file is left
+behind.
+
+## Two kinds of store, and why they don't collapse
+
+The event log and the other three are not the same kind of thing, and picking backends is easier
+once that is clear.
+
+The **event log** is the shared, append-only record: one ordered sequence per run, and the only
+thing a surface, a dashboard, or another worker is allowed to read. See [Runs and the Event
+Log](/concepts/runs-and-the-event-log).
+
+The **checkpointer and the session** are engine-private working memory — LangGraph's graph state
+and the Agents SDK's conversation history. They are what a run actually resumes *from*, and
+nothing outside the engine reads them. See [Sessions and
+Memory](/concepts/sessions-and-memory).
+
+The consequence catches people out: **`durable=True` and a shared event log are two separate
+requirements.** A workflow can pause durably in a Postgres checkpointer while
+[`Deck.pending()`](/guides/human-approval) — which reads the *event log* — shows a second process
+nothing at all, because that log is still `memory://`. The approval is safely parked and
+nobody can find it.
+
+The **control port** is a third, smaller thing: a pending signal for a run in flight, which the
+run picks up at its next safe point. It only has to outlive the seconds between a request and
+that safe point, which is why `sqlite://` is as far as it goes — see
+[Pause, Resume, Cancel](/operating/pause-resume-cancel).
+
+## Changing your mind later
+
+The backends are chosen at startup and are not migrated between. Pointing `AGENTDECK_EVENTS` at
+a new URL gives you an empty log, not a moved one; the old events stay where they were. The same
+goes for the checkpointer, with a sharper edge: a workflow parked on an approval in one
+checkpointer is not resumable from another, so drain your pending approvals before switching.
+
+Next: [Runs and the Event Log](/concepts/runs-and-the-event-log) for what the log actually
+contains, or the [settings reference](/reference/settings) for every variable in one table.

@@ -52,6 +52,21 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Added
 
+- **`SECURITY.md` and `CODE_OF_CONDUCT.md`** (#132). The security policy says where to report a
+  vulnerability and what is in scope — including the two things that are deliberately *not*: a
+  model-chosen tool call runs with the full privileges of the host process, and nothing is
+  sandboxed. The code of conduct is the Contributor Covenant 2.1, unmodified.
+- **Package classifiers**, so PyPI and every metadata reader can see what agentdeck is and which
+  Pythons it supports (#132). A test keeps the classified Python versions in step with
+  `requires-python`, and asserts the built metadata still names the MIT license.
+- **`examples/`: two decks you can copy** (#132) — a chat agent with a tool, and a workflow that
+  pauses for a human approval. Each is a complete project directory with a `run.py` and a README,
+  and each is built by the test suite on every run, so neither can quietly stop working. The
+  approval example makes no model call at all and runs offline.
+- **A docs-site page on choosing a store backend**: the four independent storage decisions, one
+  environment variable each, and the trap where `durable=True` parks an approval that a second
+  process cannot see because the event log is still in memory.
+
 - **`AudioBlock`** (#159): a fifth content-block kind, mirroring `ImageBlock` field-for-field
   (`media_type`, `data_b64`) — the same problem (opaque bytes with a MIME type), so a different
   shape would be asymmetry with no payoff. Additive/minor (`CURRENT_VERSION.minor` 0 → 1): a
@@ -64,6 +79,11 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Changed
 
+- **The README now says what agentdeck is before it shows any code** (#132): what it is, who it
+  is for, what it deliberately does not do, and how it divides work with the OpenAI Agents SDK
+  and LangGraph. It links `CONTRIBUTING.md`, `SECURITY.md` and the docs site rather than
+  restating them, and its install pin, its Python example and its docs links are all checked by
+  the test suite.
 - **Breaking:** **one `Deck` per process, enforced at construction** (#204). Constructing a
   second `Deck` while the first is still live now raises `ConfigError` naming both projects;
   before, it succeeded and the second deck silently inherited the first one's bundles, because
