@@ -127,7 +127,9 @@ def client(scripted_model: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[Tes
     from agentdeck.runtime.settings import get_settings
 
     get_settings.cache_clear()
-    with TestClient(build_app()) as opened:
+    # Every test but the origin one speaks as the docs site would; the route refuses anything
+    # else before the model is called.
+    with TestClient(build_app(), headers={"origin": "http://localhost:3030"}) as opened:
         yield opened
     get_settings.cache_clear()
 
@@ -173,9 +175,29 @@ def test_a_selection_cannot_close_the_context_block_early(corpus: DocsCorpus) ->
 
 
 def test_health_reports_the_loaded_corpus(client: TestClient) -> None:
+    """Deliberately not origin-checked: it is how you tell whether the tunnel is up, it costs
+    nothing to serve, and a page count is not worth protecting."""
     body = client.get("/health").json()
     assert body["status"] == "ok"
     assert body["pages"] > 0
+
+
+@pytest.mark.parametrize("origin", ["https://not-the-docs.example", ""], ids=["foreign", "empty"])
+def test_a_question_from_another_origin_is_refused_before_the_model_is_called(client: TestClient, origin: str) -> None:
+    """Enforced in the route, not left to CORS. CORSMiddleware only tells a browser not to hand
+    the response back — by then the run has happened and been paid for. Refusing here is the
+    difference between a wasted model call and none.
+
+    An *absent* Origin takes the same path as an empty one: the check is membership, and
+    `headers.get` returns `None`, which is in no allowlist. So omitting the header is not a way
+    around it.
+
+    Not authentication, and must not be read as it: `Origin` is forged by anything that is not a
+    browser. What it buys is real but narrow — another website cannot embed this endpoint.
+    """
+    refused = client.post("/ask", json={"question": "hi"}, headers={"origin": origin})
+    assert refused.status_code == HTTPStatus.FORBIDDEN
+    assert _ScriptedToolCallingModel.received == [], "the model must not be called for a refused origin"
 
 
 def test_the_wire_is_the_canonical_event_log(client: TestClient) -> None:

@@ -1,15 +1,22 @@
-# Cloudflare Tunnel for Ask AgentDeck.
+# Cloudflare Tunnel for Ask AgentDeck — the reproducible, locally-managed form.
 #
-#     cloudflared tunnel --config cloudflared.yml run agentdeck-ask
+#     cloudflared tunnel create ask-agentdeck          # writes ~/.cloudflared/<uuid>.json
+#     # put the printed <uuid> below, then:
+#     cloudflared tunnel --config cloudflared.yml run ask-agentdeck
+#
+# This file is here so a reader can reproduce the deployment. AgentDeck's own instance is run
+# from a **dashboard-managed** tunnel instead, whose ingress lives in Cloudflare rather than in
+# this file — see the README. Either form is fine; what matters is that the rules below are the
+# rules in force, because the README's claims about exposure depend on them.
 #
 # `--config` is not optional. cloudflared defaults to `~/.cloudflared/config.yml`, which on a
-# machine running any other tunnel already belongs to that one — merging into it would put this
+# machine already running another tunnel belongs to that one — merging into it would put this
 # service and an unrelated one behind the same process, so a restart for either restarts both.
 #
 # ## What this can reach
 #
 # One hostname, one local port, and a catch-all that refuses everything else. The catch-all is
-# the load-bearing line: without it, a hostname that resolves to this tunnel but is not listed
+# the load-bearing line: without it a hostname that resolves to this tunnel but is not listed
 # above gets a 502 from an attempted proxy rather than a flat refusal, and the ingress list
 # stops being an allowlist.
 #
@@ -24,8 +31,8 @@
 # Not `--host 0.0.0.0`. That would publish the assistant to every machine on your network in
 # addition to the tunnel, which is the one way this setup leaks past what is written here.
 
-tunnel: agentdeck-ask
-credentials-file: ~/.cloudflared/355f130a-9eb4-4fb1-8517-1a3a6928d7fb.json
+tunnel: ask-agentdeck
+credentials-file: ~/.cloudflared/REPLACE-WITH-YOUR-TUNNEL-UUID.json
 
 ingress:
   - hostname: ask.agentdecksdk.com

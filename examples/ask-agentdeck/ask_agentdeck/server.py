@@ -189,6 +189,21 @@ def build_app(corpus: DocsCorpus | None = None) -> FastAPI:
 
     @app.post("/ask")
     async def answer(asked: Question, request: Request) -> StreamingResponse:
+        origin = request.headers.get("origin")
+        if origin not in ALLOWED_ORIGINS:
+            # Enforced here, not left to CORS. CORSMiddleware only tells a *browser* not to hand
+            # the response back; the run has already happened and been paid for by then. This
+            # refuses before the model is called, which is the difference that matters.
+            #
+            # It is not authentication and must not be mistaken for it: `Origin` is set by
+            # browsers and forged by anything else in one flag. What it does buy is real —
+            # another website cannot embed this endpoint, and casual reuse stops — but a script
+            # that sets the header is indistinguishable from the docs site. The quota above is
+            # what bounds that case; Turnstile is what would end it. See the README.
+            raise HTTPException(
+                status_code=HTTPStatus.FORBIDDEN,
+                detail="this assistant answers the AgentDeck documentation site",
+            )
         client = request.client.host if request.client else "unknown"
         # A caller that sends no session id still gets one bucket rather than a free pass —
         # otherwise "omit the field" is the way around the whole quota.

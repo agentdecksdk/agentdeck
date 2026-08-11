@@ -119,8 +119,24 @@ the deliberate trade for not hosting a model-calling service.
 
 ```bash
 uvicorn ask_agentdeck.server:app --port 8100                     # binds 127.0.0.1
-cloudflared tunnel --config cloudflared.yml run agentdeck-ask    # ask.agentdecksdk.com -> :8100
+cloudflared tunnel run --token <TOKEN>                           # ask.agentdecksdk.com -> :8100
 ```
+
+There are two ways to run the tunnel and they differ in **where the routing rules live**, which
+matters here because this README makes claims about what is exposed.
+
+- **Dashboard-managed** (what AgentDeck's own instance uses). The tunnel is created in Zero Trust
+  → Networks → Tunnels, runs from a token, and its public hostname and service are configured in
+  Cloudflare. Convenient, and the rules are not in this repo — so nobody reviewing a change here
+  can see them. If you run it this way, the dashboard must say exactly one public hostname,
+  `ask.agentdecksdk.com` → `http://localhost:8100`, and nothing else.
+- **Locally-managed** (`cloudflared.yml`, committed here). The tunnel is created with
+  `cloudflared tunnel create`, and the ingress list — one hostname, one port, `http_status:404`
+  catch-all — is a reviewable file. This is the reproducible form: a reader copying this example
+  cannot copy someone else's dashboard.
+
+Both are fine. What is not fine is the two disagreeing, because everything below describes the
+rules in `cloudflared.yml`.
 
 Set `ASK_AGENTDECK_ORIGINS` to the site's origin, and the `ASK_AGENTDECK_API_URL` repository
 variable to `https://ask.agentdecksdk.com` — the Pages build bakes it in as
@@ -134,7 +150,7 @@ Worth being precise about, because this is an unauthenticated endpoint that spen
 
 | | |
 |---|---|
-| **Reachable through the tunnel** | `localhost:8100`, and nothing else. `cloudflared.yml` lists one hostname and ends in `http_status:404`, so an unlisted hostname is refused rather than proxied. The tunnel is an outbound connection: no inbound port, no firewall rule, nothing else you run locally becomes reachable. |
+| **Reachable through the tunnel** | `localhost:8100`, and nothing else — *provided the ingress in force says so*, which is `cloudflared.yml` locally or the public-hostname list in the dashboard. One hostname, ending in `http_status:404`, so an unlisted hostname is refused rather than proxied. The tunnel itself is an outbound connection: no inbound port, no firewall rule, nothing else you run locally becomes reachable. |
 | **Bind address** | `127.0.0.1`, uvicorn's default. Do not pass `--host 0.0.0.0` — that publishes the assistant to your whole network *in addition* to the tunnel, and is the one way this setup leaks past what is written here. |
 | **On the wire** | An allowlist of five event kinds. `tool.call.completed` is deliberately not among them: its `result_preview` is the tool's output verbatim, so a tool that raised would put its exception text on a public wire. `usage.reported` is dropped too — the model name and per-turn token counts are nobody else's business. |
 | **Failure messages** | `run.failed` carries the exception's *type name* and the engine's, never its text. That is agentdeck's own design, not something this application adds. |
@@ -154,6 +170,34 @@ rather than a free pass, or the whole quota would be opt-in.
 counting is in-process and per-IP, which is right for one backend behind one tunnel and wrong
 the moment there are two replicas or a caller with addresses to spare — the upgrade for that is
 a Cloudflare rate-limiting rule at the edge, where the traffic never reaches the machine.
+
+### "Only from the docs site" — what that can and cannot mean
+
+The honest ceiling first: **this cannot be fully enforced.** The caller is a reader's browser,
+not GitHub's servers, so requests arrive from arbitrary addresses; and `Origin` is a header a
+browser sets truthfully and anything else forges in one flag. Nothing short of authentication
+distinguishes "a browser on the docs site" from "a script claiming to be one", and a credential
+shipped in a public bundle is not a credential.
+
+What is in place, and what each layer actually buys:
+
+| Layer | Stops | Does not stop |
+|---|---|---|
+| **`Origin` checked in the route** — `403` before the model is called | Another website embedding this endpoint; casual reuse; every cross-origin browser request | A `curl` that sets the header |
+| **CORS** | A browser handing the response back to another site's JavaScript | Anything, from the cost side — the run has already happened by the time CORS applies. This is why the check above is in the route and not left to middleware |
+| **The quota** — 3 conversations × 20 turns per client per day | The forged-header case from being *worth* it | The first sixty turns |
+
+Together these mean the realistic attack is "someone forges a header and gets sixty turns a
+day", which is a bounded annoyance rather than an open relay.
+
+**If that is not good enough, the answer is [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/),**
+not more headers. The docs page renders a widget, the browser solves it invisibly, and the
+backend verifies the resulting token against Cloudflare with a secret that never leaves the
+server. That genuinely separates a real browser on your page from a script, which is the thing
+`Origin` only gestures at. It is deliberately *not* implemented here: it adds a client-side
+dependency and a per-request verification call to a reference application whose job is to
+demonstrate AgentDeck, and the quota already bounds the damage. Add it when the endpoint costs
+more than it is worth.
 
 ### Prompt injection: what is guarded, and what is not
 
