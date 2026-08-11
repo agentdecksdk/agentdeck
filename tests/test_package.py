@@ -18,6 +18,12 @@ def _pyproject() -> dict:
     return tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())
 
 
+def _installed_dir() -> Path:
+    """Where the package actually resolves from — ``__path__``, not the repo tree, so a file
+    that never made it through the build cannot pass a check about the built package."""
+    return Path(next(iter(agentdeck.__path__)))
+
+
 def test_version_matches_the_installed_distribution():
     assert agentdeck.__version__ == version("agentdeck")
 
@@ -47,6 +53,25 @@ def test_the_built_metadata_names_the_license():
     someone deletes the source line.
     """
     assert metadata("agentdeck")["License-Expression"] == "MIT"
+
+
+def test_the_installed_package_ships_its_typing_marker():
+    """Without `py.typed`, PEP 561 says a consumer's type checker must ignore our annotations
+    entirely — 75 fully annotated modules and a `ty` gate buy a downstream user nothing.
+
+    Reads where the package actually resolves from rather than a hardcoded repo path. Under an
+    editable install that is the source tree, so this catches a deleted or never-tracked marker,
+    not a packaging exclusion — `[tool.hatch.build.targets.wheel] packages = ["agentdeck"]`
+    carries package data, verified against a built wheel when this landed.
+    """
+    assert (_installed_dir() / "py.typed").is_file(), "py.typed did not survive into the installed package"
+
+
+def test_the_typed_classifier_matches_the_marker():
+    """The classifier is a claim; `py.typed` is what makes it true. Neither may outlive the
+    other — a `Typing :: Typed` claim with no marker is a lie to anyone reading PyPI."""
+    claims_typed = "Typing :: Typed" in _pyproject()["project"]["classifiers"]
+    assert claims_typed == (_installed_dir() / "py.typed").is_file()
 
 
 def test_python_classifiers_agree_with_requires_python():
