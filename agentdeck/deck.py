@@ -27,11 +27,10 @@ every name a catalog references (skills, MCP servers, workflow-as-tool) and comp
 agent/workflow to an ``InvocableSpec`` — reading local files, never the network, and idempotent.
 The catalog is immutable from construction: :attr:`agents` and :attr:`workflows` are read-only
 mappings, so nothing after ``build()`` can invalidate what it already checked. Opening starts
-what ``build()`` deliberately left alone — the MCP lifecycle, the Runtime's engines and event
-store, the telemetry client — and closing tears down only what this Deck itself started (the
-ownership rule:
-configuration this Deck instantiated is its to close; an object the caller constructed and
-handed in stays the caller's).
+what ``build()`` deliberately left alone — the MCP lifecycle, the Runtime's engines, event
+store and event sinks — and closing tears down only what this Deck itself started (the
+ownership rule: configuration this Deck instantiated is its to close; an object the caller
+constructed and handed in stays the caller's).
 """
 
 from __future__ import annotations
@@ -58,14 +57,15 @@ from agentdeck.composition import (
     resolve_control_port,
     resolve_event_store,
     resolve_run_settings,
+    resolve_sinks,
 )
 from agentdeck.core.content import DataBlock, TextBlock, coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
 from agentdeck.core.events import NodeUpdated, RunCompleted, RunInterrupted
+from agentdeck.core.ports import EventSinkPort
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.mcp import MCP
-from agentdeck.observability import Langfuse
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.registry import PROJECT_DIR, PluginRegistry, mount_project_dir
 from agentdeck.runtime.settings import Settings, get_settings
@@ -80,7 +80,7 @@ if TYPE_CHECKING:
     from agentdeck.authoring.interrupts import InterruptResult
     from agentdeck.core.events import Event, Usage
     from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import EnginePort, EventSinkPort, EventStorePort
+    from agentdeck.core.ports import EnginePort, EventStorePort
     from agentdeck.core.status import RunStatus
     from agentdeck.runtime.service import PendingRun, Runtime
 
@@ -90,6 +90,22 @@ if TYPE_CHECKING:
 _DEFAULT_ENGINE_NAMES: tuple[str, str] = (OpenAIAgentsEngine.engine, LangGraphEngine.engine)
 
 _State = Literal["NEW", "BUILT", "OPEN", "CLOSED"]
+
+
+def _validate_sinks(sinks: Sequence[EventSinkPort] | None) -> None:
+    """Refuse anything in ``sinks=`` that is not an ``EventSinkPort``, at build() time.
+
+    Cheap, and it is the difference between a name in a traceback and a run that reaches an
+    ``await sink.emit(...)`` on an object with no ``emit`` — where the dispatch's own breaker
+    would swallow it as "this sink keeps failing" and the events would just go missing.
+    """
+    for sink in sinks or ():
+        if not isinstance(sink, EventSinkPort):
+            raise ConfigError(
+                f"sinks= takes EventSinkPort instances; got {type(sink).__name__}. A sink "
+                "implements `async def emit(self, event)` and subclasses "
+                "`agentdeck.core.ports.EventSinkPort`."
+            )
 
 
 def _require_aware(now: datetime) -> datetime:
@@ -292,11 +308,16 @@ class Deck:
     ``docs/delivery/deck-capability-wrapper-pattern.md``) and ``skills=``/``mcp=`` (a bare path,
     a sequence of paths, or the capability object itself — coerced either way).
 
-    ``observability=Langfuse(...)`` turns tracing on for everything this Deck runs. It starts
-    once, when the Deck opens, and stops when it closes; omitting it is how a Deck runs with
-    tracing off, silently. There is no ``deck.observability`` property, for the reason there is
-    no ``runtime`` or ``store``: nothing needs one, and a property is additive later while
-    removing one is not.
+    ``sinks=`` are the read-only taps on this Deck's event stream — telemetry, cost, audit, any
+    :class:`~agentdeck.core.ports.EventSinkPort`. They open once, when the Deck opens, before any
+    run can start. Three states, and the default is not a fourth: ``None`` (the default) opens
+    the configured Langfuse sink if ``AGENTDECK_LANGFUSE_*`` names one and nothing otherwise;
+    a sequence opens exactly those, in order, and suppresses the settings-derived one; ``()``
+    opens none at all. A sink is fire-and-forget by the port's contract — one that is slow or
+    raises costs its own backlog and never a run.
+
+    There is no ``deck.sinks`` property, for the reason there is no ``runtime`` or ``store``:
+    nothing needs one, and a property is additive later while removing one is not.
 
     There is no ``context=``: declaring a context type is meaningless until something injects
     one, and a constructor parameter that cannot be used is worse than an absent one. It returns
@@ -317,7 +338,7 @@ class Deck:
         workflows: Sequence[Workflow] = (),
         skills: str | Path | Sequence[str | Path] | Skills | None = None,
         mcp: str | Path | MCP | None = None,
-        observability: Langfuse | None = None,
+        sinks: Sequence[EventSinkPort] | None = None,
         session_factory: SessionFactory | None = None,
         # Private-by-name test seams — never part of the documented constructor, exactly like
         # ``tests/contract/``'s need for ``_engines=`` on the Runtime this composes. A bare
@@ -339,7 +360,7 @@ class Deck:
         self._workflows: Mapping[str, Workflow] = _named_mapping(workflows, "workflows")
         self._skills_obj = _coerce_skills(skills)
         self._mcp_obj = _coerce_mcp(mcp)
-        self._observability = observability
+        self._sinks_arg = sinks
         self._session_factory_arg = session_factory if session_factory is not None else _session_factory
         self._engines_arg = _engines
         self._store_arg = _store
@@ -352,7 +373,6 @@ class Deck:
         self._runtime: Runtime | None = None
         self._sessions: ExecutionStore | None = None
         self._owns_store = False
-        self._started_observability = False
         self._started_mcp = False
         self._closed = False
         # Last, so a constructor that raises above (a duplicate name, an unreadable capability)
@@ -365,13 +385,7 @@ class Deck:
         ``agents=``/``workflows=``/``skills=``/``mcp=`` the plain constructor takes and hands
         them to it, so both front doors build the same catalog.
 
-        ``observability=`` is discovered too, from ``AGENTDECK_LANGFUSE_*``: for the directory
-        front door the environment *is* where a project says what it wants, the same way
-        ``.mcp.json`` is, and ``agentdeck serve`` has no other place to say it. A code-first
-        ``Deck(...)`` is never enabled this way — there the argument is the declaration. Pass
-        ``observability=`` explicitly to override either way.
-
-        ``**kwargs`` forwards anything else (the private test seams) straight to
+        ``**kwargs`` forwards anything else (``sinks=``, the private test seams) straight to
         the constructor, same as calling it directly.
         """
         # Before mounting, not after: see :func:`_refuse_second_deck`. The constructor claims
@@ -393,8 +407,6 @@ class Deck:
         # the caller also runs from its parent. Its absence means "no servers" rather than a
         # configuration error, the same fail-open rule an empty ``mcp.servers`` map always had.
         mcp_json = project_root.parent / ".mcp.json"
-        if "observability" not in kwargs and get_settings().langfuse.enabled:
-            kwargs["observability"] = Langfuse()
         return cls(
             agents=agents,
             workflows=workflows,
@@ -433,13 +445,13 @@ class Deck:
         unknown ones — the only warning this can still log is a genuine open-time drop, not a
         false "not found in config" for a server that will, in fact, connect once opened.
 
-        ``observability=`` is checked the same way: its configuration is resolved and refused
-        if unusable, and no telemetry client is constructed and no exporter contacted.
+        ``sinks=`` are shape-checked here for the same reason, and *only* shape-checked: no
+        sink is opened, no telemetry client is constructed and no exporter is contacted, so a
+        deck with Langfuse configured still validates where Langfuse is unreachable.
         """
         if self._state != "NEW":
             return self
-        if self._observability is not None:
-            self._observability.build()
+        _validate_sinks(self._sinks_arg)
         skills_by_name = self._skills_obj.build() if self._skills_obj is not None else {}
         mcp_names = frozenset(self._mcp_obj.build()) if self._mcp_obj is not None else frozenset()
         if self._mcp_obj is not None:
@@ -522,9 +534,10 @@ class Deck:
         every already-compiled agent is refreshed right after, since ``build()`` resolved it
         before anything connected.
 
-        Tracing starts exactly once, here, and before the Runtime exists: its sink has to be
-        registered when the Runtime is assembled, so a run can never be the thing that turns
-        observability on — the ordering #181 and #162 are both about.
+        The sinks open exactly once, here, and before the Runtime exists — they are registered
+        as it is assembled, so a run can never be the thing that turns observability on. That
+        ordering is what #181 and #162 are both about: telemetry used to be built underneath
+        this, from settings, and started by whichever run happened to come first.
         """
         if self._state == "CLOSED":
             # CLOSED is terminal: aclose()'s own idempotency guard would otherwise skip
@@ -549,10 +562,12 @@ class Deck:
             )
         self._owns_store = self._store_arg is None
         store = self._store_arg if self._store_arg is not None else resolve_event_store()
-        sinks: tuple[EventSinkPort, ...] = ()
-        if self._observability is not None:
-            sinks = (self._observability.open(),)
-            self._started_observability = True
+        # Resolved here, not in ``build_runtime``: a settings-derived sink holds a live client,
+        # so the moment it is constructed is a lifecycle decision (#181), and constructing it
+        # while a Runtime was assembled is what #162's first defect was. Caller-supplied sinks
+        # are taken as-is and suppress the settings-derived one entirely — a Deck told which
+        # taps to open must not quietly open a Langfuse client beside them.
+        sinks = resolve_sinks() if self._sinks_arg is None else tuple(self._sinks_arg)
         self._runtime = build_runtime(
             engines=self._engine_instances,
             invocables=self._invocables,
@@ -582,17 +597,29 @@ class Deck:
         The ownership rule with no exemption: an ``MCP(...)`` this Deck holds is configuration
         it is the one to shut down, regardless of whether the caller built the object or a bare
         path was coerced into one. A store passed in via the private ``_store=`` seam is never
-        touched — it was the caller's before this Deck ever saw it, and neither is a telemetry
-        client handed to ``Langfuse(client=...)``. Idempotent, and reachable from every state —
-        a Deck built but never opened still has a process claim to give up.
+        touched — it was the caller's before this Deck ever saw it, and neither is a sink passed
+        to ``sinks=``. Idempotent, and reachable from every state — a Deck built but never opened
+        still has a process claim to give up.
+
+        Every sink is told its stream has ended, including a caller's own: that is
+        ``EventSinkPort.close``\'s whole job — "write out whatever is still buffered" — and
+        skipping it to respect ownership would throw away exactly the audit or cost records the
+        caller registered the sink to keep. Ownership decides what this Deck *constructs*, not
+        who gets told the stream is over.
+
+        Nothing shuts the Langfuse SDK down. Measured against langfuse 4.14.1, the SDK holds one
+        resource manager per public key in a process-global cache and ``shutdown()`` marks it
+        dead without evicting it — so the next Deck opened in this process (sequential decks are
+        supported; see :func:`_refuse_second_deck`) would be handed the dead one and export
+        nothing, silently. Flushing is what the deck owes; the SDK\'s own ``atexit`` stops its
+        threads at the scope that resource actually has.
         """
         if self._closed:
             return
         self._closed = True
         try:
-            # Before the telemetry teardown below, which is what makes it safe: draining closes
-            # the sinks, and the Langfuse sink's close is what finishes its open observations
-            # and pushes the SDK's buffer out.
+            # Draining closes the sinks, which is what finishes the Langfuse sink's open
+            # observations and pushes the SDK's buffer out of the process.
             if self._runtime is not None:
                 await self._runtime.drain()
             if self._sessions is not None:
@@ -600,9 +627,6 @@ class Deck:
             if self._owns_store and self._runtime is not None:
                 await _aclose_store(self._runtime.store)
         finally:
-            if self._started_observability and self._observability is not None:
-                self._started_observability = False
-                await self._observability.aclose()
             if self._started_mcp:
                 self._started_mcp = False
                 await MCPLifecycle.shutdown()

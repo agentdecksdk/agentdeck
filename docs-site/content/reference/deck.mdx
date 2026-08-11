@@ -42,7 +42,7 @@ Deck(
     workflows=[...],                # Workflow instances
     skills="./skills",              # a path, a sequence of paths, or a Skills(...) object
     mcp=".mcp.json",                # a path, or an MCP(...) object
-    observability=Langfuse(),       # tracing for everything this deck runs; omit for none
+    sinks=[my_audit_sink],          # taps on the event stream; None reads settings, () means none
 )
 ```
 
@@ -59,12 +59,12 @@ The lifecycle is `NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED`:
   server started — and is idempotent, so it doubles as a CI check. Calling a turn-starting method
   without an explicit `build()` still works — `async with deck:` calls it for you.
 - **`async with deck:`** starts everything `build()` left alone: the real engines, the event
-  store, the session factory, the tracing client, and every configured MCP server. This is what
-  a turn-starting method actually needs; calling one before opening raises.
+  store, the session factory, the event sinks, and every configured MCP server. This is what a
+  turn-starting method actually needs; calling one before opening raises.
 - **`CLOSED` is terminal.** `aclose()` (or the `async with` block's exit) flushes the Runtime's
   sinks and closes what this `Deck` itself opened — an `MCP(...)` it holds, always, and the event
-  store and tracing client it built from settings, but never one passed in through construction.
-  Reopening a closed `Deck` raises; construct a new one instead.
+  store it built from settings, but never one passed in through construction. Reopening a closed
+  `Deck` raises; construct a new one instead.
 
 **One `Deck` per process.** Constructing a second one while the first is still live raises
 `ConfigError`, naming both projects. The restriction is real rather than stylistic: every project
@@ -209,52 +209,65 @@ stays importable without the `[serve]` extra — you only need it to actually se
 arriving before the lifespan has run get `503 {"status": "starting"}` rather than touching a deck
 that is not open yet.
 
-## Observability
+## Event sinks
 
-Tracing is declared where the deck is declared, and owned by its lifecycle. `Langfuse(...)` is a
-capability object like `Skills(...)` and `MCP(...)`: it holds the configuration, builds the client
-when the deck opens, and is torn down when the deck closes.
+The event log is the hub. A **sink** is a read-only tap on it — telemetry, cost accounting,
+audit — and a deck can have as many as it likes. `sinks=` is where they are declared, and they
+open with the deck.
 
 ```python
-from agentdeck import Agent, Deck
-from agentdeck.observability import Langfuse
+from agentdeck import Deck
+from agentdeck.core.ports import EventSinkPort
 
-deck = Deck(agents=[booking], observability=Langfuse())
 
-async with deck:                     # tracing starts here, once, before any run
-    await deck.run("booking", "hi")  # never mid-run
+class CostSink(EventSinkPort):
+    async def emit(self, event) -> None:
+        ...          # in-memory work only; never awaits a round trip
+
+    async def close(self) -> None:
+        ...          # the stream has ended: write out whatever is buffered
+
+
+deck = Deck(agents=[booking], sinks=[CostSink()])
+
+async with deck:                      # the sinks open here, once, before any run
+    await deck.run("booking", "hi")   # never mid-run
 ```
 
-| Form | What it means |
+| `sinks=` | What opens |
 |---|---|
-| *(argument omitted)* | Tracing off. No client, no warning, no cost — this is the default. |
-| `Langfuse()` | Read `AGENTDECK_LANGFUSE_*` (see [Settings](/reference/settings)). |
-| `Langfuse(public_key=…, secret_key=…, base_url=…, environment=…, sample_rate=…, service_name=…, debug=…)` | Say it in code. Any field given here wins over the environment; the rest still come from it. |
-| `Langfuse(client=…)` | Use a Langfuse SDK client you built yourself. |
+| *(omitted, or `None`)* | The configured Langfuse sink if `AGENTDECK_LANGFUSE_PUBLIC_KEY` and `AGENTDECK_LANGFUSE_SECRET_KEY` are both set (see [Settings](/reference/settings)); nothing otherwise, with no warning. |
+| `[sink, …]` | Exactly these, in order. Naming any sink suppresses the settings-derived Langfuse one — a deck told which taps to open does not open a second one behind your back. |
+| `()` | None at all, even where the environment configures Langfuse. |
 
-The lifecycle is the same one the rest of the deck follows:
+The lifecycle is the one the rest of the deck follows:
 
-- **`build()`** resolves the configuration and refuses an unusable one — it constructs no client
-  and opens no connection, so a deck with tracing configured still validates in CI with nothing
-  reachable. Declaring `observability=Langfuse()` with no keys anywhere raises `ConfigError`
-  naming what to set; a deck that should not trace omits the argument instead.
-- **Opening** builds the client, once, and registers the sink before the Runtime exists — so no
-  run can be the thing that turns tracing on, and every run of this deck is traced the same way.
-- **Closing** flushes what the sink has buffered, then shuts the client down **if this deck built
-  it**. A client passed as `client=` is never shut down; it was yours before the deck saw it.
+- **`build()`** checks that everything in `sinks=` is an `EventSinkPort` and does nothing else.
+  No sink is opened, no telemetry client is constructed, no exporter contacted — so a deck with
+  Langfuse configured still validates in CI with nothing reachable.
+- **Opening** builds the settings-derived sink (once) and registers every sink before the
+  Runtime exists, so no run can be the thing that turns observability on.
+- **Closing** tells every sink its stream has ended, which is what makes it write out whatever
+  it buffered. What the deck *constructs* it owns; a sink instance you passed in is still yours
+  afterwards, and the deck builds no Langfuse client when you supplied your own sinks.
+
+A sink is fire-and-forget by contract: each one has its own bounded queue, one that is slow or
+raises costs its own backlog and never a run, and one that keeps failing is disabled and later
+retried. A sink that cannot afford to lose an event reads the store instead.
 
 One run is one trace. Traces are rendered from the [canonical event
 stream](/concepts/runs-and-the-event-log), which is why an agent turn and a workflow run are
-traced by the same code and both carry their `session_id` — the deck does not instrument the
-OpenAI Agents SDK, and nothing opens a span outside the sink.
+traced by the same code and both carry their `session_id` — nothing instruments the OpenAI
+Agents SDK, and nothing opens a span outside a sink. A direct `Workflow.run()`, which bypasses
+the Runtime, therefore bypasses the sinks too.
 
-There is no `deck.observability` property, for the same reason there is no `runtime` or `store`:
-nothing needs one, and adding a property later is additive while removing one is not.
+There is no `deck.sinks` property, for the same reason there is no `runtime` or `store`: nothing
+needs one, and adding a property later is additive while removing one is not.
 
 <Callout type="info">
-  Needs the `observability` extra: `pip install "agentdeck[observability]"`. Without it, importing
-  `agentdeck.observability` still works and `build()` still validates — the SDK is only imported
-  when a deck that declared tracing actually opens.
+  Langfuse needs the `observability` extra: `pip install "agentdeck[observability]"`. Without it,
+  a deck with no Langfuse keys is unaffected — the SDK is only imported when a sink is actually
+  built for it.
 </Callout>
 
 ## Sessions

@@ -197,11 +197,11 @@ forbidden_modules =
 # import-linter can name it directly; the MCP ban above needed ruff only because `agents.mcp`
 # is a subpackage. `agentdeck.runtime` is listed whole now that `runtime/observability.py` —
 # the second altitude this contract had to carve an exception for — is gone, and
-# `agentdeck.composition` joins it: the assembly seam building a client from settings before
-# any caller had asked for one is #162's first defect. `agentdeck.observability` and
-# `agentdeck.deck` cannot be listed — the capability composes the telemetry adapter on purpose,
-# so every path from them reaches the SDK. The rule that one place constructs the client is
-# pinned by name in `tests/test_observability.py` instead.
+# `agentdeck.authoring` joins it, since a direct-call runner opening spans of its own is what
+# left #162's orphan trees. `agentdeck.composition` and `agentdeck.deck` cannot be listed: the
+# composition root resolves the sink on purpose (`resolve_sinks`), so every path from them
+# reaches the SDK. That one place constructs the client, and that `build_runtime` is not it,
+# are pinned by name in `tests/test_observability.py` instead.
 [importlinter:contract:langfuse-is-telemetry-private]
 name = only the telemetry adapter imports the Langfuse SDK
 type = forbidden
@@ -209,7 +209,6 @@ source_modules =
     agentdeck.core
     agentdeck.runtime
     agentdeck.authoring
-    agentdeck.composition
     agentdeck.adapters.stores
     agentdeck.adapters.control
     agentdeck.adapters.engines
@@ -238,7 +237,6 @@ forbidden_modules =
     agentdeck.authoring
     agentdeck.skills
     agentdeck.mcp
-    agentdeck.observability
     agentdeck.surfaces
     agentdeck.serve
     agentdeck.deck

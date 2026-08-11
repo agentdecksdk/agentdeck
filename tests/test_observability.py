@@ -1,4 +1,4 @@
-"""Observability as a Deck capability: when the client is built, who closes it, what it traces.
+"""Event sinks as a Deck argument: when they open, what they see, and who closes what.
 
 The Langfuse SDK is stubbed at its one construction seam
 (``adapters.telemetry.langfuse.client.build_client``), so every assertion here holds without
@@ -20,8 +20,8 @@ import pytest
 from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.adapters.telemetry.langfuse import client as langfuse_client
+from agentdeck.core.ports import EventSinkPort
 from agentdeck.errors import ConfigError
-from agentdeck.observability import Langfuse
 from agentdeck.runtime.settings import LangfuseSettings, reset_settings_cache
 
 AGENT_PY = """
@@ -74,15 +74,13 @@ class Opened:
     def finish(self, **_kwargs: Any) -> None:
         """What a span carries when it closes is the sink's business, tested there."""
 
-    def shape(self) -> list[tuple[str, str]]:
-        return [(child.name, child.kind) for child in self.children]
-
 
 @dataclass
 class RecordingTracer:
     """Stands in for the Langfuse SDK: every root the sink opened, in memory."""
 
     roots: list[Opened] = field(default_factory=list)
+    flushes: int = 0
 
     def root(self, name: str, *, kind: str, session_id: str | None, **_kwargs: Any) -> Opened:
         opened = Opened(name=name, kind=kind, session_id=session_id)
@@ -90,25 +88,40 @@ class RecordingTracer:
         return opened
 
     def flush(self) -> None:
-        """Nothing to ship."""
+        self.flushes += 1
 
 
-class SpyClient:
-    """Stands in for a Langfuse SDK client: records whether anything shut it down."""
+class Recorder(EventSinkPort):
+    """A caller's own sink: every event kind it saw, and whether it was told the stream ended."""
 
     def __init__(self) -> None:
-        self.shutdowns = 0
+        self.kinds: list[str] = []
+        self.closes = 0
 
-    def shutdown(self) -> None:
-        self.shutdowns += 1
+    async def emit(self, event: Any) -> None:
+        self.kinds.append(event.kind)
+
+    async def close(self) -> None:
+        self.closes += 1
+
+
+class Exploding(EventSinkPort):
+    """A caller's sink that fails on every event. The run must not notice."""
+
+    def __init__(self) -> None:
+        self.attempts = 0
+
+    async def emit(self, event: Any) -> None:  # noqa: ARG002 — it never gets as far as reading one
+        self.attempts += 1
+        raise RuntimeError("this sink is broken")
 
 
 @dataclass
 class Telemetry:
-    """The stubbed SDK: what the sink recorded, and every client that was constructed."""
+    """The stubbed SDK: what the settings-derived sink recorded, and every client built."""
 
     tracer: RecordingTracer
-    clients: list[SpyClient]
+    clients: list[object]
 
     @property
     def roots(self) -> list[Opened]:
@@ -118,10 +131,10 @@ class Telemetry:
 @pytest.fixture
 def telemetry(monkeypatch):
     """Swap the one client-construction seam for a spy, and the tracer for a recorder."""
-    clients: list[SpyClient] = []
+    clients: list[object] = []
 
     def _build(_settings):
-        client = SpyClient()
+        client = object()
         clients.append(client)
         return client
 
@@ -167,58 +180,16 @@ def scripted(monkeypatch):
     patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("hi",))))
 
 
-# --- configuration, and the network build() must not touch -----------------------------------
+# --- build() validates the shape, and touches no network --------------------------------------
 
 
-def test_build_resolves_the_configuration_without_constructing_a_client(telemetry, langfuse_keys):
-    langfuse_keys()
-
-    settings = Langfuse().build()
-
-    assert (settings.public_key, settings.secret_key) == ("pk-lf-test", "sk-lf-test")
-    assert telemetry.clients == []
-
-
-def test_explicit_arguments_win_over_the_environment(telemetry, langfuse_keys):
-    langfuse_keys()
-
-    settings = Langfuse(public_key="pk-code", base_url="https://langfuse.example/").build()
-
-    assert (settings.public_key, settings.secret_key, settings.base_url) == (
-        "pk-code",
-        "sk-lf-test",
-        "https://langfuse.example/",
-    )
-
-
-def test_declaring_observability_with_no_keys_anywhere_is_refused(monkeypatch):
-    monkeypatch.setenv("AGENTDECK_LANGFUSE_PUBLIC_KEY", "")
-    monkeypatch.setenv("AGENTDECK_LANGFUSE_SECRET_KEY", "")
-    reset_settings_cache()
-    try:
-        with pytest.raises(ConfigError, match="no Langfuse keys are configured"):
-            Langfuse().build()
-    finally:
-        reset_settings_cache()
-
-
-def test_a_handed_in_client_cannot_also_be_reconfigured():
-    with pytest.raises(ConfigError, match="cannot be reconfigured"):
-        Langfuse(client=SpyClient(), base_url="https://langfuse.example/")
-
-
-def test_a_handed_in_client_needs_no_keys_at_all(monkeypatch):
-    monkeypatch.setenv("AGENTDECK_LANGFUSE_PUBLIC_KEY", "")
-    monkeypatch.setenv("AGENTDECK_LANGFUSE_SECRET_KEY", "")
-    reset_settings_cache()
-    try:
-        assert Langfuse(client=SpyClient()).build().enabled is False
-    finally:
-        reset_settings_cache()
-
-
-async def test_deck_build_with_observability_configured_opens_no_socket(project, telemetry, langfuse_keys, monkeypatch):
-    """``build()`` stays a CI-runnable check with observability declared.
+async def test_build_with_langfuse_configured_builds_no_client_and_opens_no_socket(
+    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    telemetry,
+    langfuse_keys,
+    monkeypatch,
+):
+    """``build()`` stays a CI-runnable check with telemetry configured.
 
     Two assertions, because either alone is weak: no client was constructed, and no socket was
     opened by anything at all — the network ban is what makes ``build()`` safe to run where
@@ -229,7 +200,7 @@ async def test_deck_build_with_observability_configured_opens_no_socket(project,
     from agentdeck.deck import Deck
 
     langfuse_keys()
-    deck = Deck(observability=Langfuse())
+    deck = Deck.from_project()
 
     def _no_sockets(*_args, **_kwargs):
         raise AssertionError("build() opened a socket")
@@ -242,27 +213,55 @@ async def test_deck_build_with_observability_configured_opens_no_socket(project,
     await deck.aclose()
 
 
-def test_importing_the_capability_does_not_need_the_observability_extra():
-    """``agentdeck.observability`` is imported by ``agentdeck.deck``, so it is on every entry
-    point's import path — the SDK import has to stay behind ``open()``. A fresh interpreter,
-    because this one has already imported half the world."""
+async def test_build_refuses_something_that_is_not_a_sink(project):  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    from agentdeck.deck import Deck
+
+    deck = Deck.from_project(sinks=[object()])
+
+    with pytest.raises(ConfigError, match="sinks= takes EventSinkPort instances"):
+        deck.build()
+    await deck.aclose()
+
+
+def test_build_runtime_wires_no_telemetry_of_its_own():
+    """The assembly seam never resolves Langfuse — the root of #162's first defect.
+
+    It used to: ``sinks=None`` meant "read the keys and build a client", so a client existed
+    before any caller had said whether it wanted one, and the *second* construction (the one
+    that carried the span filter) was silently discarded by the SDK's per-public-key cache.
+    Keys are deliberately set here — with them set, the old wiring imported the SDK and built a
+    client; the new one must not. A fresh interpreter, because this one has already imported
+    half the world.
+    """
+    import os
+
     probe = (
         "import sys;"
-        "from agentdeck.observability import Langfuse;"
-        "Langfuse(public_key='pk', secret_key='sk').build();"
+        "from agentdeck.adapters.engines.stub import StubEngine;"
+        "from agentdeck.composition import build_runtime;"
+        "runtime = build_runtime(engines=[StubEngine()], invocables={});"
+        "assert runtime._sinks == (), runtime._sinks;"
         "assert 'langfuse' not in sys.modules, sorted(m for m in sys.modules if 'langfuse' in m);"
-        "print('built, and still no sdk')"
+        "print('configured, and still no client')"
     )
-    done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=120)
+    keyed = {"AGENTDECK_LANGFUSE_PUBLIC_KEY": "pk-lf-test", "AGENTDECK_LANGFUSE_SECRET_KEY": "sk-lf-test"}
+    done = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, timeout=120, env={**os.environ, **keyed}
+    )
 
     assert done.returncode == 0, done.stderr
-    assert "built, and still no sdk" in done.stdout
+    assert "configured, and still no client" in done.stdout
 
 
-# --- the lifecycle: once, at open, before any run ---------------------------------------------
+# --- the lifecycle: once, at open, before any run ----------------------------------------------
 
 
-async def test_tracing_starts_once_at_open_and_never_during_a_run(project, telemetry, langfuse_keys, scripted):  # noqa: ARG001 — fixtures set the environment up
+async def test_the_telemetry_client_is_built_once_at_open_and_never_during_a_run(
+    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    telemetry,
+    langfuse_keys,
+    scripted,  # noqa: ARG001 — points the run at a fake model
+):
     """One client for the whole life of a deck, built when it opens.
 
     The count is the assertion #162 needs: two constructions was the bug, and the SDK caches
@@ -272,7 +271,7 @@ async def test_tracing_starts_once_at_open_and_never_during_a_run(project, telem
     from agentdeck.deck import Deck
 
     langfuse_keys()
-    deck = Deck.from_project(observability=Langfuse())
+    deck = Deck.from_project()
 
     deck.build()
     assert telemetry.clients == []
@@ -284,12 +283,17 @@ async def test_tracing_starts_once_at_open_and_never_during_a_run(project, telem
         assert len(telemetry.clients) == 1
 
 
-async def test_an_open_deck_traces_its_runs_under_their_own_session(project, telemetry, langfuse_keys, scripted):  # noqa: ARG001 — fixtures set the environment up
+async def test_an_open_deck_traces_its_runs_under_their_own_session(
+    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    telemetry,
+    langfuse_keys,
+    scripted,  # noqa: ARG001 — points the run at a fake model
+):
     from agentdeck.deck import Deck
 
     langfuse_keys()
 
-    async with Deck.from_project(observability=Langfuse()) as deck:
+    async with Deck.from_project() as deck:
         result = await deck.run("Greeter", "hello", session_id="wa-123")
 
     assert result.output == "hi"
@@ -297,24 +301,20 @@ async def test_an_open_deck_traces_its_runs_under_their_own_session(project, tel
     assert (trace.name, trace.kind, trace.session_id) == ("Greeter", "agent", "wa-123")
 
 
-async def test_a_deck_without_observability_traces_nothing_and_says_nothing(
-    project,
+async def test_an_unconfigured_deck_runs_untraced_and_says_nothing(
+    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
     telemetry,
     langfuse_keys,
-    scripted,  # noqa: ARG001 — fixtures set the environment up
+    scripted,  # noqa: ARG001 — points the run at a fake model
     caplog,
 ):
-    """Tracing off is the quiet default: no client, no trace, and nothing warned about it.
-
-    The keys are set on purpose. Omitting ``observability=`` from a code-first ``Deck`` is the
-    declaration that this deck does not trace, and settings must not talk it back on.
-    """
+    """Tracing off is the quiet default: no client, no trace, and nothing warned about it."""
     from agentdeck.deck import Deck
 
-    langfuse_keys()
+    langfuse_keys("", "")
 
     with caplog.at_level(logging.WARNING, logger="agentdeck"):
-        async with Deck(agents=[_greeter()]) as deck:
+        async with Deck.from_project() as deck:
             await deck.run("Greeter", "hello")
 
     assert telemetry.clients == []
@@ -322,72 +322,114 @@ async def test_a_deck_without_observability_traces_nothing_and_says_nothing(
     assert [record.message for record in caplog.records if "langfuse" in record.message.lower()] == []
 
 
-async def test_from_project_takes_the_environment_as_the_declaration(project, telemetry, langfuse_keys, scripted):  # noqa: ARG001 — fixtures set the environment up
-    """The directory front door has no code to declare it in, and ``agentdeck serve`` is that
-    front door — so for ``from_project`` the configured keys are what asks for tracing."""
+async def test_no_sinks_at_all_is_sayable_explicitly(
+    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    telemetry,
+    langfuse_keys,
+    scripted,  # noqa: ARG001 — points the run at a fake model
+):
+    """``sinks=()`` opts out even where the environment configures Langfuse."""
     from agentdeck.deck import Deck
 
     langfuse_keys()
 
-    async with Deck.from_project() as deck:
-        await deck.run("Greeter", "hello", session_id="s-9")
-
-    assert len(telemetry.clients) == 1
-    assert [(root.name, root.session_id) for root in telemetry.roots] == [("Greeter", "s-9")]
-
-
-async def test_from_project_without_keys_stays_untraced(project, telemetry, scripted, monkeypatch):  # noqa: ARG001 — fixtures set the environment up
-    from agentdeck.deck import Deck
-
-    monkeypatch.setenv("AGENTDECK_LANGFUSE_PUBLIC_KEY", "")
-    monkeypatch.setenv("AGENTDECK_LANGFUSE_SECRET_KEY", "")
-    reset_settings_cache()
-    try:
-        async with Deck.from_project() as deck:
-            await deck.run("Greeter", "hello")
-    finally:
-        reset_settings_cache()
+    async with Deck.from_project(sinks=()) as deck:
+        await deck.run("Greeter", "hello")
 
     assert telemetry.clients == []
     assert telemetry.roots == []
 
 
-# --- ownership -------------------------------------------------------------------------------
+# --- several observers at once, and who owns them ----------------------------------------------
 
 
-async def test_the_deck_shuts_down_a_client_it_constructed(project, telemetry, langfuse_keys):
+async def test_every_sink_named_sees_the_same_stream(
+    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    telemetry,
+    scripted,  # noqa: ARG001 — points the run at a fake model
+):
+    """The log is the hub: the Runtime fans one run out to as many taps as it is given."""
+    from agentdeck.deck import Deck
+
+    audit, cost = Recorder(), Recorder()
+
+    async with Deck.from_project(sinks=[audit, cost]) as deck:
+        await deck.run("Greeter", "hello")
+
+    assert "run.started" in audit.kinds and "run.completed" in audit.kinds
+    assert audit.kinds == cost.kinds
+    assert telemetry.clients == [], "sinks= was given; the deck must not also build a Langfuse client"
+
+
+async def test_naming_sinks_suppresses_the_settings_derived_one(
+    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    telemetry,
+    langfuse_keys,
+    scripted,  # noqa: ARG001 — points the run at a fake model
+):
+    """The ownership rule at construction time: a deck told which taps to open opens those, and
+    does not quietly build a Langfuse client beside them because the environment has keys."""
+    from agentdeck.deck import Deck
+
+    langfuse_keys()
+    audit = Recorder()
+
+    async with Deck.from_project(sinks=[audit]) as deck:
+        await deck.run("Greeter", "hello")
+
+    assert audit.kinds != []
+    assert telemetry.clients == []
+    assert telemetry.roots == []
+
+
+async def test_the_deck_flushes_the_sink_it_built_from_settings(
+    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    telemetry,
+    langfuse_keys,
+    scripted,  # noqa: ARG001 — points the run at a fake model
+):
+    """The Langfuse SDK ships from a background thread, so the buffer only leaves the process
+    if something asks — and the deck that built the client is what asks, as it closes."""
     from agentdeck.deck import Deck
 
     langfuse_keys()
 
-    async with Deck.from_project(observability=Langfuse()):
-        pass
+    async with Deck.from_project() as deck:
+        await deck.run("Greeter", "hello")
+        assert telemetry.tracer.flushes == 0
 
-    [client] = telemetry.clients
-    assert client.shutdowns == 1
+    assert telemetry.tracer.flushes == 1
 
 
-async def test_the_deck_never_shuts_down_a_client_handed_in(project, telemetry, langfuse_keys):
+async def test_a_broken_sink_never_breaks_a_run(
+    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    scripted,  # noqa: ARG001 — points the run at a fake model
+):
+    """A caller's sink is fire-and-forget by the port's contract, and ``sinks=`` is where a
+    caller's own code first reaches that contract — so prove it end to end rather than at the
+    dispatch's unit boundary: the turn completes, and the log has every event the sink lost."""
     from agentdeck.deck import Deck
 
-    langfuse_keys()
-    mine = SpyClient()
+    broken, healthy = Exploding(), Recorder()
 
-    async with Deck.from_project(observability=Langfuse(client=mine)):
-        pass
+    async with Deck.from_project(sinks=[broken, healthy]) as deck:
+        result = await deck.run("Greeter", "hello", session_id="s-3")
+        logged = [event.kind async for event in deck.stream("Greeter", "again", session_id="s-3")]
 
-    assert mine.shutdowns == 0
-    assert telemetry.clients == [], "a client was handed in; the deck must not build a second one"
+    assert result.output == "hi"
+    assert broken.attempts > 0, "the broken sink was never even offered an event"
+    assert "run.completed" in logged
+    assert "run.completed" in healthy.kinds
 
 
 # --- #162's second defect: no orphan trees ------------------------------------------------------
 
 
 async def test_a_workflow_turn_driving_an_agent_exports_exactly_one_trace_root(
-    project,
+    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
     telemetry,
     langfuse_keys,
-    scripted,  # noqa: ARG001 — fixtures set the environment up
+    scripted,  # noqa: ARG001 — points the run at a fake model
 ):
     """One run, one trace — the count #162's second defect broke.
 
@@ -401,7 +443,7 @@ async def test_a_workflow_turn_driving_an_agent_exports_exactly_one_trace_root(
 
     langfuse_keys()
 
-    async with Deck.from_project(observability=Langfuse()) as deck:
+    async with Deck.from_project() as deck:
         await deck.run("ChatFlow", {"input": "hello"}, session_id="s-7")
 
     assert [(root.name, root.kind, root.session_id) for root in telemetry.roots] == [("ChatFlow", "chain", "s-7")]
@@ -426,7 +468,7 @@ def test_nothing_in_the_package_instruments_the_agents_sdk():
     assert found.stdout == "", f"the Agents-SDK instrumentor is back in {found.stdout.split()}"
 
 
-# --- the one construction point ----------------------------------------------------------------
+# --- the one construction point ------------------------------------------------------------------
 
 
 def test_the_sdk_client_is_constructed_in_exactly_one_place():
@@ -453,6 +495,8 @@ def test_the_sdk_client_is_constructed_in_exactly_one_place():
 def test_build_client_names_the_otel_service_and_bounds_the_exporter(monkeypatch):
     """The two process-wide settings that have to happen before the SDK builds its exporter,
     and that a second construction could therefore never apply."""
+    import os
+
     monkeypatch.delenv("OTEL_SERVICE_NAME", raising=False)
     monkeypatch.delenv("OTEL_EXPORTER_OTLP_TRACES_TIMEOUT", raising=False)
     constructed: dict[str, Any] = {}
@@ -461,7 +505,6 @@ def test_build_client_names_the_otel_service_and_bounds_the_exporter(monkeypatch
         Langfuse = staticmethod(lambda **kwargs: constructed.update(kwargs) or object())
 
     monkeypatch.setitem(sys.modules, "langfuse", _FakeSdk)
-    import os
 
     langfuse_client.build_client(
         LangfuseSettings(public_key="pk", secret_key="sk", service_name="booking-svc", environment="prod")
@@ -470,9 +513,3 @@ def test_build_client_names_the_otel_service_and_bounds_the_exporter(monkeypatch
     assert os.environ["OTEL_SERVICE_NAME"] == "booking-svc"
     assert os.environ["OTEL_EXPORTER_OTLP_TRACES_TIMEOUT"] == "5"
     assert (constructed["public_key"], constructed["environment"]) == ("pk", "prod")
-
-
-def _greeter():
-    from agentdeck.authoring import Agent
-
-    return Agent(name="Greeter", instructions="Greet the user.")

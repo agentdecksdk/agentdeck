@@ -1,13 +1,13 @@
 """The Langfuse SDK boundary: the only module in the package that names ``langfuse``.
 
-Two jobs. :func:`build_client` constructs the SDK client — the one place in the package that
-does, called once by :meth:`agentdeck.observability.Langfuse.open` when a deck opens, so
-nothing is imported and no client exists until a deck that declared tracing is actually
-opening. :class:`LangfuseTracer` is the SDK-backed ``Tracer``: it opens observations and hands
-back handles, and every call it makes is in-memory. Delivery belongs to the SDK's batching
-span processor, which ships from a background thread, so ``emit`` never waits on the network;
-the sink's ``close`` is what makes that buffer leave the process at shutdown, instead of
-trusting an ``atexit`` a killed process never runs.
+Two jobs. :func:`langfuse_sink` builds the client and the sink over it — the one place in the
+package a client is constructed, reached only when a ``Deck`` that asked for tracing is
+opening, so nothing is imported and no client exists before then. :class:`LangfuseTracer` is
+the SDK-backed ``Tracer``: it opens observations and hands back handles, and every call it
+makes is in-memory. Delivery belongs to the SDK's batching span processor, which ships from a
+background thread, so ``emit`` never waits on the network; the sink's ``close`` is what makes
+that buffer leave the process at shutdown, instead of trusting an ``atexit`` a killed process
+never runs.
 """
 
 from __future__ import annotations
@@ -15,6 +15,8 @@ from __future__ import annotations
 import logging
 import os
 from typing import TYPE_CHECKING, Any
+
+from agentdeck.adapters.telemetry.langfuse.sink import LangfuseSink
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -34,6 +36,16 @@ _EXPORT_TIMEOUT_SECONDS = "5"
 _OTLP_EXPORTER_LOGGER = "opentelemetry.exporter.otlp.proto.http.trace_exporter"
 
 
+def langfuse_sink(settings: LangfuseSettings) -> LangfuseSink:
+    """The sink to register with the Runtime, over a client built for ``settings``.
+
+    Called once, by a ``Deck`` that was asked for tracing, as it opens — never from settings by
+    whatever happens to be assembling a Runtime. Takes the settings rather than reading them,
+    so "is tracing wanted?" is answered by the caller and this module only answers "how".
+    """
+    return LangfuseSink(LangfuseTracer(build_client(settings)))
+
+
 def build_client(settings: LangfuseSettings) -> Any:
     """Construct the SDK client. Imported here, never at module scope, so the optional
     ``[observability]`` extra stays optional.
@@ -42,7 +54,8 @@ def build_client(settings: LangfuseSettings) -> Any:
     ``LangfuseResourceManager`` per public key and returns the cached one from every later
     ``Langfuse(...)`` call, discarding that call's arguments — so a second construction cannot
     change the environment, the sample rate or the span filter the first one set, and it is not
-    a second client either. Shutting one down does not evict it from that cache.
+    a second client either. Shutting one down does not evict it from that cache, which is why
+    nothing here shuts one down: see ``Deck.aclose``.
     """
     from langfuse import Langfuse  # ty: ignore[unresolved-import] — [observability] extra
 
@@ -164,4 +177,4 @@ def _cost_details(usage: Usage | None) -> dict[str, float] | None:
     return {"total": usage.usd}
 
 
-__all__ = ["LangfuseTracer", "build_client"]
+__all__ = ["LangfuseTracer", "build_client", "langfuse_sink"]
