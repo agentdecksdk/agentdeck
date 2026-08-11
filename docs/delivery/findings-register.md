@@ -1,0 +1,140 @@
+# Findings register
+
+**Date:** 2026-08-11 · **Tree:** `dev` at `5758b14`, v3.0.0 released.
+
+Every finding this project has recorded, and what happened to it. One rule: **a finding has
+exactly one disposition — solved, rejected, or scheduled against a named issue.** Nothing sits in
+a document with no answer, because a finding nobody dispositioned is indistinguishable from one
+nobody read.
+
+Findings arrive from four places, and only the first is a place anyone looks:
+
+| Source | What it holds |
+|---|---|
+| GitHub issues titled `finding:` | the register's main body — 24 open, 9 closed |
+| `beta-user-report-v3.md` | B1–B2, N1–N6, from a first-time user on `v3.0.0b1` |
+| `plan-219-delivery.md` §4 | the reference application's friction ledger |
+| conversation | proposals raised and ruled on without ever becoming issues |
+
+The last one is why this file exists. The first three are searchable; the fourth evaporates.
+
+---
+
+## 1. The sweep found a false "solved"
+
+**#221 was closed as completed while its defect was still shipping.**
+`AGENTDECK_RUNNER_WORKFLOW_NAME` still defaults to `local-sandbox-repl` — naming a sandbox v3 does
+not have, on every run's tracing label.
+
+```
+$ grep -n 'local-sandbox-repl' agentdeck/runtime/settings.py
+259:        default="local-sandbox-repl",
+
+$ git log -S"local-sandbox-repl" --all
+dcdf94a  docs: generate the settings and CLI reference from the code (#139)
+7aabe51  feat: agentdeck v0.1.0
+```
+
+No commit ever changed it. **Reopened.** A finding recorded as solved while the defect ships is
+worse than an open one, because nothing will look at it again — which is the argument for keeping
+this file.
+
+## 2. Open, scheduled
+
+### v3.1 — hardening · 16 findings
+
+Correctness, error contracts, and things accepted then discarded.
+
+| # | Finding |
+|---|---|
+| #177 | `usage.usd` is always `None` — a cost field that never carries a cost |
+| #178 | handoffs fail against a non-OpenAI `OPENAI_BASE_URL` (reproduced, exact 400 message attached) |
+| #221 | `AGENTDECK_RUNNER_WORKFLOW_NAME` defaults to a sandbox v3 does not have — **reopened, see §1** |
+| #223 | the settings page promises a `config.yaml` surface and documents none of its field names |
+| #226 | `DataBlock` is refused on input, so structured context has no typed form |
+| #229 | a cancel against a `WAITING_HUMAN` run is accepted, never honoured, and leaves no trace |
+| #230 | `build()` is silent when the events/checkpoint pairing breaks the approval inbox |
+| #231 | `run()`'s `TurnResult | Any` makes the documented interrupt idiom fail a type checker |
+| #232 | the default checkpoint needs the `[durability]` extra, so a default install cannot run `durable=True` |
+| #233 | checkpointer connection failures leak raw driver exceptions instead of `StoreError` |
+| #235 | `answer()` takes any value unvalidated, and nothing says the node owns interpreting it |
+| #243 | the 500 contract only covers `AgentdeckError`, so an engine failure returns bare text |
+| #244 | a killed worker holds its session for an hour by default, with no way to release it |
+| #245 | `agentdeck-serve --help` crashes instead of printing usage |
+| #247 | `Agent(model=...)` is silently ignored — `RunConfig` overrides every agent's model |
+| #250 | a tool that raises completes the run, and `tool.call.completed.error` is never set |
+| #251 | a non-serializable tool return is `repr()`'d into the log and the model's context |
+
+Two of these are *silent wrong answers* rather than errors — #250 and #251 — which is the worst
+category the project has, and both were found by a reviewer using the SDK rather than by the
+1,257-test suite.
+
+### docs-site · 6 findings
+
+| # | Finding |
+|---|---|
+| #238 | errors name the problem but never the doc page that answers it |
+| #239 | getting-started dead-ends — skills, sessions and reference are unreachable from the entry path |
+| #240 | human-approval never warns that the default event store empties `pending()` |
+| #241 | add-a-tool omits where `function_tool` comes from and what a raising tool does |
+| #242 | no shipped example includes a skill, so `SKILL.md` is learned from an error |
+| #246 | serve-over-http never says `message` is string-only, so block input looks supported |
+
+### v3.2 — batteries · 1 finding
+
+| # | Finding |
+|---|---|
+| #234 | the CLI has no read path — no way to see the approval inbox or a run |
+
+Filed as a finding, dispositioned as a capability: nothing is *wrong*, something is *absent*.
+
+## 3. Solved
+
+Closed with the defect actually gone — spot-checked, not assumed, after §1.
+
+| # | Finding | Where it was fixed |
+|---|---|---|
+| #171 | `tools=[plain_callable]` fails at run time though every document shows that form | #179 doc correction + #172's guardrail |
+| #172 | `build()` accepts a tool it cannot compile | Wave B |
+| #173 | MCP warns "agent boots without it" during `build()` | Wave B |
+| #174 | a declaration-only bundle yields an empty catalog silently | Wave B |
+| #175 | every streamed event's class is `Event` | Wave B — documented, with a `match` example |
+| #176 | no `agentdeck.__version__` | Wave B |
+| #200 | `UnknownBlock` preserves an unknown block but does not round-trip it | `2614b80` |
+| #204 | `from_project()` picks up another project's agents | #214 — one deck per process, enforced |
+
+## 4. Rejected
+
+Raised, considered, not pursued. Recorded so they are not re-litigated from scratch.
+
+| Finding | Why not |
+|---|---|
+| **A coverage percentage gate** (`--cov` in `make check`) | Measured before deciding: coverage is **92%**, `runconfig.py` is **100%** covered, and `compile.py:145` is covered — both lines of the #247 bug execute on nearly every test and the bug shipped anyway. Coverage answers *"was this line executed"*; #247 is *"two executed lines conflict"*. A gate would have been green throughout, and at 92% it would ratchet the status quo while rewarding tests that touch lines. `make coverage` stays as the audit it already is. **User's call, 2026-08-11** |
+| **A "documented claim ↔ behavioural test" gate** | Proposed as the sharper alternative — every row in `concepts/agents.mdx`'s configuration table must be exercised by a test asserting the argument *does something*. `model` would have failed it on day one. Declined. **User's call, 2026-08-11** |
+
+## 5. Open, unfiled
+
+Real, recorded here rather than as an issue, because an existing issue's scope already covers
+them. Listed so that closing that issue without addressing them is a visible omission.
+
+| Finding | Covered by |
+|---|---|
+| **`agentdeck/runtime/capture.py` is dead.** 13 statements, 0% coverage, and `Capture`/`CaptureActor` have **zero users** across `agentdeck/`, `tests/` and `examples/` | **#131** simplification. Verified 2026-08-11; a separate issue was offered and declined |
+
+## 6. Anomalies to fix
+
+**#167 bundles a battery with a guardrail.** Its title is *"zero-config `Preset` for the
+infrastructure a Deck opens, **and an empty catalog is a `build()` error**"*. The first half is a
+convenience; the second is beta finding **N3** — a deck that builds happily and can run nothing,
+which is a silent-failure defect and squarely v3.1's theme. As one issue on v3.2 it cannot be
+scheduled correctly. **Recommend splitting**, guardrail to v3.1.
+
+**Beta report N1–N6 and B1–B2 have no issue links in the document itself.** Every one is
+dispositioned above, but a reader of `beta-user-report-v3.md` cannot tell. N5 → #177, N6 → #178,
+N3 → #167 (see above); the rest are in §3.
+
+## 7. How this stays true
+
+A finding is not filed until it has a disposition, and this file is the disposition of record for
+anything that never became an issue. When a `finding:` issue is closed, the closer confirms the
+defect is gone — §1 is what happens when nobody does.

@@ -52,6 +52,7 @@ per new spec doc — had fallen behind by thirteen documents; this closes it.
 | `delivery/roadmap-v3.md` | Every open v3.0.0 issue assessed against the tree, the rulings taken, and the waves. **Delivered** — see its closing note |
 | `delivery/plan-219-delivery.md` | Ask AgentDeck (#219) — the reference application as release-level validation of the frozen v3 surface: six rulings, four slices, and the friction ledger that is its real deliverable |
 | `delivery/roadmap-v3.1.md` | **What's next.** Every open issue assessed against the tree after v3.0.0, the rulings needed, and the backlog sorted into v3.1 / v3.2 / v3.3 — including the reference app's ledger findings, filed as issues |
+| `delivery/findings-register.md` | **Every finding and its disposition** — solved, rejected, or scheduled against a named issue. The disposition of record for anything raised in conversation that never became an issue, and the reason #221 was caught closed-but-unfixed |
 | `delivery/beta-user-report-v3.md` | A real `v3.0.0b1` run by a first-time user; source of the Wave B findings |
 | `delivery/deck-capability-wrapper-pattern.md` | The wrapper shape a `Deck` argument takes when a capability needs one |
 
