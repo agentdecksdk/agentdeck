@@ -20,7 +20,6 @@ from agentdeck.adapters.engines.langgraph.engine import STREAM_CONFIGURABLE_KEY
 from agentdeck.authoring.agent import Agent
 from agentdeck.authoring.compile import compile_agent
 from agentdeck.authoring.runners.agent import HeadlessRunner, StreamDone
-from agentdeck.core.ports.sandbox import require_sandbox
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +31,9 @@ class LoadFileNode:
     """Read a file emitted by an upstream node into ``into``.
 
     ``path(state)`` returns the file path or ``None`` (no-op so the node can
-    sit downstream of optional stages). Absolute paths read the host fs
-    directly; relative paths go through the active sandbox.
+    sit downstream of optional stages). The path must be absolute: a relative
+    one used to resolve inside the run's sandbox, and sandboxing is not part of
+    v3.
     """
 
     __slots__ = ("path", "into", "parse")
@@ -60,10 +60,15 @@ class LoadFileNode:
         if not target:
             return {}
         target_path = Path(str(target))
-        if target_path.is_absolute():
-            text = target_path.read_text(encoding="utf-8")
-        else:
-            text = await require_sandbox().read_text(str(target_path))
+        # Refusing rather than resolving against the cwd is deliberate: a relative path here
+        # was always read inside the sandbox, and quietly reading the host fs instead would
+        # widen exactly what the sandbox was there to narrow.
+        if not target_path.is_absolute():
+            raise RuntimeError(
+                f"LoadFileNode(path=...) needs an absolute path; got {str(target)!r}. "
+                "Relative paths resolved inside the sandbox, which v3 does not ship.",
+            )
+        text = target_path.read_text(encoding="utf-8")
         return {self.into: self.parse(text) if self.parse else text}
 
 
