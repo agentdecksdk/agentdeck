@@ -13,11 +13,14 @@ workflow-as-tool *do* need one — a root to scan, a graph to call — so both a
 resolver callbacks a ``Deck`` supplies; an ``Agent`` built with neither configured raises a
 clear ``ConfigError`` naming what is missing, instead of silently dropping what it declared.
 
-A bare callable in ``tools=`` is rejected here too, structurally rather than by compiling it
-through an engine (``compile_agent`` builds no engine and touches no network, and this runs
-inside both ``Deck.build()`` and standalone ``Agent.build()`` — the one place both paths meet).
-Otherwise it reaches the SDK unwrapped and only fails once a run actually starts, with a
-``UserError`` about "hosted tools" that names nothing a caller recognises (#172).
+A bare callable in ``tools=`` is **compiled** here, by ``tools.compile_tool`` — a plain function
+is the canonical way to declare a tool, and a function annotated ``Context[...]`` can only be
+declared that way, since ``@function_tool`` applied by the author would put the context parameter
+in the model-visible schema. This used to be a rejection ("wrap it with ``@function_tool``"), for
+the good reason that an uncompiled callable reached the SDK and failed mid-run with a ``UserError``
+about hosted tools; compiling it here keeps that failure from happening while giving the callable
+a real contract. A pre-built SDK tool object is still accepted and passed straight through, as
+engine-native: nothing here introspects it, and it carries no portability guarantee.
 
 ``refresh_mcp_status`` is a second pass over MCP status specifically, the same shape as
 ``link_handoffs`` — needed because ``Deck.build()`` compiles agents before ``Deck.__aenter__``
@@ -34,6 +37,7 @@ from agents import Tool as SDKTool
 
 from agentdeck.adapters.engines.langgraph.checkpointer import resolve_checkpointer
 from agentdeck.adapters.tools.mcp.wiring import mcp_status_banner, resolve_agent_mcp_status
+from agentdeck.authoring.tools import compile_tool
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.runtime.settings import get_settings, parse_backend_url
 
@@ -109,10 +113,14 @@ def compile_agent(
             resolved_tools.append(resolve_workflow_tool(tool))
         elif isinstance(tool, _SDK_TOOL_TYPES):
             resolved_tools.append(tool)
+        elif callable(tool):
+            try:
+                resolved_tools.append(compile_tool(tool))
+            except ConfigError as refused:
+                raise ConfigError(f"agent {agent.name!r}: {refused}") from refused
         else:
             raise ConfigError(
-                f"agent {agent.name!r} has a tool that is not an Agents SDK tool object: {tool!r}. "
-                "Wrap a plain function with @function_tool (from `agents`) before passing it to tools=."
+                f"agent {agent.name!r} has a tool that is neither a callable nor an Agents SDK tool object: {tool!r}."
             )
     # Fields the SDK's own dataclass defaults (empty list, `None`) apply to: passing `None`
     # explicitly for `tools`/`mcp_servers` fails its `__post_init__` type check, so an unset

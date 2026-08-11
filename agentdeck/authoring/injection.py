@@ -88,7 +88,7 @@ def analyze_callable(target: Callable[..., object]) -> CallableAnalysis:
     if len(declared) > 1:
         names = ", ".join(name for name, _ in declared)
         raise ConfigError(
-            f"{_describe(target)} declares multiple Context[...] parameters ({names}); at most one is allowed."
+            f"{describe_callable(target)} declares multiple Context[...] parameters ({names}); at most one is allowed."
         )
     if not declared:
         return CallableAnalysis(target, None, None, tuple(_resolved(parameters, hints)), reliable=True)
@@ -131,8 +131,10 @@ def _resolved(parameters: Iterable[inspect.Parameter], hints: Mapping[str, objec
             yield parameter
 
 
-def _describe(target: Callable[..., object]) -> str:
+def describe_callable(target: Callable[..., object]) -> str:
+    """How every message about ``target`` names it — the author's own name for the function,
+    so an error points at their code rather than at whatever AgentDeck compiled it into."""
     return getattr(target, "__qualname__", None) or repr(target)
 
 
-__all__ = ["CallableAnalysis", "analyze_callable"]
+__all__ = ["CallableAnalysis", "analyze_callable", "describe_callable"]

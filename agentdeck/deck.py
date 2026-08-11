@@ -248,9 +248,11 @@ class Deck:
     ``docs/delivery/deck-capability-wrapper-pattern.md``) and ``skills=``/``mcp=`` (a bare path,
     a sequence of paths, or the capability object itself — coerced either way).
 
-    There is no ``context=``: declaring a context type is meaningless until something injects
-    one, and a constructor parameter that cannot be used is worse than an absent one. It returns
-    with ``Context[T]`` (``docs/delivery/plan-context-injection.md``), which is additive.
+    There is no ``context=`` on the *constructor* yet — declaring a context type buys build-time
+    compatibility checks that do not exist, and a parameter that cannot be used is worse than an
+    absent one. Supplying a context per run does work: :meth:`run` and :meth:`stream` take
+    ``context=`` for an agent, and a tool declaring a :class:`~agentdeck.core.context.Context`
+    parameter receives it.
 
     Public properties are :attr:`agents`, :attr:`workflows`, :attr:`skills` and :attr:`settings`
     only — never ``runtime`` or ``store``, the infrastructure this class exists to hide.
@@ -531,6 +533,23 @@ class Deck:
             f"No agent or workflow named {name!r}. Available: {sorted({*self._agents, *self._workflows})}."
         )
 
+    def _root_of_run(self, name: str, context: object) -> Agent | Workflow:
+        """The invocable :meth:`run`/:meth:`stream` will play, with ``context=`` refused where
+        nothing would consume it.
+
+        Only the openai-agents bridge injects a context today, so a workflow given one would take
+        it, run, and hand the model-facing code nothing — accepted-and-ignored, which is the exact
+        false promise that had ``Deck(context=...)`` deleted before it worked.
+        """
+        root = self._root(name)
+        if context is not None and not isinstance(root, Agent):
+            raise ConfigError(
+                f"context= is not supported for workflow {name!r} yet: only agent runs inject it "
+                "today, and a workflow would accept the value and never hand it to a node. Run the "
+                "agent with it, or leave it unset until LangGraph carries it too."
+            )
+        return root
+
     # --- the flat run-control surface -----------------------------------------------------
 
     async def run(
@@ -538,6 +557,7 @@ class Deck:
         name: str,
         input: Any,
         *,
+        context: object = None,
         session_id: str | None = None,
         namespace: str | None = None,
         run_id: str | None = None,
@@ -545,11 +565,16 @@ class Deck:
         """Run ``name`` — an agent or a workflow, whichever this catalog holds it as — and
         return its outcome: a :class:`TurnResult` for an agent, the final state (or an
         :class:`~agentdeck.authoring.interrupts.InterruptResult`) for a workflow.
+
+        ``context`` is the application's own environment for this run — a database handle, a
+        client, whatever the code the run reaches needs. A tool that declares a
+        :class:`~agentdeck.core.context.Context` parameter receives it; the model never does, and
+        it is never written to the event log. The same object serves the whole run, by reference.
         """
-        root = self._root(name)
+        root = self._root_of_run(name, context)
         runtime = self._require_open()
         content = coerce_input(input) if isinstance(root, Agent) else [_as_state_block(input)]
-        run = runtime.run(name, content, session_id=session_id, namespace=namespace, run_id=run_id)
+        run = runtime.run(name, content, context=context, session_id=session_id, namespace=namespace, run_id=run_id)
         if isinstance(root, Agent):
             return await _turn_result(run)
         result, _ = await _workflow_result(run)
@@ -560,16 +585,17 @@ class Deck:
         name: str,
         input: Any,
         *,
+        context: object = None,
         session_id: str | None = None,
         namespace: str | None = None,
         run_id: str | None = None,
     ) -> AsyncGenerator[Event, None]:
         """Streaming counterpart to :meth:`run`: yields the run's own canonical events."""
-        root = self._root(name)
+        root = self._root_of_run(name, context)
         runtime = self._require_open()
         content = coerce_input(input) if isinstance(root, Agent) else [_as_state_block(input)]
         async with aclosing(
-            runtime.run(name, content, session_id=session_id, namespace=namespace, run_id=run_id)
+            runtime.run(name, content, context=context, session_id=session_id, namespace=namespace, run_id=run_id)
         ) as run:
             async for event in run:
                 yield event

@@ -120,11 +120,17 @@ class Runtime:
         name: str,
         input: Input,
         *,
+        context: object = None,
         session_id: str | None = None,
         namespace: str | None = None,
         run_id: str | None = None,
     ) -> AsyncGenerator[Event, None]:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
+
+        ``context`` is the application's own value for this run, reaching a callable that declares
+        a ``Context[...]`` parameter and nothing else. It is held by reference for the run's whole
+        life and never written to the log — the record says what a run was asked to do, not which
+        live objects it held.
 
         One turn per session at a time: opening the run is a conditional append that fails if
         the session already has one in flight, so a second concurrent turn raises
@@ -136,7 +142,9 @@ class Runtime:
         closed this generator or had its own task cancelled under it.
         """
         spec, engine = self._resolve(name)
-        ctx, reports = self._bind(self._context(run_id=run_id, session_id=session_id, namespace=namespace))
+        ctx, reports = self._bind(
+            self._context(run_id=run_id, session_id=session_id, namespace=namespace, data=context)
+        )
         # ponytail: whole log per run — window it (or hand the engine a summary) once a
         # session's history outgrows one read, which a real store will notice long before this does
         history = await self._store.read(ctx.log_key, ctx)
@@ -502,7 +510,12 @@ class Runtime:
         await asyncio.gather(*(dispatch.close() for dispatch in self._sinks), return_exceptions=True)
 
     def _context(
-        self, *, run_id: str | None = None, session_id: str | None = None, namespace: str | None = None
+        self,
+        *,
+        run_id: str | None = None,
+        session_id: str | None = None,
+        namespace: str | None = None,
+        data: object = None,
     ) -> RunContext:
         """Mint this run's context — the one place a ``RunContext`` is built for a caller.
 
@@ -511,7 +524,7 @@ class Runtime:
         ``run_id`` wrong is not a type error but a silent no-op, so it is minted here unless a
         caller has a reason of its own.
         """
-        return RunContext(run_id=run_id or str(uuid4()), session_id=session_id, namespace=namespace)
+        return RunContext(run_id=run_id or str(uuid4()), session_id=session_id, namespace=namespace, data=data)
 
     def _bind(self, ctx: RunContext) -> tuple[RunContext, deque[KnownPayload]]:
         """Give this run its control gate and its report buffer, and hand back both.

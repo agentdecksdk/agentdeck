@@ -235,24 +235,25 @@ def test_from_project_matches_the_equivalent_code_first_deck(tmp_path, monkeypat
     )
 
 
-# --- context= is gone until Context[T] lands ------------------------------------------------
+# --- context= is a per-run argument; the constructor still has none -------------------------
 
 
 def test_context_is_not_a_constructor_parameter():
-    """It used to be accepted and then refused at run time, which promised something the deck
-    could not do. Gone rather than raising, so the failure is at the call site (#182)."""
+    """The deck-level declaration was accepted and then refused at run time, which promised
+    something the deck could not do. Still gone rather than raising, so the failure is at the
+    call site (#182) — what returned in #166 is the per-run argument below, which works."""
     with pytest.raises(TypeError, match="context"):
         Deck(agents=[_greeter()], context=object)  # ty: ignore[unknown-argument]
 
 
 @pytest.mark.asyncio
-async def test_run_and_stream_take_no_context_argument(no_project, scripted):
+async def test_run_and_stream_accept_a_context_for_an_agent(no_project, scripted):
+    """Accepted here because it arrives somewhere: a tool declaring ``Context[...]`` reads it
+    (``tests/test_tool_compilation.py``). An agent with no such tool simply ignores the value."""
     deck = Deck(agents=[_greeter()])
     async with deck:
-        with pytest.raises(TypeError, match="context"):
-            await deck.run("Greeter", "hi", context=object())  # ty: ignore[unknown-argument]
-        with pytest.raises(TypeError, match="context"):
-            await anext(deck.stream("Greeter", "hi", context=object()))  # ty: ignore[unknown-argument]
+        assert (await deck.run("Greeter", "hi", context=object())).output == "hi"
+        assert [event async for event in deck.stream("Greeter", "hi", context=object())]
 
 
 # --- skills= and mcp= each accept a bare path and a capability object -----------------------
@@ -361,19 +362,46 @@ def test_a_durable_workflow_used_as_a_tool_fails_build_naming_both():
         deck.build()
 
 
-# --- a tool build() cannot compile fails loudly, naming the agent and @function_tool -------
-# (#172: a raw callable used to reach the SDK unwrapped and only fail at run time)
+# --- a plain callable in tools= is compiled, and one that cannot be is refused loudly ------
+# (#172 rejected every bare callable; #166 makes one the canonical declaration, because a
+# callable annotated Context[...] cannot be pre-decorated without leaking that parameter)
 
 
-def test_agent_tool_that_is_a_bare_lambda_fails_build():
+def test_agent_tool_that_is_a_bare_named_function_is_compiled():
+    def lookup(q: str) -> str:
+        """Look something up."""
+        return q
+
+    deck = Deck(agents=[_greeter(tools=[lookup])])
+    deck.build()
+
+    (tool,) = deck._invocables["Greeter"].native.tools
+    assert tool.name == "lookup"
+    assert sorted(tool.params_json_schema["properties"]) == ["q"]
+
+
+def test_agent_tool_that_is_a_bare_lambda_is_compiled_under_its_own_unhelpful_name():
+    """Pinned rather than policed: a lambda compiles, and the model is shown ``<lambda>``.
+    Naming a tool well is the author's job, not something ``build()`` refuses over."""
     deck = Deck(agents=[_greeter(tools=[lambda q: q])])
+    deck.build()
 
-    with pytest.raises(ConfigError, match="Greeter") as exc_info:
-        deck.build()
-    assert "function_tool" in str(exc_info.value)
+    (tool,) = deck._invocables["Greeter"].native.tools
+    assert tool.name == "<lambda>"
 
 
-def test_agent_tool_that_is_a_bare_named_function_fails_build():
+def test_agent_tool_whose_signature_cannot_be_read_fails_build_naming_both():
+    """A decorator that dropped ``functools.wraps`` leaves nothing to build a schema from — and
+    nothing that could rule out a ``Context[...]`` parameter either, so compiling it anyway would
+    drop that argument at the first call."""
+
+    def destroying(fn):
+        def wrapper(*args, **kwargs):
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    @destroying
     def lookup(q: str) -> str:
         return q
 
@@ -381,7 +409,17 @@ def test_agent_tool_that_is_a_bare_named_function_fails_build():
 
     with pytest.raises(ConfigError, match="Greeter") as exc_info:
         deck.build()
-    assert "function_tool" in str(exc_info.value)
+    message = str(exc_info.value)
+    assert "wrapper" in message  # names the callable it was actually handed
+    assert "signature could not be read" in message
+
+
+def test_agent_tool_that_is_not_callable_at_all_fails_build():
+    deck = Deck(agents=[_greeter(tools=["find_slots"])])
+
+    with pytest.raises(ConfigError, match="Greeter") as exc_info:
+        deck.build()
+    assert "neither a callable nor an Agents SDK tool object" in str(exc_info.value)
 
 
 def test_agent_tool_wrapped_with_function_tool_builds_cleanly():

@@ -57,9 +57,11 @@ class Agent:
     positional base. A value explicitly passed here always wins over ``base``'s, including an
     explicit empty value — omission, not falsiness, is what defers to the base.
 
-    ``tools=`` takes already-built Agents SDK tool objects, not plain functions — wrap one with
-    ``@function_tool`` (``from agents import function_tool``) first. ``build()`` rejects a tool
-    that isn't one, naming the agent and the tool.
+    ``tools=`` takes plain functions — ``build()`` compiles each one, which is what lets a
+    parameter annotated ``Context[...]`` be injected without ever appearing in the schema the
+    model sees. An already-built Agents SDK tool object is still accepted and passed straight
+    through as engine-native, introspected by nothing here. A callable whose signature cannot be
+    read is refused at ``build()``, naming the agent and the callable.
     """
 
     __slots__ = (
