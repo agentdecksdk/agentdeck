@@ -8,6 +8,17 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-08-11
+
+The stable v3. Everything below landed on top of `3.0.0b1`: multimodal input, a versioned event
+envelope, one variable per configuration decision, `Context[T]` injection over both engines, and
+observability declared where the deck is declared.
+
+**Ask AgentDeck** ships alongside it — a documentation assistant built on the v3 public surface,
+in [`examples/ask-agentdeck/`](examples/ask-agentdeck/). It exists as much to test the surface as
+to answer questions: building a real application against it produced three findings, all recorded
+rather than smoothed over, and none of them blocking.
+
 ### Upgrading
 
 - **A retired v2 environment variable now refuses to start, rather than being ignored.** Nothing

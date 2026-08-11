@@ -16,7 +16,7 @@ file to add it to.
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install "agentdeck @ git+https://github.com/sagi5060/agentdeck.git@v3.0.0b1"
+uv pip install "agentdeck @ git+https://github.com/sagi5060/agentdeck.git@v3.0.0"
 export OPENAI_MODEL=gpt-4.1-mini OPENAI_API_KEY=sk-...
 python run.py
 ```
