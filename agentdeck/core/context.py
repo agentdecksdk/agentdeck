@@ -7,12 +7,18 @@ Frozen: a run's identity cannot change mid-flight.
 Deliberately holds no application identity. AgentDeck runs agents; it does not model users,
 organizations or permissions, so nothing here says who is acting or what they may do. An
 application that has those concepts keeps them, and may project one of them onto
-``namespace`` — which AgentDeck then treats as an opaque key it never interprets.
+``namespace`` — which AgentDeck then treats as an opaque key it never interprets. ``data`` is
+not a counter-example: it is application-*owned*, an environment the application hands the run,
+and AgentDeck reads it only to hand it back. Owning a value is not being identified by it.
+
+:class:`Context` is the public half of the same subject — the restricted view application code
+receives, so a tool signature names one AgentDeck type instead of an engine's.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import cast
 
 from agentdeck.core.control import Gate
 from agentdeck.core.reporting import Reporter
@@ -30,10 +36,18 @@ class RunContext:
     Empty is rejected rather than accepted, because stores encode ``None`` as the empty key —
     so an explicit ``""`` would silently share a bucket with unnamespaced runs.
 
-    Three values and two seams, and nothing else: a field AgentDeck's own machinery never
+    Four values and two seams, and nothing else: a field AgentDeck's own machinery never
     reads is not infrastructure, it is a guess about a mechanism that does not exist yet.
     ``trace_id``, ``budget``, ``triggered_by``, ``parent_run_id``, ``deadline`` and
     ``idempotency_key`` were all of that, and each comes back with the thing that enforces it.
+    ``data`` is the fourth value because it arrives with that thing: the engine bridges read it
+    on every injected call to build the :class:`Context` a user callable declared.
+
+    ``data`` is opaque by construction — ``object``, never inspected, never copied, never
+    serialized into an event, and left out of the repr so a logged context cannot leak a DB
+    client or a customer record. It is application-*owned*, which is not the application
+    *identity* ``namespace`` carefully is not either: ``namespace`` says which runs are kept
+    apart, ``data`` says what this one was handed to work with, and neither says who is acting.
 
     ``gate`` and ``reporter`` are the two fields that are not values — a cooperative seam has to
     reach code the Runtime never sees. Both default to doing nothing and only the Runtime rebinds
@@ -43,6 +57,7 @@ class RunContext:
     run_id: str
     session_id: str | None = None
     namespace: str | None = None
+    data: object = field(default=None, repr=False)
     gate: Gate = field(default_factory=Gate)
     reporter: Reporter = field(default_factory=Reporter)
 
@@ -67,3 +82,55 @@ class RunContext:
         """Where this run's events are written — a run without a session is its own log,
         so persist-before-yield holds for it too."""
         return self.session_id or self.run_id
+
+
+@dataclass(frozen=True, slots=True)
+class Context[T]:
+    """The only public context type: what a user callable declaring ``Context[T]`` receives.
+
+    One portable type above two engines. The OpenAI SDK hands a tool its own
+    ``RunContextWrapper`` and LangGraph hands a node its own ``Runtime``; each engine bridge
+    unwraps its native carrier to the :class:`RunContext` travelling inside and presents this
+    view, so a tool signature does not change when the engine does.
+
+    A view, not a copy — ``data`` is the very object the caller supplied, by reference. Access
+    to it is access for *application* code only: nothing here is ever serialized into a prompt,
+    and a dynamic-instructions callable contributes only its return value to what the model sees.
+
+    Narrower than the carrier on purpose. ``namespace`` is absent because no injection site has
+    needed to read it, and ``gate`` is absent because :meth:`checkpoint` is the whole of what a
+    callable may do with it — adding a property later is cheaper than changing one after release.
+    """
+
+    _run: RunContext
+
+    @property
+    def data(self) -> T:
+        """The value the caller passed to ``run(context=...)``.
+
+        The carrier stores it as ``object`` because AgentDeck never interprets it; ``T`` is the
+        declaring callable's claim about it, checked where the context enters the run rather
+        than re-checked on every read.
+        """
+        return cast("T", self._run.data)
+
+    @property
+    def reporter(self) -> Reporter:
+        return self._run.reporter
+
+    @property
+    def run_id(self) -> str:
+        return self._run.run_id
+
+    @property
+    def session_id(self) -> str | None:
+        return self._run.session_id
+
+    async def checkpoint(self) -> None:
+        """Offer a safe point: returns, or raises if the run was signaled to stop or pause.
+
+        Deliberately takes no safe-point argument. The kinds of safe point are a recorded
+        contract engine adapters share, and a user callable naming a new one would change what
+        the event log means from outside the engines.
+        """
+        await self._run.gate.checkpoint()
