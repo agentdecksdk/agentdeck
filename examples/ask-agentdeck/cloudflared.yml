@@ -1,0 +1,33 @@
+# Cloudflare Tunnel for Ask AgentDeck.
+#
+#     cloudflared tunnel --config cloudflared.yml run agentdeck-ask
+#
+# `--config` is not optional. cloudflared defaults to `~/.cloudflared/config.yml`, which on a
+# machine running any other tunnel already belongs to that one — merging into it would put this
+# service and an unrelated one behind the same process, so a restart for either restarts both.
+#
+# ## What this can reach
+#
+# One hostname, one local port, and a catch-all that refuses everything else. The catch-all is
+# the load-bearing line: without it, a hostname that resolves to this tunnel but is not listed
+# above gets a 502 from an attempted proxy rather than a flat refusal, and the ingress list
+# stops being an allowlist.
+#
+# The tunnel reaches `localhost:8100` and nothing else on this machine. It is an outbound
+# connection — no inbound port is opened, no firewall rule is needed, and nothing else you run
+# locally becomes reachable by adding it.
+#
+# Serve on the loopback interface, which is uvicorn's default:
+#
+#     uvicorn ask_agentdeck.server:app --port 8100          # binds 127.0.0.1
+#
+# Not `--host 0.0.0.0`. That would publish the assistant to every machine on your network in
+# addition to the tunnel, which is the one way this setup leaks past what is written here.
+
+tunnel: agentdeck-ask
+credentials-file: ~/.cloudflared/355f130a-9eb4-4fb1-8517-1a3a6928d7fb.json
+
+ingress:
+  - hostname: ask.agentdecksdk.com
+    service: http://localhost:8100
+  - service: http_status:404

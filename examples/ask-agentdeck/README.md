@@ -111,6 +111,37 @@ the ordinary way, from any working directory. This is what a real embedded appli
 like, and it is recorded as a finding rather than smoothed over — see
 `docs/delivery/plan-219-delivery.md`.
 
+## Serving it publicly
+
+The docs site is a static bundle on GitHub Pages; this backend runs on a machine you own, reached
+through a Cloudflare Tunnel. Availability therefore depends on that machine being up, which is
+the deliberate trade for not hosting a model-calling service.
+
+```bash
+uvicorn ask_agentdeck.server:app --port 8100                     # binds 127.0.0.1
+cloudflared tunnel --config cloudflared.yml run agentdeck-ask    # ask.agentdecksdk.com -> :8100
+```
+
+Set `ASK_AGENTDECK_ORIGINS` to the site's origin, and the `ASK_AGENTDECK_API_URL` repository
+variable to `https://ask.agentdecksdk.com` — the Pages build bakes it in as
+`NEXT_PUBLIC_AGENTDECK_API_URL`. **It must be `https`**: Pages is served over TLS and a browser
+hard-blocks an HTTPS page calling `http://`, which is the real reason a tunnel is required rather
+than a port forward.
+
+### What is exposed, and what is not
+
+Worth being precise about, because this is an unauthenticated endpoint that spends money.
+
+| | |
+|---|---|
+| **Reachable through the tunnel** | `localhost:8100`, and nothing else. `cloudflared.yml` lists one hostname and ends in `http_status:404`, so an unlisted hostname is refused rather than proxied. The tunnel is an outbound connection: no inbound port, no firewall rule, nothing else you run locally becomes reachable. |
+| **Bind address** | `127.0.0.1`, uvicorn's default. Do not pass `--host 0.0.0.0` — that publishes the assistant to your whole network *in addition* to the tunnel, and is the one way this setup leaks past what is written here. |
+| **On the wire** | An allowlist of five event kinds. `tool.call.completed` is deliberately not among them: its `result_preview` is the tool's output verbatim, so a tool that raised would put its exception text on a public wire. `usage.reported` is dropped too — the model name and per-turn token counts are nobody else's business. |
+| **Failure messages** | `run.failed` carries the exception's *type name* and the engine's, never its text. That is agentdeck's own design, not something this application adds. |
+| **The API key** | Only in the backend process. The static bundle is public by construction; `NEXT_PUBLIC_*` is readable in the shipped JavaScript, and nothing but the API URL goes there. |
+| **The tools** | `read_doc` is a dict lookup on a slug, not a file read, so no slug reaches the filesystem and there is no path to traverse. The corpus is the published documentation, which is public anyway. |
+| **Cost** | Rate-limited per client, `ASK_AGENTDECK_RATE_LIMIT` questions per five minutes, plus length caps on every field. CORS is *not* a control here — it constrains browsers and a `curl` ignores it. For anything beyond one process behind one tunnel, add a Cloudflare rate-limiting rule at the edge so the traffic never reaches the machine. |
+
 ## Tests
 
 `tests/test_ask_agentdeck.py`, in the main suite, offline. It checks the composition properties

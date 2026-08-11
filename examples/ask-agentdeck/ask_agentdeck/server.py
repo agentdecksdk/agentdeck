@@ -25,10 +25,13 @@ change to suit one consumer.
 from __future__ import annotations
 
 import os
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
+from http import HTTPStatus
+from time import monotonic
 from typing import TYPE_CHECKING, Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -45,19 +48,58 @@ AGENT = "AskAgentDeck"
 # The docs site is a static bundle on another origin — GitHub Pages in production, :3030 in
 # `npm run dev` — so the browser will not call this without CORS. Configurable because the
 # production origin changes when the site does, and a hardcoded host would outlive it.
+#
+# CORS is not a security control: it constrains browsers and nothing else, and a `curl` ignores
+# it entirely. The controls that matter for a publicly reachable endpoint are below.
 ALLOWED_ORIGINS = os.environ.get("ASK_AGENTDECK_ORIGINS", "http://localhost:3030,http://127.0.0.1:3030").split(",")
+
+# Only these reach the browser. The stream is still canonical events — no reshaping, no
+# translation layer — but it is an allowlist rather than everything the run emits, because this
+# endpoint is reachable by anyone who learns the hostname:
+#
+# - `tool.call.completed` carries `result_preview`, which is `str(tool_output)` verbatim. These
+#   two tools return documentation, which is public — but a tool that *raised* would put its
+#   exception text there, and that is the one channel on this wire that could carry an internal
+#   detail outward. Dropped, and the panel never needed it: `tool.call.started` already says
+#   which page is being read.
+# - `usage.reported` names the model and the token count of every turn. Not a secret, and not
+#   anonymous callers' business either.
+#
+# `run.failed` stays, and is safe by agentdeck's own design: its `message` is the exception's
+# *type name* and the engine's, never the exception text (`runtime/service.py:655`).
+PUBLIC_KINDS = frozenset({"run.started", "text.delta", "tool.call.started", "run.completed", "run.failed"})
+
+MAX_QUESTION = 2000
+"""A docs question is a sentence. The cap is what stops this being a free prompt-relay to
+whatever model the deck is pointed at."""
+
+RATE_LIMIT = int(os.environ.get("ASK_AGENTDECK_RATE_LIMIT", "20"))
+RATE_WINDOW = 300.0
+"""Questions per client per five minutes. The endpoint is unauthenticated on purpose — a docs
+assistant that asks you to log in is not a docs assistant — so this is what stands between the
+hostname and someone else's model bill. Deliberately generous for a reader, useless for a script.
+
+# ponytail: in-process and per-IP, which is right for one process behind one tunnel. A second
+# replica, or an attacker with addresses to spare, needs Cloudflare's own rate limiting at the
+# edge — see this example's README.
+"""
 
 
 class Question(BaseModel):
     """What the panel sends. Everything but the question is optional: the assistant has to work
-    on a page that exposes no selection, and from a `curl` that knows about no page at all."""
+    on a page that exposes no selection, and from a `curl` that knows about no page at all.
 
-    question: str = Field(min_length=1)
-    page: str | None = None
+    Every field is length-capped. Validation at a trust boundary is not the place to be lazy,
+    and `selection` in particular is whatever a caller says the reader highlighted — uncapped, it
+    is an arbitrary-length prompt injected straight into a model call someone else pays for.
+    """
+
+    question: str = Field(min_length=1, max_length=MAX_QUESTION)
+    page: str | None = Field(default=None, max_length=200)
     """The slug of the page the reader is on, e.g. `reference/deck` — the site's own slug."""
-    selection: str | None = None
+    selection: str | None = Field(default=None, max_length=MAX_QUESTION)
     """Whatever the reader had selected, if the UI exposes it."""
-    session_id: str | None = None
+    session_id: str | None = Field(default=None, max_length=100)
 
 
 def page_context_input(asked: Question) -> str:
@@ -102,6 +144,7 @@ def build_app(corpus: DocsCorpus | None = None) -> FastAPI:
         resolved = corpus or DocsCorpus()
         async with Deck(agents=[ask], context=DocsCorpus) as deck:
             app.state.deck, app.state.corpus = deck, resolved
+            app.state.limiter = RateLimiter(RATE_LIMIT, RATE_WINDOW)
             yield
 
     app = FastAPI(title="Ask AgentDeck", lifespan=lifespan)
@@ -114,7 +157,12 @@ def build_app(corpus: DocsCorpus | None = None) -> FastAPI:
         return {"status": "ok", "pages": len(app.state.corpus.pages)}
 
     @app.post("/ask")
-    async def answer(asked: Question) -> StreamingResponse:
+    async def answer(asked: Question, request: Request) -> StreamingResponse:
+        if not app.state.limiter.allow(request.client.host if request.client else "unknown"):
+            raise HTTPException(
+                status_code=HTTPStatus.TOO_MANY_REQUESTS,
+                detail=f"more than {RATE_LIMIT} questions in {int(RATE_WINDOW / 60)} minutes — try again shortly",
+            )
         stream = app.state.deck.stream(
             AGENT,
             page_context_input(asked),
@@ -124,13 +172,31 @@ def build_app(corpus: DocsCorpus | None = None) -> FastAPI:
 
         async def frames() -> AsyncIterator[str]:
             async for event in stream:
-                yield f"data: {event.model_dump_json()}\n\n"
+                if event.kind in PUBLIC_KINDS:
+                    yield f"data: {event.model_dump_json()}\n\n"
 
         return StreamingResponse(frames(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
     return app
 
 
+class RateLimiter:
+    """One deque of timestamps per client, trimmed to the window on each look."""
+
+    def __init__(self, limit: int, window: float) -> None:
+        self._limit, self._window, self._seen = limit, window, defaultdict(deque)
+
+    def allow(self, client: str) -> bool:
+        now = monotonic()
+        seen: deque[float] = self._seen[client]
+        while seen and now - seen[0] > self._window:
+            seen.popleft()
+        if len(seen) >= self._limit:
+            return False
+        seen.append(now)
+        return True
+
+
 app = build_app()
 
-__all__ = ["Question", "app", "build_app", "page_context_input"]
+__all__ = ["PUBLIC_KINDS", "Question", "RateLimiter", "app", "build_app", "page_context_input"]

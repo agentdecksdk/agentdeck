@@ -30,7 +30,13 @@ EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "ask-agentdeck"
 if str(EXAMPLE) not in sys.path:
     sys.path.insert(0, str(EXAMPLE))
 
-from ask_agentdeck.server import Question, build_app, page_context_input  # noqa: E402 — needs the path above
+from ask_agentdeck.server import (  # noqa: E402 — needs the path above
+    PUBLIC_KINDS,
+    Question,
+    RateLimiter,
+    build_app,
+    page_context_input,
+)
 
 _TOOL_CALL = {
     "index": 0,
@@ -46,9 +52,13 @@ class _ScriptedToolCallingModel(BaseHTTPRequestHandler):
     """
 
     turns = 0
+    received: list[dict] = []
+    """Every request body, so a test can assert what the *model* was told — the only place a
+    tool's real output is still observable now that it no longer reaches the browser."""
 
     def do_POST(self) -> None:
-        json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        type(self).received.append(body)
         type(self).turns += 1
         first = type(self).turns == 1
         self.send_response(200)
@@ -83,6 +93,7 @@ class _ScriptedToolCallingModel(BaseHTTPRequestHandler):
 @pytest.fixture
 def scripted_model() -> Iterator[str]:
     _ScriptedToolCallingModel.turns = 0
+    _ScriptedToolCallingModel.received = []
     server = ThreadingHTTPServer(("127.0.0.1", 0), _ScriptedToolCallingModel)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -160,14 +171,46 @@ def test_the_page_the_reader_is_on_reaches_the_run(client: TestClient) -> None:
 
 def test_the_context_reaches_a_tool_on_a_served_run(client: TestClient) -> None:
     """**Ruling 3, demonstrated.** The scripted model calls `read_doc`, whose only way to answer
-    is `docs.data.pages` — so a served run that reached the tool with no context would come back
-    with an error instead of a page. Through `Deck.asgi()` this is impossible by construction;
-    through the application's own route it simply works.
+    is `docs.data.pages` — so a served run that reached the tool with no context would send the
+    model an error where a page should be. Through `Deck.asgi()` this is impossible by
+    construction; through the application's own route it simply works.
+
+    Asserted on what the *model* was told, not on the SSE stream: `tool.call.completed` is no
+    longer published to the browser (see the allowlist test below), and the point of that
+    allowlist is precisely that raw tool output stays inside the process.
+    """
+    client.post("/ask", json={"question": "how do I create an agent?"})
+    follow_up = _ScriptedToolCallingModel.received[1]
+    assert "title: Agents" in json.dumps(follow_up["messages"]), "the tool answered without its corpus"
+
+
+def test_nothing_but_the_allowlisted_kinds_reaches_the_browser(client: TestClient) -> None:
+    """This endpoint is reachable by anyone who learns the hostname, so what leaves it is an
+    allowlist rather than everything the run emits.
+
+    `tool.call.completed` is the one that matters: its `result_preview` is `str(tool_output)`
+    verbatim, so a tool that raised would put its exception text on a public wire. `usage.reported`
+    names the model and counts the tokens of every turn, which is nobody else's business.
     """
     response = client.post("/ask", json={"question": "how do I create an agent?"})
-    completed = [event for event in _events(response) if event["kind"] == "tool.call.completed"]
-    assert completed, "the scripted model called read_doc, but no tool completion reached the log"
-    assert "title: Agents" in completed[0]["payload"]["result_preview"], completed[0]
+    kinds = {event["kind"] for event in _events(response)}
+    assert kinds <= PUBLIC_KINDS, f"leaked: {sorted(kinds - PUBLIC_KINDS)}"
+    assert "tool.call.started" in kinds, "the panel still needs to say which page it is reading"
+
+
+def test_a_long_selection_is_refused_at_the_boundary(client: TestClient) -> None:
+    """`selection` is whatever a caller claims the reader highlighted. Uncapped it is an
+    arbitrary-length prompt relayed into a model call someone else pays for."""
+    refused = client.post("/ask", json={"question": "hi", "selection": "x" * 50_000})
+    assert refused.status_code == 422
+
+
+def test_questions_are_rate_limited_per_client() -> None:
+    """Unauthenticated on purpose — a docs assistant that asks you to log in is not one — so this
+    is what stands between a public hostname and someone else's model bill."""
+    limiter = RateLimiter(limit=2, window=300.0)
+    assert [limiter.allow("1.2.3.4") for _ in range(3)] == [True, True, False]
+    assert limiter.allow("5.6.7.8"), "one noisy client must not lock everyone else out"
 
 
 def test_a_session_id_is_carried_onto_the_run(client: TestClient) -> None:
