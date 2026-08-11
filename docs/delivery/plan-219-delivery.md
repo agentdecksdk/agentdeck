@@ -112,11 +112,17 @@ costs one variable change whenever #140 happens.
 
 ### Ruling 6 — It lives in `examples/`.
 
-`examples/ask-agentdeck/` for the backend, a component under `docs-site/` for the panel. Fact 6
-gives the backend build-level CI coverage for the price of one line in
-`tests/test_examples.py:34`, and it puts the reference app exactly where a reader already looks
-for copyable code. No new top-level directory: "official reference application" is a claim about
-quality, not about needing its own tree.
+`examples/ask-agentdeck/` for the backend, a component under `docs-site/` for the panel. It puts
+the reference app exactly where a reader already looks for copyable code. No new top-level
+directory: "official reference application" is a claim about quality, not about needing its own
+tree.
+
+> **Amended in slice 1, 2026-08-11.** This ruling assumed a `.agentdeck/` project, picked up by
+> `tests/test_examples.py`'s glob for the price of one line at `:34`. It cannot be one, and the
+> reason is the slice's first real finding (§4). The app composes explicitly —
+> `Deck(agents=[ask], context=DocsCorpus)` — and brings its own `tests/test_ask_agentdeck.py`,
+> which slice 4 grows into eval layer A. The directory is unchanged; the glob simply does not
+> match it, and `tests/test_examples.py:34`'s hardcoded list stays as it is.
 
 ---
 
@@ -174,6 +180,19 @@ awkward, with the discriminating question: **is this the SDK's fault, and does i
 
 Three entries are predicted before a line is written, and being wrong about them is itself a
 result worth recording:
+
+**Found in slice 1 — a bundle cannot share a type with the program that composes it.**
+Verified, not inferred. A `.agentdeck/` bundle importing a module beside the project dir works
+only when the process was started from that directory; from anywhere else `Deck.from_project()`
+raises `ConfigError: agents/x/agent.py failed to import: No module named 'shared'`. Putting the
+module *inside* `.agentdeck/` does resolve — the project dir is mounted as a package, so
+`agentdeck_project.shared` imports from both sides — but `agentdeck_project` is
+`registry._PROJECT_ALIAS`, an internal name, and it does not exist until `from_project()` has
+run, so the host cannot import from it at module level. **Consequence:** any project whose
+bundles and host share a type must use `Deck(agents=[...])`. **Verdict: does not block v3** —
+explicit composition is a documented front door and works cleanly. Worth a v3.1 issue asking
+whether `.agentdeck/` should have a supported shared-module convention, and worth a line in the
+docs, since nothing currently tells anyone this before they hit it.
 
 | Predicted | The question it forces |
 |---|---|
