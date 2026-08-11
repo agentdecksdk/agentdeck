@@ -20,7 +20,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, Sp
 
 from agentdeck.adapters.engines.stub import StubEngine, stub_spec  # noqa: E402
 from agentdeck.adapters.stores.memory import MemoryEventStore  # noqa: E402
-from agentdeck.adapters.telemetry.langfuse import LangfuseSink, LangfuseTracer, langfuse_sink  # noqa: E402
+from agentdeck.adapters.telemetry.langfuse import LangfuseSink, LangfuseTracer, build_client  # noqa: E402
 from agentdeck.core.content import TextBlock  # noqa: E402
 from agentdeck.core.context import RunContext  # noqa: E402
 from agentdeck.core.events import (  # noqa: E402
@@ -212,10 +212,10 @@ def test_the_tracer_s_flush_is_the_sdk_client_s_own() -> None:
     assert client.flushes == 1
 
 
-def test_configured_keys_yield_a_sink_over_the_real_sdk(spy) -> None:  # noqa: ANN001
-    """The unconfigured half lives in ``test_langfuse_sink.py``; this is the other branch."""
-    sink = langfuse_sink(
+def test_build_client_yields_a_sink_over_the_real_sdk(spy) -> None:  # noqa: ANN001, ARG001 — the spy bounds the exporter and resets the registry
+    """The one construction point, against the SDK the package will actually run on."""
+    client = build_client(
         LangfuseSettings(public_key="pk-lf-configured", secret_key="sk-lf-test", base_url="http://localhost:1")
     )
 
-    assert isinstance(sink, LangfuseSink)
+    assert isinstance(LangfuseSink(LangfuseTracer(client)), LangfuseSink)

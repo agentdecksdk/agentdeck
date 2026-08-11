@@ -21,6 +21,17 @@ class EventSinkPort(ABC):
     lose events reads the store instead.
     """
 
+    async def start(self) -> None:  # noqa: B027 — no-op on purpose: an observer with nothing to open needs none
+        """Open whatever this sink needs before it can take an event. No-op by default.
+
+        Called once, while the Deck opens, before any run — so a sink that holds a client, a
+        connection or a file opens it here rather than on the first event it happens to see.
+        Which run turns telemetry on is not a thing an operator should have to know.
+
+        Pairs with :meth:`close`, and raising here refuses the open rather than leaving a Deck
+        running with an observer that silently never worked.
+        """
+
     @abstractmethod
     async def emit(self, event: Event) -> None:
         """Take one event, promptly.
