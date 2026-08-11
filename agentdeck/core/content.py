@@ -20,6 +20,7 @@ from pydantic import (
     ValidatorFunctionWrapHandler,
     WrapValidator,
     field_validator,
+    model_serializer,
 )
 
 from agentdeck.core.base import CoreModel, JsonData
@@ -115,6 +116,13 @@ class UnknownBlock(CoreModel):
             raise ValueError(f"{value!r} is a known block type — use its block class")
         return value
 
+    @model_serializer
+    def _dump_raw_block(self) -> dict[str, JsonData]:
+        """Dump ``raw_block`` verbatim instead of nesting it under ``{type, raw_block}``: the
+        wrapping is a parse-time artifact, so a reader that re-emits an unknown block must see
+        the same dict it read, not one nested one level deeper."""
+        return self.raw_block
+
 
 KnownBlock = Annotated[TextBlock | ImageBlock | AudioBlock | ResourceBlock | DataBlock, Field(discriminator="type")]
 
@@ -126,8 +134,11 @@ KNOWN_BLOCK_TYPES: frozenset[str] = frozenset(b.model_fields["type"].default for
 def _fallback_to_unknown_block(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
     """Reshape an unfamiliar block into :class:`UnknownBlock` instead of failing the union.
 
-    A stored ``UnknownBlock`` (``{type, raw_block}``) validates against the union member directly,
-    so ``handler`` succeeds and it is never re-wrapped — which is what lets it round-trip.
+    ``UnknownBlock`` dumps as its own ``raw_block`` verbatim (its ``model_serializer``), so a
+    second parse meets the original dict again rather than ``{type, raw_block}`` — ``handler``
+    fails on it exactly as it did the first time, and this re-wraps it into an equal
+    ``UnknownBlock``. The serializer is what makes parse-then-dump the identity; this function
+    runs on every parse, not only the first.
     """
     try:
         return handler(value)

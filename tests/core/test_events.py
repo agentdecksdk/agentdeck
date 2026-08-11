@@ -306,6 +306,20 @@ def test_a_minor_bump_is_how_a_content_block_kind_would_arrive():
     )
 
 
+def test_an_unknown_block_inside_a_real_event_dumps_without_nesting():
+    """The shape a relay would actually forward (#200): an unknown block riding inside
+    ``run.started.input`` must dump back to the exact dict it arrived as, not wrapped a level
+    deeper under ``raw_block`` — a relay re-emitting the event would otherwise corrupt the block
+    on every hop."""
+    video_block = {"type": "video", "media_type": "video/mp4", "data_b64": "AAA="}
+    newer = {**WIRE_VERSION, "minor": WIRE_VERSION["minor"] + 1}
+    wire = _wire("run.started", {"invocable": "Greeter", "kind_of_invocable": "agent", "input": [video_block]})
+    event = Event.model_validate({**wire, "v": newer})
+
+    dumped = json.loads(event.model_dump_json())
+    assert dumped["payload"]["input"][0] == video_block
+
+
 def test_status_of_and_check_terminal_are_unchanged_by_an_audio_block():
     """#159's own instance of the invariant ``test_old_reader_block_compat.py`` measures for an
     *unfamiliar* block: a real, known ``AudioBlock`` in ``run.started.input`` folds to the same
