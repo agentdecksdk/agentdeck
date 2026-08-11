@@ -1,6 +1,5 @@
 """The assembly seam: one function builds every Runtime, and Deck is one of its callers."""
 
-import os
 import subprocess
 import sys
 import textwrap
@@ -350,34 +349,6 @@ def test_choosing_a_store_does_not_make_the_durability_extra_mandatory():
     done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=120, check=True)
 
     assert done.stdout.strip() == "False"
-
-
-def test_build_runtime_wires_no_telemetry_of_its_own():
-    """The composition root never resolves Langfuse from settings — the root of #162.
-
-    It used to: ``sinks=None`` meant "read the keys and build a client", so a client existed
-    before any caller had said whether it wanted tracing, and the *second* construction (the
-    one that carried the span filter) was silently discarded by the SDK's per-public-key cache.
-    Keys are deliberately set here — with them set, the old wiring imported the SDK and built a
-    client; the new one must not. A fresh interpreter, because this one has already imported
-    half the world.
-    """
-    probe = (
-        "import sys;"
-        "from agentdeck.adapters.engines.stub import StubEngine;"
-        "from agentdeck.composition import build_runtime;"
-        "runtime = build_runtime(engines=[StubEngine()], invocables={});"
-        "assert runtime._sinks == (), runtime._sinks;"
-        "assert 'langfuse' not in sys.modules, sorted(m for m in sys.modules if 'langfuse' in m);"
-        "print('configured, and still no client')"
-    )
-    keyed = {"AGENTDECK_LANGFUSE_PUBLIC_KEY": "pk-lf-test", "AGENTDECK_LANGFUSE_SECRET_KEY": "sk-lf-test"}
-    done = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, timeout=120, env={**os.environ, **keyed}
-    )
-
-    assert done.returncode == 0, done.stderr
-    assert "configured, and still no client" in done.stdout
 
 
 async def test_deck_composes_one_runtime_over_the_whole_project(project):

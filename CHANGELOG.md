@@ -52,29 +52,38 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Added
 
-- **`Deck(sinks=[...])` — the event stream has a declared set of observers, and they open with
-  the deck** (#181). Anything implementing `EventSinkPort` — telemetry, cost accounting, audit —
-  can now be named where the deck is declared, and the Runtime fans every run out to all of
-  them. Three states: `sinks=None` (the default) opens the configured Langfuse sink if
-  `AGENTDECK_LANGFUSE_*` names one and nothing otherwise, exactly as before; a sequence opens
-  exactly those, in order, and suppresses the settings-derived one; `sinks=()` opens none.
+- **`Deck(observers=[...])` — the event stream has a declared set of observers, and they start
+  with the deck** (#181). An observer is any `EventSinkPort` — telemetry, cost accounting, audit
+  — and the Runtime fans every run out to all of them, each with its own bounded queue.
+  `agentdeck.observers.Langfuse` is the one agentdeck ships.
 
   ```python
   from agentdeck import Deck
+  from agentdeck.observers import Langfuse
 
-  deck = Deck(agents=[booking], sinks=[my_cost_sink, my_audit_sink])
-  async with deck:                 # the sinks open here, once, before any run
+  deck = Deck(agents=[booking], observers=[Langfuse(), my_audit_observer])
+  async with deck:                 # every observer starts here, once, before any run
       await deck.run("booking", "hello")
   ```
 
-  The altitude is the point. Sinks open during `__aenter__`, before the Runtime exists and
-  before any run can start — they are no longer assembled underneath the composition root from
-  settings, nor started by whichever run happened to come first. `build()` shape-checks `sinks=`
-  and does nothing else: no sink is opened, no telemetry client is constructed and no exporter
-  contacted, so a deck with Langfuse configured still validates where Langfuse is unreachable.
-  A sink stays fire-and-forget by the port's contract — one that is slow or raises costs its own
-  backlog and never a run. There is no `deck.sinks` property, for the same reason there is no
-  `runtime` or `store`.
+  Three states: `observers=None` (the default) starts the configured Langfuse observer if
+  `AGENTDECK_LANGFUSE_*` names one and nothing otherwise, exactly as before; a sequence starts
+  exactly those, in order, and suppresses the settings-derived one; `observers=()` starts none.
+
+  The altitude is the point. Observers start during `__aenter__`, before the Runtime exists and
+  before any run can begin — they are no longer assembled underneath the composition root from
+  settings, nor started by whichever run happened to come first. `build()` shape-checks
+  `observers=` and does nothing else: nothing is started, no telemetry client is constructed and
+  no exporter contacted, so a deck with Langfuse configured still validates where Langfuse is
+  unreachable. There is no `deck.observers` property, for the same reason there is no `runtime`
+  or `store`.
+
+- **`EventSinkPort.start()`** (#181) — an `async` no-op by default, called once while the Deck
+  opens, before any run, and pairing with the existing `close()`. A sink that holds a client, a
+  connection or a file opens it there rather than on whichever event it happens to see first.
+  Additive: an existing sink that only implements `emit` is unaffected. Raising from `start()`
+  refuses the open rather than leaving a deck running with an observer that silently never
+  worked — which is what `Langfuse()` does when no keys are configured.
 
 - **`SECURITY.md` and `CODE_OF_CONDUCT.md`** (#132). The security policy says where to report a
   vulnerability and what is in scope — including the two things that are deliberately *not*: a
@@ -105,13 +114,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 - **Breaking:** **`build_runtime(sinks=…)` no longer defaults to the configured telemetry**
   (#181, #162). It defaults to no sinks at all, and the composition *function* reads no Langfuse
-  keys — a sink can hold a live client, so when one is constructed is a lifecycle decision, and
-  building it while a Runtime was assembled is what #162's first defect was. Resolving from
-  settings moved to `agentdeck.composition.resolve_sinks()`, which `Deck.__aenter__` calls as it
-  opens; a `Deck` behaves exactly as before. A caller that hand-wired `build_runtime(...)` and
-  relied on it picking Langfuse up from the environment now gets an untraced Runtime — pass
-  `sinks=resolve_sinks()`, or open a `Deck`. `sinks=None` is no longer accepted; the parameter is
-  a plain sequence.
+  keys — an observer opens a live client, so when one is constructed is a lifecycle decision, and
+  doing it while a Runtime was assembled is what #162's first defect was. Resolving from settings
+  moved to `agentdeck.composition.resolve_observers()`, which `Deck.__aenter__` calls (and then
+  `start()`s the result) as it opens; a `Deck` behaves exactly as before. A caller that hand-wired
+  `build_runtime(...)` and relied on it picking Langfuse up from the environment now gets an
+  untraced Runtime — pass the observers yourself, remembering to `await observer.start()` first,
+  or open a `Deck`. `sinks=None` is no longer accepted; the parameter is a plain sequence.
 
 - **The README now says what agentdeck is before it shows any code** (#132): what it is, who it
   is for, what it deliberately does not do, and how it divides work with the OpenAI Agents SDK

@@ -27,10 +27,10 @@ every name a catalog references (skills, MCP servers, workflow-as-tool) and comp
 agent/workflow to an ``InvocableSpec`` — reading local files, never the network, and idempotent.
 The catalog is immutable from construction: :attr:`agents` and :attr:`workflows` are read-only
 mappings, so nothing after ``build()`` can invalidate what it already checked. Opening starts
-what ``build()`` deliberately left alone — the MCP lifecycle, the Runtime's engines, event
-store and event sinks — and closing tears down only what this Deck itself started (the
-ownership rule: configuration this Deck instantiated is its to close; an object the caller
-constructed and handed in stays the caller's).
+what ``build()`` deliberately left alone — the MCP lifecycle, the Runtime's engines and event
+store, the observers on its event stream — and closing tears down only what this Deck itself
+started (the ownership rule: configuration this Deck instantiated is its to close; an object
+the caller constructed and handed in stays the caller's).
 """
 
 from __future__ import annotations
@@ -56,8 +56,8 @@ from agentdeck.composition import (
     resolve_checkpoint,
     resolve_control_port,
     resolve_event_store,
+    resolve_observers,
     resolve_run_settings,
-    resolve_sinks,
 )
 from agentdeck.core.content import DataBlock, TextBlock, coerce_input
 from agentdeck.core.context import RunContext
@@ -92,18 +92,18 @@ _DEFAULT_ENGINE_NAMES: tuple[str, str] = (OpenAIAgentsEngine.engine, LangGraphEn
 _State = Literal["NEW", "BUILT", "OPEN", "CLOSED"]
 
 
-def _validate_sinks(sinks: Sequence[EventSinkPort] | None) -> None:
-    """Refuse anything in ``sinks=`` that is not an ``EventSinkPort``, at build() time.
+def _validate_observers(observers: Sequence[EventSinkPort] | None) -> None:
+    """Refuse anything in ``observers=`` that is not an ``EventSinkPort``, at build() time.
 
     Cheap, and it is the difference between a name in a traceback and a run that reaches an
-    ``await sink.emit(...)`` on an object with no ``emit`` — where the dispatch's own breaker
-    would swallow it as "this sink keeps failing" and the events would just go missing.
+    ``await observer.emit(...)`` on an object with no ``emit`` — where the dispatch's own
+    breaker would swallow it as "this one keeps failing" and the events would just go missing.
     """
-    for sink in sinks or ():
-        if not isinstance(sink, EventSinkPort):
+    for observer in observers or ():
+        if not isinstance(observer, EventSinkPort):
             raise ConfigError(
-                f"sinks= takes EventSinkPort instances; got {type(sink).__name__}. A sink "
-                "implements `async def emit(self, event)` and subclasses "
+                f"observers= takes EventSinkPort instances; got {type(observer).__name__}. An "
+                "observer implements `async def emit(self, event)` and subclasses "
                 "`agentdeck.core.ports.EventSinkPort`."
             )
 
@@ -308,15 +308,17 @@ class Deck:
     ``docs/delivery/deck-capability-wrapper-pattern.md``) and ``skills=``/``mcp=`` (a bare path,
     a sequence of paths, or the capability object itself — coerced either way).
 
-    ``sinks=`` are the read-only taps on this Deck's event stream — telemetry, cost, audit, any
-    :class:`~agentdeck.core.ports.EventSinkPort`. They open once, when the Deck opens, before any
-    run can start. Three states, and the default is not a fourth: ``None`` (the default) opens
-    the configured Langfuse sink if ``AGENTDECK_LANGFUSE_*`` names one and nothing otherwise;
-    a sequence opens exactly those, in order, and suppresses the settings-derived one; ``()``
-    opens none at all. A sink is fire-and-forget by the port's contract — one that is slow or
-    raises costs its own backlog and never a run.
+    ``observers=`` are the read-only taps on this Deck's event stream — telemetry, cost, audit,
+    any :class:`~agentdeck.core.ports.EventSinkPort`, and :class:`agentdeck.observers.Langfuse`
+    is the one agentdeck ships. Each one's ``start()`` is called once, while the Deck opens,
+    before any run — so which run happens to come first never decides whether tracing is on.
+    Three states, and the default is not a fourth: ``None`` (the default) opens the configured
+    Langfuse observer if ``AGENTDECK_LANGFUSE_*`` names one and nothing otherwise; a sequence
+    opens exactly those, in order, and suppresses the settings-derived one; ``()`` opens none at
+    all. An observer is fire-and-forget by the port's contract — one that is slow or raises
+    costs its own backlog and never a run.
 
-    There is no ``deck.sinks`` property, for the reason there is no ``runtime`` or ``store``:
+    There is no ``deck.observers`` property, for the reason there is no ``runtime`` or ``store``:
     nothing needs one, and a property is additive later while removing one is not.
 
     There is no ``context=``: declaring a context type is meaningless until something injects
@@ -338,7 +340,7 @@ class Deck:
         workflows: Sequence[Workflow] = (),
         skills: str | Path | Sequence[str | Path] | Skills | None = None,
         mcp: str | Path | MCP | None = None,
-        sinks: Sequence[EventSinkPort] | None = None,
+        observers: Sequence[EventSinkPort] | None = None,
         session_factory: SessionFactory | None = None,
         # Private-by-name test seams — never part of the documented constructor, exactly like
         # ``tests/contract/``'s need for ``_engines=`` on the Runtime this composes. A bare
@@ -360,7 +362,7 @@ class Deck:
         self._workflows: Mapping[str, Workflow] = _named_mapping(workflows, "workflows")
         self._skills_obj = _coerce_skills(skills)
         self._mcp_obj = _coerce_mcp(mcp)
-        self._sinks_arg = sinks
+        self._observers_arg = observers
         self._session_factory_arg = session_factory if session_factory is not None else _session_factory
         self._engines_arg = _engines
         self._store_arg = _store
@@ -373,6 +375,7 @@ class Deck:
         self._runtime: Runtime | None = None
         self._sessions: ExecutionStore | None = None
         self._owns_store = False
+        self._started_observers: tuple[EventSinkPort, ...] = ()
         self._started_mcp = False
         self._closed = False
         # Last, so a constructor that raises above (a duplicate name, an unreadable capability)
@@ -385,7 +388,7 @@ class Deck:
         ``agents=``/``workflows=``/``skills=``/``mcp=`` the plain constructor takes and hands
         them to it, so both front doors build the same catalog.
 
-        ``**kwargs`` forwards anything else (``sinks=``, the private test seams) straight to
+        ``**kwargs`` forwards anything else (``observers=``, the private test seams) straight to
         the constructor, same as calling it directly.
         """
         # Before mounting, not after: see :func:`_refuse_second_deck`. The constructor claims
@@ -445,13 +448,13 @@ class Deck:
         unknown ones — the only warning this can still log is a genuine open-time drop, not a
         false "not found in config" for a server that will, in fact, connect once opened.
 
-        ``sinks=`` are shape-checked here for the same reason, and *only* shape-checked: no
-        sink is opened, no telemetry client is constructed and no exporter is contacted, so a
-        deck with Langfuse configured still validates where Langfuse is unreachable.
+        ``observers=`` are shape-checked here for the same reason, and *only* shape-checked:
+        no observer is started, no telemetry client is constructed and no exporter is contacted,
+        so a deck with Langfuse configured still validates where Langfuse is unreachable.
         """
         if self._state != "NEW":
             return self
-        _validate_sinks(self._sinks_arg)
+        _validate_observers(self._observers_arg)
         skills_by_name = self._skills_obj.build() if self._skills_obj is not None else {}
         mcp_names = frozenset(self._mcp_obj.build()) if self._mcp_obj is not None else frozenset()
         if self._mcp_obj is not None:
@@ -534,10 +537,10 @@ class Deck:
         every already-compiled agent is refreshed right after, since ``build()`` resolved it
         before anything connected.
 
-        The sinks open exactly once, here, and before the Runtime exists — they are registered
-        as it is assembled, so a run can never be the thing that turns observability on. That
-        ordering is what #181 and #162 are both about: telemetry used to be built underneath
-        this, from settings, and started by whichever run happened to come first.
+        Every observer's ``start()`` runs exactly once, here, and before the Runtime exists —
+        they are registered as it is assembled, so a run can never be the thing that turns
+        observability on. That ordering is what #181 and #162 are both about: telemetry used to
+        be built underneath this, from settings, and started by whichever run came first.
         """
         if self._state == "CLOSED":
             # CLOSED is terminal: aclose()'s own idempotency guard would otherwise skip
@@ -562,17 +565,29 @@ class Deck:
             )
         self._owns_store = self._store_arg is None
         store = self._store_arg if self._store_arg is not None else resolve_event_store()
-        # Resolved here, not in ``build_runtime``: a settings-derived sink holds a live client,
-        # so the moment it is constructed is a lifecycle decision (#181), and constructing it
-        # while a Runtime was assembled is what #162's first defect was. Caller-supplied sinks
-        # are taken as-is and suppress the settings-derived one entirely — a Deck told which
-        # taps to open must not quietly open a Langfuse client beside them.
-        sinks = resolve_sinks() if self._sinks_arg is None else tuple(self._sinks_arg)
+        # Resolved and started here, not in ``build_runtime``: an observer opens a live client,
+        # so when that happens is a lifecycle decision (#181), and doing it while a Runtime was
+        # assembled is what #162's first defect was. Caller-named observers are taken as-is and
+        # suppress the settings-derived one entirely — a Deck told which taps to open must not
+        # quietly open a Langfuse client beside them.
+        observers = resolve_observers() if self._observers_arg is None else tuple(self._observers_arg)
+        for observer in observers:
+            # An observer that refuses the open (Langfuse with no keys) must not leave the ones
+            # before it holding a client nobody will ever close — this open is not going to
+            # finish, and there is no ``__aexit__`` for a ``__aenter__`` that raised.
+            try:
+                await observer.start()
+            except BaseException:
+                for started in self._started_observers:
+                    await started.close()
+                self._started_observers = ()
+                raise
+            self._started_observers = (*self._started_observers, observer)
         self._runtime = build_runtime(
             engines=self._engine_instances,
             invocables=self._invocables,
             store=store,
-            sinks=sinks,
+            sinks=observers,
             control=resolve_control_port(),
         )
         await MCPLifecycle.startup(self._mcp_obj.config() if self._mcp_obj is not None else None)
@@ -600,11 +615,11 @@ class Deck:
         touched — it was the caller's before this Deck ever saw it. Idempotent, and reachable
         from every state — a Deck built but never opened still has a process claim to give up.
 
-        For sinks the rule bites at construction, not here: a Deck given ``sinks=`` builds no
-        telemetry client of its own. Every sink still gets its ``close``, a caller's own
-        included, because that call means "the stream has ended, write out what you buffered" —
-        skipping it to look respectful of ownership would discard exactly the audit or cost
-        records the sink was registered to keep.
+        For observers the rule bites at construction, not here: a Deck given ``observers=``
+        builds no telemetry client of its own. Every observer still gets its ``close``, a
+        caller's own included, because that call means "the stream has ended, write out what you
+        buffered" — skipping it to look respectful of ownership would discard exactly the audit
+        or cost records the observer was registered to keep.
 
         Nothing shuts the Langfuse SDK down. Measured against langfuse 4.14.1, the SDK holds one
         resource manager per public key in a process-global cache and ``shutdown()`` marks it

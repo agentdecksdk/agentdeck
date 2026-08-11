@@ -237,6 +237,7 @@ forbidden_modules =
     agentdeck.authoring
     agentdeck.skills
     agentdeck.mcp
+    agentdeck.observers
     agentdeck.surfaces
     agentdeck.serve
     agentdeck.deck

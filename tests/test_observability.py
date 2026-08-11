@@ -1,4 +1,4 @@
-"""Event sinks as a Deck argument: when they open, what they see, and who closes what.
+"""Observers on a Deck's event stream: when they start, what they see, and who closes what.
 
 The Langfuse SDK is stubbed at its one construction seam
 (``adapters.telemetry.langfuse.client.build_client``), so every assertion here holds without
@@ -22,6 +22,7 @@ from scripted_model import ScriptedModel, patch_provider, provider_of
 from agentdeck.adapters.telemetry.langfuse import client as langfuse_client
 from agentdeck.core.ports import EventSinkPort
 from agentdeck.errors import ConfigError
+from agentdeck.observers import Langfuse
 from agentdeck.runtime.settings import LangfuseSettings, reset_settings_cache
 
 AGENT_PY = """
@@ -92,11 +93,15 @@ class RecordingTracer:
 
 
 class Recorder(EventSinkPort):
-    """A caller's own sink: every event kind it saw, and whether it was told the stream ended."""
+    """A caller's own observer: what it saw, and the lifecycle calls it was given."""
 
     def __init__(self) -> None:
         self.kinds: list[str] = []
+        self.starts = 0
         self.closes = 0
+
+    async def start(self) -> None:
+        self.starts += 1
 
     async def emit(self, event: Any) -> None:
         self.kinds.append(event.kind)
@@ -105,8 +110,18 @@ class Recorder(EventSinkPort):
         self.closes += 1
 
 
+class Bare(EventSinkPort):
+    """An observer written before ``start()`` existed: only the abstract method."""
+
+    def __init__(self) -> None:
+        self.kinds: list[str] = []
+
+    async def emit(self, event: Any) -> None:
+        self.kinds.append(event.kind)
+
+
 class Exploding(EventSinkPort):
-    """A caller's sink that fails on every event. The run must not notice."""
+    """A caller's observer that fails on every event. The run must not notice."""
 
     def __init__(self) -> None:
         self.attempts = 0
@@ -213,12 +228,12 @@ async def test_build_with_langfuse_configured_builds_no_client_and_opens_no_sock
     await deck.aclose()
 
 
-async def test_build_refuses_something_that_is_not_a_sink(project):  # noqa: ARG001 — the project dir is what `from_project()` discovers
+async def test_build_refuses_something_that_is_not_an_observer(project):  # noqa: ARG001 — the project dir is what `from_project()` discovers
     from agentdeck.deck import Deck
 
-    deck = Deck.from_project(sinks=[object()])
+    deck = Deck.from_project(observers=[object()])
 
-    with pytest.raises(ConfigError, match="sinks= takes EventSinkPort instances"):
+    with pytest.raises(ConfigError, match="observers= takes EventSinkPort instances"):
         deck.build()
     await deck.aclose()
 
@@ -322,22 +337,136 @@ async def test_an_unconfigured_deck_runs_untraced_and_says_nothing(
     assert [record.message for record in caplog.records if "langfuse" in record.message.lower()] == []
 
 
-async def test_no_sinks_at_all_is_sayable_explicitly(
+async def test_no_observers_at_all_is_sayable_explicitly(
     project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
     telemetry,
     langfuse_keys,
     scripted,  # noqa: ARG001 — points the run at a fake model
 ):
-    """``sinks=()`` opts out even where the environment configures Langfuse."""
+    """``observers=()`` opts out even where the environment configures Langfuse."""
     from agentdeck.deck import Deck
 
     langfuse_keys()
 
-    async with Deck.from_project(sinks=()) as deck:
+    async with Deck.from_project(observers=()) as deck:
         await deck.run("Greeter", "hello")
 
     assert telemetry.clients == []
     assert telemetry.roots == []
+
+
+# --- the port's own start()/close() lifecycle ---------------------------------------------------
+
+
+async def test_every_observer_is_started_once_before_any_run(
+    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    scripted,  # noqa: ARG001 — points the run at a fake model
+):
+    """``start()`` is on the port, so every observer inherits "opened once, at deck open" rather
+    than each one inventing its own moment. Ordering matters as much as the count: an observer
+    still unstarted when a run begins is the #181 defect with a different owner."""
+    from agentdeck.deck import Deck
+
+    started_before_first_event: list[int] = []
+
+    class Watcher(Recorder):
+        async def emit(self, event: Any) -> None:
+            if not self.kinds:
+                started_before_first_event.append(self.starts)
+            await super().emit(event)
+
+    watcher = Watcher()
+    deck = Deck.from_project(observers=[watcher])
+
+    deck.build()
+    assert watcher.starts == 0, "build() must start nothing"
+
+    async with deck:
+        assert watcher.starts == 1
+        await deck.run("Greeter", "hello")
+        await deck.run("Greeter", "again")
+
+    assert watcher.starts == 1
+    assert watcher.closes == 1
+    assert started_before_first_event == [1]
+
+
+async def test_an_observer_predating_start_still_works(
+    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    scripted,  # noqa: ARG001 — points the run at a fake model
+):
+    """``start()`` is additive: the port's default is a no-op, so an implementation that only
+    defines ``emit`` keeps working rather than failing at open."""
+    from agentdeck.deck import Deck
+
+    bare = Bare()
+
+    async with Deck.from_project(observers=[bare]) as deck:
+        await deck.run("Greeter", "hello")
+
+    assert "run.completed" in bare.kinds
+
+
+async def test_an_observer_that_refuses_to_start_refuses_the_open(
+    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    telemetry,
+    langfuse_keys,
+):
+    """Naming Langfuse and getting silence is the ghost declaration this project refuses.
+
+    The already-started observer beside it is closed on the way out: there is no ``__aexit__``
+    for an ``__aenter__`` that raised, so a client opened before the refusal would otherwise be
+    held by nobody.
+    """
+    from agentdeck.deck import Deck
+
+    langfuse_keys("", "")
+    first = Recorder()
+    deck = Deck.from_project(observers=[first, Langfuse()])
+
+    with pytest.raises(ConfigError, match="no Langfuse keys are configured"):
+        await deck.__aenter__()
+
+    assert (first.starts, first.closes) == (1, 1)
+    assert telemetry.clients == []
+    await deck.aclose()
+
+
+async def test_the_langfuse_observer_named_explicitly_traces_the_run(
+    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    telemetry,
+    langfuse_keys,
+    scripted,  # noqa: ARG001 — points the run at a fake model
+):
+    """``observers=[Langfuse()]`` is the same object the settings path resolves to, so naming it
+    beside an observer of your own gets you both rather than a choice between them."""
+    from agentdeck.deck import Deck
+
+    langfuse_keys()
+    audit = Recorder()
+
+    async with Deck.from_project(observers=[Langfuse(), audit]) as deck:
+        await deck.run("Greeter", "hello", session_id="s-11")
+
+    assert len(telemetry.clients) == 1
+    assert [(root.name, root.session_id) for root in telemetry.roots] == [("Greeter", "s-11")]
+    assert "run.completed" in audit.kinds
+
+
+def test_constructing_the_langfuse_observer_reads_and_builds_nothing():
+    """It is constructible where Langfuse is neither configured nor installed — which is what
+    lets ``resolve_observers()`` and a user's own module-level ``Langfuse()`` stay network-free."""
+    probe = (
+        "import sys;"
+        "from agentdeck.observers import Langfuse;"
+        "Langfuse();"
+        "assert 'langfuse' not in sys.modules, sorted(m for m in sys.modules if 'langfuse' in m);"
+        "print('constructed, and still no sdk')"
+    )
+    done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=120)
+
+    assert done.returncode == 0, done.stderr
+    assert "constructed, and still no sdk" in done.stdout
 
 
 # --- several observers at once, and who owns them ----------------------------------------------
@@ -353,15 +482,15 @@ async def test_every_sink_named_sees_the_same_stream(
 
     audit, cost = Recorder(), Recorder()
 
-    async with Deck.from_project(sinks=[audit, cost]) as deck:
+    async with Deck.from_project(observers=[audit, cost]) as deck:
         await deck.run("Greeter", "hello")
 
     assert "run.started" in audit.kinds and "run.completed" in audit.kinds
     assert audit.kinds == cost.kinds
-    assert telemetry.clients == [], "sinks= was given; the deck must not also build a Langfuse client"
+    assert telemetry.clients == [], "observers= was given; the deck must not also build a Langfuse client"
 
 
-async def test_naming_sinks_suppresses_the_settings_derived_one(
+async def test_naming_observers_suppresses_the_settings_derived_one(
     project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
     telemetry,
     langfuse_keys,
@@ -374,7 +503,7 @@ async def test_naming_sinks_suppresses_the_settings_derived_one(
     langfuse_keys()
     audit = Recorder()
 
-    async with Deck.from_project(sinks=[audit]) as deck:
+    async with Deck.from_project(observers=[audit]) as deck:
         await deck.run("Greeter", "hello")
 
     assert audit.kinds != []
@@ -405,14 +534,14 @@ async def test_a_broken_sink_never_breaks_a_run(
     project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
     scripted,  # noqa: ARG001 — points the run at a fake model
 ):
-    """A caller's sink is fire-and-forget by the port's contract, and ``sinks=`` is where a
+    """An observer is fire-and-forget by the port's contract, and ``observers=`` is where a
     caller's own code first reaches that contract — so prove it end to end rather than at the
-    dispatch's unit boundary: the turn completes, and the log has every event the sink lost."""
+    dispatch's unit boundary: the turn completes, and the log has every event the observer lost."""
     from agentdeck.deck import Deck
 
     broken, healthy = Exploding(), Recorder()
 
-    async with Deck.from_project(sinks=[broken, healthy]) as deck:
+    async with Deck.from_project(observers=[broken, healthy]) as deck:
         result = await deck.run("Greeter", "hello", session_id="s-3")
         logged = [event.kind async for event in deck.stream("Greeter", "again", session_id="s-3")]
 

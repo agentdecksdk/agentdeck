@@ -23,13 +23,11 @@ from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
-from agentdeck.adapters.telemetry.langfuse.client import langfuse_sink
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import (
     ControlSettings,
     EventsSettings,
-    LangfuseSettings,
     Settings,
     default_use_responses,
     get_settings,
@@ -65,8 +63,8 @@ def build_runtime(
     ``sinks`` defaults to none, and telemetry in particular is *not* resolved here. A sink can
     hold a live client with background threads, and resolving one while a Runtime is assembled
     built that client before anyone had said whether they wanted it — the ordering behind #162.
-    :func:`resolve_sinks` is what reads settings, and ``Deck.__aenter__`` is what calls it, once,
-    as it opens.
+    :func:`resolve_observers` is what reads settings, and ``Deck.__aenter__`` is what calls it,
+    once, as it opens.
 
     Timestamps are assigned by the store, in the same write that persists the event
     (ADR-D11), so holding time means building the store with a clock —
@@ -83,20 +81,21 @@ def build_runtime(
     return Runtime(engines, store, specs, sinks=sinks, control=control, stale_run_after=stale_run_after)
 
 
-def resolve_sinks(settings: LangfuseSettings | None = None) -> tuple[EventSinkPort, ...]:
-    """The event-stream taps a Deck opens when its caller named none: Langfuse, if configured.
+def resolve_observers() -> tuple[EventSinkPort, ...]:
+    """The observers a Deck opens when its caller named none: Langfuse, if configured.
 
-    Called by ``Deck.__aenter__`` and nowhere else, which is the whole point — this builds a
-    live client, so *when* it runs is a lifecycle decision that belongs to whoever owns the
-    lifecycle. Unconfigured returns an empty tuple, so a run never reaches the adapter and never
-    pays a queue, a task or an import for it.
+    Nothing is built here either — :class:`~agentdeck.observers.Langfuse` reads its settings
+    and constructs its client in ``start()``, which the Deck calls as it opens. This function
+    only answers "did the environment ask for one?", so it stays as free of network and of the
+    optional ``[observability]`` extra as the rest of ``build()``'s path.
 
-    One sink today, and the shape stays plural anyway: the Runtime already fans out to as many
-    taps as it is given, and a caller with a cost or audit sink of its own passes ``sinks=`` to
-    ``Deck`` instead of coming through here.
+    One observer today, and the shape stays plural: the Runtime already fans out to as many
+    taps as it is given, and a caller with a cost or audit observer of its own passes
+    ``observers=`` to ``Deck`` instead of coming through here.
     """
-    langfuse = settings if settings is not None else get_settings().langfuse
-    return (langfuse_sink(langfuse),) if langfuse.enabled else ()
+    from agentdeck.observers import Langfuse
+
+    return (Langfuse(),) if get_settings().langfuse.enabled else ()
 
 
 def resolve_run_settings(settings: Settings | None = None) -> RunSettings:
@@ -209,6 +208,6 @@ __all__ = [
     "resolve_checkpoint",
     "resolve_control_port",
     "resolve_event_store",
+    "resolve_observers",
     "resolve_run_settings",
-    "resolve_sinks",
 ]

@@ -42,7 +42,7 @@ Deck(
     workflows=[...],                # Workflow instances
     skills="./skills",              # a path, a sequence of paths, or a Skills(...) object
     mcp=".mcp.json",                # a path, or an MCP(...) object
-    sinks=[my_audit_sink],          # taps on the event stream; None reads settings, () means none
+    observers=[Langfuse()],         # taps on the event stream; None reads settings, () means none
 )
 ```
 
@@ -59,10 +59,10 @@ The lifecycle is `NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED`:
   server started — and is idempotent, so it doubles as a CI check. Calling a turn-starting method
   without an explicit `build()` still works — `async with deck:` calls it for you.
 - **`async with deck:`** starts everything `build()` left alone: the real engines, the event
-  store, the session factory, the event sinks, and every configured MCP server. This is what a
+  store, the session factory, the observers, and every configured MCP server. This is what a
   turn-starting method actually needs; calling one before opening raises.
-- **`CLOSED` is terminal.** `aclose()` (or the `async with` block's exit) flushes the Runtime's
-  sinks and closes what this `Deck` itself opened — an `MCP(...)` it holds, always, and the event
+- **`CLOSED` is terminal.** `aclose()` (or the `async with` block's exit) closes the Runtime's
+  observers and tears down what this `Deck` itself opened — an `MCP(...)` it holds, always, and the event
   store it built from settings, but never one passed in through construction. Reopening a closed
   `Deck` raises; construct a new one instead.
 
@@ -209,65 +209,83 @@ stays importable without the `[serve]` extra — you only need it to actually se
 arriving before the lifespan has run get `503 {"status": "starting"}` rather than touching a deck
 that is not open yet.
 
-## Event sinks
+## Observers
 
-The event log is the hub. A **sink** is a read-only tap on it — telemetry, cost accounting,
-audit — and a deck can have as many as it likes. `sinks=` is where they are declared, and they
-open with the deck.
+The event log is the hub. An **observer** is a read-only tap on it — telemetry, cost accounting,
+audit — and a deck can have as many as it likes. `observers=` is where they are declared, and
+they start with the deck.
 
 ```python
 from agentdeck import Deck
-from agentdeck.core.ports import EventSinkPort
+from agentdeck.observers import Langfuse
 
+deck = Deck(agents=[booking], observers=[Langfuse()])
 
-class CostSink(EventSinkPort):
-    async def emit(self, event) -> None:
-        ...          # in-memory work only; never awaits a round trip
-
-    async def close(self) -> None:
-        ...          # the stream has ended: write out whatever is buffered
-
-
-deck = Deck(agents=[booking], sinks=[CostSink()])
-
-async with deck:                      # the sinks open here, once, before any run
+async with deck:                      # every observer starts here, once, before any run
     await deck.run("booking", "hi")   # never mid-run
 ```
 
-| `sinks=` | What opens |
+| `observers=` | What starts |
 |---|---|
-| *(omitted, or `None`)* | The configured Langfuse sink if `AGENTDECK_LANGFUSE_PUBLIC_KEY` and `AGENTDECK_LANGFUSE_SECRET_KEY` are both set (see [Settings](/reference/settings)); nothing otherwise, with no warning. |
-| `[sink, …]` | Exactly these, in order. Naming any sink suppresses the settings-derived Langfuse one — a deck told which taps to open does not open a second one behind your back. |
+| *(omitted, or `None`)* | The configured `Langfuse()` observer if `AGENTDECK_LANGFUSE_PUBLIC_KEY` and `AGENTDECK_LANGFUSE_SECRET_KEY` are both set (see [Settings](/reference/settings)); nothing otherwise, with no warning. |
+| `[observer, …]` | Exactly these, in order. Naming any observer suppresses the settings-derived `Langfuse()` — a deck told which taps to open does not open another behind your back, so include it explicitly if you want it alongside your own. |
 | `()` | None at all, even where the environment configures Langfuse. |
+
+`Langfuse()` takes no arguments: it is configured entirely by `AGENTDECK_LANGFUSE_*`, so there is
+one place to set the endpoint, environment, sample rate and service name rather than two. Naming
+it with no keys configured raises `ConfigError` at open, rather than tracing nothing quietly.
+
+### Writing your own
+
+An observer implements `EventSinkPort` — one required method, two optional lifecycle hooks:
+
+```python
+from agentdeck.core.ports import EventSinkPort
+
+
+class CostObserver(EventSinkPort):
+    async def start(self) -> None:
+        ...   # open a client or a file; called once, at deck open, before any run
+
+    async def emit(self, event) -> None:
+        ...   # in-memory work only; never awaits a round trip
+
+    async def close(self) -> None:
+        ...   # the stream has ended: write out whatever is buffered
+```
+
+`start()` and `close()` both default to no-ops, so an observer that only needs `emit` defines
+only `emit`. Raising from `start()` refuses the deck's open — better than a deck that runs with
+an observer which silently never worked.
 
 The lifecycle is the one the rest of the deck follows:
 
-- **`build()`** checks that everything in `sinks=` is an `EventSinkPort` and does nothing else.
-  No sink is opened, no telemetry client is constructed, no exporter contacted — so a deck with
-  Langfuse configured still validates in CI with nothing reachable.
-- **Opening** builds the settings-derived sink (once) and registers every sink before the
-  Runtime exists, so no run can be the thing that turns observability on.
-- **Closing** tells every sink its stream has ended, which is what makes it write out whatever
-  it buffered. What the deck *constructs* it owns; a sink instance you passed in is still yours
-  afterwards, and the deck builds no Langfuse client when you supplied your own sinks.
+- **`build()`** checks that everything in `observers=` is an `EventSinkPort` and does nothing
+  else. Nothing is started, no telemetry client is constructed, no exporter contacted — so a deck
+  with Langfuse configured still validates in CI with nothing reachable.
+- **Opening** calls each `start()` in order and registers every observer before the Runtime
+  exists, so no run can be the thing that turns observability on.
+- **Closing** tells every observer its stream has ended, which is what makes it write out
+  whatever it buffered. What the deck *constructs* it owns; naming `observers=` means the deck
+  builds no Langfuse client of its own.
 
-A sink is fire-and-forget by contract: each one has its own bounded queue, one that is slow or
+An observer is fire-and-forget by contract: each has its own bounded queue, one that is slow or
 raises costs its own backlog and never a run, and one that keeps failing is disabled and later
-retried. A sink that cannot afford to lose an event reads the store instead.
+retried. An observer that cannot afford to lose an event reads the store instead.
 
 One run is one trace. Traces are rendered from the [canonical event
 stream](/concepts/runs-and-the-event-log), which is why an agent turn and a workflow run are
 traced by the same code and both carry their `session_id` — nothing instruments the OpenAI
-Agents SDK, and nothing opens a span outside a sink. A direct `Workflow.run()`, which bypasses
-the Runtime, therefore bypasses the sinks too.
+Agents SDK, and nothing opens a span outside an observer. A direct `Workflow.run()`, which
+bypasses the Runtime, therefore bypasses the observers too.
 
-There is no `deck.sinks` property, for the same reason there is no `runtime` or `store`: nothing
-needs one, and adding a property later is additive while removing one is not.
+There is no `deck.observers` property, for the same reason there is no `runtime` or `store`:
+nothing needs one, and adding a property later is additive while removing one is not.
 
 <Callout type="info">
-  Langfuse needs the `observability` extra: `pip install "agentdeck[observability]"`. Without it,
-  a deck with no Langfuse keys is unaffected — the SDK is only imported when a sink is actually
-  built for it.
+  `Langfuse()` needs the `observability` extra: `pip install "agentdeck[observability]"`. Without
+  it, a deck with no Langfuse keys is unaffected — the SDK is imported when the observer starts,
+  not when it is constructed.
 </Callout>
 
 ## Sessions
