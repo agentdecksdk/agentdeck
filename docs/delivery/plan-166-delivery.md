@@ -129,31 +129,50 @@ Per-slice notes:
 ## Rulings
 
 Two questions the design plan could not have answered, because the API it describes did not exist
-yet. **Both are now settled**, and neither ever blocked slices 1–2.
+yet. **B is settled; A is open.** Neither blocks slices 1–2.
 
-### A. Does `answer()` take a context? — **RULED 2026-08-11, and mostly dissolved**
+### A. Does `answer()` take a context? And what does `tick()` do without one? — **OPEN**
 
-This began as a question about `tick()`, which was an autonomous timer resume with nobody present
-to supply a context. Under Ruling 10 every context-requiring root must receive a compatible
-instance before execution, and a context is a live object never serialized into the log — so a
-durable, context-requiring workflow that slept was un-resumable, and no option short of the deck
-holding a provider fixed it.
+`Deck.answer(run_id, value)`, `tick()` and `due_resumes()` became public API in #164, after the
+plan was written. It covers `run()` and `resume()` ("`resume()` resupplies it", Lifecycle) and is
+silent on all three.
 
-**The durable-timer feature was removed from v3 instead** (#212). `sleep_until`, `tick()` and
-`due_resumes()` are gone, so the autonomous-resume case no longer exists and `Deck(context_provider=...)`
-is not needed. It was the right call for reasons that had nothing to do with context: `tick()` was
-covering for two disagreeing paused-run inboxes rather than being a designed feature. When timers
-return, #212 lists this as one of the five things their design must settle *first* rather than
-discover.
+**`answer()` is the easy half:** an optional `context=` mirroring `run()`, mandatory under Ruling
+10 when the graph requires one. Same shape, no new concept, and a human answering an interrupt is
+present to supply it.
 
-What remains is the easy half. **`answer()` takes an optional `context=`, mirroring `run()`** —
-mandatory under Ruling 10 when the graph requires one. Same shape as `run()`, no new concept, and
-a human answering an interrupt is present to supply it.
+**`tick()` is the hard half, and it is still live.** Removing the durable-timer feature was
+considered on 2026-08-11 and **rejected** — v3.0.0 ships `sleep_until`/`tick()`/`due_resumes()` as
+they are, because pulling a working capability before a stable tag costs users more than its
+underlying defect costs us (that defect is #212: two paused-run inboxes disagreeing because
+`AGENTDECK_EVENTS` defaults to `memory://` while `AGENTDECK_CHECKPOINT` defaults to `sqlite://`).
 
-The general form of the problem outlives the specific fix, and slice 4 should not forget it: a
-context cannot cross the HTTP surface, because it is a live Python object the plan says is never
-serialized. So a context-requiring invocable is reachable from embedded Python callers and not
-from `asgi()`. That is a real boundary, and the reference has to state it rather than let a user
+So the problem stands. `tick()` is an autonomous resume with nobody present to supply anything, and
+under Ruling 10 —
+
+> Every root whose graph requires context must receive a compatible instance, checked **before
+> execution**.
+
+— a durable, context-requiring workflow that sleeps is **un-resumable by `tick()`**. Context is
+never serialized into the event log (Lifecycle), so it cannot be recovered from the checkpoint
+either. The options:
+
+1. **`Deck(context_provider=...)`** — a zero-arg callable the deck holds, used by `tick()`. Fits
+   the ownership rule the Deck already has, and makes the autonomous path a first-class case
+   rather than an exception.
+2. **`tick()` skips such a thread and emits an event saying why.** A *loud* skip is not the Wave B
+   failure class — a silent one would be. Cheap and honest, but a documented combination (durable
+   + timer + context) then does nothing.
+3. **`tick(context=...)`** — pushes the problem to the cron job, which has no idea which workflows
+   are due or what each needs.
+
+I would take (1). It is additive and the only option where the combination works. It is needed by
+**slice 4**, not before.
+
+The wider form of this outlives whichever option wins, and slice 4 must state it: **a context
+cannot cross the HTTP surface at all**, because it is a live Python object the plan says is never
+serialized. A context-requiring invocable is therefore reachable from embedded Python callers and
+not from `asgi()`. That is a real boundary, and the reference has to say so rather than let a user
 find it in production.
 
 ### B. Does `reporter` move off `configurable`? — **RULED 2026-08-11: no**
