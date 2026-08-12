@@ -146,13 +146,20 @@ def test_pinned_install_versions_match_the_package_version() -> None:
     resolves to whatever a fresh install picks, not the version the page's own examples were
     written against. Only fenced shell blocks count — an install line mentioned in prose (e.g. as
     a contrast, "not something `pip install agentdeck` gives you") is not an instruction to run.
+
+    `context7.json` is checked for the same reason and is the worst place for a stale pin: its
+    rules are fed to coding agents as ground truth, so a wrong version there is retyped into
+    other people's terminals rather than merely read. Only the stale-pin half applies to it —
+    it has no fenced blocks, so the unpinned-install check below cannot see it.
     """
     import tomllib
 
     root = Path(__file__).resolve().parents[1]
     version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
-    pin = re.compile(r"agentdeck(?:\.git)?@v([0-9][^\"'\s)]*)")
-    documents = (*_pages(), *_repo_markdown())
+    # `[\w.]` rather than "anything but a quote": in JSON the pin is written `@v3.0.1\"`, and a
+    # looser class swallows the escaping backslash into the captured version.
+    pin = re.compile(r"agentdeck(?:\.git)?@v([0-9][\w.]*)")
+    documents = (*_pages(), *_repo_markdown(), root / "context7.json")
 
     stale = [
         f"{page.relative_to(root)}: pins v{found} but pyproject says {version}"
@@ -208,3 +215,31 @@ def test_every_public_deck_method_is_documented_somewhere() -> None:
     documented = " ".join(page.read_text() for page in _pages())
     missing = sorted(name for name in vars(Deck) if not name.startswith("_") and name not in documented)
     assert not missing, f"public Deck names documented nowhere on the site: {missing}"
+
+
+# Context7's own limits, discovered from a rejected submission rather than from its schema, which
+# declares neither. Encoded here because the failure is silent and total: an over-length field does
+# not truncate, it invalidates the whole file, and Context7 then indexes the repository with its
+# defaults — no rules, no folder scoping — while reporting the submission as successful.
+CONTEXT7_LIMITS = {"description": 200, "rule": 255}
+
+
+def test_context7_manifest_stays_within_the_limits_that_reject_it() -> None:
+    import json
+
+    manifest = json.loads((ROOT / "context7.json").read_text())
+    fields = [("description", manifest["description"], CONTEXT7_LIMITS["description"])]
+    fields += [(f"rules.{i}", rule, CONTEXT7_LIMITS["rule"]) for i, rule in enumerate(manifest["rules"])]
+    over = [f"{name}: {len(text)} > {limit} — {text[:60]}…" for name, text, limit in fields if len(text) > limit]
+    assert not over, "context7.json would be rejected:\n  " + "\n  ".join(over)
+
+
+def test_context7_excludes_are_bare_filenames() -> None:
+    """`excludeFiles` matches on filename only. A path there excludes nothing, silently — which is
+    how `changelog.mdx` was almost fed to coding agents as current API rather than as history.
+    """
+    import json
+
+    manifest = json.loads((ROOT / "context7.json").read_text())
+    with_paths = [name for name in manifest["excludeFiles"] if "/" in name]
+    assert not with_paths, f"context7.json excludeFiles must be bare filenames, not paths: {with_paths}"
