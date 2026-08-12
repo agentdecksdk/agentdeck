@@ -164,3 +164,62 @@ Not stars, and not traffic. The plan's goal is positional, so the measure is pos
 
 Next reading: **2026-09-12.** Re-run before writing anything new, so the pages written between now
 and then are what the delta measures.
+
+---
+
+# Second reading — 2026-08-13, same day
+
+Taken hours after the first, immediately after v3.1.0 went to PyPI, to see whether anything moved
+on the machine-readable channels. **Nothing measurably did**, which is the expected answer at this
+timescale and is recorded so the September reading is not mistaken for a first result.
+
+| Channel | First | Second |
+|---|---|---|
+| Context7 | 0 / 30 | **0 / 30** |
+| GitHub repository search | 1 / 30 | **1 / 30** — the same verbatim-description match |
+| Web search | 0 / 8 | **0 / 4** sampled |
+
+`agentdeck-sdk pypi` returns **`agentdeck-ai`** — the unrelated project one hyphen away, which is
+the same collision that forced the rename. Our package was four hours old.
+
+## What did change, below the numbers
+
+**Context7 accepted the manifest this time.** Both entries now exist, and the difference between
+them is the manifest working:
+
+| Entry | Snippets | Tokens | Manifest |
+|---|---|---|---|
+| `/sagi5060/agentdeck` | 1,098 | 72,162 | rejected — indexed with defaults |
+| `/agentdecksdk/agentdeck` | 299 | 21,685 | applied |
+
+A 73% shrink is the result to want, not a regression: `docs/` design records, `tests/`, the
+changelog and the roadmap are out, so what remains is what a coding agent should be quoting.
+Whether scoping improves *retrieval* is the open question, and it is the one thing the September
+reading can now answer cleanly.
+
+Removal of the duplicate `/sagi5060/agentdeck` is requested in
+[upstash/context7#3027](https://github.com/upstash/context7/issues/3027).
+
+## A confound the first reading did not know about
+
+**The live site was serving the home page at every URL.** `agentdeck-docs-static.service` ran
+`serve -s out`, and `-s` is `--single`: every request rewritten to `index.html`. Correct for a
+client-routed SPA, wrong for a Next.js static export where `output: 'export'` writes a real file
+per route.
+
+```
+before   /known-issues/  ->  <title>AgentDeck | AgentDeck SDK      (the home page)
+after    /known-issues/  ->  <title>Known Issues | AgentDeck SDK
+```
+
+A browser hid it — Next's router corrects after hydration — so it was invisible to anyone
+clicking around. A crawler that does not execute JavaScript saw one page for the whole site,
+which silently defeated the sitemap, the canonical tags and `llms.txt`, all shipped the same day.
+
+**So the first reading's web-search zeros cannot be attributed to content.** Any crawl before
+2026-08-13 indexed a single page. That does not make the zeros wrong — the project was absent
+either way — but it removes them as evidence about the pages themselves. The September reading is
+the first that measures the site as written.
+
+Fixed by a systemd drop-in dropping `-s`; verified across six routes at the origin and through
+Cloudflare.
