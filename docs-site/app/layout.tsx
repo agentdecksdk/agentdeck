@@ -6,6 +6,7 @@ import { Mark } from './mark'
 import { getPageMap } from 'nextra/page-map'
 import type { ReactNode } from 'react'
 import { AskAgentDeck } from './ask-agentdeck'
+import { SITE } from './site'
 import 'nextra-theme-docs/style.css'
 import './brand.css'
 import './ask-agentdeck.css'
@@ -15,6 +16,20 @@ const body = Inter({ subsets: ['latin'], variable: '--font-body', display: 'swap
 const display = Poppins({ subsets: ['latin'], weight: ['500', '600'], variable: '--font-display', display: 'swap' })
 
 export const metadata: Metadata = {
+  // Every relative URL in metadata — canonical tags, OG images — resolves against this, so the
+  // whole site moves domain by changing one env var rather than by editing every page.
+  metadataBase: new URL(SITE),
+  alternates: { canonical: './' },
+  openGraph: {
+    type: 'website',
+    siteName: 'AgentDeck SDK',
+    url: './',
+    title: 'AgentDeck SDK — a production runtime for AI agents',
+    description:
+      'Durable human-in-the-loop approvals, sessions, streaming, run control and one ordered '
+      + 'event log per run — wrapping the OpenAI Agents SDK and LangGraph rather than replacing them.'
+  },
+  twitter: { card: 'summary_large_image', title: 'AgentDeck SDK' },
   title: {
     default: 'AgentDeck SDK — a production runtime for AI agents',
     template: '%s | AgentDeck SDK'
