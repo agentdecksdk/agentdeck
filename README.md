@@ -115,9 +115,24 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Two runnable projects — a chat agent with a tool, and a workflow that pauses for a human
-approval — are in [`examples/`](examples/). Both are built by the test suite, so neither can
+Three runnable projects are in [`examples/`](examples/) — a chat agent with a tool, a workflow
+that pauses for a human approval, and the one below. All are built by the test suite, so none can
 quietly stop working.
+
+## Something built with it, that you can use right now
+
+The assistant on **[agentdecksdk.com](https://agentdecksdk.com/)** — the panel in the corner of
+every documentation page — is an AgentDeck agent. Ask it something about AgentDeck and it will
+search these docs, read the pages it finds, and cite them.
+
+Its entire source is [`examples/ask-agentdeck`](examples/ask-agentdeck/): 617 lines of Python for
+three tools over one `Context[DocsCorpus]`, streaming the run's own events to the browser over
+SSE. Not a demo written to look good in a README — it is the thing actually serving the site,
+including the parts a public endpoint needs and a demo skips: an origin check, a per-day quota, a
+token ceiling, and an allowlist deciding which event kinds a browser is allowed to see.
+
+It is also the honest test of the pitch. If *"agents you have to operate"* meant anything, it had
+to survive being operated.
 
 ## What you get around your definitions
 
