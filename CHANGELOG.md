@@ -19,6 +19,11 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Fixed
 
+- `agentdeck-serve --help` (and `-h`) now prints usage and exits 0 instead of crashing with a
+  `FileNotFoundError` for a missing `./.agentdeck` project. `--host`/`--port` flags were added,
+  defaulting to the existing `HOST`/`PORT` env vars, so passing neither behaves exactly as
+  before; an unrecognized argument now exits 2 with usage instead of being silently ignored.
+  (#245)
 - **`AGENTDECK_RUNNER_WORKFLOW_NAME` no longer defaults to `local-sandbox-repl`.** That value named
   v1's sandboxed local REPL, deleted in #71 — every untuned run was labeling its tracing (e.g.
   Langfuse) after a development tool that no longer exists. The default is now `agentdeck`.
