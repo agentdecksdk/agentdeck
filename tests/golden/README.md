@@ -59,11 +59,11 @@ byte in `snapshots/` is exactly what the app wrote. That is the property that ma
 this a safety net rather than a shape check, and it holds because everything variable
 is pinned at the source instead:
 
-- **The model.** `fake_model.ScriptedModel` implements the Agents SDK's `Model`
+- **The model.** `agentdeck.testing.ScriptedModel` implements the Agents SDK's `Model`
   interface directly and is injected by swapping `OpenAIProvider` wherever it is
-  constructed (`scripted_model.patch_provider`, a test-only `monkeypatch.setattr`). No
-  network, no API key, no real model. Response ids (`resp_golden_1`), item ids, token
-  counts and `created_at` are constants in the script.
+  constructed (`agentdeck.testing.patch_model`, over a fresh-model-per-request factory so
+  every capture's turn count starts back at the tool call). No network, no API key, no
+  real model. Response ids, item ids, token counts and `created_at` are constants.
 - **The script.** Turn 1 returns a `function_call` to the fixture agent's
   `lookup_slot` tool; turn 2 answers in three text deltas
   (`"Tuesday " / "at 9am " / "works."`). Both turns are identical for `get_response`
