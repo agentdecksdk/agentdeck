@@ -8,6 +8,12 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`AGENTDECK_RUNNER_WORKFLOW_NAME` no longer defaults to `local-sandbox-repl`.** That value named
+  v1's sandboxed local REPL, deleted in #71 — every untuned run was labeling its tracing (e.g.
+  Langfuse) after a development tool that no longer exists. The default is now `agentdeck`.
+
 ## [3.0.1] - 2026-08-12
 
 **No functional change to the package.** `agentdeck/` is byte-identical to v3.0.0 — this release
