@@ -19,7 +19,6 @@ from typing import Any
 
 import pytest
 from agents.lifecycle import AgentHooks
-from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.authoring import Agent
 from agentdeck.authoring.hooks import compile_hooks
@@ -27,6 +26,7 @@ from agentdeck.authoring.instructions import compile_instructions
 from agentdeck.core.context import Context, RunContext  # noqa: TC001 — the subjects resolve it at runtime
 from agentdeck.deck import Deck
 from agentdeck.errors import ConfigError
+from agentdeck.testing import ScriptedModel, patch_model
 
 
 class Business:
@@ -166,7 +166,7 @@ async def test_instructions_played_by_a_foreign_run_say_so() -> None:
 
 
 @pytest.mark.asyncio
-async def test_only_the_return_value_of_an_instructions_callable_reaches_the_prompt(no_project, monkeypatch) -> None:
+async def test_only_the_return_value_of_an_instructions_callable_reaches_the_prompt(no_project) -> None:
     """The rule that must not be weakened, at the site that could weaken it silently. The
     callable holds the whole environment and names one field of it; nothing else may travel."""
     seen: list[Any] = []
@@ -176,13 +176,13 @@ async def test_only_the_return_value_of_an_instructions_callable_reaches_the_pro
         return f"You work for {environment.data.name}."
 
     model = RecordingModel(deltas=("ok",))
-    patch_provider(monkeypatch, provider_of(model))
     business = Business()
     deck = Deck(agents=[Agent(name="Front", instructions=instructions)])
     deck.build()
 
-    async with deck:
-        await deck.run("Front", "hello", context=business)
+    with patch_model(model):
+        async with deck:
+            await deck.run("Front", "hello", context=business)
 
     assert seen[0] is business
     assert model.instructions == ["You work for Acme Dental."]
@@ -190,15 +190,15 @@ async def test_only_the_return_value_of_an_instructions_callable_reaches_the_pro
 
 
 @pytest.mark.asyncio
-async def test_a_plain_string_of_instructions_is_unchanged(no_project, monkeypatch) -> None:
+async def test_a_plain_string_of_instructions_is_unchanged(no_project) -> None:
     """Every agent written before this existed compiles to exactly the same prompt."""
     model = RecordingModel(deltas=("ok",))
-    patch_provider(monkeypatch, provider_of(model))
     deck = Deck(agents=[Agent(name="Front", instructions="Be brief.")])
     deck.build()
 
-    async with deck:
-        await deck.run("Front", "hello")
+    with patch_model(model):
+        async with deck:
+            await deck.run("Front", "hello")
 
     assert model.instructions == ["Be brief."]
 
@@ -262,15 +262,15 @@ def test_a_hook_declaring_its_context_anywhere_but_first_is_refused() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_hook_declaring_a_context_receives_it_during_a_real_run(no_project, monkeypatch) -> None:
-    patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("ok",))))
+async def test_a_hook_declaring_a_context_receives_it_during_a_real_run(no_project) -> None:
     hooks = _ContextHooks()
     business = Business()
     deck = Deck(agents=[Agent(name="Front", instructions="be brief", hooks=hooks)])
     deck.build()
 
-    async with deck:
-        await deck.run("Front", "hello", context=business)
+    with patch_model(ScriptedModel(deltas=("ok",))):
+        async with deck:
+            await deck.run("Front", "hello", context=business)
 
     (environment, agent), *rest = hooks.started
     assert rest == []
@@ -280,15 +280,15 @@ async def test_a_hook_declaring_a_context_receives_it_during_a_real_run(no_proje
 
 
 @pytest.mark.asyncio
-async def test_an_unbridged_hook_on_the_same_object_still_reaches_the_original(no_project, monkeypatch) -> None:
+async def test_an_unbridged_hook_on_the_same_object_still_reaches_the_original(no_project) -> None:
     """Only the declaring methods are rewritten; the rest are forwarded untouched, so a hooks
     class that is half portable does not lose the half that is not."""
-    patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("ok",))))
     hooks = _ContextHooks()
     deck = Deck(agents=[Agent(name="Front", instructions="be brief", hooks=hooks)])
     deck.build()
 
-    async with deck:
-        await deck.run("Front", "hello", context=Business())
+    with patch_model(ScriptedModel(deltas=("ok",))):
+        async with deck:
+            await deck.run("Front", "hello", context=Business())
 
     assert hooks.ended  # on_end was never bridged, and still ran

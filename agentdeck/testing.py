@@ -246,7 +246,7 @@ class _ScriptedChatHandler(BaseHTTPRequestHandler):
         self.received.append(body)
         first_call = len(self.received) == 1 and self.tool_name is not None
         if first_call:
-            finish_reason, message = "tool_calls", _tool_call_delta(self.tool_name, self.tool_arguments)  # type: ignore[arg-type]
+            finish_reason, message = "tool_calls", _tool_call_delta(self.tool_name, self.tool_arguments)
         else:
             finish_reason, message = "stop", {"role": "assistant", "content": self.reply}
         if body.get("stream"):

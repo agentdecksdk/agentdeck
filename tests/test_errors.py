@@ -5,10 +5,10 @@ import textwrap
 
 import pytest
 from fastapi.testclient import TestClient
-from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, SkillError
 from agentdeck.runtime.registry import PluginRegistry
+from agentdeck.testing import ScriptedModel, patch_model
 
 AGENT_PY = """
 from agentdeck.authoring import Agent
@@ -332,16 +332,14 @@ def test_code_first_agent_build_failure_is_not_wrapped_with_a_bundle_path():
     assert not isinstance(excinfo.value, ConfigError)
 
 
-def test_skill_error_returns_500_without_leaking_stderr(project, monkeypatch):
+def test_skill_error_returns_500_without_leaking_stderr(project):
     from agentdeck.serve import create_app
 
     secret = "Traceback: AWS_SECRET_ACCESS_KEY=hunter2"
     # The turn fails at the SDK boundary, so the error travels the whole real path — engine,
     # Runtime, surface — the way a failing tool or skill inside a turn does.
     model = ScriptedModel(raises=SkillError(secret))
-    patch_provider(monkeypatch, provider_of(model))
-
-    with TestClient(create_app()) as client:
+    with patch_model(model), TestClient(create_app()) as client:
         response = client.post("/agents/Greeter/chat", json={"session_id": "s", "message": "hi"})
     assert response.status_code == 500
     assert response.json() == {"detail": "internal error"}
