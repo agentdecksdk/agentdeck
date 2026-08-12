@@ -109,8 +109,9 @@ async def test_a_spec_that_never_declared_durable_keeps_the_engines_own_checkpoi
 
 # Nothing listens on port 1, so a connection fails immediately with the shape of a database
 # gone unreachable — the same case ``test_postgres_store.py`` uses, without needing a live
-# Postgres either locally or in CI.
-_UNREACHABLE_DSN = "postgresql://postgres:postgres@127.0.0.1:1/nope"
+# Postgres either locally or in CI. The password is a distinct string (not "postgres", which
+# could coincidentally appear elsewhere) so a leak into the raised message is unambiguous.
+_UNREACHABLE_DSN = "postgresql://agentdeck:s3cr3t-pw@127.0.0.1:1/nope"
 
 
 async def test_an_unwritable_sqlite_checkpoint_path_raises_a_store_error(tmp_path: Path) -> None:
@@ -135,12 +136,16 @@ async def test_an_unwritable_sqlite_checkpoint_path_raises_a_store_error(tmp_pat
 
 async def test_a_postgres_checkpoint_with_an_unreachable_dsn_raises_a_store_error() -> None:
     """Same gap on the other durable backend: a DSN nothing answers must not hand the caller
-    a raw ``psycopg.OperationalError``."""
+    a raw ``psycopg.OperationalError``.
+
+    Unlike the sqlite path, the message never names the DSN — a DSN can carry a password,
+    and a leaked one would land in every log line and traceback that carries this error.
+    """
     psycopg = live_stores.require_psycopg()
 
     with pytest.raises(StoreError) as raised:
         resolve_checkpointer("postgres", _UNREACHABLE_DSN)
 
     assert "AGENTDECK_CHECKPOINT" in str(raised.value)
-    assert _UNREACHABLE_DSN in str(raised.value)
+    assert "s3cr3t-pw" not in str(raised.value)
     assert isinstance(raised.value.__cause__, psycopg.Error)

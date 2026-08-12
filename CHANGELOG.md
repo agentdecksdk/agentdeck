@@ -10,12 +10,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Fixed
 
-- **A checkpoint connection failure now raises `StoreError`, naming `AGENTDECK_CHECKPOINT` and
-  the resolved path or DSN, instead of a bare driver exception** (#233). An unwritable sqlite
-  checkpoint path raised `sqlite3.OperationalError: unable to open database file`, and a bad
-  Postgres DSN raised `psycopg.OperationalError` — neither said which setting caused it or that
-  agentdeck had resolved the path at all, unlike every other store, which already answers
-  connection failures this way. A driver error raised mid-run is unaffected.
+- **A checkpoint connection failure now raises `StoreError` naming `AGENTDECK_CHECKPOINT`,
+  instead of a bare driver exception** (#233). An unwritable sqlite checkpoint path raised
+  `sqlite3.OperationalError: unable to open database file`, and a bad Postgres DSN raised
+  `psycopg.OperationalError` — neither said which setting caused it or that agentdeck had
+  resolved the path at all, unlike every other store, which already answers connection failures
+  this way. The sqlite message also names the resolved file path; the Postgres one does not,
+  since a DSN can carry a password. A driver error raised mid-run is unaffected.
 - **`AGENTDECK_RUNNER_WORKFLOW_NAME` no longer defaults to `local-sandbox-repl`.** That value named
   v1's sandboxed local REPL, deleted in #71 — every untuned run was labeling its tracing (e.g.
   Langfuse) after a development tool that no longer exists. The default is now `agentdeck`.

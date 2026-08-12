@@ -110,10 +110,11 @@ def resolve_checkpointer(backend: str, url: str = "") -> BaseCheckpointSaver:
     object, so this adapter takes core plus langgraph and nothing else. Raises
     ``ValueError`` for an unknown backend, ``ImportError`` (with an install hint) when
     ``sqlite``/``postgres`` is requested but the ``[durability]`` extra isn't installed,
-    and ``StoreError`` when the backend cannot open its connection at all — naming
-    ``AGENTDECK_CHECKPOINT`` and the resolved path/DSN, the driver exception chained on
-    as ``__cause__``. A driver error raised mid-run, after the connection opened, is not
-    a configuration answer and is left as it is.
+    and ``StoreError`` when the backend cannot open its connection at all, naming
+    ``AGENTDECK_CHECKPOINT`` — and, for sqlite, the resolved file path; a Postgres DSN is
+    not named, since it can carry a password — with the driver exception chained on as
+    ``__cause__``. A driver error raised mid-run, after the connection opened, is not a
+    configuration answer and is left as it is.
     """
     normalized = backend.strip().lower()
     if normalized == "memory":
@@ -194,7 +195,10 @@ def _build_postgres_saver(url: str) -> BaseCheckpointSaver:
         saver: Any = _run_sync(AsyncPostgresSaver.from_conn_string(url).__aenter__())
         _run_sync(saver.setup())
     except psycopg.Error as exc:
-        raise StoreError(f"cannot open the workflow checkpoint at {url!r} (AGENTDECK_CHECKPOINT): {exc}") from exc
+        # No DSN in the message, unlike the sqlite branch: a DSN can carry a password, and
+        # unlike a filesystem path, that is a secret. Matches how the networked event stores
+        # already word this (postgres/store.py, redis/store.py) — neither names its URL either.
+        raise StoreError(f"cannot open the workflow checkpoint (AGENTDECK_CHECKPOINT): {exc}") from exc
     return saver
 
 
