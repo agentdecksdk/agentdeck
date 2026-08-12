@@ -13,18 +13,25 @@ said, so it keeps the engine's own default — which is what lets a hand-wired
 
 from __future__ import annotations
 
+import sqlite3
 from typing import TYPE_CHECKING, Any, TypedDict
 
+import live_stores
+import pytest
 from langgraph.graph import END, START, StateGraph
 
 from agentdeck.adapters.engines.langgraph import LangGraphEngine
+from agentdeck.adapters.engines.langgraph.checkpointer import resolve_checkpointer
 from agentdeck.core.content import DataBlock
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import RunCompleted
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
+from agentdeck.errors import StoreError
 from agentdeck.runtime.discovery import DURABLE_KEY
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from agentdeck.core.content import Input
 
 
@@ -98,3 +105,47 @@ async def test_a_spec_that_never_declared_durable_keeps_the_engines_own_checkpoi
 
     assert first == ["a"]
     assert second == ["a", "b"], f"the engine default was not in place: {second}"
+
+
+# Nothing listens on port 1, so a connection fails immediately with the shape of a database
+# gone unreachable — the same case ``test_postgres_store.py`` uses, without needing a live
+# Postgres either locally or in CI. The password is a distinct string (not "postgres", which
+# could coincidentally appear elsewhere) so a leak into the raised message is unambiguous.
+_UNREACHABLE_DSN = "postgresql://agentdeck:s3cr3t-pw@127.0.0.1:1/nope"
+
+
+async def test_an_unwritable_sqlite_checkpoint_path_raises_a_store_error(tmp_path: Path) -> None:
+    """A bare ``sqlite3.OperationalError`` names neither the setting nor the path agentdeck
+    resolved it to — the event store already answers this class of failure with
+    ``StoreError``, and the checkpointer must too."""
+    locked_dir = tmp_path / "no-permission"
+    locked_dir.mkdir()
+    locked_dir.chmod(0o000)
+    checkpoint_path = locked_dir / "checkpoints.sqlite3"
+
+    try:
+        with pytest.raises(StoreError) as raised:
+            resolve_checkpointer("sqlite", str(checkpoint_path))
+    finally:
+        locked_dir.chmod(0o700)
+
+    assert "AGENTDECK_CHECKPOINT" in str(raised.value)
+    assert str(checkpoint_path) in str(raised.value)
+    assert isinstance(raised.value.__cause__, sqlite3.Error)
+
+
+async def test_a_postgres_checkpoint_with_an_unreachable_dsn_raises_a_store_error() -> None:
+    """Same gap on the other durable backend: a DSN nothing answers must not hand the caller
+    a raw ``psycopg.OperationalError``.
+
+    Unlike the sqlite path, the message never names the DSN — a DSN can carry a password,
+    and a leaked one would land in every log line and traceback that carries this error.
+    """
+    psycopg = live_stores.require_psycopg()
+
+    with pytest.raises(StoreError) as raised:
+        resolve_checkpointer("postgres", _UNREACHABLE_DSN)
+
+    assert "AGENTDECK_CHECKPOINT" in str(raised.value)
+    assert "s3cr3t-pw" not in str(raised.value)
+    assert isinstance(raised.value.__cause__, psycopg.Error)

@@ -19,6 +19,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Fixed
 
+- **A checkpoint connection failure now raises `StoreError` naming `AGENTDECK_CHECKPOINT`,
+  instead of a bare driver exception** (#233). An unwritable sqlite checkpoint path raised
+  `sqlite3.OperationalError: unable to open database file`, and a bad Postgres DSN raised
+  `psycopg.OperationalError` — neither said which setting caused it or that agentdeck had
+  resolved the path at all, unlike every other store, which already answers connection failures
+  this way. The sqlite message also names the resolved file path; the Postgres one does not,
+  since a DSN can carry a password. A driver error raised mid-run is unaffected.
 - `agentdeck-serve --help` (and `-h`) now prints usage and exits 0 instead of crashing with a
   `FileNotFoundError` for a missing `./.agentdeck` project. `--host`/`--port` flags were added,
   defaulting to the existing `HOST`/`PORT` env vars, so passing neither behaves exactly as

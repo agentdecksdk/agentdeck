@@ -20,10 +20,13 @@ handing a second loop a saver that is bound to the first (see ``_per_loop``).
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import threading
 from functools import cache, partial
 from typing import TYPE_CHECKING, Any, TypeVar
 from weakref import WeakKeyDictionary
+
+from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
     from asyncio import AbstractEventLoop
@@ -105,8 +108,13 @@ def resolve_checkpointer(backend: str, url: str = "") -> BaseCheckpointSaver:
 
     ``url`` is the sqlite file path or the Postgres DSN — primitives, not a settings
     object, so this adapter takes core plus langgraph and nothing else. Raises
-    ``ValueError`` for an unknown backend and ``ImportError`` (with an install hint) when
-    ``sqlite``/``postgres`` is requested but the ``[durability]`` extra isn't installed.
+    ``ValueError`` for an unknown backend, ``ImportError`` (with an install hint) when
+    ``sqlite``/``postgres`` is requested but the ``[durability]`` extra isn't installed,
+    and ``StoreError`` when the backend cannot open its connection at all, naming
+    ``AGENTDECK_CHECKPOINT`` — and, for sqlite, the resolved file path; a Postgres DSN is
+    not named, since it can carry a password — with the driver exception chained on as
+    ``__cause__``. A driver error raised mid-run, after the connection opened, is not a
+    configuration answer and is left as it is.
     """
     normalized = backend.strip().lower()
     if normalized == "memory":
@@ -146,13 +154,16 @@ def _build_sqlite_saver(url: str) -> BaseCheckpointSaver:
     path = url or ".agentdeck/checkpoints.sqlite3"
 
     async def _connect_and_build() -> BaseCheckpointSaver:
-        conn = aiosqlite.connect(path)
-        # aiosqlite's per-connection worker thread is non-daemon, and nothing ever closes a
-        # cached connection, so a normal exit would hang forever joining it.
-        conn._thread.daemon = True  # noqa: SLF001 — aiosqlite exposes no public way to set this
-        await conn
-        saver = sqlite_aio.AsyncSqliteSaver(conn)
-        await saver.setup()
+        try:
+            conn = aiosqlite.connect(path)
+            # aiosqlite's per-connection worker thread is non-daemon, and nothing ever closes a
+            # cached connection, so a normal exit would hang forever joining it.
+            conn._thread.daemon = True  # noqa: SLF001 — aiosqlite exposes no public way to set this
+            await conn
+            saver = sqlite_aio.AsyncSqliteSaver(conn)
+            await saver.setup()
+        except sqlite3.Error as exc:
+            raise StoreError(f"cannot open the workflow checkpoint at {path!r} (AGENTDECK_CHECKPOINT): {exc}") from exc
         return saver
 
     saver: Any = _run_sync(_connect_and_build())
@@ -175,12 +186,19 @@ def _build_postgres_saver(url: str) -> BaseCheckpointSaver:
         raise ImportError(
             f"checkpoint backend 'postgres' needs langgraph-checkpoint-postgres — {_DURABILITY_HINT}",
         ) from exc
+    import psycopg  # ty: ignore[unresolved-import] — [durability] extra
 
     # Async saver, same reason as sqlite: the engine always calls ``ainvoke``/``astream``.
     # ``from_conn_string`` is an async contextmanager owning the connection; we enter it
     # manually and let the caller cache the saver.
-    saver: Any = _run_sync(AsyncPostgresSaver.from_conn_string(url).__aenter__())
-    _run_sync(saver.setup())
+    try:
+        saver: Any = _run_sync(AsyncPostgresSaver.from_conn_string(url).__aenter__())
+        _run_sync(saver.setup())
+    except psycopg.Error as exc:
+        # No DSN in the message, unlike the sqlite branch: a DSN can carry a password, and
+        # unlike a filesystem path, that is a secret. Matches how the networked event stores
+        # already word this (postgres/store.py, redis/store.py) — neither names its URL either.
+        raise StoreError(f"cannot open the workflow checkpoint (AGENTDECK_CHECKPOINT): {exc}") from exc
     return saver
 
 
