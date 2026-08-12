@@ -1,0 +1,50 @@
+# AgentDeck SDK
+
+> The production runtime for agents you already have — composition, durable human-in-the-loop approvals, sessions, streaming, run control and one ordered event log, wrapping the OpenAI Agents SDK and LangGraph.
+
+AgentDeck SDK is a Python harness for agents you have to operate. You write agents, workflows and
+skills as small declarations in a `.agentdeck/` directory; AgentDeck supplies everything around
+them — discovery, layered settings, sessions, streaming, MCP servers, durable human-in-the-loop
+approvals, run control, and one ordered event log per run.
+
+It wraps the OpenAI Agents SDK and LangGraph rather than replacing them: an `Agent` compiles to an
+SDK agent, a `Workflow` compiles to a LangGraph graph, and each is executed by its own engine.
+AgentDeck owns configuration; the engines own execution. There is no agent loop here and no graph
+engine of its own.
+
+Use it when the wiring around an agent has become the work: several agents and workflows in one
+project, a chat surface and a batch path over the same definitions, runs you must inspect
+afterwards, approvals that outlive the process that requested them.
+
+## Documentation
+
+- [AgentDeck](https://sagi5060.github.io/agentdeck/): Write the agent. AgentDeck owns everything around it.
+- [Getting Started](https://sagi5060.github.io/agentdeck/getting-started): Install AgentDeck, point it at a model, and run your first agent.
+- [Core Concepts](https://sagi5060.github.io/agentdeck/concepts): The things you write, and what AgentDeck does around them.
+- [Agents](https://sagi5060.github.io/agentdeck/concepts/agents): Declarative agent definitions — keyword arguments in, SDK Agent out.
+- [Capabilities](https://sagi5060.github.io/agentdeck/concepts/capabilities): Sandbox powers — not part of v3, and no longer in the codebase.
+- [Choosing a Store Backend](https://sagi5060.github.io/agentdeck/concepts/choosing-a-store-backend): Four independent storage decisions, one environment variable each, and what each default costs you.
+- [Protocols and Surfaces](https://sagi5060.github.io/agentdeck/concepts/protocols-and-surfaces): What reads the canonical event stream today, and, plainly, what does not exist yet.
+- [Run Control](https://sagi5060.github.io/agentdeck/concepts/run-control): What a safe point is, why asking a run to stop is not the same fact as it stopping, and what a resume replays.
+- [Runs and the Event Log](https://sagi5060.github.io/agentdeck/concepts/runs-and-the-event-log): The one ordered record every turn appends to, and why a run's status is read from it instead of stored anywhere else.
+- [Sessions and Memory](https://sagi5060.github.io/agentdeck/concepts/sessions-and-memory): What a session is, where its history lives, and why it is not the event log.
+- [Skills](https://sagi5060.github.io/agentdeck/concepts/skills): Progressive knowledge disclosure into an agent's own execution, described by SKILL.md.
+- [Workflows](https://sagi5060.github.io/agentdeck/concepts/workflows): Typed state, a LangGraph graph, and durable pauses for humans.
+- [Add a Tool](https://sagi5060.github.io/agentdeck/guides/add-a-tool): Give an agent a plain Python function it can call.
+- [Human Approval](https://sagi5060.github.io/agentdeck/guides/human-approval): Pause a workflow for a person's decision, and answer it from wherever that person is.
+- [Serve Over HTTP](https://sagi5060.github.io/agentdeck/guides/serve-over-http): Run agentdeck behind FastAPI, and talk to an agent from outside the process.
+- [Pause, Resume, Cancel](https://sagi5060.github.io/agentdeck/operating/pause-resume-cancel): Which endpoint to call to stop a run you did not start, what each response means, and how to tell whether it worked.
+- [Reference](https://sagi5060.github.io/agentdeck/reference): Technical reference for AgentDeck's public APIs and configuration.
+- [Capabilities](https://sagi5060.github.io/agentdeck/reference/capabilities): The sandbox capability specs — removed; sandboxing is not part of v3.
+- [CLI](https://sagi5060.github.io/agentdeck/reference/cli): The agentdeck command tree, generated from agentdeck/cli.py's own --help output.
+- [Deck](https://sagi5060.github.io/agentdeck/reference/deck): The composition root — builds a catalog from Agent/Workflow objects or a project directory, and runs every turn on it.
+- [Definitions](https://sagi5060.github.io/agentdeck/reference/definitions): Agent, AgentDeclaration, Workflow, and WorkflowDeclaration — the authoring API, field by field.
+- [Settings](https://sagi5060.github.io/agentdeck/reference/settings): Every AGENTDECK_* (and OPENAI_*/TAVILY_*) environment variable, generated from agentdeck/runtime/settings.py.
+- [Roadmap](https://sagi5060.github.io/agentdeck/roadmap): What AgentDeck is working on next, in the order it is being worked on, and what is deliberately not planned.
+- [Known Issues](https://sagi5060.github.io/agentdeck/known-issues): Defects in the current release that will surprise you, what happens, and what to do until each is fixed.
+- [Changelog](https://sagi5060.github.io/agentdeck/changelog): What changed in each release of AgentDeck, and what to do about it when upgrading.
+
+## Source
+
+- [Repository](https://github.com/sagi5060/agentdeck): issues, releases and examples
+- [Full documentation as one file](https://sagi5060.github.io/agentdeck/llms-full.txt)
