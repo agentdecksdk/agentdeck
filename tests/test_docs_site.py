@@ -110,8 +110,16 @@ DOTTED = re.compile(r"`([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)`")
 
 @cache
 def _package_source() -> str:
+    """Every source file's text, *plus every module and package name*.
+
+    The names matter on their own: a module's own name need not appear anywhere inside it, and
+    `agentdeck.testing` is the worked example — `agentdeck/testing.py` exists and imports, but the
+    string "testing" occurs in none of its 13 KB, so a page that referred to it was reported as
+    naming something the package does not have.
+    """
     root = Path(__file__).resolve().parents[1] / "agentdeck"
-    return "\n".join(path.read_text() for path in root.rglob("*.py"))
+    modules = {path.stem for path in root.rglob("*.py")} | {d.name for d in root.rglob("*") if d.is_dir()}
+    return "\n".join([*(path.read_text() for path in root.rglob("*.py")), *sorted(modules)])
 
 
 def _prose(page: Path) -> str:

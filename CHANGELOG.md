@@ -8,7 +8,7 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
-## [3.0.2] - 2026-08-13
+## [3.1.0] - 2026-08-13
 
 **AgentDeck is on PyPI, under the name `agentdeck-sdk`.**
 

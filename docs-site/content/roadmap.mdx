@@ -24,7 +24,18 @@ v1 HTTP/SSE wire frozen byte-for-byte.
 
 See the [changelog](/changelog).
 
-## v3.1 — hardening · **next**
+## v3.1.0 — on PyPI, and the first hardening instalment · **released**
+
+`pip install agentdeck-sdk`. The distribution is `agentdeck-sdk` and the import stays `agentdeck`
+— PyPI refuses the shorter name as too close to an unrelated placeholder project.
+
+It also carries the first of the hardening work rather than waiting for the whole milestone:
+`Agent(model=...)` is honoured instead of silently overridden, checkpointer failures raise
+`StoreError`, `agentdeck-serve --help` prints usage, and `agentdeck.testing` is exported as a
+supported test harness. See the [changelog](/changelog) and
+[Known Issues](/known-issues#fixed-in-v310).
+
+## v3.2 — hardening · **next**
 
 > Make what exists more correct, more robust, more trustworthy. Ship no new user-facing
 > capability.
@@ -32,7 +43,7 @@ See the [changelog](/changelog).
 Nearly forty issues, most of them findings from people using the SDK rather than reading it. The
 line for inclusion is **what happens when nothing is added**: a durable workflow that dies on a
 transient failure is a defect and belongs here; an agent that receives more tools than it needs
-still works, and that belongs in v3.2.
+still works, and that belongs in v3.3.
 
 What is in it:
 
@@ -50,7 +61,7 @@ What is in it:
 
 The consequences you can hit today are on [Known Issues](/known-issues), with workarounds.
 
-## v3.2 — batteries
+## v3.3 — batteries
 
 > Additive on the frozen API — what you reach for on your second day, once the surface underneath
 > is trustworthy.
@@ -59,7 +70,7 @@ Declarative MCP tool filters and read-only profiles. Reusable approval and exter
 Presets for the SDK's hosted tools. A zero-config `Preset` for the infrastructure a deck opens.
 A CLI that can *read* — list the approval inbox, show a run, answer from a terminal.
 
-## v3.3 — rooms & reach
+## v3.4 — rooms & reach
 
 > More than one caller.
 
@@ -70,7 +81,7 @@ Two decks side by side in one process. Inbox pagination and parallel interrupts.
 These are deliberately one release rather than five: they are the same identity question wearing
 different hats, and answering it five times separately produces five incompatible answers.
 
-## v3.4 — agents that work together
+## v3.5 — agents that work together
 
 > One agent reaching another and getting something back.
 
