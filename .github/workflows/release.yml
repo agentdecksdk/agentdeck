@@ -78,6 +78,13 @@ jobs:
           fi
       - name: Build
         run: uv build
+      - name: Upload distributions
+        # Handed to the `pypi` job rather than rebuilt there: publishing an artifact a second
+        # build produced is publishing something the gate above never ran against.
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
       - name: Extract CHANGELOG section
         run: |
           # Release notes are the curated CHANGELOG section, not a commit list: extract the
@@ -115,3 +122,36 @@ jobs:
         # trigger (GitHub's recursion guard), so the docs deploy is chained here;
         # workflow_dispatch is exempt from that guard.
         run: gh workflow run docs-pages.yml --ref "$GITHUB_REF_NAME"
+
+  pypi:
+    # Publishing is off until the repository variable PYPI_PUBLISH is set to "true".
+    # Without that gate the first tag after this lands turns a green release red: the PyPI
+    # project and its Trusted Publisher are created by hand in the PyPI UI, and until they
+    # exist every upload is rejected. Flip the variable in the same sitting as creating them.
+    if: vars.PYPI_PUBLISH == 'true'
+    needs: release
+    runs-on: ubuntu-latest
+    # A separate job so `id-token: write` is scoped to the one step that needs it, rather than
+    # granted to the whole workflow at the top of this file. It is the credential that lets
+    # anything running here mint an identity PyPI trusts.
+    permissions:
+      id-token: write
+    # The environment is the second half of the Trusted Publisher's identity — PyPI is
+    # configured with owner/repo *and* workflow *and* environment, so a job running anywhere
+    # else in this repository cannot publish. Name it exactly `pypi` there.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/agentdeck/
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          # Re-dispatching a tag whose version is already on PyPI should be a no-op, not a
+          # failure: the rest of this workflow is re-runnable and an upload that hard-fails on
+          # a duplicate would be the only step that is not.
+          skip-existing: true
