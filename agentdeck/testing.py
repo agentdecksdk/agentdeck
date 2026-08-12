@@ -161,9 +161,33 @@ class ScriptedModel(Model):
             type="response.completed",
         )
 
+    def _sdk_usage(self) -> Usage:
+        return Usage(
+            requests=1,
+            input_tokens=self._input_tokens,
+            output_tokens=self._output_tokens,
+            total_tokens=self._input_tokens + self._output_tokens,
+        )
+
     async def get_response(self, _instructions: Any = None, input: Any = None, *_a: Any, **_k: Any) -> ModelResponse:
         self.calls += 1
         self.inputs.append(input)
+        if self.tool_name is not None and self.calls == 1:
+            return ModelResponse(
+                output=[
+                    ResponseFunctionToolCall(
+                        id="fc_scripted_1",
+                        call_id="call_scripted_1",
+                        name=self.tool_name,
+                        arguments="{}",
+                        type="function_call",
+                    )
+                ],
+                usage=self._sdk_usage(),
+                response_id="resp_scripted_1",
+            )
+        if self.raises is not None:
+            raise self.raises
         text = self.final_text if self.final_text is not None else "".join(self.deltas)
         return ModelResponse(
             output=[
@@ -175,12 +199,7 @@ class ScriptedModel(Model):
                     type="message",
                 )
             ],
-            usage=Usage(
-                requests=1,
-                input_tokens=self._input_tokens,
-                output_tokens=self._output_tokens,
-                total_tokens=self._input_tokens + self._output_tokens,
-            ),
+            usage=self._sdk_usage(),
             response_id="resp_scripted_1",
         )
 

@@ -126,6 +126,7 @@ source_modules =
     agentdeck.adapters.control.sqlite
     agentdeck.adapters.tools.mcp
     agentdeck.surfaces
+    agentdeck.testing
 forbidden_modules =
     langgraph
 
