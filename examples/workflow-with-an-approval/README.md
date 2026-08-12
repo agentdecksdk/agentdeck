@@ -13,7 +13,7 @@ run.py                                       # run -> interrupt -> pending() -> 
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install "agentdeck[durability] @ git+https://github.com/agentdecksdk/agentdeck.git@v3.0.1"
+uv pip install "agentdeck-sdk[durability]"
 export OPENAI_MODEL=none OPENAI_API_KEY=none
 python run.py
 ```

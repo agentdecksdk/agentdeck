@@ -8,6 +8,17 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [3.0.2] - 2026-08-13
+
+**AgentDeck is on PyPI, under the name `agentdeck-sdk`.**
+
+```bash
+pip install agentdeck-sdk          # was: an install from the repository at a tag
+```
+
+**The import does not change.** `import agentdeck` is what it always was, and no code needs
+editing. Only the line that installs it moves.
+
 ### Added
 
 - **`agentdeck.testing`**, the exported stub-runner test harness (#26): `ScriptedModel` (text
@@ -17,8 +28,33 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   HTTP endpoint for a test that must run agentdeck as a real subprocess or a real HTTP client).
   Every one of this repo's own hand-rolled scripted models now builds on it.
 
+### Changed
+
+- **The distribution is renamed `agentdeck` → `agentdeck-sdk`.** Not a preference: PyPI refuses
+  the name `agentdeck` as *"too similar to an existing project"* — an abandoned `agent-deck`
+  placeholder (one release, author `"Your Name"`, summary *"A placeholder package"*) that its
+  similarity check treats as the same name once separators are stripped. `agentdeck-sdk` also
+  matches the brand.
+
+  Install and import names now differ, which puts AgentDeck in company it did not choose but is
+  used to seeing — `openai-agents` imports as `agents`, `beautifulsoup4` as `bs4`,
+  `python-dateutil` as `dateutil`. Extras keep their names: `agentdeck-sdk[serve]`,
+  `[durability]`, `[observability]`.
+
+  A PEP 541 request for the squatted name is open. If it is granted, `agentdeck` becomes the
+  distribution and `agentdeck-sdk` becomes a shim that depends on it — no import changes then
+  either.
+
+- **Every install line is now a PyPI install**, not a pinned `git+https://…@vX.Y.Z` URL. The
+  git form still works and is still what a contributor uses for an unreleased commit.
+
 ### Fixed
 
+- **`agentdeck.__version__` would have reported `0+unknown` after the rename.** It resolves
+  through `importlib.metadata.version()`, which takes the *distribution* name — renaming the
+  distribution without updating that call makes the lookup miss and fall through to the
+  not-installed fallback, silently. Caught before release; the fallback now only fires when the
+  package genuinely is not installed, which is what it is for.
 - **`Agent(model=...)` now actually runs on the model it names, instead of being silently
   overridden by `OPENAI_MODEL` on every turn (#247).** The host Agents SDK's `RunConfig.model`
   overrides *every* agent's own model once set, and every run's config set it from
@@ -42,6 +78,7 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 - **`AGENTDECK_RUNNER_WORKFLOW_NAME` no longer defaults to `local-sandbox-repl`.** That value named
   v1's sandboxed local REPL, deleted in #71 — every untuned run was labeling its tracing (e.g.
   Langfuse) after a development tool that no longer exists. The default is now `agentdeck`.
+
 
 ## [3.0.1] - 2026-08-12
 

@@ -10,53 +10,86 @@ description: What changed in each release of AgentDeck, and what to do about it 
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v3.0.1**. Earlier releases are listed at the bottom.
+The current release is **v3.0.2**. Earlier releases are listed at the bottom.
 
-## v3.0.1
+## v3.0.2
 
-*Released 2026-08-12.*
+*Released 2026-08-13.*
 
-**No functional change to the package.** `agentdeck/` is byte-identical to v3.0.0 — this release
-carries documentation, brand and discoverability work, and exists so the published site and the
-release train agree. Upgrading from v3.0.0 changes nothing at runtime.
+**AgentDeck is on PyPI, under the name `agentdeck-sdk`.**
+
+```bash
+pip install agentdeck-sdk          # was: an install from the repository at a tag
+```
+
+**The import does not change.** `import agentdeck` is what it always was, and no code needs
+editing. Only the line that installs it moves.
 
 ### Added
 
-- **Three project pages on the documentation site.** [Known
-  Issues](https://agentdecksdk.com/known-issues) is the one worth bookmarking: every
-  entry is reproduced and open against this release, most of them fail *silently* — a tool that
-  raises still completes the run, a non-serializable tool return reaches the model as a memory
-  address, `Agent(model=...)` is accepted and ignored — and each says what to do until it is
-  fixed. Also [Roadmap](https://agentdecksdk.com/roadmap) and a
-  [Changelog](https://agentdecksdk.com/changelog) generated from this file.
-- **`/llms.txt` and `/llms-full.txt`**, generated from the same Markdown the site renders, for
-  coding agents and LLM search. Plus `context7.json`, whose rules encode the mistakes an assistant
-  actually makes: no `agentdeck-sdk` package, a `Context[T]` tool must not be
-  `@function_tool`-wrapped, `durable = True` needs the `[durability]` extra.
-- **`sitemap.xml`, `robots.txt`, canonical URLs and Open Graph tags**, all generated. One
-  canonical origin behind `NEXT_PUBLIC_SITE_URL`, so moving domain is a variable rather than a
-  sweep.
-- **A changelog tool for the documentation assistant.** *"When was `Context` added?"* is a real
-  question, and its answer is only in release history — which must never ground a documentation
-  answer, because history names APIs that were later removed.
-- **`docs/brand/`** — the mark as vectors, with the reasoning. No rasters: this repository tracks
-  no binaries.
+- **`agentdeck.testing`**, the exported stub-runner test harness (#26): `ScriptedModel` (text
+  deltas, an optional tool call, mid-stream failure, a `hold` gate for catching a consumer
+  mid-await, configurable usage counts), `patch_model()` (swaps the SDK's model provider for the
+  duration of a `with` block), and `scripted_model_server()` (a local Chat-Completions-compatible
+  HTTP endpoint for a test that must run agentdeck as a real subprocess or a real HTTP client).
+  Every one of this repo's own hand-rolled scripted models now builds on it.
 
 ### Changed
 
-- The documentation site carries the brand: Agent Blue, the mark in the navbar and as the favicon,
-  and **AgentDeck SDK** in titles and descriptions. The package and import stay `agentdeck`.
+- **The distribution is renamed `agentdeck` → `agentdeck-sdk`.** Not a preference: PyPI refuses
+  the name `agentdeck` as *"too similar to an existing project"* — an abandoned `agent-deck`
+  placeholder (one release, author `"Your Name"`, summary *"A placeholder package"*) that its
+  similarity check treats as the same name once separators are stripped. `agentdeck-sdk` also
+  matches the brand.
+
+  Install and import names now differ, which puts AgentDeck in company it did not choose but is
+  used to seeing — `openai-agents` imports as `agents`, `beautifulsoup4` as `bs4`,
+  `python-dateutil` as `dateutil`. Extras keep their names: `agentdeck-sdk[serve]`,
+  `[durability]`, `[observability]`.
+
+  A PEP 541 request for the squatted name is open. If it is granted, `agentdeck` becomes the
+  distribution and `agentdeck-sdk` becomes a shim that depends on it — no import changes then
+  either.
+
+- **Every install line is now a PyPI install**, not a pinned `git+https://…@vX.Y.Z` URL. The
+  git form still works and is still what a contributor uses for an unreleased commit.
 
 ### Fixed
 
-- **Code blocks on the documentation site rendered washed grey.** `nextra-code` is on three
-  elements, so a rule written for inline code laid a pale wash over the dark block, and the
-  syntax theme then did not match the surface it was on.
+- **`agentdeck.__version__` would have reported `0+unknown` after the rename.** It resolves
+  through `importlib.metadata.version()`, which takes the *distribution* name — renaming the
+  distribution without updating that call makes the lookup miss and fall through to the
+  not-installed fallback, silently. Caught before release; the fallback now only fires when the
+  package genuinely is not installed, which is what it is for.
+- **`Agent(model=...)` now actually runs on the model it names, instead of being silently
+  overridden by `OPENAI_MODEL` on every turn (#247).** The host Agents SDK's `RunConfig.model`
+  overrides *every* agent's own model once set, and every run's config set it from
+  `OPENAI_MODEL` unconditionally — so a per-agent override was accepted, type-checked, and then
+  discarded one layer later. The default is now resolved onto the compiled agent instead, at
+  build time: an agent that declares its own model keeps it, one that declares none still gets
+  `OPENAI_MODEL`, and this holds across handoffs and `as_tool()` since each agent resolves its
+  own model independently of which one is playing.
+- **A checkpoint connection failure now raises `StoreError` naming `AGENTDECK_CHECKPOINT`,
+  instead of a bare driver exception** (#233). An unwritable sqlite checkpoint path raised
+  `sqlite3.OperationalError: unable to open database file`, and a bad Postgres DSN raised
+  `psycopg.OperationalError` — neither said which setting caused it or that agentdeck had
+  resolved the path at all, unlike every other store, which already answers connection failures
+  this way. The sqlite message also names the resolved file path; the Postgres one does not,
+  since a DSN can carry a password. A driver error raised mid-run is unaffected.
+- `agentdeck-serve --help` (and `-h`) now prints usage and exits 0 instead of crashing with a
+  `FileNotFoundError` for a missing `./.agentdeck` project. `--host`/`--port` flags were added,
+  defaulting to the existing `HOST`/`PORT` env vars, so passing neither behaves exactly as
+  before; an unrecognized argument now exits 2 with usage instead of being silently ignored.
+  (#245)
+- **`AGENTDECK_RUNNER_WORKFLOW_NAME` no longer defaults to `local-sandbox-repl`.** That value named
+  v1's sandboxed local REPL, deleted in #71 — every untuned run was labeling its tracing (e.g.
+  Langfuse) after a development tool that no longer exists. The default is now `agentdeck`.
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v3.0.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.1) | 2026-08-12 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.1) |
 | [v3.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0) | 2026-08-11 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0) |
 | [v3.0.0b1](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0b1) | 2026-08-10 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0b1) |
 | [v2.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v2.0.0) | 2026-08-06 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v2.0.0) |

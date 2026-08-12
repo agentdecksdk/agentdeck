@@ -135,47 +135,62 @@ def test_dotted_names_in_prose_still_exist_in_the_package(page: Path) -> None:
 INSTALL_LINE = re.compile(r"\b(?:pip install|uv add|pipx install)\b.*\bagentdeck\b", re.IGNORECASE)
 
 
-def test_pinned_install_versions_match_the_package_version() -> None:
-    """Every agentdeck install line on the site, in the README, or in an example must carry a
-    `git+...@vX.Y.Z` pin naming the version this tree actually is.
+# The distribution name, which is NOT the import name. `pip install agentdeck` installs nothing
+# of ours: PyPI refuses that name as too similar to the squatted `agent-deck` placeholder, so an
+# install line missing the suffix sends a reader to a 404 or to somebody else's package.
+DIST = "agentdeck-sdk"
+# A distribution name in an install position: `agentdeck` not already followed by `-sdk`.
+WRONG_DIST = re.compile(r"\b(?:pip install|uv add|pipx install)\s+[\"']?agentdeck(?!-sdk)\b")
 
-    Nothing else catches a stale *or missing* pin: the fence checks above parse Python, and
-    `docs-check.yml` only confirms a page was produced. A stale pin has shipped three times,
-    most recently telling beta users to install v2.0.0 while reading v3 docs; an *unqualified*
-    install (no pin at all) is the same failure by omission — `agentdeck[serve]` with no `@v...`
-    resolves to whatever a fresh install picks, not the version the page's own examples were
-    written against. Only fenced shell blocks count — an install line mentioned in prose (e.g. as
-    a contrast, "not something `pip install agentdeck` gives you") is not an instruction to run.
 
-    `context7.json` is checked for the same reason and is the worst place for a stale pin: its
-    rules are fed to coding agents as ground truth, so a wrong version there is retyped into
-    other people's terminals rather than merely read. Only the stale-pin half applies to it —
-    it has no fenced blocks, so the unpinned-install check below cannot see it.
+def test_install_lines_name_the_distribution_and_pin_any_git_install() -> None:
+    """Two failures, one check, because both are "the reader types this and does not get
+    AgentDeck".
+
+    **The name.** Until v3.0.2 the distribution was `agentdeck` and matched the import. It is now
+    `agentdeck-sdk`, and `pip install agentdeck` is no longer merely stale — PyPI has an unrelated
+    `agent-deck` placeholder, which is *why* the rename happened, so the wrong line resolves to
+    someone else's project or to nothing. Every install instruction must name the distribution.
+
+    **The pin.** A `git+...` install still has to carry `@vX.Y.Z` matching this tree. That half is
+    unchanged and has earned its place: a stale pin shipped three times, most recently telling
+    beta users to install v2.0.0 while reading v3 docs. A *PyPI* install is deliberately exempt —
+    `pip install agentdeck-sdk` resolving to the newest release is the recommended path, not an
+    omission, and requiring `==` there would mean re-pinning every page on every release.
+
+    Only fenced shell blocks count for the name check — prose mentioning an install line as a
+    contrast ("not something `pip install agentdeck-sdk` gives you") is not an instruction to run.
+    `context7.json` is scanned for the pin because its rules are fed to coding agents as ground
+    truth, so a wrong version there is retyped into other people's terminals rather than read.
     """
     import tomllib
 
     root = Path(__file__).resolve().parents[1]
     version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+    assert tomllib.loads((root / "pyproject.toml").read_text())["project"]["name"] == DIST, (
+        f"pyproject renamed away from {DIST} — this whole check is written against that name"
+    )
     # `[\w.]` rather than "anything but a quote": in JSON the pin is written `@v3.0.1\"`, and a
     # looser class swallows the escaping backslash into the captured version.
     pin = re.compile(r"agentdeck(?:\.git)?@v([0-9][\w.]*)")
     documents = (*_pages(), *_repo_markdown(), root / "context7.json")
 
-    stale = [
+    wrong = [
         f"{page.relative_to(root)}: pins v{found} but pyproject says {version}"
         for page in documents
         for found in pin.findall(page.read_text())
         if found != version
     ]
-    stale += [
-        f"{page.relative_to(root)}: unpinned agentdeck install in a `{lang}` block — {line.strip()!r}"
-        for page in documents
-        for lang, _meta, body in FENCE.findall(page.read_text())
-        if lang == "bash"
-        for line in body.splitlines()
-        if INSTALL_LINE.search(line) and not pin.search(line)
-    ]
-    assert not stale, "stale or unpinned install pin(s):\n  " + "\n  ".join(stale)
+    for page in documents:
+        for lang, _meta, body in FENCE.findall(page.read_text()):
+            if lang != "bash":
+                continue
+            for line in body.splitlines():
+                if WRONG_DIST.search(line):
+                    wrong.append(f"{page.relative_to(root)}: installs `agentdeck`, not `{DIST}` — {line.strip()!r}")
+                elif "git+" in line and INSTALL_LINE.search(line) and not pin.search(line):
+                    wrong.append(f"{page.relative_to(root)}: unpinned git install — {line.strip()!r}")
+    assert not wrong, "install lines a reader cannot follow:\n  " + "\n  ".join(wrong)
 
 
 @pytest.mark.parametrize("document", _repo_markdown(), ids=lambda p: str(p))

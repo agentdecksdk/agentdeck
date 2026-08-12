@@ -92,11 +92,17 @@ Target: a running agent in under five minutes.
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install "agentdeck[serve] @ git+https://github.com/agentdecksdk/agentdeck.git@v3.0.1"
+uv pip install "agentdeck-sdk[serve]"
 ```
 
-Installs from git at a tag. The repository is public, so no credentials are needed —
-swap `https` for `ssh://git@` if you prefer keys.
+The distribution on PyPI is **`agentdeck-sdk`**, and the import package is **`agentdeck`** — so
+you install one name and import another. The two differ because PyPI refuses `agentdeck` as too
+similar to an unrelated placeholder project; `import agentdeck` is what every example here uses
+and it is not changing.
+
+`serve` is the extra for the HTTP surface. Others: `durability` for the Postgres/SQLite stores,
+`observability` for Langfuse tracing. Plain `uv pip install agentdeck-sdk` is enough for the
+first agent below.
 
 Contributing to AgentDeck itself instead? Clone the repo and run `make install` — that
 path is in `CONTRIBUTING.md`, not here.
@@ -574,7 +580,7 @@ version of it:
   and none of v1's wire translation. No console script mounts it, so it is exercised only by the
   test suite (and by a reference terminal renderer, `agentdeck/surfaces/cli/chat.py`, that reads
   its stream using nothing but `event.origin` and a message's id — proof that a thin reader is
-  enough, not something `pip install agentdeck` gives you to run).
+  enough, not something `pip install agentdeck-sdk` gives you to run).
 - **ACP, A2A, an MCP server, and an OpenAI-compatible endpoint do not exist.** The PRD's
   "any invocable, any surface, zero per-surface code" claim (FR-2, FR-14) holds for the two
   surfaces above and stops there today.
@@ -1389,7 +1395,7 @@ Runtime that call would have used, so a turn started over HTTP lands in the same
 Python caller's turn would.
 
 ```bash illustrative reason="starts a long-running server; nothing to assert on here"
-uv pip install "agentdeck[serve] @ git+https://github.com/agentdecksdk/agentdeck.git@v3.0.1"
+uv pip install "agentdeck-sdk[serve]"
 HOST=0.0.0.0 PORT=8000 agentdeck-serve
 ```
 
@@ -2073,7 +2079,7 @@ There is no `deck.observers` property, for the same reason there is no `runtime`
 nothing needs one, and adding a property later is additive while removing one is not.
 
 <Callout type="info">
-  `Langfuse()` needs the `observability` extra: `pip install "agentdeck[observability]"`. Without
+  `Langfuse()` needs the `observability` extra: `pip install "agentdeck-sdk[observability]"`. Without
   it, a deck with no Langfuse keys is unaffected — the SDK is imported when the observer starts,
   not when it is constructed.
 </Callout>
@@ -2611,7 +2617,7 @@ The cost field exists on every `Usage` and never carries a cost.
 checkpointer lives behind the `[durability]` extra. So `durable = True` — which every human
 approval needs — fails on a plain install.
 
-**Until it is fixed:** install `agentdeck[durability]` if you use `durable = True`.
+**Until it is fixed:** install `agentdeck-sdk[durability]` if you use `durable = True`.
 &nbsp;→ [#232](https://github.com/agentdecksdk/agentdeck/issues/232)
 
 ### Approvals disappear on restart, under the shipped defaults
@@ -2697,53 +2703,54 @@ Source: https://agentdecksdk.com/changelog
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v3.0.1**. Earlier releases are listed at the bottom.
+The current release is **v3.0.2**. Earlier releases are listed at the bottom.
 
-## v3.0.1
+## v3.0.2
 
-*Released 2026-08-12.*
+*Released 2026-08-13.*
 
-**No functional change to the package.** `agentdeck/` is byte-identical to v3.0.0 — this release
-carries documentation, brand and discoverability work, and exists so the published site and the
-release train agree. Upgrading from v3.0.0 changes nothing at runtime.
+**AgentDeck is on PyPI, under the name `agentdeck-sdk`.**
 
-### Added
+```bash
+pip install agentdeck-sdk          # was: an install from the repository at a tag
+```
 
-- **Three project pages on the documentation site.** [Known
-  Issues](https://agentdecksdk.com/known-issues) is the one worth bookmarking: every
-  entry is reproduced and open against this release, most of them fail *silently* — a tool that
-  raises still completes the run, a non-serializable tool return reaches the model as a memory
-  address, `Agent(model=...)` is accepted and ignored — and each says what to do until it is
-  fixed. Also [Roadmap](https://agentdecksdk.com/roadmap) and a
-  [Changelog](https://agentdecksdk.com/changelog) generated from this file.
-- **`/llms.txt` and `/llms-full.txt`**, generated from the same Markdown the site renders, for
-  coding agents and LLM search. Plus `context7.json`, whose rules encode the mistakes an assistant
-  actually makes: no `agentdeck-sdk` package, a `Context[T]` tool must not be
-  `@function_tool`-wrapped, `durable = True` needs the `[durability]` extra.
-- **`sitemap.xml`, `robots.txt`, canonical URLs and Open Graph tags**, all generated. One
-  canonical origin behind `NEXT_PUBLIC_SITE_URL`, so moving domain is a variable rather than a
-  sweep.
-- **A changelog tool for the documentation assistant.** *"When was `Context` added?"* is a real
-  question, and its answer is only in release history — which must never ground a documentation
-  answer, because history names APIs that were later removed.
-- **`docs/brand/`** — the mark as vectors, with the reasoning. No rasters: this repository tracks
-  no binaries.
+**The import does not change.** `import agentdeck` is what it always was, and no code needs
+editing. Only the line that installs it moves.
 
 ### Changed
 
-- The documentation site carries the brand: Agent Blue, the mark in the navbar and as the favicon,
-  and **AgentDeck SDK** in titles and descriptions. The package and import stay `agentdeck`.
+- **The distribution is renamed `agentdeck` → `agentdeck-sdk`.** Not a preference: PyPI refuses
+  the name `agentdeck` as *"too similar to an existing project"* — an abandoned `agent-deck`
+  placeholder (one release, author `"Your Name"`, summary *"A placeholder package"*) that its
+  similarity check treats as the same name once separators are stripped. `agentdeck-sdk` also
+  matches the brand.
+
+  Install and import names now differ, which puts AgentDeck in company it did not choose but is
+  used to seeing — `openai-agents` imports as `agents`, `beautifulsoup4` as `bs4`,
+  `python-dateutil` as `dateutil`. Extras keep their names: `agentdeck-sdk[serve]`,
+  `[durability]`, `[observability]`.
+
+  A PEP 541 request for the squatted name is open. If it is granted, `agentdeck` becomes the
+  distribution and `agentdeck-sdk` becomes a shim that depends on it — no import changes then
+  either.
+
+- **Every install line is now a PyPI install**, not a pinned `git+https://…@vX.Y.Z` URL. The
+  git form still works and is still what a contributor uses for an unreleased commit.
 
 ### Fixed
 
-- **Code blocks on the documentation site rendered washed grey.** `nextra-code` is on three
-  elements, so a rule written for inline code laid a pale wash over the dark block, and the
-  syntax theme then did not match the surface it was on.
+- **`agentdeck.__version__` would have reported `0+unknown` after the rename.** It resolves
+  through `importlib.metadata.version()`, which takes the *distribution* name — renaming the
+  distribution without updating that call makes the lookup miss and fall through to the
+  not-installed fallback, silently. Caught before release; the fallback now only fires when the
+  package genuinely is not installed, which is what it is for.
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v3.0.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.1) | 2026-08-12 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.1) |
 | [v3.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0) | 2026-08-11 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0) |
 | [v3.0.0b1](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0b1) | 2026-08-10 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0b1) |
 | [v2.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v2.0.0) | 2026-08-06 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v2.0.0) |

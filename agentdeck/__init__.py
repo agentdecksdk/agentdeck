@@ -24,7 +24,11 @@ from agentdeck.errors import (
 )
 
 try:
-    __version__ = _version("agentdeck")
+    # The *distribution* is `agentdeck-sdk`; the import package is `agentdeck`. They differ
+    # because PyPI refuses `agentdeck` as too similar to the squatted `agent-deck` placeholder.
+    # Passing the import name here returns nothing and falls through to "0+unknown" — a silently
+    # wrong version, which is the exact failure #176 added `__version__` to prevent.
+    __version__ = _version("agentdeck-sdk")
 except PackageNotFoundError:
     # Running from a source checkout with no installed distribution (e.g. no `pip install -e .`
     # yet) — a version string is still expected of every attribute lookup, not a raise.
