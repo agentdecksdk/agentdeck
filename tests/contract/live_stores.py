@@ -59,8 +59,12 @@ def require_psycopg(*, module_level: bool = False) -> Any:
     return psycopg
 
 
-# Unique per case so two of them never share a prefix or a schema. A counter rather than a
-# uuid: a failing case's keyspace is then something a reader can find in the output.
+# Unique per case, and per process: a bare counter is only unique within the process that
+# holds it, so two `make check` runs on one host (two worktrees, say) would hand out the same
+# `agentdeck:test:0` against the same Redis and Postgres. Seeding the counter with the pid
+# keeps two processes disjoint while keeping a failing case's keyspace greppable in output —
+# `agentdeck:test:3f21-0`, not an unreadable uuid.
+_run = f"{os.getpid():x}"
 _names = count()
 
 # Probing a dead port once per case would be ~70 pointless connection attempts, so the first
@@ -176,7 +180,7 @@ async def redis_keyspace() -> AsyncIterator[tuple[str, str]]:
             await admin.ping()
         except RedisError as exc:
             _record_unavailable(url, f"no Redis at {url} ({exc}) — set {REDIS_URL_ENV} to point at one")
-        prefix = f"agentdeck:test:{next(_names)}"
+        prefix = f"agentdeck:test:{_run}-{next(_names)}"
         try:
             yield url, prefix
         finally:
@@ -198,7 +202,7 @@ async def postgres_schema() -> AsyncIterator[tuple[str, str]]:
         admin = await psycopg.AsyncConnection.connect(dsn, autocommit=True)
     except psycopg.Error as exc:
         _record_unavailable(dsn, f"no Postgres at {dsn} ({exc}) — set {POSTGRES_DSN_ENV} to point at one")
-    schema = f"agentdeck_test_{next(_names)}"
+    schema = f"agentdeck_test_{_run}_{next(_names)}"
     try:
         yield dsn, schema
     finally:
