@@ -2550,7 +2550,7 @@ Source: https://agentdecksdk.com/known-issues
 
 # Known Issues
 
-Everything here is real, reproduced, and open against **v3.0.0**. It is published rather than
+Everything here is real, reproduced, and open against **v3.0.2**. It is published rather than
 quietly tracked because most of these fail *silently* — you get a plausible wrong answer, not an
 error — and an hour spent debugging one of them is an hour this page could have saved.
 
@@ -2582,15 +2582,6 @@ and the prompt.
 **Until it is fixed:** return JSON-compatible values from tools. If you return an object today,
 check what the model is actually receiving.
 &nbsp;→ [#251, folded into #250](https://github.com/agentdecksdk/agentdeck/issues/250)
-
-### `Agent(model=...)` is ignored
-
-Every run uses `OPENAI_MODEL`, whatever the agent declared. The parameter is accepted,
-type-checked by the SDK, and then overridden by the run's own configuration — so a cheap router
-in front of an expensive specialist silently runs entirely on one model.
-
-**Until it is fixed:** there is no per-agent model. One model per process.
-&nbsp;→ [#247](https://github.com/agentdecksdk/agentdeck/issues/247)
 
 ### Cancelling a run that is waiting on a human does nothing
 
@@ -2667,9 +2658,7 @@ Not silent, not traps — just things that will cost you a few minutes.
 
 | What | Issue |
 |---|---|
-| `agentdeck-serve --help` crashes instead of printing usage | [#245](https://github.com/agentdecksdk/agentdeck/issues/245) |
 | `run()`'s return type makes the documented interrupt idiom fail a type checker | [#231](https://github.com/agentdecksdk/agentdeck/issues/231) |
-| Checkpointer connection failures surface as raw driver exceptions, not `StoreError` | [#233](https://github.com/agentdecksdk/agentdeck/issues/233) |
 | An engine failure over HTTP returns bare text rather than the documented 500 shape | [#243](https://github.com/agentdecksdk/agentdeck/issues/243) |
 | `answer()` accepts any value with no validation, and the node owns interpreting it | [#235](https://github.com/agentdecksdk/agentdeck/issues/235) |
 | Omitting `context` on `answer()` silently gives the re-run node `None` | [#255](https://github.com/agentdecksdk/agentdeck/issues/255) |
@@ -2677,6 +2666,18 @@ Not silent, not traps — just things that will cost you a few minutes.
 | `redis` is a base dependency because the default session path imports it | [#253](https://github.com/agentdecksdk/agentdeck/issues/253) |
 | A `DataBlock` cannot be sent *to* a model, only received from one | [#226](https://github.com/agentdecksdk/agentdeck/issues/226) |
 | `Deck.asgi()` cannot serve an agent whose tools declare a `Context` | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
+
+## Fixed in v3.0.2
+
+Removed from this page rather than struck through, because a Known Issues page that lists fixed
+things teaches you to distrust the entries that are still true. Recorded here so an upgrade is
+worth it, and in full in the [changelog](/changelog).
+
+| What | Issue |
+|---|---|
+| `Agent(model=...)` was ignored — every run used `OPENAI_MODEL` | [#247](https://github.com/agentdecksdk/agentdeck/issues/247) |
+| Checkpointer connection failures surfaced as raw driver exceptions | [#233](https://github.com/agentdecksdk/agentdeck/issues/233) |
+| `agentdeck-serve --help` crashed instead of printing usage | [#245](https://github.com/agentdecksdk/agentdeck/issues/245) |
 
 ## What is being done about all this
 
@@ -2718,6 +2719,15 @@ pip install agentdeck-sdk          # was: an install from the repository at a ta
 **The import does not change.** `import agentdeck` is what it always was, and no code needs
 editing. Only the line that installs it moves.
 
+### Added
+
+- **`agentdeck.testing`**, the exported stub-runner test harness (#26): `ScriptedModel` (text
+  deltas, an optional tool call, mid-stream failure, a `hold` gate for catching a consumer
+  mid-await, configurable usage counts), `patch_model()` (swaps the SDK's model provider for the
+  duration of a `with` block), and `scripted_model_server()` (a local Chat-Completions-compatible
+  HTTP endpoint for a test that must run agentdeck as a real subprocess or a real HTTP client).
+  Every one of this repo's own hand-rolled scripted models now builds on it.
+
 ### Changed
 
 - **The distribution is renamed `agentdeck` → `agentdeck-sdk`.** Not a preference: PyPI refuses
@@ -2745,6 +2755,29 @@ editing. Only the line that installs it moves.
   distribution without updating that call makes the lookup miss and fall through to the
   not-installed fallback, silently. Caught before release; the fallback now only fires when the
   package genuinely is not installed, which is what it is for.
+- **`Agent(model=...)` now actually runs on the model it names, instead of being silently
+  overridden by `OPENAI_MODEL` on every turn (#247).** The host Agents SDK's `RunConfig.model`
+  overrides *every* agent's own model once set, and every run's config set it from
+  `OPENAI_MODEL` unconditionally — so a per-agent override was accepted, type-checked, and then
+  discarded one layer later. The default is now resolved onto the compiled agent instead, at
+  build time: an agent that declares its own model keeps it, one that declares none still gets
+  `OPENAI_MODEL`, and this holds across handoffs and `as_tool()` since each agent resolves its
+  own model independently of which one is playing.
+- **A checkpoint connection failure now raises `StoreError` naming `AGENTDECK_CHECKPOINT`,
+  instead of a bare driver exception** (#233). An unwritable sqlite checkpoint path raised
+  `sqlite3.OperationalError: unable to open database file`, and a bad Postgres DSN raised
+  `psycopg.OperationalError` — neither said which setting caused it or that agentdeck had
+  resolved the path at all, unlike every other store, which already answers connection failures
+  this way. The sqlite message also names the resolved file path; the Postgres one does not,
+  since a DSN can carry a password. A driver error raised mid-run is unaffected.
+- `agentdeck-serve --help` (and `-h`) now prints usage and exits 0 instead of crashing with a
+  `FileNotFoundError` for a missing `./.agentdeck` project. `--host`/`--port` flags were added,
+  defaulting to the existing `HOST`/`PORT` env vars, so passing neither behaves exactly as
+  before; an unrecognized argument now exits 2 with usage instead of being silently ignored.
+  (#245)
+- **`AGENTDECK_RUNNER_WORKFLOW_NAME` no longer defaults to `local-sandbox-repl`.** That value named
+  v1's sandboxed local REPL, deleted in #71 — every untuned run was labeling its tracing (e.g.
+  Langfuse) after a development tool that no longer exists. The default is now `agentdeck`.
 
 ## Earlier releases
 

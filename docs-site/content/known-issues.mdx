@@ -5,7 +5,7 @@ description: Defects in the current release that will surprise you, what happens
 
 # Known Issues
 
-Everything here is real, reproduced, and open against **v3.0.0**. It is published rather than
+Everything here is real, reproduced, and open against **v3.0.2**. It is published rather than
 quietly tracked because most of these fail *silently* — you get a plausible wrong answer, not an
 error — and an hour spent debugging one of them is an hour this page could have saved.
 
@@ -37,15 +37,6 @@ and the prompt.
 **Until it is fixed:** return JSON-compatible values from tools. If you return an object today,
 check what the model is actually receiving.
 &nbsp;→ [#251, folded into #250](https://github.com/agentdecksdk/agentdeck/issues/250)
-
-### `Agent(model=...)` is ignored
-
-Every run uses `OPENAI_MODEL`, whatever the agent declared. The parameter is accepted,
-type-checked by the SDK, and then overridden by the run's own configuration — so a cheap router
-in front of an expensive specialist silently runs entirely on one model.
-
-**Until it is fixed:** there is no per-agent model. One model per process.
-&nbsp;→ [#247](https://github.com/agentdecksdk/agentdeck/issues/247)
 
 ### Cancelling a run that is waiting on a human does nothing
 
@@ -122,9 +113,7 @@ Not silent, not traps — just things that will cost you a few minutes.
 
 | What | Issue |
 |---|---|
-| `agentdeck-serve --help` crashes instead of printing usage | [#245](https://github.com/agentdecksdk/agentdeck/issues/245) |
 | `run()`'s return type makes the documented interrupt idiom fail a type checker | [#231](https://github.com/agentdecksdk/agentdeck/issues/231) |
-| Checkpointer connection failures surface as raw driver exceptions, not `StoreError` | [#233](https://github.com/agentdecksdk/agentdeck/issues/233) |
 | An engine failure over HTTP returns bare text rather than the documented 500 shape | [#243](https://github.com/agentdecksdk/agentdeck/issues/243) |
 | `answer()` accepts any value with no validation, and the node owns interpreting it | [#235](https://github.com/agentdecksdk/agentdeck/issues/235) |
 | Omitting `context` on `answer()` silently gives the re-run node `None` | [#255](https://github.com/agentdecksdk/agentdeck/issues/255) |
@@ -132,6 +121,18 @@ Not silent, not traps — just things that will cost you a few minutes.
 | `redis` is a base dependency because the default session path imports it | [#253](https://github.com/agentdecksdk/agentdeck/issues/253) |
 | A `DataBlock` cannot be sent *to* a model, only received from one | [#226](https://github.com/agentdecksdk/agentdeck/issues/226) |
 | `Deck.asgi()` cannot serve an agent whose tools declare a `Context` | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
+
+## Fixed in v3.0.2
+
+Removed from this page rather than struck through, because a Known Issues page that lists fixed
+things teaches you to distrust the entries that are still true. Recorded here so an upgrade is
+worth it, and in full in the [changelog](/changelog).
+
+| What | Issue |
+|---|---|
+| `Agent(model=...)` was ignored — every run used `OPENAI_MODEL` | [#247](https://github.com/agentdecksdk/agentdeck/issues/247) |
+| Checkpointer connection failures surfaced as raw driver exceptions | [#233](https://github.com/agentdecksdk/agentdeck/issues/233) |
+| `agentdeck-serve --help` crashed instead of printing usage | [#245](https://github.com/agentdecksdk/agentdeck/issues/245) |
 
 ## What is being done about all this
 

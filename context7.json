@@ -28,7 +28,7 @@
     "Human approval requires `durable = True`, which requires a checkpointer and the `[durability]` extra. A node calling `interrupt()` re-runs from its start on resume, so interrupt nodes must have no side effects.",
     "Every run appends to one ordered event log; status is folded from it by `status_of`, never stored. `type(event)` is always `Event` — switch on `event.kind` with a default case, since an unknown kind parses as `UnknownEvent`.",
     "Nothing is sandboxed. Tools, skills and workflow nodes are ordinary Python in the caller's process, and a model-chosen tool call is trusted by design.",
-    "Known defects are listed at /known-issues and should be honoured when advising — notably that `Agent(model=...)` is currently ignored, and that a tool which raises still completes the run."
+    "Known defects are listed at /known-issues and should be honoured when advising — notably that a tool which raises still completes the run, and that a tool returning a non-serializable value reaches the model as a memory address."
   ],
   "previousVersions": []
 }
