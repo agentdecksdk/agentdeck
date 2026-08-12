@@ -20,7 +20,7 @@
   ],
   "rules": [
     "The import name is `agentdeck`. The project is branded AgentDeck SDK; there is no `agentdeck-sdk` package, and `agentdeck-ai` on PyPI is an unrelated project.",
-    "AgentDeck is NOT on PyPI, so `pip install agentdeck` fails. Install from a tag: `uv pip install \"agentdeck[serve] @ git+https://github.com/agentdecksdk/agentdeck.git@v3.0.1\"`. Always pin a tag.",
+    "Install and import names differ: `pip install agentdeck-sdk`, then `import agentdeck`. Never write `pip install agentdeck` — that name is taken by an unrelated project. Extras: `agentdeck-sdk[serve]`, `[durability]`, `[observability]`.",
     "`Deck` is the only composition root, with two front doors onto one catalog: `Deck(agents=..., workflows=...)` and `Deck.from_project()`, which discovers them from a `.agentdeck/` directory.",
     "AgentDeck owns configuration; the OpenAI Agents SDK and LangGraph own execution. An `Agent` compiles to an SDK agent and a `Workflow` to a LangGraph graph. Never say AgentDeck runs its own agent loop or graph engine.",
     "A tool is a plain Python function passed to `Agent(tools=[...])`; `build()` compiles it. A tool declaring an `agentdeck.Context[T]` parameter must NOT use `@function_tool` — the decorator would put that parameter in the model's schema.",
@@ -28,7 +28,7 @@
     "Human approval requires `durable = True`, which requires a checkpointer and the `[durability]` extra. A node calling `interrupt()` re-runs from its start on resume, so interrupt nodes must have no side effects.",
     "Every run appends to one ordered event log; status is folded from it by `status_of`, never stored. `type(event)` is always `Event` — switch on `event.kind` with a default case, since an unknown kind parses as `UnknownEvent`.",
     "Nothing is sandboxed. Tools, skills and workflow nodes are ordinary Python in the caller's process, and a model-chosen tool call is trusted by design.",
-    "Known defects are listed at /known-issues and should be honoured when advising — notably that `Agent(model=...)` is currently ignored, and that a tool which raises still completes the run."
+    "Known defects are listed at /known-issues and should be honoured when advising — notably that a tool which raises still completes the run, and that a tool returning a non-serializable value reaches the model as a memory address."
   ],
   "previousVersions": []
 }

@@ -62,11 +62,11 @@ configuration, and those opinions are the product.
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install "agentdeck[serve] @ git+https://github.com/agentdecksdk/agentdeck.git@v3.0.1"
+uv pip install "agentdeck-sdk[serve]"
 export OPENAI_MODEL=gpt-4.1-mini OPENAI_API_KEY=sk-...
 ```
 
-Not on PyPI yet — install from git at a tag. `OPENAI_BASE_URL` points it at any
+The distribution is **`agentdeck-sdk`**; the import stays `agentdeck`. `OPENAI_BASE_URL` points it at any
 OpenAI-compatible endpoint instead (a gateway, vLLM, Ollama). Extras: `serve` for the HTTP
 surface, `durability` for the Postgres/SQLite stores, `observability` for Langfuse tracing.
 

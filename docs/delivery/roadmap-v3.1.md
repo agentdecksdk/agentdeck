@@ -3,6 +3,17 @@
 **Status:** rulings taken, milestones set · **Date:** 2026-08-11 · **Baseline:** `dev` at `ca03ae8`, v3.0.0 tagged and
 released, docs site deployed, the reference application answering on `ask.agentdecksdk.com`.
 
+> **Amended 2026-08-13 — every milestone below shifted up one, and this document did not.**
+> `v3.1.0` was released early to get onto PyPI (the distribution is `agentdeck-sdk`; PyPI refuses
+> `agentdeck` as too close to a squatted placeholder). It took the first four hardening fixes with
+> it — #247, #233, #245, #221 — because they were already merged and a tag ships the tree.
+>
+> So the milestone this document calls **v3.1 — hardening** is now **v3.2 — hardening**, and
+> batteries → v3.3, rooms & reach → v3.4, agents that work together → v3.5. The names in the body
+> below are left as written: they record what the milestones were called when the sequencing was
+> decided, and GitHub Milestones is the authority on what they are called now. Nothing about the
+> *order* or the *contents* changed — only the numbers.
+
 Thirty-five open issues, assessed against the tree as it stands *after* the v3.0.0 tag, and
 sequenced. Many were written against v1 or v2 and name classes that no longer exist; those are
 called out rather than silently carried, exactly as `roadmap-v3.md` did before them.

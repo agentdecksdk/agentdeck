@@ -11,11 +11,17 @@ Target: a running agent in under five minutes.
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install "agentdeck[serve] @ git+https://github.com/agentdecksdk/agentdeck.git@v3.0.1"
+uv pip install "agentdeck-sdk[serve]"
 ```
 
-Installs from git at a tag. The repository is public, so no credentials are needed —
-swap `https` for `ssh://git@` if you prefer keys.
+The distribution on PyPI is **`agentdeck-sdk`**, and the import package is **`agentdeck`** — so
+you install one name and import another. The two differ because PyPI refuses `agentdeck` as too
+similar to an unrelated placeholder project; `import agentdeck` is what every example here uses
+and it is not changing.
+
+`serve` is the extra for the HTTP surface. Others: `durability` for the Postgres/SQLite stores,
+`observability` for Langfuse tracing. Plain `uv pip install agentdeck-sdk` is enough for the
+first agent below.
 
 Contributing to AgentDeck itself instead? Clone the repo and run `make install` — that
 path is in `CONTRIBUTING.md`, not here.

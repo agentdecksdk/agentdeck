@@ -52,7 +52,13 @@ def test_history_never_grounds_a_documentation_answer(corpus: DocsCorpus) -> Non
 def test_the_changelog_tool_answers_by_version_and_by_topic(corpus: DocsCorpus) -> None:
     """One parameter, two questions — they are one question asked two ways, and two tools would
     make the model choose between them."""
-    assert "3.0.0" in read_changelog("latest", _AsContext(corpus))
+    # The version this tree is, not a literal: "latest" moves every release, and a hardcoded one
+    # turns a correct answer into a red gate — which is what it did on the v3.0.2 rename.
+    import tomllib
+    from pathlib import Path
+
+    current = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())["project"]["version"]
+    assert current in read_changelog("latest", _AsContext(corpus))
 
     topic = read_changelog("AudioBlock", _AsContext(corpus))
     assert "AudioBlock" in topic

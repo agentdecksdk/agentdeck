@@ -49,7 +49,7 @@ version of it:
   and none of v1's wire translation. No console script mounts it, so it is exercised only by the
   test suite (and by a reference terminal renderer, `agentdeck/surfaces/cli/chat.py`, that reads
   its stream using nothing but `event.origin` and a message's id — proof that a thin reader is
-  enough, not something `pip install agentdeck` gives you to run).
+  enough, not something `pip install agentdeck-sdk` gives you to run).
 - **ACP, A2A, an MCP server, and an OpenAI-compatible endpoint do not exist.** The PRD's
   "any invocable, any surface, zero per-surface code" claim (FR-2, FR-14) holds for the two
   surfaces above and stops there today.

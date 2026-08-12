@@ -25,7 +25,7 @@ def _installed_dir() -> Path:
 
 
 def test_version_matches_the_installed_distribution():
-    assert agentdeck.__version__ == version("agentdeck")
+    assert agentdeck.__version__ == version("agentdeck-sdk")
 
 
 def test_version_is_exported():
@@ -52,7 +52,7 @@ def test_the_built_metadata_names_the_license():
     stops surviving the build (a backend change, a `license-files` typo) and not only if
     someone deletes the source line.
     """
-    assert metadata("agentdeck")["License-Expression"] == "MIT"
+    assert metadata("agentdeck-sdk")["License-Expression"] == "MIT"
 
 
 def test_the_installed_package_ships_its_typing_marker():
