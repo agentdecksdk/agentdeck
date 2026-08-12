@@ -36,6 +36,7 @@ forbidden_modules =
     agentdeck.runtime
     agentdeck.serve
     agentdeck.deck
+    agentdeck.testing
 
 # The Runtime is the use-case layer: it orchestrates through ports and must never reach for
 # an engine, a store or a surface directly — those arrive from the composition root.
