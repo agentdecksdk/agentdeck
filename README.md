@@ -12,11 +12,11 @@ The production runtime for agents you already have.
      loaded through <img> has nothing to inherit from, so it renders black — invisible on
      GitHub's dark theme. See docs/brand/README.md. -->
 
-[![CI](https://img.shields.io/github/actions/workflow/status/sagi5060/agentdeck/ci.yml?branch=dev&label=CI&labelColor=0B1220&color=2563FF)](https://github.com/sagi5060/agentdeck/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/sagi5060/agentdeck?label=release&labelColor=0B1220&color=2563FF)](https://github.com/sagi5060/agentdeck/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/agentdecksdk/agentdeck/ci.yml?branch=dev&label=CI&labelColor=0B1220&color=2563FF)](https://github.com/agentdecksdk/agentdeck/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/agentdecksdk/agentdeck?label=release&labelColor=0B1220&color=2563FF)](https://github.com/agentdecksdk/agentdeck/releases)
 [![Python](https://img.shields.io/badge/python-3.12+-2563FF?labelColor=0B1220)](pyproject.toml)
 [![License](https://img.shields.io/badge/license-MIT-2563FF?labelColor=0B1220)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-agentdecksdk-2563FF?labelColor=0B1220)](https://sagi5060.github.io/agentdeck/)
+[![Docs](https://img.shields.io/badge/docs-agentdecksdk-2563FF?labelColor=0B1220)](https://agentdecksdk.com/)
 
 </div>
 
@@ -62,7 +62,7 @@ configuration, and those opinions are the product.
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install "agentdeck[serve] @ git+https://github.com/sagi5060/agentdeck.git@v3.0.1"
+uv pip install "agentdeck[serve] @ git+https://github.com/agentdecksdk/agentdeck.git@v3.0.1"
 export OPENAI_MODEL=gpt-4.1-mini OPENAI_API_KEY=sk-...
 ```
 
@@ -136,15 +136,15 @@ quietly stop working.
 
 ## Documentation
 
-The full docs are at **[sagi5060.github.io/agentdeck](https://sagi5060.github.io/agentdeck/)**:
+The full docs are at **[agentdecksdk.com](https://agentdecksdk.com/)**:
 
-- [Getting Started](https://sagi5060.github.io/agentdeck/getting-started) — install, configure,
+- [Getting Started](https://agentdecksdk.com/getting-started) — install, configure,
   first agent
-- [Core Concepts](https://sagi5060.github.io/agentdeck/concepts) — agents, workflows, skills,
+- [Core Concepts](https://agentdecksdk.com/concepts) — agents, workflows, skills,
   the event log, run control
-- [Choosing a Store Backend](https://sagi5060.github.io/agentdeck/concepts/choosing-a-store-backend)
+- [Choosing a Store Backend](https://agentdecksdk.com/concepts/choosing-a-store-backend)
   — what to set before you deploy anything
-- [Reference](https://sagi5060.github.io/agentdeck/reference) — every setting and every `Deck`
+- [Reference](https://agentdecksdk.com/reference) — every setting and every `Deck`
   method, generated from the code
 
 ## Project

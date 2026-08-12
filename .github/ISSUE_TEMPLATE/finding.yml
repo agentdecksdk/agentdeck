@@ -97,7 +97,7 @@ body:
       placeholder: |
         agentdeck/authoring/compile.py:88
         tests/test_deck.py::test_build_rejects_uncompilable_tools (does not exist yet)
-        https://github.com/sagi5060/agentdeck/actions/runs/31326035214
+        https://github.com/agentdecksdk/agentdeck/actions/runs/31326035214
     validations:
       required: true
   - type: dropdown

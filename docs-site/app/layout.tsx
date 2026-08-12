@@ -48,7 +48,7 @@ const navbar = (
         <strong style={{ fontFamily: 'var(--font-display)', fontWeight: 600, letterSpacing: '-0.02em' }}>AgentDeck</strong>
       </span>
     }
-    projectLink="https://github.com/sagi5060/agentdeck"
+    projectLink="https://github.com/agentdecksdk/agentdeck"
   />
 )
 
@@ -66,7 +66,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <Layout
           navbar={navbar}
           pageMap={await getPageMap()}
-          docsRepositoryBase="https://github.com/sagi5060/agentdeck/tree/dev/docs-site"
+          docsRepositoryBase="https://github.com/agentdecksdk/agentdeck/tree/dev/docs-site"
           footer={footer}
           sidebar={{ autoCollapse: true }}
         >

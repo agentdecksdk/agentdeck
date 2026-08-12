@@ -102,6 +102,27 @@ async def _write(store: EventStorePort, payloads: Sequence[KnownPayload], ctx: R
     return await store.append(ctx.log_key, payloads, ctx, ORIGIN)
 
 
+async def test_redis_keyspace_prefix_is_disjoint_across_processes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two processes racing `make check` must never hand out the same prefix.
+
+    Simulates that by swapping ``live_stores._run`` — the per-process seed — between two calls
+    on one live Redis, standing in for two pytest processes without actually spawning them.
+    """
+    monkeypatch.setattr(live_stores, "_run", "aaaa")
+    async with live_stores.redis_keyspace() as (_, first_prefix):
+        pass
+    monkeypatch.setattr(live_stores, "_run", "bbbb")
+    async with live_stores.redis_keyspace() as (_, second_prefix):
+        pass
+
+    assert first_prefix != second_prefix
+    assert first_prefix.startswith("agentdeck:test:aaaa-")
+    assert second_prefix.startswith("agentdeck:test:bbbb-")
+    # The ordered suffix the comment promises to keep is still shared and still increasing,
+    # not reset per seed — only the seed makes two processes' prefixes disjoint.
+    assert int(second_prefix.rsplit("-", 1)[1]) > int(first_prefix.rsplit("-", 1)[1])
+
+
 async def test_run_status_with_no_events_is_pending(event_store: EventStorePort) -> None:
     assert await event_store.run_status("s-1", "r-1", _ctx()) is RunStatus.PENDING
 

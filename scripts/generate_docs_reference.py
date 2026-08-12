@@ -48,10 +48,10 @@ CHANGELOG_SOURCE = REPO_ROOT / "CHANGELOG.md"
 PUBLIC = REPO_ROOT / "docs-site" / "public"
 LLMS_PAGE = PUBLIC / "llms.txt"
 LLMS_FULL_PAGE = PUBLIC / "llms-full.txt"
-SITE_URL = "https://sagi5060.github.io/agentdeck"
+SITE_URL = "https://agentdecksdk.com"
 
-_REPO_SETTINGS_URL = "https://github.com/sagi5060/agentdeck/blob/main/agentdeck/runtime/settings.py"
-_REPO_CLI_URL = "https://github.com/sagi5060/agentdeck/blob/main/agentdeck/cli.py"
+_REPO_SETTINGS_URL = "https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/runtime/settings.py"
+_REPO_CLI_URL = "https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/cli.py"
 
 
 def _settings_classes() -> list[type[LayeredSettings]]:
@@ -213,7 +213,7 @@ def render_cli_mdx() -> str:
 
 
 _RELEASE_HEADING = re.compile(r"^## \[([^\]]+)\](?: - (\S+))?\s*$", re.MULTILINE)
-_RELEASES_URL = "https://github.com/sagi5060/agentdeck/releases"
+_RELEASES_URL = "https://github.com/agentdecksdk/agentdeck/releases"
 
 
 def changelog_sections() -> list[tuple[str, str, str]]:
@@ -361,7 +361,7 @@ def render_llms_txt() -> str:
         "",
         "## Source",
         "",
-        "- [Repository](https://github.com/sagi5060/agentdeck): issues, releases and examples",
+        "- [Repository](https://github.com/agentdecksdk/agentdeck): issues, releases and examples",
         f"- [Full documentation as one file]({SITE_URL}/llms-full.txt)",
         "",
     ]
@@ -389,7 +389,10 @@ def render_llms_full_txt() -> str:
         body = _FRONTMATTER.sub("", path.read_text(), count=1).strip()
         url = f"{SITE_URL}/{'' if slug == 'index' else slug}"
         out += [f"# {title}", "", f"*{description}*" if description else "", f"Source: {url}", "", body, "", "---", ""]
-    return "\n".join(line for line in out) + "\n"
+    # The loop leaves a separator and a blank line after the last page, which `end-of-file-fixer`
+    # strips on every commit and this generator restores on every run — a hook and a generator
+    # fighting over one byte. One trailing newline, settled here.
+    return "\n".join(out).rstrip("\n") + "\n"
 
 
 def _generated_pages() -> dict[Path, str]:
