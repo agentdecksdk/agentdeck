@@ -1,5 +1,6 @@
 """Golden-suite fixtures: the real FastAPI app over the committed fixture project, with
-the model provider swapped for :class:`ScriptedProvider` and every env knob pinned.
+the model provider swapped for a fixed-constant :class:`ScriptedModel` and every env knob
+pinned.
 """
 
 import sys
@@ -8,9 +9,16 @@ from pathlib import Path
 
 import pytest
 
+from agentdeck.testing import ScriptedModel, patch_model
+
 pytest.importorskip("fastapi")
 
 FIXTURE_PROJECT = Path(__file__).parent / "fixture_project"
+
+# Turn 1 calls the fixture agent's tool, turn 2 (and any later turn) answers in text — see
+# tests/golden/README.md's "Normalization rules" for why every value here is a constant.
+ANSWER_DELTAS = ("Tuesday ", "at 9am ", "works.")
+TOOL_NAME = "lookup_slot"
 
 # Env that must not leak in from a developer's shell or a stray .env: Redis sessions,
 # Langfuse export and the sqlite checkpointer would all reach outside the test, and
@@ -28,12 +36,16 @@ _PINNED_ENV = {
 }
 
 
+def _golden_model() -> ScriptedModel:
+    """A fresh model per provider construction — one per request, so every capture's own
+    turn count starts back at the tool call rather than carrying over from the last one."""
+    return ScriptedModel(deltas=ANSWER_DELTAS, tool_name=TOOL_NAME, input_tokens=11, output_tokens=5)
+
+
 @pytest.fixture
 def make_client(monkeypatch):
     """Factory of independent clients — the stability test needs two fresh ones in a row."""
-    from fake_model import ScriptedProvider
     from fastapi.testclient import TestClient
-    from scripted_model import patch_provider
 
     from agentdeck.adapters.engines.langgraph.checkpointer import _memory_saver
     from agentdeck.runtime.settings import PACKAGED_DEFAULT_YAML, reset_settings_cache
@@ -46,19 +58,20 @@ def make_client(monkeypatch):
     # pinned to the shipped defaults as a belt-and-suspenders guard against either
     # appearing there later.
     monkeypatch.setenv("AGENTDECK_CONFIG_PATH", str(PACKAGED_DEFAULT_YAML))
-    patch_provider(monkeypatch, ScriptedProvider)
     monkeypatch.chdir(FIXTURE_PROJECT)
 
-    @contextmanager
-    def _make():
-        # The memory saver is a process-wide @cache; a stale one would carry a previous
-        # capture's paused threads into this one's /pending body.
-        _memory_saver.cache_clear()
-        reset_settings_cache()
-        for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
-            del sys.modules[mod]
-        with TestClient(create_app()) as client:
-            yield client
+    with patch_model(_golden_model):
 
-    yield _make
-    reset_settings_cache()
+        @contextmanager
+        def _make():
+            # The memory saver is a process-wide @cache; a stale one would carry a previous
+            # capture's paused threads into this one's /pending body.
+            _memory_saver.cache_clear()
+            reset_settings_cache()
+            for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
+                del sys.modules[mod]
+            with TestClient(create_app()) as client:
+                yield client
+
+        yield _make
+        reset_settings_cache()

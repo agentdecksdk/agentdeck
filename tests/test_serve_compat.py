@@ -10,12 +10,12 @@ import json
 import logging
 import sys
 import textwrap
+from contextlib import ExitStack
 
 import pytest
 from event_log_checks import check_terminal
 from fastapi.testclient import TestClient
 from project_engines import project_engines
-from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.adapters.engines.langgraph import engine as langgraph_engine
 from agentdeck.adapters.stores.memory import MemoryEventStore
@@ -28,6 +28,7 @@ from agentdeck.runtime.settings import reset_settings_cache
 from agentdeck.serve import create_app
 from agentdeck.surfaces.serve import compat as surface_compat
 from agentdeck.surfaces.serve.compat import chat_frames, chat_result, interrupt_inbox
+from agentdeck.testing import ScriptedModel, patch_model
 
 AGENT_PY = """
 from pydantic import BaseModel
@@ -90,16 +91,17 @@ def project(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def scripted(monkeypatch):
+def scripted():
     """Patch v1's provider and hand back a (runtime, store, model) triple over the project."""
+    with ExitStack() as stack:
 
-    def _build(model=None):
-        model = model or ScriptedModel(deltas=("Hello",))
-        patch_provider(monkeypatch, provider_of(model))
-        store = MemoryEventStore()
-        return build_runtime(engines=project_engines(), store=store), store, model
+        def _build(model=None):
+            model = model or ScriptedModel(deltas=("Hello",))
+            stack.enter_context(patch_model(model))
+            store = MemoryEventStore()
+            return build_runtime(engines=project_engines(), store=store), store, model
 
-    return _build
+        yield _build
 
 
 def test_the_surface_and_the_langgraph_engine_agree_on_the_stream_write_carrier():
@@ -273,10 +275,8 @@ async def test_a_structured_output_reaches_the_streamed_done_frame(project, scri
     )
 
 
-def test_the_endpoint_answers_a_structured_agent_with_its_object(project, monkeypatch):
-    patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=('{"greeting": "Hi"}',))))
-
-    with TestClient(create_app()) as client:
+def test_the_endpoint_answers_a_structured_agent_with_its_object(project):
+    with patch_model(ScriptedModel(deltas=('{"greeting": "Hi"}',))), TestClient(create_app()) as client:
         response = client.post("/agents/Structured/chat", json={"session_id": "s1", "message": "hi"})
 
     assert response.status_code == 200
@@ -291,10 +291,9 @@ def test_the_endpoint_logs_its_run_to_the_configured_event_store(project, monkey
     every other test in the suite, goldens included."""
     db = tmp_path / "events.sqlite3"
     monkeypatch.setenv("AGENTDECK_EVENTS", f"sqlite://{db}")
-    patch_provider(monkeypatch, provider_of(ScriptedModel()))
     reset_settings_cache()
     try:
-        with TestClient(create_app()) as client:
+        with patch_model(ScriptedModel()), TestClient(create_app()) as client:
             response = client.post(f"/agents/Greeter/chat{query}", json={"session_id": "s1", "message": "hi"})
             assert response.status_code == 200
             assert response.text  # the streamed body is only produced while the client reads it
@@ -321,10 +320,9 @@ def test_the_workflow_endpoint_logs_its_run_to_the_configured_event_store(projec
     """
     db = tmp_path / "events.sqlite3"
     monkeypatch.setenv("AGENTDECK_EVENTS", f"sqlite://{db}")
-    patch_provider(monkeypatch, provider_of(ScriptedModel()))
     reset_settings_cache()
     try:
-        with TestClient(create_app()) as client:
+        with patch_model(ScriptedModel()), TestClient(create_app()) as client:
             # A named thread, because that is the workflow endpoint's session id and therefore
             # the log this run is written to.
             response = client.post(f"/workflows/Shout?thread_id=t1{query}", json={"input": "hi"})
@@ -347,12 +345,10 @@ def test_the_workflow_endpoint_logs_its_run_to_the_configured_event_store(projec
     [{"role": "user", "content": "hi"}, [{"role": "user", "content": "hi"}], 7],
     ids=["object", "input-items", "number"],
 )
-def test_a_message_that_is_not_a_string_is_a_422(project, monkeypatch, message, query):
+def test_a_message_that_is_not_a_string_is_a_422(project, message, query):
     """A shape the endpoint cannot run is a client error with a body like every other one it
     emits — never an unhandled server exception in somebody's 5xx alerting."""
-    patch_provider(monkeypatch, provider_of(ScriptedModel()))
-
-    with TestClient(create_app()) as client:
+    with patch_model(ScriptedModel()), TestClient(create_app()) as client:
         response = client.post(f"/agents/Greeter/chat{query}", json={"session_id": "s1", "message": message})
 
     assert response.status_code == 422
@@ -361,12 +357,10 @@ def test_a_message_that_is_not_a_string_is_a_422(project, monkeypatch, message, 
 
 @pytest.mark.parametrize("query", ["", "?stream=true"], ids=["body", "streamed"])
 @pytest.mark.parametrize("session_id", [7, {"a": 1}, None], ids=["number", "object", "null"])
-def test_a_session_id_that_is_not_a_string_is_a_422(project, monkeypatch, session_id, query):
+def test_a_session_id_that_is_not_a_string_is_a_422(project, session_id, query):
     """Same class as the message check, and the same reason: it reaches the event envelope, which
     only takes a string, so an unvalidated one is a 500 for what is a malformed body."""
-    patch_provider(monkeypatch, provider_of(ScriptedModel()))
-
-    with TestClient(create_app()) as client:
+    with patch_model(ScriptedModel()), TestClient(create_app()) as client:
         response = client.post(f"/agents/Greeter/chat{query}", json={"session_id": session_id, "message": "hi"})
 
     assert response.status_code == 422
@@ -379,10 +373,13 @@ def test_the_server_warns_once_when_the_event_log_is_in_memory(project, monkeypa
     (``resolve_event_store``, run once when ``Deck`` opens), not a server-specific check —
     surfaced here to prove it still reaches an operator watching the server's own logs."""
     monkeypatch.setenv("AGENTDECK_EVENTS", "memory://")
-    patch_provider(monkeypatch, provider_of(ScriptedModel()))
     reset_settings_cache()
     try:
-        with caplog.at_level(logging.WARNING, logger="agentdeck.composition"), TestClient(create_app()):
+        with (
+            patch_model(ScriptedModel()),
+            caplog.at_level(logging.WARNING, logger="agentdeck.composition"),
+            TestClient(create_app()),
+        ):
             pass
     finally:
         reset_settings_cache()
@@ -391,30 +388,28 @@ def test_the_server_warns_once_when_the_event_log_is_in_memory(project, monkeypa
     assert [message for message in warnings if "AGENTDECK_EVENTS=sqlite" in message]
 
 
-def test_a_workflow_is_not_reachable_through_the_agents_route(project, monkeypatch):
+def test_a_workflow_is_not_reachable_through_the_agents_route(project):
     """The Runtime knows every invocable; this route is still agents-only, with v1's message."""
-    patch_provider(monkeypatch, provider_of(ScriptedModel()))
-
-    with TestClient(create_app()) as client:
+    with patch_model(ScriptedModel()), TestClient(create_app()) as client:
         response = client.post("/agents/Shout/chat", json={"session_id": "s1", "message": "hi"})
 
     assert response.status_code == 404
     assert response.json()["detail"].startswith("No agent named 'Shout'.")
 
 
-async def test_the_runtime_and_the_python_api_share_one_conversation(project, monkeypatch):
+async def test_the_runtime_and_the_python_api_share_one_conversation(project):
     """v1 kept one session per id whichever entry point ran the turn; the compat engine
     takes v1's own session lookup so that stays true across the two paths."""
     from agentdeck.deck import Deck
 
     model = ScriptedModel(deltas=("Hello",))
-    patch_provider(monkeypatch, provider_of(model))
     deck = Deck.from_project()
 
-    async with deck:
-        async for _ in deck._runtime.run("Greeter", coerce_input("over http"), session_id="s1"):
-            pass
-        await deck.run("Greeter", "over python", session_id="s1")
+    with patch_model(model):
+        async with deck:
+            async for _ in deck._runtime.run("Greeter", coerce_input("over http"), session_id="s1"):
+                pass
+            await deck.run("Greeter", "over python", session_id="s1")
 
     # the Python API's turn opened on the Runtime turn's message, so both wrote one session
     assert json.dumps(model.inputs[0], default=str).count("over") == 1

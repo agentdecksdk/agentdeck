@@ -22,7 +22,6 @@ from agents import WebSearchTool, function_tool
 from agents.tool_context import ToolContext
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
-from scripted_model import ScriptedModel, patch_provider, provider_of
 
 import agentdeck
 from agentdeck.authoring import Agent, Workflow
@@ -30,6 +29,7 @@ from agentdeck.authoring.tools import compile_tool
 from agentdeck.core.context import Context, RunContext
 from agentdeck.deck import Deck
 from agentdeck.errors import ConfigError
+from agentdeck.testing import ScriptedModel, patch_model
 
 
 class Calendar:
@@ -278,7 +278,7 @@ def no_project(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_deck_run_hands_its_context_to_a_tool_that_declared_one(no_project, monkeypatch) -> None:
+async def test_deck_run_hands_its_context_to_a_tool_that_declared_one(no_project) -> None:
     """The public surface, end to end: one object into ``run(context=)``, the same object out of
     ``ctx.data`` inside a tool the SDK dispatched."""
     seen: list[Any] = []
@@ -288,20 +288,20 @@ async def test_deck_run_hands_its_context_to_a_tool_that_declared_one(no_project
         seen.append(environment.data)
         return environment.data.find("mon")
 
-    patch_provider(monkeypatch, provider_of(_CallsTheToolOnce("peek")))
     calendar = Calendar(slot="14:00")
     deck = Deck(agents=[_tool_agent(peek)])
     deck.build()
 
-    async with deck:
-        await deck.run("Booker", "when am I free?", context=calendar)
+    with patch_model(_CallsTheToolOnce("peek")):
+        async with deck:
+            await deck.run("Booker", "when am I free?", context=calendar)
 
     assert seen == [calendar]
     assert seen[0] is calendar
 
 
 @pytest.mark.asyncio
-async def test_deck_stream_carries_the_context_the_same_way(no_project, monkeypatch) -> None:
+async def test_deck_stream_carries_the_context_the_same_way(no_project) -> None:
     seen: list[Any] = []
 
     async def peek(environment: Context[Calendar]) -> str:
@@ -309,19 +309,19 @@ async def test_deck_stream_carries_the_context_the_same_way(no_project, monkeypa
         seen.append(environment.data)
         return "ok"
 
-    patch_provider(monkeypatch, provider_of(_CallsTheToolOnce("peek")))
     calendar = Calendar()
     deck = Deck(agents=[_tool_agent(peek)])
     deck.build()
 
-    async with deck:
-        [event async for event in deck.stream("Booker", "hi", context=calendar)]
+    with patch_model(_CallsTheToolOnce("peek")):
+        async with deck:
+            [event async for event in deck.stream("Booker", "hi", context=calendar)]
 
     assert seen[0] is calendar
 
 
 @pytest.mark.asyncio
-async def test_a_run_without_a_context_reaches_a_declaring_tool_with_none(no_project, monkeypatch) -> None:
+async def test_a_run_without_a_context_reaches_a_declaring_tool_with_none(no_project) -> None:
     """``context=`` is optional, and omitting it is not an error — the tool simply gets ``None``,
     which is the value the application declined to supply."""
     seen: list[Any] = []
@@ -331,30 +331,30 @@ async def test_a_run_without_a_context_reaches_a_declaring_tool_with_none(no_pro
         seen.append(environment.data)
         return "ok"
 
-    patch_provider(monkeypatch, provider_of(_CallsTheToolOnce("peek")))
     deck = Deck(agents=[_tool_agent(peek)])
     deck.build()
 
-    async with deck:
-        await deck.run("Booker", "hi")
+    with patch_model(_CallsTheToolOnce("peek")):
+        async with deck:
+            await deck.run("Booker", "hi")
 
     assert seen == [None]
 
 
 @pytest.mark.asyncio
-async def test_the_context_is_never_written_to_the_event_log(no_project, monkeypatch) -> None:
+async def test_the_context_is_never_written_to_the_event_log(no_project) -> None:
     """Lifecycle rule: the log records what a run was asked to do, not the live objects it held."""
 
     async def peek(environment: Context[Calendar]) -> str:
         """Look at the environment."""
         return "ok"
 
-    patch_provider(monkeypatch, provider_of(_CallsTheToolOnce("peek")))
     deck = Deck(agents=[_tool_agent(peek)])
     deck.build()
 
-    async with deck:
-        events = [event async for event in deck.stream("Booker", "hi", context=Calendar(slot="secret-slot"))]
+    with patch_model(_CallsTheToolOnce("peek")):
+        async with deck:
+            events = [event async for event in deck.stream("Booker", "hi", context=Calendar(slot="secret-slot"))]
 
     dumped = json.dumps([event.model_dump(mode="json") for event in events])
     assert "secret-slot" not in dumped

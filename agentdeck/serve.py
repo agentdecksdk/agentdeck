@@ -51,6 +51,7 @@ the graph's checkpointer — so the two disagree once approvals are driven throu
 
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 from contextlib import aclosing, asynccontextmanager
@@ -310,10 +311,19 @@ async def _opened(run: AsyncGenerator[Event, None]) -> AsyncGenerator[Event, Non
     return replayed()
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        prog="agentdeck-serve",
+        description="Serves the deck discovered in ./.agentdeck over the v1 HTTP/SSE surface.",
+        epilog="Run it from the directory that holds .agentdeck — there is no --project-dir flag.",
+    )
+    parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"), help="interface to bind (env: HOST)")
+    parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "8000")), help="port to bind (env: PORT)")
+    args = parser.parse_args(argv)
+
     import uvicorn
 
-    uvicorn.run(create_app(), host=os.getenv("HOST", "0.0.0.0"), port=int(os.getenv("PORT", "8000")))
+    uvicorn.run(create_app(), host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

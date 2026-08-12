@@ -16,7 +16,6 @@ import pytest
 from agents import WebSearchTool, function_tool
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
-from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring import Agent, Workflow
@@ -26,6 +25,7 @@ from agentdeck.deck import Deck, TurnResult
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.mcp import MCP
 from agentdeck.skills import Skills
+from agentdeck.testing import ScriptedModel, patch_model
 
 
 def _greeter(name: str = "Greeter", **kwargs: Any) -> Agent:
@@ -39,12 +39,12 @@ def _hand_the_process_on() -> None:
 
 
 @pytest.fixture
-def scripted(monkeypatch):
+def scripted():
     """Patches the model provider every real agent run in this file plays against, so a turn
     through the Runtime never reaches for a real endpoint."""
     model = ScriptedModel(deltas=["hi"])
-    patch_provider(monkeypatch, provider_of(model))
-    return model
+    with patch_model(model):
+        yield model
 
 
 @pytest.fixture
@@ -925,16 +925,16 @@ async def test_run_with_a_session_id_is_recorded_and_returns_a_turn_result(no_pr
 
 
 @pytest.mark.asyncio
-async def test_a_failed_run_still_leaves_run_failed_in_the_log(no_project, monkeypatch):
+async def test_a_failed_run_still_leaves_run_failed_in_the_log(no_project):
     """A run that raises is still written down, even though nobody read the stream to the end
     by hand."""
-    patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("par",), raises=RuntimeError("boom"))))
     deck = Deck(agents=[_greeter()])
 
-    async with deck:
-        with pytest.raises(RuntimeError, match="boom"):
-            await deck.run("Greeter", "hello", session_id="s1")
-        events = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+    with patch_model(ScriptedModel(deltas=("par",), raises=RuntimeError("boom"))):
+        async with deck:
+            with pytest.raises(RuntimeError, match="boom"):
+                await deck.run("Greeter", "hello", session_id="s1")
+            events = await deck._runtime.store.read("s1", _reader_ctx("s1"))
 
     assert [event.kind for event in events] == ["run.started", "text.delta", "run.failed"]
 
@@ -944,77 +944,77 @@ class _Greeting(BaseModel):
 
 
 @pytest.mark.asyncio
-async def test_a_structured_run_output_survives_as_validated_data(no_project, monkeypatch):
+async def test_a_structured_run_output_survives_as_validated_data(no_project):
     """An ``output_type`` result rides ``run.completed`` as a ``DataBlock``, and ``run``'s
     ``TurnResult`` must surface it as data rather than joining it as text."""
-    patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=('{"greeting": "hi"}',))))
     deck = Deck(agents=[Agent(name="Structured", instructions="Answer as JSON.", output_type=_Greeting)])
 
-    async with deck:
-        result = await deck.run("Structured", "hello", session_id="s1")
+    with patch_model(ScriptedModel(deltas=('{"greeting": "hi"}',))):
+        async with deck:
+            result = await deck.run("Structured", "hello", session_id="s1")
 
     assert result.output == {"greeting": "hi"}
 
 
 @pytest.mark.asyncio
-async def test_stream_yields_canonical_events_and_is_recorded(no_project, monkeypatch):
+async def test_stream_yields_canonical_events_and_is_recorded(no_project):
     from agentdeck.core.events import RunCompleted, TextDelta
 
-    patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("Hel", "lo"))))
     deck = Deck(agents=[_greeter()])
 
-    async with deck:
-        events = [event async for event in deck.stream("Greeter", "hello", session_id="s1")]
+    with patch_model(ScriptedModel(deltas=("Hel", "lo"))):
+        async with deck:
+            events = [event async for event in deck.stream("Greeter", "hello", session_id="s1")]
 
-        assert [event.kind for event in events] == [
-            "run.started",
-            "text.delta",
-            "text.delta",
-            "usage.reported",
-            "message.completed",
-            "run.completed",
-        ]
-        assert "".join(e.payload.text for e in events if isinstance(e.payload, TextDelta)) == "Hello"
-        assert next(e for e in events if isinstance(e.payload, RunCompleted)).payload.output[0].text == "Hello"
+            assert [event.kind for event in events] == [
+                "run.started",
+                "text.delta",
+                "text.delta",
+                "usage.reported",
+                "message.completed",
+                "run.completed",
+            ]
+            assert "".join(e.payload.text for e in events if isinstance(e.payload, TextDelta)) == "Hello"
+            assert next(e for e in events if isinstance(e.payload, RunCompleted)).payload.output[0].text == "Hello"
 
-        # the stream itself already recorded every one of those events; store.read proves it
-        # rather than the caller having to trust stream's own bookkeeping
-        stored = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+            # the stream itself already recorded every one of those events; store.read proves it
+            # rather than the caller having to trust stream's own bookkeeping
+            stored = await deck._runtime.store.read("s1", _reader_ctx("s1"))
 
     assert [event.kind for event in stored] == [event.kind for event in events]
 
 
 @pytest.mark.asyncio
-async def test_stream_closes_the_runtime_generator_on_abandonment(no_project, monkeypatch):
+async def test_stream_closes_the_runtime_generator_on_abandonment(no_project):
     """A caller that stops mid-stream must not leave the run open in the log holding its
     session forever: closing only ``stream``'s own frame would abandon the Runtime's
     generator to the GC instead of closing it."""
-    patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("Hel", "lo"))))
     deck = Deck(agents=[_greeter()])
 
-    async with deck:
-        stream = deck.stream("Greeter", "hello", session_id="s1")
-        first = await anext(stream)
-        second = await anext(stream)
-        await stream.aclose()
-        events = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+    with patch_model(ScriptedModel(deltas=("Hel", "lo"))):
+        async with deck:
+            stream = deck.stream("Greeter", "hello", session_id="s1")
+            first = await anext(stream)
+            second = await anext(stream)
+            await stream.aclose()
+            events = await deck._runtime.store.read("s1", _reader_ctx("s1"))
 
     assert (first.kind, second.kind) == ("run.started", "text.delta")
     assert [event.kind for event in events] == ["run.started", "text.delta", "run.cancelled"]
 
 
 @pytest.mark.asyncio
-async def test_run_and_stream_share_one_session(no_project, monkeypatch):
+async def test_run_and_stream_share_one_session(no_project):
     """Same guarantee v1 gave: one ``session_id`` is one conversation whichever Deck method ran
     the turn."""
     model = ScriptedModel(deltas=("hi",))
-    patch_provider(monkeypatch, provider_of(model))
     deck = Deck(agents=[_greeter()])
 
-    async with deck:
-        async for _ in deck.stream("Greeter", "first", session_id="s1"):
-            pass
-        await deck.run("Greeter", "second", session_id="s1")
+    with patch_model(model):
+        async with deck:
+            async for _ in deck.stream("Greeter", "first", session_id="s1"):
+                pass
+            await deck.run("Greeter", "second", session_id="s1")
 
     # two model calls, and the second turn's input carries the first turn's history
     assert model.calls == 2

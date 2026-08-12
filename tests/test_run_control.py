@@ -23,7 +23,6 @@ from never_yields import NeverYields
 # replayed turn whose tool result never reached the session asks for that tool again — which is
 # what makes the replay cost of a pause observable here.
 from openai_agents_cases import TailScriptedModel
-from scripted_model import ScriptedModel
 
 from agentdeck.adapters.control.memory import MemoryControlPort
 from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
@@ -38,6 +37,7 @@ from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.errors import SessionBusyError
 from agentdeck.runtime.service import Runtime
+from agentdeck.testing import ScriptedModel
 
 if TYPE_CHECKING:
     from agentdeck.core.events import Event
