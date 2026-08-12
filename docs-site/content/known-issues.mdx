@@ -26,7 +26,7 @@ set. The only trace is that the model saw an error string and may or may not hav
 
 **Until it is fixed:** catch exceptions inside your own tools and return a string the model can
 act on. Do not rely on the run failing.
-&nbsp;→ [#250](https://github.com/sagi5060/agentdeck/issues/250)
+&nbsp;→ [#250](https://github.com/agentdecksdk/agentdeck/issues/250)
 
 ### A tool returning something unserializable reaches the model as a memory address
 
@@ -36,7 +36,7 @@ and the prompt.
 
 **Until it is fixed:** return JSON-compatible values from tools. If you return an object today,
 check what the model is actually receiving.
-&nbsp;→ [#251, folded into #250](https://github.com/sagi5060/agentdeck/issues/250)
+&nbsp;→ [#251, folded into #250](https://github.com/agentdecksdk/agentdeck/issues/250)
 
 ### `Agent(model=...)` is ignored
 
@@ -45,7 +45,7 @@ type-checked by the SDK, and then overridden by the run's own configuration — 
 in front of an expensive specialist silently runs entirely on one model.
 
 **Until it is fixed:** there is no per-agent model. One model per process.
-&nbsp;→ [#247](https://github.com/sagi5060/agentdeck/issues/247)
+&nbsp;→ [#247](https://github.com/agentdecksdk/agentdeck/issues/247)
 
 ### Cancelling a run that is waiting on a human does nothing
 
@@ -55,14 +55,14 @@ workflow for real. No event is written, so the log shows no trace that a cancel 
 
 **Until it is fixed:** do not rely on cancel to stop a pending approval. Guard the post-approval
 nodes with your own check.
-&nbsp;→ [#229](https://github.com/sagi5060/agentdeck/issues/229)
+&nbsp;→ [#229](https://github.com/agentdecksdk/agentdeck/issues/229)
 
 ### `usage.usd` is always `None`
 
 The cost field exists on every `Usage` and never carries a cost.
 
 **Until it is fixed:** compute cost from `input_tokens`/`output_tokens` and your own price table.
-&nbsp;→ [#177](https://github.com/sagi5060/agentdeck/issues/177)
+&nbsp;→ [#177](https://github.com/agentdecksdk/agentdeck/issues/177)
 
 ## Defaults that will trap you
 
@@ -73,7 +73,7 @@ checkpointer lives behind the `[durability]` extra. So `durable = True` — whic
 approval needs — fails on a plain install.
 
 **Until it is fixed:** install `agentdeck[durability]` if you use `durable = True`.
-&nbsp;→ [#232](https://github.com/sagi5060/agentdeck/issues/232)
+&nbsp;→ [#232](https://github.com/agentdecksdk/agentdeck/issues/232)
 
 ### Approvals disappear on restart, under the shipped defaults
 
@@ -85,7 +85,7 @@ an empty list.
 **Until it is fixed:** set `AGENTDECK_EVENTS` to a durable store — `sqlite://`, `postgresql://`
 or `redis://` — in anything that outlives one process. See
 [Choosing a Store Backend](/concepts/choosing-a-store-backend).
-&nbsp;→ [#212](https://github.com/sagi5060/agentdeck/issues/212)
+&nbsp;→ [#212](https://github.com/agentdecksdk/agentdeck/issues/212)
 
 ### A killed worker holds its session for an hour
 
@@ -95,7 +95,7 @@ release it sooner.
 
 **Until it is fixed:** lower the setting if your deployment restarts often. It trades against how
 long a healthy turn may go quiet.
-&nbsp;→ [#244](https://github.com/sagi5060/agentdeck/issues/244)
+&nbsp;→ [#244](https://github.com/agentdecksdk/agentdeck/issues/244)
 
 ## Provider compatibility
 
@@ -114,7 +114,7 @@ itself is fine** — a bidirectional round trip works against a compliant endpoi
 
 **Until it is fixed:** run handoffs against OpenAI. Pointing one agent at a different provider is
 not a workaround — see `Agent(model=...)` above.
-&nbsp;→ [#178](https://github.com/sagi5060/agentdeck/issues/178)
+&nbsp;→ [#178](https://github.com/agentdecksdk/agentdeck/issues/178)
 
 ## Rough edges
 
@@ -122,16 +122,16 @@ Not silent, not traps — just things that will cost you a few minutes.
 
 | What | Issue |
 |---|---|
-| `agentdeck-serve --help` crashes instead of printing usage | [#245](https://github.com/sagi5060/agentdeck/issues/245) |
-| `run()`'s return type makes the documented interrupt idiom fail a type checker | [#231](https://github.com/sagi5060/agentdeck/issues/231) |
-| Checkpointer connection failures surface as raw driver exceptions, not `StoreError` | [#233](https://github.com/sagi5060/agentdeck/issues/233) |
-| An engine failure over HTTP returns bare text rather than the documented 500 shape | [#243](https://github.com/sagi5060/agentdeck/issues/243) |
-| `answer()` accepts any value with no validation, and the node owns interpreting it | [#235](https://github.com/sagi5060/agentdeck/issues/235) |
-| Omitting `context` on `answer()` silently gives the re-run node `None` | [#255](https://github.com/sagi5060/agentdeck/issues/255) |
-| The CLI can send signals but cannot read anything — no inbox, no run view | [#256](https://github.com/sagi5060/agentdeck/issues/256) |
-| `redis` is a base dependency because the default session path imports it | [#253](https://github.com/sagi5060/agentdeck/issues/253) |
-| A `DataBlock` cannot be sent *to* a model, only received from one | [#226](https://github.com/sagi5060/agentdeck/issues/226) |
-| `Deck.asgi()` cannot serve an agent whose tools declare a `Context` | [#227](https://github.com/sagi5060/agentdeck/issues/227) |
+| `agentdeck-serve --help` crashes instead of printing usage | [#245](https://github.com/agentdecksdk/agentdeck/issues/245) |
+| `run()`'s return type makes the documented interrupt idiom fail a type checker | [#231](https://github.com/agentdecksdk/agentdeck/issues/231) |
+| Checkpointer connection failures surface as raw driver exceptions, not `StoreError` | [#233](https://github.com/agentdecksdk/agentdeck/issues/233) |
+| An engine failure over HTTP returns bare text rather than the documented 500 shape | [#243](https://github.com/agentdecksdk/agentdeck/issues/243) |
+| `answer()` accepts any value with no validation, and the node owns interpreting it | [#235](https://github.com/agentdecksdk/agentdeck/issues/235) |
+| Omitting `context` on `answer()` silently gives the re-run node `None` | [#255](https://github.com/agentdecksdk/agentdeck/issues/255) |
+| The CLI can send signals but cannot read anything — no inbox, no run view | [#256](https://github.com/agentdecksdk/agentdeck/issues/256) |
+| `redis` is a base dependency because the default session path imports it | [#253](https://github.com/agentdecksdk/agentdeck/issues/253) |
+| A `DataBlock` cannot be sent *to* a model, only received from one | [#226](https://github.com/agentdecksdk/agentdeck/issues/226) |
+| `Deck.asgi()` cannot serve an agent whose tools declare a `Context` | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
 
 ## What is being done about all this
 
@@ -140,6 +140,6 @@ Every entry above is on **v3.1 — hardening**, which exists for exactly this li
 
 <Callout type="info">
   Hit something that is not here?
-  [Open an issue](https://github.com/sagi5060/agentdeck/issues/new). A reproduction is worth more
+  [Open an issue](https://github.com/agentdecksdk/agentdeck/issues/new). A reproduction is worth more
   than a diagnosis — most of this page came from people who sent one.
 </Callout>

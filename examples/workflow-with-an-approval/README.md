@@ -13,7 +13,7 @@ run.py                                       # run -> interrupt -> pending() -> 
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install "agentdeck[durability] @ git+https://github.com/sagi5060/agentdeck.git@v3.0.1"
+uv pip install "agentdeck[durability] @ git+https://github.com/agentdecksdk/agentdeck.git@v3.0.1"
 export OPENAI_MODEL=none OPENAI_API_KEY=none
 python run.py
 ```
@@ -44,5 +44,5 @@ Expected output:
   memory. Set `AGENTDECK_EVENTS` to `sqlite://`, `redis://` or `postgresql://` before expecting
   one process to see another's paused run.
 
-Next: [Human Approval](https://sagi5060.github.io/agentdeck/guides/human-approval) ·
-[Choosing a Store Backend](https://sagi5060.github.io/agentdeck/concepts/choosing-a-store-backend)
+Next: [Human Approval](https://agentdecksdk.com/guides/human-approval) ·
+[Choosing a Store Backend](https://agentdecksdk.com/concepts/choosing-a-store-backend)

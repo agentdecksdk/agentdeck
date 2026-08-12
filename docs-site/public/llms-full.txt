@@ -14,14 +14,14 @@ Use it when the wiring around an agent has become the work: several agents and w
 project, a chat surface and a batch path over the same definitions, runs you must inspect
 afterwards, approvals that outlive the process that requested them.
 
-Source: https://sagi5060.github.io/agentdeck · Generated from the same Markdown the site renders.
+Source: https://agentdecksdk.com · Generated from the same Markdown the site renders.
 
 ---
 
 # AgentDeck
 
 *Write the agent. AgentDeck owns everything around it.*
-Source: https://sagi5060.github.io/agentdeck/
+Source: https://agentdecksdk.com/
 
 # AgentDeck
 
@@ -82,7 +82,7 @@ hosted control plane. It does not reimplement the engines it runs on.
 # Getting Started
 
 *Install AgentDeck, point it at a model, and run your first agent.*
-Source: https://sagi5060.github.io/agentdeck/getting-started
+Source: https://agentdecksdk.com/getting-started
 
 # Getting Started
 
@@ -92,7 +92,7 @@ Target: a running agent in under five minutes.
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install "agentdeck[serve] @ git+https://github.com/sagi5060/agentdeck.git@v3.0.1"
+uv pip install "agentdeck[serve] @ git+https://github.com/agentdecksdk/agentdeck.git@v3.0.1"
 ```
 
 Installs from git at a tag. The repository is public, so no credentials are needed —
@@ -177,7 +177,7 @@ asyncio.run(main())
 # Core Concepts
 
 *The things you write, and what AgentDeck does around them.*
-Source: https://sagi5060.github.io/agentdeck/concepts
+Source: https://agentdecksdk.com/concepts
 
 # Core Concepts
 
@@ -251,7 +251,7 @@ by its id, at documented safe points — see [Run Control](/concepts/run-control
 # Agents
 
 *Declarative agent definitions — keyword arguments in, SDK Agent out.*
-Source: https://sagi5060.github.io/agentdeck/concepts/agents
+Source: https://agentdecksdk.com/concepts/agents
 
 # Agents
 
@@ -382,7 +382,7 @@ Next: give an agent deterministic, non-sandboxed powers with [skills](/concepts/
 # Capabilities
 
 *Sandbox powers — not part of v3, and no longer in the codebase.*
-Source: https://sagi5060.github.io/agentdeck/concepts/capabilities
+Source: https://agentdecksdk.com/concepts/capabilities
 
 # Capabilities
 
@@ -410,7 +410,7 @@ for a specific, narrower task.
 # Choosing a Store Backend
 
 *Four independent storage decisions, one environment variable each, and what each default costs you.*
-Source: https://sagi5060.github.io/agentdeck/concepts/choosing-a-store-backend
+Source: https://agentdecksdk.com/concepts/choosing-a-store-backend
 
 # Choosing a Store Backend
 
@@ -526,7 +526,7 @@ contains, or the [settings reference](/reference/settings) for every variable in
 # Protocols and Surfaces
 
 *What reads the canonical event stream today, and, plainly, what does not exist yet.*
-Source: https://sagi5060.github.io/agentdeck/concepts/protocols-and-surfaces
+Source: https://agentdecksdk.com/concepts/protocols-and-surfaces
 
 # Protocols and Surfaces
 
@@ -587,7 +587,7 @@ ships, not before.
 # Run Control
 
 *What a safe point is, why asking a run to stop is not the same fact as it stopping, and what a resume replays.*
-Source: https://sagi5060.github.io/agentdeck/concepts/run-control
+Source: https://agentdecksdk.com/concepts/run-control
 
 # Run Control
 
@@ -633,7 +633,7 @@ A signal is acted on at the next **safe point**, never mid-token and never by ki
 - `node_boundary` — between two graph nodes.
 
 Agent runs today honor `stream_item`. A workflow (LangGraph) run has no safe point yet, so
-pause and cancel do not reach one — see [issue #128](https://github.com/sagi5060/agentdeck/issues/128).
+pause and cancel do not reach one — see [issue #128](https://github.com/agentdecksdk/agentdeck/issues/128).
 
 **A tool call that is already running is never interrupted.** If you pause while a tool is
 executing, the call runs to completion and the run stops before the step that would have used
@@ -692,7 +692,7 @@ and resumes *with a value*; a paused run is waiting for an operator and resumes 
 # Runs and the Event Log
 
 *The one ordered record every turn appends to, and why a run's status is read from it instead of stored anywhere else.*
-Source: https://sagi5060.github.io/agentdeck/concepts/runs-and-the-event-log
+Source: https://agentdecksdk.com/concepts/runs-and-the-event-log
 
 # Runs and the Event Log
 
@@ -853,7 +853,7 @@ how those requests land in this same log.
 # Sessions and Memory
 
 *What a session is, where its history lives, and why it is not the event log.*
-Source: https://sagi5060.github.io/agentdeck/concepts/sessions-and-memory
+Source: https://agentdecksdk.com/concepts/sessions-and-memory
 
 # Sessions and Memory
 
@@ -954,7 +954,7 @@ graceful exit) still frees the session eventually — once it has gone quiet for
 # Skills
 
 *Progressive knowledge disclosure into an agent's own execution, described by SKILL.md.*
-Source: https://sagi5060.github.io/agentdeck/concepts/skills
+Source: https://agentdecksdk.com/concepts/skills
 
 # Skills
 
@@ -1038,7 +1038,7 @@ the skill's `SKILL.md` describing when to reach for it.
 # Workflows
 
 *Typed state, a LangGraph graph, and durable pauses for humans.*
-Source: https://sagi5060.github.io/agentdeck/concepts/workflows
+Source: https://agentdecksdk.com/concepts/workflows
 
 # Workflows
 
@@ -1195,7 +1195,7 @@ the thread.
 # Add a Tool
 
 *Give an agent a plain Python function it can call.*
-Source: https://sagi5060.github.io/agentdeck/guides/add-a-tool
+Source: https://agentdecksdk.com/guides/add-a-tool
 
 # Add a Tool
 
@@ -1264,7 +1264,7 @@ Next: the full argument table, including `handoffs` and `output_type`, is on
 # Human Approval
 
 *Pause a workflow for a person's decision, and answer it from wherever that person is.*
-Source: https://sagi5060.github.io/agentdeck/guides/human-approval
+Source: https://agentdecksdk.com/guides/human-approval
 
 # Human Approval
 
@@ -1379,7 +1379,7 @@ Next: [Workflows](/concepts/workflows) covers timers (`sleep_until`) — the oth
 # Serve Over HTTP
 
 *Run agentdeck behind FastAPI, and talk to an agent from outside the process.*
-Source: https://sagi5060.github.io/agentdeck/guides/serve-over-http
+Source: https://agentdecksdk.com/guides/serve-over-http
 
 # Serve Over HTTP
 
@@ -1389,7 +1389,7 @@ Runtime that call would have used, so a turn started over HTTP lands in the same
 Python caller's turn would.
 
 ```bash illustrative reason="starts a long-running server; nothing to assert on here"
-uv pip install "agentdeck[serve] @ git+https://github.com/sagi5060/agentdeck.git@v3.0.1"
+uv pip install "agentdeck[serve] @ git+https://github.com/agentdecksdk/agentdeck.git@v3.0.1"
 HOST=0.0.0.0 PORT=8000 agentdeck-serve
 ```
 
@@ -1444,7 +1444,7 @@ needs a person's answer instead of a client's.
 # Pause, Resume, Cancel
 
 *Which endpoint to call to stop a run you did not start, what each response means, and how to tell whether it worked.*
-Source: https://sagi5060.github.io/agentdeck/operating/pause-resume-cancel
+Source: https://agentdecksdk.com/operating/pause-resume-cancel
 
 # Pause, Resume, Cancel
 
@@ -1538,7 +1538,7 @@ the meantime, so there is nothing to cancel out of urgency beyond recording the 
 # Reference
 
 *Technical reference for AgentDeck's public APIs and configuration.*
-Source: https://sagi5060.github.io/agentdeck/reference
+Source: https://agentdecksdk.com/reference
 
 # Reference
 
@@ -1574,7 +1574,7 @@ Not yet published as pages:
 # Capabilities
 
 *The sandbox capability specs — removed; sandboxing is not part of v3.*
-Source: https://sagi5060.github.io/agentdeck/reference/capabilities
+Source: https://agentdecksdk.com/reference/capabilities
 
 # Capabilities
 
@@ -1592,11 +1592,11 @@ feature does.
 # CLI
 
 *The agentdeck command tree, generated from agentdeck/cli.py's own --help output.*
-Source: https://sagi5060.github.io/agentdeck/reference/cli
+Source: https://agentdecksdk.com/reference/cli
 
 # CLI
 
-Generated from [`agentdeck/cli.py`](https://github.com/sagi5060/agentdeck/blob/main/agentdeck/cli.py) by capturing each subcommand's own `--help` output — the same rendering a terminal would show, not a second hand-written copy of it. `make check` regenerates this page and fails if the result differs (`scripts/generate_docs_reference.py`).
+Generated from [`agentdeck/cli.py`](https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/cli.py) by capturing each subcommand's own `--help` output — the same rendering a terminal would show, not a second hand-written copy of it. `make check` regenerates this page and fails if the result differs (`scripts/generate_docs_reference.py`).
 
 ## `agentdeck`
 
@@ -1645,7 +1645,7 @@ options:
 # Deck
 
 *The composition root — builds a catalog from Agent/Workflow objects or a project directory, and runs every turn on it.*
-Source: https://sagi5060.github.io/agentdeck/reference/deck
+Source: https://agentdecksdk.com/reference/deck
 
 # Deck
 
@@ -1730,7 +1730,7 @@ async def validate_every_project() -> None:
 A script that validates several projects in a loop needs that `aclose()` between them; a service
 that mounts one deck's `asgi()` inside an existing app is unaffected, since that is still one
 deck. Running two side by side is a capability we intend to add, tracked in
-[issue #213](https://github.com/sagi5060/agentdeck/issues/213) — until then, a deck per tenant is
+[issue #213](https://github.com/agentdecksdk/agentdeck/issues/213) — until then, a deck per tenant is
 a process per tenant.
 
 `deck.agents`/`deck.workflows` are read-only mappings once built — mutating either raises.
@@ -2132,7 +2132,7 @@ run has no safe point yet, so `pause`/`cancel` record the request but nothing ac
 # Definitions
 
 *Agent, AgentDeclaration, Workflow, and WorkflowDeclaration — the authoring API, field by field.*
-Source: https://sagi5060.github.io/agentdeck/reference/definitions
+Source: https://agentdecksdk.com/reference/definitions
 
 # Definitions
 
@@ -2334,11 +2334,11 @@ Never constructed or run directly — it exists only to be named as `Workflow(ba
 # Settings
 
 *Every AGENTDECK_* (and OPENAI_*/TAVILY_*) environment variable, generated from agentdeck/runtime/settings.py.*
-Source: https://sagi5060.github.io/agentdeck/reference/settings
+Source: https://agentdecksdk.com/reference/settings
 
 # Settings
 
-Generated from [`agentdeck/runtime/settings.py`](https://github.com/sagi5060/agentdeck/blob/main/agentdeck/runtime/settings.py)'s `LayeredSettings` subclasses — this page cannot drift from the code because `make check` regenerates it and fails if the result differs (`scripts/generate_docs_reference.py`). Every variable is also settable in the shared `config.yaml`, under the section derived from its env-var prefix (`openai:`, `runner:`, …); an env var wins over the file.
+Generated from [`agentdeck/runtime/settings.py`](https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/runtime/settings.py)'s `LayeredSettings` subclasses — this page cannot drift from the code because `make check` regenerates it and fails if the result differs (`scripts/generate_docs_reference.py`). Every variable is also settable in the shared `config.yaml`, under the section derived from its env-var prefix (`openai:`, `runner:`, …); an env var wins over the file.
 
 ## `OpenAISettings`
 
@@ -2431,7 +2431,7 @@ Configuration for Redis-backed agent conversation memory.
 # Roadmap
 
 *What AgentDeck is working on next, in the order it is being worked on, and what is deliberately not planned.*
-Source: https://sagi5060.github.io/agentdeck/roadmap
+Source: https://agentdecksdk.com/roadmap
 
 # Roadmap
 
@@ -2441,7 +2441,7 @@ and the milestones are not a dumping ground.
 
 <Callout type="info">
   The authoritative list is
-  [GitHub Milestones](https://github.com/sagi5060/agentdeck/milestones) — this page explains the
+  [GitHub Milestones](https://github.com/agentdecksdk/agentdeck/milestones) — this page explains the
   shape, GitHub holds the contents. If the two disagree, GitHub is right and this page is stale.
 </Callout>
 
@@ -2515,14 +2515,14 @@ resume with the answer without handing the conversation over.
   **Sandboxing.** AgentDeck runs your tools, skills and workflow nodes as ordinary Python in your
   process, and a model-chosen tool call is trusted by design. This is not an oversight and it is
   not on a milestone — read
-  [SECURITY.md](https://github.com/sagi5060/agentdeck/blob/main/SECURITY.md) before you give an
+  [SECURITY.md](https://github.com/agentdecksdk/agentdeck/blob/main/SECURITY.md) before you give an
   agent something destructive.
 </Callout>
 
 Also deliberately absent, and unlikely to change: a YAML agent format, an execution engine of
 AgentDeck's own, authentication and multi-tenancy beyond a shared token, model routing, and a
 prompt-management or evaluation product. The
-[README](https://github.com/sagi5060/agentdeck#what-it-deliberately-does-not-do) explains why
+[README](https://github.com/agentdecksdk/agentdeck#what-it-deliberately-does-not-do) explains why
 each one is somebody else's job.
 
 ## How something gets onto this page
@@ -2532,7 +2532,7 @@ documentation assistant's own failures — and every one gets a disposition: fix
 reason, or scheduled against a named issue. Nothing sits in a document with no answer.
 
 If you hit something that is not on [Known Issues](/known-issues),
-[open an issue](https://github.com/sagi5060/agentdeck/issues/new) — a reproduction is worth more
+[open an issue](https://github.com/agentdecksdk/agentdeck/issues/new) — a reproduction is worth more
 than a diagnosis.
 
 ---
@@ -2540,7 +2540,7 @@ than a diagnosis.
 # Known Issues
 
 *Defects in the current release that will surprise you, what happens, and what to do until each is fixed.*
-Source: https://sagi5060.github.io/agentdeck/known-issues
+Source: https://agentdecksdk.com/known-issues
 
 # Known Issues
 
@@ -2565,7 +2565,7 @@ set. The only trace is that the model saw an error string and may or may not hav
 
 **Until it is fixed:** catch exceptions inside your own tools and return a string the model can
 act on. Do not rely on the run failing.
-&nbsp;→ [#250](https://github.com/sagi5060/agentdeck/issues/250)
+&nbsp;→ [#250](https://github.com/agentdecksdk/agentdeck/issues/250)
 
 ### A tool returning something unserializable reaches the model as a memory address
 
@@ -2575,7 +2575,7 @@ and the prompt.
 
 **Until it is fixed:** return JSON-compatible values from tools. If you return an object today,
 check what the model is actually receiving.
-&nbsp;→ [#251, folded into #250](https://github.com/sagi5060/agentdeck/issues/250)
+&nbsp;→ [#251, folded into #250](https://github.com/agentdecksdk/agentdeck/issues/250)
 
 ### `Agent(model=...)` is ignored
 
@@ -2584,7 +2584,7 @@ type-checked by the SDK, and then overridden by the run's own configuration — 
 in front of an expensive specialist silently runs entirely on one model.
 
 **Until it is fixed:** there is no per-agent model. One model per process.
-&nbsp;→ [#247](https://github.com/sagi5060/agentdeck/issues/247)
+&nbsp;→ [#247](https://github.com/agentdecksdk/agentdeck/issues/247)
 
 ### Cancelling a run that is waiting on a human does nothing
 
@@ -2594,14 +2594,14 @@ workflow for real. No event is written, so the log shows no trace that a cancel 
 
 **Until it is fixed:** do not rely on cancel to stop a pending approval. Guard the post-approval
 nodes with your own check.
-&nbsp;→ [#229](https://github.com/sagi5060/agentdeck/issues/229)
+&nbsp;→ [#229](https://github.com/agentdecksdk/agentdeck/issues/229)
 
 ### `usage.usd` is always `None`
 
 The cost field exists on every `Usage` and never carries a cost.
 
 **Until it is fixed:** compute cost from `input_tokens`/`output_tokens` and your own price table.
-&nbsp;→ [#177](https://github.com/sagi5060/agentdeck/issues/177)
+&nbsp;→ [#177](https://github.com/agentdecksdk/agentdeck/issues/177)
 
 ## Defaults that will trap you
 
@@ -2612,7 +2612,7 @@ checkpointer lives behind the `[durability]` extra. So `durable = True` — whic
 approval needs — fails on a plain install.
 
 **Until it is fixed:** install `agentdeck[durability]` if you use `durable = True`.
-&nbsp;→ [#232](https://github.com/sagi5060/agentdeck/issues/232)
+&nbsp;→ [#232](https://github.com/agentdecksdk/agentdeck/issues/232)
 
 ### Approvals disappear on restart, under the shipped defaults
 
@@ -2624,7 +2624,7 @@ an empty list.
 **Until it is fixed:** set `AGENTDECK_EVENTS` to a durable store — `sqlite://`, `postgresql://`
 or `redis://` — in anything that outlives one process. See
 [Choosing a Store Backend](/concepts/choosing-a-store-backend).
-&nbsp;→ [#212](https://github.com/sagi5060/agentdeck/issues/212)
+&nbsp;→ [#212](https://github.com/agentdecksdk/agentdeck/issues/212)
 
 ### A killed worker holds its session for an hour
 
@@ -2634,7 +2634,7 @@ release it sooner.
 
 **Until it is fixed:** lower the setting if your deployment restarts often. It trades against how
 long a healthy turn may go quiet.
-&nbsp;→ [#244](https://github.com/sagi5060/agentdeck/issues/244)
+&nbsp;→ [#244](https://github.com/agentdecksdk/agentdeck/issues/244)
 
 ## Provider compatibility
 
@@ -2653,7 +2653,7 @@ itself is fine** — a bidirectional round trip works against a compliant endpoi
 
 **Until it is fixed:** run handoffs against OpenAI. Pointing one agent at a different provider is
 not a workaround — see `Agent(model=...)` above.
-&nbsp;→ [#178](https://github.com/sagi5060/agentdeck/issues/178)
+&nbsp;→ [#178](https://github.com/agentdecksdk/agentdeck/issues/178)
 
 ## Rough edges
 
@@ -2661,16 +2661,16 @@ Not silent, not traps — just things that will cost you a few minutes.
 
 | What | Issue |
 |---|---|
-| `agentdeck-serve --help` crashes instead of printing usage | [#245](https://github.com/sagi5060/agentdeck/issues/245) |
-| `run()`'s return type makes the documented interrupt idiom fail a type checker | [#231](https://github.com/sagi5060/agentdeck/issues/231) |
-| Checkpointer connection failures surface as raw driver exceptions, not `StoreError` | [#233](https://github.com/sagi5060/agentdeck/issues/233) |
-| An engine failure over HTTP returns bare text rather than the documented 500 shape | [#243](https://github.com/sagi5060/agentdeck/issues/243) |
-| `answer()` accepts any value with no validation, and the node owns interpreting it | [#235](https://github.com/sagi5060/agentdeck/issues/235) |
-| Omitting `context` on `answer()` silently gives the re-run node `None` | [#255](https://github.com/sagi5060/agentdeck/issues/255) |
-| The CLI can send signals but cannot read anything — no inbox, no run view | [#256](https://github.com/sagi5060/agentdeck/issues/256) |
-| `redis` is a base dependency because the default session path imports it | [#253](https://github.com/sagi5060/agentdeck/issues/253) |
-| A `DataBlock` cannot be sent *to* a model, only received from one | [#226](https://github.com/sagi5060/agentdeck/issues/226) |
-| `Deck.asgi()` cannot serve an agent whose tools declare a `Context` | [#227](https://github.com/sagi5060/agentdeck/issues/227) |
+| `agentdeck-serve --help` crashes instead of printing usage | [#245](https://github.com/agentdecksdk/agentdeck/issues/245) |
+| `run()`'s return type makes the documented interrupt idiom fail a type checker | [#231](https://github.com/agentdecksdk/agentdeck/issues/231) |
+| Checkpointer connection failures surface as raw driver exceptions, not `StoreError` | [#233](https://github.com/agentdecksdk/agentdeck/issues/233) |
+| An engine failure over HTTP returns bare text rather than the documented 500 shape | [#243](https://github.com/agentdecksdk/agentdeck/issues/243) |
+| `answer()` accepts any value with no validation, and the node owns interpreting it | [#235](https://github.com/agentdecksdk/agentdeck/issues/235) |
+| Omitting `context` on `answer()` silently gives the re-run node `None` | [#255](https://github.com/agentdecksdk/agentdeck/issues/255) |
+| The CLI can send signals but cannot read anything — no inbox, no run view | [#256](https://github.com/agentdecksdk/agentdeck/issues/256) |
+| `redis` is a base dependency because the default session path imports it | [#253](https://github.com/agentdecksdk/agentdeck/issues/253) |
+| A `DataBlock` cannot be sent *to* a model, only received from one | [#226](https://github.com/agentdecksdk/agentdeck/issues/226) |
+| `Deck.asgi()` cannot serve an agent whose tools declare a `Context` | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
 
 ## What is being done about all this
 
@@ -2679,7 +2679,7 @@ Every entry above is on **v3.1 — hardening**, which exists for exactly this li
 
 <Callout type="info">
   Hit something that is not here?
-  [Open an issue](https://github.com/sagi5060/agentdeck/issues/new). A reproduction is worth more
+  [Open an issue](https://github.com/agentdecksdk/agentdeck/issues/new). A reproduction is worth more
   than a diagnosis — most of this page came from people who sent one.
 </Callout>
 
@@ -2688,7 +2688,7 @@ Every entry above is on **v3.1 — hardening**, which exists for exactly this li
 # Changelog
 
 *What changed in each release of AgentDeck, and what to do about it when upgrading.*
-Source: https://sagi5060.github.io/agentdeck/changelog
+Source: https://agentdecksdk.com/changelog
 
 {/* Generated by scripts/generate_docs_reference.py from CHANGELOG.md — do not edit. */}
 
@@ -2697,452 +2697,65 @@ Source: https://sagi5060.github.io/agentdeck/changelog
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v3.0.0**. Earlier releases are listed at the bottom.
+The current release is **v3.0.1**. Earlier releases are listed at the bottom.
 
-## v3.0.0
+## v3.0.1
 
-*Released 2026-08-11.*
+*Released 2026-08-12.*
 
-The stable v3. Everything below landed on top of `3.0.0b1`: multimodal input, a versioned event
-envelope, one variable per configuration decision, `Context[T]` injection over both engines, and
-observability declared where the deck is declared.
-
-**Ask AgentDeck** ships alongside it — a documentation assistant built on the v3 public surface,
-in [`examples/ask-agentdeck/`](examples/ask-agentdeck/). It exists as much to test the surface as
-to answer questions: building a real application against it produced three findings, all recorded
-rather than smoothed over, and none of them blocking.
-
-### Upgrading
-
-- **A retired v2 environment variable now refuses to start, rather than being ignored.** Nothing
-  binds `AGENTDECK_EVENTS_BACKEND`/`_URL`, `AGENTDECK_CONTROL_*`, `AGENTDECK_CHECKPOINT_*`,
-  `AGENTDECK_SESSION_REDIS_URL`, `AGENTDECK_LANGFUSE_HOST` or `APP_CONFIG_PATH` any more, so a
-  deployment that still exports one would fall back to the default — and for the three store
-  variables that default is in-process memory, i.e. a durable event log silently becoming
-  ephemeral on upgrade. Setting one *without* its replacement is now an error naming both. A
-  leftover alongside a correctly-set replacement is fine: the migration has happened, and a stale
-  name inherited from a container environment should not stop a working process from booting.
-
-
-- **An event log written before v3.0.0 cannot be read by v3.0.0.** The envelope's `v` was a plain
-  integer up to and including v3.0.0b1 and is now `{major, minor}`, which is a major bump — and a
-  major bump means exactly this: the two are not mutually readable. Only durable stores are
-  affected (`sqlite`, `postgres`, `redis`); the default `memory` store keeps nothing across a
-  restart, so most callers have nothing to migrate. An affected store must be replayed into a new
-  one, or read with the version that wrote it. The first read of an old event says so by name
-  rather than failing as a validation error on a model you have not met.
-
-- **`Runtime(clock=...)` and `build_runtime(clock=...)` are gone.** Both keywords stopped
-  deciding anything once ADR-D11 moved timestamp assignment into the store; a caller that held
-  time through either one now gets a `TypeError` instead of a run whose timestamps quietly kept
-  moving. Pass the clock to the store instead: `MemoryEventStore(clock=...)`,
-  `RedisEventStore(clock=...)`.
-
-- **A client built on the openai-agents engine's own session (`agents.SQLiteSession`,
-  `agents.extensions.memory.RedisSession`) that inspects or prunes its content parts must add
-  `input_image`/`input_audio` to its matcher** (#161). A turn carrying an image or audio block
-  now writes the SDK's own canonical part types into the session; a matcher written against the
-  old raw shapes (`image_url`, `input_audio` tuples, or similar) silently stops matching, which
-  for a pruning pass means the same image gets re-sent, and re-billed, on every later turn of
-  that conversation instead of being dropped after the turn that needed it.
-
-- **A program holding two `Deck` instances at once now raises instead of quietly misbehaving**
-  (#204). One deck at a time is unchanged, including a deck mounted inside an existing service
-  through `asgi()`. What breaks is a script that validates several projects in a loop, or a
-  notebook that re-runs its `Deck.from_project()` cell: close the first (`await deck.aclose()`,
-  or run it under `async with`) before constructing the next. Today those programs appear to
-  work while the second deck reads the first one's bundles, so the raise is the change you want.
-
+**No functional change to the package.** `agentdeck/` is byte-identical to v3.0.0 — this release
+carries documentation, brand and discoverability work, and exists so the published site and the
+release train agree. Upgrading from v3.0.0 changes nothing at runtime.
 
 ### Added
 
-- **Context injection: `agentdeck.Context`, `Deck(context=T)` and `context=` on every run**
-  (#166). An application value — a database handle, a client, whatever the code a run reaches
-  needs — enters once at the run boundary and is delivered to any callable that *declares* it.
-
-  **Declaring it.** Annotate a parameter `Context[T]`, whatever you name it: a tool, an
-  `instructions=` callable, an agent hook (first parameter, where the SDK's own wrapper goes), or
-  a workflow node alongside its `state`. `ctx.data` is the very object passed in, by reference;
-  `ctx.reporter`, `ctx.run_id`, `ctx.session_id` and `await ctx.checkpoint()` come with it. A
-  plain function in `tools=` is now compiled rather than rejected — a context-declaring tool
-  cannot be pre-wrapped with `@function_tool`, since that would put the context parameter in the
-  model-visible schema.
-
-  **The model never sees it.** The context parameter is absent from the tool schema sent to the
-  model, an instructions callable contributes only its return value to the prompt, and the value
-  is never written to the event log.
-
-  **Supplying it.** `deck.run(..., context=obj)` and `deck.stream(...)`, plus
-  `answer(run_id, value, context=...)` and `resume(run_id, context=...)` — resupplied, never
-  recovered, because the value is deliberately never serialized, so the caller picking a paused
-  run back up is the only one who still has it.
-
-  **Both engines, one contract.** The value travels on each engine's own runtime-context channel
-  — the SDK's `RunContextWrapper`, LangGraph's `Runtime[T]` — never on `configurable`, which
-  keeps `thread_id`, the reporter and the stream flag exactly as before. A contract test
-  parametrized over both engines pins that the two bridges deliver the same thing.
-
-  **Checking it.** `Deck(context=MiddleContext)` declares the context *type* (the class, not an
-  instance), and `build()` then checks every `Context[...]` in the catalog against it, raising
-  `ContextTypeError` naming both types. It decides only what the runtime can decide — exact type,
-  subtype, `Any`, a runtime ABC's origin, a protocol `issubclass` will rule on, a union arm by arm
-  — and defers everything else (a structural protocol, a `TypeVar`, an engine-native tool object)
-  to invocation rather than guessing. A deck that declares no `context=` is unchanged: nothing is
-  checked, and `run(context=...)` works exactly the same.
-
-  **Where it does not reach**, all documented in the `Deck` reference: a context cannot cross the
-  HTTP surface at all (no wire form for a live object, so a served run carries `None`); `tick()`
-  takes none, so *durable + `sleep_until` + `Context[T]`* is unsupported in v3.0.0 and a timer
-  resume replays with `ctx.data` set to `None`; the headless `Agent.run()` and
-  `Workflow.run()`/`as_tool()` paths pass none either; and a skill is prose, not a callable, so
-  there is nothing there to inject into.
-
-- **`Deck(observers=[...])` — the event stream has a declared set of observers, and they start
-  with the deck** (#181). An observer is any `EventSinkPort` — telemetry, cost accounting, audit
-  — and the Runtime fans every run out to all of them, each with its own bounded queue.
-  `agentdeck.observers.Langfuse` is the one agentdeck ships.
-
-  ```python
-  from agentdeck import Deck
-  from agentdeck.observers import Langfuse
-
-  deck = Deck(agents=[booking], observers=[Langfuse(), my_audit_observer])
-  async with deck:                 # every observer starts here, once, before any run
-      await deck.run("booking", "hello")
-  ```
-
-  Three states: `observers=None` (the default) starts the configured Langfuse observer if
-  `AGENTDECK_LANGFUSE_*` names one and nothing otherwise, exactly as before; a sequence starts
-  exactly those, in order, and suppresses the settings-derived one; `observers=()` starts none.
-
-  The altitude is the point. Observers start during `__aenter__`, before the Runtime exists and
-  before any run can begin — they are no longer assembled underneath the composition root from
-  settings, nor started by whichever run happened to come first. `build()` shape-checks
-  `observers=` and does nothing else: nothing is started, no telemetry client is constructed and
-  no exporter contacted, so a deck with Langfuse configured still validates where Langfuse is
-  unreachable. There is no `deck.observers` property, for the same reason there is no `runtime`
-  or `store`.
-
-  `Langfuse(sdk_spans=True)` adds the raw layer on top of the semantic one: OpenInference maps
-  every agent, generation and tool call the Agents SDK makes, with its input and output — detail
-  the event log does not record. **It arrives as a second, separate trace per run rather than
-  nested under the first**, because nesting would need the engine to establish an OTel context and
-  the engines are barred from the Langfuse SDK by design. Off by default and documented as
-  unnested, so nobody meets a trace they did not ask for — which is what #162 was filed about.
-  Correlating the two layers is #218.
-
-- **`EventSinkPort.start()`** (#181) — an `async` no-op by default, called once while the Deck
-  opens, before any run, and pairing with the existing `close()`. A sink that holds a client, a
-  connection or a file opens it there rather than on whichever event it happens to see first.
-  Additive: an existing sink that only implements `emit` is unaffected. Raising from `start()`
-  refuses the open rather than leaving a deck running with an observer that silently never
-  worked — which is what `Langfuse()` does when no keys are configured.
-
-- **`SECURITY.md` and `CODE_OF_CONDUCT.md`** (#132). The security policy says where to report a
-  vulnerability and what is in scope — including the two things that are deliberately *not*: a
-  model-chosen tool call runs with the full privileges of the host process, and nothing is
-  sandboxed. The code of conduct is the Contributor Covenant 2.1, unmodified.
-- **Package classifiers**, so PyPI and every metadata reader can see what agentdeck is and which
-  Pythons it supports (#132). A test keeps the classified Python versions in step with
-  `requires-python`, and asserts the built metadata still names the MIT license.
-- **`examples/`: two decks you can copy** (#132) — a chat agent with a tool, and a workflow that
-  pauses for a human approval. Each is a complete project directory with a `run.py` and a README,
-  and each is built by the test suite on every run, so neither can quietly stop working. The
-  approval example makes no model call at all and runs offline.
-- **A docs-site page on choosing a store backend**: the four independent storage decisions, one
-  environment variable each, and the trap where `durable=True` parks an approval that a second
-  process cannot see because the event log is still in memory.
-
-- **`AudioBlock`** (#159): a fifth content-block kind, mirroring `ImageBlock` field-for-field
-  (`media_type`, `data_b64`) — the same problem (opaque bytes with a MIME type), so a different
-  shape would be asymmetry with no payoff. Additive/minor (`CURRENT_VERSION.minor` 0 → 1): a
-  reader that predates this still parses the event and meets an audio block as `UnknownBlock`.
-- **`ImageBlock` and `AudioBlock` now cap inline data at 1 MB decoded**, raising at construction
-  and naming `ResourceBlock` as the by-reference alternative for anything larger (#159). Base64
-  in an event lands in an append-only log and replays down every SSE connection for the life of
-  that run, so a documented-only limit shipped violated; the cap is deliberately low, since
-  raising it later is compatible and lowering it is not.
+- **Three project pages on the documentation site.** [Known
+  Issues](https://agentdecksdk.com/known-issues) is the one worth bookmarking: every
+  entry is reproduced and open against this release, most of them fail *silently* — a tool that
+  raises still completes the run, a non-serializable tool return reaches the model as a memory
+  address, `Agent(model=...)` is accepted and ignored — and each says what to do until it is
+  fixed. Also [Roadmap](https://agentdecksdk.com/roadmap) and a
+  [Changelog](https://agentdecksdk.com/changelog) generated from this file.
+- **`/llms.txt` and `/llms-full.txt`**, generated from the same Markdown the site renders, for
+  coding agents and LLM search. Plus `context7.json`, whose rules encode the mistakes an assistant
+  actually makes: no `agentdeck-sdk` package, a `Context[T]` tool must not be
+  `@function_tool`-wrapped, `durable = True` needs the `[durability]` extra.
+- **`sitemap.xml`, `robots.txt`, canonical URLs and Open Graph tags**, all generated. One
+  canonical origin behind `NEXT_PUBLIC_SITE_URL`, so moving domain is a variable rather than a
+  sweep.
+- **A changelog tool for the documentation assistant.** *"When was `Context` added?"* is a real
+  question, and its answer is only in release history — which must never ground a documentation
+  answer, because history names APIs that were later removed.
+- **`docs/brand/`** — the mark as vectors, with the reasoning. No rasters: this repository tracks
+  no binaries.
 
 ### Changed
 
-- **`tools=` now takes plain functions, and compiles them** (#166) — reversing the guardrail
-  #172 shipped, which rejected a bare callable and told you to wrap it with `@function_tool`.
-  A function annotated `Context[...]` *cannot* be pre-decorated, because `@function_tool` would
-  put that parameter in the schema the model sees, so the plain callable had to become the
-  canonical declaration. An already-built Agents SDK tool object is still accepted, unchanged
-  and passed straight through — it is engine-native, introspected by nothing, and carries no
-  portability guarantee. The one thing still refused at `build()` is a callable whose signature
-  cannot be read (a decorator that dropped `functools.wraps` is the usual cause): there is no
-  honest schema to show the model, and no way to tell "declares no context" from "could not
-  look", so compiling it would silently drop an argument the function needs.
-
-- **Breaking:** **`build_runtime(sinks=…)` no longer defaults to the configured telemetry**
-  (#181, #162). It defaults to no sinks at all, and the composition *function* reads no Langfuse
-  keys — an observer opens a live client, so when one is constructed is a lifecycle decision, and
-  doing it while a Runtime was assembled is what #162's first defect was. Resolving from settings
-  moved to `agentdeck.composition.resolve_observers()`, which `Deck.__aenter__` calls (and then
-  `start()`s the result) as it opens; a `Deck` behaves exactly as before. A caller that hand-wired
-  `build_runtime(...)` and relied on it picking Langfuse up from the environment now gets an
-  untraced Runtime — pass the observers yourself, remembering to `await observer.start()` first,
-  or open a `Deck`. `sinks=None` is no longer accepted; the parameter is a plain sequence.
-
-- **The README now says what agentdeck is before it shows any code** (#132): what it is, who it
-  is for, what it deliberately does not do, and how it divides work with the OpenAI Agents SDK
-  and LangGraph. It links `CONTRIBUTING.md`, `SECURITY.md` and the docs site rather than
-  restating them, and its install pin, its Python example and its docs links are all checked by
-  the test suite.
-- **Breaking:** **one `Deck` per process, enforced at construction** (#204). Constructing a
-  second `Deck` while the first is still live now raises `ConfigError` naming both projects;
-  before, it succeeded and the second deck silently inherited the first one's bundles, because
-  every project mounts under a single module alias and MCP servers are registered process-wide.
-  A deck built but never opened holds the process just the same — the claim is taken at
-  construction and released by `aclose()`. Two decks side by side is a capability we intend to
-  add (#213); until then a deck per tenant is a process per tenant, which is what the code has
-  in fact always done.
-
-- **Breaking: one env var per infrastructure decision, not a `_BACKEND`/`_URL` pair that can
-  disagree** (#155). `AGENTDECK_EVENTS_BACKEND=postgres` with `AGENTDECK_EVENTS_URL=redis://...`
-  used to boot clean and fail on the first event of the first run; the URL's own scheme now
-  *is* the backend, so that mismatch cannot be expressed at all, not merely rejected. No
-  deprecation shim — this is the one breaking-release window where renaming is free — so an old
-  name is simply never looked up: `_BACKEND` had no field to bind to at all once the pair
-  collapsed to one, and the renamed field (`url`) maps to a different literal env var name than
-  the one it replaced, so setting the old name alongside the new one has no effect either way:
-
-  | Old | New |
-  | --- | --- |
-  | `AGENTDECK_EVENTS_BACKEND` + `AGENTDECK_EVENTS_URL` | `AGENTDECK_EVENTS=memory://` / `sqlite://<path>` / `redis://<url>` / `rediss://<url>` / `postgresql://<dsn>` |
-  | `AGENTDECK_CONTROL_BACKEND` + `AGENTDECK_CONTROL_URL` | `AGENTDECK_CONTROL=memory://` / `sqlite://<path>` |
-  | `AGENTDECK_CHECKPOINT_BACKEND` + `AGENTDECK_CHECKPOINT_URL` | `AGENTDECK_CHECKPOINT=memory://` / `sqlite://<path>` (default: `sqlite://.agentdeck/checkpoints.sqlite3`) / `postgresql://<dsn>` |
-  | `AGENTDECK_SESSION_REDIS_URL` | `AGENTDECK_SESSION=redis://<url>` |
-  | `APP_CONFIG_PATH` | `AGENTDECK_CONFIG_PATH` — unprefixed and generic; any other tool claiming that name silently repointed agentdeck's config |
-
-  Selecting `memory://` for `AGENTDECK_EVENTS`/`AGENTDECK_CONTROL` now logs one WARNING at
-  composition time (`resolve_event_store`/`resolve_control_port`) naming what it costs — no
-  cross-process signals, no log after a restart — instead of that being discoverable only in
-  production. `agentdeck-serve`'s own startup-time version of this same warning is gone; the
-  composition-time one covers it and every other entry point besides.
-- **`Runtime.__init__` no longer reads settings** (#155): the five-parameter, ambient-config-free
-  constructor now has a sixth, `stale_run_after`, defaulted to one hour with no `get_settings()`
-  call at all. `build_runtime` resolves `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` and passes it
-  in, the same as its other adapters — an embedder constructing `Runtime(...)` directly, bypassing
-  `build_runtime`, now gets the literal one-hour default rather than whatever the process's
-  settings happened to say.
-- **The prefix rule is written down** (#155): `docs/coding-standards.md` §9 and `CLAUDE.md` now
-  state that `OPENAI_*`/`TAVILY_*` keep their own names because the respective SDKs read them
-  natively — the only exceptions to `AGENTDECK_*`, not an open pattern.
-- **The openai-agents engine accepts image and audio input, not just text** (#161).
-  `TextBlock`/`ImageBlock`/`AudioBlock` map onto the SDK's own canonical multimodal input parts
-  (`input_text`/`input_image`/`input_audio`), which the SDK's chat-completions converter already
-  accepts and maps down for either API path — agentdeck writes no converter of its own. An
-  all-text turn still sends the identical joined string it always has; only a turn that actually
-  carries media takes the new shape. `ResourceBlock`, `DataBlock`, and any block a newer writer
-  invented still raise `ConfigError`, naming the block kind and the engine, never silently
-  dropped — and an `AudioBlock` under `use_responses=True` raises naming the Responses API,
-  which has no audio input member at this `openai-agents==0.17.0` pin; `use_responses=False`
-  (chat-completions) accepts it. Output is unchanged and stays text/data only: nothing on this
-  path produces an image or audio block.
-
-- **The event envelope's `v` is now a `{major, minor}` object, not an integer** (#156). `major`
-  is what a reader must already understand to parse the envelope at all — `Event` refuses one it
-  does not carry, even for a kind it has never seen, because a major bump can move or remove
-  envelope fields the unknown-kind fallback never checks. `minor` records an additive change (a
-  new kind, a new optional field) that an old reader already tolerates by construction and never
-  needs to consult. This is an intentional wire break: a reader built against the previous
-  scalar `v` cannot parse an event this tree writes.
-
-- **Breaking: `Runtime.__init__` and `build_runtime` no longer accept `clock`** (#158). ADR-D11
-  moved timestamp assignment into the store, so the keyword has decided nothing since #154,
-  which made it inert and warn rather than remove it outright; a caller still passing it now
-  gets a `TypeError` instead of a silently-ignored no-op. Holding time still works at the seam
-  that owns the clock — `MemoryEventStore(clock=...)`, `RedisEventStore(clock=...)` — which is
-  unaffected by this change.
-
-### Removed
-
-- **`agentdeck.runtime.observability` is gone** (#181, #162), and with it `init_observability`,
-  `trace_run`, `RunTrace`, `degrade_export_quietly` and the `_should_export_span` filter. It was
-  a second place tracing was assembled, below the composition root and started by the first run
-  — the source of both defects fixed below. Traces are rendered from the canonical event stream
-  by `agentdeck.adapters.telemetry.langfuse`, which was already the design of record; what this
-  removes is the parallel mechanism. A direct `Workflow.run()` or `Agent`-node turn, which
-  bypasses the event stream the same way it bypasses the event log, is therefore no longer
-  traced — run it through a `Deck` to trace it.
-
-- **The sandbox scaffolding is gone** (#71). Sandboxing left v3 by ruling (#163 stays open as
-  the design issue), and the tree was carrying a port with no consumer, an adapter with no
-  caller and spec classes nothing constructed. Deleted: `agentdeck.core.ports.sandbox` in full
-  (`SandboxPort`, `ExecResult`, `bind_sandbox`, `current_sandbox`, `require_sandbox`, plus the
-  `SandboxPort`/`ExecResult` re-exports from `agentdeck.core.ports`); `agentdeck.adapters.caps`
-  in full (`UnixSandbox`, `open_sandbox`, `input_file_targets`); `agentdeck.authoring.capabilities`
-  in full (`CapabilitiesSpec`, `ShellSpec`, `FilesystemSpec`, `MemorySpec`, `CompactionSpec`);
-  and `agentdeck.runtime.capture.CAPTURE_ENV`, whose only reader was the deleted adapter
-  (`Capture` and `CaptureActor` stay — the tracer still uses them). Re-adding a designed port
-  later is additive, so nothing here is a one-way door.
-- **`LoadFileNode` now refuses a relative path** (#71) instead of resolving it through the
-  sandbox. That branch could only ever raise — nothing in v3 opened a sandbox for it to find —
-  so the node raises the refusal itself, still a `RuntimeError`, with a message that names the
-  absolute path it wants. It deliberately does *not* fall back to the process working
-  directory: quietly reading the host filesystem for a path a model influenced is the widening
-  the sandbox existed to prevent.
-- **`agentdeck.runtime.observability.sandbox_trace_env()` is gone** (#71): it built the
-  `LANGFUSE_*`/`TRACEPARENT` env for a sandboxed skill subprocess, and had no callers left once
-  sandboxing left v3. Same finding as `Settings.sandbox_env()` below, which #155 took early.
-- **`agentdeck.surfaces.serve.compat.resume_result()` is gone** (#71): the v1 resume endpoint
-  answers through `Deck.answer()` and has not gone through this helper since the v3 cutover.
-  The v1 resume wire format is unchanged — it is covered by the golden replay, which is
-  byte-identical.
-- **`LangfuseSettings.host` and its `endpoint` property are gone** (#155): a pre-4.x
-  compatibility alias for the Langfuse endpoint, with no reason to survive a major version.
-  `base_url` is the only endpoint field now, and it carries `host`'s old default
-  (`http://localhost:3000`) so an unconfigured deployment's effective endpoint is unchanged.
-- **`Settings.sandbox_env()` and the unbounded `SKILL_*` env namespace are gone** (#155).
-  Sandboxing left v3 in #163; `SkillExecutor`, `sandbox_env()`'s only caller, was already
-  deleted in #164, so this was a deletion rather than the `AGENTDECK_SKILL_*` rename the issue
-  originally proposed. `SkillsSettings` and the `skill:` `config.yaml` section go with it.
-- **`check_contiguous`/`check_terminal` are no longer part of `agentdeck.core`** (#156). Neither
-  was read by a production path — `seq` contiguity follows from how the store assigns it, and
-  the one-terminal-event-last invariant is enforced by `Runtime.run`/`resume` stopping the read
-  loop at a terminal payload — so keeping them in the schema module read as contract they were
-  never part of. Embedders who imported them for their own log-auditing should inline the same
-  two checks (each a few lines over a `list[Event]`) locally.
-
-- **A `durable=True` workflow used as an agent tool now fails `build()`** (#193) instead of
-  raising the first time a model calls it. `Workflow.as_tool()` invokes `run(args)` with no
-  `thread_id`, which a durable workflow requires to load and persist its checkpoint, so
-  `Agent(tools=[durable_workflow])` built clean and then threw mid-turn. The error names the
-  agent and the workflow and points at `durable=False`, or calling it as a root invocable via
-  `deck.run()` where a session can be supplied. Giving a tool-invoked workflow a thread of its
-  own remains an open design question.
-
-
-### Removed
-
-- **The `openai_agents.structured_output` `custom` event** (#105). #101 gave
-  `RunCompleted.output` a `DataBlock` for an `output_type` agent's validated result; the
-  `custom` event carried the same value the older way and was kept only because retiring it
-  inside #101 would have meant editing an open PR's files. `Deck.run()`'s `TurnResult.output`
-  and v1's chat endpoints now read the `DataBlock` straight off `run.completed` — their
-  response bodies are unchanged, but a canonical event stream (`Deck.stream()`, the event
-  store) for a structured-output run now has one fewer event.
-
+- The documentation site carries the brand: Agent Blue, the mark in the navbar and as the favicon,
+  and **AgentDeck SDK** in titles and descriptions. The package and import stay `agentdeck`.
 
 ### Fixed
 
-- **A resumed run silently lost its application context** (#166). `resume()` and `resume_run()`
-  minted a fresh `RunContext` with no `data=` at all, so a run paused or interrupted with a
-  `context=` came back with `None` — and because the value is never serialized, nothing in the
-  log could be compared against what should have been there. A callable written defensively as
-  `if ctx.data:` would have returned a plausible wrong answer with no error anywhere. Only ever
-  reachable on this development line, since `run(context=)` and this landed in the same release.
-
-- **The Langfuse span filter never applied, because the client that carried it was never the
-  one that ran** (#162). `build_runtime()` constructed a client from settings while the Runtime
-  was assembled, with no `should_export_span`; `init_observability()` constructed a second one
-  later, on the first run, with the filter. Confirmed against langfuse 4.14.1: the SDK caches
-  one `LangfuseResourceManager` per public key and returns it from every later `Langfuse(...)`,
-  discarding that call's arguments — so the second construction was not a second client and its
-  filter was silently dropped. There is one construction point now, reached only when a deck
-  opens, and the filter is gone with the `sandbox.*` spans it existed to drop (sandboxing left
-  v3 in #163/#71, so nothing emits them any more).
-
-- **An agent turn exported one trace too many with Langfuse on** (#162). `init_observability()`
-  installed the OpenInference `OpenAIAgentsInstrumentor`, but the `trace_run` root that used to
-  group those spans and carry `session.id` was gone — so the SDK's spans exported as a second,
-  sessionless tree beside the sink's own trace. Nothing instruments the Agents SDK any more and
-  the direct-call runners open no observations, so one run is one trace again.
-
-- `Deck.from_project()` reading a *previous* project's bundle files (#204). Mounting a project
-  rebound the module alias but left its already-imported submodules cached, so a second project
-  whose bundle directory happened to share a name — two `agents/greeter/` — got the first one's
-  module back from `sys.modules`. Stale submodules are now evicted on mount, which also means
-  editing a bundle and rebuilding in the same process picks the edit up.
-
-- **Docs: `/reference` pages corrected against the current API** (#192). `/reference` no
-  longer claims MCP is covered by the Workflows page — it now points at `/reference/deck`
-  (`Deck(mcp=...)`) and `/concepts/agents` (MCP status at build vs. open), where the actual
-  coverage lives. `/reference/deck` no longer says `stream()` assembles a `TurnResult` — only
-  `run()` does; `stream()` yields `AsyncGenerator[Event]`, as the page's own table already
-  said two sections up. `/reference/deck` also now documents the timer/event-log limit:
-  `due_resumes()`/`tick()` still list due timers off each workflow's own checkpointer, but
-  `tick()`'s resume now goes through the Runtime whenever a logged run matches (#191) —
-  closing that run's log entry and freeing its session claim — falling back to the direct
-  checkpointer resume only for a thread with no logged run.
-- `AGENTDECK_LANGFUSE_SERVICE_NAME`'s description no longer says "host process and sandboxed
-  skills" — sandboxed skills were removed in #164; the generated `/reference/settings` page is
-  regenerated to match.
-- `tests/test_docs_site.py::test_pinned_install_versions_match_the_package_version` now also
-  requires every fenced `pip install`/`uv pip install`/`uv add` line naming `agentdeck` on the
-  docs site to carry a version pin matching `pyproject.toml`, not just validating pins that
-  already exist — closing the gap that let `/guides/serve-over-http` ship an unpinned
-  `agentdeck[serve]` install example.
-- **Three docs pages corrected against the current v3 code (#192).** `/guides/human-approval`'s
-  cross-process example now says what it actually needs: `durable=True` makes the checkpointer
-  file-backed, but `pending()`/`answer()` read the event store instead, so a second process only
-  sees a paused run if `AGENTDECK_EVENTS` is pointed at a shared backend too — the
-  in-process default is not enough on its own. `/guides/serve-over-http`'s install line now pins
-  a version (`git+...@v3.0.0b1`), matching `getting-started.mdx` instead of an unqualified
-  `agentdeck[serve]`. `/operating/pause-resume-cancel` no longer describes the `503 no control
-  backend configured` response as a deployment state operators can hit: `resolve_control_port()`
-  always wires a real `ControlPort` for `Deck`/`agentdeck-serve`, so that response is reachable
-  only by an embedder constructing a bare `Runtime` outside `Deck`.
-- **Seven more docs pages corrected against the current v3 code (#192).** `/` no longer calls
-  skills Python definitions (they are `SKILL.md` directories) or claims `session_id` survives a
-  restart by default (it needs `AGENTDECK_SESSION`). `/concepts` and
-  `/concepts/runs-and-the-event-log` no longer describe SQLite's cross-process story as "shared
-  memory" — it is a shared file, openable by several processes on one machine, not across
-  machines. `/concepts/agents` describes MCP status as it works today: `build()` stays
-  network-free, and status is re-resolved when the `Deck` opens (`__aenter__`, right after
-  `MCPLifecycle.startup`), not "dropped at build time". `/concepts/protocols-and-surfaces` no
-  longer says an HTTP handler builds a `RunContext` — the `Runtime` mints it for every caller.
-  `/concepts/run-control` no longer recommends `ctx.idempotency_key`, a field `RunContext` does
-  not have. `/concepts/runs-and-the-event-log` and `/concepts/workflows` now document that
-  `Deck.due_resumes()`/`Deck.tick()`'s *listing* of due timers reads each workflow's own
-  checkpointer, not the event log, for the same #22-driven reason as the `Deck.tick()` fix
-  below.
-- **`Deck.tick()`** no longer leaves a ghost `WAITING_HUMAN` run in the event log when it
-  resumes a timer-paused thread that a `Deck.run()`/HTTP call parked (#120): it now resumes
-  such a thread through the Runtime, the same as `Deck.answer()` already did, so the run's
-  log entry closes and its session claim releases instead of blocking a fresh run on the
-  same thread until `stale_run_after` expires. `Deck.due_resumes()`/`Deck.tick()`'s *listing*
-  is unchanged — still each workflow's own checkpointer, not the event log, because by
-  default the checkpoint backend is durable (`sqlite`) while the event store is not
-  (`memory`), and #22's guarantee that a due timer survives a process restart depends on
-  that. A thread with no logged run at all (parked by calling a durable `Workflow`'s own
-  `run`/`resume` directly — a deliberately log-free path, out of scope here) still resumes
-  the way it always did.
-- **A fan-out workflow whose one branch interrupts while a sibling completes now reports the
-  sibling's `node_update` before the `interrupt`, instead of silently dropping it** (#122). The
-  langgraph engine reports a pause as soon as the interrupting branch asks for one, not once
-  every branch in the same step has finished; a slower sibling's completion used to arrive on
-  the drained tail of that call and be discarded there, even though its write had already
-  landed in the engine's own checkpoint — the checkpoint and the canonical event log disagreed
-  about what had run. The pause is still reported last, and a run with a suspended branch never
-  reports `done`: `RunStatus.status_of` already derived `waiting_human`, non-terminal, from
-  `run.interrupted` alone, so nothing there needed to change. Pinned with a new golden fixture,
-  `FanoutInterruptFlow`, streamed and non-streamed.
-- **`UnknownBlock` now dumps its original payload verbatim instead of nesting it under
-  `raw_block`** (#200). Parsing an unfamiliar content block and dumping it straight back used to
-  produce `{"type": ..., "raw_block": {...}}` rather than the block that was actually read —
-  harmless today since nothing relays events, but a relay (#129's protocol adapters) would have
-  nested the payload one level deeper on every hop it passed through, silently. Known block
-  kinds (`text`/`image`/`resource`/`data`/`audio`) are unaffected.
+- **Code blocks on the documentation site rendered washed grey.** `nextra-code` is on three
+  elements, so a rule written for inline code laid a pale wash over the dark block, and the
+  syntax theme then did not match the surface it was on.
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
-| [v3.0.0b1](https://github.com/sagi5060/agentdeck/releases/tag/v3.0.0b1) | 2026-08-10 | [release notes](https://github.com/sagi5060/agentdeck/releases/tag/v3.0.0b1) |
-| [v2.0.0](https://github.com/sagi5060/agentdeck/releases/tag/v2.0.0) | 2026-08-06 | [release notes](https://github.com/sagi5060/agentdeck/releases/tag/v2.0.0) |
-| [v2.0.0b4](https://github.com/sagi5060/agentdeck/releases/tag/v2.0.0b4) | 2026-08-06 | [release notes](https://github.com/sagi5060/agentdeck/releases/tag/v2.0.0b4) |
-| [v2.0.0b3](https://github.com/sagi5060/agentdeck/releases/tag/v2.0.0b3) | 2026-08-05 | [release notes](https://github.com/sagi5060/agentdeck/releases/tag/v2.0.0b3) |
-| [v2.0.0b2](https://github.com/sagi5060/agentdeck/releases/tag/v2.0.0b2) | 2026-08-05 | [release notes](https://github.com/sagi5060/agentdeck/releases/tag/v2.0.0b2) |
-| [v2.0.0b1](https://github.com/sagi5060/agentdeck/releases/tag/v2.0.0b1) | 2026-08-05 | [release notes](https://github.com/sagi5060/agentdeck/releases/tag/v2.0.0b1) |
-| [v1.2.1](https://github.com/sagi5060/agentdeck/releases/tag/v1.2.1) | 2026-08-03 | [release notes](https://github.com/sagi5060/agentdeck/releases/tag/v1.2.1) |
-| [v1.2.0](https://github.com/sagi5060/agentdeck/releases/tag/v1.2.0) | 2026-07-28 | [release notes](https://github.com/sagi5060/agentdeck/releases/tag/v1.2.0) |
-| [v1.1.0](https://github.com/sagi5060/agentdeck/releases/tag/v1.1.0) | 2026-07-27 | [release notes](https://github.com/sagi5060/agentdeck/releases/tag/v1.1.0) |
-| [v1.0.0](https://github.com/sagi5060/agentdeck/releases/tag/v1.0.0) | 2026-07-27 | [release notes](https://github.com/sagi5060/agentdeck/releases/tag/v1.0.0) |
-| [v0.2.0](https://github.com/sagi5060/agentdeck/releases/tag/v0.2.0) | 2026-07-26 | [release notes](https://github.com/sagi5060/agentdeck/releases/tag/v0.2.0) |
-| [v0.1.0](https://github.com/sagi5060/agentdeck/releases/tag/v0.1.0) | 2026-07-26 | [release notes](https://github.com/sagi5060/agentdeck/releases/tag/v0.1.0) |
+| [v3.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0) | 2026-08-11 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0) |
+| [v3.0.0b1](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0b1) | 2026-08-10 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0b1) |
+| [v2.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v2.0.0) | 2026-08-06 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v2.0.0) |
+| [v2.0.0b4](https://github.com/agentdecksdk/agentdeck/releases/tag/v2.0.0b4) | 2026-08-06 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v2.0.0b4) |
+| [v2.0.0b3](https://github.com/agentdecksdk/agentdeck/releases/tag/v2.0.0b3) | 2026-08-05 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v2.0.0b3) |
+| [v2.0.0b2](https://github.com/agentdecksdk/agentdeck/releases/tag/v2.0.0b2) | 2026-08-05 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v2.0.0b2) |
+| [v2.0.0b1](https://github.com/agentdecksdk/agentdeck/releases/tag/v2.0.0b1) | 2026-08-05 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v2.0.0b1) |
+| [v1.2.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v1.2.1) | 2026-08-03 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v1.2.1) |
+| [v1.2.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v1.2.0) | 2026-07-28 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v1.2.0) |
+| [v1.1.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v1.1.0) | 2026-07-27 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v1.1.0) |
+| [v1.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v1.0.0) | 2026-07-27 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v1.0.0) |
+| [v0.2.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v0.2.0) | 2026-07-26 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v0.2.0) |
+| [v0.1.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v0.1.0) | 2026-07-26 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v0.1.0) |
 
 ---

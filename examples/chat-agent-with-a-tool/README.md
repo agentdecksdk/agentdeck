@@ -16,7 +16,7 @@ file to add it to.
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install "agentdeck @ git+https://github.com/sagi5060/agentdeck.git@v3.0.1"
+uv pip install "agentdeck @ git+https://github.com/agentdecksdk/agentdeck.git@v3.0.1"
 export OPENAI_MODEL=gpt-4.1-mini OPENAI_API_KEY=sk-...
 python run.py
 ```
@@ -38,5 +38,5 @@ Chat-Completions-only servers also want `OPENAI_USE_RESPONSES=false`.
   anything destructive behind a human approval instead (the sibling example), not behind an
   agent's judgement.
 
-Next: [Add a Tool](https://sagi5060.github.io/agentdeck/guides/add-a-tool) ·
-[Agents](https://sagi5060.github.io/agentdeck/concepts/agents)
+Next: [Add a Tool](https://agentdecksdk.com/guides/add-a-tool) ·
+[Agents](https://agentdecksdk.com/concepts/agents)

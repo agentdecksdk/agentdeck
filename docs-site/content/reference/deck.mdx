@@ -86,7 +86,7 @@ async def validate_every_project() -> None:
 A script that validates several projects in a loop needs that `aclose()` between them; a service
 that mounts one deck's `asgi()` inside an existing app is unaffected, since that is still one
 deck. Running two side by side is a capability we intend to add, tracked in
-[issue #213](https://github.com/sagi5060/agentdeck/issues/213) — until then, a deck per tenant is
+[issue #213](https://github.com/agentdecksdk/agentdeck/issues/213) — until then, a deck per tenant is
 a process per tenant.
 
 `deck.agents`/`deck.workflows` are read-only mappings once built — mutating either raises.

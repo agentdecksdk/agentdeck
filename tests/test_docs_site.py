@@ -188,7 +188,11 @@ def test_python_fences_in_repo_markdown_resolve(document: Path) -> None:
             _assert_agentdeck_imports_exist(src, document)
 
 
-SITE_LINK = re.compile(r"https://sagi5060\.github\.io/agentdeck/([\w/-]*)")
+# Both live origins. `agentdecksdk.com` is canonical and is what prose should link, but the Pages
+# mirror is a real URL a reader can land on, so a stale link there is a real 404 — and the last
+# rewrite of these links (owner `sagi5060` -> `agentdecksdk`) is exactly the kind of sweep that
+# leaves one behind. Matching both means neither form can rot unnoticed.
+SITE_LINK = re.compile(r"https://(?:agentdecksdk\.com|agentdecksdk\.github\.io/agentdeck)/([\w/-]*)")
 
 
 @pytest.mark.parametrize("document", _repo_markdown(), ids=lambda p: str(p))
