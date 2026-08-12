@@ -1,0 +1,106 @@
+---
+title: Roadmap
+description: What AgentDeck is working on next, in the order it is being worked on, and what is deliberately not planned.
+---
+
+# Roadmap
+
+AgentDeck ships in themed releases. Each one has a single sentence it has to satisfy, and an issue
+that does not satisfy it waits for the release that fits — which is why the list below is short
+and the milestones are not a dumping ground.
+
+<Callout type="info">
+  The authoritative list is
+  [GitHub Milestones](https://github.com/sagi5060/agentdeck/milestones) — this page explains the
+  shape, GitHub holds the contents. If the two disagree, GitHub is right and this page is stale.
+</Callout>
+
+## v3.0.0 — one way to work · **released**
+
+`Deck` is the one composition root: `Deck(agents=…)` and `Deck.from_project()`, two front doors
+onto one catalog. Multimodal input, a versioned event envelope, `Context[T]` injection carried
+over both engines' native channels, observability declared where the deck is declared, and the
+v1 HTTP/SSE wire frozen byte-for-byte.
+
+See the [changelog](/changelog).
+
+## v3.1 — hardening · **next**
+
+> Make what exists more correct, more robust, more trustworthy. Ship no new user-facing
+> capability.
+
+Nearly forty issues, most of them findings from people using the SDK rather than reading it. The
+line for inclusion is **what happens when nothing is added**: a durable workflow that dies on a
+transient failure is a defect and belongs here; an agent that receives more tools than it needs
+still works, and that belongs in v3.2.
+
+What is in it:
+
+- **Silent wrong answers first.** A tool that raises completes the run with no error recorded; a
+  tool returning something unserializable has its `repr()` written into both the log and the
+  model's context. Those are worse than crashes and go first.
+- **Things accepted then discarded.** `Agent(model=…)` is honoured by nothing. A cancel against a
+  run waiting on a human returns success and changes nothing.
+- **Defaults that trap you.** A default install cannot run a durable workflow; the default event
+  store empties the approval inbox on restart.
+- **A test harness.** An exported stub-runner, so scripting a model costs a line instead of sixty
+  — the reason several of the above went unnoticed.
+- **Simplification.** Undoing over-engineering is on-theme for this release rather than a
+  distraction from it.
+
+The consequences you can hit today are on [Known Issues](/known-issues), with workarounds.
+
+## v3.2 — batteries
+
+> Additive on the frozen API — what you reach for on your second day, once the surface underneath
+> is trustworthy.
+
+Declarative MCP tool filters and read-only profiles. Reusable approval and external-action nodes.
+Presets for the SDK's hosted tools. A zero-config `Preset` for the infrastructure a deck opens.
+A CLI that can *read* — list the approval inbox, show a run, answer from a terminal.
+
+## v3.3 — rooms & reach
+
+> More than one caller.
+
+Standard agent protocols (A2A, an MCP server surface, OpenAI-compatible) as adapters over the
+event stream. Per-user MCP credentials. Steering — injecting input into a run already in flight.
+Two decks side by side in one process. Inbox pagination and parallel interrupts.
+
+These are deliberately one release rather than five: they are the same identity question wearing
+different hats, and answering it five times separately produces five incompatible answers.
+
+## v3.4 — agents that work together
+
+> One agent reaching another and getting something back.
+
+**Subagents** — delegate a bounded task and receive the result, as a child run with its own place
+in the event log, its cost rolled up into the parent, and cancel cascading to it.
+**Advisors** — consult a peer about the conversation you are already having, read-only, and
+resume with the answer without handing the conversation over.
+
+## Not planned
+
+<Callout type="warning">
+  **Sandboxing.** AgentDeck runs your tools, skills and workflow nodes as ordinary Python in your
+  process, and a model-chosen tool call is trusted by design. This is not an oversight and it is
+  not on a milestone — read
+  [SECURITY.md](https://github.com/sagi5060/agentdeck/blob/main/SECURITY.md) before you give an
+  agent something destructive.
+</Callout>
+
+Also deliberately absent, and unlikely to change: a YAML agent format, an execution engine of
+AgentDeck's own, authentication and multi-tenancy beyond a shared token, model routing, and a
+prompt-management or evaluation product. The
+[README](https://github.com/sagi5060/agentdeck#what-it-deliberately-does-not-do) explains why
+each one is somebody else's job.
+
+## How something gets onto this page
+
+Findings come from people using the SDK — a first-time user's session, an outside review, or the
+documentation assistant's own failures — and every one gets a disposition: fixed, rejected with a
+reason, or scheduled against a named issue. Nothing sits in a document with no answer.
+
+If you hit something that is not on [Known Issues](/known-issues),
+[open an issue](https://github.com/sagi5060/agentdeck/issues/new) — a reproduction is worth more
+than a diagnosis.

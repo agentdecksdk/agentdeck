@@ -18,7 +18,9 @@ CONTENT = ROOT / "docs-site" / "content"
 FENCE = re.compile(r"^[ \t]*```(\w+)([^\n]*)\n(.*?)^[ \t]*```", re.MULTILINE | re.DOTALL)
 # Absolute markdown links only: relative hrefs, reference-style links and MDX <Cards> are invisible here.
 LINK = re.compile(r"\]\((/[^)\s]*)\)")
-META_KEY = re.compile(r"^\s+'?([\w-]+)'?:", re.MULTILINE)
+# Top-level keys only (exactly one indent): a Nextra separator entry is an object, and its
+# inner `type:`/`title:` are not nav entries.
+META_KEY = re.compile(r"^  '?([\w-][\w -]*)'?:", re.MULTILINE)
 PYTHON = {"python", "py"}
 REASON = re.compile(r'reason="[^"]+"')
 
@@ -28,6 +30,24 @@ def _pages() -> tuple[Path, ...]:
     pages = tuple(sorted(CONTENT.rglob("*.mdx")))
     assert pages, f"no .mdx pages under {CONTENT} — the content dir moved"
     return pages
+
+
+# `changelog.mdx` is generated from `CHANGELOG.md`, and a changelog's content is *history*: it
+# names `agentdeck.adapters.caps` and `openai_agents.structured_output` precisely because it is
+# recording that they were deleted, and it quotes snippets from releases whose API is gone. The
+# two content checks below would flag every one as rot, which means either a permanently red gate
+# or a changelog edited to hide what it exists to record.
+#
+# Not unchecked, just checked elsewhere: `test_generated_reference.py` asserts the page still
+# matches `CHANGELOG.md` exactly, so its correctness is anchored to the source file rather than to
+# the current shape of the package.
+HISTORY = {"changelog.mdx"}
+
+
+@cache
+def _authored_pages() -> tuple[Path, ...]:
+    """Pages whose prose is a claim about the package *as it is now*."""
+    return tuple(page for page in _pages() if page.name not in HISTORY)
 
 
 @cache
@@ -53,7 +73,7 @@ def _assert_agentdeck_imports_exist(src: str, page: Path) -> None:
                     importlib.import_module(alias.name)
 
 
-@pytest.mark.parametrize("page", _pages(), ids=lambda p: p.name)
+@pytest.mark.parametrize("page", _authored_pages(), ids=lambda p: p.name)
 def test_python_blocks_parse_and_their_agentdeck_imports_resolve(page: Path) -> None:
     for lang, meta, src in FENCE.findall(page.read_text()):
         if lang not in PYTHON:
@@ -79,7 +99,8 @@ def test_internal_links_resolve_to_a_page(page: Path) -> None:
 def test_nav_keys_match_pages_in_every_section(meta: Path) -> None:
     section = meta.parent
     entries = {p.stem for p in section.glob("*.mdx")} | {d.name for d in section.iterdir() if d.is_dir()}
-    assert set(META_KEY.findall(meta.read_text())) == entries, f"{meta.parent.name}/_meta.ts and its pages disagree"
+    keys = {key for key in META_KEY.findall(meta.read_text()) if not key.startswith("--")}
+    assert keys == entries, f"{meta.parent.name}/_meta.ts and its pages disagree"
 
 
 # A backticked `Thing.attr` in prose, e.g. `App.chat` or `app.store`. Bare names are skipped:
@@ -97,7 +118,7 @@ def _prose(page: Path) -> str:
     return FENCE.sub("", page.read_text())
 
 
-@pytest.mark.parametrize("page", _pages(), ids=lambda p: p.name)
+@pytest.mark.parametrize("page", _authored_pages(), ids=lambda p: p.name)
 def test_dotted_names_in_prose_still_exist_in_the_package(page: Path) -> None:
     """Prose naming something the code no longer has is the site's most repeated defect —
     a settings description outlived the mechanism it described by eleven days, and two pages
