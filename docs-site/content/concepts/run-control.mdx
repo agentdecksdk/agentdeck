@@ -47,7 +47,7 @@ A signal is acted on at the next **safe point**, never mid-token and never by ki
 - `node_boundary` — between two graph nodes.
 
 Agent runs today honor `stream_item`. A workflow (LangGraph) run has no safe point yet, so
-pause and cancel do not reach one — see [issue #128](https://github.com/sagi5060/agentdeck/issues/128).
+pause and cancel do not reach one — see [issue #128](https://github.com/agentdecksdk/agentdeck/issues/128).
 
 **A tool call that is already running is never interrupted.** If you pause while a tool is
 executing, the call runs to completion and the run stops before the step that would have used

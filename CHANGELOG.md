@@ -17,12 +17,12 @@ release train agree. Upgrading from v3.0.0 changes nothing at runtime.
 ### Added
 
 - **Three project pages on the documentation site.** [Known
-  Issues](https://sagi5060.github.io/agentdeck/known-issues) is the one worth bookmarking: every
+  Issues](https://agentdecksdk.com/known-issues) is the one worth bookmarking: every
   entry is reproduced and open against this release, most of them fail *silently* — a tool that
   raises still completes the run, a non-serializable tool return reaches the model as a memory
   address, `Agent(model=...)` is accepted and ignored — and each says what to do until it is
-  fixed. Also [Roadmap](https://sagi5060.github.io/agentdeck/roadmap) and a
-  [Changelog](https://sagi5060.github.io/agentdeck/changelog) generated from this file.
+  fixed. Also [Roadmap](https://agentdecksdk.com/roadmap) and a
+  [Changelog](https://agentdecksdk.com/changelog) generated from this file.
 - **`/llms.txt` and `/llms-full.txt`**, generated from the same Markdown the site renders, for
   coding agents and LLM search. Plus `context7.json`, whose rules encode the mistakes an assistant
   actually makes: no `agentdeck-sdk` package, a `Context[T]` tool must not be
@@ -1773,16 +1773,16 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/sagi5060/agentdeck/compare/v3.0.0b1...HEAD
-[3.0.0b1]: https://github.com/sagi5060/agentdeck/compare/v2.0.0...v3.0.0b1
-[2.0.0]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b4...v2.0.0
-[2.0.0b4]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b3...v2.0.0b4
-[2.0.0b3]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b2...v2.0.0b3
-[2.0.0b2]: https://github.com/sagi5060/agentdeck/compare/v2.0.0b1...v2.0.0b2
-[2.0.0b1]: https://github.com/sagi5060/agentdeck/compare/v1.2.1...v2.0.0b1
-[1.2.1]: https://github.com/sagi5060/agentdeck/compare/v1.2.0...v1.2.1
-[1.2.0]: https://github.com/sagi5060/agentdeck/compare/v1.1.0...v1.2.0
-[1.1.0]: https://github.com/sagi5060/agentdeck/compare/v1.0.0...v1.1.0
-[1.0.0]: https://github.com/sagi5060/agentdeck/compare/v0.2.0...v1.0.0
-[0.2.0]: https://github.com/sagi5060/agentdeck/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/sagi5060/agentdeck/releases/tag/v0.1.0
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v3.0.0b1...HEAD
+[3.0.0b1]: https://github.com/agentdecksdk/agentdeck/compare/v2.0.0...v3.0.0b1
+[2.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v2.0.0b4...v2.0.0
+[2.0.0b4]: https://github.com/agentdecksdk/agentdeck/compare/v2.0.0b3...v2.0.0b4
+[2.0.0b3]: https://github.com/agentdecksdk/agentdeck/compare/v2.0.0b2...v2.0.0b3
+[2.0.0b2]: https://github.com/agentdecksdk/agentdeck/compare/v2.0.0b1...v2.0.0b2
+[2.0.0b1]: https://github.com/agentdecksdk/agentdeck/compare/v1.2.1...v2.0.0b1
+[1.2.1]: https://github.com/agentdecksdk/agentdeck/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/agentdecksdk/agentdeck/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/agentdecksdk/agentdeck/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v0.2.0...v1.0.0
+[0.2.0]: https://github.com/agentdecksdk/agentdeck/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/agentdecksdk/agentdeck/releases/tag/v0.1.0

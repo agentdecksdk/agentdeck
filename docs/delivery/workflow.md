@@ -103,5 +103,5 @@ starting from v3.1's target. `docs-site` is excluded — it runs parallel to the
 never gates one (`roadmap-v3.1.md` §4). Move them with:
 
 ```
-gh api -X PATCH repos/sagi5060/agentdeck/milestones/<number> -f due_on="<date>T00:00:00Z"
+gh api -X PATCH repos/agentdecksdk/agentdeck/milestones/<number> -f due_on="<date>T00:00:00Z"
 ```

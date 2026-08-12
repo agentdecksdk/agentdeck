@@ -103,7 +103,7 @@ and import law they describe are what shipped). Layout and import law also in
 
 ## Git / release
 
-- Remote: `github.com/sagi5060/agentdeck` (public). **`dev` is the default
+- Remote: `github.com/agentdecksdk/agentdeck` (public). **`dev` is the default
   branch** — PRs and day-to-day commits target `dev`. `main` is release-only.
 - **Open the PR as a draft on your first commit, then push as you work.** Not at
   the end: CI then runs while the slice is still in your hands instead of after a
