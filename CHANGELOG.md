@@ -8,6 +8,15 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A checkpoint connection failure now raises `StoreError`, naming `AGENTDECK_CHECKPOINT` and
+  the resolved path or DSN, instead of a bare driver exception** (#233). An unwritable sqlite
+  checkpoint path raised `sqlite3.OperationalError: unable to open database file`, and a bad
+  Postgres DSN raised `psycopg.OperationalError` — neither said which setting caused it or that
+  agentdeck had resolved the path at all, unlike every other store, which already answers
+  connection failures this way. A driver error raised mid-run is unaffected.
+
 ## [3.0.1] - 2026-08-12
 
 **No functional change to the package.** `agentdeck/` is byte-identical to v3.0.0 — this release
