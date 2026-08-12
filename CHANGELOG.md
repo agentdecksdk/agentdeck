@@ -19,6 +19,14 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Fixed
 
+- **`Agent(model=...)` now actually runs on the model it names, instead of being silently
+  overridden by `OPENAI_MODEL` on every turn (#247).** The host Agents SDK's `RunConfig.model`
+  overrides *every* agent's own model once set, and every run's config set it from
+  `OPENAI_MODEL` unconditionally — so a per-agent override was accepted, type-checked, and then
+  discarded one layer later. The default is now resolved onto the compiled agent instead, at
+  build time: an agent that declares its own model keeps it, one that declares none still gets
+  `OPENAI_MODEL`, and this holds across handoffs and `as_tool()` since each agent resolves its
+  own model independently of which one is playing.
 - **A checkpoint connection failure now raises `StoreError` naming `AGENTDECK_CHECKPOINT`,
   instead of a bare driver exception** (#233). An unwritable sqlite checkpoint path raised
   `sqlite3.OperationalError: unable to open database file`, and a bad Postgres DSN raised

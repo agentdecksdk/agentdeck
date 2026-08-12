@@ -80,7 +80,10 @@ class BaseRunner:
     ) -> Self:
         """Build a runner with run config resolved from settings + per-call kwargs."""
         settings: Settings = get_settings()
-        openai = settings.openai.with_overrides(api_key=api_key, base_url=base_url, model=model)
+        # `model` is not passed to `with_overrides` here: `openai.model` no longer feeds
+        # `RunConfig.model` below, so overriding it on this object would resolve a value
+        # nothing reads.
+        openai = settings.openai.with_overrides(api_key=api_key, base_url=base_url)
         runner = settings.runner.with_overrides(
             workflow_name=workflow_name,
             temperature=temperature,
@@ -89,7 +92,11 @@ class BaseRunner:
         )
         run_config = RunConfig(
             workflow_name=runner.workflow_name,
-            model=openai.model,
+            # The raw `model=` kwarg, not `openai.model`: `RunConfig.model` overrides every
+            # agent's own model once set, so only an explicit per-call override belongs here.
+            # An agent that names none is defaulted at compile time instead
+            # (`authoring.compile.compile_agent`), before it ever reaches this runner.
+            model=model,
             nest_handoff_history=True,
             tracing_disabled=not tracing_enabled(),
             model_provider=OpenAIProvider(

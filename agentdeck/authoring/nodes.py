@@ -98,7 +98,11 @@ class AgentNode:
         self.agent = agent
         self.input_key = input_key
         self.output_key = output_key
-        # The compiled SDK Agent is stateless across runs; reuse the first compile.
+        # Reused across every run, not recompiled: an agent that names no model gets
+        # `OPENAI_MODEL` baked onto it at this first compile (`authoring.compile.compile_agent`),
+        # so a settings change afterwards — even paired with `reset_settings_cache()` — has
+        # nothing to reach. A test compiling a node has to account for that staleness rather
+        # than assume each run re-resolves it.
         self._built: Any | None = None
 
     async def __call__(self, state: Any) -> dict[str, Any]:

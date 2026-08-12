@@ -6,11 +6,14 @@ control port are already resolved there: an adapter that reaches for ``get_setti
 cannot be handed a different endpoint by a caller, and a second front door would have to
 mutate process state to get one.
 
-A bare :class:`RunSettings` therefore configures nothing at all — no model override, no
-provider, the SDK's own defaults — which is what a code-first caller wiring
-``OpenAIAgentsEngine()`` by hand gets. Naming a model is what turns on the provider, since
-an endpoint the run was pointed at is the only thing that makes overriding an agent's own
-model correct.
+A bare :class:`RunSettings` therefore configures nothing at all — no provider, the SDK's
+own defaults — which is what a code-first caller wiring ``OpenAIAgentsEngine()`` by hand
+gets. Naming a model is what turns on the provider (see ``_provider``), but it never reaches
+``RunConfig.model``: the SDK overrides *every* agent's own model with that field once it is
+set, string or ``Model`` alike, so the settings-resolved default is handed to each agent
+instead, at compile time (``authoring.compile.compile_agent``) — the one place an agent's own
+declared model and the run's default both resolve to a single value before either ever
+reaches an SDK ``RunConfig``.
 """
 
 from __future__ import annotations
@@ -53,7 +56,9 @@ def build_run_config(settings: RunSettings, *, sandbox: Any = None) -> RunConfig
     """
     return RunConfig(
         workflow_name=settings.workflow_name,
-        model=settings.model,
+        # No `model=` here: the SDK's own `RunConfig.model` overrides every agent's model
+        # once set, so a per-agent default lives on the compiled SDK agent instead
+        # (`authoring.compile.compile_agent`), where an agent's own declaration still wins.
         nest_handoff_history=settings.nest_handoff_history,
         tracing_disabled=not tracing_enabled(),
         model_provider=_provider(settings) or MultiProvider(),
