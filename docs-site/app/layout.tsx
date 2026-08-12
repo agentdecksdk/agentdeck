@@ -46,7 +46,7 @@ const footer = (
 export default async function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" dir="ltr" className={`${body.variable} ${display.variable}`} suppressHydrationWarning>
-      <Head backgroundColor={{ light: '#fafbfe', dark: '#0b1220' }} color={{ hue: { light: 222.9, dark: 221.1 }, saturation: { light: 100, dark: 100 }, lightness: { light: 52, dark: 74 } }} />
+      <Head backgroundColor={{ light: '#fafbfe', dark: '#0b1220' }} color={{ hue: { light: 222.9, dark: 221.1 }, saturation: { light: 100, dark: 100 }, lightness: { light: 57.3, dark: 78.8 } }} />
       <body style={{ fontFamily: 'var(--font-body), sans-serif' }}>
         <Layout
           navbar={navbar}

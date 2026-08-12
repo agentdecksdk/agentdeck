@@ -11,23 +11,21 @@
   --brand-cool-gray: #94a3b8;
   --brand-soft-gray: #e5e7eb;
 
-  /* Nextra derives its whole primary-50..900 ramp from these three. Agent Blue is
-     hsl(222.9 100% 57.3%) and clears AA on Snow at 4.71:1 — enough for body text, tight for a
-     link colour that appears in every paragraph. 52% is the same blue two steps deeper and
-     5.63:1, so links are comfortable while --brand-blue stays exact wherever the brand colour
-     is the surface rather than the text. */
+  /* Nextra derives its whole primary-50..900 ramp from these three, so these ARE Agent Blue:
+     hsl(222.9 100% 57.3%) is exactly #2563ff. It clears AA on Snow at 4.71:1, so there is no
+     reason to substitute a near-miss for contrast — and a near-miss is not the brand. */
   --nextra-primary-hue: 222.9;
   --nextra-primary-saturation: 100%;
-  --nextra-primary-lightness: 52%;
+  --nextra-primary-lightness: 57.3%;
   --nextra-bg: 250 251 254;
 }
 
 .dark {
-  /* Agent Blue on Deep Night is too dark to carry links, so Frost Blue takes over: 9.18:1,
-     which is why the sheet pairs them. */
+  /* Agent Blue on Deep Night is too dark to carry links, so Frost Blue takes over — and these
+     are exactly Frost Blue: hsl(221.1 100% 78.8%) is #93b5ff, 9.18:1 on Deep Night. */
   --nextra-primary-hue: 221.1;
   --nextra-primary-saturation: 100%;
-  --nextra-primary-lightness: 74%;
+  --nextra-primary-lightness: 78.8%;
   --nextra-bg: 11 18 32;
 }
 
