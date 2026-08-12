@@ -16,6 +16,9 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   Postgres DSN raised `psycopg.OperationalError` — neither said which setting caused it or that
   agentdeck had resolved the path at all, unlike every other store, which already answers
   connection failures this way. A driver error raised mid-run is unaffected.
+- **`AGENTDECK_RUNNER_WORKFLOW_NAME` no longer defaults to `local-sandbox-repl`.** That value named
+  v1's sandboxed local REPL, deleted in #71 — every untuned run was labeling its tracing (e.g.
+  Langfuse) after a development tool that no longer exists. The default is now `agentdeck`.
 
 ## [3.0.1] - 2026-08-12
 
