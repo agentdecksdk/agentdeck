@@ -21,9 +21,32 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONTENT_ROOT = _REPO_ROOT / "docs-site" / "content"
 
+CHANGELOG_SOURCE = _REPO_ROOT / "CHANGELOG.md"
+"""Read from the repository, not from the site's `changelog.mdx`. That page reproduces only the
+current release in full, and *"when did this change?"* needs every release."""
+
+EXCLUDED = frozenset({"changelog"})
+"""Pages kept out of general search — not out of the assistant's reach.
+
+The changelog is **history**, and history is where removed APIs live: it names
+``agentdeck.adapters.caps`` and ``openai_agents.structured_output`` precisely because it is
+recording that they were deleted. An answer grounded in it would be a *correct quotation of a
+real page* describing something that no longer exists — the grounding rule defeated by obeying it.
+
+It is also 450 lines mentioning every environment variable the project has ever had, which is how
+this was noticed: publishing it pushed ``reference/settings`` out of the top three for *"what
+environment variables are there?"*, and the retrieval test failed.
+
+So it moves **behind its own tool** rather than out of the corpus. *"When was `Context` added?"*
+is a real question whose answer is only here; it just must never arrive as a documentation
+lookup. Roadmap and known-issues stay in general search — both describe the present.
+"""
+
 _TITLE = re.compile(r"^title:\s*(.+)$", re.MULTILINE)
 _WORD = re.compile(r"[a-z0-9_]+")
 _FRONTMATTER = re.compile(r"\A---\n.*?\n---\n", re.DOTALL)
+_RELEASE = re.compile(r"^## \[([^\]]+)\](?: - (\S+))?\s*$", re.MULTILINE)
+_VERSIONISH = re.compile(r"^v?\d+\.\d+")
 
 
 class DocsCorpus:
@@ -37,9 +60,57 @@ class DocsCorpus:
         self.root = content_root or DEFAULT_CONTENT_ROOT
         if not self.root.is_dir():
             raise FileNotFoundError(f"docs content root not found: {self.root}")
-        self.pages: dict[str, str] = {_slug_of(path, self.root): path.read_text() for path in self.root.rglob("*.mdx")}
+        found = {_slug_of(path, self.root): path.read_text() for path in self.root.rglob("*.mdx")}
+        self.pages: dict[str, str] = {slug: text for slug, text in found.items() if slug not in EXCLUDED}
         if not self.pages:
             raise FileNotFoundError(f"no .mdx pages under {self.root}")
+        self.releases: list[tuple[str, str, str]] = _releases()
+
+    def changelog(self, subject: str) -> str:
+        """One release's notes, or the releases that mention a topic.
+
+        Both from one parameter, because they are one question asked two ways and two tools would
+        make the model choose between them. A version-shaped subject (``3.0.0``, ``v3.0.0``,
+        ``latest``) reads as *"what changed in that release"*; anything else reads as *"when did
+        this change"* and searches every release for it.
+        """
+        wanted = subject.strip().lstrip("v").lower()
+        if not wanted or wanted == "latest":
+            version, date, body = next((r for r in self.releases if r[0].lower() != "unreleased"), self.releases[0])
+            return f"## {version}{f' — {date}' if date else ''}\n\n{body.strip()}"
+        for version, date, body in self.releases:
+            if version.lower() == wanted:
+                return f"## {version}{f' — {date}' if date else ''}\n\n{body.strip()}"
+        if _VERSIONISH.match(wanted):
+            return f"no release {subject!r}. Releases: {', '.join(v for v, _d, _b in self.releases)}"
+        return self._mentions(subject)
+
+    def _mentions(self, topic: str) -> str:
+        """Every release whose notes mention ``topic``, newest first, with the lines that matched.
+
+        Answers what a version lookup cannot: *when* did this appear, change, or go away. The
+        release heading is on every hit, because a changelog line without its version is worse
+        than no line — it reads as current.
+        """
+        # Lowercased first: `_matcher` escapes the word as given and every body is compared
+        # lowercase, so an un-lowered `Context` would match nothing at all.
+        words = [word for word in _WORD.findall(topic.lower()) if _stem(word) not in _STOPWORDS]
+        if not words:
+            return "ask about a version (3.0.0, latest) or a topic (Context, AudioBlock)"
+        pattern = _matcher(words[0])
+        hits: list[str] = []
+        for version, date, body in self.releases:
+            lines = [
+                stripped
+                for line in body.splitlines()
+                if len(stripped := line.strip()) > 20 and pattern.search(stripped.lower())
+            ]
+            if lines:
+                head = f"### {version}{f' ({date})' if date else ''}"
+                hits.append(head + "\n" + "\n".join(f"- {line[:200]}" for line in lines[:3]))
+        if not hits:
+            return f"no release mentions {topic!r}"
+        return f"Releases mentioning {topic!r}, newest first:\n\n" + "\n\n".join(hits[:5])
 
     def title_of(self, slug: str) -> str:
         found = _TITLE.search(self.pages[slug])
@@ -152,6 +223,17 @@ def _matcher(word: str) -> re.Pattern[str]:
     return re.compile(rf"\b{re.escape(_stem(word))}s?\b")
 
 
+def _releases() -> list[tuple[str, str, str]]:
+    """``(version, date, body)`` per release heading in ``CHANGELOG.md``, newest first — the
+    file's own order, since Keep a Changelog puts the newest at the top."""
+    text = CHANGELOG_SOURCE.read_text()
+    heads = list(_RELEASE.finditer(text))
+    return [
+        (m.group(1), m.group(2) or "", text[m.end() : (heads[i + 1].start() if i + 1 < len(heads) else len(text))])
+        for i, m in enumerate(heads)
+    ]
+
+
 def _slug_of(path: Path, root: Path) -> str:
     """``concepts/agents.mdx`` -> ``concepts/agents``; ``concepts/index.mdx`` -> ``concepts``.
 
@@ -164,4 +246,4 @@ def _slug_of(path: Path, root: Path) -> str:
     return "index" if relative.parent == Path() else str(relative.parent)
 
 
-__all__ = ["DEFAULT_CONTENT_ROOT", "DocsCorpus"]
+__all__ = ["CHANGELOG_SOURCE", "DEFAULT_CONTENT_ROOT", "EXCLUDED", "DocsCorpus"]

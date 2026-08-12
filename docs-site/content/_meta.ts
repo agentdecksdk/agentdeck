@@ -4,5 +4,12 @@ export default {
   concepts: 'Core Concepts',
   guides: 'Guides',
   operating: 'Operating',
-  reference: 'Reference'
+  reference: 'Reference',
+  '-- project': {
+    type: 'separator',
+    title: 'Project'
+  },
+  roadmap: 'Roadmap',
+  'known-issues': 'Known Issues',
+  changelog: 'Changelog'
 }

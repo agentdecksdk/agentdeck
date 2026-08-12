@@ -1,20 +1,36 @@
-# agentdeck
+<div align="center">
 
-[![CI](https://github.com/sagi5060/agentdeck/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/sagi5060/agentdeck/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-agentdeck-informational.svg)](https://sagi5060.github.io/agentdeck/)
+<img src="docs/brand/logo-blue.svg" alt="AgentDeck" width="76">
+
+# AgentDeck SDK
+
+**Compose. Observe. Ship.**
+
+The production runtime for agents you already have.
+
+<!-- The blue variant, not logo.svg: that one is fill="currentColor" for inlining, and an SVG
+     loaded through <img> has nothing to inherit from, so it renders black — invisible on
+     GitHub's dark theme. See docs/brand/README.md. -->
+
+[![CI](https://img.shields.io/github/actions/workflow/status/sagi5060/agentdeck/ci.yml?branch=dev&label=CI&labelColor=0B1220&color=2563FF)](https://github.com/sagi5060/agentdeck/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/sagi5060/agentdeck?label=release&labelColor=0B1220&color=2563FF)](https://github.com/sagi5060/agentdeck/releases)
+[![Python](https://img.shields.io/badge/python-3.12+-2563FF?labelColor=0B1220)](pyproject.toml)
+[![License](https://img.shields.io/badge/license-MIT-2563FF?labelColor=0B1220)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-agentdecksdk-2563FF?labelColor=0B1220)](https://sagi5060.github.io/agentdeck/)
+
+</div>
 
 **A harness for agents you have to operate.** You write agents, workflows and skills as small
-Python declarations in a `.agentdeck/` directory. agentdeck supplies everything around them —
+Python declarations in a `.agentdeck/` directory. AgentDeck supplies everything around them —
 discovery, layered settings, provider wiring, sessions, streaming, MCP servers, typed workflows
 with human approval, an HTTP surface, and one ordered event log for every run — and leaves the
 running of a turn to the engines underneath.
 
-That division is the whole design. **agentdeck owns configuration; the
+That division is the whole design. **AgentDeck owns configuration; the
 [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) and
 [LangGraph](https://langchain-ai.github.io/langgraph/) own execution.** There is no agent loop
 here, no graph engine, and no reimplementation of either — an `Agent` compiles to an SDK agent, a
-`Workflow` compiles to a LangGraph graph, and both are run by their own engine. What agentdeck
+`Workflow` compiles to a LangGraph graph, and both are run by their own engine. What AgentDeck
 adds is the part those libraries deliberately leave to you: where definitions live, how they are
 configured, and what you can see and do while a run is in flight.
 
@@ -26,7 +42,7 @@ need to inspect afterwards, approvals that outlive the process that asked for th
 
 You do not want this if you are writing one script that calls one model — use the Agents SDK
 directly, and come back when the wiring around it has become the work. You also do not want it
-if you have already built your own harness: agentdeck is opinionated about project layout and
+if you have already built your own harness: AgentDeck is opinionated about project layout and
 configuration, and those opinions are the product.
 
 ## What it deliberately does not do
@@ -133,11 +149,12 @@ The full docs are at **[sagi5060.github.io/agentdeck](https://sagi5060.github.io
 
 ## Project
 
-agentdeck is beta software under active development; breaking changes are listed in
+AgentDeck is beta software under active development; breaking changes are listed in
 [CHANGELOG.md](CHANGELOG.md).
 
 - **Contributing** — [CONTRIBUTING.md](CONTRIBUTING.md). PRs target `dev`; `make check` is the
   gate. Framework internals are laid out in [`agentdeck/README.md`](agentdeck/README.md).
+- **Brand** — [`docs/brand/`](docs/brand/).
 - **Security** — [SECURITY.md](SECURITY.md), including what is deliberately out of scope.
 - **Code of conduct** — [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 - **License** — MIT, see [LICENSE](LICENSE).

@@ -1,9 +1,9 @@
 """Ask AgentDeck — the assistant that answers questions about AgentDeck, built on AgentDeck.
 
-Two tools over one context. Neither is wrapped in ``@function_tool``: a tool that declares a
+Three tools over one context. None is wrapped in ``@function_tool``: a tool that declares a
 ``Context`` parameter must stay a plain function, because the decorator would put that parameter
 into the schema the model sees. ``build()`` compiles it instead, and the context argument is
-absent from what the model is offered — it only ever chooses ``query`` or ``slug``.
+absent from what the model is offered — it only ever chooses ``query``, ``slug`` or ``subject``.
 """
 
 from __future__ import annotations
@@ -27,6 +27,12 @@ def read_doc(slug: str, docs: Context[DocsCorpus]) -> str:
     if page is None:
         return f"no page {slug!r}. Available pages:\n{docs.data.index()}"
     return page
+
+
+def read_changelog(subject: str, docs: Context[DocsCorpus]) -> str:
+    """Read AgentDeck's release history. Pass a version ('3.0.0', 'latest') for that release's
+    notes, or a topic ('Context', 'AudioBlock') to find which releases changed it."""
+    return docs.data.changelog(subject)
 
 
 def instructions(docs: Context[DocsCorpus]) -> str:
@@ -55,6 +61,12 @@ other agent frameworks:
 - Never invent an API. If the documentation does not cover something, say exactly that and name
   the closest thing it does cover. A wrong API is worse than no answer, because the reader will
   try it.
+- The documentation describes the **current** release. For anything about *versions* — what
+  changed, when something arrived, whether an upgrade breaks you — use `read_changelog`. The
+  documentation pages do not say when anything changed.
+- `read_changelog` is history, and history contains APIs that were later removed. Never present
+  something found only in the changelog as though it exists today: say which release it belongs
+  to, and check the documentation before recommending it.
 - Cite the pages you used, by slug, at the end of the answer.
 
 The reader may be looking at a page when they ask. If the question mentions one, read that page
@@ -67,7 +79,7 @@ of one. If the question has a one-line answer, give the one line.
 ask = Agent(
     name="AskAgentDeck",
     instructions=instructions,
-    tools=[search_docs, read_doc],
+    tools=[search_docs, read_doc, read_changelog],
     # `max_tokens` is the only *structural* answer to "can someone use this to write their essay
     # instead of asking about the docs". The instruction above says to stay on topic, and an
     # instruction is persuadable; a token ceiling is not. A grounded docs answer with a code
@@ -78,4 +90,4 @@ ask = Agent(
     model_settings={"max_tokens": 900, "temperature": 0.1},
 )
 
-__all__ = ["INSTRUCTIONS", "ask", "instructions", "read_doc", "search_docs"]
+__all__ = ["INSTRUCTIONS", "ask", "instructions", "read_changelog", "read_doc", "search_docs"]

@@ -117,6 +117,17 @@ emitted consistently. Never catch bare `Exception` except at a top-level loop th
 converts it to `run.failed(engine_error)`; never use exceptions for control flow the
 status machine already models.
 
+**Point at the page when the page is the answer** *(added 2026-08-11, #238)*. Where a
+documentation page genuinely resolves an error — the reader's next move is to read it, not to
+change their code — name it in the message. Two clean-room reviewers each lost minutes to walls
+whose answer was already written, correctly, on a page they had not opened.
+
+This is a judgment, not a blanket rule, and the judgment is the point: a link on every error is
+noise, trains readers to ignore all of them, and rots the moment a page is renamed. Add one where
+it earns its place — a configuration trap, a boundary the reader could not have known about, a
+"this is deliberate and here is why" — and leave it off where the message already says everything
+there is to say.
+
 ## 6. Async and the event path
 
 All I/O-adjacent code is `async`. Forbidden in any async path: `time.sleep`, blocking
