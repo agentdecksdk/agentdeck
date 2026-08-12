@@ -8,6 +8,45 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-08-12
+
+**No functional change to the package.** `agentdeck/` is byte-identical to v3.0.0 — this release
+carries documentation, brand and discoverability work, and exists so the published site and the
+release train agree. Upgrading from v3.0.0 changes nothing at runtime.
+
+### Added
+
+- **Three project pages on the documentation site.** [Known
+  Issues](https://sagi5060.github.io/agentdeck/known-issues) is the one worth bookmarking: every
+  entry is reproduced and open against this release, most of them fail *silently* — a tool that
+  raises still completes the run, a non-serializable tool return reaches the model as a memory
+  address, `Agent(model=...)` is accepted and ignored — and each says what to do until it is
+  fixed. Also [Roadmap](https://sagi5060.github.io/agentdeck/roadmap) and a
+  [Changelog](https://sagi5060.github.io/agentdeck/changelog) generated from this file.
+- **`/llms.txt` and `/llms-full.txt`**, generated from the same Markdown the site renders, for
+  coding agents and LLM search. Plus `context7.json`, whose rules encode the mistakes an assistant
+  actually makes: no `agentdeck-sdk` package, a `Context[T]` tool must not be
+  `@function_tool`-wrapped, `durable = True` needs the `[durability]` extra.
+- **`sitemap.xml`, `robots.txt`, canonical URLs and Open Graph tags**, all generated. One
+  canonical origin behind `NEXT_PUBLIC_SITE_URL`, so moving domain is a variable rather than a
+  sweep.
+- **A changelog tool for the documentation assistant.** *"When was `Context` added?"* is a real
+  question, and its answer is only in release history — which must never ground a documentation
+  answer, because history names APIs that were later removed.
+- **`docs/brand/`** — the mark as vectors, with the reasoning. No rasters: this repository tracks
+  no binaries.
+
+### Changed
+
+- The documentation site carries the brand: Agent Blue, the mark in the navbar and as the favicon,
+  and **AgentDeck SDK** in titles and descriptions. The package and import stay `agentdeck`.
+
+### Fixed
+
+- **Code blocks on the documentation site rendered washed grey.** `nextra-code` is on three
+  elements, so a rule written for inline code laid a pale wash over the dark block, and the
+  syntax theme then did not match the surface it was on.
+
 ## [3.0.0] - 2026-08-11
 
 The stable v3. Everything below landed on top of `3.0.0b1`: multimodal input, a versioned event
