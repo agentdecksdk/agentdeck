@@ -256,7 +256,7 @@ class RunnerSettings(LayeredSettings):
     model_config = settings_config("AGENTDECK_RUNNER_")
 
     workflow_name: str = Field(
-        default="local-sandbox-repl",
+        default="agentdeck",
         description="Name recorded on the host Agents SDK run (`RunConfig.workflow_name`) — identifies which "
         "workflow produced a run in tracing/observability.",
     )

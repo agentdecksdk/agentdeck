@@ -2357,7 +2357,7 @@ Defaults for the host-side Agents SDK runner.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_RUNNER_WORKFLOW_NAME` | `str` | `'local-sandbox-repl'` | Name recorded on the host Agents SDK run (`RunConfig.workflow_name`) — identifies which workflow produced a run in tracing/observability. |
+| `AGENTDECK_RUNNER_WORKFLOW_NAME` | `str` | `'agentdeck'` | Name recorded on the host Agents SDK run (`RunConfig.workflow_name`) — identifies which workflow produced a run in tracing/observability. |
 | `AGENTDECK_RUNNER_TEMPERATURE` | `float` | `1.0` | Sampling temperature for the host agent loop's model. |
 | `AGENTDECK_RUNNER_MAX_TURNS` | `int` | `30` | Maximum turns `Runner.run`/`run_streamed` may take before giving up. |
 | `AGENTDECK_RUNNER_MAX_TOKENS` | `int` or `None` | `None` | Cap on tokens per response for the host agent loop's `ModelSettings`. `None` means the model's own default (uncapped). |
