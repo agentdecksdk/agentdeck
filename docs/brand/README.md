@@ -78,12 +78,10 @@ It is **not** committed as a PNG, for the same reason nothing else here is: `.gi
 `docs/brand/*.png` out of the tree. Regenerate the upload artifact instead:
 
 ```bash
-# Space Grotesk (headings, per §07 of the sheet) and Inter (body) are live `<text>`, not paths,
-# so they must be resolvable to the renderer. Skip if already installed system-wide. Note this
-# is the one place the sheet's typography is used rather than the site's Poppins — see
-# "Unresolved: the typeface" below; the card follows the sheet because the wordmark is the sheet's.
+# Poppins (wordmark and tagline) and Inter (body) are live `<text>`, not paths, so they must be
+# resolvable to the renderer. Skip if already installed system-wide.
 mkdir -p ~/.local/share/fonts/agentdeck-render && cd "$_"
-for f in ofl/spacegrotesk/'SpaceGrotesk[wght].ttf' ofl/inter/'Inter[opsz,wght].ttf'; do
+for f in ofl/poppins/Poppins-Bold.ttf ofl/poppins/Poppins-SemiBold.ttf ofl/inter/'Inter[opsz,wght].ttf'; do
   curl -sSLO "https://github.com/google/fonts/raw/main/$f"
 done && fc-cache -f
 
@@ -113,11 +111,20 @@ thereafter. The qualifier lives in titles, descriptions and the domain — not i
 would read as a sub-brand of a parent product that does not exist. See
 `docs/delivery/plan-adoption.md` §1.
 
-## Unresolved: the typeface
+## The typeface: Poppins, and the sheet's own label is wrong
 
-Three sources disagree. The brand sheet specifies **Space Grotesk** for headings; the wordmark
-appears to be set in a geometric sans closer to **Poppins**; and the live docs site
-(`docs-site/app/layout.tsx`) uses **Poppins**. Two of the three agree, and the sheet is the odd one
-out — but it should be decided rather than left to whichever file someone opens first. Tracked
-against the docs-site design pass (#140), along with the palette, which the sheet also changes
-wholesale.
+This was open — the sheet's §07 names **Space Grotesk** for headings while the wordmark looked
+like something else. Setting the social card decided it, because a wordmark either matches or it
+does not.
+
+**The wordmark is Poppins Bold.** The `a` is **single-storey**, and Space Grotesk's is
+double-storey — that alone rules it out, and the geometric `e`, the straight-tailed `g`, the
+angled cut on the `t` and the straight `k` diagonals all agree. Rendered side by side against
+`wordmark.png`, Poppins 700 matches and Space Grotesk 700 is not close.
+
+So two of three sources always did agree, and the third is a label in the sheet contradicting the
+sheet's own artwork. Poppins is what the wordmark is, what the site loads, and what the card sets.
+Space Grotesk should be treated as a typo unless someone produces a wordmark drawn in it.
+
+The palette is not affected — the sheet's hexes and the site's `brand.css` already match exactly.
+The wider presentation question stays with the docs-site design pass (#140).

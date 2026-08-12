@@ -43,8 +43,8 @@
     </svg>
   </g>
 
-  <text x="404" y="260" font-family="Space Grotesk, sans-serif" font-weight="500" font-size="104" fill="#fafbfe" letter-spacing="-3">agentdeck</text>
-  <text x="410" y="328" font-family="Space Grotesk, sans-serif" font-weight="500" font-size="38" fill="#2563ff" letter-spacing="-0.6">Compose. Observe. Ship.</text>
+  <text x="404" y="262" font-family="Poppins, sans-serif" font-weight="700" font-size="96" fill="#fafbfe" letter-spacing="-3.4">agentdeck</text>
+  <text x="408" y="330" font-family="Poppins, sans-serif" font-weight="600" font-size="37" fill="#2563ff" letter-spacing="-0.8">Compose. Observe. Ship.</text>
 
   <text x="411" y="406" font-family="Inter, sans-serif" font-size="25" fill="#93b5ff">A production runtime for AI agents</text>
   <text x="411" y="450" font-family="Inter, sans-serif" font-size="23" fill="#94a3b8">Durable human approvals &#183; sessions &#183; streaming &#183; run control</text>
