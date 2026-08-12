@@ -8,6 +8,15 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+
+- **`agentdeck.testing`**, the exported stub-runner test harness (#26): `ScriptedModel` (text
+  deltas, an optional tool call, mid-stream failure, a `hold` gate for catching a consumer
+  mid-await, configurable usage counts), `patch_model()` (swaps the SDK's model provider for the
+  duration of a `with` block), and `scripted_model_server()` (a local Chat-Completions-compatible
+  HTTP endpoint for a test that must run agentdeck as a real subprocess or a real HTTP client).
+  Every one of this repo's own hand-rolled scripted models now builds on it.
+
 ### Fixed
 
 - **`AGENTDECK_RUNNER_WORKFLOW_NAME` no longer defaults to `local-sandbox-repl`.** That value named

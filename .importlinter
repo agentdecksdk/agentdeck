@@ -36,6 +36,7 @@ forbidden_modules =
     agentdeck.runtime
     agentdeck.serve
     agentdeck.deck
+    agentdeck.testing
 
 # The Runtime is the use-case layer: it orchestrates through ports and must never reach for
 # an engine, a store or a surface directly — those arrive from the composition root.
@@ -125,6 +126,7 @@ source_modules =
     agentdeck.adapters.control.sqlite
     agentdeck.adapters.tools.mcp
     agentdeck.surfaces
+    agentdeck.testing
 forbidden_modules =
     langgraph
 

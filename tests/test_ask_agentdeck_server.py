@@ -15,14 +15,14 @@ from __future__ import annotations
 
 import json
 import sys
-import threading
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from fastapi.testclient import TestClient
+
+from agentdeck.testing import scripted_model_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -41,57 +41,6 @@ from ask_agentdeck.server import (  # noqa: E402 — needs the path above
     page_context_input,
 )
 
-_TOOL_CALL = {
-    "index": 0,
-    "id": "call-1",
-    "type": "function",
-    "function": {"name": "read_doc", "arguments": '{"slug": "concepts/agents"}'},
-}
-
-
-class _ScriptedToolCallingModel(BaseHTTPRequestHandler):
-    """First request: call `read_doc`. After that: plain text. Streamed, because `deck.stream`
-    always uses the SDK's streaming runner and a flat completion parses as zero chunks there.
-    """
-
-    turns = 0
-    received: list[dict] = []
-    """Every request body, so a test can assert what the *model* was told — the only place a
-    tool's real output is still observable now that it no longer reaches the browser."""
-
-    def do_POST(self) -> None:
-        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-        type(self).received.append(body)
-        type(self).turns += 1
-        first = type(self).turns == 1
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.end_headers()
-        chunks = (
-            [
-                {"delta": {"role": "assistant", "tool_calls": [_TOOL_CALL]}, "finish_reason": None},
-                {"delta": {}, "finish_reason": "tool_calls"},
-            ]
-            if first
-            else [
-                {"delta": {"role": "assistant", "content": "See concepts/agents."}, "finish_reason": None},
-                {"delta": {}, "finish_reason": "stop"},
-            ]
-        )
-        for chunk in chunks:
-            payload = {
-                "id": "c1",
-                "object": "chat.completion.chunk",
-                "created": 0,
-                "model": "fake",
-                "choices": [{"index": 0, **chunk}],
-            }
-            self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
-        self.wfile.write(b"data: [DONE]\n\n")
-
-    def log_message(self, *_args: object) -> None:
-        pass
-
 
 @pytest.fixture(scope="module")
 def corpus() -> DocsCorpus:
@@ -99,17 +48,24 @@ def corpus() -> DocsCorpus:
 
 
 @pytest.fixture
-def scripted_model() -> Iterator[str]:
-    _ScriptedToolCallingModel.turns = 0
-    _ScriptedToolCallingModel.received = []
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _ScriptedToolCallingModel)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield f"http://127.0.0.1:{server.server_address[1]}/v1"
-    finally:
-        server.shutdown()
-        thread.join()
+def received() -> list[dict[str, Any]]:
+    """Every request body the scripted model was handed — the only place a tool's real output
+    is still observable now that it no longer reaches the browser."""
+    return []
+
+
+@pytest.fixture
+def scripted_model(received: list[dict[str, Any]]) -> Iterator[str]:
+    """First request: call `read_doc`. After that: plain text. Streamed, because `deck.stream`
+    always uses the SDK's streaming runner and a flat completion parses as zero chunks there.
+    """
+    with scripted_model_server(
+        "See concepts/agents.",
+        tool_name="read_doc",
+        tool_arguments='{"slug": "concepts/agents"}',
+        received=received,
+    ) as base_url:
+        yield base_url
 
 
 @pytest.fixture
@@ -183,7 +139,9 @@ def test_health_reports_the_loaded_corpus(client: TestClient) -> None:
 
 
 @pytest.mark.parametrize("origin", ["https://not-the-docs.example", ""], ids=["foreign", "empty"])
-def test_a_question_from_another_origin_is_refused_before_the_model_is_called(client: TestClient, origin: str) -> None:
+def test_a_question_from_another_origin_is_refused_before_the_model_is_called(
+    client: TestClient, origin: str, received: list[dict[str, Any]]
+) -> None:
     """Enforced in the route, not left to CORS. CORSMiddleware only tells a browser not to hand
     the response back — by then the run has happened and been paid for. Refusing here is the
     difference between a wasted model call and none.
@@ -197,7 +155,7 @@ def test_a_question_from_another_origin_is_refused_before_the_model_is_called(cl
     """
     refused = client.post("/ask", json={"question": "hi"}, headers={"origin": origin})
     assert refused.status_code == HTTPStatus.FORBIDDEN
-    assert _ScriptedToolCallingModel.received == [], "the model must not be called for a refused origin"
+    assert received == [], "the model must not be called for a refused origin"
 
 
 def test_the_wire_is_the_canonical_event_log(client: TestClient) -> None:
@@ -222,7 +180,7 @@ def test_the_page_the_reader_is_on_reaches_the_run(client: TestClient) -> None:
     assert "reference/deck" in text
 
 
-def test_the_context_reaches_a_tool_on_a_served_run(client: TestClient) -> None:
+def test_the_context_reaches_a_tool_on_a_served_run(client: TestClient, received: list[dict[str, Any]]) -> None:
     """**Ruling 3, demonstrated.** The scripted model calls `read_doc`, whose only way to answer
     is `docs.data.pages` — so a served run that reached the tool with no context would send the
     model an error where a page should be. Through `Deck.asgi()` this is impossible by
@@ -233,7 +191,7 @@ def test_the_context_reaches_a_tool_on_a_served_run(client: TestClient) -> None:
     allowlist is precisely that raw tool output stays inside the process.
     """
     client.post("/ask", json={"question": "how do I create an agent?"})
-    follow_up = _ScriptedToolCallingModel.received[1]
+    follow_up = received[1]
     assert "title: Agents" in json.dumps(follow_up["messages"]), "the tool answered without its corpus"
 
 

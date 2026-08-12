@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from agents import Agent
 from event_log_checks import check_contiguous, check_terminal
-from scripted_model import ScriptedModel
 
 from agentdeck.adapters.control.memory import MemoryControlPort
 from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
@@ -32,6 +31,7 @@ from agentdeck.core.events import MessageCompleted, RunCompleted, TextDelta, Usa
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.runtime.service import Runtime
+from agentdeck.testing import ScriptedModel
 
 if TYPE_CHECKING:
     from agentdeck.core.events import Event

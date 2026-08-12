@@ -23,27 +23,22 @@ rest of the suite.
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
-import threading
 from functools import cache
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING
 
 import pytest
 from test_docs_site import FENCE, REASON, _pages
 
+from agentdeck.testing import scripted_model_server
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
 _SUBPROCESS_TIMEOUT = 30
-# None of today's run fences branch on what they send — one fixed reply proves the wire
-# round-trip without needing tests/scripted_model.py's per-fence deltas/final_text scripting.
-_REPLY = "hi"
-_USAGE = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
 
 # Mirrors tests/golden/conftest.py::_PINNED_ENV in spirit: memory backends and no external
 # services, so a run fence can never reach real Redis, Langfuse, or MCP. OPENAI_BASE_URL is
@@ -63,86 +58,14 @@ _PINNED_ENV = {
 }
 
 
-class _ScriptedChatHandler(BaseHTTPRequestHandler):
-    """One canned reply for any ``POST /v1/chat/completions``, in whichever shape the request
-    asked for: a plain JSON completion for ``Runner.run`` (today's ``run_agent``/``chat``
-    fences), or a ``text/event-stream`` of chunks for ``Runner.run_streamed`` (what
-    ``app.runtime.run`` — and so every fence exercising the event log — always uses). Reading
-    the request's own ``stream`` flag, rather than picking one shape for every fence, is what
-    lets both keep working: a streamed reply handed to a non-streaming caller is not valid
-    Chat-Completions JSON, and a flat completion handed to a streaming caller parses as zero
-    chunks.
-    """
-
-    def do_POST(self) -> None:
-        length = int(self.headers.get("Content-Length", 0))
-        body = json.loads(self.rfile.read(length) or b"{}")
-        if body.get("stream"):
-            self._stream()
-        else:
-            self._complete()
-
-    def _complete(self) -> None:
-        body = json.dumps(
-            {
-                "id": "chatcmpl-docs-example",
-                "object": "chat.completion",
-                "created": 0,
-                "model": "fake-docs-example",
-                "choices": [{"index": 0, "message": {"role": "assistant", "content": _REPLY}, "finish_reason": "stop"}],
-                "usage": _USAGE,
-            }
-        ).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _stream(self) -> None:
-        self.send_response(200)
-        self.send_header("Content-Type", "text/event-stream")
-        self.send_header("Cache-Control", "no-cache")
-        self.end_headers()
-        # role-opening chunk, one content chunk, one finish+usage chunk — the minimum a real
-        # streaming Chat-Completions reply is shaped as, so the SDK's stream parser produces a
-        # real text delta and a real completed message instead of silently seeing nothing.
-        for chunk in (
-            {"delta": {"role": "assistant", "content": ""}, "finish_reason": None},
-            {"delta": {"content": _REPLY}, "finish_reason": None},
-            {"delta": {}, "finish_reason": "stop", "usage": _USAGE},
-        ):
-            usage = chunk.pop("usage", None)
-            payload = {
-                "id": "chatcmpl-docs-example",
-                "object": "chat.completion.chunk",
-                "created": 0,
-                "model": "fake-docs-example",
-                "choices": [{"index": 0, **chunk}],
-            }
-            if usage is not None:
-                payload["usage"] = usage
-            self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
-        self.wfile.write(b"data: [DONE]\n\n")
-
-    def log_message(self, *_args: object) -> None:  # silence BaseHTTPRequestHandler's default access log
-        pass
-
-
 @pytest.fixture(scope="module")
 def fake_model_server() -> Iterator[str]:
     """One scripted endpoint for the whole module: stateless and canned, so every run
-    fence shares it rather than paying for a server start/stop per fence. Ephemeral port
-    (``:0``) so parallel test runs never collide.
+    fence shares it rather than paying for a server start/stop per fence. None of today's
+    run fences branch on what they send, so a plain text reply proves the wire round-trip.
     """
-    server = ThreadingHTTPServer(("127.0.0.1", 0), _ScriptedChatHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield f"http://127.0.0.1:{server.server_address[1]}/v1"
-    finally:
-        server.shutdown()
-        thread.join()
+    with scripted_model_server() as base_url:
+        yield base_url
 
 
 def _tokens(meta: str) -> list[str]:

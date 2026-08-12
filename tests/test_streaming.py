@@ -2,13 +2,14 @@
 
 import json
 import textwrap
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 
 import pytest
-from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.authoring.runners.agent import HeadlessRunner, StreamDone
+from agentdeck.testing import ScriptedModel, patch_model
 
 AGENT_PY = """
 from agents import function_tool
@@ -141,21 +142,20 @@ async def test_run_streamed_cancels_sdk_run_on_abandonment(deck, monkeypatch):
     assert fake_result.cancelled == 1
 
 
-async def test_run_returns_a_turn_result_not_the_sdks_runresult(deck, monkeypatch):
+async def test_run_returns_a_turn_result_not_the_sdks_runresult(deck):
     """``run`` used to hand back the SDK's own ``RunResult``; it now plays on the Runtime
     and returns a :class:`~agentdeck.deck.TurnResult` assembled from the run's
     own ``run.completed`` — a caller depends on agentdeck's event schema, never on the SDK.
     """
-    patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("echo:hi",))))
-
-    async with deck:
-        result = await deck.run("Greeter", "hi", session_id="s1")
+    with patch_model(ScriptedModel(deltas=("echo:hi",))):
+        async with deck:
+            result = await deck.run("Greeter", "hi", session_id="s1")
 
     assert result.output == "echo:hi"
     assert result.session_id == "s1"
 
 
-async def test_stream_uses_same_session_as_run(deck, monkeypatch):
+async def test_stream_uses_same_session_as_run(deck):
     """One ``session_id`` is one conversation whichever Deck method ran the turn — the same
     guarantee the old ``HeadlessRunner``-backed methods gave, now proven at the SDK boundary
     instead of by stubbing ``HeadlessRunner.from_agent`` directly (which ``run``/``stream``
@@ -163,11 +163,11 @@ async def test_stream_uses_same_session_as_run(deck, monkeypatch):
     from agentdeck.core.events import RunCompleted
 
     model = ScriptedModel(deltas=("echo:hi",))
-    patch_provider(monkeypatch, provider_of(model))
 
-    async with deck:
-        events = [event async for event in deck.stream("Greeter", "first", session_id="s1")]
-        result = await deck.run("Greeter", "second", session_id="s1")
+    with patch_model(model):
+        async with deck:
+            events = [event async for event in deck.stream("Greeter", "first", session_id="s1")]
+            result = await deck.run("Greeter", "second", session_id="s1")
 
     streamed_output = next(e.payload.output[0].text for e in events if isinstance(e.payload, RunCompleted))
     assert streamed_output == "echo:hi" == result.output
@@ -193,7 +193,7 @@ def _sse_frames(text: str) -> list[tuple[str, dict]]:
 
 
 @pytest.fixture
-def serve_client(project, monkeypatch):
+def serve_client(project):
     """TestClient over the real FastAPI app, with only the model scripted.
 
     The endpoint runs on the Runtime the Deck composes, so the stub goes at the SDK boundary
@@ -204,10 +204,11 @@ def serve_client(project, monkeypatch):
 
     from agentdeck.serve import create_app
 
+    @contextmanager
     def _client(model):
-        patch_provider(monkeypatch, provider_of(model))
         # context manager runs the lifespan; without it every endpoint is 503
-        return TestClient(create_app())
+        with patch_model(model), TestClient(create_app()) as client:
+            yield client
 
     return _client
 
