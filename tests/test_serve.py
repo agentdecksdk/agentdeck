@@ -3,6 +3,7 @@ and expose the interrupt inbox / resume pair once it has.
 """
 
 import json
+import subprocess
 import sys
 import textwrap
 from functools import partial
@@ -218,3 +219,56 @@ def test_resuming_a_thread_already_answered_out_of_band_is_a_404_not_a_dropped_v
     assert set(ghost.json()) == {"detail"}
     # The ghost is gone from the inbox too, because the refused resume closed its run in the log.
     assert _inbox(client, "t-ghost") == []
+
+
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+def test_help_prints_usage_from_a_directory_with_no_project(tmp_path, flag):
+    """Regression for #245: ``main()`` used to ignore its arguments and call ``create_app()``
+    unconditionally, so ``agentdeck-serve --help`` crashed with a raw ``FileNotFoundError`` for
+    the missing ``.agentdeck`` before argparse ever saw the flag. Run from an empty ``tmp_path``
+    so a project mount would fail loudly if one were attempted.
+    """
+    result = subprocess.run(
+        [sys.executable, "-m", "agentdeck.serve", flag],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "usage: agentdeck-serve" in result.stdout
+    assert ".agentdeck" in result.stdout
+    assert "HOST" in result.stdout
+    assert "PORT" in result.stdout
+
+
+def test_an_unknown_argument_exits_2_with_usage_instead_of_being_ignored(tmp_path):
+    result = subprocess.run(
+        [sys.executable, "-m", "agentdeck.serve", "--project-dir", "elsewhere"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 2
+    assert "usage: agentdeck-serve" in result.stderr
+
+
+def test_no_arguments_keeps_todays_host_and_port_env_defaults(monkeypatch):
+    """No flags must still read ``HOST``/``PORT`` from the environment and hand them straight to
+    ``uvicorn.run``, exactly like the pre-#245 unconditional call did.
+    """
+    from agentdeck import serve
+
+    monkeypatch.setenv("HOST", "127.0.0.1")
+    monkeypatch.setenv("PORT", "9001")
+    monkeypatch.setattr(serve, "create_app", lambda: "the-app")
+    calls = []
+    fake_uvicorn = type(
+        "_FakeUvicorn", (), {"run": staticmethod(lambda app, host, port: calls.append((app, host, port)))}
+    )
+    monkeypatch.setitem(sys.modules, "uvicorn", fake_uvicorn)
+
+    serve.main([])
+
+    assert calls == [("the-app", "127.0.0.1", 9001)]
