@@ -8,6 +8,14 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+
+- `agentdeck-serve --help` (and `-h`) now prints usage and exits 0 instead of crashing with a
+  `FileNotFoundError` for a missing `./.agentdeck` project. `--host`/`--port` flags were added,
+  defaulting to the existing `HOST`/`PORT` env vars, so passing neither behaves exactly as
+  before; an unrecognized argument now exits 2 with usage instead of being silently ignored.
+  (#245)
+
 ## [3.0.1] - 2026-08-12
 
 **No functional change to the package.** `agentdeck/` is byte-identical to v3.0.0 — this release
