@@ -68,6 +68,42 @@ favicon panel shows the same shrinkage.
 So `favicon.svg` is the card, centred in a square of its own height, filling the box edge to edge.
 The card is already a rounded square, so it reads correctly under a platform's own icon mask.
 
+## The social card
+
+`social-card.svg` is the 1280×640 image GitHub shows under every link to this repository in X,
+LinkedIn, Slack, Discord and Hacker News. Left unset — as it was until 2026-08-12 — GitHub renders
+its grey default with the repository name in it.
+
+It is **not** committed as a PNG, for the same reason nothing else here is: `.gitignore:19` keeps
+`docs/brand/*.png` out of the tree. Regenerate the upload artifact instead:
+
+```bash
+# Poppins (wordmark and tagline) and Inter (body) are live `<text>`, not paths, so they must be
+# resolvable to the renderer. Skip if already installed system-wide.
+mkdir -p ~/.local/share/fonts/agentdeck-render && cd "$_"
+for f in ofl/poppins/Poppins-Bold.ttf ofl/poppins/Poppins-SemiBold.ttf ofl/inter/'Inter[opsz,wght].ttf'; do
+  curl -sSLO "https://github.com/google/fonts/raw/main/$f"
+done && fc-cache -f
+
+# Chrome shrinks a 640-tall SVG to make room for a scrollbar it then hides, so render into a
+# taller window at 2x and crop. Rendering straight to 1280x640 silently clips the last line.
+cd "$(git rev-parse --show-toplevel)/docs/brand"
+{ printf '<!doctype html><meta charset="utf-8"><style>html,body{margin:0;background:#0b1220}svg{display:block;width:1280px;height:640px}</style>'; cat social-card.svg; } > /tmp/card.html
+google-chrome --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=2 \
+  --window-size=1280,800 --screenshot=/tmp/card-2x.png file:///tmp/card.html
+magick /tmp/card-2x.png -crop 2560x1280+0+0 +repage -resize 1280x640 -strip social-card.png
+```
+
+Then upload `social-card.png` at **Settings → General → Social preview**. It is a manual upload;
+no API sets it.
+
+Two things in the SVG that look wrong and are not. The mark is the **dark-mode lockup** from §05 —
+Agent Blue card, white A, Ace Red spark — so it is three fills, not the single `currentColor` the
+other files here use. And the A is a **hole** in the card path, not a shape: both `nonzero` and
+`evenodd` knock it out, because its subpath winds against the outer contour. The white rectangle
+behind the card is what the A shows through. Keep it inside the card silhouette and below the cut
+corner, or it appears as a white edge.
+
 ## Naming
 
 The mark reads `agentdeck`; prose says **AgentDeck SDK** on first mention and **AgentDeck**
@@ -75,11 +111,20 @@ thereafter. The qualifier lives in titles, descriptions and the domain — not i
 would read as a sub-brand of a parent product that does not exist. See
 `docs/delivery/plan-adoption.md` §1.
 
-## Unresolved: the typeface
+## The typeface: Poppins, and the sheet's own label is wrong
 
-Three sources disagree. The brand sheet specifies **Space Grotesk** for headings; the wordmark
-appears to be set in a geometric sans closer to **Poppins**; and the live docs site
-(`docs-site/app/layout.tsx`) uses **Poppins**. Two of the three agree, and the sheet is the odd one
-out — but it should be decided rather than left to whichever file someone opens first. Tracked
-against the docs-site design pass (#140), along with the palette, which the sheet also changes
-wholesale.
+This was open — the sheet's §07 names **Space Grotesk** for headings while the wordmark looked
+like something else. Setting the social card decided it, because a wordmark either matches or it
+does not.
+
+**The wordmark is Poppins Bold.** The `a` is **single-storey**, and Space Grotesk's is
+double-storey — that alone rules it out, and the geometric `e`, the straight-tailed `g`, the
+angled cut on the `t` and the straight `k` diagonals all agree. Rendered side by side against
+`wordmark.png`, Poppins 700 matches and Space Grotesk 700 is not close.
+
+So two of three sources always did agree, and the third is a label in the sheet contradicting the
+sheet's own artwork. Poppins is what the wordmark is, what the site loads, and what the card sets.
+Space Grotesk should be treated as a typo unless someone produces a wordmark drawn in it.
+
+The palette is not affected — the sheet's hexes and the site's `brand.css` already match exactly.
+The wider presentation question stays with the docs-site design pass (#140).
