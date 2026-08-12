@@ -55,6 +55,7 @@ per new spec doc — had fallen behind by thirteen documents; this closes it.
 | `delivery/findings-register.md` | **Every finding and its disposition** — solved, rejected, or scheduled against a named issue. The disposition of record for anything raised in conversation that never became an issue, and the reason #221 was caught closed-but-unfixed |
 | `delivery/beta-user-report-v3.md` | A real `v3.0.0b1` run by a first-time user; source of the Wave B findings |
 | `delivery/deck-capability-wrapper-pattern.md` | The wrapper shape a `Deck` argument takes when a capability needs one |
+| `delivery/workflow.md` | How an issue/finding/PR moves through the [GitHub Project](https://github.com/users/sagi5060/projects/5): filing conventions, the `Status` pipeline, `make roadmap-sync` |
 
 **Reading orders.** New engineer: `coding-standards.md` → 1 → 3 (through §9) → 4 → 8 →
 `delivery/decision-v3-entry-point.md`. Product/stakeholder: 1 → 2 → 3 Appendix B. Historical
@@ -81,6 +82,11 @@ Documents were written in conversation order and later ones refine earlier ones.
    sequencing defers to this index.
 5. The PRD owns *what and for whom*; the design doc owns *how*; neither restates the
    other. A conflict between them is a bug in one of them — flag it, don't guess.
+6. **The [GitHub Project](https://github.com/users/sagi5060/projects/5) owns live state**
+   (which issues are open, their milestone, priority and `Status`); `roadmap-v3.md` /
+   `roadmap-v3.1.md` / `findings-register.md` own the reasoning behind that state and do not
+   self-update. Their live-status tables are generated — `make roadmap-sync` — and GitHub wins
+   if the two disagree. See `delivery/workflow.md`.
 
 ## 3. Known deltas (recorded so nothing is silently inconsistent)
 
@@ -124,8 +130,9 @@ Documents were written in conversation order and later ones refine earlier ones.
         into it → **v3.0.0 tagged 2026-08-11**, docs site deployed,
         Ask AgentDeck live                                            [plan:
         `delivery/plan-219-delivery.md`]
-NOW ──▶ v3.1 batteries → v3.2 rooms & reach → v3.3 operate          [PRD §6 —
-        the backlog sorted into those three: `delivery/roadmap-v3.1.md`]
+NOW ──▶ v3.1 hardening → v3.2 batteries → v3.3 rooms & reach       [PRD §6 —
+        the backlog sorted into those three: `delivery/roadmap-v3.1.md`,
+        live per-issue status: the GitHub Project (`make roadmap-sync`)]
 ```
 
 **Amendment 2026-08-08.** v3.0.0 was not in this order when it was written: the epic

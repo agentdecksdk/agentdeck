@@ -1,4 +1,4 @@
-.PHONY: install build test lint typecheck lint-imports coverage golden docs-reference fmt clean check
+.PHONY: install build test lint typecheck lint-imports coverage golden docs-reference roadmap-sync fmt clean check
 
 install:        ## editable install with every extra the gate needs
 	# Every extra ci.yml installs, so `make check` locally runs the same tests CI does.
@@ -33,6 +33,9 @@ golden:         ## re-record the wire + schema snapshots — deliberate, never a
 
 docs-reference: ## regenerate docs-site/content/reference/{settings,cli}.mdx from the code
 	.venv/bin/python scripts/generate_docs_reference.py
+
+roadmap-sync:   ## refresh the live-status tables in docs/delivery/ from GitHub (gh required)
+	.venv/bin/python scripts/sync_roadmap.py
 
 eval-docs-agent: ## Ask AgentDeck grounding, against a real model — not in the gate (see examples/ask-agentdeck/eval.py)
 	cd examples/ask-agentdeck && ../../.venv/bin/python eval.py
