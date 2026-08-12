@@ -66,16 +66,42 @@ of spinning up the pipeline.
 `blocked`, `finding`, `finding:triaged` and the `area:*`/`bug`/`feature` labels are orthogonal to
 `Status` — they describe *what* the issue is, `Status` describes *where it is right now*.
 
-### The two saved views (set up once, by hand)
+### Start date / Target date
 
-`gh`/the GitHub API can't create saved Project views — this is a one-time manual step in the web
-UI:
+Set from real events, never guessed:
 
-1. Open the [Project](https://github.com/users/sagi5060/projects/5), click **+ New view**.
-2. **Roadmap** — Table layout. Toolbar: **Group by** → Milestone, **Sort by** → Priority.
-   Replaces the wave tables in `roadmap-v3.md`/`roadmap-v3.1.md` as the live view.
-3. **+ New view** again — **Findings** — Table layout. Toolbar: **Filter** → `label:finding`.
-   Replaces scanning `findings-register.md` for what's currently open.
+- **Start date** = the day work actually started — the day its PR opened (`gh pr view <N> --json
+  createdAt`), not the day it was picked up in conversation. Set when `Status` moves to
+  **In progress**.
+- **Target date** = the day its PR merged. Set when `Status` moves to **Done**.
 
-Both views read live off the same `Status`/`Milestone`/`Priority` fields every issue already
-carries — no extra bookkeeping once they exist.
+If there's no PR yet, there's no real start date — leave the field empty and leave `Status` at
+**Backlog** rather than flip it to "In progress" on intent. (This is exactly the correction made
+2026-08-12: #221 was flagged "In progress" with no open PR and no evidence of active work, and was
+moved back to **Backlog**.)
+
+### The Project's views
+
+Four, all on the [Project](https://github.com/users/sagi5060/projects/5):
+
+- **Backlog**, **Board** — the stock views. Board is filtered to the *current* milestone
+  (`milestone:"v3.1 — hardening"` as of 2026-08-12) — update that filter by hand
+  (`updateProjectV2View` over the GraphQL API, or the view's own filter box) each time the active
+  milestone rolls over, or it silently shows a finished release.
+- **Roadmap** — Roadmap layout (GitHub's native timeline view), grouped by milestone. Reads
+  `Milestone`'s own due date, so it moves automatically once due dates are set — see below.
+- **Findings** — Table layout, filtered to `label:finding`. Replaces scanning
+  `findings-register.md` for what's currently open.
+
+The stock **Current iteration** view was deleted — this project sequences by milestone, not
+GitHub's separate Iteration field, and a view nobody's data populates is worse than no view.
+
+### Milestone due dates
+
+Each release milestone (`v3.1`, `v3.2`, `v3.3`, `v3.4`) carries a `due_on` date, one week apart,
+starting from v3.1's target. `docs-site` is excluded — it runs parallel to the release train and
+never gates one (`roadmap-v3.1.md` §4). Move them with:
+
+```
+gh api -X PATCH repos/sagi5060/agentdeck/milestones/<number> -f due_on="<date>T00:00:00Z"
+```
