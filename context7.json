@@ -1,0 +1,33 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "AgentDeck SDK",
+  "description": "A Python harness for agents you have to operate: agents, workflows, skills and MCP tools as small declarations, with durable human-in-the-loop approvals, sessions, streaming, run control and one ordered event log per run. Wraps the OpenAI Agents SDK and LangGraph rather than replacing them.",
+  "folders": [
+    "docs-site/content",
+    "examples"
+  ],
+  "excludeFolders": [
+    "docs",
+    "tests",
+    "scripts",
+    "docs-site/app",
+    "docs-site/out",
+    "docs-site/.next"
+  ],
+  "excludeFiles": [
+    "docs-site/content/changelog.mdx",
+    "docs-site/content/roadmap.mdx"
+  ],
+  "rules": [
+    "The package is `agentdeck`: `pip install agentdeck`, `import agentdeck`. The project is branded AgentDeck SDK; there is no `agentdeck-sdk` package.",
+    "`Deck` is the only composition root, with two front doors onto one catalog: `Deck(agents=..., workflows=...)` and `Deck.from_project()`, which discovers them from a `.agentdeck/` directory.",
+    "AgentDeck owns configuration; the OpenAI Agents SDK and LangGraph own execution. An `Agent` compiles to an SDK agent and a `Workflow` to a LangGraph graph. Never suggest that AgentDeck runs its own agent loop or graph engine.",
+    "A tool is a plain Python function passed to `Agent(tools=[...])`; `build()` compiles it. A tool that declares an `agentdeck.Context[T]` parameter must NOT be wrapped in `@function_tool`, because the decorator would put the context parameter into the schema the model sees.",
+    "Application state reaches tools and workflow nodes through `Context[T]`: declare the type with `Deck(context=MyType)` and pass the instance per run with `deck.run(..., context=obj)`. A context cannot cross the HTTP surface — a run served through `Deck.asgi()` always receives `None`.",
+    "Human approval requires `durable = True` on the workflow, which requires a checkpointer, which requires the `[durability]` extra. A node that calls `interrupt()` re-runs from its start on resume, so interrupt nodes must be free of side effects.",
+    "Every run appends to one ordered event log. Status is folded from those events by `status_of`, never stored as a field. `type(event)` is always `Event`; switch on `event.payload` or `event.kind`, and always include a default case, because an unfamiliar kind parses as `UnknownEvent`.",
+    "Nothing is sandboxed. Tools, skills and workflow nodes are ordinary Python in the caller's process, and a model-chosen tool call is trusted by design.",
+    "Known defects are documented at /known-issues and should be honoured when giving advice — notably that `Agent(model=...)` is currently ignored, and that a tool which raises still completes the run."
+  ],
+  "previousVersions": []
+}

@@ -45,6 +45,10 @@ SETTINGS_PAGE = CONTENT / "settings.mdx"
 CLI_PAGE = CONTENT / "cli.mdx"
 CHANGELOG_PAGE = SITE / "changelog.mdx"
 CHANGELOG_SOURCE = REPO_ROOT / "CHANGELOG.md"
+PUBLIC = REPO_ROOT / "docs-site" / "public"
+LLMS_PAGE = PUBLIC / "llms.txt"
+LLMS_FULL_PAGE = PUBLIC / "llms-full.txt"
+SITE_URL = "https://sagi5060.github.io/agentdeck"
 
 _REPO_SETTINGS_URL = "https://github.com/sagi5060/agentdeck/blob/main/agentdeck/runtime/settings.py"
 _REPO_CLI_URL = "https://github.com/sagi5060/agentdeck/blob/main/agentdeck/cli.py"
@@ -275,8 +279,127 @@ def render_changelog_mdx() -> str:
     return "\n".join(out).rstrip() + "\n"
 
 
+_FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
+_FIELD = re.compile(r"^(title|description):\s*(.+)$", re.MULTILINE)
+
+# What AgentDeck is, in the words a retrieval system should quote. Deliberately names the
+# frameworks it wraps and the problem it solves, because that is what someone searching a
+# *symptom* — "pause an AI agent", "durable approval" — needs to match against.
+_DEFINITION = """\
+AgentDeck SDK is a Python harness for agents you have to operate. You write agents, workflows and
+skills as small declarations in a `.agentdeck/` directory; AgentDeck supplies everything around
+them — discovery, layered settings, sessions, streaming, MCP servers, durable human-in-the-loop
+approvals, run control, and one ordered event log per run.
+
+It wraps the OpenAI Agents SDK and LangGraph rather than replacing them: an `Agent` compiles to an
+SDK agent, a `Workflow` compiles to a LangGraph graph, and each is executed by its own engine.
+AgentDeck owns configuration; the engines own execution. There is no agent loop here and no graph
+engine of its own.
+
+Use it when the wiring around an agent has become the work: several agents and workflows in one
+project, a chat surface and a batch path over the same definitions, runs you must inspect
+afterwards, approvals that outlive the process that requested them."""
+
+
+def _page_meta(path: Path) -> tuple[str, str]:
+    """``(title, description)`` from a page's frontmatter, falling back to the slug."""
+    found = _FRONTMATTER.search(path.read_text())
+    fields = dict(_FIELD.findall(found.group(1))) if found else {}
+    return fields.get("title", path.stem), fields.get("description", "")
+
+
+def _site_pages() -> list[tuple[str, Path]]:
+    """``(slug, path)`` for every published page, in a reading order rather than alphabetical."""
+    root = SITE
+    order = [
+        "index",
+        "getting-started",
+        "concepts",
+        "guides",
+        "operating",
+        "reference",
+        "roadmap",
+        "known-issues",
+        "changelog",
+    ]
+
+    def rank(slug: str) -> tuple[int, str]:
+        head = slug.split("/")[0]
+        return (order.index(head) if head in order else len(order), slug)
+
+    pages = []
+    for path in sorted(root.rglob("*.mdx")):
+        rel = path.relative_to(root).with_suffix("")
+        slug = "index" if str(rel) == "index" else (str(rel.parent) if rel.name == "index" else str(rel))
+        pages.append((slug, path))
+    return sorted(pages, key=lambda pair: rank(pair[0]))
+
+
+def render_llms_txt() -> str:
+    """`/llms.txt` — the llmstxt.org convention: what this is, then every page as a link.
+
+    Small on purpose. A model or crawler reads this to decide *which* page to fetch; the whole
+    corpus is `llms-full.txt`, and conflating them makes the cheap file expensive.
+    """
+    out = [
+        "# AgentDeck SDK",
+        "",
+        "> The production runtime for agents you already have — "
+        "composition, durable human-in-the-loop approvals, sessions, streaming, run control "
+        "and one ordered event log, wrapping the OpenAI Agents SDK and LangGraph.",
+        "",
+        _DEFINITION,
+        "",
+        "## Documentation",
+        "",
+    ]
+    for slug, path in _site_pages():
+        title, description = _page_meta(path)
+        url = f"{SITE_URL}/{'' if slug == 'index' else slug}"
+        out.append(f"- [{title}]({url}){': ' + description if description else ''}")
+    out += [
+        "",
+        "## Source",
+        "",
+        "- [Repository](https://github.com/sagi5060/agentdeck): issues, releases and examples",
+        f"- [Full documentation as one file]({SITE_URL}/llms-full.txt)",
+        "",
+    ]
+    return "\n".join(out)
+
+
+def render_llms_full_txt() -> str:
+    """`/llms-full.txt` — every page's Markdown in one file, in reading order.
+
+    Frontmatter becomes a heading and a line of prose so the file reads as a document rather than
+    as a concatenation, and each page keeps its URL so a quotation can be traced back.
+    """
+    out = [
+        "# AgentDeck SDK — full documentation",
+        "",
+        _DEFINITION,
+        "",
+        f"Source: {SITE_URL} · Generated from the same Markdown the site renders.",
+        "",
+        "---",
+        "",
+    ]
+    for slug, path in _site_pages():
+        title, description = _page_meta(path)
+        body = _FRONTMATTER.sub("", path.read_text(), count=1).strip()
+        url = f"{SITE_URL}/{'' if slug == 'index' else slug}"
+        out += [f"# {title}", "", f"*{description}*" if description else "", f"Source: {url}", "", body, "", "---", ""]
+    return "\n".join(line for line in out) + "\n"
+
+
 def _generated_pages() -> dict[Path, str]:
-    return {SETTINGS_PAGE: render_settings_mdx(), CLI_PAGE: render_cli_mdx(), CHANGELOG_PAGE: render_changelog_mdx()}
+    return {
+        SETTINGS_PAGE: render_settings_mdx(),
+        CLI_PAGE: render_cli_mdx(),
+        CHANGELOG_PAGE: render_changelog_mdx(),
+        LLMS_PAGE: render_llms_txt(),
+        LLMS_FULL_PAGE: render_llms_full_txt(),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -295,6 +418,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return 0
     CONTENT.mkdir(parents=True, exist_ok=True)
+    PUBLIC.mkdir(parents=True, exist_ok=True)
     for path, content in pages.items():
         path.write_text(content)
     return 0
@@ -306,12 +430,16 @@ if __name__ == "__main__":
 
 __all__ = [
     "CHANGELOG_PAGE",
+    "LLMS_FULL_PAGE",
+    "LLMS_PAGE",
     "CHANGELOG_SOURCE",
     "CLI_PAGE",
     "SETTINGS_PAGE",
     "changelog_sections",
     "main",
     "render_changelog_mdx",
+    "render_llms_full_txt",
+    "render_llms_txt",
     "render_cli_mdx",
     "render_settings_mdx",
 ]
