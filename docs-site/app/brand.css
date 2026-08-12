@@ -126,21 +126,41 @@ main h4 {
   line-height: 1.4;
 }
 
-/* Terminal/code cards sit on Ink in both themes, as the sheet draws them. */
-.nextra-code:not(pre) {
+/* Terminal/code cards sit on Deep Night in both themes, as the sheet draws them.
+   `nextra-code` is on three elements — the wrapper div, the `pre`, and the `code` inside it —
+   so `.nextra-code:not(pre)` matched two of them and painted a pale Ice wash *over* the dark
+   block. That is the grey. Inline code is `code` whose ancestor is not a `pre`, and nothing
+   else. */
+code.nextra-code:not(pre code) {
   background: color-mix(in srgb, var(--brand-ice) 55%, transparent);
   border-color: color-mix(in srgb, var(--brand-blue) 18%, transparent);
   color: var(--brand-blue);
 }
 
-.dark .nextra-code:not(pre) {
+.dark code.nextra-code:not(pre code) {
   background: color-mix(in srgb, var(--brand-cool-gray) 14%, transparent);
-  color: var(--brand-ice);
+  color: var(--brand-frost);
 }
 
+/* The block itself, and the wrapper that would otherwise show a seam around it. */
+div.nextra-code:has(pre),
 figure.nextra-code pre,
+.nextra-code pre,
+pre code.nextra-code {
+  background: var(--brand-night);
+}
+
 .nextra-code pre {
-  background: var(--brand-night) !important;
+  border: 1px solid color-mix(in srgb, var(--brand-frost) 16%, transparent);
+  border-radius: 0.5rem;
+}
+
+/* The block is Deep Night in *both* themes, as the sheet draws it — so light mode must use the
+   dark syntax theme too. Shiki emits both on every token (`--shiki-light`/`--shiki-dark`) and
+   switches on `.dark`; without this, a light-mode reader gets tokens coloured for a white
+   background sitting on a near-black card, which is the unreadable state. */
+.nextra-code pre span {
+  color: var(--shiki-dark, inherit);
 }
 
 /* Tables: beige header row, hairline navy rules. */
