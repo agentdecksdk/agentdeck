@@ -15,7 +15,6 @@ proves which one actually ran.
 from __future__ import annotations
 
 import pytest
-from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
 from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings
@@ -25,6 +24,7 @@ from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.runtime.settings import reset_settings_cache
+from agentdeck.testing import ScriptedModel, patch_model
 
 
 @pytest.fixture(autouse=True)
@@ -65,21 +65,21 @@ def test_handoff_target_keeps_its_own_declared_model_over_the_router_default(mon
     assert compiled["Specialist"].model == "gpt-specialist"
 
 
-async def test_a_run_plays_the_declared_model_not_the_configured_one(monkeypatch: pytest.MonkeyPatch):
+async def test_a_run_plays_the_declared_model_not_the_configured_one():
     """The issue's own repro: a run configured with one model must not reach it when the
     agent playing declared a different one — old code forced every agent onto
     ``RunConfig.model`` (a plain string), so the provider below would have answered instead.
     """
     declared = ScriptedModel(deltas=["from the declared model"])
     provider_model = ScriptedModel(deltas=["from the configured default — wrong"])
-    patch_provider(monkeypatch, provider_of(provider_model))
 
     compiled = compile_agent(Agent(name="A", instructions="x", model=declared))
     spec = InvocableSpec(name="A", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=compiled)
     engine = OpenAIAgentsEngine(ExecutionStore(), settings=RunSettings(model="configured-default"))
 
-    async for _ in engine.start(spec, coerce_input("hi"), [], _ctx()):
-        pass
+    with patch_model(provider_model):
+        async for _ in engine.start(spec, coerce_input("hi"), [], _ctx()):
+            pass
 
     assert declared.calls == 1
     assert provider_model.calls == 0
@@ -93,7 +93,6 @@ async def test_a_run_still_plays_the_configured_model_when_the_agent_declares_no
     monkeypatch.setenv("OPENAI_MODEL", "configured-default")
     reset_settings_cache()
     configured_model = ScriptedModel(deltas=["from the configured default"])
-    patch_provider(monkeypatch, provider_of(configured_model))
 
     compiled = compile_agent(Agent(name="A", instructions="x"))
     spec = InvocableSpec(name="A", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=compiled)
@@ -102,7 +101,8 @@ async def test_a_run_still_plays_the_configured_model_when_the_agent_declares_no
     # to above, so it is named again here rather than left at `RunSettings()`'s bare default.
     engine = OpenAIAgentsEngine(ExecutionStore(), settings=RunSettings(model="configured-default"))
 
-    async for _ in engine.start(spec, coerce_input("hi"), [], _ctx()):
-        pass
+    with patch_model(configured_model):
+        async for _ in engine.start(spec, coerce_input("hi"), [], _ctx()):
+            pass
 
     assert configured_model.calls == 1

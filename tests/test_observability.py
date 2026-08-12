@@ -17,7 +17,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
-from scripted_model import ScriptedModel, patch_provider, provider_of
 
 from agentdeck import observers
 from agentdeck.adapters.telemetry.langfuse import client as langfuse_client
@@ -25,6 +24,7 @@ from agentdeck.core.ports import EventSinkPort
 from agentdeck.errors import ConfigError
 from agentdeck.observers import Langfuse
 from agentdeck.runtime.settings import LangfuseSettings, reset_settings_cache
+from agentdeck.testing import ScriptedModel, patch_model
 
 AGENT_PY = """
 from agentdeck.authoring import Agent
@@ -192,8 +192,9 @@ def project(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def scripted(monkeypatch):
-    patch_provider(monkeypatch, provider_of(ScriptedModel(deltas=("hi",))))
+def scripted():
+    with patch_model(ScriptedModel(deltas=("hi",))):
+        yield
 
 
 # --- build() validates the shape, and touches no network --------------------------------------

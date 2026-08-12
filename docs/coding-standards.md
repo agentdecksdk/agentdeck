@@ -48,6 +48,13 @@ broader than the linter's contracts:
   directory, `core/ports/sandbox.py` and the third licence are all gone — `agents` again has
   exactly two holders, `adapters/engines/openai_agents/` and `adapters/tools/mcp/`. A third
   needs its own amendment and a reason of #152's shape, not a precedent from a retired one.)*
+  *(Amended 2026-08-13, #26: `agentdeck/testing.py` is a fourth holder of `agents`, and not
+  under `adapters/` at all. `ScriptedModel` has to subclass `agents.models.interface.Model`
+  directly to be a drop-in for what `OpenAIProvider.get_model()` returns — the exported test
+  harness stubs the SDK's own model boundary, so it needs the SDK's own type to stub it with.
+  It imports `agents.items`, `agents.models.interface`, `agents.usage` and
+  `openai.types.responses` — the request/response shapes a `Model` implementation is handed —
+  and nothing else of either SDK.)*
 - `surfaces/` import `runtime/` and `core/` (and their own framework, e.g. FastAPI in
   `surfaces/serve/`), never adapters directly.
 - `authoring/` imports `core/` only; user-facing API compiles to `InvocableSpec`.
