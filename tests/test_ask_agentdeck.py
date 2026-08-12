@@ -27,8 +27,8 @@ from agentdeck.errors import ContextTypeError
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "ask-agentdeck"
 sys.path.insert(0, str(EXAMPLE))
 
-from ask_agentdeck.agent import ask, read_doc, search_docs  # noqa: E402 — needs the path above
-from ask_agentdeck.corpus import DEFAULT_CONTENT_ROOT, DocsCorpus  # noqa: E402
+from ask_agentdeck.agent import ask, read_changelog, read_doc, search_docs  # noqa: E402 — needs the path above
+from ask_agentdeck.corpus import DEFAULT_CONTENT_ROOT, EXCLUDED, DocsCorpus  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -36,8 +36,31 @@ def corpus() -> DocsCorpus:
     return DocsCorpus()
 
 
-def test_the_corpus_finds_every_published_page(corpus: DocsCorpus) -> None:
-    assert len(corpus.pages) == len(list(DEFAULT_CONTENT_ROOT.rglob("*.mdx")))
+def test_the_corpus_finds_every_published_page_except_the_excluded(corpus: DocsCorpus) -> None:
+    assert len(corpus.pages) == len(list(DEFAULT_CONTENT_ROOT.rglob("*.mdx"))) - len(EXCLUDED)
+
+
+def test_history_never_grounds_a_documentation_answer(corpus: DocsCorpus) -> None:
+    """The changelog names removed APIs by design, so an answer grounded in it would be a correct
+    quotation of a real page describing something that no longer exists. It stays reachable
+    through `read_changelog`, which is a different question with a different tool.
+    """
+    assert "changelog" not in corpus.pages
+    assert (DEFAULT_CONTENT_ROOT / "changelog.mdx").is_file(), "excluded from search, not unpublished"
+
+
+def test_the_changelog_tool_answers_by_version_and_by_topic(corpus: DocsCorpus) -> None:
+    """One parameter, two questions — they are one question asked two ways, and two tools would
+    make the model choose between them."""
+    assert "3.0.0" in read_changelog("latest", _AsContext(corpus))
+
+    topic = read_changelog("AudioBlock", _AsContext(corpus))
+    assert "AudioBlock" in topic
+    assert "3.0.0" in topic, "a changelog line without its release reads as current"
+
+    unknown = read_changelog("9.9.9", _AsContext(corpus))
+    assert "no release" in unknown and "3.0.0" in unknown, "an unknown version lists the real ones"
+    assert "no release mentions" in read_changelog("zzzznotaword", _AsContext(corpus))
 
 
 def test_slugs_are_the_sites_own_slugs(corpus: DocsCorpus) -> None:
