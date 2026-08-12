@@ -11,11 +11,17 @@ system and the reason the mark survives at one colour.
 | `logo.svg` | the mark with its spark — headers, READMEs, anywhere above ~48px |
 | `logo-mark.svg` | the card alone — small sizes, dense UI, anywhere the spark would be noise |
 | `favicon.svg` | square and centred on the card — favicons, app icons, avatars |
+| `logo-blue.svg` | the mark in Agent Blue, for anywhere it is a *file* rather than markup |
 | `logo-traced-original.svg` | provenance only — see below |
 
-All three are `fill="currentColor"`, so they take the colour of whatever they sit in and need no
-light/dark variants. In HTML that means inlining them, or setting `color` on an `<object>`; an
-`<img src>` cannot inherit and renders black.
+The first three are `fill="currentColor"`, so they take the colour of whatever they sit in and
+need no light/dark variants — provided they are **inlined as markup**.
+
+`logo-blue.svg` exists because that proviso is real: an SVG loaded through `<img src>` has no
+parent to inherit from, so `currentColor` falls back to black, and on GitHub's dark theme the mark
+is then black on near-black. Verified side by side rather than assumed. Agent Blue reads on both
+themes, and the A's counter is transparent so each background shows through it — which is why one
+coloured file covers both instead of needing a pair.
 
 ```html
 <span style="color: #2563FF">  <!-- Agent Blue -->

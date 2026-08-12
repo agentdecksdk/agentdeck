@@ -1,13 +1,24 @@
 <div align="center">
-  <img src="docs/brand/logo.svg" alt="" width="72">
-  <h1>AgentDeck SDK</h1>
-  <p><strong>Compose. Observe. Ship.</strong><br>
-  The production runtime for agents you already have.</p>
-</div>
 
-[![CI](https://github.com/sagi5060/agentdeck/actions/workflows/ci.yml/badge.svg?branch=dev)](https://github.com/sagi5060/agentdeck/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-agentdeck-informational.svg)](https://sagi5060.github.io/agentdeck/)
+<img src="docs/brand/logo-blue.svg" alt="AgentDeck" width="76">
+
+# AgentDeck SDK
+
+**Compose. Observe. Ship.**
+
+The production runtime for agents you already have.
+
+<!-- The blue variant, not logo.svg: that one is fill="currentColor" for inlining, and an SVG
+     loaded through <img> has nothing to inherit from, so it renders black — invisible on
+     GitHub's dark theme. See docs/brand/README.md. -->
+
+[![CI](https://img.shields.io/github/actions/workflow/status/sagi5060/agentdeck/ci.yml?branch=dev&label=CI&labelColor=0B1220&color=2563FF)](https://github.com/sagi5060/agentdeck/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/sagi5060/agentdeck?label=release&labelColor=0B1220&color=2563FF)](https://github.com/sagi5060/agentdeck/releases)
+[![Python](https://img.shields.io/badge/python-3.12+-2563FF?labelColor=0B1220)](pyproject.toml)
+[![License](https://img.shields.io/badge/license-MIT-2563FF?labelColor=0B1220)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-agentdecksdk-2563FF?labelColor=0B1220)](https://sagi5060.github.io/agentdeck/)
+
+</div>
 
 **A harness for agents you have to operate.** You write agents, workflows and skills as small
 Python declarations in a `.agentdeck/` directory. AgentDeck supplies everything around them —
