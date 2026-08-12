@@ -8,6 +8,17 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Agent(model=...)` now actually runs on the model it names, instead of being silently
+  overridden by `OPENAI_MODEL` on every turn (#247).** The host Agents SDK's `RunConfig.model`
+  overrides *every* agent's own model once set, and every run's config set it from
+  `OPENAI_MODEL` unconditionally — so a per-agent override was accepted, type-checked, and then
+  discarded one layer later. The default is now resolved onto the compiled agent instead, at
+  build time: an agent that declares its own model keeps it, one that declares none still gets
+  `OPENAI_MODEL`, and this holds across handoffs and `as_tool()` since each agent resolves its
+  own model independently of which one is playing.
+
 ## [3.0.1] - 2026-08-12
 
 **No functional change to the package.** `agentdeck/` is byte-identical to v3.0.0 — this release

@@ -114,7 +114,11 @@ def _fingerprint(config: RunConfig, max_turns: int) -> dict[str, object]:
 def _expected(**overrides: object) -> dict[str, object]:
     return {
         "workflow_name": "parity-flow",
-        "model": "parity-model",
+        # Neither resolver ever sets this: `RunConfig.model` overrides every agent's own
+        # model once set, so `OPENAI_MODEL` is resolved onto the compiled agent instead
+        # (`authoring.compile.compile_agent`), never onto the run config either of these
+        # two builds.
+        "model": None,
         "nest_handoff_history": True,
         "tracing_disabled": True,
         "temperature": 0.25,

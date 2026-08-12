@@ -142,7 +142,11 @@ def compile_agent(
         "name": agent.name,
         "instructions": _instructions(agent, banner, disclosure, context_type),
         "handoff_description": agent.handoff_description,
-        "model": agent.model,
+        # An agent that names no model still needs one: `RunConfig.model` is never set
+        # (`adapters/engines/openai_agents/runconfig.py`), since the SDK treats that field as
+        # an override of every agent's own model, declared or not. Resolving the default here
+        # instead means an agent's own `model=` always wins, whatever else the run is playing.
+        "model": agent.model if agent.model is not None else get_settings().openai.model,
         "model_settings": ModelSettings(**agent.model_settings) if agent.model_settings else None,
         "tools": resolved_tools or None,
         "output_type": agent.output_type,
