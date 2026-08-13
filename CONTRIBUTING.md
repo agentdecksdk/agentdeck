@@ -1,5 +1,21 @@
 # Contributing to agentdeck
 
+## New here?
+
+AgentDeck SDK is a production runtime around agents you already have — it supplies sessions,
+streaming, an event log, human approval and run control, and leaves execution to the OpenAI
+Agents SDK and LangGraph.
+
+Before picking up an issue, run one of the projects in [`examples/`](examples/) as a user would
+(`pip install agentdeck-sdk`, then `python run.py`). Fifteen minutes there makes the rest of this
+file, and most issues, read very differently.
+
+Then take a
+[`good first issue`](https://github.com/agentdecksdk/agentdeck/labels/good%20first%20issue) or
+[`help wanted`](https://github.com/agentdecksdk/agentdeck/labels/help%20wanted). Comment on it to
+claim it — nobody else will be assigned while you are working, and a stalled PR is not taken over
+without asking you first.
+
 ## Branch model
 
 - **`dev`** — default branch. All PRs target `dev`.
@@ -84,3 +100,14 @@ non-trivial change; this list is the two-minute version.
   change only via `make golden`, deliberately, with the reason in the PR.
 - Optional integrations (Langfuse, MCP) must degrade gracefully when
   unconfigured — never crash an unconfigured run.
+
+## What to expect from us
+
+- A first maintainer response on your PR within a day or so, and a review that
+  says what needs to change rather than changing it for you.
+- Questions are welcome in
+  [Discussions](https://github.com/agentdecksdk/agentdeck/discussions) — an
+  issue that turns out to be a question gets moved there, not closed.
+
+If AgentDeck SDK was useful, or you enjoyed contributing, starring the
+repository helps other developers discover the project.
