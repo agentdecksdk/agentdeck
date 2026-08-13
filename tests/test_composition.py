@@ -195,6 +195,39 @@ def test_resolve_event_store_builds_redis_from_a_tls_url():
     assert isinstance(store, RedisEventStore)
 
 
+def test_resolve_event_store_redis_without_the_extra_names_the_install_command():
+    """#274: the redis client moved out of base into its own extra, and ``resolve_event_store``'s
+    redis branch previously had no missing-extra guard at all (unlike its postgres sibling below)
+    — selecting a ``redis://`` event log without the extra must fail with an agentdeck error
+    naming the install command, not a raw ``ModuleNotFoundError``.
+
+    A fresh subprocess with ``sys.modules["redis"] = None`` set before any import, because this
+    process already has redis installed and imported (the tests above need it) and `sys.modules`
+    cannot unsee that — same rationale as `test_openai_agents_sessions.py`'s identical probe for
+    the session side of this same fix.
+    """
+    probe = textwrap.dedent(
+        """
+        import sys
+        sys.modules["redis"] = None
+        from agentdeck.composition import resolve_event_store
+        from agentdeck.runtime.settings import EventsSettings
+        try:
+            resolve_event_store(EventsSettings(url="redis://localhost:6379/0"))
+        except ImportError as exc:
+            assert "redis" in str(exc)
+            assert 'pip install "agentdeck-sdk[redis]"' in str(exc), str(exc)
+            print("raised the right error")
+        else:
+            raise AssertionError("expected an ImportError")
+        """
+    )
+    done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=60)
+
+    assert done.returncode == 0, done.stderr
+    assert "raised the right error" in done.stdout
+
+
 def test_resolve_event_store_builds_postgres_from_a_dsn():
     live_stores.require_psycopg()
     from agentdeck.adapters.stores.postgres import PostgresEventStore
