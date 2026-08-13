@@ -8,6 +8,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Changed
+
+- **`agentdeck.testing.scripted_model_server`'s `tool_name=` now also accepts a sequence of
+  names** (#248), one tool call per request in order, then plain text once the sequence is
+  exhausted — the shape a multi-step tool chain or a handoff round trip needs to script.
+  A single name keeps its existing one-shot behavior unchanged.
+
 ## [3.1.0] - 2026-08-13
 
 **AgentDeck is on PyPI, under the name `agentdeck-sdk`.**

@@ -231,13 +231,13 @@ def patch_model(model: Model | Callable[[], Model]) -> Iterator[None]:
         yield
 
 
-def _tool_call_delta(tool_name: str, tool_arguments: str) -> dict[str, Any]:
+def _tool_call_delta(tool_name: str, tool_arguments: str, call_id: str) -> dict[str, Any]:
     return {
         "role": "assistant",
         "tool_calls": [
             {
                 "index": 0,
-                "id": "call_scripted_1",
+                "id": call_id,
                 "type": "function",
                 "function": {"name": tool_name, "arguments": tool_arguments},
             }
@@ -246,16 +246,16 @@ def _tool_call_delta(tool_name: str, tool_arguments: str) -> dict[str, Any]:
 
 
 class _ScriptedChatHandler(BaseHTTPRequestHandler):
-    """One scripted Chat-Completions turn per request: the first request calls ``tool_name``
-    (if any was configured), and every request after it answers with ``reply``. Flat JSON or
-    an SSE stream of chunks, whichever the request's own ``stream`` flag asks for — the
-    minimum a real streaming reply is shaped as (a role-opening chunk, one content chunk, one
-    finish chunk), so the SDK's stream parser produces a real delta and a real completed
-    message instead of silently seeing nothing.
+    """One scripted Chat-Completions turn per request: request *n* (0-indexed) calls
+    ``tool_names[n]`` for as long as the list reaches that far, and every request past the end
+    of it answers with ``reply``. Flat JSON or an SSE stream of chunks, whichever the request's
+    own ``stream`` flag asks for — the minimum a real streaming reply is shaped as (a
+    role-opening chunk, one content chunk, one finish chunk), so the SDK's stream parser
+    produces a real delta and a real completed message instead of silently seeing nothing.
     """
 
     reply = "hi"
-    tool_name: str | None = None
+    tool_names: tuple[str, ...] = ()
     tool_arguments = "{}"
     received: list[dict[str, Any]] = []
 
@@ -263,9 +263,14 @@ class _ScriptedChatHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         body = json.loads(self.rfile.read(length) or b"{}")
         self.received.append(body)
-        first_call = len(self.received) == 1 and self.tool_name is not None
-        if first_call:
-            finish_reason, message = "tool_calls", _tool_call_delta(self.tool_name, self.tool_arguments)
+        call_index = len(self.received) - 1
+        if call_index < len(self.tool_names):
+            finish_reason, message = (
+                "tool_calls",
+                _tool_call_delta(
+                    self.tool_names[call_index], self.tool_arguments, call_id=f"call_scripted_{call_index + 1}"
+                ),
+            )
         else:
             finish_reason, message = "stop", {"role": "assistant", "content": self.reply}
         if body.get("stream"):
@@ -328,7 +333,7 @@ class _ScriptedChatHandler(BaseHTTPRequestHandler):
 def scripted_model_server(
     reply: str = "hi",
     *,
-    tool_name: str | None = None,
+    tool_name: str | Sequence[str] | None = None,
     tool_arguments: str = "{}",
     received: list[dict[str, Any]] | None = None,
 ) -> Iterator[str]:
@@ -337,16 +342,20 @@ def scripted_model_server(
     running agentdeck as a real subprocess, or exercising a route that builds its own
     ``RunConfig``, neither of which :func:`patch_model` can reach.
 
-    ``tool_name`` set: the first request gets a tool call, every one after answers in text.
-    Left ``None``: every request answers in text from the start. Pass a list as ``received``
-    to capture every request body handed to the endpoint, in order.
+    ``tool_name`` a single name: the first request gets that tool call, every one after answers
+    in text. A sequence: request *n* gets ``tool_name[n]``'s call for as long as the sequence
+    reaches that far (one call per turn — the shape a multi-step tool chain or a handoff
+    round-trip needs), then every request past the end answers in text. Left ``None``: every
+    request answers in text from the start. Pass a list as ``received`` to capture every
+    request body handed to the endpoint, in order.
     """
+    tool_names = () if tool_name is None else (tool_name,) if isinstance(tool_name, str) else tuple(tool_name)
     handler = type(
         "_Handler",
         (_ScriptedChatHandler,),
         {
             "reply": reply,
-            "tool_name": tool_name,
+            "tool_names": tool_names,
             "tool_arguments": tool_arguments,
             "received": received if received is not None else [],
         },
