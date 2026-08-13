@@ -66,8 +66,8 @@ DURABLE_KEY = "durable"
 Absent — a spec built in code that never said — leaves the engine's own default checkpointer
 in place, which is what a caller wiring ``LangGraphEngine()`` by hand already gets. ``True``
 is what makes the configured (sqlite/postgres) checkpointer be resolved *at all*, and only at
-the first durable run, so the ``[durability]`` extra stays optional for a project that only
-chats."""
+the first durable run, so the ``[durability]`` extra — needed only for the Postgres backend —
+stays optional for a project that only chats."""
 
 STREAM_CONFIGURABLE_KEY = "agentdeck_stream"
 """``config["configurable"][STREAM_CONFIGURABLE_KEY]``: this run's nodes may stream.
@@ -108,8 +108,8 @@ class LangGraphEngine(EnginePort):
     default, never ``resolve_checkpointer("memory")``'s shared instance, because two engines
     must not silently see each other's threads. ``durable_checkpoint`` is the
     ``(backend, url)`` a ``durable`` workflow gets instead, resolved from settings at the
-    composition root but built here, lazily, at the first durable run: naming a backend must
-    not cost a project that only chats the ``[durability]`` extra.
+    composition root but built here, lazily, at the first durable run: naming the ``postgres``
+    backend must not cost a project that only chats the ``[durability]`` extra.
 
     ``workspace`` is the scope a run's nodes execute inside — injected, because a sandbox is
     a capability rather than an engine concern, and unset for a project whose nodes need none.
@@ -226,9 +226,9 @@ class LangGraphEngine(EnginePort):
         engine's own default (see ``DURABLE_KEY``), which is what a hand-wired
         ``LangGraphEngine()`` already gets and what lets such a graph interrupt at all.
 
-        The configured saver is resolved here and not in ``__init__``: ``sqlite``/``postgres``
-        savers live in the ``[durability]`` extra, so a composition root that merely names a
-        backend must not import one until a workflow that needs it actually runs.
+        The configured saver is resolved here and not in ``__init__``: the ``postgres`` saver
+        lives in the ``[durability]`` extra, so a composition root that merely names a backend
+        must not import one until a workflow that needs it actually runs.
         """
         durable = spec.metadata.get(DURABLE_KEY)
         if durable is False:

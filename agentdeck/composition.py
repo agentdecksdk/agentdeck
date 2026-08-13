@@ -125,9 +125,9 @@ def resolve_checkpoint(settings: Settings | None = None) -> tuple[str, str]:
     """The ``(backend, path_or_dsn)`` a durable workflow checkpoints to, derived from
     ``AGENTDECK_CHECKPOINT``'s scheme.
 
-    A pair of strings, not a saver: the sqlite/postgres savers live in the ``[durability]``
-    extra, so naming a backend here must not import one — the langgraph adapter builds it at
-    the first durable run and not before. ``postgresql`` normalizes to the backend name
+    A pair of strings, not a saver: the postgres saver lives in the ``[durability]`` extra, so
+    naming a backend here must not import one — the langgraph adapter builds it at the first
+    durable run and not before. ``postgresql`` normalizes to the backend name
     ``resolve_checkpointer`` expects (``postgres``); sqlite's own value is the bare path after
     the scheme, since the saver takes a filesystem path, not a URL.
     """
@@ -168,8 +168,9 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
     ``sqlite://<path>``, ``redis://``/``rediss://<url>``, or ``postgresql://<dsn>``.
 
     The last two are imported inside their own branch, not at module scope: this module is on
-    the import path of every entry point, and Postgres needs the ``[durability]`` extra, so a
-    top-level import would make that extra mandatory for anyone who only chats.
+    the import path of every entry point, and Postgres needs the ``[durability]`` extra and
+    Redis the ``[redis]`` extra, so a top-level import would make either mandatory for anyone
+    who only chats.
     """
     events = settings if settings is not None else get_settings().events
     scheme, rest = parse_backend_url(events.url)
@@ -185,8 +186,13 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
             raise ValueError("the sqlite event store needs a file path: set AGENTDECK_EVENTS=sqlite:///<path>")
         return SqliteEventStore(rest)
     if scheme in ("redis", "rediss"):
-        from agentdeck.adapters.stores.redis import RedisEventStore
-
+        try:
+            from agentdeck.adapters.stores.redis import RedisEventStore
+        except ImportError as exc:
+            raise ImportError(
+                'the redis event store needs the redis client — install the "redis" extra: '
+                'pip install "agentdeck-sdk[redis]"'
+            ) from exc
         return RedisEventStore(events.url)
     if scheme in ("postgres", "postgresql"):
         try:

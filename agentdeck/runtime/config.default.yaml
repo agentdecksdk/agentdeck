@@ -17,11 +17,11 @@ runner:
 
 checkpoint:
   # LangGraph checkpointer for ``durable=True`` workflows. The scheme names the backend:
-  # sqlite:// | postgresql:// | memory://. sqlite/postgres need the ``[durability]`` extra.
+  # sqlite:// | postgresql:// | memory://. postgresql needs the ``[durability]`` extra.
   url: sqlite://.agentdeck/checkpoints.sqlite3
 
 session:
-  url: null              # null => in-process SQLite fallback (dev only); else a redis:// URL
+  url: null              # null => in-process SQLite fallback (dev only); else a redis:// URL, needing the ``[redis]`` extra
   redis_key_prefix: agents:session
   redis_ttl: null
 

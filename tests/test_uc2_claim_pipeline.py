@@ -49,7 +49,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 pytest.importorskip("fastapi")
-pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
 
 PRINCIPAL = "user:demo"
 SESSION_ID = "s1"

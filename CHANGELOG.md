@@ -8,6 +8,21 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`pip install agentdeck-sdk` now runs a `durable=True` workflow with no extra** (#232).
+  `langgraph-checkpoint-sqlite` — what `AGENTDECK_CHECKPOINT`'s default (`sqlite://...`) needs —
+  moves from the optional `[durability]` extra into base dependencies, so the default that every
+  human-approval workflow relies on is installable by default. `[durability]` now covers the
+  Postgres checkpointer and event store only.
+- **Breaking: `redis` is no longer installed by `pip install agentdeck-sdk`** (#253). It was a
+  base dependency because a Redis-backed session (`agents.extensions.memory.RedisSession`)
+  was imported unconditionally on every agent run, whatever `AGENTDECK_SESSION` was set to. That
+  import is now deferred to the point a `redis://` URL is actually configured, and the client
+  moves to a new `[redis]` extra — `pip install "agentdeck-sdk[redis]"`. Selecting a `redis://`
+  session or event log without it now raises a clear `ImportError` naming the install command,
+  the way the durability extras already do.
+
 ## [3.1.0] - 2026-08-13
 
 **AgentDeck is on PyPI, under the name `agentdeck-sdk`.**
