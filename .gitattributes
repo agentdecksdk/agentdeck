@@ -1,3 +1,18 @@
 # byte-exact wire recordings — never let a checkout rewrite their line endings
 tests/golden/snapshots/** -text
 tests/core/snapshots/** -text
+
+# Every PR appends to `## [Unreleased]`, so every concurrent PR conflicts here on a merge
+# it has nothing to do with — five in one morning, each needing a hand-resolved union of two
+# bullets that were never in disagreement. `union` keeps both sides instead of stopping.
+#
+# The trade: union never reports a conflict, so two PRs editing the *same* bullet get both
+# copies rather than a prompt. For an append-only list of new entries that is the right
+# default; at release, entries are read and reordered into their sections anyway, which is
+# where a duplicate or a doubled `###` heading gets caught.
+#
+# ponytail: git's own merge driver, no dependency. If concurrency gets high enough that
+# release-time tidying stops being trivial, the upgrade is changelog fragments
+# (`changelog.d/<issue>.<kind>.md`, one file per PR, assembled at release) — that removes
+# CHANGELOG.md from PRs entirely, and with it the generated files below.
+CHANGELOG.md merge=union
