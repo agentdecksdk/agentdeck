@@ -110,6 +110,10 @@ asyncio.run(main())
 before the `interrupt()` call executes a second time. Keep interrupt nodes pure — send the
 email, charge the card, and write to your database in an *earlier* node, never in the one
 that pauses.
+
+If the node also reads a `Context[T]`, that second pass is where a forgotten context bites
+silently — see [answering with a
+context](/guides/human-approval#if-the-workflow-takes-a-context-answer-with-it-too).
 </Callout>
 
 ## Timers

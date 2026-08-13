@@ -83,6 +83,24 @@ asyncio.run(main())
 needs only the `run_id` `pending()` named; it looks up which workflow and which thread that run
 belongs to itself.
 
+### If the workflow takes a context, answer with it too
+
+`QuoteApproval` above needs nothing from the caller. A workflow declaring `Context[T]` does, and
+the context is the one thing `answer()` does *not* recover for you:
+
+```python illustrative reason="continues the example above, for a workflow that declares Context[T]"
+# The interrupt node re-runs from its start, and the context is never serialized with the run —
+# so whoever answers has to hand it back. Omit it and the node reads `ctx.data` as None on the
+# second pass: no error, no warning, just a quietly wrong value.
+final = await deck.answer(mine.run_id, "yes", context=corpus)
+```
+
+Two rules meeting, and the result is silent. [The node re-runs from its
+start](/concepts/workflows#durability-and-human-approval), so its `ctx.data` read happens twice
+— and the second read is against whatever this call passed, because the interrupted run's own
+copy is gone by the time anybody answers it. The process that answers is often not the process
+that started the run, which is exactly when the value is easiest to forget.
+
 ## The same thing over HTTP
 
 A caller outside the process uses three endpoints instead of three method calls — same
