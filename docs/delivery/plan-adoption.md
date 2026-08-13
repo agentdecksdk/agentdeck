@@ -126,11 +126,17 @@ and they are the ones no tooling produces. Being findable is necessary and not s
 ## 6. Examples — five to ten serious ones
 
 Items 26–29. Four exist today: `chat-agent-with-a-tool`, `workflow-with-an-approval`,
-`agent-with-a-skill`, and `ask-agentdeck` — the last being a real application, not a
+`existing-langgraph-agent`, and `ask-agentdeck` — the last being a real application, not a
 demonstration. Every one is exercised by the gate, which is item 28 already satisfied.
 
-The gap is the searchable-problem examples: a customer-support agent, a long-running resumable
-workflow, a multi-agent system, an MCP-connected agent, an existing-LangGraph integration,
+**Amended 2026-08-13.** This paragraph listed `agent-with-a-skill` as shipped; it never was, and
+its absence is what #242 is about — skills are the one thing `Deck.from_project()` discovers with
+no runnable example, so the SKILL.md contract gets learned from an error message. #242 is open as
+a `good first issue`. `existing-langgraph-agent` shipped in its place and closes the
+existing-LangGraph line below.
+
+The gap is the remaining searchable-problem examples: a customer-support agent, a long-running
+resumable workflow, a multi-agent system, an MCP-connected agent, an agent with a skill,
 one agent served over both HTTP and chat.
 
 ## 7. Measurement
@@ -162,3 +168,71 @@ Matching the source plan's own priority: **branding → domain → GitHub metada
 core guides → Context7 → llms.txt → integrations → examples → search infrastructure → external
 content**, with GitHub metadata pulled forward because it was free and already done, and PyPI
 pulled ahead of the domain because it blocks Context7 and needs no DNS.
+
+---
+
+## 9. The contributor loop
+
+Separate from §5–§7, which are about being *found*. This is about what happens to someone who
+arrives — and it is a different funnel, because a contributor is acquired through GitHub issue
+search rather than through a query about a problem.
+
+```
+good first issue → repository → runs an example → contribution → merge → recognition → star / return
+```
+
+The step that leaks is **"runs an example"**. Someone arriving from issue search has no idea what
+AgentDeck is; without a reason to run it, they make a text edit and leave. Every newcomer issue
+therefore carries a block naming *one specific example to run first*, chosen for proximity to that
+issue's subject.
+
+### The pool
+
+Keep **5–10 open** at any time, each genuinely finishable in 30 minutes to 3 hours, and prefer
+tasks that force the contributor to run the SDK over pure text maintenance. The findings backlog
+is the natural source — a finding is already a scoped, reproduced defect with a proposed shape.
+Work that is well-defined but too large for a first contribution gets `help wanted` instead.
+
+Do not manufacture easy issues to fill the pool. An artificial issue is discovered as artificial
+during the work, and that is a worse first impression than an empty label.
+
+### First merge
+
+The moment a first contribution merges is the only point where recognition is both cheap and
+believed. Standard reply:
+
+> Thanks @username — merged. You're now an AgentDeck contributor.
+>
+> If you found AgentDeck useful, starring the repository helps the SDK reach more developers.
+> Happy to have you pick up another `good first issue` or `help wanted` task — and if something
+> was confusing while you worked on this, that is worth an issue of its own.
+
+Never a condition, never asked before the merge.
+
+### What CI enforces today, and what it does not
+
+Audited 2026-08-13 against `.github/workflows/ci.yml`, `docs-check.yml` and
+`PULL_REQUEST_TEMPLATE.md`.
+
+| Expectation | Enforced? |
+|---|---|
+| lint · typecheck · import contracts · tests | **yes** — `ci.yml`, on every PR whatever its base |
+| a subsystem silently skipping out of the gate | **yes** — the junit-xml skip-reason grep |
+| goldens replay in a clean process | **yes** — a second `pytest tests/golden` run |
+| docs-site builds and exports | **yes** — `docs-check.yml` |
+| docs-site code samples still import what they claim | **yes** — `tests/test_docs_site.py` |
+| internal and repo→docs-site links resolve | **yes** — same file |
+| every public `Deck` method is documented | **yes** — same file |
+| examples still build | **yes** — `tests/test_examples.py` |
+| **CHANGELOG entry for a user-visible change** | **no** — checklist only |
+| **the PR template's checkboxes** | **no** — nothing parses the PR body |
+| **PR opened against `main` instead of `dev`** | **no** — and this is the likeliest newcomer mistake |
+
+The first two are honour-system by design: "user-visible" is a judgement call, and a bot that
+demands a CHANGELOG line on a typo fix teaches contributors to tick boxes rather than think. The
+third is worth a small check, because it is mechanical, unambiguous, and currently costs a
+newcomer a rebase they did not know they needed.
+
+One further thing to know rather than fix: a fork PR from a first-time contributor needs a
+maintainer to approve the workflow run before CI reports anything. That silence looks like being
+ignored, so approve the run before reviewing.

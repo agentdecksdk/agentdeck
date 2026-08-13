@@ -1,0 +1,70 @@
+name: First contribution
+
+# `pull_request_target`, not `pull_request`: a PR from a fork gets a read-only token on the
+# latter, so neither job could comment — which is every external contribution, the only case
+# this workflow exists for. It is safe here because nothing checks out or runs the PR's code;
+# both jobs only call the API.
+on:
+  pull_request_target:
+    types: [opened, closed]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  # The greeting is what makes the <24h first-response target hold on a weekend. It is a
+  # welcome and a pointer, never a substitute for the human review that follows.
+  welcome:
+    if: github.event.action == 'opened'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/first-interaction@v1
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          pr-message: |
+            Thanks for opening your first PR here — a maintainer will read it shortly.
+
+            Two things worth knowing while you wait, both of which trip up first PRs:
+
+            - **PRs target `dev`**, not `main`. If the base is wrong, edit it at the top of
+              this page — no need to reopen anything.
+            - **`make check` is the gate**, and CI runs exactly that. A red run on a draft is
+              expected and is not a problem.
+
+            Your first run may sit waiting for a maintainer to approve it; that is a GitHub
+            default for fork PRs, not something you did.
+
+            Conventions are in
+            [CONTRIBUTING.md](https://github.com/agentdecksdk/agentdeck/blob/dev/CONTRIBUTING.md).
+            Anything unclear is fair game in
+            [Discussions](https://github.com/agentdecksdk/agentdeck/discussions) — or just ask
+            here.
+
+  # Recognition at the one moment it is both cheap and believed. Fires *after* the merge, so
+  # the star is never a condition of it.
+  thanks:
+    if: github.event.action == 'closed' && github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say thanks if this is their first merged PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # Counts merged PRs by this author, this one included — so "1" is their first.
+          # ponytail: a count, not a full listing; --limit 2 is all the arithmetic needs.
+          merged=$(gh pr list --repo "$REPO" --author "$AUTHOR" --state merged \
+                     --limit 2 --json number --jq 'length')
+          if [ "$merged" != "1" ]; then
+            echo "$AUTHOR has $merged merged PRs — not their first, nothing to post."
+            exit 0
+          fi
+          gh pr comment "$NUMBER" --repo "$REPO" --body "Thanks @${AUTHOR} — merged. You're now an AgentDeck contributor.
+
+          If you found AgentDeck useful, starring the repository helps the SDK reach more developers.
+
+          Happy to have you pick up another [\`good first issue\`](https://github.com/agentdecksdk/agentdeck/labels/good%20first%20issue) or [\`help wanted\`](https://github.com/agentdecksdk/agentdeck/labels/help%20wanted) task — and if anything was confusing while you worked on this, that is worth an issue of its own. A fresh pair of eyes on the docs is worth more to us than a fixed typo."
