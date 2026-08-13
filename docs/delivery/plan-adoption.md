@@ -126,11 +126,17 @@ and they are the ones no tooling produces. Being findable is necessary and not s
 ## 6. Examples — five to ten serious ones
 
 Items 26–29. Four exist today: `chat-agent-with-a-tool`, `workflow-with-an-approval`,
-`agent-with-a-skill`, and `ask-agentdeck` — the last being a real application, not a
+`existing-langgraph-agent`, and `ask-agentdeck` — the last being a real application, not a
 demonstration. Every one is exercised by the gate, which is item 28 already satisfied.
 
-The gap is the searchable-problem examples: a customer-support agent, a long-running resumable
-workflow, a multi-agent system, an MCP-connected agent, an existing-LangGraph integration,
+**Amended 2026-08-13.** This paragraph listed `agent-with-a-skill` as shipped; it never was, and
+its absence is what #242 is about — skills are the one thing `Deck.from_project()` discovers with
+no runnable example, so the SKILL.md contract gets learned from an error message. #242 is open as
+a `good first issue`. `existing-langgraph-agent` shipped in its place and closes the
+existing-LangGraph line below.
+
+The gap is the remaining searchable-problem examples: a customer-support agent, a long-running
+resumable workflow, a multi-agent system, an MCP-connected agent, an agent with a skill,
 one agent served over both HTTP and chat.
 
 ## 7. Measurement
