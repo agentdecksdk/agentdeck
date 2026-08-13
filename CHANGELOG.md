@@ -8,6 +8,17 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The non-streamed HTTP surface now answers every server-side failure with the documented
+  500 `{"detail": "internal error"}`, not just `AgentdeckError` ones** (#243). An SDK error, a
+  tool's own exception, or an `httpx` transport failure used to fall through to Starlette's
+  bare-text `Internal Server Error` on the non-streamed chat and workflow endpoints, while the
+  streamed path already reported the identical failure correctly as an in-band SSE `error`
+  event. A catch-all handler beside the existing one closes that gap; 404/409/422 and the
+  existing `AgentdeckError` 500 are unchanged, and no exception message reaches the response
+  body.
+
 ## [3.1.0] - 2026-08-13
 
 **AgentDeck is on PyPI, under the name `agentdeck-sdk`.**

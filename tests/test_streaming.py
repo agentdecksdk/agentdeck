@@ -206,8 +206,13 @@ def serve_client(project):
 
     @contextmanager
     def _client(model):
-        # context manager runs the lifespan; without it every endpoint is 503
-        with patch_model(model), TestClient(create_app()) as client:
+        # context manager runs the lifespan; without it every endpoint is 503.
+        # raise_server_exceptions=False: a non-AgentdeckError failure is answered by
+        # ServerErrorMiddleware, which re-raises after sending its response so a real server
+        # can still log it — the default client would surface that as a raised exception
+        # instead of the response a real caller gets. A no-op for every case here that
+        # doesn't fail this way.
+        with patch_model(model), TestClient(create_app(), raise_server_exceptions=False) as client:
             yield client
 
     return _client
@@ -255,4 +260,19 @@ def test_stream_endpoint_reports_mid_stream_failure(serve_client):
     frames = _sse_frames(response.text)
     assert frames[0] == ("message", {"delta": "par"})
     assert frames[-1] == ("error", {"error": "RuntimeError"})
+    assert "secret internal detail" not in response.text
+
+
+def test_non_streamed_chat_answers_the_v1_500_contract_for_a_non_agentdeck_error(serve_client):
+    """A raw model/tool exception (an SDK error, a bare ``ValueError``, ...) has no registered
+    handler of its own, unlike ``AgentdeckError``. It must still land on v1's fixed 500 body
+    rather than Starlette's bare-text default — the same contract the streamed path already
+    gives it above, minus the framing.
+    """
+    model = ScriptedModel(raises=ValueError("secret internal detail"))
+    with serve_client(model) as client:
+        response = client.post("/agents/Greeter/chat", json={"session_id": "s1", "message": "hi"})
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "internal error"}
     assert "secret internal detail" not in response.text

@@ -149,6 +149,19 @@ def build_asgi_app(deck: Deck) -> Any:
         logger.exception("%s serving %s", type(exc).__name__, request.url.path, exc_info=exc)
         return JSONResponse(status_code=500, content={"detail": "internal error"})
 
+    # FastAPI treats the `Exception` key specially: it does not join the handlers above in
+    # Starlette's per-type lookup, it becomes ServerErrorMiddleware's handler, the outermost
+    # layer wrapping the whole app. That still gets this right — NotFoundError/SessionBusyError/
+    # AgentdeckError are matched first, by their own registration, before anything unwinds this
+    # far — and it is the only way to answer an exception the engine raised that isn't any of
+    # agentdeck's own types (an SDK error, a tool's bare ValueError, an httpx transport failure):
+    # unrecognized exceptions have no handler in that per-type lookup and would otherwise fall
+    # through to Starlette's bare-text default.
+    @api.exception_handler(Exception)
+    async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:
+        logger.exception("%s serving %s", type(exc).__name__, request.url.path, exc_info=exc)
+        return JSONResponse(status_code=500, content={"detail": "internal error"})
+
     @api.get("/health")
     async def health() -> Any:
         if api.state.deck is None:

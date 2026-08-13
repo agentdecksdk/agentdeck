@@ -62,6 +62,11 @@ def capture(client) -> dict[str, bytes]:
                 json={"request": "approve?"},
             )
         ),
+        # A node raising a plain ValueError, not routed through agentdeck's own error
+        # taxonomy — the catch-all handler's 500, distinct from BoomFlow's AgentdeckError one.
+        # No streamed twin: the streamed path already catches bare Exception in compat.py,
+        # already pinned by `test_stream_endpoint_reports_mid_stream_failure`.
+        "18_workflow_crash.http": _record(client.post("/workflows/CrashFlow", json={"text": "x"})),
     }
     # Not recorded: #122's Done-when only asks for the pause shape, not a second resume case
     # (that path is already pinned by 10/11). Left unanswered, though, these two threads would
@@ -91,11 +96,13 @@ def test_failures_never_echo_the_error_message(make_client):
     """The 500 body and the SSE error frame carry a type name only — never the message."""
     with make_client() as client:
         # importable only once App has mounted ./.agentdeck as `agentdeck_project`
-        from agentdeck_project.workflows.boom_flow.workflow import SECRET
+        from agentdeck_project.workflows.boom_flow.workflow import SECRET as BOOM_SECRET
+        from agentdeck_project.workflows.crash_flow.workflow import SECRET as CRASH_SECRET
 
         recorded = capture(client)
     for name in ("12_workflow_error.http", "13_workflow_error_stream.http"):
-        assert SECRET.encode() not in recorded[name]
+        assert BOOM_SECRET.encode() not in recorded[name]
+    assert CRASH_SECRET.encode() not in recorded["18_workflow_crash.http"]
 
 
 def test_capture_is_stable_across_runs(make_client):
