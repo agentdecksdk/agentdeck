@@ -441,6 +441,12 @@ id: Redis-backed when `AGENTDECK_SESSION` is set, an in-process SQLite session o
 (lost on process exit). Pass `session_factory=` to `Deck(...)` to inject one — the seam tests use
 to swap in a fake wrapping `fakeredis` without a real Redis server.
 
+<Callout type="info">
+  A Redis-backed session needs the `redis` extra: `pip install "agentdeck-sdk[redis]"`. Without
+  it, `AGENTDECK_SESSION` unset (the default) is unaffected — the Redis client is imported only
+  once a `redis://` URL is actually configured.
+</Callout>
+
 ## Where a context does not reach
 
 Four boundaries, all of them consequences of the same fact: a context is a live Python object that

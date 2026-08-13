@@ -8,6 +8,12 @@ it: Redis-backed when a factory is configured, one in-process
 :class:`agents.SQLiteSession` per key otherwise — the same fallback ``agentdeck.deck.Deck``
 uses for its chat methods, so both callers of the SDK agree on what "no Redis configured"
 means. Nothing outside this adapter directory may import either class.
+
+This module is on every agent run's import path regardless of ``AGENTDECK_SESSION``
+(``__init__.py`` imports it unconditionally), so both the redis client and
+``agents.extensions.memory`` — whose ``RedisSession`` import is itself gated on redis being
+installed — are resolved lazily in ``from_settings``, only once a ``redis://`` URL is
+actually configured, the same way the langgraph checkpointers resolve theirs.
 """
 
 from __future__ import annotations
@@ -15,11 +21,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agents import SQLiteSession
-from agents.extensions.memory import RedisSession
-from redis.asyncio import Redis
 
 if TYPE_CHECKING:
     from agents.memory.session import Session
+    from redis.asyncio import Redis
 
     from agentdeck.core.context import RunContext
     from agentdeck.runtime.settings import SessionSettings
@@ -44,6 +49,13 @@ class SessionFactory:
         """Build from :class:`SessionSettings` or return ``None`` when disabled."""
         if not settings.url:
             return None
+        try:
+            from redis.asyncio import Redis
+        except ImportError as exc:
+            raise ImportError(
+                'a redis:// AGENTDECK_SESSION needs the redis client — install the "redis" extra: '
+                'pip install "agentdeck-sdk[redis]"'
+            ) from exc
         return cls(
             Redis.from_url(settings.url),
             key_prefix=settings.redis_key_prefix,
@@ -51,6 +63,10 @@ class SessionFactory:
         )
 
     def session_for(self, session_id: str) -> Session:
+        # Reached only once `from_settings` has already resolved a real Redis client, so
+        # the redis extra is known installed by the time this import runs.
+        from agents.extensions.memory import RedisSession
+
         return RedisSession(
             session_id,
             redis_client=self._redis,

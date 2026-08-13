@@ -106,3 +106,22 @@ def test_no_license_classifier_alongside_the_spdx_expression():
     `License :: OSI Approved :: MIT License` breaks `make build` — after the gate has passed.
     """
     assert not [c for c in _pyproject()["project"]["classifiers"] if c.startswith("License ::")]
+
+
+def test_the_sqlite_checkpointer_is_a_base_dependency():
+    """#232/#274: `AGENTDECK_CHECKPOINT` defaults to a `sqlite://` URL, so a plain install must
+    be able to run `durable=True` — the sqlite saver cannot live behind an extra."""
+    deps = _pyproject()["project"]["dependencies"]
+    assert any(dep.startswith("langgraph-checkpoint-sqlite") for dep in deps)
+
+
+def test_redis_is_an_extra_not_a_base_dependency():
+    """#253/#274: nothing defaults to redis (`AGENTDECK_SESSION`/`AGENTDECK_EVENTS` both default
+    off it), so the client moves out of base into its own `[redis]` extra — kept in `[dev]` too
+    so `make check` still exercises the redis-backed paths."""
+    project = _pyproject()["project"]
+    assert not any(dep.startswith("redis") for dep in project["dependencies"])
+
+    extras = project["optional-dependencies"]
+    assert any(dep.startswith("redis") for dep in extras["redis"])
+    assert any(dep.startswith("redis") for dep in extras["dev"])
