@@ -31,12 +31,16 @@ documented change — never something to "fix" by re-recording without reading t
 | `15_side_effect_stream.http` | the same `?stream=true` |
 | `16_fanout_interrupt.http` | `POST /workflows/FanoutInterruptFlow` — one branch interrupts while a sibling completes; the terminal body is the interrupt (#122) |
 | `17_fanout_interrupt_stream.http` | the same `?stream=true` — the completed sibling's `node_update` reaches the wire before `interrupt` replaces `done` |
+| `18_workflow_crash.http` | `POST /workflows/CrashFlow` — node raises a plain `ValueError`; the catch-all's 500 `{"detail": "internal error"}` |
 
 Cases 12/13 exist for the one wire contract with a security property: an `AgentdeckError`
 that isn't a `NotFoundError` may carry secrets (skill stderr, config values), so the
 surface must render a type name and nothing else. `BoomFlow` raises a deliberately
 secret-shaped message and `test_failures_never_echo_the_error_message` asserts it is
-absent from both recordings.
+absent from both recordings. Case 18 pins the same property for a failure that is *not*
+an `AgentdeckError` at all — `CrashFlow` raises a plain `ValueError`, caught only by
+`serve.py`'s catch-all handler, and the same test asserts its own secret-shaped message
+stays out of the recording too.
 
 Each snapshot file is a small HTTP-shaped record:
 
@@ -101,6 +105,8 @@ section — an undocumented normalization is a hole in the safety net.
   pending/resume path.
 - `workflows/boom_flow/workflow.py` — one node raising a secret-shaped `SkillError`; the
   500 and SSE-`error` paths.
+- `workflows/crash_flow/workflow.py` — one node raising a secret-shaped plain `ValueError`
+  (not an `AgentdeckError`); the catch-all's 500 path.
 - `workflows/fanout_interrupt_flow/workflow.py` — a fan-out with one interrupting branch and
   one slower sibling that completes; pins the sibling's node update reaching the wire before
   the pause replaces `done` (#122).

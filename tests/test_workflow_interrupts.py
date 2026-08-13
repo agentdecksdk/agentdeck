@@ -344,7 +344,6 @@ def test_interrupt_survives_a_process_restart(tmp_path, decision, outcome):
     """
     import json
 
-    pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
     env = {
         **os.environ,
         "AGENTDECK_CHECKPOINT": f"sqlite://{tmp_path / 'checkpoints.sqlite3'}",

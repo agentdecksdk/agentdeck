@@ -14,6 +14,19 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
 
 ## Unreleased
 
+### Upgrading
+
+- **`redis` is no longer installed by `pip install agentdeck-sdk`** (#253). A deployment with
+  `AGENTDECK_SESSION=redis://...` or `AGENTDECK_EVENTS=redis://...` now raises `ImportError` at
+  boot — `Deck.__aenter__` resolves both through `SessionFactory.from_settings()` and
+  `resolve_event_store()` before it opens — not on first use. It was a base dependency because a
+  Redis-backed session (`agents.extensions.memory.RedisSession`) was imported unconditionally on
+  every agent run, whatever `AGENTDECK_SESSION` was set to. That import is now deferred to the
+  point a `redis://` URL is actually configured, and the client moves to a new `[redis]` extra:
+  `pip install "agentdeck-sdk[redis]"`. Selecting a `redis://` session or event log without it
+  raises a clear `ImportError` naming the install command, the way the durability extras already
+  do.
+
 ### Added
 
 - **A fourth example, `examples/existing-langgraph-agent`** — a LangGraph graph written
@@ -30,6 +43,24 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
   names** (#248), one tool call per request in order, then plain text once the sequence is
   exhausted — the shape a multi-step tool chain or a handoff round trip needs to script.
   A single name keeps its existing one-shot behavior unchanged.
+
+### Fixed
+
+- **`pip install agentdeck-sdk` now runs a `durable=True` workflow with no extra** (#232).
+  `langgraph-checkpoint-sqlite` — what `AGENTDECK_CHECKPOINT`'s default (`sqlite://...`) needs —
+  moves from the optional `[durability]` extra into base dependencies, so the default that every
+  human-approval workflow relies on is installable by default. `[durability]` now covers the
+  Postgres checkpointer and event store only.
+- **The non-streamed HTTP surface now answers every server-side failure with the documented
+  500 `{"detail": "internal error"}`, not just `AgentdeckError` ones** (#243). A workflow
+  node's plain exception, an SDK error, or an `httpx` transport failure used to fall through to
+  Starlette's bare-text `Internal Server Error` on the non-streamed chat and workflow endpoints,
+  while the streamed path already reported the identical failure correctly as an in-band SSE
+  `error` event. A catch-all handler beside the existing one closes that gap; a tool's own
+  exception is a separate, still-open gap (#250) — the SDK's default `failure_error_function`
+  swallows it into a successful 200 before it ever reaches this handler. 404/409/422 and the
+  existing `AgentdeckError` 500 are unchanged, and no exception message reaches the response
+  body.
 
 ## v3.1.0
 

@@ -19,9 +19,10 @@ you install one name and import another. The two differ because PyPI refuses `ag
 similar to an unrelated placeholder project; `import agentdeck` is what every example here uses
 and it is not changing.
 
-`serve` is the extra for the HTTP surface. Others: `durability` for the Postgres/SQLite stores,
-`observability` for Langfuse tracing. Plain `uv pip install agentdeck-sdk` is enough for the
-first agent below.
+`serve` is the extra for the HTTP surface. Others: `durability` for the Postgres checkpointer and
+event store, `redis` for Redis-backed sessions or event log, `observability` for Langfuse
+tracing. Plain `uv pip install agentdeck-sdk` already gets you a working `durable=True` — the
+default SQLite checkpointer ships in base — and is enough for the first agent below.
 
 Contributing to AgentDeck itself instead? Clone the repo and run `make install` — that
 path is in `CONTRIBUTING.md`, not here.

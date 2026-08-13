@@ -70,7 +70,11 @@ def make_client(monkeypatch):
             reset_settings_cache()
             for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
                 del sys.modules[mod]
-            with TestClient(create_app()) as client:
+            # A plain (non-AgentdeckError) failure is answered by ServerErrorMiddleware, which
+            # re-raises after sending its response so a real server can still log it — the
+            # default client would surface that as a raised exception instead of a response.
+            # This suite records wire bytes, exactly what a real client sees, never that.
+            with TestClient(create_app(), raise_server_exceptions=False) as client:
                 yield client
 
         yield _make
