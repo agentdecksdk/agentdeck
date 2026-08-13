@@ -264,7 +264,7 @@ def test_stream_endpoint_reports_mid_stream_failure(serve_client):
 
 
 def test_non_streamed_chat_answers_the_v1_500_contract_for_a_non_agentdeck_error(serve_client):
-    """A raw model/tool exception (an SDK error, a bare ``ValueError``, ...) has no registered
+    """A raw model exception (an SDK error, a bare ``ValueError``, ...) has no registered
     handler of its own, unlike ``AgentdeckError``. It must still land on v1's fixed 500 body
     rather than Starlette's bare-text default — the same contract the streamed path already
     gives it above, minus the framing.

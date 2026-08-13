@@ -11,11 +11,13 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 ### Fixed
 
 - **The non-streamed HTTP surface now answers every server-side failure with the documented
-  500 `{"detail": "internal error"}`, not just `AgentdeckError` ones** (#243). An SDK error, a
-  tool's own exception, or an `httpx` transport failure used to fall through to Starlette's
-  bare-text `Internal Server Error` on the non-streamed chat and workflow endpoints, while the
-  streamed path already reported the identical failure correctly as an in-band SSE `error`
-  event. A catch-all handler beside the existing one closes that gap; 404/409/422 and the
+  500 `{"detail": "internal error"}`, not just `AgentdeckError` ones** (#243). A workflow
+  node's plain exception, an SDK error, or an `httpx` transport failure used to fall through to
+  Starlette's bare-text `Internal Server Error` on the non-streamed chat and workflow endpoints,
+  while the streamed path already reported the identical failure correctly as an in-band SSE
+  `error` event. A catch-all handler beside the existing one closes that gap; a tool's own
+  exception is a separate, still-open gap (#250) — the SDK's default `failure_error_function`
+  swallows it into a successful 200 before it ever reaches this handler. 404/409/422 and the
   existing `AgentdeckError` 500 are unchanged, and no exception message reaches the response
   body.
 

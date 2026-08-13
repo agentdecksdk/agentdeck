@@ -154,9 +154,9 @@ def build_asgi_app(deck: Deck) -> Any:
     # layer wrapping the whole app. That still gets this right — NotFoundError/SessionBusyError/
     # AgentdeckError are matched first, by their own registration, before anything unwinds this
     # far — and it is the only way to answer an exception the engine raised that isn't any of
-    # agentdeck's own types (an SDK error, a tool's bare ValueError, an httpx transport failure):
-    # unrecognized exceptions have no handler in that per-type lookup and would otherwise fall
-    # through to Starlette's bare-text default.
+    # agentdeck's own types (a workflow node's plain exception, an SDK error, an httpx transport
+    # failure): unrecognized exceptions have no handler in that per-type lookup and would
+    # otherwise fall through to Starlette's bare-text default.
     @api.exception_handler(Exception)
     async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:
         logger.exception("%s serving %s", type(exc).__name__, request.url.path, exc_info=exc)
