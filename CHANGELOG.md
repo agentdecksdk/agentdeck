@@ -8,6 +8,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+
+- **A fourth example, `examples/existing-langgraph-agent`** — a LangGraph graph written
+  without agentdeck, wrapped in four lines and gaining the event log, streaming and run
+  control without a change to the graph module. It documents the two things wrapping asks
+  for: `graph=` takes an uncompiled `StateGraph` factory (so agentdeck can attach a
+  checkpointer when a workflow is `durable`), and a sibling module inside a bundle is
+  imported relatively (`from .pipeline import …`). A `TypedDict` state is fine; a pydantic
+  model is not required.
+
 ### Fixed
 
 - **The non-streamed HTTP surface now answers every server-side failure with the documented
