@@ -373,9 +373,9 @@ class CheckpointSettings(LayeredSettings):
     ``sqlite://<path>`` for dev (relative or absolute — see :func:`parse_backend_url`;
     ``sqlite://.agentdeck/checkpoints.sqlite3`` is the default), ``postgresql://<dsn>`` for
     prod, ``memory://`` for tests (never persists past the process). Resolving the saver
-    classes lives in ``agentdeck.adapters.engines.langgraph.checkpointer`` — sqlite/postgres
-    ship in the optional ``[durability]`` extra, so this settings model stays import-free of
-    them.
+    classes lives in ``agentdeck.adapters.engines.langgraph.checkpointer`` — sqlite ships in
+    base (the default needs it), postgres in the optional ``[durability]`` extra — but this
+    settings model stays import-free of either.
     """
 
     _bare_env_names: ClassVar[Mapping[str, str]] = {"url": "AGENTDECK_CHECKPOINT"}
@@ -397,12 +397,12 @@ class EventsSettings(LayeredSettings):
     grows for as long as the process lives and is gone when it exits. ``sqlite://<path>`` is a
     log that survives a restart.
 
-    ``redis://``/``rediss://`` and ``postgresql://`` (needs the ``[durability]`` extra) are the
-    two that several workers can share: SQLite's durability rests on cross-process shared
-    memory, so one file behind more than one machine is unsupported. Each keeps to its own
-    keyspace, so an instance already holding LangGraph checkpoints or agent conversations is
-    fine to reuse. A Redis instance used as the record wants ``appendonly yes`` and
-    ``maxmemory-policy noeviction`` — this is a log, not a cache.
+    ``redis://``/``rediss://`` (needs the ``[redis]`` extra) and ``postgresql://`` (needs the
+    ``[durability]`` extra) are the two that several workers can share: SQLite's durability
+    rests on cross-process shared memory, so one file behind more than one machine is
+    unsupported. Each keeps to its own keyspace, so an instance already holding LangGraph
+    checkpoints or agent conversations is fine to reuse. A Redis instance used as the record
+    wants ``appendonly yes`` and ``maxmemory-policy noeviction`` — this is a log, not a cache.
     """
 
     _bare_env_names: ClassVar[Mapping[str, str]] = {"url": "AGENTDECK_EVENTS"}
@@ -411,8 +411,8 @@ class EventsSettings(LayeredSettings):
     url: str = Field(
         default="memory://",
         description="Where the Runtime's canonical event log is written: `memory://` (default, in-process, "
-        "gone when the process exits), `sqlite://<path>`, `redis://<url>`/`rediss://<url>`, or "
-        "`postgresql://<dsn>` (needs the `[durability]` extra). The scheme names the backend.",
+        "gone when the process exits), `sqlite://<path>`, `redis://<url>`/`rediss://<url>` (needs the `[redis]` "
+        "extra), or `postgresql://<dsn>` (needs the `[durability]` extra). The scheme names the backend.",
     )
 
 
@@ -459,8 +459,9 @@ class SessionSettings(LayeredSettings):
     url: str | None = Field(
         default=None,
         description="Redis URL for `RedisSession`-backed agent conversation memory "
-        "(`agentdeck.adapters.engines.openai_agents.sessions.SessionFactory`). `None` falls back to one "
-        "in-process `SQLiteSession` per session key — no persistence across a restart, no sharing across workers.",
+        "(`agentdeck.adapters.engines.openai_agents.sessions.SessionFactory`), needing the `[redis]` extra. "
+        "`None` falls back to one in-process `SQLiteSession` per session key — no persistence across a restart, "
+        "no sharing across workers.",
     )
     redis_key_prefix: str = Field(
         default="agents:session", description="Key prefix under which `RedisSession` stores conversations in Redis."

@@ -53,7 +53,8 @@ last one.
 ## Where a session lives
 
 `deck.session_for(session_id)` is a thin lookup, not a store of its own: `AGENTDECK_SESSION`
-set to a `redis://` URL means every session is a `RedisSession` sharing one Redis client,
+set to a `redis://` URL (needs the `redis` extra: `pip install "agentdeck-sdk[redis]"`) means
+every session is a `RedisSession` sharing one Redis client,
 reachable from any worker and surviving a restart; unset, each `session_id` gets one in-process
 SQLite session, held in the `Deck` instance that created it — gone the moment that process
 exits, invisible to any other worker. `AGENTDECK_SESSION_REDIS_KEY_PREFIX` and

@@ -71,7 +71,6 @@ def client(request, tmp_path, monkeypatch):
     from agentdeck.serve import create_app
 
     if request.param == "sqlite":
-        pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
         monkeypatch.setenv("AGENTDECK_CHECKPOINT", f"sqlite://{tmp_path / 'checkpoints.sqlite3'}")
     else:
         monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")

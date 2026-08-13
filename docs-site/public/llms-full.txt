@@ -100,9 +100,10 @@ you install one name and import another. The two differ because PyPI refuses `ag
 similar to an unrelated placeholder project; `import agentdeck` is what every example here uses
 and it is not changing.
 
-`serve` is the extra for the HTTP surface. Others: `durability` for the Postgres/SQLite stores,
-`observability` for Langfuse tracing. Plain `uv pip install agentdeck-sdk` is enough for the
-first agent below.
+`serve` is the extra for the HTTP surface. Others: `durability` for the Postgres checkpointer and
+event store, `redis` for Redis-backed sessions or event log, `observability` for Langfuse
+tracing. Plain `uv pip install agentdeck-sdk` already gets you a working `durable=True` — the
+default SQLite checkpointer ships in base — and is enough for the first agent below.
 
 Contributing to AgentDeck itself instead? Clone the repo and run `make install` — that
 path is in `CONTRIBUTING.md`, not here.
@@ -469,10 +470,9 @@ A relative path stays relative (`sqlite://./events.sqlite3`); a third slash make
 Several processes on the same machine can share a SQLite file — which is what makes `agentdeck
 runs signal` able to reach a run in another terminal — but a file cannot reach a second machine.
 
-The two SQLite users do not have the same requirements, which surprises people: the event log
-and the control port use the standard library, but the SQLite *checkpointer* is LangGraph's and
-needs the `durability` extra. So the checkpointer default only works if you installed that
-extra — and a `durable=True` workflow raises an `ImportError` naming it if you did not.
+The two SQLite users are simpler than they look: the event log and control port use the standard
+library, and the SQLite *checkpointer* — LangGraph's — ships in base too, so the `durable=True`
+default above works on a plain install with no extra.
 
 **Several workers, or more than one machine.** The event log has to be a service, and so does
 the session store:
@@ -485,8 +485,8 @@ export AGENTDECK_CONTROL=sqlite:///var/lib/agentdeck/control.sqlite3
 ```
 
 `postgresql://` — for the event log and the checkpointer both — needs the `durability` extra.
-`redis://` for either the event log or sessions needs nothing extra. The control port has no
-networked backend at all today: a signal still only reaches a run from the same machine.
+`redis://` — for either the event log or sessions — needs the `redis` extra. The control port
+has no networked backend at all today: a signal still only reaches a run from the same machine.
 
 **Tests.** `memory://` for all three that offer it, including
 `AGENTDECK_CHECKPOINT=memory://`, so nothing survives the test that wrote it and no file is left
@@ -911,7 +911,8 @@ last one.
 ## Where a session lives
 
 `deck.session_for(session_id)` is a thin lookup, not a store of its own: `AGENTDECK_SESSION`
-set to a `redis://` URL means every session is a `RedisSession` sharing one Redis client,
+set to a `redis://` URL (needs the `redis` extra: `pip install "agentdeck-sdk[redis]"`) means
+every session is a `RedisSession` sharing one Redis client,
 reachable from any worker and surviving a restart; unset, each `session_id` gets one in-process
 SQLite session, held in the `Deck` instance that created it — gone the moment that process
 exits, invisible to any other worker. `AGENTDECK_SESSION_REDIS_KEY_PREFIX` and
@@ -2091,6 +2092,12 @@ id: Redis-backed when `AGENTDECK_SESSION` is set, an in-process SQLite session o
 (lost on process exit). Pass `session_factory=` to `Deck(...)` to inject one — the seam tests use
 to swap in a fake wrapping `fakeredis` without a real Redis server.
 
+<Callout type="info">
+  A Redis-backed session needs the `redis` extra: `pip install "agentdeck-sdk[redis]"`. Without
+  it, `AGENTDECK_SESSION` unset (the default) is unaffected — the Redis client is imported only
+  once a `redis://` URL is actually configured.
+</Callout>
+
 ## Where a context does not reach
 
 Four boundaries, all of them consequences of the same fact: a context is a live Python object that
@@ -2412,7 +2419,7 @@ Where the Runtime's canonical event log is written, as one scheme-shaped URL.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_EVENTS` | `str` | `'memory://'` | Where the Runtime's canonical event log is written: `memory://` (default, in-process, gone when the process exits), `sqlite://<path>`, `redis://<url>`/`rediss://<url>`, or `postgresql://<dsn>` (needs the `[durability]` extra). The scheme names the backend. |
+| `AGENTDECK_EVENTS` | `str` | `'memory://'` | Where the Runtime's canonical event log is written: `memory://` (default, in-process, gone when the process exits), `sqlite://<path>`, `redis://<url>`/`rediss://<url>` (needs the `[redis]` extra), or `postgresql://<dsn>` (needs the `[durability]` extra). The scheme names the backend. |
 
 ## `ControlSettings`
 
@@ -2428,7 +2435,7 @@ Configuration for Redis-backed agent conversation memory.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_SESSION` | `str` or `None` | `None` | Redis URL for `RedisSession`-backed agent conversation memory (`agentdeck.adapters.engines.openai_agents.sessions.SessionFactory`). `None` falls back to one in-process `SQLiteSession` per session key — no persistence across a restart, no sharing across workers. |
+| `AGENTDECK_SESSION` | `str` or `None` | `None` | Redis URL for `RedisSession`-backed agent conversation memory (`agentdeck.adapters.engines.openai_agents.sessions.SessionFactory`), needing the `[redis]` extra. `None` falls back to one in-process `SQLiteSession` per session key — no persistence across a restart, no sharing across workers. |
 | `AGENTDECK_SESSION_REDIS_KEY_PREFIX` | `str` | `'agents:session'` | Key prefix under which `RedisSession` stores conversations in Redis. |
 | `AGENTDECK_SESSION_REDIS_TTL` | `int` or `None` | `None` | Per-session TTL in seconds for Redis-backed conversations. `None` means sessions persist indefinitely. |
 
@@ -2717,6 +2724,31 @@ Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift fro
 are written for someone using the package: what changed, and what to do about it.
 
 The current release is **v3.1.0**. Earlier releases are listed at the bottom.
+
+## Unreleased
+
+### Added
+
+- **A fourth example, `examples/existing-langgraph-agent`** — a LangGraph graph written
+  without agentdeck, wrapped in four lines and gaining the event log, streaming and run
+  control without a change to the graph module. It documents the two things wrapping asks
+  for: `graph=` takes an uncompiled `StateGraph` factory (so agentdeck can attach a
+  checkpointer when a workflow is `durable`), and a sibling module inside a bundle is
+  imported relatively (`from .pipeline import …`). A `TypedDict` state is fine; a pydantic
+  model is not required.
+
+### Fixed
+
+- **The non-streamed HTTP surface now answers every server-side failure with the documented
+  500 `{"detail": "internal error"}`, not just `AgentdeckError` ones** (#243). A workflow
+  node's plain exception, an SDK error, or an `httpx` transport failure used to fall through to
+  Starlette's bare-text `Internal Server Error` on the non-streamed chat and workflow endpoints,
+  while the streamed path already reported the identical failure correctly as an in-band SSE
+  `error` event. A catch-all handler beside the existing one closes that gap; a tool's own
+  exception is a separate, still-open gap (#250) — the SDK's default `failure_error_function`
+  swallows it into a successful 200 before it ever reaches this handler. 404/409/422 and the
+  existing `AgentdeckError` 500 are unchanged, and no exception message reaches the response
+  body.
 
 ## v3.1.0
 

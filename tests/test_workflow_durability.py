@@ -85,7 +85,6 @@ def test_durable_memory_backend_resumes_by_thread_id(monkeypatch):
 
 def test_durable_sqlite_backend_persists_across_invokes(tmp_path, monkeypatch):
     """Same-loop sequential invokes, mirroring one long-lived server process."""
-    pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
     db_path = tmp_path / "checkpoints.sqlite3"
     monkeypatch.setenv("AGENTDECK_CHECKPOINT", f"sqlite://{db_path}")
     reset_settings_cache()
@@ -108,7 +107,6 @@ def test_durable_sqlite_backend_builds_outside_an_event_loop(tmp_path, monkeypat
     event loop running at all — not even nested inside a caller's loop. The sqlite
     saver must not assume one exists.
     """
-    pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
     db_path = tmp_path / "checkpoints.sqlite3"
     monkeypatch.setenv("AGENTDECK_CHECKPOINT", f"sqlite://{db_path}")
     reset_settings_cache()
@@ -144,7 +142,6 @@ def test_durable_sqlite_backend_resumes_after_process_restart(tmp_path, monkeypa
     thread_id, picks up where the last process left off — no shared Python object,
     no shared event loop, just the file on disk.
     """
-    pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
     db_path = tmp_path / "checkpoints.sqlite3"
     env = {
         **os.environ,
@@ -254,7 +251,6 @@ def test_a_sqlite_checkpointer_is_rebuilt_for_each_event_loop_that_asks_for_one(
     created here on purpose, which is also the only condition under which a server would
     ever have noticed.
     """
-    pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
     from agentdeck.adapters.engines.langgraph import resolve_checkpointer
 
     path = str(tmp_path / "checkpoints.sqlite3")
@@ -274,7 +270,6 @@ def test_a_sqlite_checkpointer_is_rebuilt_for_each_event_loop_that_asks_for_one(
 def test_one_loop_still_gets_one_checkpointer_however_often_it_asks(tmp_path):
     """The per-loop rebuild is not "stop caching": a server compiling several durable graphs
     on its own loop still shares the one connection, which is what the cache is for."""
-    pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
     from agentdeck.adapters.engines.langgraph import resolve_checkpointer
 
     path = str(tmp_path / "checkpoints.sqlite3")

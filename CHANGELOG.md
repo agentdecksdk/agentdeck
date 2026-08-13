@@ -8,6 +8,19 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Upgrading
+
+- **`redis` is no longer installed by `pip install agentdeck-sdk`** (#253). A deployment with
+  `AGENTDECK_SESSION=redis://...` or `AGENTDECK_EVENTS=redis://...` now raises `ImportError` at
+  boot — `Deck.__aenter__` resolves both through `SessionFactory.from_settings()` and
+  `resolve_event_store()` before it opens — not on first use. It was a base dependency because a
+  Redis-backed session (`agents.extensions.memory.RedisSession`) was imported unconditionally on
+  every agent run, whatever `AGENTDECK_SESSION` was set to. That import is now deferred to the
+  point a `redis://` URL is actually configured, and the client moves to a new `[redis]` extra:
+  `pip install "agentdeck-sdk[redis]"`. Selecting a `redis://` session or event log without it
+  raises a clear `ImportError` naming the install command, the way the durability extras already
+  do.
+
 ### Added
 
 - **A fourth example, `examples/existing-langgraph-agent`** — a LangGraph graph written
@@ -20,6 +33,11 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Fixed
 
+- **`pip install agentdeck-sdk` now runs a `durable=True` workflow with no extra** (#232).
+  `langgraph-checkpoint-sqlite` — what `AGENTDECK_CHECKPOINT`'s default (`sqlite://...`) needs —
+  moves from the optional `[durability]` extra into base dependencies, so the default that every
+  human-approval workflow relies on is installable by default. `[durability]` now covers the
+  Postgres checkpointer and event store only.
 - **The non-streamed HTTP surface now answers every server-side failure with the documented
   500 `{"detail": "internal error"}`, not just `AgentdeckError` ones** (#243). A workflow
   node's plain exception, an SDK error, or an `httpx` transport failure used to fall through to

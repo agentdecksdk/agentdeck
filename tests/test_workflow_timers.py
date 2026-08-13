@@ -189,7 +189,6 @@ def test_tick_survives_a_process_restart(tmp_path):
     it — the acceptance test for #22, in miniature."""
     import json
 
-    pytest.importorskip("langgraph.checkpoint.sqlite", reason="needs the [durability] extra")
     bundle = tmp_path / ".agentdeck" / "workflows" / "timer_flow"
     bundle.mkdir(parents=True)
     (bundle / "workflow.py").write_text(textwrap.dedent(_RESTART_WORKFLOW_PY))

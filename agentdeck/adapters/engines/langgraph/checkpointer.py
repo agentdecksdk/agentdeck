@@ -7,10 +7,10 @@ it, never shared or derived by an outer ring) — the same relationship ``sessio
 to the openai-agents adapter. ``agentdeck.authoring.compile.compile_workflow`` (a durable
 ``Workflow``'s direct-call path) imports this module directly and translates
 ``CheckpointSettings`` into the plain ``(backend, url)`` this function takes. ``memory``
-ships with core ``langgraph`` and needs nothing extra;
-``sqlite`` / ``postgres`` live in the optional ``[durability]`` extra
-(``langgraph-checkpoint-sqlite`` / ``langgraph-checkpoint-postgres``) and are imported
-lazily, only when actually requested, with a clear install hint if the extra is missing.
+and ``sqlite`` ship in base (the default ``AGENTDECK_CHECKPOINT`` needs the latter to run
+out of the box); ``postgres`` lives in the optional ``[durability]`` extra
+(``langgraph-checkpoint-postgres``) and is imported lazily, only when actually requested,
+with a clear install hint if the extra is missing.
 
 Connection lifecycle: one saver per backend+url **per event loop**, so repeated calls
 against the same file reuse the same connection instead of opening one per compile, without
@@ -109,7 +109,7 @@ def resolve_checkpointer(backend: str, url: str = "") -> BaseCheckpointSaver:
     ``url`` is the sqlite file path or the Postgres DSN — primitives, not a settings
     object, so this adapter takes core plus langgraph and nothing else. Raises
     ``ValueError`` for an unknown backend, ``ImportError`` (with an install hint) when
-    ``sqlite``/``postgres`` is requested but the ``[durability]`` extra isn't installed,
+    ``postgres`` is requested but the ``[durability]`` extra isn't installed,
     and ``StoreError`` when the backend cannot open its connection at all, naming
     ``AGENTDECK_CHECKPOINT`` — and, for sqlite, the resolved file path; a Postgres DSN is
     not named, since it can carry a password — with the driver exception chained on as
@@ -142,13 +142,10 @@ def _sqlite_saver(url: str) -> BaseCheckpointSaver:
 
 
 def _build_sqlite_saver(url: str) -> BaseCheckpointSaver:
-    try:
-        import aiosqlite  # ty: ignore[unresolved-import] — [durability] extra
-        from langgraph.checkpoint.sqlite import aio as sqlite_aio  # ty: ignore[unresolved-import] — [durability] extra
-    except ImportError as exc:
-        raise ImportError(
-            f"checkpoint backend 'sqlite' needs langgraph-checkpoint-sqlite — {_DURABILITY_HINT}"
-        ) from exc
+    # No import guard, unlike postgres below: langgraph-checkpoint-sqlite is a base
+    # dependency (the default AGENTDECK_CHECKPOINT needs it), same footing as `memory`.
+    import aiosqlite
+    from langgraph.checkpoint.sqlite import aio as sqlite_aio
 
     # AsyncSqliteSaver.__init__ needs a running loop — build it inside _run_sync, matching postgres.
     path = url or ".agentdeck/checkpoints.sqlite3"
