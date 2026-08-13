@@ -63,6 +63,15 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `None` rather than an error, and the run continues with a quietly wrong value. Both rules were
   already documented separately and correctly; their interaction was stated once in prose and
   never demonstrated, and two clean-room reviewers missed the consequence anyway.
+### Added
+
+- **`examples/agent-with-a-skill/`** — an agent with two tools and one skill, the first shipped
+  example to include a `SKILL.md`. Skills were the only thing `Deck.from_project()` discovers with
+  no runnable example, so the frontmatter contract could only be learned from a build error
+  ([#242](https://github.com/agentdecksdk/agentdeck/issues/242)).
+- **`docs/delivery/review-v3-outsider.md`** — the v3.0.0 clean-room review: three reviewers given
+  only the wheel, the README, the docs site and `examples/`, each building a small app and reporting
+  what broke. Source of the `finding:`-labelled issues opened against v3.0.0.
 
 ## [3.1.0] - 2026-08-13
 
