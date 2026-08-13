@@ -1,0 +1,4 @@
+# Auto-assigns a reviewer the moment a PR opens, so the <24h first-response target does not
+# depend on anyone watching the repository feed. One owner for everything: this is a
+# review-routing mechanism, not an ownership claim on parts of the tree.
+* @sagi5060
