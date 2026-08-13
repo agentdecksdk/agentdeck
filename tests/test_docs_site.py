@@ -270,3 +270,13 @@ def test_context7_excludes_are_bare_filenames() -> None:
     manifest = json.loads((ROOT / "context7.json").read_text())
     with_paths = [name for name in manifest["excludeFiles"] if "/" in name]
     assert not with_paths, f"context7.json excludeFiles must be bare filenames, not paths: {with_paths}"
+
+def test_wayfinding_links_are_pinned() -> None:
+    """Regression test for #239: ensure wayfinding links remain on key entry pages."""
+    getting_started = (CONTENT / "getting-started.mdx").read_text()
+    assert "(/concepts/skills)" in getting_started
+    assert "(/concepts/sessions-and-memory)" in getting_started
+    assert "(/reference)" in getting_started
+
+    concepts_index = (CONTENT / "concepts/index.mdx").read_text()
+    assert "(/reference)" in concepts_index
