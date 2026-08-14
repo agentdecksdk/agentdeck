@@ -38,6 +38,7 @@ Date: 2026-08-04. Amended 2026-08-11, 2026-08-14.
 | 12 | `design/run-lifecycle.md` | The run lifecycle as built: the state machine, per-state properties, the (state × intent) policy, and the drift. **Supersedes** doc #3 §4.4 | engineers |
 | 13 | `design/event-store-claims.md` | `claim_start` and `claim_resume`: the two conditional appends, the session-busy rule, the staleness window and its operator consequences. **Supersedes** doc #3 §4.5 on the claims | engineers |
 | 14 | `design/sink-dispatch.md` | `runtime/dispatch.py`'s operational contract: bounded fan-out, the breaker, the flush/close lifecycle. **Supersedes** doc #3 §4.6 on the dispatch | engineers |
+| 15 | `design/run-operations.md` | The surface that acts on an existing run: the `deck.runs.*` namespace, its eight ops, and the internal deadline sweep that replaces public `tick`/`due`. **Amends** `delivery/decision-v3-entry-point.md` ruling 2 and its no-daemon note. Semantics stay in doc #12 | engineers |
 
 ## 1b. The v3 cutover set (added 2026-08-11)
 

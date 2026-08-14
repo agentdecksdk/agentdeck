@@ -100,6 +100,7 @@ primitive/sugar split as the reason there is still exactly one catalog mechanism
 |---|---|
 | Ruling 6 | Reversed by `plan-phase4-deck.md` (2026-08-09); the shipped constructor is `Deck(agents=…, workflows=…, skills=…, mcp=…)` over one catalog. |
 | Ruling 2's method list | `chat`, `signal` and `resume_run` do not exist on today's `Deck`: `pause`/`cancel` are separate verbs, `resume` continues a paused run and `answer` supplies an interrupt value. |
-| `tick` / `due_resumes` | Dropped here, but shipped on `Deck` (`deck.py:806,830`). |
+| Ruling 2's flat methods | Amended 2026-08-14 by `design/run-operations.md`: the eight run-scoped verbs group under `deck.runs.*`. Not the handle this ruling rejected — the run id stays an argument and there is still one way to address a run. |
+| `tick` / `due_resumes` | Dropped here, shipped on `Deck` anyway, and removed again by `design/run-operations.md` (2026-08-14) — which keeps the "a for-loop is not an API" half of the reasoning and amends the other half: a sweep scoped to the deck's own lifetime now runs internally, so the capability survives without the user wiring a cron. |
 | `pending` | Takes `namespace=`, not `invocable=`. |
 | `runtime` / `store` | Not exposed; `review-phase4-deck.md` ruled them API leaks. |
