@@ -29,10 +29,18 @@ PROVENANCE = {"logo-traced-original.svg"}
 
 @cache
 def _compositions() -> tuple[Path, ...]:
-    """Every brand SVG that is assembled from the parts, rather than being one."""
+    """Everything assembled from the parts, rather than being one.
+
+    The two docs-site files are here because they are compositions that happen not to live in
+    `docs/brand/`: the navbar mark inlines the card as TSX so it can inherit `currentColor`, and
+    Next serves the favicon from `app/icon.svg` by filename convention. Both were hand-copies,
+    both were still on the pre-refactor coordinates, and nothing was watching either.
+    """
     files = tuple(svg for svg in sorted(BRAND.glob("*.svg")) if svg.name not in PROVENANCE)
     assert files, f"no brand SVGs under {BRAND} — the directory moved"
-    return files
+    site = (ROOT / "docs-site" / "app" / "mark.tsx", ROOT / "docs-site" / "app" / "icon.svg")
+    assert all(p.is_file() for p in site), f"a docs-site brand file moved: {site}"
+    return files + site
 
 
 @cache

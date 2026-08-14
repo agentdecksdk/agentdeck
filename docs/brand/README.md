@@ -10,20 +10,29 @@ system and the reason the mark survives at one colour.
 |---|---|
 | `logo.svg` | the mark with its spark — headers, READMEs, anywhere above ~48px |
 | `logo-mark.svg` | the card alone — small sizes, dense UI, anywhere the spark would be noise |
+| `logo-full.svg` | the three-colour lockup — blue card, Canvas A, Ace Red spark |
+| `logo-blue.svg` | mono Agent Blue, for anywhere it is a *file* rather than markup |
+| `logo-white.svg` | mono Canvas, same reason, for a dark ground |
+| `logo-black.svg` | mono Night, same reason, for a light ground |
 | `favicon.svg` | square and centred on the card — favicons, app icons, avatars |
-| `logo-blue.svg` | the mark in Agent Blue, for anywhere it is a *file* rather than markup |
 | `logo-traced-original.svg` | provenance only — see below |
 | `contributor-welcome.svg` | the card the bot posts on a first pull request |
 | `contributor-merged.svg` | the card it posts after a first merged one |
 
-The first three are `fill="currentColor"`, so they take the colour of whatever they sit in and
-need no light/dark variants — provided they are **inlined as markup**.
+**Inlined as markup, `logo.svg` and `logo-mark.svg` need no variants at all**: they are
+`fill="currentColor"` and take the colour of whatever they sit in.
 
-`logo-blue.svg` exists because that proviso is real: an SVG loaded through `<img src>` has no
-parent to inherit from, so `currentColor` falls back to black, and on GitHub's dark theme the mark
-is then black on near-black. Verified side by side rather than assumed. Agent Blue reads on both
-themes, and the A's counter is transparent so each background shows through it — which is why one
-coloured file covers both instead of needing a pair.
+Everything else in that list exists because the proviso is real. An SVG loaded through `<img src>`
+has no parent to inherit from, so `currentColor` falls back to black, and on a dark ground the
+mark is then black on near-black. Verified side by side rather than assumed. So a file dropped
+somewhere gets a variant that names its own colour: `logo-blue.svg` reads on both themes because
+the A's counter is transparent and each background shows through it, `logo-white.svg` and
+`logo-black.svg` cover the grounds where blue is wrong, and `logo-full.svg` is the lockup itself
+for anywhere that can carry three fills.
+
+`favicon.svg` is full colour for the same reason taken to its conclusion: a favicon is *only* ever
+loaded as a file, so `currentColor` was never going to work there. It rendered black on dark
+browser chrome until 2026-08-15.
 
 ```html
 <span style="color: #2563FF">  <!-- Agent Blue -->
@@ -47,7 +56,7 @@ to maintain.
 **Every part is drawn in the mark space `246 145 832 933`, so a composition pastes the `<path>`
 with no transform at all.** Position and scale live in the coordinates, and the only thing a
 composition varies is the `viewBox` it frames them with. `logo.svg` is now two paths and nothing
-else. The wordmark is the one exception: it is drawn in its own `0 95 505 142` space and placed
+else. The wordmark is the one exception: it is drawn in its own `0 95 516.86 143` space and placed
 with a single `translate`, since it is not part of the mark.
 
 Colour also belongs to the composition. The parts are `currentColor`; the dark-mode lockup is a
@@ -121,8 +130,8 @@ a recipe, so treat a PNG next to these files as a build artifact that escaped.
 - ~~**`wordmark.svg`.**~~ **Delivered.** It is nine glyph outlines from Poppins-SemiBold, set the
   way this asked: from the real font, not traced from a screenshot. Positions are the browser's
   own, read back with `getStartPositionOfChar` so the kerning is the engine's rather than a
-  reimplementation of it. Recipe under *Setting type as outlines*. What is still open is the
-  weight, below.
+  reimplementation of it, at the weight and tracking the site already used. Recipe under
+  *Setting type as outlines*.
 - **The original vector for the mark.** `logo-traced-original.svg` is what was handed over: a
   **potrace trace of a PNG**, not an export. The tells are the SVG 1.0 DTD, the
   `translate(0,1254) scale(0.1,-0.1)` flip, and a viewBox of exactly the PNG's pixel width. The
@@ -142,7 +151,11 @@ shrinks the card to roughly two-thirds the width it could otherwise use. The bra
 favicon panel shows the same shrinkage.
 
 So `favicon.svg` is the card, centred in a square of its own height, filling the box edge to edge.
-The card is already a rounded square, so it reads correctly under a platform's own icon mask.
+The card is already a rounded square, so it reads correctly under a platform's own icon mask. It
+is Agent Blue with a Canvas A rather than `currentColor`, since nothing inlines a favicon.
+
+`docs-site/app/icon.svg` is the same file under the name Next serves it by, and
+`tests/test_brand_assets.py` holds the two together.
 
 ## The social card
 
@@ -238,10 +251,10 @@ loads Poppins at `weight: ['500', '600']` only, and sets its own AgentDeck wordm
 site could not render the Bold this section specifies even if asked, and the social card was the
 only place the wordmark appeared at 700.
 
-One inconsistency survives the change and is not yet resolved: the site tracks its wordmark at
-`-0.02em` while the card bakes in `-0.0354em` (`-3.4` at font-size 96), which is close to double.
-The card's figure was tuned against Bold and inherited by the lighter weight unexamined. Matching
-the site means regenerating the outlines at `-1.92`.
+Tracking followed. The card had baked `-0.0354em`, a figure tuned against Bold and inherited by
+the lighter weight unexamined, against the site's `-0.02em`. The outlines are regenerated at
+`-1.92`, which is `-0.02em` at font-size 96, so the wordmark now matches the site in family,
+weight and tracking.
 
 The palette is not affected — the sheet's hexes and the site's `brand.css` already match exactly.
 The wider presentation question stays with the docs-site design pass (#140).
