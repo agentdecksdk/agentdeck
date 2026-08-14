@@ -271,12 +271,32 @@ def test_context7_excludes_are_bare_filenames() -> None:
     with_paths = [name for name in manifest["excludeFiles"] if "/" in name]
     assert not with_paths, f"context7.json excludeFiles must be bare filenames, not paths: {with_paths}"
 
-def test_wayfinding_links_are_pinned() -> None:
-    """Regression test for #239: ensure wayfinding links remain on key entry pages."""
-    getting_started = (CONTENT / "getting-started.mdx").read_text()
-    assert "(/concepts/skills)" in getting_started
-    assert "(/concepts/sessions-and-memory)" in getting_started
-    assert "(/reference)" in getting_started
 
-    concepts_index = (CONTENT / "concepts/index.mdx").read_text()
-    assert "(/reference)" in concepts_index
+def test_entry_pages_route_onward() -> None:
+    """Two clean-room reviewers went README -> getting-started -> guides and never opened
+    `reference/` or the concept pages answering what they were stuck on. The pages were fine; the
+    path into them was not, and these links are the whole of that path.
+    """
+    getting_started = (CONTENT / "getting-started.mdx").read_text()
+    onward = (
+        "/concepts/skills",
+        "/concepts/sessions-and-memory",
+        "/concepts/choosing-a-store-backend",
+        "/reference",
+    )
+    missing = [target for target in onward if f"]({target})" not in getting_started]
+    assert not missing, f"getting-started.mdx stopped routing readers to: {missing}"
+
+    concepts_index = (CONTENT / "concepts" / "index.mdx").read_text()
+    assert "](/reference)" in concepts_index, "concepts/index.mdx no longer says where the exact API lives"
+
+
+@pytest.mark.parametrize("guide", sorted((CONTENT / "guides").glob("*.mdx")), ids=lambda page: page.stem)
+def test_guide_links_to_a_reference_page(guide: Path) -> None:
+    """A guide teaches one API and stops. Without this link the reference page for that API is
+    reachable only by a reader who already knows it exists — which is the reader who didn't need it.
+    """
+    targets = LINK.findall(guide.read_text())
+    assert any(target.startswith("/reference/") for target in targets), (
+        f"{guide.name} ends without linking the reference page for the API it uses"
+    )
