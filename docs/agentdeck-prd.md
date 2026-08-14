@@ -2,8 +2,8 @@
 
 **Version:** 1.0 · **Date:** 2026-08-04 · **Owner:** Sagi
 **Companion docs:** `project-brief.md` (why/when), `design/agentdeck-v2-architecture.md` (how),
-`00-project-index.md` (doc map). Requirements here are product-level; architecture
-choices live in the design doc and are referenced, not restated.
+`00-project-index.md` (doc map). Requirements here are product-level; architecture lives in the
+design doc.
 
 ---
 
@@ -17,18 +17,11 @@ churn. One sentence: **build once, run anywhere, speak every protocol.**
 
 ## 2. Users
 
-**P1 — the builder (primary persona).** A developer or small team building agent systems
-for real operations (e.g. logistics claims handling). Wants working systems from ~80
-lines of definitions, not infrastructure projects. Measures the platform by "what did I
-NOT have to write."
-
-**P2 — the operator.** Runs deployed agents. Needs a pending-approvals inbox, the
-ability to pause/cancel any run from anywhere, cost visibility per agent/tenant, and
-replay when something looks wrong.
-
-**P3 — the end user / counterparty.** Chats with agents over web/WhatsApp/editor, or is
-a partner organization's agent calling in over A2A. Never sees AgentDeck; sees fast
-streaming, remembered context, and safe approval gates.
+| # | Persona | Who | What they need |
+|---|---|---|---|
+| **P1** | the builder *(primary)* | a developer or small team building agent systems for real operations (logistics claims handling) | working systems from ~80 lines of definitions, not an infrastructure project; measures the platform by "what did I NOT have to write" |
+| **P2** | the operator | runs deployed agents | a pending-approvals inbox, pause/cancel any run from anywhere, cost per agent/tenant, replay when something looks wrong |
+| **P3** | the end user / counterparty | chats over web/WhatsApp/editor, or is a partner org's agent calling in over A2A | never sees AgentDeck; sees fast streaming, remembered context, safe approval gates |
 
 ## 3. Product principles
 
@@ -137,9 +130,9 @@ once, deliberately, so v3.x can be additive. See `delivery/plan-v2-cutover.md`.
 ## 7. Success metrics
 
 Lines of user code for the reference claims system ≤ 100 (Appendix B target ~80).
-Time-to-first-running-agent from install < 5 minutes. New protocol adapter ≤ 1 week and
-zero core diff. 100% of runs replayable; transcript-fidelity test green in CI
-continuously. Zero breaking changes experienced by v1.2.1 projects across v2.x.
+Time-to-first-running-agent from install < 5 minutes. New protocol adapter ≤ 1 week and zero core
+diff. 100% of runs replayable; transcript-fidelity test green in CI continuously. Zero breaking
+changes experienced by v1.2.1 projects across v2.x.
 
 **Amendment 2026-08-08.** That last metric is retired, not missed: v3.0 deletes v1's public
 API by ruling (`delivery/plan-v2-cutover.md` ruling 1), so a v1.2.1 project migrates rather

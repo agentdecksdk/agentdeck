@@ -73,16 +73,11 @@ second thought, and nobody proposed deriving graph state from the event log. Sam
 situation, opposite ruling. The LangGraph treatment was the correct one; original D5 made
 a lossy summary the master copy and asked the adapter to un-lose the loss.
 
-**Why this is not "storing the conversation twice."** It is the standard database + audit
-stream pattern (Postgres + Kafka). The engine state is the working set — private,
-engine-formatted, optimized for "give the model its exact context." The log is the
-record — public, uniform across engines, optimized for "what happened, in order, for any
-consumer." They only *look* like duplicates because both happen to contain sentences;
-they are different projections with different owners, schemas, readers, and lifecycles.
-The design space has exactly three options, and two are broken: log-only (the fidelity
-loss above), engine-state-only (every platform feature must parse N engine-native
-formats — the bifurcation reinvented per engine and per SDK version), or both with a
-testable overlap. This ADR chooses the third.
+This is the database + audit stream pattern (Postgres + Kafka), not the conversation stored
+twice: two projections with different owners, schemas, readers and lifecycles, which only *look*
+like duplicates because both contain sentences. The design space has three options — log-only (the
+fidelity loss above), engine-state-only (every platform feature parses N engine-native formats),
+or both with a testable overlap. This ADR chooses the third.
 
 ---
 
@@ -160,110 +155,37 @@ event; ACP `session/load` still replays from the log.
 
 ## 5. Amendments to the existing documents
 
-`agentdeck-v2-architecture.md`: replace D5 in §12 with §3 of this ADR (one-paragraph
-form); in §5, rewrite the openai-agents adapter paragraph — delete "the adapter derives
-the SDK's session input from the event log … the SDK session is a projection" and state
-that the adapter owns SDK-native session state via the relocated `SessionFactory`, with
-the transcript invariant; in §11, change the `runtime/sessions.py` migration row's
-destination from `adapters/stores/{sqlite,redis}` to
-`adapters/engines/openai_agents/sessions.py` (the event-log stores are new code, not a
-port of `SessionFactory`).
-
-`epic-agentdeck-v2-core.md`: Story 2 — swap the session-related acceptance criterion for
-"transcript-fidelity contract test passes on both engines (execution-state transcript ≡
-log transcript)" and add "crash-between-writes reconciliation covered by an integration
-test"; Story 3b (mid-turn injection), when added — `input.appended` is written to the log
-before being drained into execution state, per the write-ordering rule above.
+Applied 2026-08-04 to `agentdeck-v2-architecture.md` (§12 D5, §5's openai-agents paragraph, §11's
+`runtime/sessions.py` migration row) and to `epic-agentdeck-v2-core.md` (Story 2's
+transcript-fidelity and crash-reconciliation criteria; Story 3b's write ordering). Ledger:
+`00-project-index.md` §3.
 
 ---
 
 ## 6. Amendment 2026-08-05 — reconciliation as built (issue #76)
 
-Reconciliation now exists, in `adapters/engines/openai_agents/reconcile.py`, called at turn
-start before `Runner.run_streamed`. Points where the built thing differs from §3's
-description, or carries a cost §3 did not name:
+Reconciliation lives in `adapters/engines/openai_agents/reconcile.py`, called at turn start
+before `Runner.run_streamed`. Where the built thing differs from §3, or costs what §3 did not
+name:
 
-**It is not only inputs, and not `input.appended`.** §3 says the crash "leaves an
-`input.appended` with no engine-side counterpart". `input.appended` still has no producer;
-a turn's input reaches the log on `run.started`, and the SDK writes its session copy inside
-the run. The same window also loses *assistant* messages: the SDK saves a turn's output
-items after they have streamed, so a log that already holds `message.completed` can outlive
-the session write it belongs to. The replay therefore covers both roles — every
-`run.started`/`input.appended` input and every `message.completed` — which is the same
-message-level transcript the fidelity contract test compares.
+| as built | detail |
+|---|---|
+| Both roles replay, and `input.appended` has no producer | §3 named an `input.appended` with no engine-side counterpart. A turn's input reaches the log on `run.started`, and the SDK saves output items *after* they stream — so the same window loses assistant messages too. The replay covers every `run.started`/`input.appended` input and every `message.completed`: the same message-level transcript the fidelity test compares |
+| The comparison is a prefix check | Both transcripts are built, verified to agree on their common prefix, and the remainder appended as plain `{"role", "content"}` items |
+| Divergence *within* the prefix is reported, never repaired | The session is the authority on execution, and a wrong guess about its tail is worse than the gap, so it is left untouched and the run emits `custom(openai_agents.session_diverged)` with both message counts. A session merely *ahead* of the log is silent |
+| Message level is the ceiling | Tool calls, results and reasoning items are never replayed — the log's copies are truncated or absent, exactly as §3 says |
+| §4's "byte-exact model context" is conditional | A repair writes plain text where the session held paired tool-call/result and reasoning items, and keeps holding plain text for the rest of the conversation: byte-exact across turns *until* a crash forces a repair, transcript-level after one. Accepted, since the alternative is a turn the model cannot see at all — and a deployment needing the stronger property treats the divergence event as the signal |
+| An abandoned turn's input is skipped — cancelled **and** no `message.completed` | `run.started` records that a turn was asked for, not taken. An SSE disconnect before the engine read anything leaves a question the user is about to re-ask, and replaying it lands a copy in front of the retry. The conjunction is load-bearing: the SDK persists a turn's input and output together, so dropping just the input of a turn cancelled *after* its answer would misalign the transcripts mid-stream, report a divergence that never heals, and disable reconciliation for that session from then on |
+| Two limits of reading acceptance off the log | An input the engine *rejected* logs `run.failed` (`_to_sdk_input` refuses non-text blocks), indistinguishable from a dead session write, so it is replayed next turn. A turn cancelled after a *tool call* but before a message is persisted by the SDK while logging no `message.completed`, so it is treated as abandoned and misaligns the same way. Both root in the log recording what was asked and produced, never what the SDK chose to persist. The general fix — accept either transcript as a valid prefix and replay against the strict one — is written down here rather than built |
+| Concurrency is single-process | Read-then-append is atomic under a per-session `asyncio.Lock`, so two turns racing on one session in one server cannot both apply the repair. Two servers on one session need no cover: #83 rejects concurrent turns at the door with an atomic session claim |
+| An emptied session is refilled, not left blank | An empty session against a non-empty log is indistinguishable from a crash on the first turn, so it takes the same repair. §3's "best-effort disaster recovery" reached automatically, costing one full replay once |
+| LangGraph gets no code | Its checkpointer write *is* the graph step, so there is no second write to crash between, and a run's thread is its own (`thread_id = run_id`), so a lost turn cannot poison a later one |
 
-**The comparison is a prefix check; divergence is left alone and reported.** The adapter
-builds both message-level transcripts, verifies they agree on their common prefix, and appends
-the remainder as plain `{"role", "content"}` items. Where they disagree *within* that prefix
-the session is left untouched — it is the authority on execution, and a wrong guess about its
-tail (duplicated or reordered messages) is worse than the gap — and the run emits
-`custom(openai_agents.session_diverged)` with the two message counts, so the disagreement
-enters the record instead of only a log line nobody reads. A session merely *ahead* of the log
-is not a divergence and is silent — an input the log deliberately leaves out (below) is enough
-to put it there. That silence is exactly why the skip below has to be narrow: an input dropped
-from the middle of the transcript rather than its end is a *misalignment*, it reports a
-divergence that never heals, and, because divergence stops the replay, it disables
-reconciliation for that session from then on. Tool calls, tool results and reasoning items are
-never replayed — the log's copies are truncated or absent, so message level is the ceiling,
-exactly as §3 says.
-
-**§4's "byte-exact model context" no longer holds for a repaired session.** A repair writes
-plain text where an intact session held paired tool-call/tool-result items and reasoning
-items, and that session keeps holding plain text for the rest of the conversation: the model
-can see an answer with no evidence of the tool call that produced it, and a later turn cannot
-reference reasoning that is no longer there. §4's gain is therefore conditional — byte-exact
-across turns *until* a crash forces a repair, transcript-level after one. Accepted, because
-the alternative is a turn the model cannot see at all; a deployment that needs the stronger
-property has to treat a repair as a signal, which is the second reason the event above exists.
-
-**An abandoned turn's input is not replayed — but only a turn that got nowhere counts as
-abandoned.** `run.started` records that a turn was asked for, not that the engine took it. A
-consumer that disconnects before the engine reads anything (the ordinary SSE-disconnect path,
-which the Runtime closes with `run.cancelled`) leaves a question the session never saw and the
-user is about to ask again; replaying it would land a copy in front of its own retry. So a run
-is skipped when it is cancelled **and** logged no `message.completed`. The qualification is
-load-bearing, not caution: the SDK persists a turn's input and its output items together, so a
-turn cancelled *after* its answer is in the session whole, and dropping just its input would
-misalign the transcripts in the middle and disable reconciliation for that session (above).
-Crash cases are unaffected: a dead session write shows up as `run.failed`, and a SIGKILLed run
-has no terminal event at all.
-
-**Two stated limitations of reading acceptance off the log.** An input the engine *rejected*
-shows up as `run.failed` (`_to_sdk_input` refuses non-text blocks), indistinguishable from a
-session write that died, so it is replayed on the next turn. And a cancelled turn that got as
-far as a *tool call* but no message is persisted by the SDK while logging no
-`message.completed`, so it is treated as abandoned and misaligns the same way. Both come from
-the same root: the log records what was asked and what was produced, never what the SDK chose
-to persist. A fully general answer accepts *either* transcript — with the skip and without it —
-as a valid prefix of the session, and replays against the strict one only; that is more
-machinery than the reachable cases justify today, and it is written down here rather than
-built.
-
-**Concurrency is single-process.** Read-then-append is atomic under a per-session
-`asyncio.Lock`, so two turns racing on one session inside one server cannot both apply the
-same repair and double the conversation. Two servers on one session are not covered here and
-do not need to be: #83 rejects concurrent turns on one session at the door with an atomic
-session claim.
-
-**An emptied session is refilled, not left blank.** §3's operational-separation clause says
-an expired session "simply means the next turn starts a fresh loop memory". As built, an
-empty session against a non-empty log is indistinguishable from a crash on the session's
-first turn, so it takes the same repair: the log's message-level transcript is replayed in.
-That is §3's "best-effort disaster recovery" reached automatically rather than a blank
-start, and it costs one full replay, once, on the first turn after the loss.
-
-**LangGraph has no equivalent gap, and gets no code.** Its checkpointer write *is* the graph
-step, so there is no second write for a crash to fall between: an input either entered a
-super-step that committed or the step never happened. A run's thread is its own
-(`thread_id = run_id`), so unlike the SDK session — shared across a session's turns — a lost
-turn cannot poison a later one.
-
-The one place the two stores can disagree there is a resume, and it is worse than
-unrepairable — it is *stranding*. The conditional append that claims a resume both records
-`run.resumed` and flips the run `WAITING_HUMAN` → `RUNNING`, and it lands before the engine
-sees the resume *value*, which the log does not carry (the payload holds only `reason`). A
-crash in that window therefore leaves the log saying `RUNNING` while the checkpointer is still
-parked at the interrupt: replay cannot help (§3's safety condition, "inputs are not lossy in
-the log", does not hold for a value the log never had), and every later resume is refused as
-stray, so the run can never be continued at all. Tracked as #94 — recovering it needs a
-recorded resume value or a way back to `WAITING_HUMAN`, both decisions of their own.
+**The one thing that is worse than unrepairable: a stranded resume.** The conditional append that claims a resume records
+`run.resumed` and flips the run `WAITING_HUMAN` → `RUNNING` *before* the engine sees the resume
+value, which the log does not carry (the payload holds only `reason`). A crash in that window
+leaves the log saying `RUNNING` while the checkpointer is still parked at the interrupt: replay
+cannot help, because §3's safety condition — inputs are not lossy in the log — does not hold for a
+value the log never had, and every later resume is refused as stray. The run can never be
+continued at all. Tracked as #94; recovering it needs a recorded resume value or a way back to
+`WAITING_HUMAN`, both decisions of their own.
