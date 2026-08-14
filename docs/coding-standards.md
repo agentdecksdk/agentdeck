@@ -219,6 +219,21 @@ dependency over vendoring; never vendor silently. SDK version bumps (`openai-age
 `langgraph`) touch only their adapter directory — if a bump forces edits elsewhere, that
 is an architecture violation to report before merging.
 
+**Binary assets.** Where a vector exists, the vector is tracked and the raster is a build
+artifact regenerated from a recipe (`docs/brand/README.md`). A raster is tracked only where the
+consumer cannot take an SVG, such as a GitHub comment or the social-preview upload, and then only
+under `.github/assets/`, which CI enforces.
+
+The cost is churn, not size. Git stores every version whole: one 100KB image committed once is
+100KB forever and nobody notices, while the same image re-rendered across forty design tweaks is
+4MB that only a history rewrite removes. So anything expected to be revised repeatedly stays out
+of the tree at any size; host it as a GitHub attachment and reference the URL.
+
+Git LFS is not used. It bills bandwidth on every fork and CI clone, hands a contributor who has
+not run `git lfs install` a tree of pointer files, and backing out of it later needs the same
+history rewrite this rule exists to avoid. Revisit on a measured trigger: one file that belongs
+in the tree and cannot live outside it.
+
 ## 12. Security and data handling
 
 No secrets in code, tests, fixtures, goldens, or PR descriptions — goldens are scrubbed
@@ -267,6 +282,7 @@ trusting the PR description (per the PR #0 reviewer prompt's model).
 | Engine substitutability | contract suite as merge gate                                          |
 | Wire compatibility      | golden SSE replay suite                                               |
 | Determinism             | no-network test env, double-run stability checks                      |
+| Binary assets (§11)     | CI: no binary tracked outside `.github/assets/`                       |
 | Everything else         | review against this document + the judgment ledger                    |
 
 Amending this document: one PR, one rationale line per change, index row updated. A standard

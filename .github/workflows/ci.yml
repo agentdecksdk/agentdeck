@@ -50,6 +50,20 @@ jobs:
           # default depth-1 checkout has neither that tag nor its history, so the gate
           # would skip, and prove nothing while going green.
           fetch-depth: 0
+      # `check-added-large-files` is a pre-commit hook, so it never runs for a contributor who
+      # has not installed hooks — which is most first PRs. A size cap could not do this job
+      # anyway: `uv.lock` is 336KB of legitimate text, so any threshold that clears it also
+      # clears every image. Location is the rule that holds (coding-standards §11), and a diff
+      # against the empty tree is git's own answer to "which of these are binary".
+      - name: No binaries outside .github/assets/
+        run: |
+          strays=$(git diff --numstat 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD \
+                     | awk '$1 == "-" { print $3 }' | grep -v '^\.github/assets/' || true)
+          if [ -n "$strays" ]; then
+            echo "::error::binary files outside .github/assets/ — see docs/coding-standards.md §11"
+            echo "$strays"
+            exit 1
+          fi
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.13"

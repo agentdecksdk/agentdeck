@@ -47,7 +47,7 @@ per new spec doc — had fallen behind by thirteen documents (2026-08-11) and th
 
 | File | What it is |
 |---|---|
-| `coding-standards.md` | **The standards of record**: typing, errors, the async/event-path law, test structure, naming, dependencies, security, PR/commit discipline. `CLAUDE.md` points every agent here before any non-trivial code |
+| `coding-standards.md` | **The standards of record**: typing, errors, the async/event-path law, test structure, naming, dependencies, binary assets, security, PR/commit discipline. `CLAUDE.md` points every agent here before any non-trivial code |
 | `delivery/plan-v2-cutover.md` | The cutover plan: phases 0–4, and ruling 1 (v1's public API is dropped, not facaded) — the decision that renumbered the release train |
 | `delivery/decision-v3-entry-point.md` | The entry-point brief that produced `Deck`: options weighed, `App` retired, two front doors and one catalog |
 | `delivery/plan-phase4-deck.md` / `review-phase4-deck.md` | Phase 4's build plan and its review round |
