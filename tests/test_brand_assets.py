@@ -17,6 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 BRAND = ROOT / "docs" / "brand"
 COMPONENTS = BRAND / "components"
 PATH_D = re.compile(r'\sd="([^"]+)"')
+FILL = re.compile(r'fill="(#[0-9a-fA-F]{3,8})"')
+PALETTE_CSS = ROOT / "docs-site" / "app" / "brand.css"
+PALETTE_TOKEN = re.compile(r"(--brand-[\w-]+)\s*:\s*(#[0-9a-fA-F]{3,8})")
 WORD = "agentdeck"
 
 # The designer's trace is history, not a consumer: freezing it against a component would mean
@@ -53,6 +56,19 @@ def test_composition_carries_only_component_geometry(svg: Path) -> None:
             f"{svg.name} carries geometry that is in no component: re-copy the <g> from "
             f"docs/brand/components/, do not hand-edit a path in place"
         )
+
+
+@pytest.mark.parametrize("svg", _compositions(), ids=lambda svg: svg.stem)
+def test_composition_paints_only_in_palette_colours(svg: Path) -> None:
+    """An off-palette colour does not look wrong, it looks almost right. The A counter sat at
+    `#ffffff` next to a `#fafbfe` headline for exactly that reason: two whites, one card, and
+    nothing to tell you which was the brand's.
+    """
+    palette = {value.lower() for _, value in PALETTE_TOKEN.findall(PALETTE_CSS.read_text())}
+    assert palette, f"no --brand-* tokens in {PALETTE_CSS} — the palette moved"
+
+    strays = {fill.lower() for fill in FILL.findall(svg.read_text())} - palette
+    assert not strays, f"{svg.name} paints in {sorted(strays)}, which is in no --brand-* token"
 
 
 def test_the_wordmark_is_outlines_everywhere() -> None:

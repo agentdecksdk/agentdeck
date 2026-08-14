@@ -36,9 +36,8 @@ coloured file covers both instead of needing a pair.
 | Part | What it is |
 |---|---|
 | `components/card.svg` | the ace-cut card carrying the A, which is a hole in the path |
-| `components/spark.svg` | the spark alone, drawn geometry, square box `1..23` on both axes |
-| `components/wordmark.svg` | `agentdeck` as live text, Poppins 700, tracking `-0.0354em` |
-| `components/wordmark-v2-{700,600,500,400}.svg` | the same word as outlines, one per weight, awaiting a pick |
+| `components/spark.svg` | the spark alone, drawn geometry, box `880 152.5 196.8 196.7` |
+| `components/wordmark.svg` | `agentdeck` as nine outlines from Poppins-SemiBold |
 
 The spark is drawn geometry rather than a cleaned trace, so it is the one part of the mark that
 no longer descends from `logo-traced-original.svg`. It is drawn rather than approximated, and it
@@ -52,7 +51,9 @@ else. The wordmark is the one exception: it is drawn in its own `0 95 505 142` s
 with a single `translate`, since it is not part of the mark.
 
 Colour also belongs to the composition. The parts are `currentColor`; the dark-mode lockup is a
-blue card, a white A and a red spark, and the part files do not know that.
+blue card, a white A and a red spark, and the part files do not know that. Every fill a
+composition sets is a `--brand-*` token from the site's `brand.css`, which the test enforces:
+the A counter sat at `#ffffff` beside a `#fafbfe` headline until it did.
 
 **Copy from here, never from a finished card.** Every other SVG in this directory is a composition
 of these parts, and `tests/test_brand_assets.py` fails if one carries geometry that is in no
