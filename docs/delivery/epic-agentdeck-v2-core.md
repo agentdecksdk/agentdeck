@@ -1,20 +1,9 @@
 # Epic: AgentDeck v2 — Unified Core & Runtime
 
-**Reference:** `agentdeck-v2-architecture.md` · **Baseline:** agentdeck 1.2.1 (`60b95b6`)
-
-## Epic summary
-
-Restructure agentdeck from two parallel silos (agents / workflows) into a three-ring
-architecture: a small zero-I/O core (events, RunContext, ports), engine adapters behind a
-single lifecycle boundary, and thin surfaces that render one canonical event stream. The
-epic ends with the first externally visible proof of the new architecture: pause/resume/
-cancel on every run, caller-injected capabilities, and a working ACP surface — all
-delivered without breaking the existing `.agentdeck/` project convention or the current
-HTTP API.
-
-**Why now:** every roadmap item (protocols, UI, cost, audit, multi-tenancy) is a consumer
-of the event log and RunContext. Each story in this epic gets cheaper the earlier it
-lands and dramatically more expensive after more features accrete on the current split.
+**Closed.** Restructure agentdeck from two parallel silos (agents / workflows) into three rings: a
+zero-I/O core, engine adapters behind one lifecycle boundary, and thin surfaces rendering one
+canonical event stream. **Reference:** `agentdeck-v2-architecture.md` · **Baseline:** agentdeck
+1.2.1 (`60b95b6`). Every checkbox below is as the epic was left, not as the tree stands.
 
 **Epic-level definition of done**
 
@@ -25,259 +14,95 @@ lands and dramatically more expensive after more features accrete on the current
 - [ ] Contract-test suite runs against both engines and passes identically
 - [ ] CHANGELOG entries per story; design doc updated where implementation diverged
 
-**Out of scope for this epic:** AG-UI/A2A adapters, dashboard, stdlib/toolkit content
-(Appendix A), auth beyond `Principal` on context, multi-tenant deployment. Tracked as
-follow-up epics.
+**Out of scope:** AG-UI/A2A adapters, dashboard, stdlib/toolkit content (Appendix A), auth beyond
+`Principal` on context, multi-tenant deployment — follow-up epics.
 
----
+## Stories
 
-## Story 1 — Core nouns: events, RunContext, ports (Phase 1)
-
-**As a** platform developer, **I want** the canonical Event schema, RunContext, and port
-ABCs to exist and be threaded through the existing code paths, **so that** every
-subsequent feature has a stable contract to build on — without changing any behavior.
-
-**Scope.** Create `core/` (`events.py`, `content.py`, `context.py`, `invocable.py`,
-`status.py`, `errors.py`, `ports/*`) with in-memory/no-op implementations for every
-port. Introduce `Input = list[ContentBlock]` with a str→TextBlock coercion shim. Thread
-`RunContext` (default single-tenant, generated run_id/trace_id, no-op gate, empty caps)
-through `App.run_agent`, `App.run_workflow`, `App.chat`, and both runner call chains.
-Stand up the contract-test suite skeleton (event ordering, exactly-one-terminal-event,
-envelope invariants) — parametrized but running against a stub engine only for now.
-
-**Acceptance criteria**
-
-- [ ] Event union with envelope (`v`, `seq`, `run_id`, `session_id`, `tenant`, `ts`, `kind`) and all §4.2 kinds, with unit tests for serialization round-trips and unknown-kind tolerance
-- [ ] `RunContext` is a required parameter on every internal run path; public API constructs a default context so user code is unaffected
-- [ ] Run status machine in `core/status.py` with tests proving terminal-state signals are no-ops
-- [ ] import-linter contract for `core/` active in CI
-- [ ] No behavior change: full existing test suite passes untouched
-
-**Estimate:** S–M. **Risk:** low — additive only. This is the cheapest story and the one
-every other story depends on.
-
----
-
-## Story 2 — The seam: EnginePort, Runtime, adapters, serve rewrite (Phase 2)
-
-**As a** platform developer, **I want** both SDK integrations moved behind `EnginePort`
-emitting canonical events, orchestrated by one `Runtime` service, **so that** the
-agent/workflow bifurcation is eliminated and every consumer stops caring which engine ran.
-
-**Scope.** Convert `HeadlessRunner` into `adapters/engines/openai_agents/` yielding event
-payloads (reusing the `runtime/events.py` extraction helpers); move `workflows/*` +
-`runtime/checkpointer.py` into `adapters/engines/langgraph/` mapping `astream`/`interrupt`
-onto `node.updated`/`run.interrupted`. Build `Runtime` (stamp envelope, append to store,
-fan out to sinks, yield). Per ADR-D5: relocate `runtime/sessions.py` (`SessionFactory`)
-into `adapters/engines/openai_agents/` as its private execution store, and build
-`adapters/stores/{memory,sqlite,redis}` as **new** event-log stores; `agents/mcp/` → `adapters/tools/mcp/` behind
-`ToolSourcePort`; `runtime/observability.py` → `adapters/telemetry/langfuse/` as an
-`EventSinkPort`. Extract SSE framing from `serve.py` into `adapters/protocols/sse/`;
-rewrite handlers as thin Runtime calls. Shrink `App` to composition root + compat facade.
-Move `BaseAgent`/`BaseWorkflow`/`CapabilitiesSpec` into `authoring/`, compiling to
-`InvocableSpec`.
-
-**Acceptance criteria**
-
-- [ ] Contract-test suite passes identically against both real engines (LSP made executable)
-- [ ] One `InvocableRegistry`; `agents/registry.py` and `workflows/registry.py` deleted
-- [ ] Transcript-fidelity contract test (ADR-D5) passes on both engines: message-level transcript from engine execution state ≡ transcript from the event log, in content and order
-- [ ] Crash-between-writes reconciliation (log written, engine state not) covered by an integration test; next turn replays the missing input into execution state
-- [ ] `serve.py` handlers contain no engine- or shape-specific logic; SSE frames byte-identical to 1.2.1 (golden-file test)
-- [ ] Langfuse traces now cover workflow runs too (proof of sink-based telemetry)
-- [ ] Only `adapters/engines/openai_agents/` imports `agents`; only `adapters/engines/langgraph/` imports `langgraph` (linter-enforced)
-- [ ] Compat facade: all README examples from 1.2.1 run unmodified
-
-**Estimate:** L — the big one. **Risk:** highest of the epic; mitigate by landing engine
-adapters behind a feature flag first, cutting serve over last. Do not split this story
-across releases — a half-moved seam is worse than either endpoint.
-
-*(Amendment 2026-08-05 — re-sequenced after Milestone 0, `milestone-0-findings.md`.)*
-Milestone 0 (issues #52–#54, #56/#58/#59) already built a crude-but-real slice of this
-story ahead of schedule: `EnginePort` for both engines, `Runtime` (stamp/append/fan-out/
-yield, resume, pending), the memory+SQLite event-log stores, and a `/v2/...` chat +
-`/pending`+`/resume` surface — all proven against real multi-agent/multi-turn (UC1),
-interrupt/restart (UC2), and cancel-under-load (UC3) traffic with zero engine leakage
-into any consumer (`milestone-0-findings.md` §2). **This retires the story's own
-highest-risk bet** — that one `Runtime`/`EnginePort` abstraction could cover openai-agents
-and LangGraph without a consumer-visible seam — as a measured fact, not a hope. The
-estimate stays **L**, but the composition of that L changes:
-
-- **Lower risk than originally scoped:** the acceptance criteria already met at spike
-  quality are the transcript-fidelity test (both engines, `milestone-0-findings.md` §2
-  falsifier 4) and the "no engine-specific logic in surfaces" criterion (§2 falsifier 1);
-  Story 2 hardens these, it does not discover whether they are achievable.
-- **Real remaining net-new scope, not yet touched by the spike:** Redis/Postgres event-log
-  stores; `ToolSourcePort`/MCP relocation; `adapters/telemetry/langfuse/` as an
-  `EventSinkPort`; the real `InvocableRegistry` replacing the hardcoded
-  `dict[str, InvocableSpec]` every M0 test and the demo script built inline
-  (`milestone-0-findings.md` §8); `App` actually becoming the composition root + compat
-  facade — M0's `build_app` is a parallel `/v2/...` route, not wired into `App` and not
-  byte-parity with v1's `serve.py`; and the crash-between-writes reconciliation test
-  ADR-D5 requires, which M0 never exercised (no test in the M0 suite kills a process
-  *between* the log write and the engine-state write — only between two fully-committed
-  turns, per UC2's restart tests).
-- **A hardening item M0 surfaced that this story must resolve, not just harden:** LangGraph
-  durable checkpointers (`adapters/engines/langgraph/checkpointer.py`) cache per URL and
-  bind to the event loop that first constructed them — fine for a server's one long-lived
-  loop, a real constraint for anything else. Story 2's redis/postgres store work and this
-  checkpointer behavior are coupled in a way the original story text didn't anticipate.
-  *(Resolved 2026-08-06, #75: the savers are cached per event loop, and the Redis and Postgres
-  event logs landed with them, wired to `AGENTDECK_EVENTS_BACKEND` through #74's
-  `resolve_event_store`. The coupling was real but shallow — the two shared a PR, not a design.
-  Known ceiling recorded in the code rather than here: the per-loop cache does not free a
-  finished loop's saver, so a process that runs many loops in a row accumulates one connection
-  each. No effect on a server, which is one loop for its lifetime.)*
-- **A test-infrastructure finding for Story 3, not Story 2:** `httpx.ASGITransport` cannot
-  interleave a live control signal into an in-flight SSE response (it runs a request's
-  whole ASGI call before returning any bytes) — Story 3's "pause honored at next safe
-  point" acceptance criterion, when exercised over the real HTTP route rather than
-  `Runtime` directly, needs a real ASGI server (e.g. `uvicorn` in a subprocess), not
-  `ASGITransport`. Flagged here so it lands as a known requirement, not a mid-story
-  surprise.
-
-*(Amendment 2026-08-06 — #74 closed the composition-root half of that scope.)* `App` is
-now a caller of one assembly seam (`agentdeck/composition.py`), and v1's chat endpoints are
-served by the Runtime with the golden suite unchanged, so **"SSE frames byte-identical to
-1.2.1" is met for `/agents/{name}/chat`** and the compat facade exists as a surface module.
-What the criterion still lacks, and why:
-
-- **`/workflows/*` is still on v1's runner.** The langgraph adapter takes text `Input` and
-  reports its final state as `str(dict)`; v1's endpoints take an arbitrary JSON state and
-  return the final state. Byte-parity there needs the adapter to carry a state-shaped input
-  and a structured final state — engine work, ahead of the surface work.
-- **Structured output has no canonical shape.** `RunCompleted.output` is `Input`, so an
-  `output_type` agent's result travels as a namespaced `custom` event that the surface
-  renders. With the workflow final state, that is the second recurrence — the promotion
-  signal for a `DataBlock`/structured field, which is a schema PR, not a facade PR.
-- **The Runtime's langgraph engine is not the configured one.** `v1_engines()` gives it an
-  in-memory checkpointer, because resolving the settings checkpointer at `App.load()` would
-  make the `[durability]` extra mandatory for chat-only installs. The workflow reroute has to
-  resolve it, and that is where the M0 event-loop-binding constraint above will bite.
-- **The event log is opt-in.** `AGENTDECK_EVENTS_BACKEND` defaults to `memory`, so the
-  rerouted surface keeps a per-process log; a durable default needs a writable path, which
-  `.agentdeck/` (mounted read-only) is not.
-
-Deleting v1's runner glue remains the pre-stable gate's job: this PR rerouted, it deleted
-nothing, and the glue is still what `App.chat` / `chat_stream` / the workflow endpoints use.
-
----
-
-## Story 3 — Run control: pause / resume / cancel (Phase 3)
-
-**As an** operator or calling application, **I want** to pause, resume, and cancel any
-in-flight run by `run_id`, including from another process, **so that** long-running
-agents and workflows are governable — and as proof that features now cost one
-implementation instead of two.
-
-**Scope.** `ControlPort` implementations (`memory`, `redis`); real `Gate` wired into
-`RunContext`; gate checkpoints in the openai-agents adapter (between stream items,
-before tool dispatch) and pause→interrupt mapping at node boundaries in the langgraph
-adapter; status transitions recorded via the Story-1 state machine; four routes on serve
-(`POST /runs/{id}/pause|resume|cancel`, `GET /runs/{id}`); the three control event kinds
-flowing to all sinks. **Story 3b (same release):** build the `Gate` as a *mailbox* from
-the start — `checkpoint()` drains queued input as well as signals at safe points — and
-ship steering: `Runtime.send(run_id, Input, ctx)`, `POST /runs/{id}/messages`, and the
-`input.appended` event written to the log **before** being drained into execution state
-(ADR-D5 write ordering). Engines may declare `supports_steering=False` rather than fake it.
-
-**Acceptance criteria**
-
-- [x] Contract tests: pause honored at next safe point; resume continues with full history; cancel raises cooperatively and emits `run.cancelled`; signals on terminal runs are no-ops — identical semantics across both engines *(#45: `tests/contract/test_control.py`, parametrized over the stub and openai-agents engines. The langgraph engine makes no gate checkpoint, so a workflow run has no safe point yet — #128, split out because deciding what resuming a checkpointed graph replays is its own slice.)*
-- [ ] Redis ControlPort: pause issued from process A stops a run executing in process B (integration test with two workers) *(#45 shipped the cross-process path over the SQLite control port, wired from settings and proven by `test_uc3_cross_process_cancel`; a Redis control port is still unbuilt, which is what one file behind more than one machine needs.)*
-- [x] Documented safe-point contract in the repo (`docs/`): what pause means, what resume replays, side-effect rules referencing `idempotency_key` *(#45: `docs-site/content/concepts/run-control.mdx` — user-facing, and it carries #85's cancel-latency bound.)*
-- [x] `WAITING_HUMAN` vs `PAUSED` distinguished in events, and in `can_resume`'s two resume shapes (a value, or nothing) *(#45. A status *endpoint* is #116's.)*
-- [ ] Approvals inbox (`/pending`) still works and now also lists operator-paused runs separately *(#45 left `pending()` on `WAITING_HUMAN` alone — an operator's pause is not an approval waiting on an answer, and no "Done when" in #45 asked for the listing.)*
-
-**Estimate:** M. **Risk:** medium — the semantics are the work; the wiring is small.
-Depends on Stories 1–2.
-
-*(Amendment 2026-08-05 — re-grounded after Milestone 0, `milestone-0-findings.md`.)* M0's
-UC3 already shipped a cancel-only slice of this story (`ControlPort`, `Gate`,
-memory+SQLite adapters, cross-process cancel proven via a real subprocess) — Story 3
-extends `Signal` to add `PAUSE`/`RESUME` and steering rather than building control from
-zero. Two findings raise the estimate's risk, not its size: the double-resume guard
-built in M0 is an `asyncio.Lock` keyed by `run_id` **inside one `Runtime` instance** —
-correct for two callers racing one process, silently wrong for two processes racing the
-same run through two separate `Runtime`s over one store, which is exactly the shape the
-"Redis ControlPort: pause from process A stops a run in process B" acceptance criterion
-above requires. A cross-process-safe resume needs a compare-and-set primitive on
-`SessionStorePort`, which the frozen ports don't have yet — this is coupled work, not two
-independent line items, and should be scoped together rather than discovered mid-story.
-Separately, the "pause honored at next safe point" criterion needs a real ASGI server to
-test over the actual HTTP route (`httpx.ASGITransport` cannot interleave a live signal
-into an in-flight SSE response, per the Story 2 amendment above) — plan the test
-infrastructure for that up front instead of learning it while red.
-
----
-
-## Story 4 — Caller-injected capabilities (Phase 4)
-
-**As a** surface author, **I want** filesystem, terminal, and approval capabilities to be
-ports supplied by the caller on `RunContext`, with the sandbox as the default
-implementation, **so that** the same agent can run against the sandbox over HTTP and
-against an editor's workspace over ACP — unlocking every UI/editor protocol.
-
-**Scope.** `CapabilityProvider` on `RunContext` with `require()` raising
-`CapabilityUnavailable`; wrap existing `Workspace`/`SandboxSession` as
-`adapters/caps/sandbox/` (`FilesystemPort`, `TerminalPort`); dissolve `BaseSandboxAgent`
-into `BaseAgent` + `CapabilitiesSpec` (deprecated alias retained); engine adapter chooses
-the SDK agent class from the compiled `CapabilityRequest`; re-target `SkillExecutor` to
-consume the ports instead of the ambient ContextVar workspace; move the Chat-Completions
-shims from `capabilities/{compaction,filesystem}.py` into the openai-agents adapter.
-
-**Acceptance criteria**
-
-- [ ] An agent declaring `shell=True` runs identically before/after (regression suite), with the sandbox now injected rather than ambient
-- [ ] The same agent runs with a test double `FilesystemPort` and never touches the sandbox (unit-level proof of substitutability)
-- [ ] `SkillExecutor` has no import of `Workspace`; skills pass existing tests against the sandbox port
-- [ ] `BaseSandboxAgent` emits a deprecation warning but works; README/docs updated
-- [ ] Missing capability produces a clear build/run-time error naming the port and the surface that failed to provide it
-
-**Estimate:** M. **Risk:** medium — the ContextVar-to-injection change touches skills;
-land it behind the compat alias. Depends on Story 2; independent of Story 3.
-
----
-
-## Story 5 — ACP surface (Phase 5)
-
-**As a** user of an ACP-capable editor (Zed, JetBrains, …), **I want** to run any
-agentdeck agent inside my editor via `agentdeck acp`, **so that** AgentDeck demonstrably
-"speaks every protocol" — with the editor owning files and permissions.
-
-**Scope.** `adapters/protocols/acp/`: JSON-RPC 2.0 stdio framing, method dispatch for
-`initialize`, `session/new`, `session/load`, `session/prompt`, `session/cancel`; the
-event→`session/update` mapper (single churn-absorbing file, protocol version pinned);
-client-backed `FilesystemPort` / `TerminalPort` / `ApprovalPort` that round-trip
-`fs/read_text_file`, terminal methods, and `session/request_permission` over the pipe.
-`surfaces/acp/` entrypoint registered as `agentdeck acp` console script. Capability
-negotiation: client-declared capabilities at `initialize` decide which ports enter
-`ctx.caps`, sandbox fallback otherwise; advertised agent capabilities derived from the
-registry, not hardcoded.
-
-**Acceptance criteria**
-
-- [ ] `session/prompt` streams `agent_message_chunk` updates and terminates correctly for both an agent and a workflow invocable
-- [ ] `session/load` replays history from the event log as `session/update` notifications in `seq` order
-- [ ] `session/cancel` maps to `Runtime.signal(CANCEL)` and the in-flight prompt stops at the next safe point (reuses Story 3)
-- [ ] An agent reading a file receives editor-buffer content via the client filesystem port, not sandbox content (integration test with a scripted fake client)
-- [ ] Permission request surfaces as `session/request_permission` and the decision resumes the run (reuses interrupt machinery)
-- [ ] Zero changes required in `core/`, engines, or `surfaces/serve/` to land this story (the architecture's scoreboard claim, verified by diff)
-
-**Estimate:** M. **Risk:** medium-low internally; external risk is ACP spec churn —
-contained by the pinned version and single mapper file. Depends on Stories 3 and 4.
-
----
-
-## Sequencing and dependency graph
+| # | Story (phase) | The ask | Scope | Estimate · risk |
+|---|---|---|---|---|
+| 1 | Core nouns: events, RunContext, ports (1) | The canonical schema, `RunContext` and port ABCs exist and thread through existing paths, changing no behavior | `core/` (`events.py`, `content.py`, `context.py`, `invocable.py`, `status.py`, `errors.py`, `ports/*`) with no-op ports; `Input = list[ContentBlock]` plus a str→TextBlock shim; a default `RunContext` through `App.run_agent`/`run_workflow`/`chat` and both runner chains; the contract-suite skeleton on a stub engine | S–M · low, additive; everything else depends on it |
+| 2 | The seam: EnginePort, Runtime, adapters, serve rewrite (2) | Both SDK integrations move behind `EnginePort` under one `Runtime`, ending the agent/workflow bifurcation | `HeadlessRunner` → `adapters/engines/openai_agents/`; `workflows/*` + `runtime/checkpointer.py` → `adapters/engines/langgraph/`, mapping `astream`/`interrupt` onto `node.updated`/`run.interrupted`; `Runtime` (stamp, append, fan out, yield). Per ADR-D5 `runtime/sessions.py` becomes the openai-agents adapter's private execution store and `adapters/stores/{memory,sqlite,redis}` are **new** event logs. `agents/mcp/` → `adapters/tools/mcp/` behind `ToolSourcePort`, `runtime/observability.py` → a Langfuse `EventSinkPort`, SSE framing → `adapters/protocols/sse/`; `App` shrinks to composition root + compat facade, `BaseAgent`/`BaseWorkflow`/`CapabilitiesSpec` move to `authoring/` | L · highest of the epic; adapters behind a flag first, serve last, never split across releases |
+| 3 | Run control: pause / resume / cancel (3) | Any in-flight run is governable by `run_id`, including from another process | `ControlPort` (`memory`, `redis`); a real `Gate` on `RunContext`; gate checkpoints in the openai-agents adapter (between stream items, before tool dispatch) and pause→interrupt at langgraph node boundaries; status through the Story-1 machine; `POST /runs/{id}/pause\|resume\|cancel` + `GET /runs/{id}`; the three control kinds to all sinks. **Story 3b (same release):** the `Gate` is a *mailbox* from the start — `checkpoint()` drains queued input as well as signals — shipping `Runtime.send(run_id, Input, ctx)`, `POST /runs/{id}/messages`, and `input.appended` written to the log **before** draining into execution state (ADR-D5 write ordering); an engine may declare `supports_steering=False` rather than fake it | M · medium — the semantics are the work, the wiring is small |
+| 4 | Caller-injected capabilities (4) | Filesystem, terminal and approval become ports the caller supplies on `RunContext`, sandbox as default | `CapabilityProvider` on `RunContext`, `require()` raising `CapabilityUnavailable`; `Workspace`/`SandboxSession` wrapped as `adapters/caps/sandbox/` (`FilesystemPort`, `TerminalPort`); `BaseSandboxAgent` dissolved into `BaseAgent` + `CapabilitiesSpec` (deprecated alias retained); the engine adapter picks its SDK agent class from the compiled `CapabilityRequest`; `SkillExecutor` onto the ports instead of the ambient ContextVar workspace; the Chat-Completions shims from `capabilities/{compaction,filesystem}.py` into the openai-agents adapter | M · medium — ContextVar-to-injection touches skills; land behind the compat alias |
+| 5 | ACP surface (5) | Any agentdeck agent runs inside an ACP editor via `agentdeck acp`, the editor owning files and permissions | `adapters/protocols/acp/`: JSON-RPC 2.0 stdio framing; dispatch for `initialize`, `session/new`, `session/load`, `session/prompt`, `session/cancel`; the event→`session/update` mapper as one churn-absorbing file with the protocol version pinned; client-backed `FilesystemPort`/`TerminalPort`/`ApprovalPort` round-tripping `fs/read_text_file`, terminal methods and `session/request_permission`; `surfaces/acp/` as the `agentdeck acp` console script; capabilities the client declares at `initialize` decide which ports enter `ctx.caps`, sandbox otherwise | M · medium-low internally; external risk is ACP spec churn |
 
 ```text
 Story 1 ──▶ Story 2 ──▶ Story 3 ──▶ Story 5
                    └──▶ Story 4 ──▶ Story 5
 ```
 
-Stories 3 and 4 can proceed in parallel after Story 2. Recommended order of merge:
-1 → 2 → 3 → 4 → 5. The epic's demo at the end: one agent, unmodified, running (a) over
-SSE with sandbox capabilities, (b) paused and resumed from a second process, and
-(c) inside an ACP editor reading the editor's unsaved buffer — three surfaces, one event
-log, zero agent-code changes.
+Closing demo: one unmodified agent, running over SSE with sandbox capabilities, paused and resumed
+from a second process, and inside an ACP editor reading the editor's unsaved buffer.
+
+## Acceptance criteria
+
+| story | criterion | met |
+|---|---|---|
+| 1 | Event union with envelope (`v`, `seq`, `run_id`, `session_id`, `tenant`, `ts`, `kind`) and all §4.2 kinds, with round-trip and unknown-kind-tolerance tests | [ ] |
+| 1 | `RunContext` required on every internal run path; the public API constructs a default so user code is unaffected | [ ] |
+| 1 | Run status machine in `core/status.py`, with tests proving terminal-state signals are no-ops | [ ] |
+| 1 | import-linter contract for `core/` active in CI | [ ] |
+| 1 | No behavior change: the full existing test suite passes untouched | [ ] |
+| 2 | Contract-test suite passes identically against both real engines (LSP made executable) | [ ] |
+| 2 | One `InvocableRegistry`; `agents/registry.py` and `workflows/registry.py` deleted | [ ] |
+| 2 | Transcript-fidelity contract test (ADR-D5) on both engines: transcript from engine execution state ≡ transcript from the event log, in content and order | [ ] |
+| 2 | Crash-between-writes reconciliation (log written, engine state not) covered by an integration test; the next turn replays the missing input into execution state | [ ] |
+| 2 | `serve.py` handlers hold no engine- or shape-specific logic; SSE frames byte-identical to 1.2.1 (golden-file test) | [ ] |
+| 2 | Langfuse traces cover workflow runs too (proof of sink-based telemetry) | [ ] |
+| 2 | Only `adapters/engines/openai_agents/` imports `agents`; only `adapters/engines/langgraph/` imports `langgraph` (linter-enforced) | [ ] |
+| 2 | Compat facade: all README examples from 1.2.1 run unmodified | [ ] |
+| 3 | Contract tests: pause honored at next safe point; resume continues with full history; cancel raises cooperatively and emits `run.cancelled`; terminal-run signals are no-ops — identical across both engines *(#45: `tests/contract/test_control.py`, parametrized over the stub and openai-agents engines. The langgraph engine makes no gate checkpoint, so a workflow run has no safe point yet — #128, split out because deciding what resuming a checkpointed graph replays is its own slice.)* | [x] |
+| 3 | Redis ControlPort: pause from process A stops a run in process B (two-worker integration test) *(#45 shipped the cross-process path over the SQLite control port, proven by `test_uc3_cross_process_cancel`; a Redis control port is still unbuilt.)* | [ ] |
+| 3 | Documented safe-point contract in the repo: what pause means, what resume replays, side-effect rules referencing `idempotency_key` *(#45: `docs-site/content/concepts/run-control.mdx`, carrying #85's cancel-latency bound.)* | [x] |
+| 3 | `WAITING_HUMAN` vs `PAUSED` distinguished in events, and in `can_resume`'s two resume shapes — a value, or nothing *(#45. A status *endpoint* is #116's.)* | [x] |
+| 3 | Approvals inbox (`/pending`) still works and lists operator-paused runs separately *(#45 left `pending()` on `WAITING_HUMAN` alone — an operator's pause is not an approval awaiting an answer, and no "Done when" in #45 asked for the listing.)* | [ ] |
+| 4 | An agent declaring `shell=True` runs identically before/after (regression suite), with the sandbox injected rather than ambient | [ ] |
+| 4 | The same agent runs against a test-double `FilesystemPort` and never touches the sandbox | [ ] |
+| 4 | `SkillExecutor` has no import of `Workspace`; skills pass existing tests against the sandbox port | [ ] |
+| 4 | `BaseSandboxAgent` emits a deprecation warning but works; README/docs updated | [ ] |
+| 4 | A missing capability produces a clear error naming the port and the surface that failed to provide it | [ ] |
+| 5 | `session/prompt` streams `agent_message_chunk` updates and terminates correctly for both an agent and a workflow invocable | [ ] |
+| 5 | `session/load` replays history from the event log as `session/update` notifications in `seq` order | [ ] |
+| 5 | `session/cancel` maps to `Runtime.signal(CANCEL)` and stops the in-flight prompt at the next safe point (reuses Story 3) | [ ] |
+| 5 | An agent reading a file receives editor-buffer content via the client filesystem port, not sandbox content (scripted fake client) | [ ] |
+| 5 | A permission request surfaces as `session/request_permission` and the decision resumes the run (reuses interrupt machinery) | [ ] |
+| 5 | Zero changes in `core/`, engines or `surfaces/serve/` to land this story — the architecture's scoreboard claim, verified by diff | [ ] |
+
+## Amendments
+
+*(2026-08-05 — Story 2 re-sequenced after Milestone 0, `milestone-0-findings.md`.)* M0 (#52–#54,
+#56/#58/#59) built a crude slice of Story 2 ahead of schedule — `EnginePort` on both engines,
+`Runtime`, memory+SQLite event logs, a `/v2/...` chat + `/pending`+`/resume` surface — proven against
+real handoff (UC1), interrupt/restart (UC2) and cancel-under-load (UC3) traffic with zero engine
+leakage into any consumer, which **retires the story's highest-risk bet as a measured fact**. The
+estimate stays **L**; its composition changes:
+
+| | |
+|---|---|
+| Met at spike quality — hardened, not discovered | Transcript fidelity on both engines, and no engine-specific logic in surfaces (`milestone-0-findings.md` §2, falsifiers 4 and 1) |
+| Net-new, untouched by the spike | Redis/Postgres event logs; `ToolSourcePort`/MCP relocation; the Langfuse `EventSinkPort`; the real `InvocableRegistry` replacing M0's inline `dict[str, InvocableSpec]` (§8); `App` actually becoming composition root + compat facade, since M0's `build_app` is a parallel `/v2/...` route with no byte-parity; and ADR-D5's crash-between-writes reconciliation test — M0 kills a process only between two committed turns, never between the log write and the engine-state write |
+| To resolve, not just harden | LangGraph durable checkpointers cache per URL and bind to the event loop that first built them, coupling this story's store work to checkpointer behavior. *(Resolved 2026-08-06, #75: savers cache per event loop, and the Redis and Postgres event logs landed with them, wired to `AGENTDECK_EVENTS_BACKEND` through #74's `resolve_event_store`. The coupling was real but shallow — one PR, not one design. Ceiling recorded in the code: the per-loop cache never frees a finished loop's saver, so a process running many loops accumulates a connection each; no effect on a server.)* |
+| Story 3's problem, found here | `httpx.ASGITransport` runs a request's whole ASGI call before returning bytes, so it cannot interleave a live control signal into an in-flight SSE response. Testing "pause honored at next safe point" over the real HTTP route needs `uvicorn` in a subprocess |
+
+*(2026-08-05 — Story 3 re-grounded after Milestone 0.)* M0's UC3 shipped a cancel-only slice, so
+Story 3 extends `Signal` with `PAUSE`/`RESUME` and steering rather than building control from zero.
+Two findings raise risk, not size. M0's double-resume guard is an `asyncio.Lock` keyed by `run_id`
+inside one `Runtime` — correct for two callers racing one process, silently wrong for two processes
+racing one run through two `Runtime`s over one store, which is exactly the shape the Redis-ControlPort
+criterion requires; a cross-process-safe resume needs a compare-and-set primitive the frozen
+`SessionStorePort` lacks, so scope the two together. And "pause honored at next safe point" needs a
+real ASGI server per the amendment above — plan that test infrastructure up front, not while red.
+
+*(2026-08-06 — #74 closed the composition-root half of Story 2's scope.)* `App` is now a caller of
+one assembly seam (`agentdeck/composition.py`) and v1's chat endpoints are served by the Runtime with
+the golden suite unchanged, so **"SSE frames byte-identical to 1.2.1" is met for
+`/agents/{name}/chat`** and the compat facade exists as a surface module. Deleting v1's runner glue
+stays the pre-stable gate's job: that PR rerouted and deleted nothing. What the criterion still lacks:
+
+| gap | why |
+|---|---|
+| `/workflows/*` is still on v1's runner | The langgraph adapter takes text `Input` and reports final state as `str(dict)`; v1's endpoints take arbitrary JSON state and return it. Byte-parity needs a state-shaped input and a structured final state — engine work ahead of surface work |
+| Structured output has no canonical shape | `RunCompleted.output` is `Input`, so an `output_type` result travels as a namespaced `custom` event. With the workflow final state that is the second recurrence — the promotion signal for a `DataBlock`, which is a schema PR |
+| The Runtime's langgraph engine is not the configured one | `v1_engines()` hands it an in-memory checkpointer, because resolving the settings checkpointer at `App.load()` would make `[durability]` mandatory for chat-only installs. The workflow reroute must resolve it, where the event-loop binding bites |
+| The event log is opt-in | `AGENTDECK_EVENTS_BACKEND` defaults to `memory`, so the rerouted surface keeps a per-process log; a durable default needs a writable path, which read-only `.agentdeck/` is not |
