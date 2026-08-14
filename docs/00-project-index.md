@@ -1,20 +1,22 @@
 # 00 — AgentDeck Project Index
 
-**The one file to read first.** It maps every document, establishes which one wins when
-they disagree, reconciles the known deltas between them, and gives the execution order.
-Date: 2026-08-04. Amended 2026-08-11.
+**The one file to read first.** It maps every document, says which one wins when they disagree,
+reconciles the known deltas, and gives the execution order.
+Date: 2026-08-04. Amended 2026-08-11, 2026-08-14.
 
-> **Amendment 2026-08-11 — v3 is built.** This file was written during the v2 effort and titled
-> for it; the title is now version-free, because it outlives any one release. Two things it said
-> are no longer true and are corrected below: §4's `NOW` arrow pointed at a cutover that has since
-> finished, and §1 listed only the v2-era document set, which the v3 cutover has roughly doubled
-> (§1b). The precedence rules in §2 and the delta ledger in §3 are unchanged and still hold —
-> nothing in them was about the cutover.
+> **Amendment 2026-08-11 — v3 is built.** The title drops its version, because this file outlives
+> any one release. Two corrections: §4's `NOW` arrow pointed at a cutover that has since finished,
+> and §1 listed only the v2-era set, which the v3 cutover roughly doubled (§1b). §2 and §3 are
+> unchanged. The v2/v3 naming in the *design* documents stays — `agentdeck-v2-architecture.md` and
+> `adr-d5-two-stores.md` describe the layout and import law that shipped as v3, and renaming files
+> to chase a version bump is churn.
 >
-> The v2/v3 naming in the *design* documents is deliberate and stays: `agentdeck-v2-architecture.md`
-> and `adr-d5-two-stores.md` describe the layout and import law that shipped as v3. They were
-> written under the earlier number; renaming files to chase a version bump is churn, and §6's rule
-> is a dated amendment, not a rewrite.
+> **Amendment 2026-08-14 — the writing standard.** Every document under `docs/` was swept against
+> it: the main doc is the map, depth links out, per-item facts are tables, one sentence per ruling.
+> No document was deleted. Three files were split out of the architecture doc, which fell from
+> 1536 lines to 1408: `design/run-lifecycle.md` (§4.4/§4.5), `design/event-store-claims.md` (§4.5)
+> and `design/sink-dispatch.md` (§4.6) — docs #12–#14, §2 rule 4. Three delivery documents §6 had
+> never listed gained rows in §1b.
 
 ---
 
@@ -33,11 +35,14 @@ Date: 2026-08-04. Amended 2026-08-11.
 | 9 | `delivery/docs-site-plan.md` | External docs site (`docs-site/`): IA, content rules, anti-rot tests, phases DS-0…DS-4 | delivery, docs |
 | 10 | `delivery/milestone-0-findings.md` | M0's go/no-go checkpoint: falsifier review, schema-as-built diff, learning note, decision log, keep/harden/discard | delivery, engineers |
 | 11 | `design/adr-d11-store-assigns-seq-and-time.md` | Decision record: the store assigns `seq` and `ts` in the same atomic step that persists an event. **Supersedes** `claim_start`'s "a store never reads a clock" and the envelope-stamping split in doc #3 | engineers |
+| 12 | `design/run-lifecycle.md` | The run lifecycle as built: the state machine, per-state properties, the (state × intent) policy, and the drift. **Supersedes** doc #3 §4.4 | engineers |
+| 13 | `design/event-store-claims.md` | `claim_start` and `claim_resume`: the two conditional appends, the session-busy rule, the staleness window and its operator consequences. **Supersedes** doc #3 §4.5 on the claims | engineers |
+| 14 | `design/sink-dispatch.md` | `runtime/dispatch.py`'s operational contract: bounded fan-out, the breaker, the flush/close lifecycle. **Supersedes** doc #3 §4.6 on the dispatch | engineers |
 
 ## 1b. The v3 cutover set (added 2026-08-11)
 
 Everything written after the table above, in the order the work happened. §6's rule — one row here
-per new spec doc — had fallen behind by thirteen documents; this closes it.
+per new spec doc — had fallen behind by thirteen documents (2026-08-11) and three more (2026-08-14).
 
 | File | What it is |
 |---|---|
@@ -56,10 +61,13 @@ per new spec doc — had fallen behind by thirteen documents; this closes it.
 | `delivery/beta-user-report-v3.md` | A real `v3.0.0b1` run by a first-time user; source of the Wave B findings |
 | `delivery/deck-capability-wrapper-pattern.md` | The wrapper shape a `Deck` argument takes when a capability needs one |
 | `delivery/workflow.md` | How an issue/finding/PR moves through the [GitHub Project](https://github.com/users/sagi5060/projects/5): filing conventions, the `Status` pipeline, `make roadmap-sync` |
+| `delivery/review-v3-outsider.md` | The clean-room outsider review of `v3.0.0`, united across three reviewers — the source of findings #229–#255 |
+| `delivery/plan-adoption.md` | Discoverability and adoption: the domain cutover, machine discovery, searchable content, the contributor loop |
+| `delivery/discoverability-baseline.md` | The 2026-08-12 zero point — 30 questions across Context7 and GitHub search, and how to re-run them |
 
-**Reading orders.** New engineer: `coding-standards.md` → 1 → 3 (through §9) → 4 → 8 →
-`delivery/decision-v3-entry-point.md`. Product/stakeholder: 1 → 2 → 3 Appendix B. Historical
-(how it was built): 7 → 8 → 6 → 10 → 5.
+**Reading orders.** New engineer: `coding-standards.md` → 1 → 3 (through §9) → 4 → 8 → 12 →
+`delivery/decision-v3-entry-point.md`. Product/stakeholder: 1 → 2 → 3 Appendix B. Historical:
+7 → 8 → 6 → 10 → 5.
 
 ## 2. Precedence — which document wins
 
@@ -77,12 +85,18 @@ Documents were written in conversation order and later ones refine earlier ones.
    (frozen as history, so superseded here rather than edited), and the design doc's
    envelope-stamping split. **ADR-D5's two-store rule is untouched**, as is the engine boundary —
    engines yield payloads, never envelopes.
-4. `delivery/milestone-0-walking-skeleton.md` reorders early delivery: the epic's Phase 1/2 now
+4. Three files hold depth split out of the design doc on 2026-08-14, one subject each, each
+   summarised and linked from the section it came from; where a summary and its file differ, the
+   file wins. `design/run-lifecycle.md` (from §4.4) **is** the run lifecycle,
+   `design/event-store-claims.md` (from §4.5) **is** the two conditional appends — subject to rule
+   3, which owns who assigns `seq` — and `design/sink-dispatch.md` (from §4.6) **is** the sink
+   dispatch contract.
+5. `delivery/milestone-0-walking-skeleton.md` reorders early delivery: the epic's Phase 1/2 now
    execute *through* the skeleton (see §4 below). Epic story content is unchanged;
    sequencing defers to this index.
-5. The PRD owns *what and for whom*; the design doc owns *how*; neither restates the
+6. The PRD owns *what and for whom*; the design doc owns *how*; neither restates the
    other. A conflict between them is a bug in one of them — flag it, don't guess.
-6. **The [GitHub Project](https://github.com/users/sagi5060/projects/5) owns live state**
+7. **The [GitHub Project](https://github.com/users/sagi5060/projects/5) owns live state**
    (which issues are open, their milestone, priority and `Status`); `roadmap-v3.md` /
    `roadmap-v3.1.md` / `findings-register.md` own the reasoning behind that state and do not
    self-update. Their live-status tables are generated — `make roadmap-sync` — and GitHub wins
@@ -105,6 +119,11 @@ Documents were written in conversation order and later ones refine earlier ones.
 | `prompts/pr1-event-schema-prompt.md:34,121` | "assigned by the Runtime" / "seq is assigned only by the Runtime" | Superseded by precedence rule 3 above. Prompts are frozen (§6 below), so **not edited** |
 | `core/ports/store.py` docstrings, `runtime/service.py:5,536-538`, `test_runtime_service.py:890` | All asserted or pinned Runtime-assigned `seq` | **Applied 2026-08-08** — port and `_drain` docstrings rewritten; the gap assertion flips `[2]` → `[]` |
 | Design doc envelope-stamping split | Predated ADR-D11 | **Applied 2026-08-08** — dated amendment added beside it; the envelope line in §4.2 names the store |
+| Design doc §4.4 | Named one guard point, an unreachable `CANCELLED` edge, and no (state × intent) policy | **Applied 2026-08-14** — §4.4 keeps the headline and the drift list; the depth is `design/run-lifecycle.md` (§2 rule 4) |
+| `coding-standards.md` header | Called itself "doc #9 in `00-project-index.md`"; #9 is `delivery/docs-site-plan.md` | **Applied 2026-08-14** — the header names §1b instead |
+| Design doc header | Read `**Status:** proposal`, while §2 and `CLAUDE.md` both treat it as the design of record | **Applied 2026-08-14** — dated amendment beside it; the status now says so |
+| Design doc §4.5 `last_seq` | Named a port method ADR-D11 removed | **Applied 2026-08-14** — said so in place, in the amendment that introduced it |
+| Design doc §4.5/§4.6 depth | The store-claim and sink-dispatch material had outgrown the sections holding it | **Applied 2026-08-14** — split to docs #13 and #14 (§2 rule 4) |
 
 ## 4. Execution order (single source of truth for "what's next")
 
@@ -135,41 +154,32 @@ NOW ──▶ v3.1 hardening → v3.2 batteries → v3.3 rooms & reach       [PR
         live per-issue status: the GitHub Project (`make roadmap-sync`)]
 ```
 
-**Amendment 2026-08-08.** v3.0.0 was not in this order when it was written: the epic
-planned v2.1 next. `plan-v2-cutover.md` ruling 1 (v1's public API is dropped, not facaded)
-makes the next release breaking, so the batteries train renumbers behind it — v2.1 → v3.1,
-and so on. Nothing about the *contents* of those releases changed, only their numbers.
-GitHub milestones mirror this exactly: `v3.0.0 — one way to work` (the cutover plus the
-release hygiene that only makes sense against the surface being frozen), `v3.1 — batteries`
-(additive on the frozen API), and `docs-site` (parallel, never release-blocking).
+**Amendment 2026-08-08.** The epic planned v2.1 next; `plan-v2-cutover.md` ruling 1 (v1's public
+API is dropped, not facaded) makes the next release breaking, so the batteries train renumbers
+behind it — v2.1 → v3.1, and so on, contents unchanged. GitHub milestones mirror it: `v3.0.0 — one
+way to work`, `v3.1 — batteries` (additive on the frozen API), `docs-site` (parallel, never
+release-blocking).
 
-Note the relationship between skeleton and epic: Milestone 0 *is* Phase 1 plus a crude
-Phase 2/3 slice. After go/no-go, epic Story 2 hardens the skeleton's adapters and Runtime
-to production quality rather than starting fresh (per M0's keep/harden/discard decision).
+Milestone 0 *is* Phase 1 plus a crude Phase 2/3 slice: after go/no-go, epic Story 2 hardens the
+skeleton's adapters and Runtime rather than starting fresh (M0's keep/harden/discard decision).
 
 ## 5. Decision log (index of numbered decisions across the set)
 
-- **D1–D8** — design doc §12 (engine boundary, no DSL, content blocks, caller-injected
-  capabilities, two-store rule *(as revised by ADR-D5)*, cooperative cancel, ctx
-  everywhere, event versioning).
-- **D9** — the envelope is closed (8 fields); new needs go in payloads or `run.started`.
-  Stated in PR #1 prompt.
-- **D10** — kinds are minted only in core; engines translate or use namespaced `custom`;
-  recurring `custom` = promotion signal. Stated in PR #1 prompt. *(Fired once, 2026-08-06,
-  issue #101: two engines routing structured data around the schema promoted `DataBlock`
-  into `core/content.py` — design doc §4.1/§4.2, additive under D8.)*
-- **Schema review decisions 1–9 + A + B** — enumerated in the PR #1 prompt (nested
-  envelope, UnknownEvent, contiguous Runtime-assigned seq, origin, message_id, usage
-  per-call+aggregate, preview+hash results, structured run.failed, naming; A=contiguous,
-  B=full text).
-- **Standing refusals** — PRD §8 / design doc §12; changing the list requires design
-  review.
+| Decision | Where it is stated |
+|---|---|
+| **D1–D8** — engine boundary, no DSL, content blocks, caller-injected capabilities, two-store rule *(as revised by ADR-D5)*, cooperative cancel, ctx everywhere, event versioning | design doc §12 |
+| **D9** — the envelope is closed (8 fields); new needs go in payloads or `run.started` | PR #1 prompt |
+| **D10** — kinds are minted only in core; engines translate or use namespaced `custom`, and a recurring `custom` is a promotion signal. *Fired once, 2026-08-06, #101: two engines routing structured data around the schema promoted `DataBlock` into `core/content.py` — design doc §4.1/§4.2, additive under D8* | PR #1 prompt |
+| **Schema review decisions 1–9 + A + B** — nested envelope, `UnknownEvent`, contiguous Runtime-assigned seq, `origin`, `message_id`, usage per-call + aggregate, preview + hash results, structured `run.failed`, naming; A=contiguous, B=full text | PR #1 prompt |
+| **Standing refusals** — changing the list requires design review | PRD §8 / design doc §12 |
 
 ## 6. Housekeeping rules for the doc set
 
-One statement of each fact: requirements live in the PRD, mechanisms in the design doc,
-sequencing here. When implementation diverges from a doc, the doc gets a dated amendment
-in the same PR (the fold-back pass after M0 is the first scheduled instance). Every new
-feature epic (group sessions, triggers, stdlib) opens with its own spec doc and one row
-added to §1 and §4 here. Prompts (docs 7–8) are frozen once their PR merges — history,
-not living docs.
+One statement of each fact: requirements live in the PRD, mechanisms in the design doc, sequencing
+here. When implementation diverges from a doc, the doc gets a dated amendment in the same PR. Every
+new feature epic opens with its own spec doc and one row added to §1 or §1b and to §4. Prompts
+(docs 7–8) are frozen once their PR merges — history, not living docs, so they are never rewritten
+even when a later ruling supersedes them (§2 rule 3 is how that is recorded instead).
+
+Writing: `~/.claude/CLAUDE.md` §Writing is binding for every document here. A section that wants to
+grow links out to a file of its own; per-item facts are a table; a ruling is one sentence.

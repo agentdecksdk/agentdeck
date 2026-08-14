@@ -1,6 +1,11 @@
 # AgentDeck v2 — Architecture Design
 
-**Status:** proposal · **Baseline:** `agentdeck` 1.2.1 (`Sagi5060/agentdeck@60b95b6`) · **Date:** 2026-08-03
+**Status:** design of record, amended as built · **Baseline:** `agentdeck` 1.2.1
+(`Sagi5060/agentdeck@60b95b6`) · **Date:** 2026-08-03 · **Depth split out:** `design/run-lifecycle.md`,
+`design/event-store-claims.md`, `design/sink-dispatch.md`
+
+*(Amended 2026-08-14: "proposal" was true on 2026-08-03 and has not been since v3 shipped —
+`CLAUDE.md` and `00-project-index.md` §2 both name this the design of record.)*
 
 This document specifies the target architecture for evolving agentdeck from a declarative
 harness over two SDKs into an agent development and runtime platform, following Clean
@@ -145,15 +150,12 @@ failing later in a store — plus a validator for the one class of value `JsonVa
 lets through: `NaN` and `±Infinity` have no JSON literal and serialize as `null`, which would
 make a consumer's copy of an event differ, silently, from the store's. Producers degrade such
 a leaf to text under their own declared ceiling instead. **Content policy:** text and data
-blocks are stored **in full** —
-they are the caller's own input and the run's own declared result, and a truncated one
-cannot be replayed or reconciled; the preview + size + hash treatment stays specific to
+blocks are stored **in full**; the preview + size + hash treatment stays specific to
 *tool* results, where the bytes are unbounded and engine-chosen. **D8: additive minor**, no
 `v` bump — no field was renamed, removed, or given a new meaning.*)
 
-*(Amended 2026-08-10, issue #159: `AudioBlock` added, mirroring `ImageBlock` field-for-field —
-the prose above named audio as one of the four atoms since this doc's first draft, and the code
-block six lines above it did not, until now. Both `ImageBlock` and `AudioBlock` gained an inline
+*(Amended 2026-08-10, issue #159: `AudioBlock` added, mirroring `ImageBlock` field-for-field.
+Both `ImageBlock` and `AudioBlock` gained an inline
 cap (1 MB decoded, enforced at construction) at the same time: either can carry a payload large
 enough to make an event log entry unbounded, and the cap's error names `ResourceBlock` as the
 by-reference alternative. **D8: additive minor** — a new discriminated-union member, no field
@@ -228,8 +230,7 @@ came off the port with the counter it existed to recover.
 an internal handoff (one invocable delegating to another inside its own run) does not
 change `origin` for the rest of that run. This is the contract, not a gap — see
 `milestone-0-findings.md` §3 for the analysis and the alternative (an additive,
-payload-level speaker field) that remains available later if a concrete consumer needs
-sub-agent-level attribution.
+payload-level speaker field) still available if a consumer needs sub-agent attribution.
 
 *(Amended 2026-08-06, issue #101.)* A **structured result** is a `DataBlock` in
 `run.completed.output` (§4.1) — a validated `output_type` result, a workflow's final state —
@@ -239,16 +240,15 @@ kind was added, so this is D8-additive; of the three golden snapshots that carry
 freeze its wire shape on both the input and the result channel. One asymmetry, since closed (#109): `Event` tolerates an unknown *kind* and
 `ContentBlock` now tolerates an unknown block `type` the same way. Before that fix a
 reader older than a new block type rejected the whole event rather than skipping the
-block. Measured, the blast radius is wider than one event: `SqliteEventStore.list_runs`
+block. The blast radius is wider than one event: `SqliteEventStore.list_runs`
 deserializes each run's last lifecycle row in one comprehension, so one structured
 `run.completed` in a shared store makes an older process's listing fail for the whole tenant,
 runs it wrote itself included. Mixed-version readers against one event store are therefore
 unsupported across this change. Bumping `v` would not help that reader (nothing branches on
-`v` yet); the fix is issue #109, closed below.
+`v` yet); the fix is issue #109.
 
 *(Amended 2026-08-06, issue #109.)* The asymmetry above is closed, D8-additive, before the
-`v2.0.0` stable tag — the last point where "one version of this schema exists" made the fix
-free. `ContentBlock` in `core/content.py` gained an `UnknownBlock` member
+`v2.0.0` stable tag. `ContentBlock` in `core/content.py` gained an `UnknownBlock` member
 (`{type: str, raw_block: dict}`), mirroring `UnknownEvent`: a `WrapValidator` on the
 `ContentBlock` annotation falls back to it whenever a block's `type` isn't one of the known
 literals, so the failure is caught at the block itself rather than propagating up through
@@ -355,27 +355,25 @@ data.
 
 ### 4.4 Run lifecycle
 
-```text
-                 signal PAUSE          signal RESUME
-  PENDING → RUNNING ──────────→ PAUSED ──────────→ RUNNING
-               │                                     │
-               │ engine emits run.interrupted        │
-               ├────────────→ WAITING_HUMAN ─────────┘  (resume with value)
-               │
-               ├──→ COMPLETED      (terminal)
-               ├──→ FAILED         (terminal)
-               └──→ CANCELLED      (terminal; reachable from RUNNING, PAUSED, WAITING_HUMAN)
-```
+Seven states folded out of the log, the (state × intent) policy over them, and where the tree
+diverges: **`design/run-lifecycle.md`**, which wins on this subject.
+
+Transitions are guarded in one place (`core/status.py`): a signal arriving after a terminal state
+is a **no-op, not an error** — the race is inherent and the state machine absorbs it. `PAUSED` and
+`WAITING_HUMAN` are distinct states because they resume differently.
 
 *(Amended 2026-08-06, issue #44: the two `control.*` kinds are deliberately **not** in this
 machine. A recorded signal moves nothing — a paused run is one that emitted `run.paused`, not
 one somebody asked to pause — so `LIFECYCLE_KINDS` stays the seven kinds it already was.)*
 
-Transitions are guarded in one place (`core/status.py`): a signal arriving after a
-terminal state is a **no-op, not an error** — the race is inherent and the state machine
-absorbs it. `PAUSED` (operator pressed pause) and `WAITING_HUMAN` (the run itself asked a
-question) are distinct states because they resume differently: the first resumes with
-nothing, the second resumes with a value.
+> **Amended 2026-08-14, audited at `da46439`.** The state machine was right; the per-state
+> properties and the (state × intent) policy were never written down anywhere, and three claims
+> this section made are no longer true of the tree. All of it now lives in
+> `design/run-lifecycle.md`, along with the mermaid machine that replaced this section's ASCII
+> one. The divergences:
+> guarded in five places, not one; `CANCELLED` is unreachable from `WAITING_HUMAN` (#229); `PAUSED`
+> is unreachable for a workflow run (#128); and `WAITING_HUMAN` is misnamed, because `sleep_until`
+> parks there too.
 
 ### 4.5 Ports
 
@@ -395,8 +393,8 @@ the engines that need them, in Stories 2–3. `start` returns an `AsyncGenerator
 payload, or when its own consumer walks away — so an engine's cleanup runs either way. `ControlPort` and the capability ports are
 unbuilt: they arrive with Story 3 and Story 4 respectively.)*
 
-*(Amended 2026-08-05, as built: `EventStorePort` also grew `last_seq(log_key, run_id,
-ctx)`, a `run_status(log_key, run_id, ctx)` projection (default: fold the bounded,
+*(Amended 2026-08-05, as built — `last_seq` since removed by ADR-D11, which took the last
+arithmetic caller with it: `EventStorePort` also grew `last_seq(log_key, run_id, ctx)`, a `run_status(log_key, run_id, ctx)` projection (default: fold the bounded,
 indexed result of `read_run` through `core/status.py`'s `status_of` — a projection, never
 a second store, per this doc's own two-stores decision), `list_runs(ctx, status=None)`
 scoped to one tenant, and `offset`/`limit` pagination on `read`. `offset` counts events
@@ -408,108 +406,16 @@ lifecycle row per run in one statement. The Runtime's resume path and `Runtime.p
 these instead of folding a whole log to answer one run's status or find every run waiting on
 a human; the now-unused `list_log_keys` is gone.)*
 
-*(Amended 2026-08-05, as built: `EventStorePort` also owns the resume claim —
-`claim_resume(log_key, run_id, event, ctx) -> bool`, a conditional append that records
-`run.resumed` if and only if the run is `WAITING_HUMAN` *and* the event's `seq` is still the
-run's next one, indivisibly. The Runtime's `WAITING_HUMAN` -> `RUNNING` transition is that
-one call: the write that publishes the transition is the write that tests for it, so two
-processes sharing a store cannot both claim one interrupt. `status_of` still derives status,
-so this is not a second store; a store only has to make the two checks and the append one
-step — SQLite in a single `BEGIN IMMEDIATE` transaction, the dict store for free, since
-neither the fold nor the append suspends. The `seq` half matters because a caller stamps its
-event before claiming: a run that was resumed and interrupted again between those two
-moments is waiting once more, and letting that stale claim through would write a `seq` twice.
-A loser gets `False`, never an exception, and never writes.)*
-
-*(Amended 2026-08-06, as built: both SQLite adapters — the event log and the control-signal
-table — open in WAL mode with an explicit 5-second busy timeout, and translate `sqlite3.Error`
-into `errors.StoreError` at every public method, so no library type crosses a port (§5 of the
-coding standards applied to the store boundary). This is what makes the sentence above hold
-in practice: a losing `claim_resume` waits for the winner's transaction to commit and then
-reads the `RUNNING` status it published, instead of meeting a raw `database is locked`. A lock
-held past the busy timeout is a `StoreError` — a store nobody can write to, deliberately not
-folded into the `False` that means somebody else won. Two operational consequences the design
-doc did not state: WAL puts `-wal`/`-shm` files beside each database (they belong to it for
-backup and deletion), and it relies on cross-process shared memory, so a SQLite store on NFS
-or SMB is unsupported — that deployment wants the Redis or Postgres store. Converting a file
-*into* WAL needs an exclusive lock that SQLite refuses outright while a peer is writing, so a
-connection that cannot switch the mode keeps the one the file has: slower under contention,
-never wrong, and never a failure to open.)*
-
-*(Amended 2026-08-06, #83 — as built: **one session runs one turn at a time**, and
-`EventStorePort` owns that claim too — `claim_start(log_key, event, ctx, stale_before) ->
-SessionClaim`, the resume claim's sibling. It appends a run's opening `run.started` if and only
-if that log has no open run, indivisibly; SQLite in one `BEGIN IMMEDIATE` transaction, the dict
-store for free. A session is **busy** when one of its runs has recorded a lifecycle transition
-and not a terminal one, `WAITING_HUMAN` included: an interrupted run still owns the engine
-thread it will resume on, and a second run against that thread would overwrite the checkpoints
-the resume needs. A run with no transition at all is `PENDING`, which no store can tell from a
-run it never saw, so it holds nothing — the line `list_runs` already draws.*
-
-*Busy-ness is **derived from the log**; there is no lease table, TTL row or heartbeat, which is
-what keeps §4.4's status a projection rather than a second store. Cross-process holds by
-construction, for the same reason the resume claim does: the condition and the write are one
-store operation, so two servers cannot both find a session idle. The refusal is **data, not a
-store failure** — `SessionClaim.held_by` names the run holding the session and nothing is
-written; only an unreachable store raises (`StoreError`, as above). The Runtime turns that into
-`errors.SessionBusyError` naming the session and the holding run, raised from `run()` before any
-event is yielded: a caller that asked for a turn and got an empty stream could not tell it apart
-from a turn that produced nothing. Over HTTP that has to be decided *before* the response begins —
-a `StreamingResponse` has already committed `200` and `text/event-stream`, so a refusal after it
-can only reach a client as a body that stops — hence the surface pulls the opening event and
-answers **409** with the holding run named. The same claim is covered by the cancellation arm that
-closes a run whose consumer walked away: a client that disconnects between committing the claim and
-receiving anything gets its run closed as `run.cancelled`, rather than leaving it open and holding
-the session for a window.*
-
-*Queueing the loser is deliberately **not** built. In-process queueing does not survive a second
-worker, and a store-level queue is a lease with ordering — fencing, expiry, stale-entry
-reclamation — which is real distributed machinery for a problem whose usual cause is a
-double-clicked send button. A client retry already is a queue.*
-
-*The one state the log cannot distinguish is a run whose process was **killed outright**: every
-graceful exit closes its run, so silence is all that is left to go on. Hence a **staleness
-window** — `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`, one hour by default, a settings value
-and not a constant, and required to be **positive** (at zero a run's own opening event is already
-stale to the next caller a moment later, which turns the guarantee back into a race). An open run
-whose own last event (any kind, so a streaming turn keeps resetting it) is older than that stops
-holding its session, comes back in `SessionClaim.overridden`, and is closed by the claiming turn
-as `run.failed` /`cancelled_hard` under **its own** `origin` and next `seq` — the store never
-stamps an event, since the Runtime is the only assigner of `seq`. The takeover is logged at
-WARNING, and it can always be premature: that trade is chosen on purpose, because a permanently
-wedged session is the worse failure. Failing to *close* the overridden run is not worth failing
-the new turn over either — the claim is already committed, so the close is dropped with a log line
-and the next turn, which meets the same stale run, tries again.*
-
-*Four consequences worth stating for whoever operates this. A session a killed process left
-claimed is refused until the window elapses. A run waiting on a human for longer than the window
-is closed as failed the next time somebody starts a turn on that session, so an installation with
-slower approvals raises the setting. The window is **not skew-free**: each worker compares its
-own `clock()` against a `ts` a peer stamped, so across machines the effective window is the
-configured one minus the worst clock skew, and a worker running more than a window fast would take
-over live sessions on sight. Keep the fleet on NTP and treat skew as eating into the budget. And
-**the window has a floor the code cannot enforce**: shortened below the longest quiet stretch of a
-healthy turn, an open run looks abandoned while it is still working, so the next turn takes the
-session from a live one and both run on the same conversation — one turn per session stops holding
-altogether, rather than merely cleaning up early. How long a turn may be quiet is a property of the
-deployment, so only positivity is validated; the rest is the setting's docstring and this note. An
-explicit operator "abandon run" route can follow if it is ever asked for.*
-
-*Because a takeover can be premature, the run stepped over may still be alive and write again at
-a `seq` its own closing event already used — the one corruption `check_contiguous` cannot see,
-since it looks for gaps and not for duplicates. So `(tenant, log_key, run_id, seq)` is now
-**unique** in the SQLite log (the per-run index carries the constraint) and the dict store refuses
-the same pair in `append`: a resurrected run fails loudly with `StoreError` at its next write
-instead of putting two different events at one `seq`, which would make every consumer's refetch of
-that `seq` a coin toss. Such a run does then end twice in the record — its own failure lands after
-the takeover's — which is detectable, unlike the duplicate. `seq` stays per run, so two runs of one
-session log both counting from 0 is unaffected.*
-
-*Consequence for tests and for anything that shells a second turn into a live session: two
-concurrent runs in one log are no longer reachable through the Runtime, only through a stale
-takeover. The engine-side lock that protects a session's execution state from two turns at once
-(`adapters/engines/openai_agents/reconcile.py`) is therefore no longer the first line of defence,
-but it is still the last one, and keeps its own test.)*
+*(Amended 2026-08-05 and 2026-08-06, #83 — as built: `EventStorePort` owns two conditional
+appends, `claim_resume` and `claim_start`, and **one session runs one turn at a time**. Each tests
+its condition and writes in the same indivisible step, which is what carries mutual exclusion across
+processes; losing is data, not an error. Busy-ness is derived from the log — no lease table, no
+heartbeat — so run status stays a projection. A run whose process was killed outright is only
+detectable as silence, hence a settings-driven **staleness window** after which an open run stops
+holding its session. The signatures, the busy rule, the 409 surfacing, the window's four operator
+consequences, the per-run `seq` uniqueness it forces, and the SQLite WAL specifics are all in
+**`design/event-store-claims.md`**, which wins on this subject. ADR-D11 later rewrote both
+signatures; that file records the divergences.)*
 
 *(Amended 2026-08-06, #75 — as built: `adapters/stores/redis/` and `adapters/stores/postgres/`
 implement the same port, so the sentences above about "two servers sharing a store" now describe
@@ -527,7 +433,7 @@ mechanism that backend actually has, and neither reimplements the status project
   setting, not the lock. That timeout is Postgres's spelling of the SQLite busy timeout, same 5
   seconds and same reasoning: wait a peer out, but surface a wedged holder as `StoreError` rather
   than hanging — with one gap, first-use schema setup, whose lock is session-scoped and taken
-  before any transaction exists. The alternatives were considered and rejected: `SELECT ... FOR
+  before any transaction exists. Rejected: `SELECT ... FOR
   UPDATE` has no row to lock on an idle session's empty log, and a conditional `INSERT ... WHERE
   NOT EXISTS` would have to express `status_of` in SQL — a second copy of the status machine,
   which is the thing ADR-D5 forbids.*
@@ -544,8 +450,8 @@ mechanism that backend actually has, and neither reimplements the status project
   is a hang. **Every write goes through the same machinery, `append` included**, because one
   `seq` per run is the other thing a store has to enforce and Redis has no unique index to
   enforce it with: the run's `seq` index is watched and each `(run_id, seq)` checked, so a peer
-  that spends a `seq` under this write aborts it. That check belongs to the *conditional* writes
-  too — SQLite and Postgres get it on every path from one blanket UNIQUE index, so a Redis store
+  that spends a `seq` under this write aborts it. SQLite and Postgres get it on every path from
+  one blanket UNIQUE index, so a Redis store
   that guarded only `append` would diverge on the claim paths alone, and a duplicate `seq` is
   invisible from the log either way. A spent `seq` is a `StoreError` and not a claim's
   refusal-as-data: it is corruption, not a race somebody lost. The log carries its own indexes (per-log and per-run lists, that
@@ -558,8 +464,8 @@ mechanism that backend actually has, and neither reimplements the status project
 *ADR-D5's operational separation is expressed as the one thing each backend can enforce: a
 Postgres **schema** (`agentdeck_events`) and a Redis **key prefix** (`agentdeck:events`), so a
 database holding LangGraph checkpoint tables or an instance holding the openai-agents adapter's
-`RedisSession` conversations shares nothing with the log. Three things the design doc did not
-say: Redis is only as durable as the instance is configured to be, so a deployment using it as
+`RedisSession` conversations shares nothing with the log. Three things:
+Redis is only as durable as the instance is configured to be, so a deployment using it as
 its record wants `appendonly yes` **and** `maxmemory-policy noeviction` — an evicted lifecycle
 key makes a live run stop looking like it holds its session; Postgres adds `psycopg[binary]` to
 the `[durability]` extra, which until now meant checkpointer savers only, and is imported inside
@@ -610,6 +516,22 @@ class ControlPort(ABC):
     async def status(self, run_id: str) -> RunStatus: ...
     async def set_status(self, run_id: str, status: RunStatus) -> None: ...
 ```
+
+> **Amended 2026-08-14 — `status` and `set_status` are retracted, and `ControlPort` is missing one
+> method.** A mutable status on a port is a second source of truth for the fact ADR-D5 makes a
+> projection of the log; `EventStorePort.run_status` owns the question. What shipped is
+> `signal(run_id, sig, reason)` and `poll(run_id)`, with no `ctx`. What is missing is a way to clear
+> a pending signal: `signal()` replaces whatever was pending, so consuming one is spelled *write
+> `RESUME` over it*, which `resume_run` refuses to do unconditionally because it would destroy a
+> cancel that arrived while the run was suspended. `design/run-lifecycle.md`'s `consume` rulings
+> need it first-class, on both control adapters:
+>
+> ```python
+> async def consume(self, run_id: str, expected: ControlSignal) -> bool: ...
+> ```
+>
+> True when this caller cleared exactly the signal it read; False when another actor got there
+> first, at which point the reader re-polls instead of acting on a stale intent.
 
 *(Amended 2026-08-08, `docs/delivery/plan-v2-cutover.md` phase 3: shipped as one `SandboxPort`
 in `core/ports/sandbox.py`, not a `capabilities.py` holding a pre-split
@@ -689,54 +611,19 @@ payload's context snapshot is `RunContext` data no engine should be trusted to c
 an engine that stops on neither a terminal nor a suspending kind gets `run.failed` recorded on
 its behalf, an engine that raises gets `run.failed` before the exception is re-raised, and a
 consumer that abandons the stream gets `run.cancelled`. A run left open in the log is
-indistinguishable from one still in flight, which is the failure all four guard against.
+indistinguishable from one still in flight.
 `Runtime.drain()` awaits the sink emits still in flight, for the composition root to call at
 shutdown; it is never called per event.)*
 
-*(Amended 2026-08-05, as built: the fan-out is **bounded** — one queue and one consumer task
-per sink (`runtime/dispatch.py`), not one task per event. Handing an event over is a queue put;
-a full queue yields exactly one loop turn and then drops the stalest event, and the turn is
-what separates a sink that is behind from a producer that has simply not suspended yet, since
-nothing on the event path has to. That is the only behavior: nothing here ever waits for a
-sink, so NFR-6 holds literally rather than by policy. Drops and failed emits are counted per
-sink and logged (rate-limited: one stack trace per failure streak), and a sink that fails
-`FAILURE_LIMIT` times in a row is disabled rather than retried for the process's lifetime.
-Because each sink is fed by a single consumer, `emit` is called one event at a time in
-submission order, never re-entered; a consumer killed by a `CancelledError` escaping `emit`
-is replaced on the next submit. `Runtime.drain()` flushes the queues and then stops the
-consumers, racing each flush against its consumer so one dead consumer cannot hang shutdown
-for every other sink.)*
-
-*(Amended 2026-08-05, hardening: every wait on this path is now bounded, because a sink
-blocked inside `emit` defeated every exit condition the flush had and hung shutdown outright.
-An `emit` that does not return within `EMIT_TIMEOUT` (5s) is abandoned and counted as a
-failed emit, so a wedged sink reaches the same breaker a raising one does; the shutdown flush
-has its own deadline (`SHUTDOWN_TIMEOUT`, 10s) and gives up rather than waiting. The dispatch's
-lifecycle is now explicit: `flush(timeout)` waits for the queued events to be *attempted* and
-leaves the dispatch usable, `close(timeout)` is terminal — after it, a submit is counted as a
-drop instead of starting a fresh consumer, and events still queued or in flight are added to
-the drop count so the counters match the loss reported in the log. A `CancelledError` a sink
-raises from its own `emit` is now a counted failure rather than a silently dead consumer; only
-a genuine cancellation (`close`, loop shutdown) still ends a consumer, and that path replaces
-it on the next submit as before.)*
-
-*(Amended 2026-08-06, #89/#90 — the breaker is no longer one-way, and the failure log is no
-longer rate-limited by streak. A disabled sink is offered one event once `BREAKER_COOLDOWN`
-(30s) has passed; taking it re-enables the sink, failing it re-arms the cooldown from that
-failure, so a dead endpoint costs two emit attempts a minute instead of one per event. The
-probe is a real event, not a synthetic one, and the events the open breaker covered are still
-counted as drops — nothing is replayed. The cooldown is a deadline compared against a
-monotonic clock rather than anything slept on, so no wait on a sink is added anywhere and the
-sink's recovery is noticed by whichever submit happens to arrive after it. Stack traces are
-capped at one per sink per `LOG_WINDOW` (60s) with the unlogged failures counted in the next
-one: the per-streak limit bounded nothing for a sink failing every other event, which builds
-no streak and trips no breaker either. The disable decision is untouched by that change.)*
-
-*(A sink with guaranteed delivery is a deliberate non-goal today. A blocking/backpressure
-policy was built and then removed before merge: no sink implementation needs it, and the only
-ways to keep it were a producer that waits forever or an amendment to NFR-6. Sinks are a lossy
-tap; a consumer that must see every event reads the event store. If a real sink ever demands
-delivery, it is added on top of this — never by making a run wait.)*
+*(Amended 2026-08-05 twice and 2026-08-06, #89/#90 — as built: the fan-out is **bounded**, one
+queue and one consumer task per sink (`runtime/dispatch.py`), not one task per event. Nothing here
+ever waits for a sink, so NFR-6 holds literally rather than by policy: a full queue yields one loop
+turn and drops the stalest event. A sink that fails or wedges is counted, disabled after a streak,
+and probed again after a cooldown with a real event; drops are never replayed. Guaranteed delivery is
+a deliberate non-goal — sinks are a lossy tap, and a consumer that must see every event reads the
+event store. The queue shape, the failure constants, the two-way breaker, the
+`flush`/`close`/`drain` lifecycle and their deadlines are in **`design/sink-dispatch.md`**, which
+wins on this subject.)*
 
 ```python
 # runtime/service.py
@@ -778,12 +665,12 @@ as `App.runtime`. The split is what keeps a second front door — the deferred c
 `Deck()` — a second caller rather than a rewrite of `App`, and it is why the demo script
 and the composition tests no longer hand-assemble `Runtime(...)`.*
 
-*`App` also registers **no event sinks**, which settles the question the telemetry slice deferred
-to this one: the Langfuse sink reads the canonical stream, and the v1 bridge still opens v1's own
+*`App` also registers **no event sinks**: the Langfuse sink reads the canonical stream, and the v1
+bridge still opens v1's own
 `trace_run` around every chat turn, so registering both would report each v1 agent run twice.
 While v1's runner glue exists, v1's tracing is the one that runs on the v1 surface; the sink
-becomes `App`'s once the bridge is deleted, at which point workflow runs get traced for free —
-which is the whole reason the sink exists. `agentdeck-serve` therefore ships with no sink, and a
+becomes `App`'s once the bridge is deleted, at which point workflow runs get traced for free.
+`agentdeck-serve` therefore ships with no sink, and a
 code-first caller that wants one passes it to `build_runtime(sinks=...)`.*
 
 *Two things `App` was expected to hand the Runtime, it does not yet. The engine set is built
@@ -802,8 +689,8 @@ does — settings-driven provider, temperature, `max_turns` and CA bundle, v1's 
 v1's Langfuse observation, and v1's own session lookup — so a turn served through the v1
 surface is configured and traced exactly as before, and it is what `v1_engines()` registers.*
 
-*It lives in a new top-level `compat/` rather than beside the adapter it subclasses, and the
-import law is why: it reaches into v1's runner glue and v1's Langfuse integration, and an
+*It lives in a new top-level `compat/` rather than beside the adapter it subclasses, because
+it reaches into v1's runner glue and v1's Langfuse integration, and an
 engine adapter may do neither (`langfuse-is-telemetry-private` fails on the indirect chain
 through `agents/runners/base.py`). Keeping the bridge outside `adapters/` is what keeps the
 adapter honest about depending on one external system. A contract
@@ -830,7 +717,7 @@ the transcript-fidelity invariant (everything entering execution state is record
 log at message level; log written first, engine state second). The Chat-Completions
 shims currently living inside
 `capabilities/compaction.py` and `capabilities/filesystem.py` move here too: they are
-engine quirks, and quirks belong inside the adapter that owns them.
+engine quirks.
 
 **`engines/langgraph/`** absorbs `workflows/` nearly whole — `base.py` graph compilation,
 `nodes.py`, `state.py`, `interrupts.py`, `timers.py`, and `runtime/checkpointer.py`. Its
@@ -875,8 +762,7 @@ after the backlog is handed over and the consumer reaped, and the Langfuse sink 
 finish the traces still open — an unfinished observation is never shipped — and flush the SDK
 itself. Bounded by `CLOSE_TIMEOUT` and non-fatal, like every other wait on that path, so the
 worst a sink's flush can cost a shutdown is one more deadline. A disabled sink is closed too:
-the breaker's verdict is about taking events, not about writing out the ones already taken.
-The event log stays the complete record regardless.)*
+the breaker's verdict is about taking events, not about writing out the ones already taken.)*
 **`protocols/`** hosts the
 per-protocol serializers: `sse` (extracted from `serve.py`), `acp` (§11), later `ag-ui`
 and `a2a`.
@@ -1014,18 +900,18 @@ stream items and before each tool call. Ring 3: four thin routes; and because pa
 are just three more event kinds, the CLI, the dashboard, and every protocol adapter
 inherit the feature with zero changes — that is the payoff of §2's "one log, many readers."
 
-Four semantic contracts, decided here rather than discovered in production. *Safe points:*
+Four semantic contracts. *Safe points:*
 "pause" means "at the next safe point" — between stream items, before a tool call, at a
 node boundary — never "right now, mid-token." This is a documented contract, uniform
 across engines. *Resume without a stack:* the Agents SDK has no checkpoint; the event log
 **is** the checkpoint, and resume means re-entering the loop with accumulated history —
 the same rule the README already states for interrupted LangGraph nodes ("keep the node
-pure, side effects earlier"), now promoted from per-engine footnote to platform-wide
+pure, side effects earlier"), now a platform-wide
 invariant. *Cancel is cooperative:* a tool that already POSTed a payment does not un-POST;
 `ctx.idempotency_key` exists so retried or resumed side effects deduplicate at the
 receiver. *Races are no-ops:* pausing a completed run does nothing, by state-machine rule.
 
-Note what the example shows: every hard part was semantics, none was wiring. In the
+In the
 current tree this feature would touch `agents/runners/`, `workflows/runners/`, `serve.py`,
 and both registries — and agents and workflows would end up with subtly different pause
 behavior that leaks into every consumer.
@@ -1039,7 +925,7 @@ also why callers never construct a working `Gate` themselves: `Runtime.run`/`res
 keeps `surfaces/serve/app.py` and `surfaces/cli/chat.py` untouched by this feature. `ControlPort`
 itself is narrower than sketched above: `signal(run_id, sig)` / `poll(run_id)` only — no
 `ctx`, no `status`/`set_status`, because status is derived from the event log
-(`core/status.py`) once, never duplicated in a second store. One finding worth recording:
+(`core/status.py`) once, never duplicated in a second store.
 `httpx.ASGITransport` runs a request's whole ASGI call before returning any response bytes,
 so it cannot interleave a live signal with an in-flight SSE stream — the cross-process proof
 (`tests/test_uc3_slowpoke.py`) drives `Runtime` directly and a real `subprocess` for the CLI
@@ -1149,9 +1035,6 @@ to engines, serve, telemetry, or any existing consumer.
 | **I**nterface Segregation | Many small ports; a cost sink depends on `EventSinkPort` alone; the skill executor sees only `FilesystemPort` + `TerminalPort`, not the workspace | `Workspace` is ambient via ContextVar — everything can reach everything |
 | **D**ependency Inversion | Core defines ports; adapters implement them; `import-linter` in CI forbids `core/` importing `agents`, `langgraph`, `fastapi`, `redis` | `app.py` imports `agents.SQLiteSession`; capabilities import SDK internals to shim them |
 
-The contract-test suite deserves emphasis: it is LSP made executable, and it is the
-artifact that makes "add a third engine next year" a safe claim rather than a hope.
-
 ---
 
 ## 11. Migration from the current tree
@@ -1176,8 +1059,7 @@ artifact that makes "add a third engine next year" a safe claim rather than a ho
 
 *Phase 1 — nouns.* Introduce `core/` (events, context, content, status, ports as ABCs
 with in-memory impls) plus the contract-test suite skeleton. Thread `RunContext` through
-every existing call with a default single-tenant context. No behavior change; the
-cheapest phase and the one that makes every later phase possible.
+every existing call with a default single-tenant context. No behavior change.
 
 *Phase 2 — the seam.* Convert both runners to emit event payloads behind `EnginePort`;
 build `Runtime`; move code into `adapters/`; shrink `App` to composition root with the
@@ -1185,14 +1067,12 @@ compat facade; rewrite `serve.py` on `Runtime` while byte-preserving the SSE fra
 This is the big one — the bifurcation dies here.
 
 *Phase 3 — control.* `ControlPort` (memory + redis), `Gate` checks in both engines, the
-status machine, four new routes. First visible new feature, and the proof that features
-now cost one implementation instead of two.
+status machine, four new routes. First visible new feature.
 
 *Phase 4 — capabilities.* `CapabilityProvider` on the context; sandbox becomes the
 default implementation; skill executor re-targeted to the ports.
 
-*Phase 5 — ACP.* The protocol adapter and stdio surface, per §9. First external proof of
-"speak every protocol."
+*Phase 5 — ACP.* The protocol adapter and stdio surface, per §9.
 
 ---
 
@@ -1237,8 +1117,7 @@ parent run.
 Prebuilt tools, agents, workflows, and skills are **content, not architecture**. They do
 not get a ring, privileged internal APIs, or a fourth registry. They form a standard
 library that sits on top of the authoring API exactly as user code does — the Python
-stdlib model: shipped in the box, held to a higher quality bar, obeying the same rules
-as everyone else.
+stdlib model.
 
 ```text
 agentdeck/
@@ -1250,18 +1129,18 @@ agentdeck/
 └── templates/        # scaffolding: copied by `agentdeck new --template`, then user-owned
 ```
 
-Three rules make the stdlib work, and each is enforceable rather than aspirational.
+Three rules make the stdlib work.
 
 **Rule 1 — stdlib depends only on `authoring/` + core ports, never on adapter
 internals.** This is what guarantees a stdlib agent runs on any engine/store/protocol
 combination, and it is checked by the same import-linter contract that protects `core/`.
-Where a piece of content is genuinely engine-specific, it declares that honestly instead
-of hiding it: the current `agents/web_search.py` wraps an OpenAI-hosted tool, so it moves
+Where a piece of content is genuinely engine-specific, it declares that:
+the current `agents/web_search.py` wraps an OpenAI-hosted tool, so it moves
 to `stdlib/tools/web_search.py` with `engines=["openai-agents"]` on its `ToolSpec`, and
 the registry refuses to attach it to a LangGraph run with a clear build-time error rather
 than a runtime surprise. A second implementation of the *same spec name* — a plain HTTP
 search tool that works everywhere — can be added later and resolved per engine at build
-time; that is DIP applied to tools.
+time.
 
 **Rule 2 — stdlib bundles ship in the user bundle format and are found by the same
 discovery.** No special internal loading path: the platform dogfoods its own authoring
@@ -1277,9 +1156,7 @@ marketplace infrastructure built or operated.
 content is referenced at runtime and updated with the package; templates are copied into
 the user's project by the CLI scaffold and owned by the user from that moment on. The
 sorting test: a `fetch_url` tool is stdlib (users call it as-is, forever); a
-customer-support agent is a template (users will gut it on day two). Getting this wrong
-in either direction hurts — stdlib that users need to fork rots in their trees, and
-templates referenced at runtime break user projects on every upgrade.
+customer-support agent is a template (users will gut it on day two).
 
 ### A.2 The user experience this buys
 
@@ -1318,8 +1195,7 @@ agentdeck new my-support --template customer-support
 
 which copies a full working starting point (agent, skills, workflow, evals) into the
 user's `.agentdeck/`. None of this requires stdlib-specific features; it all falls out of
-Rule 2. Had the stdlib been built on privileged internal hooks instead, users could run
-platform agents but never crack them open.
+Rule 2.
 
 ### A.3 Placement decisions for existing and planned content
 
@@ -1341,15 +1217,13 @@ adapter — `skill_node("parse-doc")`, `agent_node("Summarizer")`, `tool_node(..
 wrappers adapting any invocable into a graph node (today's `workflows/nodes.py` already
 gestures at this and becomes that adapter's official surface). Only genuinely
 graph-specific glue — routing logic, state mapping — belongs inside a workflow bundle
-itself. The rule of thumb: ask *what is the reusable part?* If it is the work, it goes in
-the stdlib, engine-neutral; if it is the wiring, it is a factory in the engine adapter.
-The payoff is concrete: one `parse-doc` implementation is simultaneously a workflow node,
+itself. The payoff is concrete: one `parse-doc` implementation is simultaneously a workflow node,
 an agent capability, and a standalone `Runtime.run("parse-doc", ...)`.
 
 ### A.4 The quality bar and distribution
 
-"Prebuilt" is a claim, and it is what separates a standard library from example code, so
-it is enforced in CI: every stdlib item must pass the shared contract-test suite (§10)
+"Prebuilt" is a claim, so it is enforced in CI: every stdlib item must pass the shared
+contract-test suite (§10)
 and ship with its own evals in the repo. An agent without evals does not enter
 `stdlib/agents/`; it lives in `templates/` or `examples/` until it earns promotion.
 
@@ -1364,11 +1238,9 @@ released, changelogged, and deprecated exactly like API surface, because per Rul
 
 ## Appendix B — The platform from the user's perspective
 
-Everything above is architecture. This appendix is the same design seen from the other
-side of the API: what a user actually does, and why each moment of that experience is
-only possible because of a specific decision in §§2–9. It doubles as the product pitch,
-and every claim in it is load-bearing — if a future change breaks one of these examples,
-the change is wrong.
+The same design seen from the other side of the API: what a user actually does, and why each
+moment of that experience is only possible because of a specific decision in §§2–9. Every claim
+here is load-bearing — if a future change breaks one of these examples, the change is wrong.
 
 The one-line premise: **the user writes the agent; the platform provides everything
 around the agent** — sessions, surfaces, control, governance, observability. Engines
@@ -1421,7 +1293,7 @@ guessing.
 
 **The bet against lock-in.** A better engine ships next year; the user changes `engine=`
 on one invocable, and sessions, pause, ACP, tracing, and the HTTP API keep working —
-none of them ever knew which engine ran (§2, D1). This is the deepest "why": agent SDKs
+none of them ever knew which engine ran (§2, D1). Agent SDKs
 churn yearly, but the user's accumulated assets — conversations, tools, skills,
 integrations, dashboards — should not churn with them. AgentDeck is where the durable
 parts live.
@@ -1468,7 +1340,7 @@ formal claim"); the skill runs standalone via `Runtime.run("parse-doc", ...)`; a
 agent slots into `handoffs` like a local class. No adapters between the user's own
 pieces.
 
-An honest caveat belongs in the pitch: the LLM parts still need evals and iteration. The
+The LLM parts still need evals and iteration. The
 platform makes the *system* cheap, not the prompt engineering — which is what the stdlib
 quality bar (A.4) and the eval harness exist for.
 
@@ -1493,7 +1365,7 @@ class FrontDesk(BaseAgent):
     handoffs = [ClaimsAgent, customs]               # or a handoff target
 ```
 
-This is the `Invocable` bet paying out: a remote company's agent slots in exactly like a
+A remote company's agent slots in exactly like a
 local class — implemented as an `EnginePort` whose "engine" is HTTP
 (`adapters/engines/a2a_remote/`) — and its tool calls still land in the local event log,
 so cost and audit cover work the platform did not even execute.

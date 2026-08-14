@@ -1,25 +1,23 @@
 # How issues, findings and PRs move through this project
 
-The short version: everything lives as a GitHub issue with a milestone, a label set and a
-`Status` on the [AgentDeck Project](https://github.com/users/sagi5060/projects/5). The
-`docs/delivery/roadmap-*.md` and `findings-register.md` files hold the *reasoning* (why a wave is
-sequenced the way it is, what an investigation found); GitHub holds the *state*. If they disagree,
-GitHub is right — `make roadmap-sync` regenerates the tables that say so.
+Everything lives as a GitHub issue with a milestone, a label set and a `Status` on the
+[AgentDeck Project](https://github.com/users/sagi5060/projects/5). `docs/delivery/roadmap-*.md` and
+`findings-register.md` hold the *reasoning*; GitHub holds the *state*, and wins if they disagree —
+`make roadmap-sync` regenerates the tables that say so.
 
 ## Filing a finding
 
-A finding is "something we observed and need to look at" — not yet a bug, not yet planned work.
-It comes from a review, an audit, or a reproduced surprise, and it is never filed under a bare area
-prefix (that's for planned work — see below).
+A finding is something observed and not yet triaged — from a review, an audit, or a reproduced
+surprise. Never a bare area prefix; that's for planned work.
 
 ```
 gh issue create -t "finding: <what>" --label finding
 ```
 
-Body follows the same house structure as any issue (below). Existing examples to match for tone:
-#177, #178, #223, #226. A finding stays a `finding` until someone gives it a disposition — solved,
-rejected, or scheduled against a milestone — recorded in `findings-register.md` if it's the kind of
-thing worth a paragraph of investigation, or just closed with a comment if it isn't.
+Body follows the house structure below; #177, #178, #223, #226 are the tone to match. A finding
+stays a `finding` until it gets a disposition — solved, rejected, or scheduled against a
+milestone — recorded in `findings-register.md` if the investigation is worth a paragraph, closed
+with a comment if it isn't.
 
 ## Opening an issue
 
@@ -43,11 +41,10 @@ it's a question before it's a task (that's a real, named state — see `roadmap-
 
 ## Starting work on an issue
 
-Default to the `ship-issue` skill (`/ship-issue N`) rather than working inline — it orchestrates
-the whole pipeline: `deck-dev` implements on an isolated worktree and opens a **draft PR on its
-first commit**, `deck-reviewer` gates it against the issue's "Done when" list, findings get fixed,
-then it merges to `dev`. A trivial nit (a comment, a missing timeout) can be fixed inline instead
-of spinning up the pipeline.
+Default to the `ship-issue` skill (`/ship-issue N`): `deck-dev` implements on an isolated worktree
+and opens a **draft PR on its first commit**, `deck-reviewer` gates it against the issue's "Done
+when" list, findings get fixed, then it merges to `dev`. A trivial nit — a comment, a missing
+timeout — can be fixed inline instead.
 
 `needs-ruling` issues aren't picked up by `ship-issue` — they need a decision first, not a worktree.
 
@@ -75,10 +72,9 @@ Set from real events, never guessed:
   **In progress**.
 - **Target date** = the day its PR merged. Set when `Status` moves to **Done**.
 
-If there's no PR yet, there's no real start date — leave the field empty and leave `Status` at
-**Backlog** rather than flip it to "In progress" on intent. (This is exactly the correction made
-2026-08-12: #221 was flagged "In progress" with no open PR and no evidence of active work, and was
-moved back to **Backlog**.)
+No PR means no real start date: leave the field empty and `Status` at **Backlog** rather than flip
+it on intent. *(Correction made 2026-08-12: #221 was flagged "In progress" with no open PR and no
+evidence of active work, and was moved back to **Backlog**.)*
 
 ### The Project's views
 
@@ -93,8 +89,8 @@ Four, all on the [Project](https://github.com/users/sagi5060/projects/5):
 - **Findings** — Table layout, filtered to `label:finding`. Replaces scanning
   `findings-register.md` for what's currently open.
 
-The stock **Current iteration** view was deleted — this project sequences by milestone, not
-GitHub's separate Iteration field, and a view nobody's data populates is worse than no view.
+The stock **Current iteration** view was deleted: this project sequences by milestone, not
+GitHub's separate Iteration field.
 
 ### Milestone due dates
 

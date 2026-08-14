@@ -1,65 +1,17 @@
 # Capability Wrapper Pattern in `Deck`
 
-## Purpose
-
-`Deck(...)` should stay small and focused.
-
-Top-level executable components such as agents and workflows can be passed directly:
+`Deck(...)` stays small and declarative. Top-level executable components are passed directly; a
+subsystem with its own discovery, loading, lifecycle or configuration behavior gets a dedicated
+capability object that owns those options, instead of pushing them onto `Deck`.
 
 ```python
 deck = Deck(
     agents=[booking_agent, support_agent],
     workflows=[booking_workflow],
-)
-```
-
-But subsystems that have their own discovery, loading, lifecycle, or configuration behavior should be represented by a dedicated capability object.
-
-## Pattern
-
-Prefer:
-
-```python
-deck = Deck(
-    agents=[booking_agent],
-    workflows=[booking_workflow],
-    skills=Skills("./skills"),
+    skills=Skills("./skills", validate=True),
     mcp=MCP("mcp.json"),
 )
 ```
-
-instead of pushing subsystem-specific options directly into `Deck`.
-
-The wrapper owns the subsystem behavior; `Deck` only composes it.
-
-## Example: Skills
-
-```python
-skills = Skills(
-    "./skills",
-    validate=True,
-)
-
-deck = Deck(
-    agents=[booking_agent],
-    skills=skills,
-)
-```
-
-`Skills(...)` can own:
-
-- skill directory paths
-- `SKILL.md` discovery
-- validation
-- indexing
-- progressive loading
-- future source/load options
-
-This lets the subsystem grow without bloating the `Deck` constructor.
-
-## General Rule
-
-Use a dedicated wrapper when a capability has meaningful behavior beyond holding a value:
 
 ```text
 Deck
@@ -73,9 +25,17 @@ Deck
     └── future capability providers
 ```
 
-Do not wrap simple first-class declarations only for symmetry.
+Two kinds of argument: roots that execute, and capabilities that have behavior of their own.
 
-Avoid unnecessary APIs such as:
+## What a wrapper owns
+
+`Skills(...)` owns skill directory paths, `SKILL.md` discovery, validation, indexing, progressive
+loading, and any future source/load options. The subsystem grows there; the `Deck` constructor does
+not.
+
+## What does not get one
+
+Do not wrap a simple first-class declaration only for symmetry. Avoid:
 
 ```python
 Agents([...])
@@ -85,4 +45,5 @@ Tools([...])
 
 unless those wrappers eventually own real subsystem behavior.
 
-> **Rule:** keep `Deck` declarative; let capability objects own their own loading, validation, lifecycle, and configuration.
+> **Rule:** keep `Deck` declarative; let capability objects own their own loading, validation,
+> lifecycle, and configuration.

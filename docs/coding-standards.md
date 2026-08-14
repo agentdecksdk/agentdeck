@@ -1,11 +1,10 @@
 
 # AgentDeck — Coding Standards
 
-**Status:** binding for all v2 work · **Date:** 2026-08-04 · **Doc #9 in `00-project-index.md`**
-Every handoff prompt references this file instead of restating rules. Where this document
-and a merged linter/CI config disagree, CI wins and this file gets fixed in the same PR.
-Where this document is silent, follow the existing repo pattern; if there is none, choose
-the most boring option and record it in the PR's judgment ledger (§13).
+**Status:** binding · **Date:** 2026-08-04 · **The standards of record** (`00-project-index.md` §1b)
+Where this document and a merged linter/CI config disagree, CI wins and this file gets fixed in
+the same PR. Where it is silent, follow the existing repo pattern; if there is none, choose the
+most boring option and record it in the PR's judgment ledger (§13).
 
 ---
 
@@ -20,11 +19,11 @@ standard **when moved**, never via drive-by edits in unrelated PRs.
 ## 2. Tooling and formatting
 
 Use the repo's existing toolchain exactly: **ruff** and **ruff-format** with the committed
-configs, **pre-commit** hooks installed, **pytest** via `make test`, Python **3.12+** (`requires-python = ">=3.12"`).
-Never introduce a new formatter, linter, or test framework. Never run a formatting sweep
-across files a PR does not otherwise touch — diff reviewability is the project's primary
-QA mechanism, and sweeps destroy it. Line length, quote style, and import sorting are
-whatever the committed configs say; arguing with the formatter is out of scope, always.
+configs, **pre-commit** hooks installed, **pytest** via `make test`, Python **3.12+**
+(`requires-python = ">=3.12"`). Never introduce a new formatter, linter or test framework. Never
+run a formatting sweep across files a PR does not otherwise touch — diff reviewability is the
+project's primary QA mechanism. Line length, quote style and import sorting are whatever the
+committed configs say.
 
 ## 3. Layout and import law
 
@@ -39,22 +38,14 @@ broader than the linter's contracts:
   `adapters/engines/langgraph/` the only place `langgraph` may be. No adapter imports
   another adapter directory. The working test: *deleting any adapter directory must
   break nothing outside it.*
-  *(Amended 2026-08-05, #78: `adapters/tools/mcp/` is the one other holder of `agents` — an
-  MCP server has to be an SDK object to be attachable to an SDK agent. It imports the MCP
-  client and nothing else of the SDK, and `agents.mcp` is banned everywhere else, by ruff
-  TID251 rather than import-linter, which cannot name an external subpackage.)*
-  *(Amended 2026-08-09, #152, **retired 2026-08-11, #71**: `adapters/caps/sandbox/` was the
-  third holder of `agents`. Sandboxing left v3 (roadmap-v3.md ruling 1, #163), so the
-  directory, `core/ports/sandbox.py` and the third licence are all gone — `agents` again has
-  exactly two holders, `adapters/engines/openai_agents/` and `adapters/tools/mcp/`. A third
-  needs its own amendment and a reason of #152's shape, not a precedent from a retired one.)*
-  *(Amended 2026-08-13, #26: `agentdeck/testing.py` is a fourth holder of `agents`, and not
-  under `adapters/` at all. `ScriptedModel` has to subclass `agents.models.interface.Model`
-  directly to be a drop-in for what `OpenAIProvider.get_model()` returns — the exported test
-  harness stubs the SDK's own model boundary, so it needs the SDK's own type to stub it with.
-  It imports `agents.items`, `agents.models.interface`, `agents.usage` and
-  `openai.types.responses` — the request/response shapes a `Model` implementation is handed —
-  and nothing else of either SDK.)*
+  Every licence to import `agents` outside that directory is named here, and a new one needs its
+  own dated amendment with a reason of this shape — never a precedent borrowed from a retired one.
+
+  | holder | licensed | why, and what it may import |
+  |---|---|---|
+  | `adapters/tools/mcp/` | 2026-08-05, #78 | An MCP server has to be an SDK object to attach to an SDK agent. The MCP client and nothing else of the SDK; `agents.mcp` is banned everywhere else, by ruff TID251 — import-linter cannot name an external subpackage |
+  | `agentdeck/testing.py` | 2026-08-13, #26 | `ScriptedModel` must subclass `agents.models.interface.Model` to be a drop-in for `OpenAIProvider.get_model()`'s return. `agents.items`, `agents.models.interface`, `agents.usage`, `openai.types.responses` — and nothing else of either SDK. Not under `adapters/` at all |
+  | ~~`adapters/caps/sandbox/`~~ | 2026-08-09, #152 · **retired 2026-08-11, #71** | Sandboxing left v3 (`roadmap-v3.md` ruling 1, #163), so the directory, `core/ports/sandbox.py` and this licence are all gone |
 - `surfaces/` import `runtime/` and `core/` (and their own framework, e.g. FastAPI in
   `surfaces/serve/`), never adapters directly.
 - `authoring/` imports `core/` only; user-facing API compiles to `InvocableSpec`.
@@ -78,14 +69,11 @@ broader than the linter's contracts:
   and `__all__` — never class or function definitions. Implementation lives in named
   modules (`store.py`, `engine.py`, `port.py`), however small the package.
 - **Import from the module that defines a symbol, not from a package `__init__`.**
-  `agentdeck.core.__init__` re-exports 53 names and 263 of the package's own imports bypass
-  it; the six that use it are tests and one docs example. So the list is a published surface
-  for users, not the way this codebase refers to itself, and it has already drifted — all four
-  store adapters import `LIFECYCLE_KINDS` and `TERMINAL_STATUSES`, neither of which is on it.
-  A new symbol in `core/` is **not** added to that `__all__`: removing one later is a breaking
-  change, so the list only ever grows, and every name on it is a promise nothing here relies on.
-  `core/ports/__init__.py` is the counter-example that stays — 30 imports go through it against
-  19 direct, because "the ports" is a set callers genuinely want by the handful.
+  `agentdeck.core.__init__`'s `__all__` is a published surface for users, not how this codebase
+  refers to itself. A new symbol in `core/` is **not** added to it: removing one later is a
+  breaking change, so the list only ever grows, and every name on it is a promise nothing here
+  relies on. `core/ports/__init__.py` is the one counter-example that stays, because "the ports"
+  is a set callers genuinely want by the handful.
 
 ## 4. Typing
 
@@ -102,12 +90,10 @@ a bug by definition — model updates as constructing new objects. `Optional` is
 `X | None`. Prefer `collections.abc` types (`Sequence`, `AsyncIterator`) over concrete
 containers in signatures.
 
-`ty` must pass, but never by contorting the code: when satisfying the checker means
-casts-of-casts, phantom variables, restructured control flow, or otherwise smellier code
-than the straightforward version, keep the straightforward version and add a targeted
-`# ty: ignore[rule]` with a one-line reason. A suppression that keeps the code honest
-beats an appeasement that obscures it; suppressions are narrow (one line, one rule),
-never file- or block-wide.
+`ty` must pass, but never by contorting the code: where satisfying the checker means
+casts-of-casts, phantom variables or restructured control flow, keep the straightforward version
+and add a targeted `# ty: ignore[rule]` with a one-line reason. Suppressions are narrow — one
+line, one rule — never file- or block-wide.
 
 ## 5. Errors and exceptions
 
@@ -126,14 +112,9 @@ status machine already models.
 
 **Point at the page when the page is the answer** *(added 2026-08-11, #238)*. Where a
 documentation page genuinely resolves an error — the reader's next move is to read it, not to
-change their code — name it in the message. Two clean-room reviewers each lost minutes to walls
-whose answer was already written, correctly, on a page they had not opened.
-
-This is a judgment, not a blanket rule, and the judgment is the point: a link on every error is
-noise, trains readers to ignore all of them, and rots the moment a page is renamed. Add one where
-it earns its place — a configuration trap, a boundary the reader could not have known about, a
-"this is deliberate and here is why" — and leave it off where the message already says everything
-there is to say.
+change their code — name it in the message. A judgment, not a blanket rule: a link on every error
+is noise and rots when a page is renamed, so add one at a configuration trap or a boundary the
+reader could not have known about, and leave it off where the message already says everything.
 
 ## 6. Async and the event path
 
@@ -150,20 +131,14 @@ before every tool dispatch — a new safe point is a documented contract change,
 convenience. Use `asyncio.timeout` for deadlines; tasks are created with owners
 (no fire-and-forget `create_task` without a supervision/cleanup story).
 
-**Liveness is self-supplied, never borrowed** (issue #87): a component that must make
-progress under any conditions creates its own scheduling opportunity — it may never assume
-some other component in the same path happens to yield on its behalf. `SinkDispatch.submit`'s
-`await asyncio.sleep(0)` on a full queue is the canonical example: the dispatcher's consumer
-needs a turn to keep the sink's backlog moving, and the dispatcher supplies that turn itself
-rather than trusting the store, the engine, or anything else upstream to suspend first — the
-bug this law generalizes was a healthy sink silently losing most of a run because nothing else
-in the path happened to yield with the memory store, and did with SQLite only by accident. This
-is *not* a rule that every `async def` must contain a suspending `await` — a cache hit, a
-buffered write, a batching store between flushes, or a no-op sink is a legitimate
-non-suspending coroutine, and forcing a yield into every such call would cost a loop turn per
-call for nothing while misdescribing a genuinely fast path. The law is about *dependence*, not
-*shape*: nothing may need a yield that only happens to arrive courtesy of a neighboring
-component's own implementation detail.
+**Liveness is self-supplied, never borrowed** (issue #87): a component that must make progress
+under any conditions creates its own scheduling opportunity, and may never assume some other
+component in the same path happens to yield on its behalf. `SinkDispatch.submit`'s
+`await asyncio.sleep(0)` on a full queue is the canonical example — the dispatcher gives its own
+consumer the turn rather than trusting the store or the engine to suspend first. The law is about
+*dependence*, not *shape*: a cache hit, a buffered write or a no-op sink is a legitimate
+non-suspending coroutine, and nothing may *need* a yield that only arrives courtesy of a
+neighbouring component's implementation detail.
 
 ## 7. Events and schema code
 
@@ -198,12 +173,10 @@ model. A flaky test is a P1 bug, not an annoyance. Structure:
 - Race and crash paths are tested on purpose (double-resume, kill-mid-stream,
   crash-between-writes) — "hard to test" is a design smell to report, not a reason to
   skip.
-- **Assert the promise, not the timing:** assert what the code guarantees — an ordering, one
-  winner, two effects that cannot both land — not that two peers were inside the critical
-  section at once, which peers on one core are not guaranteed to be and in practice are not.
-  Arrange the contention deliberately, assert the ordering it produces, and *report* the
-  timing you observed — including when it shows the contention did not happen, so a run that
-  proved nothing cannot read as a passing one.
+- **Assert the promise, not the timing:** assert an ordering, one winner, two effects that cannot
+  both land — never that two peers were inside the critical section at once, which peers on one
+  core are not guaranteed to be. Arrange the contention deliberately, assert the ordering it
+  produces, and *report* the timing observed, so a run that proved nothing cannot read as passing.
 - Test names state the invariant: `test_terminal_event_is_last_after_restart`, not
   `test_workflow_2`.
 
@@ -267,14 +240,11 @@ agenda); test evidence for anything CI can't show (red-tests, two-process runs);
 amendments made. Force-pushes to shared branches: never. A PR that changes behavior and
 a PR that moves code are never the same PR.
 
-**Open the PR as a draft on the first commit, not at the end**, and push as the work
-proceeds. Two reasons, both earned: CI then reports while the slice is still in the
-author's hands rather than after a review round has been spent on it (the session-claim
-race in #104 failed on the runner only after review), and work that dies mid-slice —
-quota, API error, a worktree removed underneath it — survives on the remote instead of
-needing rescue. `gh pr ready` comes after the author's own `make check` is green and the
-ledger is written; blocked work stays draft and says why. A red draft mid-work is the
-expected state and carries no signal.
+**Open the PR as a draft on the first commit, not at the end**, and push as the work proceeds:
+CI reports while the slice is still in the author's hands (#104's session-claim race failed on the
+runner only after review), and work that dies mid-slice survives on the remote. `gh pr ready`
+comes after the author's own `make check` is green and the ledger is written; blocked work stays
+draft and says why. A red draft mid-work carries no signal.
 
 ## 14. Rules for coding agents (Claude Code et al.)
 
@@ -299,6 +269,5 @@ trusting the PR description (per the PR #0 reviewer prompt's model).
 | Determinism             | no-network test env, double-run stability checks                      |
 | Everything else         | review against this document + the judgment ledger                    |
 
-Amending this document: one PR, one rationale paragraph per change, index row updated.
-Standards that are repeatedly waived in ledgers should be amended or defended — a rule
-nobody follows is worse than no rule.
+Amending this document: one PR, one rationale line per change, index row updated. A standard
+repeatedly waived in ledgers gets amended or defended — a rule nobody follows is worse than none.

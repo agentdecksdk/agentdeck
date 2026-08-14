@@ -5,11 +5,10 @@
 
 ## 1. Goal
 
-The docs site is the delivery vehicle for two PRD success metrics — *time-to-first-running-agent
+The site is the delivery vehicle for two PRD success metrics — *time-to-first-running-agent
 < 5 minutes* and *reference claims system ≤ 100 lines* — and for the PRD's core promise to P1:
-"measure the platform by what I did NOT have to write." So the site's job is not coverage, it
-is **proof**: every page shows the small amount of user code and names what the platform did
-for free. Everything below serves that; anything that doesn't is cut.
+"measure the platform by what I did NOT have to write." So its job is not coverage, it is
+**proof**: every page shows the small amount of user code and names what the platform did for free.
 
 Scope boundary: `docs-site/` is the **external** site. `docs/` (PRD, brief, architecture, ADRs,
 epics, prompts) stays internal and is never published — different audience, different lifetime.
@@ -25,24 +24,16 @@ epics, prompts) stays internal and is never published — different audience, di
 
 Defects to fix before adding anything:
 
-- `content/index.mdx` links to `/docs/getting-started` — 404 (no `/docs` base path).
-- `content/cookbook.mdx` and `content/examples.mdx` are absent from `_meta.ts` → unsorted, half-hidden.
-- Getting Started tells the reader to `git clone` and `uv pip install -e ".[dev,serve]"`. That is
-  a contributor path, not an install, and it makes the <5-minute metric unmeasurable.
-- No page contains a code block that anything checks. Docs rot silently today.
-- **Search is dead.** Nextra's box fetches `_pagefind/pagefind.js` at runtime
-  (`nextra/dist/client/components/search.js`, via `addBasePath`), and `next build` never
-  produces it — no `postbuild` Pagefind step existed. The box rendered and found nothing.
-- The package is **not on PyPI** (private repo, `pyproject.toml` 1.2.1 unpublished), so any
-  `pip install agentdeck` instruction is fiction. Interim truth: install from a git tag.
-- **`.env` does not work for an installed package** — `runtime/settings.py` loads
-  `Path(__file__).parents[2] / ".env"`, which is `site-packages/.env` once installed, and no
-  settings class declares `env_file`. It only works in a source checkout, i.e. the path the
-  docs now tell readers *not* to take. Docs work around it by exporting the vars; the product
-  defect (cwd `.env` never read) is a separate issue, not a docs fix.
-- `.env.example` claimed `OPENAI_BASE_URL` "defaults to a legacy private server if unset."
-  It does not: `base_url: str = ""` and the packaged `config.default.yaml` documents empty as
-  the SDK default (`api.openai.com`). Stale comment from the pre-rename deployment; corrected.
+| Defect | Detail |
+|---|---|
+| `content/index.mdx` links to `/docs/getting-started` | 404 — there is no `/docs` base path |
+| `cookbook.mdx` and `examples.mdx` absent from `_meta.ts` | unsorted, half-hidden |
+| Getting Started tells the reader to `git clone` and `uv pip install -e ".[dev,serve]"` | a contributor path, not an install, and it makes the <5-minute metric unmeasurable |
+| No page contains a code block that anything checks | docs rot silently today |
+| **Search is dead** | Nextra's box fetches `_pagefind/pagefind.js` at runtime (`nextra/dist/client/components/search.js`, via `addBasePath`) and `next build` never produces it — no `postbuild` Pagefind step existed |
+| The package is **not on PyPI** (private repo, `pyproject.toml` 1.2.1 unpublished) | any `pip install agentdeck` instruction is fiction; interim truth is install from a git tag |
+| **`.env` does not work for an installed package** | `runtime/settings.py` loads `Path(__file__).parents[2] / ".env"`, i.e. `site-packages/.env` once installed, and no settings class declares `env_file`. Docs work around it by exporting the vars; the cwd-`.env` product defect is a separate issue |
+| `.env.example` claimed `OPENAI_BASE_URL` "defaults to a legacy private server if unset" | it does not — `base_url: str = ""`, and the packaged `config.default.yaml` documents empty as the SDK default (`api.openai.com`). Stale pre-rename comment; corrected |
 
 ## 3. Decisions
 
@@ -97,46 +88,40 @@ It arrives with v2.0, not before — see §7.
 ## 5. Content rules
 
 - One page = one job. If a page needs two H1-sized ideas, it's two pages.
-- Every concept page opens with the user code, then what the platform did for free. Prose
-  that doesn't attach to code gets cut.
-- Requirements live in the PRD, mechanisms in the architecture doc, **usage** on the site.
-  The site never restates a requirement or an ADR — no precedence ambiguity with `docs/`.
-- Code blocks carry the real import paths and run against scripted fake models (NFR-4:
-  no network, no keys) so §6 can execute them.
+- Every concept page opens with the user code, then what the platform did for free. Prose that
+  doesn't attach to code gets cut.
+- Requirements live in the PRD, mechanisms in the architecture doc, **usage** on the site. The site
+  never restates a requirement or an ADR.
+- Code blocks carry the real import paths and run against scripted fake models (NFR-4: no network,
+  no keys) so §6 can execute them.
 
 ## 6. Anti-rot machinery (DS-D4)
 
-Two stages, because the cheap one already has teeth and the expensive one needs content to
-justify it.
+Two stages: the cheap one already has teeth, the expensive one needs content to justify it.
 
 **Stage 1 — `tests/test_docs_site.py`, in `make check` (DS-0, done).** Globs
-`docs-site/content/**/*.mdx`; every `python`/`py` block (indented or not) is `ast.parse`d and
-each `agentdeck` import resolved through `importlib` + `getattr`; every absolute markdown link
-must have a page; `_meta.ts` keys must match the top-level pages. A block that can't be checked
-opts out as ` ```python no-test reason="…" ` — the reason is regex-enforced, so the escape hatch
-can't be used silently. ~65 lines, no new dependency, no fixtures. On landing it caught three
-real defects: the `/docs/getting-started` 404 and both published examples using `async with` at
-module level (never runnable).
+`docs-site/content/**/*.mdx`; every `python`/`py` block (indented or not) is `ast.parse`d and each
+`agentdeck` import resolved through `importlib` + `getattr`; every absolute markdown link must have
+a page; `_meta.ts` keys must match the top-level pages. A block that can't be checked opts out as
+` ```python no-test reason="…" ` — the reason is regex-enforced, so the escape hatch can't be used
+silently. ~65 lines, no new dependency, no fixtures. On landing it caught the
+`/docs/getting-started` 404 and both published examples using `async with` at module level.
 
-**Known ceilings of stage 1** — named because "checked" must not be read as "verified":
-non-Python blocks are invisible (a wrong `bash` install or env line passes — exactly how the
-`.env` defect below survived); only absolute markdown links are resolved, so relative hrefs,
-reference-style links and MDX `<Cards>` are not; anchors are stripped, not validated. Stage 2
-closes the first of these for Python only.
+**Known ceilings of stage 1** — named so "checked" is not read as "verified": non-Python blocks are
+invisible (a wrong `bash` install or env line passes — how the `.env` defect above survived); only
+absolute markdown links are resolved, so relative hrefs, reference-style links and MDX `<Cards>`
+are not; anchors are stripped, not validated. Stage 2 closes the first of these for Python only.
 
-**Stage 2 — the example executor (DS-1's opening deliverable, its own line in §7).** Parse
-and *run* multi-file examples: fence meta `file=.agentdeck/agents/support/agent.py` writes
-into a temp project, ` ```python run ` executes against a fake provider with pinned env.
-Cost is honest: the pattern exists (`tests/golden/conftest.py` — monkeypatch
-`OpenAIProvider`, pin `_PINNED_ENV`, `chdir` to a fixture project) but
-`tests/golden/fake_model.py` is scripted to one two-turn `lookup_slot` conversation, so a
-*generalised* scripted provider (per-example scripted turns) has to be built first. Until it
-exists, DS-1 pages are import-resolved, not executed — and the plan says so rather than
-implying otherwise.
+**Stage 2 — the example executor (DS-1's opening deliverable).** Parse and *run* multi-file
+examples: fence meta `file=.agentdeck/agents/support/agent.py` writes into a temp project,
+` ```python run ` executes against a fake provider with pinned env. The pattern exists
+(`tests/golden/conftest.py` — monkeypatch `OpenAIProvider`, pin `_PINNED_ENV`, `chdir` to a fixture
+project) but `tests/golden/fake_model.py` is scripted to one two-turn `lookup_slot` conversation,
+so a *generalised* scripted provider has to be built first. Until it exists, DS-1 pages are
+import-resolved, not executed.
 
-Deliberately not built: a docs coverage metric, a screenshot pipeline, a prose linter, a
-timed quickstart harness — the 5-minute claim gets a manual walk per release, which is once
-a release, not once a PR.
+Deliberately not built: a docs coverage metric, a screenshot pipeline, a prose linter, a timed
+quickstart harness — the 5-minute claim gets a manual walk per release.
 
 ## 7. Delivery phases
 
@@ -152,7 +137,7 @@ Aligned to PRD §6 releases. DS-0 is the only phase that isn't gated on product 
 
 Follow-ups DS-0 does not close: the install block pins `@v1.2.1` and nothing gates it, so the
 release procedure must bump it (add it to the release skill's checklist); the cwd-`.env` defect
-above wants its own issue; nav drift is gated for top-level pages only, not nested `_meta.ts`.
+wants its own issue; nav drift is gated for top-level pages only, not nested `_meta.ts`.
 
 ### DS-1 — Document what ships today (v1.2.1 truth)
 
@@ -164,13 +149,12 @@ above wants its own issue; nav drift is gated for top-level pages only, not nest
 - [ ] Done when: a reader with no prior context installs and runs an agent in under 5 minutes on a clean machine (PRD §7), walked manually once
 
 **Amended 2026-08-11 (#132):** a repo `examples/` dir now exists and is *not* generated from these
-pages. #132 asked for two decks a reader can copy whole — a project directory, a `run.py`, a
-README — which a page's fence cannot be, since a fence is a fragment of a walkthrough. The
-identity check this row wanted is met a different way: `tests/test_examples.py` builds every
-example on every `make check`, and the install pin, the python fences and the docs-site links in
-each example's README are checked by `tests/test_docs_site.py` alongside the site's own pages. So
-the pages and `examples/` are two sources that cannot silently disagree with the *code*, though
-nothing forces them to stay worded alike — deliberately: the examples say "here is a whole
+pages. #132 asked for two decks a reader can copy whole — a project directory, a `run.py`, a README
+— which a page's fence cannot be. The identity check this row wanted is met a different way:
+`tests/test_examples.py` builds every example on every `make check`, and the install pin, the python
+fences and the docs-site links in each example's README are checked by `tests/test_docs_site.py`
+alongside the site's own pages. The pages and `examples/` cannot silently disagree with the *code*,
+though nothing forces them to stay worded alike — deliberately: the examples say "here is a whole
 project", the pages say "here is the one idea".
 
 ### DS-2 — v2.0 core (gated on epic Stories 2–5)
@@ -199,12 +183,12 @@ Clean-machine install → running agent in < 5 min (walked per release). 100% of
 blocks checked in CI, and executed once §6 stage 2 lands. Zero broken internal links (test, not
 review). Reference claims-system example ≤ 100 lines on the page, counted (DS-3).
 
-The invariant is **the published site describes the released package** — which DS-D5's
-release-gated deploy already guarantees. So a feature page may merge with its feature PR; keep
-it out of `_meta.ts` nav until release if it should be invisible. No release-day docs crunch.
+The invariant is **the published site describes the released package**, which DS-D5's
+release-gated deploy already guarantees. So a feature page may merge with its feature PR; keep it
+out of `_meta.ts` nav until release if it should be invisible. No release-day docs crunch.
 
 ## 9. Out of scope
 
-Blog, changelog mirroring (CHANGELOG.md stays canonical), i18n, a hosted search backend, docs
-for internal `core/` internals (that's `docs/design/`), video, and any page for an unshipped
-feature. Adding a section requires a persona and an FR — otherwise it's coverage theatre.
+Blog, changelog mirroring (CHANGELOG.md stays canonical), i18n, a hosted search backend, docs for
+internal `core/` internals (that's `docs/design/`), video, and any page for an unshipped feature.
+Adding a section requires a persona and an FR — otherwise it's coverage theatre.

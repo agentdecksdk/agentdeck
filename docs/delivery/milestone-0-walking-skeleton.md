@@ -1,192 +1,133 @@
 # Milestone 0 — Walking Skeleton
 
-**Status:** proposal · **Relates to:** `agentdeck-v2-architecture.md`, `adr-d5-two-stores.md`, `epic-agentdeck-v2-core.md`
-**Purpose:** validate the core design (event schema, Runtime, engine boundary, two-store rule, run control) against three adversarial use cases *before* committing to the full epic. Each use case exists to break a specific decision. If all three survive, the epic is execution; if one falsifier fires, we redesign at spike cost instead of epic cost.
-
-**Timebox:** 1–2 weeks, one developer. The skeleton is real Phase-1/skinny-Phase-2 code, not throwaway — but it earns no polish until it survives the three demos.
-
----
+**Done — verdict GO** (§6). Validate the core design (event schema, Runtime, engine boundary,
+two-store rule, run control) against three adversarial use cases *before* committing to the full
+epic: each exists to break a specific decision, so a fired falsifier means redesign at spike cost
+instead of epic cost. Timebox 1–2 weeks, one developer, real Phase-1/skinny-Phase-2 code that earns
+no polish until it survives the three demos. **Relates to:** `agentdeck-v2-architecture.md`,
+`adr-d5-two-stores.md`, `epic-agentdeck-v2-core.md`.
 
 ## 1. Scope
 
-**Build for real:** `core/events.py` + `core/content.py` (the schema per design review decisions 1–9, A=contiguous, B=full-text — **confirmed**; UC1/UC3 still test both empirically: store-only transcript rebuild, chaos gap-detection); `core/context.py` + `core/status.py`; a minimal `Runtime` (stamp, append, fan out, yield); crude openai-agents and langgraph adapters behind `EnginePort`; memory + SQLite event stores; memory ControlPort (SQLite-backed signal row for cross-process in UC3); one SSE endpoint; a ~50-line CLI chat renderer (the switch-loop consumer).
-
-**Fake shamelessly:** models (scripted fakes, deterministic, no API keys, no network); no Redis, no MCP, no ACP, no auth, no discovery (hardcode the three invocables), no compat facade, no dashboards. Every fake is listed here so nobody mistakes its absence for a design gap.
-
-**Deferred deliberately:** caller-injected capabilities / ACP. It is the most self-contained pattern (proven on paper in design doc §9); if the skeleton finishes early, add it as UC4 rather than expanding UC1–3.
-
----
+| | |
+|---|---|
+| Build for real | `core/events.py` + `core/content.py` (the schema per design decisions 1–9, A=contiguous, B=full-text — **confirmed**, and UC1/UC3 still test both empirically); `core/context.py` + `core/status.py`; a minimal `Runtime` (stamp, append, fan out, yield); crude openai-agents and langgraph adapters behind `EnginePort`; memory + SQLite event stores; memory `ControlPort` with a SQLite-backed signal row for UC3's cross-process case; one SSE endpoint; a ~50-line CLI chat renderer as the switch-loop consumer |
+| Fake shamelessly | Models (scripted, deterministic, no API keys, no network); no Redis, MCP, ACP, auth or discovery (three hardcoded invocables), no compat facade, no dashboards. Listed so nobody mistakes an absence for a design gap |
+| Deferred deliberately | Caller-injected capabilities / ACP — the most self-contained pattern, proven on paper in design doc §9. If the skeleton finishes early it becomes UC4 rather than expanding UC1–3 |
 
 ## 2. Use case 1 — "The handoff chat" (stresses the schema + ADR-D5)
 
-**Setup.** `FrontDesk` (openai-agents, scripted fake model) with `handoffs=[ClaimsAgent]`. `ClaimsAgent` has one fake tool `lookup_shipment`. SQLite store. CLI chat renderer attached to the SSE stream.
+`FrontDesk` (openai-agents, scripted fake) with `handoffs=[ClaimsAgent]`, which has one fake tool
+`lookup_shipment`; SQLite store; CLI renderer on the SSE stream. Turn 1 hands off and the tool
+answers; turn 2 in the same session is answered from turn-1 context (the fake asserts it received the
+full prior transcript, tool result included); then the transcript is read back from the store alone.
 
-**Script.**
+- Two labeled bubbles, never one smeared paragraph — the renderer distinguishes speakers **using only `origin` + `message_id`**; a second mechanism found by grep means the envelope fields are insufficient, which is a falsifier.
+- The transcript rebuilds from `message.completed` events **alone**, no delta assembly anywhere in the reader (decision B in practice), and the **transcript-fidelity test** (ADR-D5) runs for the first time: transcript from the SDK session ≡ transcript from the event log, in content and order. If it needs byte-level normalization the invariant is wrongly specified — stop.
+- Turn 2's captured model input holds the exact turn-1 items including the untruncated tool result — proving execution state, not the log, fed the model — while the **log** carries only preview + hash + size (decision 7). Every event round-trips against the schema; `seq` is contiguous from 0 per run.
 
-```text
-1. POST /agents/FrontDesk/chat?session_id=s1&stream=true  "my shipment 4412 is damaged"
-   → FrontDesk speaks one sentence, hands off; ClaimsAgent calls the tool, answers.
-2. Same session, second turn: "and when will the refund arrive?"
-   → ClaimsAgent answers using turn-1 context (the fake model script asserts it
-     received the full prior transcript, including the tool result).
-3. Read the transcript back from the store only (no live stream).
-```
+**Amendment (2026-08-05, #52 review — design finding, not fixed here).** The first bullet is red as
+literally written: `origin` is invocable-scoped, stamped `origin = spec.name` for every event of a run
+including after an internal handoff, so FrontDesk's sentence and ClaimsAgent's answer share one
+`origin` — `message_id` still yields two bubbles, but `origin` cannot say ClaimsAgent spoke second.
+The fix is either an engine-supplied speaker attribution the envelope has no field for, or a
+deliberate redefinition of "speaker" as *the invocable* — deferred to the falsifier review (§6) /
+`milestone-0-findings.md` rather than decided silently in the adapter PR. `tests/test_uc1_handoff.py`
+asserts the shipped behavior (both bubbles labeled `FrontDesk`, distinct `message_id`s) so the gap
+fails loudly.
 
-**Make sure at this step:**
-
-- Two labeled bubbles, never one smeared paragraph — the renderer distinguishes speakers **using only `origin` + `message_id`** from the envelope; grep the renderer for any other mechanism (a second mechanism means the envelope fields are insufficient — falsifier).
-- Step 3 rebuilds the transcript from `message.completed` events **alone** — no delta assembly anywhere in the reader (decision B holds in practice).
-- Run the **transcript-fidelity test** (ADR-D5) for the first time: message-level transcript extracted from the SDK session ≡ transcript from the event log, in content and order. If passing requires byte-level normalization hacks, the invariant is wrongly specified — stop.
-- Turn 2's model input (captured by the fake) contains the exact turn-1 items including the untruncated tool result — proving execution state, not the log, fed the model (the ADR's whole point, observed live).
-- Tool result in the **log** shows preview + hash + size (decision 7), while the **SDK session** holds full bytes.
-- Every event validates against the schema round-trip; `seq` is contiguous from 0 per run.
-
-**Amendment (2026-08-05, #52 review — design finding, not fixed here).** The first
-bullet above is red as literally written. `origin` is invocable-scoped, not
-sub-agent-scoped: the shipped Runtime stamps `origin = spec.name` — the top-level
-invocable addressed from outside — for every event of a run, including after an
-internal openai-agents handoff. So within one turn, FrontDesk's sentence and
-ClaimsAgent's answer share one `origin`; `message_id` still gives two distinct
-bubbles, but `origin` cannot additionally say it was ClaimsAgent who spoke second.
-Fixing this needs either a Runtime/schema change (an engine-supplied speaker
-attribution, which the envelope doesn't have a field for today) or a deliberate
-redefinition of "speaker" as *the invocable*, not *the SDK sub-agent* — that choice is
-deferred to the M0 falsifier review (§6) / `milestone-0-findings.md`, not silently
-decided in the adapter PR. `tests/test_uc1_handoff.py` asserts the shipped behavior
-(both bubbles labeled `FrontDesk`, with distinct `message_id`s) precisely so this gap
-fails loudly, not quietly, once attribution changes.
-
-**Ruling (2026-08-05, M0 checkpoint, issue #57).** Option B: invocable-scoped `origin` is
-the contract, not a gap — "speaker" means *the invocable the caller addressed*, never the
-SDK's internal sub-agent. See `milestone-0-findings.md` §3 for the analysis and
-`agentdeck/core/events.py`'s `origin` docstring for where the contract is now stated.
+**Ruling (2026-08-05, M0 checkpoint, issue #57).** Option B: invocable-scoped `origin` is the
+contract, not a gap — "speaker" means *the invocable the caller addressed*, never the SDK's internal
+sub-agent. Analysis in `milestone-0-findings.md` §3; the contract is stated in
+`agentdeck/core/events.py`'s `origin` docstring.
 
 ## 3. Use case 2 — "The Friday approval" (stresses durability + engine substitutability)
 
-**Setup.** `ClaimPipeline`: two langgraph nodes with an approval interrupt between them; SQLite checkpointer; same store, same renderer, same serve process as UC1.
+`ClaimPipeline`: two langgraph nodes with an approval interrupt between them, SQLite checkpointer,
+same store, renderer and serve process as UC1. Node A runs and interrupts; `kill -9` the server and
+restart it; `GET /pending` lists the interrupt with its payload; `POST /resume {thread_id, value}`
+runs node B to completion.
 
-**Script.**
-
-```text
-1. POST /workflows/ClaimPipeline?stream=true  → node A runs → run.interrupted(reason=approval)
-2. kill -9 the server process. Restart it.
-3. GET  /pending  → the interrupt is listed with its payload
-4. POST /resume {thread_id, value: approve}  → node B runs → run.completed
-```
-
-**Make sure at this step:**
-
-- **Zero edits to the UC1 consumers.** The CLI renderer and SSE endpoint render this workflow run as-is; `node.updated` falls through the renderer's default case harmlessly. Any needed edit = the engine abstraction leaked = falsifier. Verify by diff, not by impression.
-- Status transitions observed in order: `RUNNING → WAITING_HUMAN → RUNNING → COMPLETED`; after the kill, status reads `WAITING_HUMAN` from persistence, not from memory.
-- The resumed run's events continue in the **same session's** append order; replay after completion shows one coherent story across the restart (interrupt event, then resume, then node B) with no duplicates for node A (or, if node-A re-execution is visible, it matches the documented safe-point contract — decide and write it down here).
-- Exactly one terminal event, and it is last — even across the restart.
-- `seq` continues **contiguously across the restart** — no reset to 0, no gap: on resume the Runtime recovers the counter via `max(seq)` from the store (invariant 3 of the seq design).
-- **Double-resume race:** fire two concurrent `resume` calls for the same interrupt — exactly one wins (atomic `WAITING_HUMAN → RUNNING` transition); the other is a no-op; no duplicate seq values in the log.
-- The checkpointer stayed engine-private: nothing outside `adapters/engines/langgraph/` imports or reads it (linter + grep).
-- Send a stray `resume` to the already-completed run afterward → no-op per the status machine, not an error.
+- **Zero edits to the UC1 consumers** — `node.updated` falls through the renderer's default case harmlessly. Any needed edit means the engine abstraction leaked; verify by diff, not impression.
+- Status transitions in order `RUNNING → WAITING_HUMAN → RUNNING → COMPLETED`, read from persistence after the kill; the resumed run's events continue in the **same session's** append order, one coherent story with no duplicate node-A events (or, if node-A re-execution is visible, matching the safe-point contract decided below).
+- Exactly one terminal event and it is last, even across the restart; `seq` continues **contiguously across the restart** — no reset, no gap — because resume recovers the counter via `max(seq)` from the store.
+- **Double-resume race:** of two concurrent `resume` calls exactly one wins the atomic `WAITING_HUMAN → RUNNING` transition, the other is a no-op, no `seq` duplicates; a stray `resume` to a completed run is likewise a no-op, not an error. The checkpointer stayed engine-private — nothing outside `adapters/engines/langgraph/` imports or reads it (linter + grep).
 
 **Amendment (2026-08-05, #53 — safe-point contract, decided here as the doc asked).**
-`ClaimPipeline`'s interrupting node calls `interrupt()` as its first statement, before any
-other work. A resumed run re-enters that node from its start (LangGraph's own resume
-semantics), but since nothing ran before the call, the re-entry has nothing to repeat: node
-A's own node never re-executes, and no event for it appears twice in the log. The contract
-for any future interrupting node in this codebase: put the `interrupt()` call first, and
-put every side effect either before the node that calls it or after the value it returns —
-never before the call within the same node. This is the same rule v1's workflow interrupts
-already document for `langgraph.types.interrupt()`; UC2 just needed it written down for the
-v2 engine too.
+`ClaimPipeline`'s interrupting node calls `interrupt()` as its first statement, so a resumed run
+re-enters the node from its start with nothing to repeat: node A never re-executes and no event
+appears twice. The contract for any interrupting node in this codebase — put the `interrupt()` call
+first, and every side effect either before that node or after the value it returns, never before the
+call in the same node — is the rule v1's workflow interrupts already document, written down for the v2
+engine too.
 
-**Amendment (2026-08-05, #53 — double-resume guard is process-local).** The atomic
-`WAITING_HUMAN` → `RUNNING` transition is a lock keyed by `run_id` inside one `Runtime`
-instance, not a store-level compare-and-set. It is correct for two callers racing against
-one process (what the "make sure" bullet above tests), but not for two separate processes
-racing the same run through two different `Runtime`s over the same store — that would need
-a CAS primitive on `SessionStorePort`, which the frozen ports don't have yet. Adding one is
-follow-up work if a real deployment needs it; recorded here rather than silently assumed.
+**Amendment (2026-08-05, #53 — double-resume guard is process-local).** The atomic transition is a
+lock keyed by `run_id` inside one `Runtime` instance, not a store-level compare-and-set: correct for
+two callers racing one process, wrong for two processes racing one run through two `Runtime`s over one
+store. That needs a CAS primitive on `SessionStorePort`, which the frozen ports lack — follow-up work
+if a real deployment needs it, recorded rather than silently assumed.
 
 ## 4. Use case 3 — "The rude interruption" (stresses control + ordering guarantees)
 
-**Setup.** A deliberately slow agent: scripted fake emits 30 text chunks with small sleeps. SQLite-backed ControlPort so a second process can signal.
+A deliberately slow agent — the scripted fake emits 30 text chunks with small sleeps — and a
+SQLite-backed `ControlPort` so a second process can signal. Terminal A streams the chat; terminal B
+runs `agentdeck runs signal <run_id> cancel`; terminal A ends promptly with `run.cancelled`; then the
+session is replayed from the store.
 
-**Script.**
+- `run_id` was obtainable by terminal B (from `run.started` in the stream or a runs listing) — addressability is real, not theoretical — and cancel lands at the **next safe point**: the last delta before `run.cancelled` is a complete chunk, nothing follows the terminal event, under adversarial timing (run the script 20×; flakiness here is a real bug, not test noise).
+- The gate raised cooperatively inside the adapter, `run.cancelled` was emitted exactly once, status is terminal, a follow-up `pause` is a no-op, and replay shows truncated-but-coherent history — N deltas, no `message.completed` for the unfinished message, terminal `run.cancelled` — with the renderer marking the unfinished bubble rather than crashing.
+- **The chaos test (decision A, mandatory):** drop one mid-run event before it reaches the consumer; the consumer must *detect* the `seq` gap and refetch from the store, proving contiguity buys loss-detection in practice.
 
-```text
-1. Terminal A: POST /agents/SlowPoke/chat?stream=true  → chunks flowing
-2. Terminal B (separate process): agentdeck runs signal <run_id> cancel
-3. Terminal A: stream ends promptly with run.cancelled
-4. Replay the session from the store.
-```
-
-**Make sure at this step:**
-
-- `run_id` was obtainable by terminal B (from `run.started` surfaced in the stream / a runs listing) — addressability is real, not theoretical.
-- Cancel lands at the **next safe point**: the last delta before `run.cancelled` is a complete chunk; nothing is emitted after the terminal event, under adversarial timing (run the script 20× in a loop — flakiness here is a real bug, not test noise).
-- The gate raised cooperatively inside the adapter; the adapter emitted `run.cancelled` exactly once; status is terminal; a follow-up `pause` signal is a no-op.
-- Replay shows the truncated-but-coherent history: N deltas, no `message.completed` for the unfinished message, terminal `run.cancelled` — and the renderer copes (unfinished bubble marked, not crashed).
-- **The chaos test (decision A, mandatory):** intercept the stream and drop one mid-run event before it reaches the consumer; the consumer must *detect* the `seq` gap and recover by refetching from the store — proving contiguity buys loss-detection in practice, not just in argument.
-
-**Amendment (2026-08-05, #54 — as built).** Zero edits landed in `surfaces/serve/app.py`
-or `surfaces/cli/chat.py`: `Runtime.run`/`resume` rebind `ctx.gate` to a real `Gate` only
-when the `Runtime` itself was built with a `ControlPort`, so the existing chat route
-becomes cancellable without knowing control exists. The 20×-loop and the real
-cross-process script are two separate tests, deliberately: the loop signals in-process
-(fast, exercises the ordering guarantee 20 times) while the cross-process test spawns a
-real `python -m agentdeck.cli` subprocess for Terminal B once (proving addressability and
-the SQLite signal row actually crossing a process boundary). That subprocess costs over a
-second just importing the `agentdeck` package (`agentdeck/__init__.py` eagerly imports
-v1's `App`, which pulls in `langgraph`) before it can write the signal — SlowPoke's
-cross-process fixture sleeps 0.2s/chunk, not the in-process fixture's 0.005s, so the
-signal has time to land before the run finishes on its own. Also: `httpx.ASGITransport`
-runs a request's whole ASGI call before returning anything, so it cannot interleave a
-live signal with an in-flight SSE response — cancelling the chat route itself is proven by
-architecture (the same `Runtime._with_gate` every other test exercises), not by a
-dedicated HTTP-level test.
-
----
+**Amendment (2026-08-05, #54 — as built).** Zero edits landed in `surfaces/serve/app.py` or
+`surfaces/cli/chat.py`: `Runtime.run`/`resume` rebind `ctx.gate` to a real `Gate` only when the
+`Runtime` was built with a `ControlPort`, so the chat route became cancellable without knowing control
+exists. The 20×-loop and the cross-process script are two tests deliberately — the loop signals
+in-process, while the cross-process test spawns a real `python -m agentdeck.cli` subprocess once to
+prove addressability and the SQLite signal row crossing a process boundary. That subprocess costs over
+a second just importing the package (`agentdeck/__init__.py` eagerly imports v1's `App`, which pulls in
+`langgraph`), so its SlowPoke fixture sleeps 0.2s/chunk rather than the in-process 0.005s. And
+`httpx.ASGITransport` runs a request's whole ASGI call before returning anything, so cancelling the
+chat route is proven by architecture — the same `Runtime._with_gate` every other test exercises.
 
 ## 5. Build order with per-step gates
 
-Each step has a gate; do not proceed past a red gate.
+Do not proceed past a red gate. If one stays red for more than a day of honest effort, treat it as a
+design finding: write down what the design assumed and what reality said, and bring it back to the
+docs before coding around it.
 
-**Step 1 — schema + round-trips.** `events.py`, `content.py`, serialization round-trip per kind, unknown-kind fallback (`UnknownEvent`) test, contiguous-`seq` invariant test. *Gate:* forward-compat test passes — an event with an unknown kind and unknown field deserializes, persists, and is skipped by a toy consumer.
-
-**Step 2 — Runtime + memory store + stub engine.** The stamp/append/fan-out/yield loop against a scripted stub engine; contract-suite skeleton with the first invariants (one terminal event, terminal-is-last, seq contiguity). *Gate:* contract suite green on the stub; killing a consumer mid-stream does not corrupt the store.
-
-**Step 3 — openai-agents adapter (crude) + SQLite store + renderer → run UC1.** *Gate:* every "make sure" item in §2, especially the transcript-fidelity test.
-
-**Step 4 — langgraph adapter (crude) + status persistence → run UC2.** *Gate:* every item in §3, especially the zero-consumer-edits diff; contract suite now green on **both** engines — the first moment the architecture is real.
-
-**Step 5 — ControlPort + gate → run UC3.** *Gate:* every item in §4, including the 20× loop and the chaos test.
-
-If any gate stays red for more than a day of honest effort, treat it as a design finding, not an implementation struggle: write down what the design assumed and what reality said, and bring it back to the docs before coding around it.
-
----
+| Step | Built | Gate |
+|---|---|---|
+| 1 | `events.py`, `content.py`, serialization round-trips per kind, `UnknownEvent` fallback, contiguous-`seq` invariant | Forward-compat: an event with an unknown kind and unknown field deserializes, persists, and is skipped by a toy consumer |
+| 2 | `Runtime` + memory store + stub engine; contract-suite skeleton (one terminal event, terminal-is-last, seq contiguity) | Contract suite green on the stub; killing a consumer mid-stream does not corrupt the store |
+| 3 | openai-agents adapter (crude) + SQLite store + renderer → UC1 | Every "make sure" item in §2, especially transcript fidelity |
+| 4 | langgraph adapter (crude) + status persistence → UC2 | Every item in §3, especially the zero-consumer-edits diff; contract suite green on **both** engines — the first moment the architecture is real |
+| 5 | `ControlPort` + gate → UC3 | Every item in §4, including the 20× loop and the chaos test |
 
 ## 6. At the finish
 
-**Demo artifact.** Record the three scripts as one continuous demo (UC1 chat → UC2 kill/restart/approve → UC3 cross-process cancel + gap-detection). This is the proof object for the epic go/no-go.
+**Demo artifact.** The three scripts as one continuous demo (UC1 chat → UC2 kill/restart/approve → UC3
+cross-process cancel + gap-detection) — the proof object for the go/no-go.
 
-**Falsifier review — the go/no-go checklist.** The skeleton *fails* (and the epic pauses for redesign) if any of the following occurred, even once, even "temporarily":
+**Falsifier review.** The skeleton *fails*, and the epic pauses for redesign, if any of these occurred
+even once, even temporarily:
 
 - Any consumer needed to know which engine produced an event.
-- The schema needed a new **required** field after UC1 events were already persisted (the additive-evolution rule is broken in practice).
+- The schema needed a new **required** field after UC1 events were already persisted (additive evolution broken in practice).
 - UC2 required editing any UC1 consumer.
 - Transcript fidelity was only achievable with byte-level normalization.
 - Exactly-one-terminal-event needed consumer-side workarounds (timeouts, dedupe).
 - The gap-detection test could not be made reliable.
 
-**Schema freeze candidate.** If no falsifier fired: diff the schema as-built against design doc §4.2 + the nine review decisions; every divergence gets a one-line justification. This diff **is** the PR #1 content — the skeleton's surviving schema is what goes to formal review, not the paper version.
+If no falsifier fired, three deliverables: the **schema-as-built diff** against design doc §4.2 + the
+nine review decisions, one line per divergence, which *is* the PR #1 content rather than the paper
+schema; the **learning note**, ranked by "would have been expensive to learn in Phase 2", with the
+amendments it forces on the design doc, ADR-D5 and the epic and a decision log for anything decided ad
+hoc; and an explicit per-component **keep / harden / discard**, because nothing keeps by default and
+skeleton code that sneaks into production unreviewed is how spikes rot into foundations.
 
-**The learning note.** One page, `milestone-0-findings.md`: what the skeleton taught us, ranked by "would have been expensive to learn in Phase 2"; amendments to the design doc, ADR-D5, and the epic (especially Story 2's estimate, now grounded in the crude adapters' actual difficulty); and the decision log for anything decided ad hoc during the spike (e.g. UC2's node re-execution visibility) that must be promoted to a documented contract.
-
-**Disposal decision, made explicitly.** For each skeleton component: *keep* (schema, core, contract suite — these were always Phase 1), *harden* (adapters, Runtime — real error handling in Phase 2), or *discard* (hardcoded registry, CLI renderer beyond its life as a reference consumer). Nothing keeps by default; skeleton code that sneaks into production unreviewed is how spikes rot into foundations.
-
-**Closing note (2026-08-05, #57 — the finish checkpoint).** **Verdict: GO.** None of the
-six falsifiers above fired; the full review, the schema-as-built diff, and the disposal
-table are in `milestone-0-findings.md`. The demo artifact is `scripts/m0_demo.py` — a
-deterministic, replayable script (run it with `python scripts/m0_demo.py`) rather than a
-recording, running UC1 → UC2 → UC3 end to end against real SQLite stores and the real
-`surfaces/serve` FastAPI apps with scripted fakes only. The epic proceeds to Story 2
-hardening (re-sequenced in `epic-agentdeck-v2-core.md`'s own 2026-08-05 amendment); the
-origin/speaker-attribution finding (§2's amendment above) is ruled — Option B, invocable-
-scoped `origin` is the contract, not a gap.
+**Closing note (2026-08-05, #57 — the finish checkpoint). Verdict: GO.** No falsifier fired; all three
+deliverables are in `milestone-0-findings.md`, and the demo artifact is `scripts/m0_demo.py` —
+deterministic and replayable rather than a recording, running UC1 → UC2 → UC3 against real SQLite
+stores and the real `surfaces/serve` FastAPI apps with scripted fakes only. The epic proceeds to Story 2
+hardening (re-sequenced in `epic-agentdeck-v2-core.md`'s own 2026-08-05 amendment), and §2's
+origin/speaker finding is ruled Option B.

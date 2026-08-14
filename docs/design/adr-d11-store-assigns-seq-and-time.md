@@ -54,22 +54,15 @@ check_contiguous : [2]        ← a gap no refetch can ever fill
 check_terminal   : None       ← the run is otherwise correctly closed
 ```
 
-The consequence is already known and documented — `_drain`'s docstring (`service.py:536-538`) says
-*"the `seq` that report consumed stays spent, so the log shows a gap … not this arm's to close"*,
-and `test_runtime_service.py:890` pins it. But it makes the module's own promise false:
+That gap is documented (`_drain`'s docstring, `service.py:536-538`) and pinned
+(`test_runtime_service.py:890`), and it makes the module's own promise — *"a consumer that spots a
+`seq` gap can always refetch it"* (`service.py:5`) — false: a consumer cannot tell a dropped event
+from a permanent hole.
 
-> `runtime/service.py:5` — *"a consumer that spots a `seq` gap can always refetch it"*
-
-Both cannot hold. A consumer that sees a gap today cannot tell "an event was dropped in transit,
-refetch it" from "the store hiccupped an hour ago, this hole is permanent, refetching will never
-converge."
-
-The counter is also spread thin: seven functions take `(spec, ctx, seq)` purely to pass them on,
-and **ten call sites** each decide when to advance it. Nothing owns the number, which is why the
-failure path has to guess whether the one it took was used.
-
-Moving assignment into the store removes the question rather than answering it. A seq that is
-allocated and persisted in one step cannot be allocated and not persisted.
+The counter is also spread thin: seven functions take `(spec, ctx, seq)` purely to pass them on and
+ten call sites each decide when to advance it, which is why the failure path has to guess whether
+the one it took was used. A seq allocated and persisted in one step cannot be allocated and not
+persisted.
 
 ## 3. What this buys
 
@@ -174,18 +167,17 @@ as one test, not two.
 
 ## 7. Consequences to land with the change
 
-- `test_runtime_service.py:890`'s gap assertion flips `== [2]` → `== []`, and its comment inverts
-  from "a known consequence" to "no longer possible".
-- The `_drain` paragraph ending *"not this arm's to close"* (`service.py:536-538`) is deleted; it
-  stops being true.
-- `coding-standards.md:113` (**§6**, not §7 as originally cited — §7 is *Events and schema code*)
-  states the rule this ADR overturns. §1's precedence enumeration, which reads *"(2) architecture
-  decisions D1–D10 and ADR-D5"*, has to name D11 or this ADR outranks nothing by that doc's own
+**All applied 2026-08-08**; the ledger is `00-project-index.md` §3.
+
+- `test_runtime_service.py:890`'s gap assertion flips `== [2]` → `== []`, and `_drain`'s
+  *"not this arm's to close"* paragraph is deleted — it stops being true.
+- `coding-standards.md:113` (**§6**, not §7 as originally cited) states the rule this ADR overturns,
+  and §1's precedence enumeration has to name D11 or this ADR outranks nothing by that doc's own
   ordering.
 - `agentdeck/composition.py:44,58` exposes `clock` as a public keyword of `build_runtime`; its
-  meaning changes and the signature's docstring must say so.
-- ADR-D5's *Explicitly unchanged* clause (`:151`) gets a dated amendment.
-- The architecture doc's envelope-stamping split needs the same.
+  meaning changes and its docstring must say so.
+- ADR-D5's *Explicitly unchanged* clause (`:151`) and the architecture doc's envelope-stamping split
+  each get a dated amendment.
 - CHANGELOG: logs no longer carry gaps after a dropped report or a transient append failure.
 
 ## 8. What was considered and rejected
@@ -196,14 +188,13 @@ as one test, not two.
   remains the fallback if the port change proves too invasive.
 - **A lock at the port** — `acquire`/`release`, many-readers-one-writer, so the Runtime could run
   the whole decision itself. Rejected on three counts. A lock held across the Runtime's decision is
-  a *distributed* lock: a process that stalls (GC, VM migration, partition) past its lease expiry
-  wakes and writes while a second holder is live, and the only fix is a fencing token the store
-  validates on write — which is the conditional write, rebuilt with three more methods in front.
-  Backends cannot supply it uniformly: SQLite's `BEGIN IMMEDIATE` is a transaction, not a lease held
-  across an `await`; a Postgres advisory lock pins a pool connection for the whole decision; Redis
-  offers only Redlock-style leases, i.e. the unsafe case. And it is the same leak as a
-  `transaction()` port — anything the store can retry pushes "your block may run twice" into every
-  caller.
+  a *distributed* lock, and a process that stalls past its lease expiry wakes and writes while a
+  second holder is live; the only fix is a fencing token the store validates on write, which is the
+  conditional write with three more methods in front. Backends cannot supply it uniformly — SQLite's
+  `BEGIN IMMEDIATE` is a transaction, not a lease held across an `await`; a Postgres advisory lock
+  pins a pool connection for the whole decision; Redis offers only Redlock-style leases, the unsafe
+  case. And it leaks like a `transaction()` port: anything the store can retry pushes "your block
+  may run twice" into every caller.
 - **A generic optimistic seam** — `append_if_unchanged(log_key, expected_lifecycle_version, …)`,
   with the Runtime reading, deciding and retrying on a stale version. This is the only shape that
   puts *all* lifecycle judgement in the Runtime, and it is cheap to build: every store already
