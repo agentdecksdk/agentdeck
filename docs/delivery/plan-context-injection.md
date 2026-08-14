@@ -24,27 +24,21 @@ public semantics across the whole execution graph.**
 ## The split that matters
 
 ```
-        Context[T]                    ← AgentDeck owns this (public contract)
-             │
-   ┌─────────┴─────────┐
-   ▼                   ▼
-OpenAI adapter    LangGraph adapter   ← thin bridges
-   │                   │
-RunContextWrapper   Runtime[T]        ← the engines own this (transport)
+Context[T]                                        ← AgentDeck owns this (public contract)
+  ├── OpenAI adapter    → RunContextWrapper       ← thin bridge over what the engine
+  └── LangGraph adapter → Runtime[T]                 already owns (transport)
 ```
 
-What AgentDeck keeps is the part the engines cannot do: one portable public type, so a tool signature
-does not change when the engine does.
+AgentDeck keeps the part the engines cannot do: one portable public type, so a tool signature does not
+change when the engine does.
 
 ## The public surface
 
 ```python
 ctx: Context[MiddleContext]
-
-ctx.data          # the value passed to deck.run(context=...)
-ctx.reporter      # progress/status
-ctx.run_id · ctx.session_id
-await ctx.checkpoint()
+ctx.data                                      # the value passed to deck.run(context=...)
+ctx.reporter                                  # progress/status
+ctx.run_id · ctx.session_id · await ctx.checkpoint()
 ```
 
 No `ToolContext`, `SkillContext`, `WorkflowContext`, `AgentContext`; `Gate` stays internal, reached
