@@ -177,7 +177,10 @@ asyncio.run(main())
 
 ## Next
 
-[How the pieces fit →](/concepts) · [API reference →](/reference)
+- Give an agent reusable instructions — [Skills](/concepts/skills)
+- Keep a conversation across turns — [Sessions and Memory](/concepts/sessions-and-memory)
+- Make sessions and event logs survive a restart — [Choosing a Store Backend](/concepts/choosing-a-store-backend)
+- Check every public constructor, method, setting and CLI flag — [Reference](/reference)
 
 ---
 
@@ -196,6 +199,10 @@ a few kinds of definition, and the platform supplies everything around them.
 | [Agent](/concepts/agents) | keyword arguments: instructions, tools, handoffs | OpenAI Agents SDK |
 | [Skill](/concepts/skills) | a directory: `SKILL.md` + optional scripts | disclosed into an agent's own execution |
 | [Workflow](/concepts/workflows) | typed state + a graph | LangGraph |
+
+When you need exact constructor arguments, method signatures, environment variables or CLI flags,
+use [Reference](/reference). These concept pages explain the model; the reference pages name the
+API surface precisely.
 
 ## The shape of a project
 
@@ -1267,8 +1274,8 @@ callable mid-conversation. A [skill](/concepts/skills) is a different thing — 
 reads to decide *when* to reach for a tool, not a tool itself. A skill's `SKILL.md` commonly
 describes how to use one or more of an agent's own `tools=[...]`.
 
-Next: the full argument table, including `handoffs` and `output_type`, is on
-[Agents](/concepts/agents).
+Next: [Agents](/concepts/agents) explains how tools compose with handoffs, skills and structured
+output. The exact `Agent(...)` fields and tool rules are in [Definitions](/reference/definitions).
 
 ---
 
@@ -1401,7 +1408,9 @@ reach a workflow run today: a workflow has no safe point of its own, so `interru
 only way one of these pauses, and answering it is the only way it continues.
 
 Next: [Workflows](/concepts/workflows) covers timers (`sleep_until`) — the other thing
-`interrupt()` is used for — and what `as_tool()` does with the whole graph.
+`interrupt()` is used for — and what `as_tool()` does with the whole graph. The exact
+`Workflow(...)`, `Deck.run(...)`, `Deck.answer(...)` and `Deck.pending(...)` APIs are in
+[Definitions](/reference/definitions) and [Deck](/reference/deck).
 
 ---
 
@@ -1466,7 +1475,8 @@ reading whether it answers 200 or 409 — [Pause, Resume, Cancel](/operating/pau
 covers both paths since they apply the same way to a paused agent run.
 
 Next: [Human Approval](/guides/human-approval) is the same server used for a workflow that
-needs a person's answer instead of a client's.
+needs a person's answer instead of a client's. For the Python API that records the same runs,
+see [Deck](/reference/deck); for server configuration, see [Settings](/reference/settings).
 
 ---
 
@@ -2781,6 +2791,11 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
 
 ### Fixed
 
+- **The documentation entry path now points readers to skills, sessions, durable stores and the
+  API reference instead of ending at a two-link dead end** (#239). The getting-started page now lists the
+  next concepts to read, the concepts overview names the reference as the source for exact API
+  details, and the how-to guides link onward to the specific reference pages behind the APIs they
+  use.
 - **`pip install agentdeck-sdk` now runs a `durable=True` workflow with no extra** (#232).
   `langgraph-checkpoint-sqlite` — what `AGENTDECK_CHECKPOINT`'s default (`sqlite://...`) needs —
   moves from the optional `[durability]` extra into base dependencies, so the default that every
@@ -2796,14 +2811,22 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
   swallows it into a successful 200 before it ever reaches this handler. 404/409/422 and the
   existing `AgentdeckError` 500 are unchanged, and no exception message reaches the response
   body.
-### Fixed
-
 - **The human-approval guide now shows `answer()` re-supplying a context, and says what omitting
   it does** (#255). Two rules meet on resume — the interrupt node re-runs from its start, and the
   context is never serialized with the run — so a node reading `ctx.data` after an approval gets
   `None` rather than an error, and the run continues with a quietly wrong value. Both rules were
   already documented separately and correctly; their interaction was stated once in prose and
   never demonstrated, and two clean-room reviewers missed the consequence anyway.
+
+### Added
+
+- **`examples/agent-with-a-skill/`** — an agent with two tools and one skill, the first shipped
+  example to include a `SKILL.md`. Skills were the only thing `Deck.from_project()` discovers with
+  no runnable example, so the frontmatter contract could only be learned from a build error
+  ([#242](https://github.com/agentdecksdk/agentdeck/issues/242)).
+- **`docs/delivery/review-v3-outsider.md`** — the v3.0.0 clean-room review: three reviewers given
+  only the wheel, the README, the docs site and `examples/`, each building a small app and reporting
+  what broke. Source of the `finding:`-labelled issues opened against v3.0.0.
 
 ## v3.1.0
 
