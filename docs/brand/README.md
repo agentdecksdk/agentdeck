@@ -29,18 +29,17 @@ coloured file covers both instead of needing a pair.
 </span>
 ```
 
-## Vectors only — no rasters in this repository
+## Vectors only
 
-**This repository tracks no binary images, and did not before these assets arrived.** The
-`check-added-large-files` pre-commit hook is the enforcement, and it is the right rule: a binary
-cannot be diffed, cannot be reviewed, and cannot be removed from git history later without
-rewriting it for everyone.
+The rule and its reasoning are in `docs/coding-standards.md` §11. What it means here: the
+wordmark PNG, the mark PNG and the fourteen-panel brand sheet **live outside the repository**,
+with the designer's source files, and `.gitignore` keeps `docs/brand/*.{png,webp,jpg}` out of the
+tree. Only vectors are tracked, because a vector is text: reviewable in a pull request, and a few
+kilobytes. The mark loses nothing by this, since `logo.svg` supersedes its PNG entirely.
 
-So the wordmark PNG, the mark PNG and the fourteen-panel brand sheet **live outside the
-repository**, with the designer's source files. Only vectors are tracked, because a vector is
-text: reviewable in a pull request, and a few kilobytes.
-
-The mark loses nothing by this — `logo.svg` supersedes its PNG entirely.
+Rasters that a GitHub comment or the social-preview upload genuinely needs are the one exception,
+and they belong under `.github/assets/`, not here. Everything in this directory regenerates from
+a recipe, so treat a PNG next to these files as a build artifact that escaped.
 
 ## Still owed from the designer
 
