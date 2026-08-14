@@ -135,8 +135,9 @@ the registration: no catalog file, no `__init__.py`, no decorator to remember.
 unknown MCP name or a workflow that cannot compile fails at `build()`, not in production.
 
 Runnable projects are in [`examples/`](examples/) — a chat agent with a tool, a workflow that
-pauses for a human approval, an existing LangGraph agent wrapped without rewriting it, and the
-one below. All are built by the test suite, so none can quietly stop working.
+pauses for a human approval, an agent that consults a skill, an existing LangGraph agent wrapped
+without rewriting it, and the one below. All are built by the test suite, so none can quietly stop
+working.
 
 ## Something built with it, that you can use right now
 

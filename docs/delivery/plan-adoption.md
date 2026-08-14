@@ -125,19 +125,24 @@ and they are the ones no tooling produces. Being findable is necessary and not s
 
 ## 6. Examples — five to ten serious ones
 
-Items 26–29. Four exist today: `chat-agent-with-a-tool`, `workflow-with-an-approval`,
-`existing-langgraph-agent`, and `ask-agentdeck` — the last being a real application, not a
-demonstration. Every one is exercised by the gate, which is item 28 already satisfied.
+Items 26–29. Five exist today: `chat-agent-with-a-tool`, `workflow-with-an-approval`,
+`existing-langgraph-agent`, `agent-with-a-skill`, and `ask-agentdeck` — the last being a real
+application, not a demonstration. Every one is exercised by the gate, which is item 28 already
+satisfied.
 
-**Amended 2026-08-13.** This paragraph listed `agent-with-a-skill` as shipped; it never was, and
-its absence is what #242 is about — skills are the one thing `Deck.from_project()` discovers with
-no runnable example, so the SKILL.md contract gets learned from an error message. #242 is open as
-a `good first issue`. `existing-langgraph-agent` shipped in its place and closes the
-existing-LangGraph line below.
+**Amended 2026-08-14.** This paragraph has now been wrong in both directions inside two days, which
+is worth recording rather than quietly overwriting. It first listed `agent-with-a-skill` as shipped
+when it was not; an amendment on 2026-08-13 corrected that and said #242 was open — and #242 closed
+about two hours later, with the example landing in #252 the same afternoon. Both entries were
+accurate when written. The lesson is not that either was careless: a hand-maintained inventory of
+shipped examples goes stale at the speed the examples ship.
+`tests/test_examples.py::test_the_examples_directory_has_not_moved` asserts the four bundle-based
+example directories exactly, and `ask-agentdeck` has a suite of its own. **Those tests are the
+inventory; this paragraph is a summary of them and will drift again — read it as of its date.**
 
 The gap is the remaining searchable-problem examples: a customer-support agent, a long-running
-resumable workflow, a multi-agent system, an MCP-connected agent, an agent with a skill,
-one agent served over both HTTP and chat.
+resumable workflow, a multi-agent system, an MCP-connected agent, one agent served over both HTTP
+and chat.
 
 ## 7. Measurement
 
