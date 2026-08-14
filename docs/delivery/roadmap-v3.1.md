@@ -14,14 +14,11 @@ released, docs site deployed, the reference application answering on `ask.agentd
 > decided, and GitHub Milestones is the authority on what they are called now. Nothing about the
 > *order* or the *contents* changed — only the numbers.
 
-Thirty-five open issues, assessed against the tree as it stands *after* the v3.0.0 tag, and
-sequenced. Many were written against v1 or v2 and name classes that no longer exist; those are
-called out rather than silently carried, exactly as `roadmap-v3.md` did before them.
-
-**Thirty-five is a backlog, not a release.** The largest question was not what to build first but
-what belongs in v3.1 at all. It is answered in §3: **v3.1 is hardening** — making what exists more
-correct, more robust, more trustworthy, and shipping no new capability. §4 is the split as set,
-and the GitHub milestones match it.
+Thirty-five open issues assessed against the tree *after* the v3.0.0 tag, and sequenced. Many were
+written against v1 or v2 and name classes that no longer exist; §1 calls those out rather than
+carrying them silently. Thirty-five is a backlog, not a release: §3 rules that **v3.1 is
+hardening** — what exists made more correct, more robust, more trustworthy, and no new capability —
+and §4 is the split the GitHub milestones match.
 
 ## Live status
 
@@ -80,20 +77,12 @@ reasoning and do not change on their own. Regenerate this table with `make roadm
 
 ## 0. Where the inputs came from
 
-Two sources, and the second is new.
-
-**The issue tracker**, which carries everything filed before and during v3.
-
-**The v3 reference application's friction ledger** (`plan-219-delivery.md` §4). #219 was
-release-level validation of the frozen surface, and building a real application against it
-produced findings that no amount of reading would have. Three had never been filed and now are:
-**#226** (`DataBlock` refused on input), **#227** (`asgi()` cannot serve a context-using app),
-**#228** (a bundle cannot share a type with its host). A fourth, **#223**, came from the
-grounding eval rather than from a person.
-
-That closes the "extract relevant findings" thread the v3 pre-release plan opened: the findings
-are issues now, and they are sequenced below with everything else rather than living in a report
-nobody re-reads.
+The issue tracker, plus the v3 reference application's friction ledger (`plan-219-delivery.md` §4).
+#219 was release-level validation of the frozen surface, and building against it produced three
+findings never filed before — **#226** (`DataBlock` refused on input), **#227** (`asgi()` cannot
+serve a context-using app), **#228** (a bundle cannot share a type with its host) — plus **#223**,
+from the grounding eval rather than from a person. All four are sequenced below, which closes the
+v3 pre-release plan's "extract relevant findings" thread.
 
 ## 1. Relevancy pass
 
@@ -127,32 +116,19 @@ Nothing else is stale enough to close.
 
 ## 2. What this session's evidence says about priority
 
-Three issues were re-weighted by building the reference application, and the evidence is
-concrete rather than a hunch.
+Three issues re-weighted by building the reference application, on evidence rather than a hunch.
 
-**#26 — `agentdeck.testing`, the exported stub-runner harness. Strongest early candidate.** The
-repo now hand-rolls a scripted model **three times**: `tests/scripted_model.py`,
-`tests/test_docs_examples.py`, and `tests/test_ask_agentdeck_server.py`. The third exists because
-the second could not script a tool call, which is the exact duplication #26 predicted in 2026-06.
-Every issue below that needs a test against a model gets cheaper once this lands, which is why it
-sorts early despite being unglamorous.
-
-**#25 — auth on the serve surface. Newly evidenced, and the shape is now known.** Ask AgentDeck
-is a public unauthenticated endpoint, and it hand-rolled an origin check, a per-client quota and
-length caps because the framework offers none. Those are not exotic requirements; the reference
-app is the specification. Whether they belong *in* the framework or stay an application concern
-is a ruling, but the question is no longer abstract.
-
-**#178 — handoffs fail against a non-OpenAI `OPENAI_BASE_URL`. No longer theoretical.** The
-deployed reference application runs Gemini through the OpenAI-compatible endpoint — precisely the
-configuration where a handoff returns a bare 400. AgentDeck's own live deployment sits on the
-bug.
+| # | Evidence |
+|---|---|
+| **#26** `agentdeck.testing` | The repo hand-rolls a scripted model **three times** — `tests/scripted_model.py`, `tests/test_docs_examples.py`, `tests/test_ask_agentdeck_server.py` — the third because the second could not script a tool call, exactly the duplication #26 predicted in 2026-06. Strongest early candidate: every issue below that needs a test against a model gets cheaper |
+| **#25** auth on serve | Ask AgentDeck is a public unauthenticated endpoint and hand-rolled an origin check, a per-client quota and length caps because the framework offers none. The reference app is the specification; whether those belong *in* the framework is still a ruling |
+| **#178** non-OpenAI base URL | The deployed reference application runs Gemini through the OpenAI-compatible endpoint — the exact configuration where a handoff returns a bare 400. AgentDeck's own live deployment sits on the bug |
 
 ## 3. Rulings taken (2026-08-11)
 
 | # | Ruling | Consequence |
 |---|---|---|
-| 1 | **v3.1 is hardening, not batteries.** Make what exists more correct, more robust, more trustworthy; ship no new user-facing capability | The milestone is renamed. The proposal that stood here was half new abilities — retries aside, presets, approval nodes, MCP filters and `Preset` are things to reach for, not things to trust, and they moved to **v3.2 — batteries**. The PRD's phase names shift one slot to make room, which is the honest bookkeeping: a hardening release was not in the original plan because the original plan had not shipped anything yet |
+| 1 | **v3.1 is hardening, not batteries.** Make what exists more correct, more robust, more trustworthy; ship no new user-facing capability | The milestone is renamed, and presets, approval nodes, MCP filters and `Preset` move to **v3.2 — batteries** — things to reach for, not things to trust. The PRD's phase names shift one slot to make room |
 | 2 | **#211 goes early.** Deferred to "after this release", and it is now after | It is a design question, and design questions block implementation rather than the reverse. Same for **#227** |
 | 3 | **#131 stays, rescoped by the ruling above.** | Under a hardening theme, "undo over-engineering" stops being an open-ended sweep and becomes the release's own subject. It is no longer churn ahead of a tag; it is the point |
 | 4 | **#227 — `asgi()`: demo surface or real one — is a v3.1 ruling.** | Both answers are defensible. Shipping neither is what stops |
@@ -162,10 +138,10 @@ bug.
 
 ### Why #27 is hardening and #35 is not
 
-The line was drawn on **what happens when nothing is added**. A durable workflow today dies on a
-transient 429 mid-graph and cannot resume — that is a robustness defect with a declarative fix
-(#27), and it stays. An agent that receives more MCP tools than it needs still works; filtering
-them is a capability (#35), and it moves. Same test applied to every issue in §4.
+The line is **what happens when nothing is added**. A durable workflow dies on a transient 429
+mid-graph and cannot resume: a robustness defect with a declarative fix (#27), so it stays. An agent
+that receives more MCP tools than it needs still works: filtering them is a capability (#35), so it
+moves. Same test for every issue in §4.
 
 ## 4. The split, as set
 
@@ -246,13 +222,13 @@ v3.3    #25's token ─► #34 per-user creds ─► #129 protocols
         #163 ─► #20 scripts, #37 install     unscheduled, by ruling
 ```
 
-Hard edges: **#34 needs #25's answer**, which is why the minimal token lands a release earlier
-than the identity model. **#227 gates any `asgi()` work**, including whether a context factory is
-a thing that should exist. **#20's remainder and #37 both wait on #163**, which is unscheduled,
-so neither is schedulable. #26 gates nothing formally and should still go first.
+Hard edges: **#34 needs #25's answer**, so the minimal token lands a release earlier than the
+identity model; **#227 gates any `asgi()` work**, including whether a context factory should exist;
+**#20's remainder and #37 both wait on #163**, which is unscheduled, so neither is schedulable. #26
+gates nothing formally and should still go first.
 
 ## 6. Housekeeping before anyone starts
 
-Five issues need their text corrected so the next person does not implement against a tree that
-no longer exists: **#24**, **#35**, **#37**, **#38**, **#20**. Three were closed on 2026-08-11 with a comment
-explaining what replaced them: **#28**, **#43**, **#44**.
+Five issues need their text corrected so nobody implements against a tree that no longer exists:
+**#24**, **#35**, **#37**, **#38**, **#20**. Three were closed 2026-08-11 with a comment explaining
+what replaced them: **#28**, **#43**, **#44**.
