@@ -10,24 +10,108 @@ system and the reason the mark survives at one colour.
 |---|---|
 | `logo.svg` | the mark with its spark — headers, READMEs, anywhere above ~48px |
 | `logo-mark.svg` | the card alone — small sizes, dense UI, anywhere the spark would be noise |
+| `logo-full.svg` | the three-colour lockup — blue card, Canvas A, Ace Red spark |
+| `logo-blue.svg` | mono Agent Blue, for anywhere it is a *file* rather than markup |
+| `logo-white.svg` | mono Canvas, same reason, for a dark ground |
+| `logo-black.svg` | mono Night, same reason, for a light ground |
 | `favicon.svg` | square and centred on the card — favicons, app icons, avatars |
-| `logo-blue.svg` | the mark in Agent Blue, for anywhere it is a *file* rather than markup |
 | `logo-traced-original.svg` | provenance only — see below |
+| `contributor-welcome.svg` | the card the bot posts on a first pull request |
+| `contributor-merged.svg` | the card it posts after a first merged one |
 
-The first three are `fill="currentColor"`, so they take the colour of whatever they sit in and
-need no light/dark variants — provided they are **inlined as markup**.
+**Inlined as markup, `logo.svg` and `logo-mark.svg` need no variants at all**: they are
+`fill="currentColor"` and take the colour of whatever they sit in.
 
-`logo-blue.svg` exists because that proviso is real: an SVG loaded through `<img src>` has no
-parent to inherit from, so `currentColor` falls back to black, and on GitHub's dark theme the mark
-is then black on near-black. Verified side by side rather than assumed. Agent Blue reads on both
-themes, and the A's counter is transparent so each background shows through it — which is why one
-coloured file covers both instead of needing a pair.
+Everything else in that list exists because the proviso is real. An SVG loaded through `<img src>`
+has no parent to inherit from, so `currentColor` falls back to black, and on a dark ground the
+mark is then black on near-black. Verified side by side rather than assumed. So a file dropped
+somewhere gets a variant that names its own colour: `logo-blue.svg` reads on both themes because
+the A's counter is transparent and each background shows through it, `logo-white.svg` and
+`logo-black.svg` cover the grounds where blue is wrong, and `logo-full.svg` is the lockup itself
+for anywhere that can carry three fills.
+
+`favicon.svg` is full colour for the same reason taken to its conclusion: a favicon is *only* ever
+loaded as a file, so `currentColor` was never going to work there. It rendered black on dark
+browser chrome until 2026-08-15.
 
 ```html
 <span style="color: #2563FF">  <!-- Agent Blue -->
   <svg …>…</svg>
 </span>
 ```
+
+## components/ — the parts every composition is copied from
+
+| Part | What it is |
+|---|---|
+| `components/card.svg` | the ace-cut card carrying the A, which is a hole in the path |
+| `components/spark.svg` | the spark alone, drawn geometry, box `880 152.5 196.8 196.7` |
+| `components/wordmark.svg` | `agentdeck` as nine outlines from Poppins-SemiBold |
+
+The spark is drawn geometry rather than a cleaned trace, so it is the one part of the mark that
+no longer descends from `logo-traced-original.svg`. It is drawn rather than approximated, and it
+replaced the traced spark everywhere at once, because two near-identical sparks is the worse thing
+to maintain.
+
+**Every part is drawn in the mark space `246 145 832 933`, so a composition pastes the `<path>`
+with no transform at all.** Position and scale live in the coordinates, and the only thing a
+composition varies is the `viewBox` it frames them with. `logo.svg` is now two paths and nothing
+else. The wordmark is the one exception: it is drawn in its own `0 95 516.86 143` space and placed
+with a single `translate`, since it is not part of the mark.
+
+Colour also belongs to the composition. The parts are `currentColor`; the dark-mode lockup is a
+blue card, a white A and a red spark, and the part files do not know that. Every fill a
+composition sets is a `--brand-*` token from the site's `brand.css`, which the test enforces:
+the A counter sat at `#ffffff` beside a `#fafbfe` headline until it did.
+
+**Copy from here, never from a finished card.** Every other SVG in this directory is a composition
+of these parts, and `tests/test_brand_assets.py` fails if one carries geometry that is in no
+component, or sets the wordmark as live text instead of outlines.
+
+Copy, rather than reference, because reference does not survive the renderer:
+
+| Mechanism | Result |
+|---|---|
+| `<use href="other.svg#id">`, default Chrome flags | renders blank, no error |
+| `<use href="#id">` where the enclosing `<svg>` viewBox is tighter than the part's own space | disappears, no error |
+
+Both failures are silent and land in a PNG that nobody looks at twice. A single source of truth
+that survives every renderer would have to be generation rather than reference, and the test above
+buys most of what that would, for none of the build step.
+
+### Setting type as outlines
+
+Live `<text>` needs the font wherever it renders, and a renderer without it substitutes silently
+rather than failing. Outlines remove that dependency, at the cost of the text no longer being
+editable, which is the right trade for a word that never changes and the wrong one for card copy.
+
+Take the positions from the browser, not from the font. Computing advances means reimplementing
+kerning, and the drift only shows when the two are overlaid.
+
+```js
+// 1. what Chrome actually did, read off the live-text version
+const t = document.querySelector('text')
+for (let i = 0; i < t.textContent.length; i++) console.log(t.getStartPositionOfChar(i))
+```
+
+```python
+# 2. the outline for each glyph, at those positions. fontTools stays out of the project:
+#    uv run --no-project --with fonttools python -
+from fontTools.ttLib import TTFont
+from fontTools.pens.svgPathPen import SVGPathPen
+
+font = TTFont(FONT)
+glyphs, cmap = font.getGlyphSet(), font.getBestCmap()
+scale = SIZE / font["head"].unitsPerEm          # font-size over unitsPerEm
+for char, x, y in positions:
+    pen = SVGPathPen(glyphs)
+    glyphs[cmap[ord(char)]].draw(pen)
+    # glyph space is y-up, the canvas is y-down, so y scales negative
+    emit(f'<path transform="translate({x},{y}) scale({scale},{-scale})" d="{pen.getCommands()}"/>')
+```
+
+Check the result by rendering both and diffing. Antialiasing on glyph edges is expected and
+disappears under `magick compare -fuzz 25%`; anything surviving that is a real positioning error.
 
 ## Vectors only
 
@@ -43,9 +127,11 @@ a recipe, so treat a PNG next to these files as a build artifact that escaped.
 
 ## Still owed from the designer
 
-- **`wordmark.svg`.** The wordmark exists only as a raster, so it is the one asset this directory
-  cannot offer. It should not be traced: type belongs in outlines from the real font, not in an
-  approximation of a screenshot of it.
+- ~~**`wordmark.svg`.**~~ **Delivered.** It is nine glyph outlines from Poppins-SemiBold, set the
+  way this asked: from the real font, not traced from a screenshot. Positions are the browser's
+  own, read back with `getStartPositionOfChar` so the kerning is the engine's rather than a
+  reimplementation of it, at the weight and tracking the site already used. Recipe under
+  *Setting type as outlines*.
 - **The original vector for the mark.** `logo-traced-original.svg` is what was handed over: a
   **potrace trace of a PNG**, not an export. The tells are the SVG 1.0 DTD, the
   `translate(0,1254) scale(0.1,-0.1)` flip, and a viewBox of exactly the PNG's pixel width. The
@@ -65,7 +151,11 @@ shrinks the card to roughly two-thirds the width it could otherwise use. The bra
 favicon panel shows the same shrinkage.
 
 So `favicon.svg` is the card, centred in a square of its own height, filling the box edge to edge.
-The card is already a rounded square, so it reads correctly under a platform's own icon mask.
+The card is already a rounded square, so it reads correctly under a platform's own icon mask. It
+is Agent Blue with a Canvas A rather than `currentColor`, since nothing inlines a favicon.
+
+`docs-site/app/icon.svg` is the same file under the name Next serves it by, and
+`tests/test_brand_assets.py` holds the two together.
 
 ## The social card
 
@@ -96,12 +186,42 @@ magick /tmp/card-2x.png -crop 2560x1280+0+0 +repage -resize 1280x640 -strip soci
 Then upload `social-card.png` at **Settings → General → Social preview**. It is a manual upload;
 no API sets it.
 
-Two things in the SVG that look wrong and are not. The mark is the **dark-mode lockup** from §05 —
-Agent Blue card, white A, Ace Red spark — so it is three fills, not the single `currentColor` the
-other files here use. And the A is a **hole** in the card path, not a shape: both `nonzero` and
-`evenodd` knock it out, because its subpath winds against the outer contour. The white rectangle
-behind the card is what the A shows through. Keep it inside the card silhouette and below the cut
-corner, or it appears as a white edge.
+One thing in the SVG looks wrong and is not. The A is a **hole** in the card path rather than a
+shape: both `nonzero` and `evenodd` knock it out, because its subpath winds against the outer
+contour. The white rectangle behind the card is what the A shows through. Keep it inside the card
+silhouette and below the cut corner, or it appears as a white edge.
+
+The three cards each set the lockup as three fills (Agent Blue card, white A, Ace Red spark)
+rather than the single `currentColor` the part files carry, which is the composition supplying
+colour the parts deliberately do not know.
+
+## The contributor cards
+
+`contributor-welcome.svg` and `contributor-merged.svg` are what `first-contribution.yml` posts on
+a contributor's first PR and after their first merged one. They are 1280×380 rather than the
+social card's 1280×640: a comment renders them near 640px wide and near 320px on a phone, so the
+type is sized for that render instead of scaled down from the social card.
+
+Both carry their own copy of the lockup, same nested viewBox and same transform, taken from
+`components/` and held to it by `tests/test_brand_assets.py`. The merged card adds the spark alone and
+enlarged on the right. Its tight box is `x 880..1077, y 146..356` in the placed coordinate space,
+measured with `getBBox()` rather than derived, since the nested `viewBox` is not square and
+letterboxes under the default `preserveAspectRatio`.
+
+Render them with the recipe above, changing only the height:
+
+```bash
+for card in contributor-welcome contributor-merged; do
+  { printf '<!doctype html><meta charset="utf-8"><style>html,body{margin:0;background:#0b1220}svg{display:block;width:1280px;height:380px}</style>'; cat "$card.svg"; } > /tmp/$card.html
+  google-chrome --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=2 \
+    --window-size=1280,560 --screenshot=/tmp/$card-2x.png file:///tmp/$card.html
+  magick /tmp/$card-2x.png -crop 2560x760+0+0 +repage -resize 1280x380 -strip /tmp/$card.png
+done
+```
+
+The PNGs belong under `.github/assets/`, which is the one place a tracked raster is allowed
+(`docs/coding-standards.md` §11). They live there rather than here because a GitHub comment cannot
+render an SVG.
 
 ## Naming
 
@@ -124,6 +244,17 @@ angled cut on the `t` and the straight `k` diagonals all agree. Rendered side by
 So two of three sources always did agree, and the third is a label in the sheet contradicting the
 sheet's own artwork. Poppins is what the wordmark is, what the site loads, and what the card sets.
 Space Grotesk should be treated as a typo unless someone produces a wordmark drawn in it.
+
+**Amended 2026-08-15: the family holds, the weight does not.** `components/wordmark.svg` is set in
+Poppins **SemiBold**, not Bold. The site was already there and nobody noticed: `app/layout.tsx`
+loads Poppins at `weight: ['500', '600']` only, and sets its own AgentDeck wordmark at 600. So the
+site could not render the Bold this section specifies even if asked, and the social card was the
+only place the wordmark appeared at 700.
+
+Tracking followed. The card had baked `-0.0354em`, a figure tuned against Bold and inherited by
+the lighter weight unexamined, against the site's `-0.02em`. The outlines are regenerated at
+`-1.92`, which is `-0.02em` at font-size 96, so the wordmark now matches the site in family,
+weight and tracking.
 
 The palette is not affected — the sheet's hexes and the site's `brand.css` already match exactly.
 The wider presentation question stays with the docs-site design pass (#140).
