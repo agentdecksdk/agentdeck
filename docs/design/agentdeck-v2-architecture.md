@@ -355,27 +355,25 @@ data.
 
 ### 4.4 Run lifecycle
 
-```text
-                 signal PAUSE          signal RESUME
-  PENDING → RUNNING ──────────→ PAUSED ──────────→ RUNNING
-               │                                     │
-               │ engine emits run.interrupted        │
-               ├────────────→ WAITING_HUMAN ─────────┘  (resume with value)
-               │
-               ├──→ COMPLETED      (terminal)
-               ├──→ FAILED         (terminal)
-               └──→ CANCELLED      (terminal; reachable from RUNNING, PAUSED, WAITING_HUMAN)
-```
+Seven states folded out of the log, the (state × intent) policy over them, and where the tree
+diverges: **`design/run-lifecycle.md`**, which wins on this subject.
+
+Transitions are guarded in one place (`core/status.py`): a signal arriving after a terminal state
+is a **no-op, not an error** — the race is inherent and the state machine absorbs it. `PAUSED` and
+`WAITING_HUMAN` are distinct states because they resume differently.
 
 *(Amended 2026-08-06, issue #44: the two `control.*` kinds are deliberately **not** in this
 machine. A recorded signal moves nothing — a paused run is one that emitted `run.paused`, not
 one somebody asked to pause — so `LIFECYCLE_KINDS` stays the seven kinds it already was.)*
 
-Transitions are guarded in one place (`core/status.py`): a signal arriving after a
-terminal state is a **no-op, not an error** — the race is inherent and the state machine
-absorbs it. `PAUSED` (operator pressed pause) and `WAITING_HUMAN` (the run itself asked a
-question) are distinct states because they resume differently: the first resumes with
-nothing, the second resumes with a value.
+> **Amended 2026-08-14, audited at `da46439`.** The state machine was right; the per-state
+> properties and the (state × intent) policy were never written down anywhere, and three claims
+> this section made are no longer true of the tree. All of it now lives in
+> `design/run-lifecycle.md`, along with the mermaid machine that replaced this section's ASCII
+> one. The divergences:
+> guarded in five places, not one; `CANCELLED` is unreachable from `WAITING_HUMAN` (#229); `PAUSED`
+> is unreachable for a workflow run (#128); and `WAITING_HUMAN` is misnamed, because `sleep_until`
+> parks there too.
 
 ### 4.5 Ports
 
@@ -610,6 +608,22 @@ class ControlPort(ABC):
     async def status(self, run_id: str) -> RunStatus: ...
     async def set_status(self, run_id: str, status: RunStatus) -> None: ...
 ```
+
+> **Amended 2026-08-14 — `status` and `set_status` are retracted, and `ControlPort` is missing one
+> method.** A mutable status on a port is a second source of truth for the fact ADR-D5 makes a
+> projection of the log; `EventStorePort.run_status` owns the question. What shipped is
+> `signal(run_id, sig, reason)` and `poll(run_id)`, with no `ctx`. What is missing is a way to clear
+> a pending signal: `signal()` replaces whatever was pending, so consuming one is spelled *write
+> `RESUME` over it*, which `resume_run` refuses to do unconditionally because it would destroy a
+> cancel that arrived while the run was suspended. `design/run-lifecycle.md`'s `consume` rulings
+> need it first-class, on both control adapters:
+>
+> ```python
+> async def consume(self, run_id: str, expected: ControlSignal) -> bool: ...
+> ```
+>
+> True when this caller cleared exactly the signal it read; False when another actor got there
+> first, at which point the reader re-polls instead of acting on a stale intent.
 
 *(Amended 2026-08-08, `docs/delivery/plan-v2-cutover.md` phase 3: shipped as one `SandboxPort`
 in `core/ports/sandbox.py`, not a `capabilities.py` holding a pre-split

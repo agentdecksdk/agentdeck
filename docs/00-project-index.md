@@ -33,6 +33,7 @@ Date: 2026-08-04. Amended 2026-08-11.
 | 9 | `delivery/docs-site-plan.md` | External docs site (`docs-site/`): IA, content rules, anti-rot tests, phases DS-0…DS-4 | delivery, docs |
 | 10 | `delivery/milestone-0-findings.md` | M0's go/no-go checkpoint: falsifier review, schema-as-built diff, learning note, decision log, keep/harden/discard | delivery, engineers |
 | 11 | `design/adr-d11-store-assigns-seq-and-time.md` | Decision record: the store assigns `seq` and `ts` in the same atomic step that persists an event. **Supersedes** `claim_start`'s "a store never reads a clock" and the envelope-stamping split in doc #3 | engineers |
+| 12 | `design/run-lifecycle.md` | The run lifecycle as built: the state machine, per-state properties, the (state × intent) policy, and the drift. **Supersedes** doc #3 §4.4 | engineers |
 
 ## 1b. The v3 cutover set (added 2026-08-11)
 
@@ -77,12 +78,14 @@ Documents were written in conversation order and later ones refine earlier ones.
    (frozen as history, so superseded here rather than edited), and the design doc's
    envelope-stamping split. **ADR-D5's two-store rule is untouched**, as is the engine boundary —
    engines yield payloads, never envelopes.
-4. `delivery/milestone-0-walking-skeleton.md` reorders early delivery: the epic's Phase 1/2 now
+4. `design/run-lifecycle.md` **is** the run lifecycle. Design doc §4.4 is its summary and links to
+   it; where they differ, this file wins.
+5. `delivery/milestone-0-walking-skeleton.md` reorders early delivery: the epic's Phase 1/2 now
    execute *through* the skeleton (see §4 below). Epic story content is unchanged;
    sequencing defers to this index.
-5. The PRD owns *what and for whom*; the design doc owns *how*; neither restates the
+6. The PRD owns *what and for whom*; the design doc owns *how*; neither restates the
    other. A conflict between them is a bug in one of them — flag it, don't guess.
-6. **The [GitHub Project](https://github.com/users/sagi5060/projects/5) owns live state**
+7. **The [GitHub Project](https://github.com/users/sagi5060/projects/5) owns live state**
    (which issues are open, their milestone, priority and `Status`); `roadmap-v3.md` /
    `roadmap-v3.1.md` / `findings-register.md` own the reasoning behind that state and do not
    self-update. Their live-status tables are generated — `make roadmap-sync` — and GitHub wins
