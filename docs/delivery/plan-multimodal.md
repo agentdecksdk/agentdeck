@@ -72,20 +72,18 @@ real future bug — before #129's adapters relay events, `UnknownBlock` needs a 
 restores the original shape, or adapters must refuse to relay a block they cannot round-trip. Worth
 its own issue now rather than being discovered by a corrupted relay later.
 
-**Binary payloads are both inline and referenced, with a documented threshold and an enforced
-ceiling.** `ImageBlock`/`AudioBlock` carry inline base64, `ResourceBlock` carries a URI; the choice
-is the caller's. Guidance: inline for a few hundred KB — a snapshot, a short utterance —
-`ResourceBlock` above that. Enforcement: a hard cap on `data_b64` length raising at construction
-with a message naming `ResourceBlock`, because a limit that is only documented is a limit that ships
-violated. The failure mode is nasty: a 10 MB base64 clip goes into the append-only event log, into
-every store, and down every SSE connection replaying that run, permanently.
+**Binary payloads are both inline and referenced, with a documented threshold and an enforced ceiling
+(ruling 1).** `ImageBlock`/`AudioBlock` carry inline base64, `ResourceBlock` carries a URI; the
+choice is the caller's, and the guidance is inline for a few hundred KB — a snapshot, a short
+utterance — `ResourceBlock` above that. The cap is enforced at construction because a limit that is
+only documented is a limit that ships violated, and the failure mode is unbounded: a 10 MB base64
+clip goes into the append-only event log, into every store, and down every SSE connection replaying
+that run, permanently.
 
 **This is two schema changes, and `roadmap-v3.md` Wave 2 has them backwards** — it lists #159 → #161
-→ #156, and it should be **#156 first.** They are independent in content but not in sequence: #156
-replaces the scalar `v: int` with major/minor semantics where **minor means "additive, compatible
-schema evolution"**, and adding a block kind is the textbook minor bump. Audio landing first would
-be an additive change with no way to signal itself; #156 landing first makes audio the first real
-exercise of the minor-bump path, which is a better test of that design than anything synthetic.
+→ #156, and it should be **#156 first** (ruling 3). They are independent in content but not in
+sequence: #156 replaces the scalar `v: int` with major/minor semantics where **minor means "additive,
+compatible schema evolution"**, which is exactly what adding a block kind is.
 
 ## What this means for the issues
 

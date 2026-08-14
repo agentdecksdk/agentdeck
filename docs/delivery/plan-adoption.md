@@ -43,31 +43,24 @@ Verified 2026-08-12.
 
 Ordered by value per hour; everything here is reversible and needs no decision.
 
-1. **Publish `agentdeck` to PyPI.** The highest-value item in the plan: prerequisite for Context7
-   and for every "getting started" a reader will try, and an active project one hyphen away is
-   exactly who takes the name next. `release.yml` already builds the artifacts; missing are the
-   project, Trusted Publishing, and a publish step.
-2. **Set a social preview image** (`Settings → General → Social preview`). Every link in X,
-   LinkedIn, Slack, Discord and HN currently renders GitHub's grey default.
-3. **Enable Discussions, disable the empty Wiki.** Discussions gives search engines a corpus of real
-   questions with the project's name attached (item 34); the wiki competes for the same queries with
-   nothing in it.
-4. **Merge the project pages** (PR #257): roadmap, known issues, generated changelog. Known Issues
-   is the page that makes a project look maintained rather than abandoned.
-5. **Write `/llms.txt` and `/llms-full.txt` into the docs build** — generated from
-   `scripts/generate_docs_reference.py`, never hand-written. Items 12–14.
+| # | Do | Why |
+|---|---|---|
+| 1 | **Publish `agentdeck` to PyPI** | The highest-value item in the plan: prerequisite for Context7 and for every "getting started" a reader will try, and an active project one hyphen away is exactly who takes the name next. `release.yml` already builds the artifacts; missing are the project, Trusted Publishing, and a publish step |
+| 2 | **Set a social preview image** (`Settings → General → Social preview`) | Every link in X, LinkedIn, Slack, Discord and HN currently renders GitHub's grey default |
+| 3 | **Enable Discussions, disable the empty Wiki** | Discussions gives search engines a corpus of real questions with the project's name attached (item 34); the wiki competes for the same queries with nothing in it |
+| 4 | **Merge the project pages** (PR #257): roadmap, known issues, generated changelog | Known Issues is the page that makes a project look maintained rather than abandoned |
+| 5 | **Write `/llms.txt` and `/llms-full.txt` into the docs build** | Generated from `scripts/generate_docs_reference.py`, never hand-written. Items 12–14 |
 
 ## 3. The domain cutover — three known blockers
 
 `agentdecksdk.com` is on Cloudflare nameservers and serves nothing. Moving the docs there is not one
 change:
 
-- **`basePath: '/agentdeck'`** in `next.config.mjs` exists because Pages serves from a subdirectory;
-  on an apex domain it must go, and every internal link changes with it.
-- **`test_docs_site_links_in_repo_markdown_reach_a_real_page`** is hardcoded to `sagi5060.github.io`
-  and needs updating in the same commit as the README.
-- **Canonical URLs and redirects** (item 19): GitHub Pages should redirect rather than leave two live
-  copies competing for the same queries.
+| Blocker | What it costs |
+|---|---|
+| **`basePath: '/agentdeck'`** in `next.config.mjs`, because Pages serves from a subdirectory | on an apex domain it must go, and every internal link changes with it |
+| **`test_docs_site_links_in_repo_markdown_reach_a_real_page`** is hardcoded to `sagi5060.github.io` | needs updating in the same commit as the README |
+| **Canonical URLs and redirects** (item 19) | GitHub Pages should redirect rather than leave two live copies competing for the same queries |
 
 **Sequence:** DNS + CNAME → drop `basePath` → update the pin/link tests → set the repo homepage →
 canonical tags → `sitemap.xml` and `robots.txt` → Search Console. Items 1, 17–20.

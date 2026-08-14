@@ -18,8 +18,8 @@ infrastructure work and *before* any of the writing. The question, from the plan
 | **Web search** | **0 / 8** | the 8 highest-value questions |
 | ChatGPT Search · Perplexity | not measured | no API available here — run by hand, see below |
 
-**Zero, essentially everywhere** — the correct and expected reading for a project whose domain was
-one day old and whose package is not on PyPI. A baseline, not a verdict.
+**Zero, essentially everywhere** — the correct reading for a project whose domain was one day old and
+whose package is not on PyPI. A baseline, not a verdict.
 
 **The one GitHub hit is not a real one.** `one ordered event log per agent run` ranks **#1** because
 that phrase is lifted verbatim from the repository description. It matches a string, not a concept;
@@ -56,17 +56,13 @@ result is a *versus* article. That open lane makes `use-your-existing-langgraph-
 highest-value page to write, ahead of `/why-agentdeck`.
 
 **2. The positioning has near-competitors worth knowing.** Two products already wrap rather than
-replace, and neither surfaced in any earlier competitive pass:
-
-- **NVIDIA NeMo Agent Toolkit** — a `langgraph_wrapper` workflow type, *"integrate existing
-  LangGraph agents with minimal changes […] adding configuration management, observability, and
-  evaluation"*. Close to AgentDeck's sentence.
-- **Agno AgentOS** — `LangGraphAgent` *"wraps a compiled LangGraph graph so it can be served through
-  AgentOS or used standalone."*
-
-Neither wraps the OpenAI Agents SDK *and* LangGraph behind one event log, which is the actual
-differentiator — but a comparison page that ignores them will be discounted by a reader who knows
-them.
+replace, and neither surfaced in any earlier competitive pass: **NVIDIA NeMo Agent Toolkit**, whose
+`langgraph_wrapper` workflow type *"integrate[s] existing LangGraph agents with minimal changes […]
+adding configuration management, observability, and evaluation"* — close to AgentDeck's sentence —
+and **Agno AgentOS**, whose `LangGraphAgent` *"wraps a compiled LangGraph graph so it can be served
+through AgentOS or used standalone."* Neither wraps the OpenAI Agents SDK *and* LangGraph behind one
+event log, which is the actual differentiator, but a comparison page that ignores them will be
+discounted by a reader who knows them.
 
 **3. The durable/human-approval space is crowded and well-funded.** Temporal, Restate, DBOS, Pydantic
 AI, Agentspan, AgentScope Runtime and Bedrock AgentCore all rank for it, so competing on "durable

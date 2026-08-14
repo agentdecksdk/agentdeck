@@ -93,12 +93,12 @@ Agent is immutable; build a new one instead of setting 'name'.
 ```
 
 - **`base=` inheritance behaves exactly as specified.** A shared `AgentDeclaration` propagates
-  `instructions` and `model`; an explicit `tools=[]` overrides to empty rather than falling back.
-  The `_UNSET`-versus-falsy distinction is invisible in use, which is the point.
+  `instructions` and `model`; an explicit `tools=[]` overrides to empty rather than falling back, and
+  the `_UNSET`-versus-falsy distinction is invisible in use.
 - **Immutability is real and the error explains itself** — `booking.name = "x"` raises rather than
   silently corrupting a compiled catalog.
-- **`skills=` and `mcp=` coercion is seamless.** Bare path and wrapper object produce identical
-  results; I never had to think about which form to use.
+- **`skills=` and `mcp=` coercion is seamless** — bare path and wrapper object produce identical
+  results.
 - **Tool calling, once wrapped, is flawless** — a two-tool booking agent chained `find_slots` then
   `book_slot` with correct arguments and no prompting tricks.
 - **`build()` catches the right things when it catches them** — duplicate names, unknown skills,
