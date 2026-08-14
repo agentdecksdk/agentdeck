@@ -36,10 +36,17 @@ coloured file covers both instead of needing a pair.
 | Part | What it is |
 |---|---|
 | `components/card.svg` | the ace-cut card carrying the A, which is a hole in the path |
-| `components/spark.svg` | the spark alone, box `x 880..1077, y 146..356` |
+| `components/spark.svg` | the spark alone, drawn geometry, square box `1..23` on both axes |
 | `components/wordmark.svg` | `agentdeck` as live text, Poppins 700, tracking `-0.0354em` |
+| `components/wordmark-v2.svg` | the same word as outlines from Poppins-Bold, awaiting review |
 
-All three are `currentColor` and share one coordinate space
+The spark is drawn geometry rather than a cleaned trace, so it is the one part of the mark that
+no longer descends from `logo-traced-original.svg`. It is 390 characters against the trace's 806,
+and it is square where the traced spark was 196.8 by 210.0. Every composition places it with
+`translate(871.05,143.55) scale(8.9455)`, which maps its `1..23` box onto the footprint the traced
+spark occupied, matched on width and centred vertically, so nothing moved when it was swapped in.
+
+The parts are `currentColor` and share one coordinate space
 (`transform="translate(0,1254) scale(0.1,-0.1)"`), so a `<g>` pasted from any of them lands
 correctly in any composition using that space. Colour belongs to the composition: the dark-mode
 lockup is a blue card, a white A and a red spark, and the part files do not know that.
@@ -59,6 +66,40 @@ Both failures are silent and land in a PNG that nobody looks at twice. A single 
 that survives every renderer would have to be generation rather than reference, and the test above
 buys most of what that would, for none of the build step.
 
+### Setting type as outlines
+
+Live `<text>` needs the font wherever it renders, and a renderer without it substitutes silently
+rather than failing. Outlines remove that dependency, at the cost of the text no longer being
+editable, which is the right trade for a word that never changes and the wrong one for card copy.
+
+Take the positions from the browser, not from the font. Computing advances means reimplementing
+kerning, and the drift only shows when the two are overlaid.
+
+```js
+// 1. what Chrome actually did, read off the live-text version
+const t = document.querySelector('text')
+for (let i = 0; i < t.textContent.length; i++) console.log(t.getStartPositionOfChar(i))
+```
+
+```python
+# 2. the outline for each glyph, at those positions. fontTools stays out of the project:
+#    uv run --no-project --with fonttools python -
+from fontTools.ttLib import TTFont
+from fontTools.pens.svgPathPen import SVGPathPen
+
+font = TTFont(FONT)
+glyphs, cmap = font.getGlyphSet(), font.getBestCmap()
+scale = SIZE / font["head"].unitsPerEm          # font-size over unitsPerEm
+for char, x, y in positions:
+    pen = SVGPathPen(glyphs)
+    glyphs[cmap[ord(char)]].draw(pen)
+    # glyph space is y-up, the canvas is y-down, so y scales negative
+    emit(f'<path transform="translate({x},{y}) scale({scale},{-scale})" d="{pen.getCommands()}"/>')
+```
+
+Check the result by rendering both and diffing. Antialiasing on glyph edges is expected and
+disappears under `magick compare -fuzz 25%`; anything surviving that is a real positioning error.
+
 ## Vectors only
 
 The rule and its reasoning are in `docs/coding-standards.md` §11. What it means here: the
@@ -75,7 +116,11 @@ a recipe, so treat a PNG next to these files as a build artifact that escaped.
 
 - **`wordmark.svg`.** The wordmark exists only as a raster, so it is the one asset this directory
   cannot offer. It should not be traced: type belongs in outlines from the real font, not in an
-  approximation of a screenshot of it.
+  approximation of a screenshot of it. `components/wordmark-v2.svg` is a candidate answer, built
+  the way this asks: nine glyph outlines from Poppins-Bold, one path each. The positions are the
+  browser's own, read back with `getStartPositionOfChar` so the kerning is the engine's rather
+  than a reimplementation of it, and it renders pixel-identical to the live-text version at 25%
+  fuzz. Recipe below. It is unadopted until reviewed.
 - **The original vector for the mark.** `logo-traced-original.svg` is what was handed over: a
   **potrace trace of a PNG**, not an export. The tells are the SVG 1.0 DTD, the
   `translate(0,1254) scale(0.1,-0.1)` flip, and a viewBox of exactly the PNG's pixel width. The

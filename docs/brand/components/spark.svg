@@ -1,15 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="880 146 197 210" fill="currentColor" role="img" aria-label="AgentDeck spark">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="1 1 22 22" fill="currentColor" role="img" aria-label="AgentDeck spark">
   <title>Spark</title>
-  <desc>The Ace Red spark alone. Canonical geometry: copy the g below into a composition, never
-  re-extract it from a finished card. Its box in this coordinate space is x 880..1077, y 146..356,
-  measured with getBBox rather than derived.</desc>
-  <g transform="translate(0,1254) scale(0.1,-0.1)">
-    <path d="M9757 11068 c-9 -7 -28 -47 -43 -88 -69 -195 -196 -400 -343 -553
--144 -149 -302 -263 -459 -327 -42 -18 -85 -39 -94 -48 -18 -15 -24 -68 -10
--87 4 -6 68 -40 142 -77 164 -82 282 -168 415 -303 156 -158 266 -325 334
--510 19 -50 34 -74 54 -85 45 -25 74 -1 112 95 74 186 177 345 318 492 138
-143 242 219 425 310 125 62 153 80 159 101 7 28 -12 71 -37 82 -227 107 -303
-152 -401 237 -84 74 -177 176 -247 271 -68 93 -177 303 -212 408 -28 84 -70
-114 -113 82z"/>
-  </g>
+  <desc>The spark alone, as clean geometry rather than the traced outline the logo carries. One of
+  the two sparks the source file held; the smaller companion is dropped. Box is x 1..23, y 1..23,
+  measured with getBBox. Square, where the traced spark is 196.8 by 210.0.</desc>
+  <path d="M14.217,19.707l-1.112,2.547c-0.427,0.979-1.782,0.979-2.21,0l-1.112-2.547c-0.99-2.267-2.771-4.071-4.993-5.057	L1.73,13.292c-0.973-0.432-0.973-1.848,0-2.28l2.965-1.316C6.974,8.684,8.787,6.813,9.76,4.47l1.126-2.714	c0.418-1.007,1.81-1.007,2.228,0L14.24,4.47c0.973,2.344,2.786,4.215,5.065,5.226l2.965,1.316c0.973,0.432,0.973,1.848,0,2.28	l-3.061,1.359C16.988,15.637,15.206,17.441,14.217,19.707z"/>
 </svg>
