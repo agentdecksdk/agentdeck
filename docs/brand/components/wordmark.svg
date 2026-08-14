@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 95 512 142" fill="currentColor" role="img" aria-label="agentdeck">
+  <title>Wordmark</title>
+  <desc>The wordmark as live text, not outlines, so it needs Poppins resolvable to the renderer.
+  The tracking is what gets it wrong when retyped: letter-spacing is -0.0354em, which is -3.4 at
+  this size. Weight is 700. Box measured at this size with getBBox: x 0..508, y 99..234.</desc>
+  <text x="0" y="200" font-family="Poppins, sans-serif" font-weight="700" font-size="96" letter-spacing="-3.4">agentdeck</text>
+</svg>

@@ -31,6 +31,34 @@ coloured file covers both instead of needing a pair.
 </span>
 ```
 
+## components/ — the parts every composition is copied from
+
+| Part | What it is |
+|---|---|
+| `components/card.svg` | the ace-cut card carrying the A, which is a hole in the path |
+| `components/spark.svg` | the spark alone, box `x 880..1077, y 146..356` |
+| `components/wordmark.svg` | `agentdeck` as live text, Poppins 700, tracking `-0.0354em` |
+
+All three are `currentColor` and share one coordinate space
+(`transform="translate(0,1254) scale(0.1,-0.1)"`), so a `<g>` pasted from any of them lands
+correctly in any composition using that space. Colour belongs to the composition: the dark-mode
+lockup is a blue card, a white A and a red spark, and the part files do not know that.
+
+**Copy from here, never from a finished card.** Every other SVG in this directory is a composition
+of these parts, and `tests/test_brand_assets.py` fails if one carries geometry that is in no
+component, or sets the wordmark in anything but Poppins 700 at that tracking.
+
+Copy, rather than reference, because reference does not survive the renderer:
+
+| Mechanism | Result |
+|---|---|
+| `<use href="other.svg#id">`, default Chrome flags | renders blank, no error |
+| `<use href="#id">` where the enclosing `<svg>` viewBox is tighter than the part's own space | disappears, no error |
+
+Both failures are silent and land in a PNG that nobody looks at twice. A single source of truth
+that survives every renderer would have to be generation rather than reference, and the test above
+buys most of what that would, for none of the build step.
+
 ## Vectors only
 
 The rule and its reasoning are in `docs/coding-standards.md` §11. What it means here: the
@@ -112,8 +140,8 @@ a contributor's first PR and after their first merged one. They are 1280×380 ra
 social card's 1280×640: a comment renders them near 640px wide and near 320px on a phone, so the
 type is sized for that render instead of scaled down from the social card.
 
-Both reuse the social card's lockup verbatim, same nested viewBox and same transform, so the three
-cards share one geometry rather than three that drift. The merged card adds the spark alone and
+Both carry their own copy of the lockup, same nested viewBox and same transform, taken from
+`components/` and held to it by `tests/test_brand_assets.py`. The merged card adds the spark alone and
 enlarged on the right. Its tight box is `x 880..1077, y 146..356` in the placed coordinate space,
 measured with `getBBox()` rather than derived, since the nested `viewBox` is not square and
 letterboxes under the default `preserveAspectRatio`.

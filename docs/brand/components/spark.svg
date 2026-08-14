@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="880 146 197 210" fill="currentColor" role="img" aria-label="AgentDeck spark">
+  <title>Spark</title>
+  <desc>The Ace Red spark alone. Canonical geometry: copy the g below into a composition, never
+  re-extract it from a finished card. Its box in this coordinate space is x 880..1077, y 146..356,
+  measured with getBBox rather than derived.</desc>
+  <g transform="translate(0,1254) scale(0.1,-0.1)">
+    <path d="M9757 11068 c-9 -7 -28 -47 -43 -88 -69 -195 -196 -400 -343 -553
+-144 -149 -302 -263 -459 -327 -42 -18 -85 -39 -94 -48 -18 -15 -24 -68 -10
+-87 4 -6 68 -40 142 -77 164 -82 282 -168 415 -303 156 -158 266 -325 334
+-510 19 -50 34 -74 54 -85 45 -25 74 -1 112 95 74 186 177 345 318 492 138
+143 242 219 425 310 125 62 153 80 159 101 7 28 -12 71 -37 82 -227 107 -303
+152 -401 237 -84 74 -177 176 -247 271 -68 93 -177 303 -212 408 -28 84 -70
+114 -113 82z"/>
+  </g>
+</svg>
