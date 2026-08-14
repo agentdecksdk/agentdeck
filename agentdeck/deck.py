@@ -780,6 +780,10 @@ class Deck:
         by the ``run_id`` it named there — the lookup this needs (invocable, thread, session)
         travels with it, so a caller supplies only the id and the value.
 
+        ``value`` is passed to the interrupted node unvalidated. The node owns its answer
+        contract and must interpret or validate the value it expects; a wrong type or value is
+        not an :meth:`answer` error unless the node rejects it.
+
         ``context`` mirrors :meth:`run`'s, and has to be supplied again: the value is never
         serialized, so the interrupted run's own copy is gone by the time anybody answers it. A
         node that read ``ctx.data`` before the interrupt re-runs from its start on resume, so

@@ -33,6 +33,11 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Changed
 
+- **`Deck.answer()` now documents that answer values are passed to the interrupted node
+  unvalidated.** The reference and human-approval guide make the node's ownership of interpreting
+  and validating its answer contract explicit, and the shipped approval example rejects values
+  outside the `"yes"`/`"no"` contract it defines.
+
 - **`agentdeck.testing.scripted_model_server`'s `tool_name=` now also accepts a sequence of
   names** (#248), one tool call per request in order, then plain text once the sequence is
   exhausted — the shape a multi-step tool chain or a handoff round trip needs to script.

@@ -19,6 +19,8 @@ def _price(state: RefundState) -> dict:
 
 def _confirm(state: RefundState) -> dict:
     decision = interrupt({"question": f"Refund EUR {state.amount_eur} on order {state.order_id}?"})
+    if decision not in {"yes", "no"}:
+        raise ValueError(f"approval expects 'yes' or 'no', got {decision!r}")
     return {"approved": decision == "yes"}
 
 

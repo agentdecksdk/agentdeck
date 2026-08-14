@@ -35,7 +35,8 @@ Expected output:
 
 - **`interrupt()` returns the question instead of a final state.** The run is parked in the
   checkpointer; `pending()` is the inbox of parked runs and `answer(run_id, value)` is how one
-  continues.
+  continues. `answer()` passes the value through unvalidated, so `_confirm` owns the answer
+  contract and rejects anything other than the `"yes"` or `"no"` strings it expects.
 - **The interrupting node re-runs from its start on resume.** `_confirm` therefore does nothing
   but ask, `_price` does its work before the pause, and `_settle` — the node that would actually
   move money — runs after the decision. A side effect inside `_confirm` would happen twice.

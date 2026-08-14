@@ -34,6 +34,8 @@ def _quote(state: QuoteState) -> dict:
 
 def _confirm(state: QuoteState) -> dict:
     decision = interrupt({"question": f"Send quote: {state.quote}?"})
+    if decision not in {"yes", "no"}:
+        raise ValueError(f"approval expects 'yes' or 'no', got {decision!r}")
     return {"approved": decision == "yes"}
 
 
@@ -82,6 +84,12 @@ asyncio.run(main())
 `p.invocable == "QuoteApproval"` when more than one durable workflow is in flight. `answer()`
 needs only the `run_id` `pending()` named; it looks up which workflow and which thread that run
 belongs to itself.
+
+`answer()` passes its value to the interrupted node without validating it. That has to be the
+node's job because only the node knows its answer contract: `_confirm` above expects exactly the
+strings `"yes"` and `"no"`, while another node could expect a number or a structured value. If
+the node did not check, an unexpected value such as `12345` would not make `answer()` fail — the
+comparison would simply treat it as a declined quote.
 
 ### If the workflow takes a context, answer with it too
 

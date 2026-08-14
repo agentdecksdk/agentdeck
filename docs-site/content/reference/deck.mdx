@@ -290,6 +290,11 @@ is paused on and returns the final state (or the next `InterruptResult`); it loo
 itself (which workflow, which thread, which session) from the same source `pending()` reads, so a
 caller supplies only the id `pending()` named and the value.
 
+`value` is passed to the interrupted node unvalidated. The node owns the answer contract: it
+must interpret or validate the type and values it expects. Passing a different type or value is
+not an `answer()` error unless the node rejects it; otherwise the node may simply interpret it as
+a different answer.
+
 `answer(run_id, value, context=...)` and `resume(run_id, context=...)` take the same `context=`
 `run` does, and it has to be supplied again: the value is never serialized, so the run's own copy
 is gone by the time anybody picks it up. Omitting it is not "keep what the run had" — there is
