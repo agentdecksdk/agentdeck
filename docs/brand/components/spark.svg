@@ -1,7 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="1 1 22 22" fill="currentColor" role="img" aria-label="AgentDeck spark">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="880 152.5 196.8 196.7" fill="currentColor" role="img" aria-label="AgentDeck spark">
   <title>Spark</title>
-  <desc>The spark alone, as clean geometry rather than the traced outline the logo carries. One of
-  the two sparks the source file held; the smaller companion is dropped. Box is x 1..23, y 1..23,
-  measured with getBBox. Square, where the traced spark is 196.8 by 210.0.</desc>
-  <path d="M14.217,19.707l-1.112,2.547c-0.427,0.979-1.782,0.979-2.21,0l-1.112-2.547c-0.99-2.267-2.771-4.071-4.993-5.057	L1.73,13.292c-0.973-0.432-0.973-1.848,0-2.28l2.965-1.316C6.974,8.684,8.787,6.813,9.76,4.47l1.126-2.714	c0.418-1.007,1.81-1.007,2.228,0L14.24,4.47c0.973,2.344,2.786,4.215,5.065,5.226l2.965,1.316c0.973,0.432,0.973,1.848,0,2.28	l-3.061,1.359C16.988,15.637,15.206,17.441,14.217,19.707z"/>
+  <desc>The spark alone. Drawn geometry, not a trace, and already sized and positioned for the mark
+  space 246 145 832 933, so a composition pastes it with no transform.</desc>
+  <path d="M 998.23,319.84 l -9.95,22.78 c -3.82,8.76 -15.94,8.76 -19.77,0 l -9.95,-22.78 c -8.86,-20.28 -24.79,-36.42 -44.66,-45.24 L 886.53,262.45 c -8.7,-3.86 -8.7,-16.53 0,-20.4 l 26.52,-11.77 C 933.44,221.23 949.65,204.5 958.36,183.54 l 10.07,-24.28 c 3.74,-9.01 16.19,-9.01 19.93,0 L 998.43,183.54 c 8.7,20.97 24.92,37.71 45.31,46.75 l 26.52,11.77 c 8.7,3.86 8.7,16.53 0,20.4 l -27.38,12.16 C 1023.02,283.43 1007.08,299.57 998.23,319.84 z"/>
 </svg>

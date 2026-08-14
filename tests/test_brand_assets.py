@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BRAND = ROOT / "docs" / "brand"
 COMPONENTS = BRAND / "components"
 PATH_D = re.compile(r'\sd="([^"]+)"')
-TEXT_ATTRS = re.compile(r"<text\b([^>]*)>agentdeck</text>")
+WORD = "agentdeck"
 
 # The designer's trace is history, not a consumer: freezing it against a component would mean
 # editing provenance whenever the geometry it records is revised.
@@ -55,25 +55,13 @@ def test_composition_carries_only_component_geometry(svg: Path) -> None:
         )
 
 
-def test_the_wordmark_keeps_its_tracking() -> None:
-    """Retyping the wordmark is what loses the tracking, and at a glance nothing looks wrong."""
-    spec = TEXT_ATTRS.search((COMPONENTS / "wordmark.svg").read_text())
-    assert spec, "wordmark.svg no longer renders `agentdeck` as text"
-    ratio = _tracking(spec.group(1))
-
-    for svg in _compositions():
-        for attrs in TEXT_ATTRS.findall(svg.read_text()):
-            assert "Poppins" in attrs and 'font-weight="700"' in attrs, (
-                f"{svg.name} sets the wordmark in something other than Poppins 700"
-            )
-            assert abs(_tracking(attrs) - ratio) < 1e-4, (
-                f"{svg.name} tracks the wordmark at {_tracking(attrs):.4f}em, not {ratio:.4f}em"
-            )
-
-
-def _tracking(attrs: str) -> float:
-    """`letter-spacing` is absolute in SVG, so only its ratio to `font-size` survives a resize."""
-    size = re.search(r'font-size="([\d.]+)"', attrs)
-    spacing = re.search(r'letter-spacing="(-?[\d.]+)"', attrs)
-    assert size and spacing, f"wordmark text carries no size or tracking: {attrs.strip()}"
-    return float(spacing.group(1)) / float(size.group(1))
+def test_the_wordmark_is_outlines_everywhere() -> None:
+    """Set live, the wordmark is a font dependency: a renderer without Poppins substitutes rather
+    than failing, so the card still comes out, in the wrong face, and the PNG ships that way.
+    Outlines carry the weight and the tracking as geometry, which the test above then pins.
+    """
+    assert len(PATH_D.findall((COMPONENTS / "wordmark.svg").read_text())) == len(WORD), (
+        f"wordmark.svg should be one outline per letter of `{WORD}`"
+    )
+    live = [svg.name for svg in _compositions() if f">{WORD}</text>" in svg.read_text()]
+    assert not live, f"the wordmark is set as live text in: {live}"

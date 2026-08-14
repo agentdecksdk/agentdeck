@@ -41,19 +41,22 @@ coloured file covers both instead of needing a pair.
 | `components/wordmark-v2-{700,600,500,400}.svg` | the same word as outlines, one per weight, awaiting a pick |
 
 The spark is drawn geometry rather than a cleaned trace, so it is the one part of the mark that
-no longer descends from `logo-traced-original.svg`. It is 390 characters against the trace's 806,
-and it is square where the traced spark was 196.8 by 210.0. Every composition places it with
-`translate(871.05,143.55) scale(8.9455)`, which maps its `1..23` box onto the footprint the traced
-spark occupied, matched on width and centred vertically, so nothing moved when it was swapped in.
+no longer descends from `logo-traced-original.svg`. It is drawn rather than approximated, and it
+replaced the traced spark everywhere at once, because two near-identical sparks is the worse thing
+to maintain.
 
-The parts are `currentColor` and share one coordinate space
-(`transform="translate(0,1254) scale(0.1,-0.1)"`), so a `<g>` pasted from any of them lands
-correctly in any composition using that space. Colour belongs to the composition: the dark-mode
-lockup is a blue card, a white A and a red spark, and the part files do not know that.
+**Every part is drawn in the mark space `246 145 832 933`, so a composition pastes the `<path>`
+with no transform at all.** Position and scale live in the coordinates, and the only thing a
+composition varies is the `viewBox` it frames them with. `logo.svg` is now two paths and nothing
+else. The wordmark is the one exception: it is drawn in its own `0 95 505 142` space and placed
+with a single `translate`, since it is not part of the mark.
+
+Colour also belongs to the composition. The parts are `currentColor`; the dark-mode lockup is a
+blue card, a white A and a red spark, and the part files do not know that.
 
 **Copy from here, never from a finished card.** Every other SVG in this directory is a composition
 of these parts, and `tests/test_brand_assets.py` fails if one carries geometry that is in no
-component, or sets the wordmark in anything but Poppins 700 at that tracking.
+component, or sets the wordmark as live text instead of outlines.
 
 Copy, rather than reference, because reference does not survive the renderer:
 
@@ -114,24 +117,11 @@ a recipe, so treat a PNG next to these files as a build artifact that escaped.
 
 ## Still owed from the designer
 
-- **`wordmark.svg`.** The wordmark exists only as a raster, so it is the one asset this directory
-  cannot offer. It should not be traced: type belongs in outlines from the real font, not in an
-  approximation of a screenshot of it. The `components/wordmark-v2-*.svg` files are candidate
-  answers, built the way this asks: nine glyph outlines, one path each, at four weights.
-
-  | File | Face | Run width |
-  |---|---|---|
-  | `wordmark-v2-700.svg` | Poppins Bold | 512 |
-  | `wordmark-v2-600.svg` | Poppins SemiBold | 505 |
-  | `wordmark-v2-500.svg` | Poppins Medium | 499 |
-  | `wordmark-v2-400.svg` | Poppins Regular | 494 |
-
-  Positions are the browser's own, read back with `getStartPositionOfChar` so the kerning is the
-  engine's rather than a reimplementation of it, per weight. The 700 renders pixel-identical to
-  the live-text version at 25% fuzz, the remainder being antialiasing. Recipe below. All four
-  carry Bold's `-3.4` tracking so the comparison isolates weight; a lighter pick wants that
-  revisited. Adopting one means updating `social-card.svg`, `components/wordmark.svg` and the
-  weight assertion in `tests/test_brand_assets.py` together. None is adopted yet.
+- ~~**`wordmark.svg`.**~~ **Delivered.** It is nine glyph outlines from Poppins-SemiBold, set the
+  way this asked: from the real font, not traced from a screenshot. Positions are the browser's
+  own, read back with `getStartPositionOfChar` so the kerning is the engine's rather than a
+  reimplementation of it. Recipe under *Setting type as outlines*. What is still open is the
+  weight, below.
 - **The original vector for the mark.** `logo-traced-original.svg` is what was handed over: a
   **potrace trace of a PNG**, not an export. The tells are the SVG 1.0 DTD, the
   `translate(0,1254) scale(0.1,-0.1)` flip, and a viewBox of exactly the PNG's pixel width. The
@@ -182,12 +172,14 @@ magick /tmp/card-2x.png -crop 2560x1280+0+0 +repage -resize 1280x640 -strip soci
 Then upload `social-card.png` at **Settings → General → Social preview**. It is a manual upload;
 no API sets it.
 
-Two things in the SVG that look wrong and are not. The mark is the **dark-mode lockup** from §05 —
-Agent Blue card, white A, Ace Red spark — so it is three fills, not the single `currentColor` the
-other files here use. And the A is a **hole** in the card path, not a shape: both `nonzero` and
-`evenodd` knock it out, because its subpath winds against the outer contour. The white rectangle
-behind the card is what the A shows through. Keep it inside the card silhouette and below the cut
-corner, or it appears as a white edge.
+One thing in the SVG looks wrong and is not. The A is a **hole** in the card path rather than a
+shape: both `nonzero` and `evenodd` knock it out, because its subpath winds against the outer
+contour. The white rectangle behind the card is what the A shows through. Keep it inside the card
+silhouette and below the cut corner, or it appears as a white edge.
+
+The three cards each set the lockup as three fills (Agent Blue card, white A, Ace Red spark)
+rather than the single `currentColor` the part files carry, which is the composition supplying
+colour the parts deliberately do not know.
 
 ## The contributor cards
 
@@ -238,6 +230,17 @@ angled cut on the `t` and the straight `k` diagonals all agree. Rendered side by
 So two of three sources always did agree, and the third is a label in the sheet contradicting the
 sheet's own artwork. Poppins is what the wordmark is, what the site loads, and what the card sets.
 Space Grotesk should be treated as a typo unless someone produces a wordmark drawn in it.
+
+**Amended 2026-08-15: the family holds, the weight does not.** `components/wordmark.svg` is set in
+Poppins **SemiBold**, not Bold. The site was already there and nobody noticed: `app/layout.tsx`
+loads Poppins at `weight: ['500', '600']` only, and sets its own AgentDeck wordmark at 600. So the
+site could not render the Bold this section specifies even if asked, and the social card was the
+only place the wordmark appeared at 700.
+
+One inconsistency survives the change and is not yet resolved: the site tracks its wordmark at
+`-0.02em` while the card bakes in `-0.0354em` (`-3.4` at font-size 96), which is close to double.
+The card's figure was tuned against Bold and inherited by the lighter weight unexamined. Matching
+the site means regenerating the outlines at `-1.92`.
 
 The palette is not affected — the sheet's hexes and the site's `brand.css` already match exactly.
 The wider presentation question stays with the docs-site design pass (#140).
