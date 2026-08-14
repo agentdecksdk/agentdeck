@@ -13,6 +13,8 @@ system and the reason the mark survives at one colour.
 | `favicon.svg` | square and centred on the card — favicons, app icons, avatars |
 | `logo-blue.svg` | the mark in Agent Blue, for anywhere it is a *file* rather than markup |
 | `logo-traced-original.svg` | provenance only — see below |
+| `contributor-welcome.svg` | the card the bot posts on a first pull request |
+| `contributor-merged.svg` | the card it posts after a first merged one |
 
 The first three are `fill="currentColor"`, so they take the colour of whatever they sit in and
 need no light/dark variants — provided they are **inlined as markup**.
@@ -102,6 +104,34 @@ other files here use. And the A is a **hole** in the card path, not a shape: bot
 `evenodd` knock it out, because its subpath winds against the outer contour. The white rectangle
 behind the card is what the A shows through. Keep it inside the card silhouette and below the cut
 corner, or it appears as a white edge.
+
+## The contributor cards
+
+`contributor-welcome.svg` and `contributor-merged.svg` are what `first-contribution.yml` posts on
+a contributor's first PR and after their first merged one. They are 1280×380 rather than the
+social card's 1280×640: a comment renders them near 640px wide and near 320px on a phone, so the
+type is sized for that render instead of scaled down from the social card.
+
+Both reuse the social card's lockup verbatim, same nested viewBox and same transform, so the three
+cards share one geometry rather than three that drift. The merged card adds the spark alone and
+enlarged on the right. Its tight box is `x 880..1077, y 146..356` in the placed coordinate space,
+measured with `getBBox()` rather than derived, since the nested `viewBox` is not square and
+letterboxes under the default `preserveAspectRatio`.
+
+Render them with the recipe above, changing only the height:
+
+```bash
+for card in contributor-welcome contributor-merged; do
+  { printf '<!doctype html><meta charset="utf-8"><style>html,body{margin:0;background:#0b1220}svg{display:block;width:1280px;height:380px}</style>'; cat "$card.svg"; } > /tmp/$card.html
+  google-chrome --headless --disable-gpu --hide-scrollbars --force-device-scale-factor=2 \
+    --window-size=1280,560 --screenshot=/tmp/$card-2x.png file:///tmp/$card.html
+  magick /tmp/$card-2x.png -crop 2560x760+0+0 +repage -resize 1280x380 -strip /tmp/$card.png
+done
+```
+
+The PNGs belong under `.github/assets/`, which is the one place a tracked raster is allowed
+(`docs/coding-standards.md` §11). They live there rather than here because a GitHub comment cannot
+render an SVG.
 
 ## Naming
 
