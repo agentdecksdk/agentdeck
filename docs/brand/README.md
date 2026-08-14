@@ -38,7 +38,7 @@ coloured file covers both instead of needing a pair.
 | `components/card.svg` | the ace-cut card carrying the A, which is a hole in the path |
 | `components/spark.svg` | the spark alone, drawn geometry, square box `1..23` on both axes |
 | `components/wordmark.svg` | `agentdeck` as live text, Poppins 700, tracking `-0.0354em` |
-| `components/wordmark-v2.svg` | the same word as outlines from Poppins-Bold, awaiting review |
+| `components/wordmark-v2-{700,600,500,400}.svg` | the same word as outlines, one per weight, awaiting a pick |
 
 The spark is drawn geometry rather than a cleaned trace, so it is the one part of the mark that
 no longer descends from `logo-traced-original.svg`. It is 390 characters against the trace's 806,
@@ -116,11 +116,22 @@ a recipe, so treat a PNG next to these files as a build artifact that escaped.
 
 - **`wordmark.svg`.** The wordmark exists only as a raster, so it is the one asset this directory
   cannot offer. It should not be traced: type belongs in outlines from the real font, not in an
-  approximation of a screenshot of it. `components/wordmark-v2.svg` is a candidate answer, built
-  the way this asks: nine glyph outlines from Poppins-Bold, one path each. The positions are the
-  browser's own, read back with `getStartPositionOfChar` so the kerning is the engine's rather
-  than a reimplementation of it, and it renders pixel-identical to the live-text version at 25%
-  fuzz. Recipe below. It is unadopted until reviewed.
+  approximation of a screenshot of it. The `components/wordmark-v2-*.svg` files are candidate
+  answers, built the way this asks: nine glyph outlines, one path each, at four weights.
+
+  | File | Face | Run width |
+  |---|---|---|
+  | `wordmark-v2-700.svg` | Poppins Bold | 512 |
+  | `wordmark-v2-600.svg` | Poppins SemiBold | 505 |
+  | `wordmark-v2-500.svg` | Poppins Medium | 499 |
+  | `wordmark-v2-400.svg` | Poppins Regular | 494 |
+
+  Positions are the browser's own, read back with `getStartPositionOfChar` so the kerning is the
+  engine's rather than a reimplementation of it, per weight. The 700 renders pixel-identical to
+  the live-text version at 25% fuzz, the remainder being antialiasing. Recipe below. All four
+  carry Bold's `-3.4` tracking so the comparison isolates weight; a lighter pick wants that
+  revisited. Adopting one means updating `social-card.svg`, `components/wordmark.svg` and the
+  weight assertion in `tests/test_brand_assets.py` together. None is adopted yet.
 - **The original vector for the mark.** `logo-traced-original.svg` is what was handed over: a
   **potrace trace of a PNG**, not an export. The tells are the SVG 1.0 DTD, the
   `translate(0,1254) scale(0.1,-0.1)` flip, and a viewBox of exactly the PNG's pixel width. The

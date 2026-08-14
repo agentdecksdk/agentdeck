@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 95 512 142" fill="currentColor" role="img" aria-label="agentdeck">
   <title>Wordmark</title>
-  <desc>Outlines from Poppins-Bold, one path per glyph. Positions are the browser's own, read
-  back with getStartPositionOfChar, so the tracking matches what the live-text version rendered.</desc>
+  <desc>Outlines from Poppins-Bold (700), one path per glyph. Positions are the browser's
+  own, read back with getStartPositionOfChar, so the tracking is the engine's.</desc>
   <g>
     <path transform="translate(0,200) scale(0.096,-0.096)" d="M274 566Q333 566 377.5 542.0Q422 518 446 479V558H617V0H446V79Q421 40 376.5 16.0Q332 -8 273 -8Q205 -8 149.0 27.5Q93 63 60.5 128.5Q28 194 28 280Q28 366 60.5 431.0Q93 496 149.0 531.0Q205 566 274 566ZM324 417Q273 417 237.5 380.5Q202 344 202 280Q202 216 237.5 178.5Q273 141 324 141Q375 141 410.5 178.0Q446 215 446 279Q446 343 410.5 380.0Q375 417 324 417Z"/>
     <path transform="translate(61.7813,200) scale(0.096,-0.096)" d="M446 479V558H617V1Q617 -76 586.5 -138.5Q556 -201 493.5 -238.0Q431 -275 338 -275Q214 -275 137.0 -216.5Q60 -158 49 -58H218Q226 -90 256.0 -108.5Q286 -127 330 -127Q383 -127 414.5 -96.5Q446 -66 446 1V80Q421 41 377.0 16.5Q333 -8 274 -8Q205 -8 149.0 27.5Q93 63 60.5 128.5Q28 194 28 280Q28 366 60.5 431.0Q93 496 149.0 531.0Q205 566 274 566Q333 566 377.5 542.0Q422 518 446 479ZM324 417Q273 417 237.5 380.5Q202 344 202 280Q202 216 237.5 178.5Q273 141 324 141Q375 141 410.5 178.0Q446 215 446 279Q446 343 410.5 380.0Q375 417 324 417Z"/>
