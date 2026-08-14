@@ -23,10 +23,8 @@ answers; turn 2 in the same session is answered from turn-1 context (the fake as
 full prior transcript, tool result included); then the transcript is read back from the store alone.
 
 - Two labeled bubbles, never one smeared paragraph — the renderer distinguishes speakers **using only `origin` + `message_id`**; a second mechanism found by grep means the envelope fields are insufficient, which is a falsifier.
-- Step 3 rebuilds the transcript from `message.completed` events **alone**, no delta assembly anywhere in the reader (decision B in practice).
-- The **transcript-fidelity test** (ADR-D5) for the first time: transcript from the SDK session ≡ transcript from the event log, in content and order. If it needs byte-level normalization, the invariant is wrongly specified — stop.
-- Turn 2's captured model input holds the exact turn-1 items including the untruncated tool result — proving execution state, not the log, fed the model — while the **log** shows only preview + hash + size (decision 7) and the **SDK session** holds the full bytes.
-- Every event round-trips against the schema; `seq` is contiguous from 0 per run.
+- The transcript rebuilds from `message.completed` events **alone**, no delta assembly anywhere in the reader (decision B in practice), and the **transcript-fidelity test** (ADR-D5) runs for the first time: transcript from the SDK session ≡ transcript from the event log, in content and order. If it needs byte-level normalization the invariant is wrongly specified — stop.
+- Turn 2's captured model input holds the exact turn-1 items including the untruncated tool result — proving execution state, not the log, fed the model — while the **log** carries only preview + hash + size (decision 7). Every event round-trips against the schema; `seq` is contiguous from 0 per run.
 
 **Amendment (2026-08-05, #52 review — design finding, not fixed here).** The first bullet is red as
 literally written: `origin` is invocable-scoped, stamped `origin = spec.name` for every event of a run
@@ -50,12 +48,10 @@ same store, renderer and serve process as UC1. Node A runs and interrupts; `kill
 restart it; `GET /pending` lists the interrupt with its payload; `POST /resume {thread_id, value}`
 runs node B to completion.
 
-- **Zero edits to the UC1 consumers** — `node.updated` falls through the renderer's default case harmlessly. Any needed edit means the engine abstraction leaked. Verify by diff, not impression.
-- Status transitions in order `RUNNING → WAITING_HUMAN → RUNNING → COMPLETED`, and after the kill the status reads `WAITING_HUMAN` from persistence.
-- The resumed run's events continue in the **same session's** append order — one coherent story across the restart, with no duplicate node-A events (or, if node-A re-execution is visible, it matches the safe-point contract, decided below).
+- **Zero edits to the UC1 consumers** — `node.updated` falls through the renderer's default case harmlessly. Any needed edit means the engine abstraction leaked; verify by diff, not impression.
+- Status transitions in order `RUNNING → WAITING_HUMAN → RUNNING → COMPLETED`, read from persistence after the kill; the resumed run's events continue in the **same session's** append order, one coherent story with no duplicate node-A events (or, if node-A re-execution is visible, matching the safe-point contract decided below).
 - Exactly one terminal event and it is last, even across the restart; `seq` continues **contiguously across the restart** — no reset, no gap — because resume recovers the counter via `max(seq)` from the store.
-- **Double-resume race:** two concurrent `resume` calls for one interrupt — exactly one wins by an atomic `WAITING_HUMAN → RUNNING` transition, the other is a no-op, no `seq` duplicates; a stray `resume` to the already-completed run is likewise a no-op per the status machine, not an error.
-- The checkpointer stayed engine-private: nothing outside `adapters/engines/langgraph/` imports or reads it (linter + grep).
+- **Double-resume race:** of two concurrent `resume` calls exactly one wins the atomic `WAITING_HUMAN → RUNNING` transition, the other is a no-op, no `seq` duplicates; a stray `resume` to a completed run is likewise a no-op, not an error. The checkpointer stayed engine-private — nothing outside `adapters/engines/langgraph/` imports or reads it (linter + grep).
 
 **Amendment (2026-08-05, #53 — safe-point contract, decided here as the doc asked).**
 `ClaimPipeline`'s interrupting node calls `interrupt()` as its first statement, so a resumed run
@@ -78,10 +74,8 @@ SQLite-backed `ControlPort` so a second process can signal. Terminal A streams t
 runs `agentdeck runs signal <run_id> cancel`; terminal A ends promptly with `run.cancelled`; then the
 session is replayed from the store.
 
-- `run_id` was obtainable by terminal B (from `run.started` in the stream or a runs listing) — addressability is real, not theoretical.
-- Cancel lands at the **next safe point**: the last delta before `run.cancelled` is a complete chunk and nothing follows the terminal event, under adversarial timing (run the script 20× — flakiness here is a real bug, not test noise).
-- The gate raised cooperatively inside the adapter, `run.cancelled` was emitted exactly once, status is terminal, and a follow-up `pause` is a no-op.
-- Replay shows truncated-but-coherent history — N deltas, no `message.completed` for the unfinished message, terminal `run.cancelled` — and the renderer copes, marking the unfinished bubble rather than crashing.
+- `run_id` was obtainable by terminal B (from `run.started` in the stream or a runs listing) — addressability is real, not theoretical — and cancel lands at the **next safe point**: the last delta before `run.cancelled` is a complete chunk, nothing follows the terminal event, under adversarial timing (run the script 20×; flakiness here is a real bug, not test noise).
+- The gate raised cooperatively inside the adapter, `run.cancelled` was emitted exactly once, status is terminal, a follow-up `pause` is a no-op, and replay shows truncated-but-coherent history — N deltas, no `message.completed` for the unfinished message, terminal `run.cancelled` — with the renderer marking the unfinished bubble rather than crashing.
 - **The chaos test (decision A, mandatory):** drop one mid-run event before it reaches the consumer; the consumer must *detect* the `seq` gap and refetch from the store, proving contiguity buys loss-detection in practice.
 
 **Amendment (2026-08-05, #54 — as built).** Zero edits landed in `surfaces/serve/app.py` or
@@ -111,8 +105,8 @@ docs before coding around it.
 
 ## 6. At the finish
 
-**Demo artifact.** The three scripts recorded as one continuous demo (UC1 chat → UC2
-kill/restart/approve → UC3 cross-process cancel + gap-detection) — the proof object for the go/no-go.
+**Demo artifact.** The three scripts as one continuous demo (UC1 chat → UC2 kill/restart/approve → UC3
+cross-process cancel + gap-detection) — the proof object for the go/no-go.
 
 **Falsifier review.** The skeleton *fails*, and the epic pauses for redesign, if any of these occurred
 even once, even temporarily:
@@ -124,17 +118,16 @@ even once, even temporarily:
 - Exactly-one-terminal-event needed consumer-side workarounds (timeouts, dedupe).
 - The gap-detection test could not be made reliable.
 
-If no falsifier fired, three deliverables, all landed in `milestone-0-findings.md`: the
-**schema-as-built diff** against design doc §4.2 + the nine review decisions, one line per divergence,
-which *is* the PR #1 content rather than the paper schema; the **learning note**, ranked by "would have
-been expensive to learn in Phase 2", with the amendments it forces on the design doc, ADR-D5 and the
-epic and a decision log for anything decided ad hoc; and an explicit per-component **keep / harden /
-discard**, because nothing keeps by default and skeleton code that sneaks into production unreviewed is
-how spikes rot into foundations.
+If no falsifier fired, three deliverables: the **schema-as-built diff** against design doc §4.2 + the
+nine review decisions, one line per divergence, which *is* the PR #1 content rather than the paper
+schema; the **learning note**, ranked by "would have been expensive to learn in Phase 2", with the
+amendments it forces on the design doc, ADR-D5 and the epic and a decision log for anything decided ad
+hoc; and an explicit per-component **keep / harden / discard**, because nothing keeps by default and
+skeleton code that sneaks into production unreviewed is how spikes rot into foundations.
 
-**Closing note (2026-08-05, #57 — the finish checkpoint). Verdict: GO.** No falsifier fired; the full
-review, schema-as-built diff and disposal table are in `milestone-0-findings.md`. The demo artifact is
-`scripts/m0_demo.py` — deterministic and replayable rather than a recording, running UC1 → UC2 → UC3
-against real SQLite stores and the real `surfaces/serve` FastAPI apps with scripted fakes only. The
-epic proceeds to Story 2 hardening (re-sequenced in `epic-agentdeck-v2-core.md`'s own 2026-08-05
-amendment), and §2's origin/speaker finding is ruled Option B.
+**Closing note (2026-08-05, #57 — the finish checkpoint). Verdict: GO.** No falsifier fired; all three
+deliverables are in `milestone-0-findings.md`, and the demo artifact is `scripts/m0_demo.py` —
+deterministic and replayable rather than a recording, running UC1 → UC2 → UC3 against real SQLite
+stores and the real `surfaces/serve` FastAPI apps with scripted fakes only. The epic proceeds to Story 2
+hardening (re-sequenced in `epic-agentdeck-v2-core.md`'s own 2026-08-05 amendment), and §2's
+origin/speaker finding is ruled Option B.

@@ -21,13 +21,13 @@ run, session, context, reporter and gate.
 
 ## Most of this is already native — do not rebuild it
 
-`agents/capabilities/skills.py` already wires the SDK's `LocalDirLazySkillSource`, which implements the
-required build behavior exactly: `list_skill_metadata()` returns `SkillMetadata(name, description,
-path)` for discovery, `load_skill(name)` returns full content on activation. It scans
-`<root>/<name>/SKILL.md`, is lazy by construction, and `build_skills(names, dir)` already gates by an
-allow-list and raises on an unknown name. Per CLAUDE.md's Native-First rule, AgentDeck supplies the
-*roots* and the *registry*; the SDK supplies the disclosure. What is missing is small: multiple roots,
-roots coming from `Deck(skills=…)` instead of `.agentdeck/skills`, and validation in `deck.build()`.
+`agents/capabilities/skills.py` already wires the SDK's `LocalDirLazySkillSource`, which is the required
+build behavior exactly: `list_skill_metadata()` returns `SkillMetadata(name, description, path)` for
+discovery and `load_skill(name)` the full content on activation, scanning `<root>/<name>/SKILL.md`,
+lazy by construction, with `build_skills(names, dir)` already gating by allow-list and raising on an
+unknown name. Per CLAUDE.md's Native-First rule, AgentDeck supplies the *roots* and the *registry*, the
+SDK the disclosure. What is missing is small: multiple roots, roots from `Deck(skills=…)` instead of
+`.agentdeck/skills`, and validation in `deck.build()`.
 
 ## What gets built
 
@@ -38,12 +38,11 @@ roots coming from `Deck(skills=…)` instead of `.agentdeck/skills`, and validat
 
 **And it validates frontmatter, because the SDK will not.** `list_skill_metadata` falls back to the
 directory name, defaults a missing description to `"No description provided."`, and skips a malformed
-file with `except OSError: continue`. Two silent runtime failures follow: a `SKILL.md` declaring
-`name: reservation` under `skills/booking/` registers as **`reservation`**, so `Agent(skills=["booking"])`
-never matches — the Agent Skills spec requires `name` to match the parent directory, and `build()`
-should enforce exactly that; and a skill with no frontmatter registers with the placeholder description
-the model reads when deciding whether to activate it, and a skill nobody can choose is worse than one
-that fails to load.
+file with `except OSError: continue` — two failures that are silent at runtime instead of loud at build.
+A `SKILL.md` declaring `name: reservation` under `skills/booking/` registers as **`reservation`**, so
+`Agent(skills=["booking"])` never matches; the Agent Skills spec requires `name` to match the parent
+directory, and `build()` should enforce that. And the placeholder description is the text the model reads
+when deciding whether to activate a skill — a skill nobody can choose is worse than one that fails to load.
 
 ## What gets deleted
 
@@ -79,11 +78,11 @@ deck.run(..., context=MiddleContext(...))
          -> a workflow triggered from there inherits the same context
 ```
 
-**`SKILL.md` stays portable** — no `{{ context.customer }}`, no AgentDeck-specific templating.
-Application values reach the model only through dynamic instructions, which return exactly what they
-choose to expose, so the prompt is `base agent instructions` + `dynamic context-aware instructions`
-(only what the function returns) + `activated SKILL.md instructions` (portable, context-free). That is a
-security property: the context is never dumped into a prompt, and a skill file cannot reach into it.
+**`SKILL.md` stays portable** — no `{{ context.customer }}`, no AgentDeck-specific templating. The prompt
+is `base agent instructions` + `dynamic context-aware instructions` (only what the function returns) +
+`activated SKILL.md instructions` (portable, context-free), so application values reach the model only
+through dynamic instructions. That is a security property: the context is never dumped into a prompt,
+and a skill file cannot reach into it.
 
 ## Sequencing
 

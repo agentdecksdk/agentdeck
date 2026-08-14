@@ -145,15 +145,12 @@ failing later in a store — plus a validator for the one class of value `JsonVa
 lets through: `NaN` and `±Infinity` have no JSON literal and serialize as `null`, which would
 make a consumer's copy of an event differ, silently, from the store's. Producers degrade such
 a leaf to text under their own declared ceiling instead. **Content policy:** text and data
-blocks are stored **in full** —
-they are the caller's own input and the run's own declared result, and a truncated one
-cannot be replayed or reconciled; the preview + size + hash treatment stays specific to
+blocks are stored **in full**; the preview + size + hash treatment stays specific to
 *tool* results, where the bytes are unbounded and engine-chosen. **D8: additive minor**, no
 `v` bump — no field was renamed, removed, or given a new meaning.*)
 
-*(Amended 2026-08-10, issue #159: `AudioBlock` added, mirroring `ImageBlock` field-for-field —
-the prose above named audio as one of the four atoms since this doc's first draft, and the code
-block six lines above it did not, until now. Both `ImageBlock` and `AudioBlock` gained an inline
+*(Amended 2026-08-10, issue #159: `AudioBlock` added, mirroring `ImageBlock` field-for-field.
+Both `ImageBlock` and `AudioBlock` gained an inline
 cap (1 MB decoded, enforced at construction) at the same time: either can carry a payload large
 enough to make an event log entry unbounded, and the cap's error names `ResourceBlock` as the
 by-reference alternative. **D8: additive minor** — a new discriminated-union member, no field
@@ -228,8 +225,7 @@ came off the port with the counter it existed to recover.
 an internal handoff (one invocable delegating to another inside its own run) does not
 change `origin` for the rest of that run. This is the contract, not a gap — see
 `milestone-0-findings.md` §3 for the analysis and the alternative (an additive,
-payload-level speaker field) that remains available later if a concrete consumer needs
-sub-agent-level attribution.
+payload-level speaker field) still available if a consumer needs sub-agent attribution.
 
 *(Amended 2026-08-06, issue #101.)* A **structured result** is a `DataBlock` in
 `run.completed.output` (§4.1) — a validated `output_type` result, a workflow's final state —
@@ -239,16 +235,15 @@ kind was added, so this is D8-additive; of the three golden snapshots that carry
 freeze its wire shape on both the input and the result channel. One asymmetry, since closed (#109): `Event` tolerates an unknown *kind* and
 `ContentBlock` now tolerates an unknown block `type` the same way. Before that fix a
 reader older than a new block type rejected the whole event rather than skipping the
-block. Measured, the blast radius is wider than one event: `SqliteEventStore.list_runs`
+block. The blast radius is wider than one event: `SqliteEventStore.list_runs`
 deserializes each run's last lifecycle row in one comprehension, so one structured
 `run.completed` in a shared store makes an older process's listing fail for the whole tenant,
 runs it wrote itself included. Mixed-version readers against one event store are therefore
 unsupported across this change. Bumping `v` would not help that reader (nothing branches on
-`v` yet); the fix is issue #109, closed below.
+`v` yet); the fix is issue #109.
 
 *(Amended 2026-08-06, issue #109.)* The asymmetry above is closed, D8-additive, before the
-`v2.0.0` stable tag — the last point where "one version of this schema exists" made the fix
-free. `ContentBlock` in `core/content.py` gained an `UnknownBlock` member
+`v2.0.0` stable tag. `ContentBlock` in `core/content.py` gained an `UnknownBlock` member
 (`{type: str, raw_block: dict}`), mirroring `UnknownEvent`: a `WrapValidator` on the
 `ContentBlock` annotation falls back to it whenever a block's `type` isn't one of the known
 literals, so the failure is caught at the block itself rather than propagating up through
@@ -422,12 +417,12 @@ A loser gets `False`, never an exception, and never writes.)*
 *(Amended 2026-08-06, as built: both SQLite adapters — the event log and the control-signal
 table — open in WAL mode with an explicit 5-second busy timeout, and translate `sqlite3.Error`
 into `errors.StoreError` at every public method, so no library type crosses a port (§5 of the
-coding standards applied to the store boundary). This is what makes the sentence above hold
-in practice: a losing `claim_resume` waits for the winner's transaction to commit and then
+coding standards applied to the store boundary). A losing `claim_resume` waits for the winner's
+transaction to commit and then
 reads the `RUNNING` status it published, instead of meeting a raw `database is locked`. A lock
 held past the busy timeout is a `StoreError` — a store nobody can write to, deliberately not
-folded into the `False` that means somebody else won. Two operational consequences the design
-doc did not state: WAL puts `-wal`/`-shm` files beside each database (they belong to it for
+folded into the `False` that means somebody else won. Two operational consequences:
+WAL puts `-wal`/`-shm` files beside each database (they belong to it for
 backup and deletion), and it relies on cross-process shared memory, so a SQLite store on NFS
 or SMB is unsupported — that deployment wants the Redis or Postgres store. Converting a file
 *into* WAL needs an exclusive lock that SQLite refuses outright while a peer is writing, so a
@@ -447,7 +442,7 @@ run it never saw, so it holds nothing — the line `list_runs` already draws.*
 *Busy-ness is **derived from the log**; there is no lease table, TTL row or heartbeat, which is
 what keeps §4.4's status a projection rather than a second store. Cross-process holds by
 construction, for the same reason the resume claim does: the condition and the write are one
-store operation, so two servers cannot both find a session idle. The refusal is **data, not a
+store operation. The refusal is **data, not a
 store failure** — `SessionClaim.held_by` names the run holding the session and nothing is
 written; only an unreachable store raises (`StoreError`, as above). The Runtime turns that into
 `errors.SessionBusyError` naming the session and the holding run, raised from `run()` before any
@@ -474,24 +469,21 @@ whose own last event (any kind, so a streaming turn keeps resetting it) is older
 holding its session, comes back in `SessionClaim.overridden`, and is closed by the claiming turn
 as `run.failed` /`cancelled_hard` under **its own** `origin` and next `seq` — the store never
 stamps an event, since the Runtime is the only assigner of `seq`. The takeover is logged at
-WARNING, and it can always be premature: that trade is chosen on purpose, because a permanently
-wedged session is the worse failure. Failing to *close* the overridden run is not worth failing
+WARNING, and it can always be premature — a permanently wedged session is the worse
+failure. Failing to *close* the overridden run is not worth failing
 the new turn over either — the claim is already committed, so the close is dropped with a log line
 and the next turn, which meets the same stale run, tries again.*
 
-*Four consequences worth stating for whoever operates this. A session a killed process left
-claimed is refused until the window elapses. A run waiting on a human for longer than the window
-is closed as failed the next time somebody starts a turn on that session, so an installation with
-slower approvals raises the setting. The window is **not skew-free**: each worker compares its
-own `clock()` against a `ts` a peer stamped, so across machines the effective window is the
-configured one minus the worst clock skew, and a worker running more than a window fast would take
-over live sessions on sight. Keep the fleet on NTP and treat skew as eating into the budget. And
-**the window has a floor the code cannot enforce**: shortened below the longest quiet stretch of a
-healthy turn, an open run looks abandoned while it is still working, so the next turn takes the
-session from a live one and both run on the same conversation — one turn per session stops holding
-altogether, rather than merely cleaning up early. How long a turn may be quiet is a property of the
-deployment, so only positivity is validated; the rest is the setting's docstring and this note. An
-explicit operator "abandon run" route can follow if it is ever asked for.*
+*Four consequences for whoever operates this:*
+
+| Consequence | Detail |
+|---|---|
+| A session a killed process left claimed | refused until the window elapses |
+| A run waiting on a human for longer than the window | closed as failed the next time somebody starts a turn on that session, so an installation with slower approvals raises the setting |
+| The window is **not skew-free** | each worker compares its own `clock()` against a `ts` a peer stamped, so across machines the effective window is the configured one minus the worst clock skew, and a worker running more than a window fast would take over live sessions on sight. Keep the fleet on NTP and treat skew as eating into the budget |
+| **The window has a floor the code cannot enforce** | shortened below the longest quiet stretch of a healthy turn, an open run looks abandoned while it is still working, so the next turn takes the session from a live one and both run on the same conversation — one turn per session stops holding altogether, rather than merely cleaning up early. How long a turn may be quiet is a property of the deployment, so only positivity is validated; the rest is the setting's docstring and this note |
+
+*An explicit operator "abandon run" route can follow if it is ever asked for.*
 
 *Because a takeover can be premature, the run stepped over may still be alive and write again at
 a `seq` its own closing event already used — the one corruption `check_contiguous` cannot see,
@@ -525,7 +517,7 @@ mechanism that backend actually has, and neither reimplements the status project
   setting, not the lock. That timeout is Postgres's spelling of the SQLite busy timeout, same 5
   seconds and same reasoning: wait a peer out, but surface a wedged holder as `StoreError` rather
   than hanging — with one gap, first-use schema setup, whose lock is session-scoped and taken
-  before any transaction exists. The alternatives were considered and rejected: `SELECT ... FOR
+  before any transaction exists. Rejected: `SELECT ... FOR
   UPDATE` has no row to lock on an idle session's empty log, and a conditional `INSERT ... WHERE
   NOT EXISTS` would have to express `status_of` in SQL — a second copy of the status machine,
   which is the thing ADR-D5 forbids.*
@@ -542,8 +534,8 @@ mechanism that backend actually has, and neither reimplements the status project
   is a hang. **Every write goes through the same machinery, `append` included**, because one
   `seq` per run is the other thing a store has to enforce and Redis has no unique index to
   enforce it with: the run's `seq` index is watched and each `(run_id, seq)` checked, so a peer
-  that spends a `seq` under this write aborts it. That check belongs to the *conditional* writes
-  too — SQLite and Postgres get it on every path from one blanket UNIQUE index, so a Redis store
+  that spends a `seq` under this write aborts it. SQLite and Postgres get it on every path from
+  one blanket UNIQUE index, so a Redis store
   that guarded only `append` would diverge on the claim paths alone, and a duplicate `seq` is
   invisible from the log either way. A spent `seq` is a `StoreError` and not a claim's
   refusal-as-data: it is corruption, not a race somebody lost. The log carries its own indexes (per-log and per-run lists, that
@@ -556,8 +548,8 @@ mechanism that backend actually has, and neither reimplements the status project
 *ADR-D5's operational separation is expressed as the one thing each backend can enforce: a
 Postgres **schema** (`agentdeck_events`) and a Redis **key prefix** (`agentdeck:events`), so a
 database holding LangGraph checkpoint tables or an instance holding the openai-agents adapter's
-`RedisSession` conversations shares nothing with the log. Three things the design doc did not
-say: Redis is only as durable as the instance is configured to be, so a deployment using it as
+`RedisSession` conversations shares nothing with the log. Three things:
+Redis is only as durable as the instance is configured to be, so a deployment using it as
 its record wants `appendonly yes` **and** `maxmemory-policy noeviction` — an evicted lifecycle
 key makes a live run stop looking like it holds its session; Postgres adds `psycopg[binary]` to
 the `[durability]` extra, which until now meant checkpointer savers only, and is imported inside
@@ -703,7 +695,7 @@ payload's context snapshot is `RunContext` data no engine should be trusted to c
 an engine that stops on neither a terminal nor a suspending kind gets `run.failed` recorded on
 its behalf, an engine that raises gets `run.failed` before the exception is re-raised, and a
 consumer that abandons the stream gets `run.cancelled`. A run left open in the log is
-indistinguishable from one still in flight, which is the failure all four guard against.
+indistinguishable from one still in flight.
 `Runtime.drain()` awaits the sink emits still in flight, for the composition root to call at
 shutdown; it is never called per event.)*
 
@@ -711,7 +703,7 @@ shutdown; it is never called per event.)*
 per sink (`runtime/dispatch.py`), not one task per event. Handing an event over is a queue put;
 a full queue yields exactly one loop turn and then drops the stalest event, and the turn is
 what separates a sink that is behind from a producer that has simply not suspended yet, since
-nothing on the event path has to. That is the only behavior: nothing here ever waits for a
+nothing on the event path has to. Nothing here ever waits for a
 sink, so NFR-6 holds literally rather than by policy. Drops and failed emits are counted per
 sink and logged (rate-limited: one stack trace per failure streak), and a sink that fails
 `FAILURE_LIMIT` times in a row is disabled rather than retried for the process's lifetime.
@@ -792,12 +784,12 @@ as `App.runtime`. The split is what keeps a second front door — the deferred c
 `Deck()` — a second caller rather than a rewrite of `App`, and it is why the demo script
 and the composition tests no longer hand-assemble `Runtime(...)`.*
 
-*`App` also registers **no event sinks**, which settles the question the telemetry slice deferred
-to this one: the Langfuse sink reads the canonical stream, and the v1 bridge still opens v1's own
+*`App` also registers **no event sinks**: the Langfuse sink reads the canonical stream, and the v1
+bridge still opens v1's own
 `trace_run` around every chat turn, so registering both would report each v1 agent run twice.
 While v1's runner glue exists, v1's tracing is the one that runs on the v1 surface; the sink
-becomes `App`'s once the bridge is deleted, at which point workflow runs get traced for free —
-which is the whole reason the sink exists. `agentdeck-serve` therefore ships with no sink, and a
+becomes `App`'s once the bridge is deleted, at which point workflow runs get traced for free.
+`agentdeck-serve` therefore ships with no sink, and a
 code-first caller that wants one passes it to `build_runtime(sinks=...)`.*
 
 *Two things `App` was expected to hand the Runtime, it does not yet. The engine set is built
@@ -816,8 +808,8 @@ does — settings-driven provider, temperature, `max_turns` and CA bundle, v1's 
 v1's Langfuse observation, and v1's own session lookup — so a turn served through the v1
 surface is configured and traced exactly as before, and it is what `v1_engines()` registers.*
 
-*It lives in a new top-level `compat/` rather than beside the adapter it subclasses, and the
-import law is why: it reaches into v1's runner glue and v1's Langfuse integration, and an
+*It lives in a new top-level `compat/` rather than beside the adapter it subclasses, because
+it reaches into v1's runner glue and v1's Langfuse integration, and an
 engine adapter may do neither (`langfuse-is-telemetry-private` fails on the indirect chain
 through `agents/runners/base.py`). Keeping the bridge outside `adapters/` is what keeps the
 adapter honest about depending on one external system. A contract
@@ -844,7 +836,7 @@ the transcript-fidelity invariant (everything entering execution state is record
 log at message level; log written first, engine state second). The Chat-Completions
 shims currently living inside
 `capabilities/compaction.py` and `capabilities/filesystem.py` move here too: they are
-engine quirks, and quirks belong inside the adapter that owns them.
+engine quirks.
 
 **`engines/langgraph/`** absorbs `workflows/` nearly whole — `base.py` graph compilation,
 `nodes.py`, `state.py`, `interrupts.py`, `timers.py`, and `runtime/checkpointer.py`. Its
@@ -889,8 +881,7 @@ after the backlog is handed over and the consumer reaped, and the Langfuse sink 
 finish the traces still open — an unfinished observation is never shipped — and flush the SDK
 itself. Bounded by `CLOSE_TIMEOUT` and non-fatal, like every other wait on that path, so the
 worst a sink's flush can cost a shutdown is one more deadline. A disabled sink is closed too:
-the breaker's verdict is about taking events, not about writing out the ones already taken.
-The event log stays the complete record regardless.)*
+the breaker's verdict is about taking events, not about writing out the ones already taken.)*
 **`protocols/`** hosts the
 per-protocol serializers: `sse` (extracted from `serve.py`), `acp` (§11), later `ag-ui`
 and `a2a`.
@@ -1028,18 +1019,18 @@ stream items and before each tool call. Ring 3: four thin routes; and because pa
 are just three more event kinds, the CLI, the dashboard, and every protocol adapter
 inherit the feature with zero changes — that is the payoff of §2's "one log, many readers."
 
-Four semantic contracts, decided here rather than discovered in production. *Safe points:*
+Four semantic contracts. *Safe points:*
 "pause" means "at the next safe point" — between stream items, before a tool call, at a
 node boundary — never "right now, mid-token." This is a documented contract, uniform
 across engines. *Resume without a stack:* the Agents SDK has no checkpoint; the event log
 **is** the checkpoint, and resume means re-entering the loop with accumulated history —
 the same rule the README already states for interrupted LangGraph nodes ("keep the node
-pure, side effects earlier"), now promoted from per-engine footnote to platform-wide
+pure, side effects earlier"), now a platform-wide
 invariant. *Cancel is cooperative:* a tool that already POSTed a payment does not un-POST;
 `ctx.idempotency_key` exists so retried or resumed side effects deduplicate at the
 receiver. *Races are no-ops:* pausing a completed run does nothing, by state-machine rule.
 
-Note what the example shows: every hard part was semantics, none was wiring. In the
+In the
 current tree this feature would touch `agents/runners/`, `workflows/runners/`, `serve.py`,
 and both registries — and agents and workflows would end up with subtly different pause
 behavior that leaks into every consumer.
@@ -1053,7 +1044,7 @@ also why callers never construct a working `Gate` themselves: `Runtime.run`/`res
 keeps `surfaces/serve/app.py` and `surfaces/cli/chat.py` untouched by this feature. `ControlPort`
 itself is narrower than sketched above: `signal(run_id, sig)` / `poll(run_id)` only — no
 `ctx`, no `status`/`set_status`, because status is derived from the event log
-(`core/status.py`) once, never duplicated in a second store. One finding worth recording:
+(`core/status.py`) once, never duplicated in a second store.
 `httpx.ASGITransport` runs a request's whole ASGI call before returning any response bytes,
 so it cannot interleave a live signal with an in-flight SSE stream — the cross-process proof
 (`tests/test_uc3_slowpoke.py`) drives `Runtime` directly and a real `subprocess` for the CLI
@@ -1163,9 +1154,6 @@ to engines, serve, telemetry, or any existing consumer.
 | **I**nterface Segregation | Many small ports; a cost sink depends on `EventSinkPort` alone; the skill executor sees only `FilesystemPort` + `TerminalPort`, not the workspace | `Workspace` is ambient via ContextVar — everything can reach everything |
 | **D**ependency Inversion | Core defines ports; adapters implement them; `import-linter` in CI forbids `core/` importing `agents`, `langgraph`, `fastapi`, `redis` | `app.py` imports `agents.SQLiteSession`; capabilities import SDK internals to shim them |
 
-The contract-test suite deserves emphasis: it is LSP made executable, and it is the
-artifact that makes "add a third engine next year" a safe claim rather than a hope.
-
 ---
 
 ## 11. Migration from the current tree
@@ -1190,8 +1178,7 @@ artifact that makes "add a third engine next year" a safe claim rather than a ho
 
 *Phase 1 — nouns.* Introduce `core/` (events, context, content, status, ports as ABCs
 with in-memory impls) plus the contract-test suite skeleton. Thread `RunContext` through
-every existing call with a default single-tenant context. No behavior change; the
-cheapest phase and the one that makes every later phase possible.
+every existing call with a default single-tenant context. No behavior change.
 
 *Phase 2 — the seam.* Convert both runners to emit event payloads behind `EnginePort`;
 build `Runtime`; move code into `adapters/`; shrink `App` to composition root with the
@@ -1199,14 +1186,12 @@ compat facade; rewrite `serve.py` on `Runtime` while byte-preserving the SSE fra
 This is the big one — the bifurcation dies here.
 
 *Phase 3 — control.* `ControlPort` (memory + redis), `Gate` checks in both engines, the
-status machine, four new routes. First visible new feature, and the proof that features
-now cost one implementation instead of two.
+status machine, four new routes. First visible new feature.
 
 *Phase 4 — capabilities.* `CapabilityProvider` on the context; sandbox becomes the
 default implementation; skill executor re-targeted to the ports.
 
-*Phase 5 — ACP.* The protocol adapter and stdio surface, per §9. First external proof of
-"speak every protocol."
+*Phase 5 — ACP.* The protocol adapter and stdio surface, per §9.
 
 ---
 
@@ -1251,8 +1236,7 @@ parent run.
 Prebuilt tools, agents, workflows, and skills are **content, not architecture**. They do
 not get a ring, privileged internal APIs, or a fourth registry. They form a standard
 library that sits on top of the authoring API exactly as user code does — the Python
-stdlib model: shipped in the box, held to a higher quality bar, obeying the same rules
-as everyone else.
+stdlib model.
 
 ```text
 agentdeck/
@@ -1264,18 +1248,18 @@ agentdeck/
 └── templates/        # scaffolding: copied by `agentdeck new --template`, then user-owned
 ```
 
-Three rules make the stdlib work, and each is enforceable rather than aspirational.
+Three rules make the stdlib work.
 
 **Rule 1 — stdlib depends only on `authoring/` + core ports, never on adapter
 internals.** This is what guarantees a stdlib agent runs on any engine/store/protocol
 combination, and it is checked by the same import-linter contract that protects `core/`.
-Where a piece of content is genuinely engine-specific, it declares that honestly instead
-of hiding it: the current `agents/web_search.py` wraps an OpenAI-hosted tool, so it moves
+Where a piece of content is genuinely engine-specific, it declares that:
+the current `agents/web_search.py` wraps an OpenAI-hosted tool, so it moves
 to `stdlib/tools/web_search.py` with `engines=["openai-agents"]` on its `ToolSpec`, and
 the registry refuses to attach it to a LangGraph run with a clear build-time error rather
 than a runtime surprise. A second implementation of the *same spec name* — a plain HTTP
 search tool that works everywhere — can be added later and resolved per engine at build
-time; that is DIP applied to tools.
+time.
 
 **Rule 2 — stdlib bundles ship in the user bundle format and are found by the same
 discovery.** No special internal loading path: the platform dogfoods its own authoring
@@ -1291,9 +1275,7 @@ marketplace infrastructure built or operated.
 content is referenced at runtime and updated with the package; templates are copied into
 the user's project by the CLI scaffold and owned by the user from that moment on. The
 sorting test: a `fetch_url` tool is stdlib (users call it as-is, forever); a
-customer-support agent is a template (users will gut it on day two). Getting this wrong
-in either direction hurts — stdlib that users need to fork rots in their trees, and
-templates referenced at runtime break user projects on every upgrade.
+customer-support agent is a template (users will gut it on day two).
 
 ### A.2 The user experience this buys
 
@@ -1332,8 +1314,7 @@ agentdeck new my-support --template customer-support
 
 which copies a full working starting point (agent, skills, workflow, evals) into the
 user's `.agentdeck/`. None of this requires stdlib-specific features; it all falls out of
-Rule 2. Had the stdlib been built on privileged internal hooks instead, users could run
-platform agents but never crack them open.
+Rule 2.
 
 ### A.3 Placement decisions for existing and planned content
 
@@ -1355,15 +1336,13 @@ adapter — `skill_node("parse-doc")`, `agent_node("Summarizer")`, `tool_node(..
 wrappers adapting any invocable into a graph node (today's `workflows/nodes.py` already
 gestures at this and becomes that adapter's official surface). Only genuinely
 graph-specific glue — routing logic, state mapping — belongs inside a workflow bundle
-itself. The rule of thumb: ask *what is the reusable part?* If it is the work, it goes in
-the stdlib, engine-neutral; if it is the wiring, it is a factory in the engine adapter.
-The payoff is concrete: one `parse-doc` implementation is simultaneously a workflow node,
+itself. The payoff is concrete: one `parse-doc` implementation is simultaneously a workflow node,
 an agent capability, and a standalone `Runtime.run("parse-doc", ...)`.
 
 ### A.4 The quality bar and distribution
 
-"Prebuilt" is a claim, and it is what separates a standard library from example code, so
-it is enforced in CI: every stdlib item must pass the shared contract-test suite (§10)
+"Prebuilt" is a claim, so it is enforced in CI: every stdlib item must pass the shared
+contract-test suite (§10)
 and ship with its own evals in the repo. An agent without evals does not enter
 `stdlib/agents/`; it lives in `templates/` or `examples/` until it earns promotion.
 
@@ -1378,11 +1357,9 @@ released, changelogged, and deprecated exactly like API surface, because per Rul
 
 ## Appendix B — The platform from the user's perspective
 
-Everything above is architecture. This appendix is the same design seen from the other
-side of the API: what a user actually does, and why each moment of that experience is
-only possible because of a specific decision in §§2–9. It doubles as the product pitch,
-and every claim in it is load-bearing — if a future change breaks one of these examples,
-the change is wrong.
+The same design seen from the other side of the API: what a user actually does, and why each
+moment of that experience is only possible because of a specific decision in §§2–9. Every claim
+here is load-bearing — if a future change breaks one of these examples, the change is wrong.
 
 The one-line premise: **the user writes the agent; the platform provides everything
 around the agent** — sessions, surfaces, control, governance, observability. Engines
@@ -1435,7 +1412,7 @@ guessing.
 
 **The bet against lock-in.** A better engine ships next year; the user changes `engine=`
 on one invocable, and sessions, pause, ACP, tracing, and the HTTP API keep working —
-none of them ever knew which engine ran (§2, D1). This is the deepest "why": agent SDKs
+none of them ever knew which engine ran (§2, D1). Agent SDKs
 churn yearly, but the user's accumulated assets — conversations, tools, skills,
 integrations, dashboards — should not churn with them. AgentDeck is where the durable
 parts live.
@@ -1482,7 +1459,7 @@ formal claim"); the skill runs standalone via `Runtime.run("parse-doc", ...)`; a
 agent slots into `handoffs` like a local class. No adapters between the user's own
 pieces.
 
-An honest caveat belongs in the pitch: the LLM parts still need evals and iteration. The
+The LLM parts still need evals and iteration. The
 platform makes the *system* cheap, not the prompt engineering — which is what the stdlib
 quality bar (A.4) and the eval harness exist for.
 
@@ -1507,7 +1484,7 @@ class FrontDesk(BaseAgent):
     handoffs = [ClaimsAgent, customs]               # or a handoff target
 ```
 
-This is the `Invocable` bet paying out: a remote company's agent slots in exactly like a
+A remote company's agent slots in exactly like a
 local class — implemented as an `EnginePort` whose "engine" is HTTP
 (`adapters/engines/a2a_remote/`) — and its tool calls still land in the local event log,
 so cost and audit cover work the platform did not even execute.
