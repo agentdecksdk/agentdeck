@@ -13,8 +13,10 @@ Date: 2026-08-04. Amended 2026-08-11, 2026-08-14.
 >
 > **Amendment 2026-08-14 — the writing standard.** Every document under `docs/` was swept against
 > it: the main doc is the map, depth links out, per-item facts are tables, one sentence per ruling.
-> Nothing was deleted; `design/run-lifecycle.md` was split out of the architecture doc's §4.4/§4.5
-> (doc #12, §2 rule 4), and three delivery documents §6 had never listed gained rows in §1b.
+> No document was deleted. Three files were split out of the architecture doc, which fell from
+> 1536 lines to 1408: `design/run-lifecycle.md` (§4.4/§4.5), `design/event-store-claims.md` (§4.5)
+> and `design/sink-dispatch.md` (§4.6) — docs #12–#14, §2 rule 4. Three delivery documents §6 had
+> never listed gained rows in §1b.
 
 ---
 
@@ -34,6 +36,8 @@ Date: 2026-08-04. Amended 2026-08-11, 2026-08-14.
 | 10 | `delivery/milestone-0-findings.md` | M0's go/no-go checkpoint: falsifier review, schema-as-built diff, learning note, decision log, keep/harden/discard | delivery, engineers |
 | 11 | `design/adr-d11-store-assigns-seq-and-time.md` | Decision record: the store assigns `seq` and `ts` in the same atomic step that persists an event. **Supersedes** `claim_start`'s "a store never reads a clock" and the envelope-stamping split in doc #3 | engineers |
 | 12 | `design/run-lifecycle.md` | The run lifecycle as built: the state machine, per-state properties, the (state × intent) policy, and the drift. **Supersedes** doc #3 §4.4 | engineers |
+| 13 | `design/event-store-claims.md` | `claim_start` and `claim_resume`: the two conditional appends, the session-busy rule, the staleness window and its operator consequences. **Supersedes** doc #3 §4.5 on the claims | engineers |
+| 14 | `design/sink-dispatch.md` | `runtime/dispatch.py`'s operational contract: bounded fan-out, the breaker, the flush/close lifecycle. **Supersedes** doc #3 §4.6 on the dispatch | engineers |
 
 ## 1b. The v3 cutover set (added 2026-08-11)
 
@@ -81,8 +85,12 @@ Documents were written in conversation order and later ones refine earlier ones.
    (frozen as history, so superseded here rather than edited), and the design doc's
    envelope-stamping split. **ADR-D5's two-store rule is untouched**, as is the engine boundary —
    engines yield payloads, never envelopes.
-4. `design/run-lifecycle.md` **is** the run lifecycle. Design doc §4.4 is its summary and links to
-   it; where they differ, this file wins.
+4. Three files hold depth split out of the design doc on 2026-08-14, one subject each, each
+   summarised and linked from the section it came from; where a summary and its file differ, the
+   file wins. `design/run-lifecycle.md` (from §4.4) **is** the run lifecycle,
+   `design/event-store-claims.md` (from §4.5) **is** the two conditional appends — subject to rule
+   3, which owns who assigns `seq` — and `design/sink-dispatch.md` (from §4.6) **is** the sink
+   dispatch contract.
 5. `delivery/milestone-0-walking-skeleton.md` reorders early delivery: the epic's Phase 1/2 now
    execute *through* the skeleton (see §4 below). Epic story content is unchanged;
    sequencing defers to this index.
@@ -113,6 +121,9 @@ Documents were written in conversation order and later ones refine earlier ones.
 | Design doc envelope-stamping split | Predated ADR-D11 | **Applied 2026-08-08** — dated amendment added beside it; the envelope line in §4.2 names the store |
 | Design doc §4.4 | Named one guard point, an unreachable `CANCELLED` edge, and no (state × intent) policy | **Applied 2026-08-14** — §4.4 keeps the headline and the drift list; the depth is `design/run-lifecycle.md` (§2 rule 4) |
 | `coding-standards.md` header | Called itself "doc #9 in `00-project-index.md`"; #9 is `delivery/docs-site-plan.md` | **Applied 2026-08-14** — the header names §1b instead |
+| Design doc header | Read `**Status:** proposal`, while §2 and `CLAUDE.md` both treat it as the design of record | **Applied 2026-08-14** — dated amendment beside it; the status now says so |
+| Design doc §4.5 `last_seq` | Named a port method ADR-D11 removed | **Applied 2026-08-14** — said so in place, in the amendment that introduced it |
+| Design doc §4.5/§4.6 depth | The store-claim and sink-dispatch material had outgrown the sections holding it | **Applied 2026-08-14** — split to docs #13 and #14 (§2 rule 4) |
 
 ## 4. Execution order (single source of truth for "what's next")
 

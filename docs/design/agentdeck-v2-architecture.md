@@ -1,6 +1,11 @@
 # AgentDeck v2 — Architecture Design
 
-**Status:** proposal · **Baseline:** `agentdeck` 1.2.1 (`Sagi5060/agentdeck@60b95b6`) · **Date:** 2026-08-03
+**Status:** design of record, amended as built · **Baseline:** `agentdeck` 1.2.1
+(`Sagi5060/agentdeck@60b95b6`) · **Date:** 2026-08-03 · **Depth split out:** `design/run-lifecycle.md`,
+`design/event-store-claims.md`, `design/sink-dispatch.md`
+
+*(Amended 2026-08-14: "proposal" was true on 2026-08-03 and has not been since v3 shipped —
+`CLAUDE.md` and `00-project-index.md` §2 both name this the design of record.)*
 
 This document specifies the target architecture for evolving agentdeck from a declarative
 harness over two SDKs into an agent development and runtime platform, following Clean
@@ -388,8 +393,8 @@ the engines that need them, in Stories 2–3. `start` returns an `AsyncGenerator
 payload, or when its own consumer walks away — so an engine's cleanup runs either way. `ControlPort` and the capability ports are
 unbuilt: they arrive with Story 3 and Story 4 respectively.)*
 
-*(Amended 2026-08-05, as built: `EventStorePort` also grew `last_seq(log_key, run_id,
-ctx)`, a `run_status(log_key, run_id, ctx)` projection (default: fold the bounded,
+*(Amended 2026-08-05, as built — `last_seq` since removed by ADR-D11, which took the last
+arithmetic caller with it: `EventStorePort` also grew `last_seq(log_key, run_id, ctx)`, a `run_status(log_key, run_id, ctx)` projection (default: fold the bounded,
 indexed result of `read_run` through `core/status.py`'s `status_of` — a projection, never
 a second store, per this doc's own two-stores decision), `list_runs(ctx, status=None)`
 scoped to one tenant, and `offset`/`limit` pagination on `read`. `offset` counts events
@@ -401,105 +406,16 @@ lifecycle row per run in one statement. The Runtime's resume path and `Runtime.p
 these instead of folding a whole log to answer one run's status or find every run waiting on
 a human; the now-unused `list_log_keys` is gone.)*
 
-*(Amended 2026-08-05, as built: `EventStorePort` also owns the resume claim —
-`claim_resume(log_key, run_id, event, ctx) -> bool`, a conditional append that records
-`run.resumed` if and only if the run is `WAITING_HUMAN` *and* the event's `seq` is still the
-run's next one, indivisibly. The Runtime's `WAITING_HUMAN` -> `RUNNING` transition is that
-one call: the write that publishes the transition is the write that tests for it, so two
-processes sharing a store cannot both claim one interrupt. `status_of` still derives status,
-so this is not a second store; a store only has to make the two checks and the append one
-step — SQLite in a single `BEGIN IMMEDIATE` transaction, the dict store for free, since
-neither the fold nor the append suspends. The `seq` half matters because a caller stamps its
-event before claiming: a run that was resumed and interrupted again between those two
-moments is waiting once more, and letting that stale claim through would write a `seq` twice.
-A loser gets `False`, never an exception, and never writes.)*
-
-*(Amended 2026-08-06, as built: both SQLite adapters — the event log and the control-signal
-table — open in WAL mode with an explicit 5-second busy timeout, and translate `sqlite3.Error`
-into `errors.StoreError` at every public method, so no library type crosses a port (§5 of the
-coding standards applied to the store boundary). A losing `claim_resume` waits for the winner's
-transaction to commit and then
-reads the `RUNNING` status it published, instead of meeting a raw `database is locked`. A lock
-held past the busy timeout is a `StoreError` — a store nobody can write to, deliberately not
-folded into the `False` that means somebody else won. Two operational consequences:
-WAL puts `-wal`/`-shm` files beside each database (they belong to it for
-backup and deletion), and it relies on cross-process shared memory, so a SQLite store on NFS
-or SMB is unsupported — that deployment wants the Redis or Postgres store. Converting a file
-*into* WAL needs an exclusive lock that SQLite refuses outright while a peer is writing, so a
-connection that cannot switch the mode keeps the one the file has: slower under contention,
-never wrong, and never a failure to open.)*
-
-*(Amended 2026-08-06, #83 — as built: **one session runs one turn at a time**, and
-`EventStorePort` owns that claim too — `claim_start(log_key, event, ctx, stale_before) ->
-SessionClaim`, the resume claim's sibling. It appends a run's opening `run.started` if and only
-if that log has no open run, indivisibly; SQLite in one `BEGIN IMMEDIATE` transaction, the dict
-store for free. A session is **busy** when one of its runs has recorded a lifecycle transition
-and not a terminal one, `WAITING_HUMAN` included: an interrupted run still owns the engine
-thread it will resume on, and a second run against that thread would overwrite the checkpoints
-the resume needs. A run with no transition at all is `PENDING`, which no store can tell from a
-run it never saw, so it holds nothing — the line `list_runs` already draws.*
-
-*Busy-ness is **derived from the log**; there is no lease table, TTL row or heartbeat, which is
-what keeps §4.4's status a projection rather than a second store. Cross-process holds by
-construction, for the same reason the resume claim does: the condition and the write are one
-store operation. The refusal is **data, not a
-store failure** — `SessionClaim.held_by` names the run holding the session and nothing is
-written; only an unreachable store raises (`StoreError`, as above). The Runtime turns that into
-`errors.SessionBusyError` naming the session and the holding run, raised from `run()` before any
-event is yielded: a caller that asked for a turn and got an empty stream could not tell it apart
-from a turn that produced nothing. Over HTTP that has to be decided *before* the response begins —
-a `StreamingResponse` has already committed `200` and `text/event-stream`, so a refusal after it
-can only reach a client as a body that stops — hence the surface pulls the opening event and
-answers **409** with the holding run named. The same claim is covered by the cancellation arm that
-closes a run whose consumer walked away: a client that disconnects between committing the claim and
-receiving anything gets its run closed as `run.cancelled`, rather than leaving it open and holding
-the session for a window.*
-
-*Queueing the loser is deliberately **not** built. In-process queueing does not survive a second
-worker, and a store-level queue is a lease with ordering — fencing, expiry, stale-entry
-reclamation — which is real distributed machinery for a problem whose usual cause is a
-double-clicked send button. A client retry already is a queue.*
-
-*The one state the log cannot distinguish is a run whose process was **killed outright**: every
-graceful exit closes its run, so silence is all that is left to go on. Hence a **staleness
-window** — `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`, one hour by default, a settings value
-and not a constant, and required to be **positive** (at zero a run's own opening event is already
-stale to the next caller a moment later, which turns the guarantee back into a race). An open run
-whose own last event (any kind, so a streaming turn keeps resetting it) is older than that stops
-holding its session, comes back in `SessionClaim.overridden`, and is closed by the claiming turn
-as `run.failed` /`cancelled_hard` under **its own** `origin` and next `seq` — the store never
-stamps an event, since the Runtime is the only assigner of `seq`. The takeover is logged at
-WARNING, and it can always be premature — a permanently wedged session is the worse
-failure. Failing to *close* the overridden run is not worth failing
-the new turn over either — the claim is already committed, so the close is dropped with a log line
-and the next turn, which meets the same stale run, tries again.*
-
-*Four consequences for whoever operates this:*
-
-| Consequence | Detail |
-|---|---|
-| A session a killed process left claimed | refused until the window elapses |
-| A run waiting on a human for longer than the window | closed as failed the next time somebody starts a turn on that session, so an installation with slower approvals raises the setting |
-| The window is **not skew-free** | each worker compares its own `clock()` against a `ts` a peer stamped, so across machines the effective window is the configured one minus the worst clock skew, and a worker running more than a window fast would take over live sessions on sight. Keep the fleet on NTP and treat skew as eating into the budget |
-| **The window has a floor the code cannot enforce** | shortened below the longest quiet stretch of a healthy turn, an open run looks abandoned while it is still working, so the next turn takes the session from a live one and both run on the same conversation — one turn per session stops holding altogether, rather than merely cleaning up early. How long a turn may be quiet is a property of the deployment, so only positivity is validated; the rest is the setting's docstring and this note |
-
-*An explicit operator "abandon run" route can follow if it is ever asked for.*
-
-*Because a takeover can be premature, the run stepped over may still be alive and write again at
-a `seq` its own closing event already used — the one corruption `check_contiguous` cannot see,
-since it looks for gaps and not for duplicates. So `(tenant, log_key, run_id, seq)` is now
-**unique** in the SQLite log (the per-run index carries the constraint) and the dict store refuses
-the same pair in `append`: a resurrected run fails loudly with `StoreError` at its next write
-instead of putting two different events at one `seq`, which would make every consumer's refetch of
-that `seq` a coin toss. Such a run does then end twice in the record — its own failure lands after
-the takeover's — which is detectable, unlike the duplicate. `seq` stays per run, so two runs of one
-session log both counting from 0 is unaffected.*
-
-*Consequence for tests and for anything that shells a second turn into a live session: two
-concurrent runs in one log are no longer reachable through the Runtime, only through a stale
-takeover. The engine-side lock that protects a session's execution state from two turns at once
-(`adapters/engines/openai_agents/reconcile.py`) is therefore no longer the first line of defence,
-but it is still the last one, and keeps its own test.)*
+*(Amended 2026-08-05 and 2026-08-06, #83 — as built: `EventStorePort` owns two conditional
+appends, `claim_resume` and `claim_start`, and **one session runs one turn at a time**. Each tests
+its condition and writes in the same indivisible step, which is what carries mutual exclusion across
+processes; losing is data, not an error. Busy-ness is derived from the log — no lease table, no
+heartbeat — so run status stays a projection. A run whose process was killed outright is only
+detectable as silence, hence a settings-driven **staleness window** after which an open run stops
+holding its session. The signatures, the busy rule, the 409 surfacing, the window's four operator
+consequences, the per-run `seq` uniqueness it forces, and the SQLite WAL specifics are all in
+**`design/event-store-claims.md`**, which wins on this subject. ADR-D11 later rewrote both
+signatures; that file records the divergences.)*
 
 *(Amended 2026-08-06, #75 — as built: `adapters/stores/redis/` and `adapters/stores/postgres/`
 implement the same port, so the sentences above about "two servers sharing a store" now describe
@@ -699,50 +615,15 @@ indistinguishable from one still in flight.
 `Runtime.drain()` awaits the sink emits still in flight, for the composition root to call at
 shutdown; it is never called per event.)*
 
-*(Amended 2026-08-05, as built: the fan-out is **bounded** — one queue and one consumer task
-per sink (`runtime/dispatch.py`), not one task per event. Handing an event over is a queue put;
-a full queue yields exactly one loop turn and then drops the stalest event, and the turn is
-what separates a sink that is behind from a producer that has simply not suspended yet, since
-nothing on the event path has to. Nothing here ever waits for a
-sink, so NFR-6 holds literally rather than by policy. Drops and failed emits are counted per
-sink and logged (rate-limited: one stack trace per failure streak), and a sink that fails
-`FAILURE_LIMIT` times in a row is disabled rather than retried for the process's lifetime.
-Because each sink is fed by a single consumer, `emit` is called one event at a time in
-submission order, never re-entered; a consumer killed by a `CancelledError` escaping `emit`
-is replaced on the next submit. `Runtime.drain()` flushes the queues and then stops the
-consumers, racing each flush against its consumer so one dead consumer cannot hang shutdown
-for every other sink.)*
-
-*(Amended 2026-08-05, hardening: every wait on this path is now bounded, because a sink
-blocked inside `emit` defeated every exit condition the flush had and hung shutdown outright.
-An `emit` that does not return within `EMIT_TIMEOUT` (5s) is abandoned and counted as a
-failed emit, so a wedged sink reaches the same breaker a raising one does; the shutdown flush
-has its own deadline (`SHUTDOWN_TIMEOUT`, 10s) and gives up rather than waiting. The dispatch's
-lifecycle is now explicit: `flush(timeout)` waits for the queued events to be *attempted* and
-leaves the dispatch usable, `close(timeout)` is terminal — after it, a submit is counted as a
-drop instead of starting a fresh consumer, and events still queued or in flight are added to
-the drop count so the counters match the loss reported in the log. A `CancelledError` a sink
-raises from its own `emit` is now a counted failure rather than a silently dead consumer; only
-a genuine cancellation (`close`, loop shutdown) still ends a consumer, and that path replaces
-it on the next submit as before.)*
-
-*(Amended 2026-08-06, #89/#90 — the breaker is no longer one-way, and the failure log is no
-longer rate-limited by streak. A disabled sink is offered one event once `BREAKER_COOLDOWN`
-(30s) has passed; taking it re-enables the sink, failing it re-arms the cooldown from that
-failure, so a dead endpoint costs two emit attempts a minute instead of one per event. The
-probe is a real event, not a synthetic one, and the events the open breaker covered are still
-counted as drops — nothing is replayed. The cooldown is a deadline compared against a
-monotonic clock rather than anything slept on, so no wait on a sink is added anywhere and the
-sink's recovery is noticed by whichever submit happens to arrive after it. Stack traces are
-capped at one per sink per `LOG_WINDOW` (60s) with the unlogged failures counted in the next
-one: the per-streak limit bounded nothing for a sink failing every other event, which builds
-no streak and trips no breaker either. The disable decision is untouched by that change.)*
-
-*(A sink with guaranteed delivery is a deliberate non-goal today. A blocking/backpressure
-policy was built and then removed before merge: no sink implementation needs it, and the only
-ways to keep it were a producer that waits forever or an amendment to NFR-6. Sinks are a lossy
-tap; a consumer that must see every event reads the event store. If a real sink ever demands
-delivery, it is added on top of this — never by making a run wait.)*
+*(Amended 2026-08-05 twice and 2026-08-06, #89/#90 — as built: the fan-out is **bounded**, one
+queue and one consumer task per sink (`runtime/dispatch.py`), not one task per event. Nothing here
+ever waits for a sink, so NFR-6 holds literally rather than by policy: a full queue yields one loop
+turn and drops the stalest event. A sink that fails or wedges is counted, disabled after a streak,
+and probed again after a cooldown with a real event; drops are never replayed. Guaranteed delivery is
+a deliberate non-goal — sinks are a lossy tap, and a consumer that must see every event reads the
+event store. The queue shape, the failure constants, the two-way breaker, the
+`flush`/`close`/`drain` lifecycle and their deadlines are in **`design/sink-dispatch.md`**, which
+wins on this subject.)*
 
 ```python
 # runtime/service.py
