@@ -160,8 +160,10 @@ _LEGALITY: Mapping[RunStatus, Mapping[Operation, Precondition]] = {
     },
 )
 
+# Keyed off ``RunStatus`` and ``Operation`` rather than off the rows, for the reason ``POLICY``
+# gives below: a member added without a row fails at import, not at the first call that needs it.
 PRECONDITIONS: Mapping[tuple[RunStatus, Operation], Precondition] = {
-    (status, operation): precondition for status, row in _LEGALITY.items() for operation, precondition in row.items()
+    (status, operation): _LEGALITY[status][operation] for status in RunStatus for operation in Operation
 }
 """Which operation is legal in which state, checked *before* the control port is read.
 
@@ -246,17 +248,17 @@ _TERMINAL_ROW: Mapping[str | None, Ruling] = {
     None: Ruling(Action.NO_OP, consume=False, why="nothing is pending and the run is over"),
 }
 
+_ROUTING: Mapping[RunStatus, Mapping[str | None, Ruling]] = {
+    RunStatus.RUNNING: _RUNNING_ROW,
+    RunStatus.PAUSED: _PAUSED_ROW,
+    RunStatus.WAITING_ANSWER: _WAITING_ANSWER_ROW,
+} | dict.fromkeys(TERMINAL_STATUSES, _TERMINAL_ROW)
+
+# Keyed off ``RunStatus`` rather than off the rows, so a member added without a row raises
+# ``KeyError`` here, while this module is being imported, rather than the first time a caller
+# lands on it. The same reason ``TERMINAL_STATUSES`` derives instead of being listed.
 POLICY: Mapping[tuple[RunStatus, str | None], Ruling] = {
-    (status, verb): ruling
-    for status, row in (
-        {
-            RunStatus.RUNNING: _RUNNING_ROW,
-            RunStatus.PAUSED: _PAUSED_ROW,
-            RunStatus.WAITING_ANSWER: _WAITING_ANSWER_ROW,
-        }
-        | dict.fromkeys(TERMINAL_STATUSES, _TERMINAL_ROW)
-    ).items()
-    for verb, ruling in row.items()
+    (status, verb): _ROUTING[status][verb] for status in RunStatus for verb in _RUNNING_ROW
 }
 """What a pending signal does when it is read, keyed by the state the run was in and the verb
 found in the port — ``None`` for an empty port.
