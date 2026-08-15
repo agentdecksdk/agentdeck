@@ -24,7 +24,7 @@ import httpx
 import pytest
 from agents import Agent, OpenAIProvider
 
-from agentdeck.adapters.engines.openai_agents.runconfig import build_run_config
+from agentdeck.adapters.engines.openai_agents.runconfig import build_run_config, handoff_ends_on_user_turn_mapper
 from agentdeck.authoring.runners.agent import HeadlessRunner
 from agentdeck.composition import resolve_run_settings
 from agentdeck.runtime.settings import reset_settings_cache
@@ -49,6 +49,7 @@ _SETTINGS_ENV = {
     "AGENTDECK_RUNNER_TEMPERATURE": "0.25",
     "AGENTDECK_RUNNER_MAX_TURNS": "7",
     "AGENTDECK_RUNNER_MAX_TOKENS": "512",
+    "AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN": "false",
     "AGENTDECK_LANGFUSE_PUBLIC_KEY": "",
     "AGENTDECK_LANGFUSE_SECRET_KEY": "",
 }
@@ -98,6 +99,7 @@ def _fingerprint(config: RunConfig, max_turns: int) -> dict[str, object]:
         "workflow_name": config.workflow_name,
         "model": config.model,
         "nest_handoff_history": config.nest_handoff_history,
+        "handoff_history_mapper": config.handoff_history_mapper,
         "tracing_disabled": config.tracing_disabled,
         "temperature": config.model_settings.temperature,
         "max_tokens": config.model_settings.max_tokens,
@@ -120,6 +122,7 @@ def _expected(**overrides: object) -> dict[str, object]:
         # two builds.
         "model": None,
         "nest_handoff_history": True,
+        "handoff_history_mapper": None,
         "tracing_disabled": True,
         "temperature": 0.25,
         "max_tokens": 512,
@@ -172,3 +175,19 @@ def test_ca_bundle_becomes_the_clients_trust_store(
         trusted_cas=_ca_subjects(ssl.create_default_context(cafile=str(bundle))),
     )
     assert fingerprints == [expected, expected]
+
+
+def test_handoff_ends_on_user_turn_wires_the_same_mapper_into_both_resolvers(
+    resolved_run_configs: Callable[..., list[dict[str, object]]],
+) -> None:
+    """Both `nest_handoff_history` call sites hit the same defect, so both are wired to the
+    setting — leaving one out is exactly the inconsistency this fingerprint exists to catch.
+    """
+    fingerprints = resolved_run_configs(AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN="true")
+
+    expected = _expected(handoff_history_mapper=handoff_ends_on_user_turn_mapper)
+    assert fingerprints == [expected, expected]
+    # Not just "equal" — the very same function object, so the fingerprint's `==` above isn't
+    # accidentally comparing two functions that happen to satisfy `==` by some other means.
+    assert fingerprints[0]["handoff_history_mapper"] is handoff_ends_on_user_turn_mapper
+    assert fingerprints[1]["handoff_history_mapper"] is handoff_ends_on_user_turn_mapper
