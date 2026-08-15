@@ -208,9 +208,9 @@ dropping it — a turn that silently loses its image is worse than one that refu
 limits on the openai-agents engine at the pinned `openai-agents==0.17.0`: `AudioBlock` needs the
 Chat-Completions path (`OPENAI_USE_RESPONSES=false`), and `ResourceBlock` is not sent to the model
 at all — a `uri` is a pointer, not content, and the engine never fetches it. `DataBlock` **is**
-sent: it renders as its own part, `json.dumps(data)` with nothing wrapped around it, since it is
-already a separate entry in the model's content list rather than text concatenated into a
-caller's own prompt.
+sent: it renders as its own part, `json.dumps(data, ensure_ascii=False)` with nothing wrapped
+around it, since it is already a separate entry in the model's content list rather than text
+concatenated into a caller's own prompt.
 
 `stream` yields the same `Event` objects a run's log would hand back after the fact — `text.delta`
 per token for an agent, `node.updated` per completed node for a workflow, a terminal event last —

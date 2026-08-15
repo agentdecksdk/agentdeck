@@ -137,8 +137,9 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 - **The openai-agents engine no longer refuses a `DataBlock` on input** (#226). It used to raise
   `ConfigError` there — a `DataBlock` was an output-only block in practice, so the typed way to
   hand a model structured per-run context did not exist and every embedded application invented
-  its own prose preamble. It now renders as its own part, `json.dumps(data)` with nothing wrapped
-  around it: each block is already a separate entry in the SDK's content list, so the boundary
+  its own prose preamble. It now renders as its own part, `json.dumps(data, ensure_ascii=False)`
+  with nothing wrapped around it: each block is already a separate entry in the SDK's content
+  list, so the boundary
   between it and a neighbouring `TextBlock` is the API's own rather than a delimiter this adapter
   invents, and there is no open/close token embedded data could spoof to escape early.
   `ResourceBlock` still raises — a `uri` is a pointer the engine never fetches, and the message now
