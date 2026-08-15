@@ -126,7 +126,10 @@ def resolve_checkpointer(backend: str, url: str = "") -> BaseCheckpointSaver:
         return _sqlite_saver(url)
     if normalized == "postgres":
         return _postgres_saver(url)
-    raise ValueError(f"unknown checkpoint backend {backend!r}; expected sqlite, postgres, or memory")
+    raise ValueError(
+        f"unknown checkpoint backend {backend!r}; expected sqlite, postgres, or memory "
+        f"— see {DOCS_URL}/concepts/choosing-a-store-backend"
+    )
 
 
 @cache

@@ -177,8 +177,10 @@ def test_unknown_backend_raises(monkeypatch):
     reset_settings_cache()
     wf = _make_counter_workflow(durable=True)
 
-    with pytest.raises(ValueError, match="unknown checkpoint backend"):
+    with pytest.raises(ValueError, match="unknown checkpoint backend") as excinfo:
         asyncio.run(wf.run(None, thread_id="a"))
+
+    assert f"{DOCS_URL}/concepts/choosing-a-store-backend" in str(excinfo.value)
 
 
 def test_postgres_resolves_the_async_saver(monkeypatch):
