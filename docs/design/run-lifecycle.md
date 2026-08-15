@@ -61,6 +61,55 @@ Two rules govern the table. A ruling names the rows to append **and** what becom
 control-port read ends in an event or an explicit no-op, never in silence**; silence is
 unobservable, which is #229 and its two unfiled siblings at once.
 
+## Routing a request
+
+The rule the whole design hangs off: **the log is the only place run state lives, and appending is
+the only way a decision becomes true.** Nothing holds a status field, nothing caches a fold, and
+the module that owns the rules holds no state at all — delete its memory between two calls and
+nothing is lost.
+
+Five steps, in this order.
+
+| | | |
+|---|---|---|
+| 1 | claim | the conditional append that makes this caller the only actor on the run |
+| 2 | fold | read the log, derive the state. `runtime/service.py:259` already states why this must follow the claim: an intent read before it "could belong to somebody else's turn" |
+| 3 | intent | read the control port. A request, never a record |
+| 4 | decide | `POLICY[state, intent] -> Ruling` |
+| 5 | append | the ruling's events. Nothing else makes it real |
+
+A `Ruling` carries three things, and the third is the one that is currently implicit:
+
+| field | |
+|---|---|
+| what to append | the events, or none |
+| what becomes of the intent | `consume` or `leave`. `resume_run` hand-rolls this today and documents why an unconditional write "would overwrite, and silently destroy, a cancel that arrived while the run was suspended" |
+| why | one sentence, which is simultaneously the error message, the docs cell and the test name |
+
+`consume` needs `ControlPort.consume(run_id, expected) -> bool`, recorded as missing in
+`agentdeck-v2-architecture.md` §4.5.
+
+## The declaration
+
+One table per axis, in `core/status.py` — not a new module, because 23 import statements across 20
+files make a rename churn, and that file already is this subject.
+
+| | replaces |
+|---|---|
+| `STATES` — terminal, suspended, resumes-with, per state | `RESUMABLE_STATUSES`, `TERMINAL_STATUSES` (`core/status.py`) and `SUSPENDED_KINDS` (`runtime/service.py:56`): three collections in two modules, each holding a third of one table |
+| `TRANSITIONS` — event kind to state | `_KIND_TO_STATUS`, unchanged in substance |
+| `POLICY` — (state, intent) to `Ruling` | two `if pending.verb is …` branches in `resume_run`, the `status=PAUSED` filter inside `_paused`, and, for the cells nothing implements, silence |
+
+Every derived set stays derived, which is the pattern `TERMINAL_STATUSES` already uses: a terminal
+kind added without a transition raises at import rather than answering wrongly at runtime.
+
+`POLICY` is **total**: six states after `PENDING` goes, four intents, twenty-four cells, asserted
+at import. A missing ruling becomes a missing key, and a missing key is a test failure rather than
+a request that is accepted and then read by nothing.
+
+`tests/core/test_vocabularies_agree.py` is where that assertion belongs. It exists for exactly this
+discipline and already guards the kind tables against the schema.
+
 ## Drift
 
 | claim | truth in the tree |
