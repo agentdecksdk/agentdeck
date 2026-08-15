@@ -7,13 +7,28 @@ feeds the model. The log passed in as ``history`` is read for exactly one purpos
 turn-start reconciliation in ``reconcile.py``, which repairs a session left behind by a
 crash between the log write and the session write.
 
-Input is multimodal (``_to_sdk_input`` maps ``TextBlock``/``ImageBlock``/``AudioBlock`` onto the
-SDK's own canonical parts); output is not. Nothing in this run loop produces an image or audio
-block — ``_run_completed`` only ever builds ``TextBlock``/``DataBlock`` — so an agent can *see*
-a photo or a voice note and never *return* one. Audio is chat-completions only: at the pinned
-``openai-agents==0.17.0``/``openai==2.32.0``, the Responses API's content list has no audio
-member, so an ``AudioBlock`` under ``use_responses=True`` raises rather than reaching the
-endpoint and coming back as an opaque 400.
+Input is multimodal (``_to_sdk_input`` maps ``TextBlock``/``ImageBlock``/``AudioBlock``/
+``DataBlock`` onto the SDK's own canonical parts); output is not. Nothing in this run loop
+produces an image or audio block — ``_run_completed`` only ever builds
+``TextBlock``/``DataBlock`` — so an agent can *see* a photo or a voice note and never *return*
+one. Audio is chat-completions only: at the pinned ``openai-agents==0.17.0``/``openai==2.32.0``,
+the Responses API's content list has no audio member, so an ``AudioBlock`` under
+``use_responses=True`` raises rather than reaching the endpoint and coming back as an opaque 400.
+
+A ``DataBlock`` renders as its own ``input_text`` part (``reconcile.render_data_block``:
+``json.dumps(block.data, ensure_ascii=False)``, nothing wrapped around it — see ``_part_of``).
+Each block is already a separate entry in the SDK's content list, so the boundary between it and
+a neighbouring ``TextBlock`` is the API's own, not a delimiter this adapter invents — there is no
+paired open/close token embedded data could spoof to escape early, the way a hand-rolled
+``<context>...</context>`` preamble can be broken by a value that contains ``</context>``.
+``ResourceBlock`` still raises: a URI is a pointer, not content, and rendering just the pointer
+would let a caller believe the model saw the bytes at that address when it never fetched them.
+
+The renderer lives in ``reconcile.py``, not here: a ``DataBlock`` now produces the same
+``{"type": "input_text", "text": ...}`` shape a real ``TextBlock`` does, so the SDK session
+stores it indistinguishably from one — and ``reconcile``'s log-side transcript has to render it
+identically, or a turn that carried a ``DataBlock`` would look like a permanent divergence on
+every later turn. One function, called from both sides, is what keeps that from drifting.
 """
 
 from __future__ import annotations
@@ -28,11 +43,11 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 from agents import Agent, Runner
 from pydantic import BaseModel
 
-from agentdeck.adapters.engines.openai_agents.reconcile import reconcile
+from agentdeck.adapters.engines.openai_agents.reconcile import reconcile, render_data_block
 from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings, build_run_config
 from agentdeck.adapters.engines.openai_agents.sessions import ExecutionStore
 from agentdeck.adapters.engines.openai_agents.translate import translate
-from agentdeck.core.content import AudioBlock, DataBlock, ImageBlock, TextBlock, coerce_input
+from agentdeck.core.content import AudioBlock, DataBlock, ImageBlock, ResourceBlock, TextBlock, coerce_input
 from agentdeck.core.control import ControlSignalled
 from agentdeck.core.events import RunCompleted, Usage, UsageReported
 from agentdeck.core.ports import EnginePort
@@ -268,9 +283,18 @@ def _part_of(block: ContentBlock, *, use_responses: bool) -> dict[str, Any]:
             "type": "input_audio",
             "input_audio": {"data": block.data_b64, "format": _audio_format(block.media_type)},
         }
+    if isinstance(block, DataBlock):
+        return {"type": "input_text", "text": render_data_block(block)}
+    if isinstance(block, ResourceBlock):
+        raise ConfigError(
+            "openai-agents engine cannot send a 'resource' block to the model: "
+            f"{block.uri!r} is a pointer, not content — the engine never fetches it, so sending "
+            "the URI alone risks the caller believing the model saw bytes it never received; "
+            "read the resource and send its bytes as a text, image, audio, or data block instead"
+        )
     raise ConfigError(
         f"openai-agents engine cannot send a {block.type!r} block to the model; "
-        "it accepts text, image, and audio (chat-completions only) input blocks"
+        "it accepts text, image, audio (chat-completions only), and data input blocks"
     )
 
 

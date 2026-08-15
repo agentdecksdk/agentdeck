@@ -144,6 +144,18 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `None` rather than an error, and the run continues with a quietly wrong value. Both rules were
   already documented separately and correctly; their interaction was stated once in prose and
   never demonstrated, and two clean-room reviewers missed the consequence anyway.
+- **The openai-agents engine no longer refuses a `DataBlock` on input** (#226). It used to raise
+  `ConfigError` there — a `DataBlock` was an output-only block in practice, so the typed way to
+  hand a model structured per-run context did not exist and every embedded application invented
+  its own prose preamble. It now renders as its own part, `json.dumps(data, ensure_ascii=False)`
+  with nothing wrapped around it: each block is already a separate entry in the SDK's content
+  list, so the boundary between it and a neighbouring `TextBlock` is the API's own rather than a
+  delimiter this adapter
+  invents, and there is no open/close token embedded data could spoof to escape early.
+  `ResourceBlock` still raises — a `uri` is a pointer the engine never fetches, and the message now
+  says so, rather than reading identically to the data case. Crash reconciliation renders a
+  `DataBlock` the same way on its log-side transcript, so a turn that carries one does not read as
+  a permanent session divergence on every turn after it.
 
 ### Added
 
