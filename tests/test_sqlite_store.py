@@ -170,6 +170,31 @@ async def test_persists_to_a_real_file_across_separate_store_instances(tmp_path)
     assert [event.seq for event in await reopened.read("s-1", ctx)] == [0, 1]
 
 
+async def test_the_run_id_index_migrates_onto_a_database_built_before_it_existed(tmp_path) -> None:
+    """``events_by_run_id`` is new; a database an earlier build already created has the table
+    but not this index. Unlike the ``UNIQUE`` index beside it, a plain one has nothing to
+    conflict with, so opening the file adds it instead of refusing to open — asserted here
+    rather than assumed, against a file this test builds by hand with the pre-``locate`` DDL.
+    """
+    db_path = tmp_path / "events.sqlite3"
+    conn = sqlite3.connect(db_path)
+    conn.executescript(
+        "CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, namespace TEXT NOT NULL, "
+        "log_key TEXT NOT NULL, run_id TEXT NOT NULL, seq INTEGER NOT NULL, data TEXT NOT NULL);"
+        "CREATE INDEX events_by_log ON events (namespace, log_key, id);"
+        "CREATE UNIQUE INDEX events_by_run ON events (namespace, log_key, run_id, seq);"
+    )
+    conn.commit()
+    conn.close()
+
+    store = SqliteEventStore(db_path)
+    try:
+        names = {row[1] for row in store._conn.execute("PRAGMA index_list(events)").fetchall()}
+        assert "events_by_run_id" in names
+    finally:
+        store.close()
+
+
 async def test_two_connections_to_one_file_settle_a_resume_claim_on_one_winner(tmp_path) -> None:
     """Two stores over one file share no lock, no cache and no ``asyncio.Lock`` — the same
     position two server processes are in. Repeated, because a broken transaction boundary
