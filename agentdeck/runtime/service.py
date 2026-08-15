@@ -208,7 +208,8 @@ class Runtime:
         A stray resume — already resumed by a racing caller, or a completed run — is a no-op:
         nothing is read from the engine, nothing is yielded. A run an operator asked to *stop*
         is not stray, and refuses instead: honoring the answer would let it silently override
-        somebody who said stop, so the pause stays pending and this caller is told to lift it.
+        somebody who said stop. Both intents survive the refusal — the run is still waiting, and
+        the pause is still pending for whoever reads next.
 
         A **cancel** recorded while the run waited ends it here rather than answering it, for
         the reason :meth:`resume_run` gives: this claim is the only thing that will ever look.
