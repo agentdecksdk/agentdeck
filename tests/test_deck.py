@@ -1116,23 +1116,33 @@ async def _parked_approval(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_a_cancel_against_a_parked_run_ends_it_when_the_answer_claims_it(no_project, monkeypatch):
-    """#229. A cancel recorded against a parked run used to be accepted, honored by nothing and
-    left no trace: only ``resume_run`` polled the port, and an approval does not come back that
-    way. Now the answer's claim reads the port and rules on what it finds, so the request becomes
-    the two events that are its whole honest story — no ``control.observed``, because the run
-    reached no safe point; it was already stopped when the cancel landed.
+async def test_a_cancel_against_a_parked_run_ends_it_immediately(no_project, monkeypatch):
+    """#229, #311. A cancel against a parked run used to be recorded and honored by nothing at
+    all — only ``resume_run`` polled the control port, and an approval does not come back that
+    way. #229 then made it honored, but only once some later ``deck.runs.answer`` happened to
+    claim the run — a technicality became a real risk once #311 stopped a stale timer from ever
+    reclaiming a parked run's session on its own, since a cancel nobody's answer ever noticed
+    would now wedge the session forever. The cancel claims and terminates the run itself, so the
+    request becomes the two events that are its whole honest story — no ``control.observed``,
+    because the run reached no safe point; it was already stopped when the cancel landed — and
+    the session is free the moment the cancel call returns, not on whichever later call notices.
     """
     async with _parked_approval(monkeypatch) as (deck, run_id):
         assert await deck.runs.cancel(run_id, "operator said stop") is True
-
-        with pytest.raises(NotFoundError):
-            await deck.runs.answer(run_id, "yes")
 
         assert await deck.runs.status(run_id) is RunStatus.CANCELLED
         log = await deck._require_open().store.read("t-1", _new_context("t-1"))
         assert [event.kind for event in log][-3:] == ["run.resumed", "control.requested", "run.cancelled"]
         assert next(e.payload.reason for e in log if e.kind == "run.cancelled") == "operator said stop"
+
+        # A now-superfluous answer still raises — the run is gone, not merely refused.
+        with pytest.raises(NotFoundError):
+            await deck.runs.answer(run_id, "yes")
+
+        # And the session it held is free: a new run on it succeeds instead of raising
+        # SessionBusyError, which is the whole point of cancelling it.
+        resumed = await deck.run("Approval", {"request": "wed 3pm"}, session_id="t-1")
+        assert resumed["type"] == "interrupt"
 
 
 @pytest.mark.asyncio

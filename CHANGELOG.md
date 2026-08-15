@@ -149,13 +149,15 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   is the safer choice. A sweep that raises is logged and retried on the next interval rather than
   ending the loop; a process that opens the deck, takes a turn and closes within one interval never
   sweeps at all, and the deadline fires on whoever next holds the deck open past that.
-- **A cancel against a run waiting for an answer is honored instead of vanishing** (#229, #295).
-  `deck.runs.cancel` on a parked run returned `True`, recorded the signal, and the run answered on
-  anyway: only `resume_run` polled the control port, and an approval does not come back that way.
-  The next `deck.runs.answer` now ends the run, recording `control.requested` then `run.cancelled`
-  — no `control.observed`, because the run reached no safe point; it was already stopped when the
-  cancel landed. A cancel against a *paused* run likewise ends it at once rather than being
-  deferred to whoever eventually resumes it.
+- **A cancel against a run waiting for an answer is honored instead of vanishing** (#229, #295,
+  #311). `deck.runs.cancel` on a parked run returned `True`, recorded the signal, and the run
+  answered on anyway: only `resume_run` polled the control port, and an approval does not come
+  back that way. `deck.runs.cancel` against a suspended run now claims and terminates it right
+  there, recording `control.requested` then `run.cancelled` — no `control.observed`, because the
+  run reached no safe point; it was already stopped when the cancel landed. Ends the same way for
+  a *paused* run. Claiming happens at the cancel itself rather than being deferred to whoever
+  next answers or resumes: once #311 stopped a stale timer from ever reclaiming a parked run's
+  session, a deferred cancel could sit unread forever if nobody happened to touch the run again.
 - **`deck.runs.resume` on a run that is waiting for an answer now refuses, naming
   `deck.runs.answer`** (#295), and `deck.runs.answer` on a paused run refuses naming
   `deck.runs.resume`. Both raise the new `agentdeck.errors.RunStateError`, which the HTTP surface

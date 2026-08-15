@@ -68,15 +68,15 @@ Two things add up, and both are bounded:
 For a streaming answer that is typically well under half a second. For a run inside a 30-second
 tool call it is 30 seconds, and no setting can change that without killing the call.
 
-Both of those are about a run that is *live*. Cancelling a run that is already **paused** is the
-one case with no bound on it, because a paused run has no loop reaching safe points: the request
-is recorded, and the next `resume` honours it — ending the run `cancelled` instead of playing
-it on. So the cancel is never lost and can never be overridden by a resume, but it becomes an
-effect only when somebody next touches the run. A paused run that nobody ever picks up stays
-paused, holding its session **forever** — no `stale_run_after` timer reaches a paused or waiting
-run, deliberately (see [Sessions and
-Memory](/concepts/sessions-and-memory#one-turn-at-a-time)) — until a `resume` lifts it or a
-`cancel` ends it.
+Both of those are about a run that is *live*. Cancelling a run that is already **paused** (or
+waiting on an answer) is different, not slower: there is no gate left to notice a request, so
+`deck.runs.cancel` claims the run itself and ends it right there instead of merely recording
+something for a later `resume`/`answer` to find — a **pause** against a suspended run, by
+contrast, does stay merely recorded, since lifting or answering it is what would act on it. A
+paused or waiting run that nobody ever cancels stays parked, holding its session **forever** —
+no `stale_run_after` timer reaches it, deliberately (see [Sessions and
+Memory](/concepts/sessions-and-memory#one-turn-at-a-time)) — until a `resume`/`answer` continues
+it or a `cancel` ends it.
 
 ## What resume replays
 

@@ -216,30 +216,34 @@ async def test_a_cancelled_run_is_terminal_and_cannot_be_resumed(harness: Harnes
     assert await harness.log() == before
 
 
-async def test_cancelling_a_paused_run_ends_it_rather_than_resuming_it(harness: Harness) -> None:
+async def test_cancelling_a_paused_run_ends_it_immediately(harness: Harness) -> None:
     """The abandoned-pause path: pause, think, give up. A paused run has no loop polling the
-    gate, so nothing turns that cancel into an effect on its own — the next resume attempt is
-    the only thing that will ever look, and it must honor the cancel instead of playing the run
-    on. Otherwise the request is silently dropped and the run completes as if nobody asked.
+    gate, so nothing turns a merely *recorded* cancel into an effect on its own — deferring it to
+    whoever next resumes was the earlier design, and it left a cancel with nobody obliged to ever
+    read it. ``signal`` claims and terminates a suspended run itself instead, so the operator who
+    cancelled and walked away does not have to be the one who eventually resumes it to find out.
 
     No ``control.observed`` here, unlike a cancel served at a safe point: this run reached none.
     """
     await harness.control.signal(harness.ctx.run_id, Signal.PAUSE)
     await harness.play()
-    await harness.runtime.signal(harness.ctx.run_id, Signal.CANCEL, "user closed the tab")
 
-    resumed = await harness.resume()
+    cancelled = await harness.runtime.signal(
+        harness.ctx.run_id, Signal.CANCEL, "user closed the tab", namespace=harness.ctx.namespace
+    )
     log = await harness.log()
+    tail = log[-3:]
 
-    assert _kinds(resumed) == ["run.resumed", "control.requested", "run.cancelled"]
-    assert _payload(resumed, "control.requested").verb == "cancel"
-    assert _payload(resumed, "run.cancelled").reason == "user closed the tab"
+    assert cancelled is True
+    assert _kinds(tail) == ["run.resumed", "control.requested", "run.cancelled"]
+    assert _payload(tail, "control.requested").verb == "cancel"
+    assert _payload(tail, "run.cancelled").reason == "user closed the tab"
     assert status_of(log) is RunStatus.CANCELLED
     assert check_terminal(log) is None
     assert check_contiguous(log) == []
     # No text.delta after the pause: the run was never played on.
     assert _kinds(log).count("run.completed") == 0
-    # And cancel stayed terminal — a second attempt finds nothing to resume.
+    # And cancel stayed terminal — a resume attempt finds nothing to resume.
     assert await harness.resume() == []
 
 
@@ -253,7 +257,7 @@ async def test_a_signal_that_lost_the_race_with_a_terminal_event_records_nothing
     completed = await harness.play()
     before = await harness.log()
 
-    assert await harness.runtime.signal(harness.ctx.run_id, verb, "too late") is True
+    assert await harness.runtime.signal(harness.ctx.run_id, verb, "too late", namespace=harness.ctx.namespace) is True
     assert await harness.log() == before
     assert _kinds(completed)[-1] == "run.completed"
 

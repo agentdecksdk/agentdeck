@@ -980,7 +980,10 @@ class RunOps:
         return await self._deck._pause(run_id, reason)
 
     async def cancel(self, run_id: str, reason: str | None = None) -> bool:
-        """Ask the run to stop for good at its next safe point. Cancellation is terminal."""
+        """Ask the run to stop for good. A live run stops at its next safe point; one already
+        paused or waiting on an answer has none left to reach, so it ends immediately instead.
+        Cancellation is terminal either way.
+        """
         return await self._deck._cancel(run_id, reason)
 
     async def resume(self, run_id: str, reason: str | None = None, *, context: object = None) -> list[Event]:

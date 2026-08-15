@@ -84,9 +84,12 @@ test rather than a request that is accepted and read by nothing.
 
 Two cells carry the design's opinions:
 
-**A cancel against a stopped run terminates immediately**, rather than today's deferral to the next
-resume. `signal()` defers because nothing claims the run on the cancel path; the routing below
-claims first, so the race that forced the deferral is gone.
+**A cancel against a stopped run terminates immediately.** `signal()` itself claims the suspended ->
+`RUNNING` transition and appends the two terminating events on top of it (#311) — a suspended run
+has no loop ever going to poll the gate again, so recording the signal and waiting for a resume or
+answer to notice it is waiting for something that may never come. Losing that claim to a
+concurrent resume/answer falls through to the routing below, which is what reads the recorded
+signal when *that* caller is the one to find it pending.
 
 **A pause against a run waiting for an answer refuses the answer** rather than being lifted by it.
 Lifting would let an answer silently override an operator who said stop. Refusing costs the

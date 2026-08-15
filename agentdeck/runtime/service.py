@@ -45,6 +45,7 @@ from agentdeck.core.status import (
     Ruling,
     RunStatus,
     Verdict,
+    can_resume,
     decide,
 )
 from agentdeck.errors import DOCS_URL, NotFoundError, RunStateError, SessionBusyError, StoreError
@@ -89,7 +90,8 @@ class Runtime:
     (ADR-D11); a caller that wants to hold time injects a clock into the store instead —
     ``MemoryEventStore(clock=...)``, ``RedisEventStore(clock=...)``.
 
-    ``stale_run_after`` is how long a run may go silent before it stops holding its session.
+    ``stale_run_after`` is how long a **running** run may go silent before it stops holding its
+    session — never a suspended one, which holds until resumed, answered or cancelled.
     ``Runtime`` takes no ambient configuration at all — it defaults to one hour and never reads
     settings itself; ``build_runtime`` is the caller that resolves
     ``AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`` and passes the configured value in, the same
@@ -317,8 +319,15 @@ class Runtime:
             async for event in resumed:
                 yield event
 
-    async def signal(self, run_id: str, verb: Signal, reason: str | None = None) -> bool:
-        """Record a control request for ``run_id``, wherever it is running.
+    async def signal(
+        self, run_id: str, verb: Signal, reason: str | None = None, *, namespace: str | None = None
+    ) -> bool:
+        """Record a control request for ``run_id``, wherever it is running — except a cancel
+        against a run already suspended, which ends it right here instead.
+
+        ``namespace`` is only for locating a suspended run to cancel it (below); a signal
+        recorded the ordinary way needs none, since a live run polls the gate under its own
+        ``run_id`` regardless of which namespace opened it.
 
         ``False`` means this Runtime has no ``ControlPort`` and nothing was recorded — the one
         answer a caller has to act on. Everything else is deliberately not an answer here: the
@@ -329,16 +338,47 @@ class Runtime:
         Not for lifting a pause: a paused run has no loop left to notice anything, so
         :meth:`resume_run` is what continues it (and writes ``RESUME`` itself).
 
-        Not the only way a signal becomes an effect. A run that has already stopped has no loop
-        left to poll the gate, so the operation continuing it reads the port at its claim and
-        rules on what it finds (``docs/design/run-lifecycle.md``) — which is how a cancel against
-        a parked run ends it instead of vanishing. A run nobody ever picks up still stays parked,
-        holding its session until ``stale_run_after`` takes it over.
+        A **cancel** cannot wait the same way: a suspended run has no loop that will ever poll
+        the gate again, so merely recording the signal is betting on somebody else calling
+        :meth:`resume`/:meth:`resume_run` later to notice it — which may never happen, wedging
+        the very session the cancel was meant to free. :meth:`_cancel_suspended` claims and
+        terminates such a run directly. A **pause**, by contrast, stays merely recorded even
+        against a suspended run: it has nothing to do until something next resumes or answers
+        that run, per the routing table (``docs/design/run-lifecycle.md``).
         """
+        if verb is Signal.CANCEL and await self._cancel_suspended(run_id, reason, namespace):
+            return True
         if self._control is None:
             logger.warning("no ControlPort is wired: %s for run %s was not recorded", verb.value, run_id)
             return False
         await self._control.signal(run_id, verb, reason)
+        return True
+
+    async def _cancel_suspended(self, run_id: str, reason: str | None, namespace: str | None) -> bool:
+        """Claim ``run_id``'s suspended -> ``RUNNING`` transition and terminate on top of it,
+        the same shape :meth:`resume`/:meth:`resume_run` already use when *they* are the ones
+        to find a cancel pending. ``False`` for anything not currently suspended (``RUNNING``,
+        terminal, or a run ``namespace`` has never heard of) — ``signal`` falls through to
+        recording those the ordinary way.
+
+        Losing the claim to a concurrent resume/answer is not an error: that caller is now the
+        one actor on the run, and the recorded signal ``signal`` falls through to afterwards is
+        exactly what its own routing reads.
+        """
+        ctx = self._context(run_id=run_id, namespace=namespace)
+        summary = await self._find(run_id, ctx)
+        if summary is None or not can_resume(summary.status):
+            return False
+        started = await self._opening_of(summary.log_key, run_id, ctx)
+        if started is None:
+            return False
+        session_id, opened = started
+        spec, _ = self._resolve(opened.invocable)
+        run_ctx, _ = self._bind(replace(ctx, run_id=run_id, session_id=session_id))
+        if await self._claim_resume(spec, run_ctx, None, reason) is None:
+            return False
+        await self._record(ControlRequested(verb="cancel", reason=reason), spec, run_ctx)
+        await self._record(RunCancelled(reason=reason), spec, run_ctx)
         return True
 
     async def _play(

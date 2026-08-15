@@ -610,6 +610,9 @@ async def test_a_turn_arriving_while_another_is_in_flight_is_refused() -> None:
 
     assert "'s-1'" in str(refused.value)
     assert "'r-1'" in str(refused.value)
+    # Unlike a parked holder, a RUNNING one really is "in flight" — the one branch of
+    # ``_session_busy_message`` that keeps that wording rather than naming a verb.
+    assert "in flight" in str(refused.value)
     # Same reasoning as the skills case: names the one page (concepts/sessions-and-memory)
     # that documents "one turn at a time," not just that this turn was refused.
     assert f"{DOCS_URL}/concepts/sessions-and-memory" in str(refused.value)
