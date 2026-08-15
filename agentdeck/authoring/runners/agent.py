@@ -22,7 +22,7 @@ import httpx
 from agents import Agent, ModelSettings, OpenAIProvider, RunConfig, Runner, RunResult
 from openai import AsyncOpenAI
 
-from agentdeck.adapters.engines.openai_agents.runconfig import tracing_enabled
+from agentdeck.adapters.engines.openai_agents.runconfig import build_handoff_ends_on_user_turn_mapper, tracing_enabled
 from agentdeck.runtime.settings import Settings, default_use_responses, get_settings
 
 if TYPE_CHECKING:
@@ -98,6 +98,11 @@ class BaseRunner:
             # (`authoring.compile.compile_agent`), before it ever reaches this runner.
             model=model,
             nest_handoff_history=True,
+            handoff_history_mapper=(
+                build_handoff_ends_on_user_turn_mapper(runner.handoff_closing_turn)
+                if runner.handoff_ends_on_user_turn
+                else None
+            ),
             tracing_disabled=not tracing_enabled(),
             model_provider=OpenAIProvider(
                 openai_client=AsyncOpenAI(

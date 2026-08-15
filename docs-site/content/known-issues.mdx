@@ -101,13 +101,14 @@ Gemini's endpoint the message is:
 400 - Please ensure that single turn requests end with a user role or the role field is empty.
 ```
 
-A transfer produces an assistant tool-call followed by a tool result, so the transferred-to
-agent's request ends on a non-user role, which some providers reject. **The handoff mechanism
-itself is fine** — a bidirectional round trip works against a compliant endpoint.
+agentdeck collapses a handoff's transcript into a single message before handing it to the next
+agent, and that message's role is `assistant` — the transferred-to agent's request carries no
+user role at all, which some providers reject. **The handoff mechanism itself is fine** — a
+bidirectional round trip works against a compliant endpoint.
 
-**Until it is fixed:** run handoffs against OpenAI. `Agent(model=...)` does not help: it selects a
-model *name*, while the endpoint is process-wide via `OPENAI_BASE_URL`, so every agent in a run
-reaches the same provider.
+**Until it is fixed:** set `AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN=true`, which appends a
+closing user turn after the collapsed transcript. Off by default, because it changes what every
+model sees on every handoff, including against OpenAI.
 &nbsp;→ [#178](https://github.com/agentdecksdk/agentdeck/issues/178)
 
 ## Rough edges
