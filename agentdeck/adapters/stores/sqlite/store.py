@@ -40,7 +40,12 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_by_log ON events (namespace, log_key, id);
 CREATE UNIQUE INDEX IF NOT EXISTS events_by_run ON events (namespace, log_key, run_id, seq);
+CREATE INDEX IF NOT EXISTS events_by_run_id ON events (namespace, run_id, id);
 """
+# events_by_run_id adds no data `events` doesn't already carry — it is an index over columns
+# already on every row, for `locate`'s "which log holds this run_id" query. Unlike the UNIQUE
+# index above, a plain one has nothing to conflict with, so it builds cleanly on a database an
+# earlier build already created, the same `executescript` call that no-ops the other two.
 # UNIQUE is the guard, not just the index: one seq per run is the promise consumers refetch a
 # gap with, and a duplicate is the one corruption a gap check cannot see. A run whose process
 # was presumed dead and then wrote again fails loudly here instead of putting two events at one
@@ -178,6 +183,21 @@ class SqliteEventStore(EventStorePort):
             if (folded := status_of([Event.model_validate(json.loads(data))])) is not None
         ]
         return [summary for summary in summaries if status is None or summary.status is status]
+
+    async def locate(self, run_id: str, ctx: RunContext) -> str | None:
+        return await self._run(partial(self._select_log_key, ctx.namespace_key, run_id), "locate")
+
+    def _select_log_key(self, namespace: str, run_id: str) -> str | None:
+        # Restricted to lifecycle rows, like every other focused query: a run with none is
+        # indistinguishable from one this store never heard of, and locate must agree with
+        # list_runs/run_status rather than invent a third answer for that case.
+        cursor = self._conn.execute(
+            "SELECT log_key FROM events WHERE namespace = ? AND run_id = ? "
+            f"AND json_extract(data, '$.kind') IN ({_KIND_SLOTS}) LIMIT 1",
+            (namespace, run_id, *_SORTED_LIFECYCLE_KINDS),
+        )
+        row = cursor.fetchone()
+        return row[0] if row is not None else None
 
     def _append(self, log_key: str, payloads: list[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
         if not payloads:  # as postgres and redis do — no reason to take the write lock for nothing

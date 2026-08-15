@@ -117,6 +117,13 @@ class PostgresEventStore(EventStorePort):
             sql.SQL(
                 "CREATE UNIQUE INDEX IF NOT EXISTS events_by_run ON {table} (namespace, log_key, run_id, seq)"
             ).format(table=table),
+            # Adds no data the table doesn't already carry — an index over columns already on
+            # every row, for `locate`'s "which log holds this run_id" query. Unlike the UNIQUE
+            # index above, a plain one has nothing to conflict with, so it builds cleanly on a
+            # schema an earlier build already created, the same `IF NOT EXISTS` pass as the rest.
+            sql.SQL("CREATE INDEX IF NOT EXISTS events_by_run_id ON {table} (namespace, run_id, id)").format(
+                table=table
+            ),
         )
         self._insert = sql.SQL(
             "INSERT INTO {table} (namespace, log_key, run_id, seq, data) VALUES (%s, %s, %s, %s, %s::jsonb)"
@@ -147,6 +154,12 @@ class PostgresEventStore(EventStorePort):
         self._select_last_events = sql.SQL(
             "SELECT DISTINCT ON (run_id) run_id, data FROM {table} "
             "WHERE namespace = %s AND log_key = %s AND run_id = ANY(%s) ORDER BY run_id, id DESC"
+        ).format(table=table)
+        # Restricted to lifecycle rows, like every other focused query: a run with none is
+        # indistinguishable from one this store never heard of, and locate must agree with
+        # list_runs/run_status rather than invent a third answer for that case.
+        self._select_log_key = sql.SQL(
+            "SELECT log_key FROM {table} WHERE namespace = %s AND run_id = %s AND data->>'kind' = ANY(%s) LIMIT 1"
         ).format(table=table)
 
     async def _run[T](self, work: Callable[[Connection], Awaitable[T]], op: str) -> T:
@@ -328,6 +341,14 @@ class PostgresEventStore(EventStorePort):
             if (folded := status_of([Event.model_validate(data)])) is not None
         ]
         return [summary for summary in summaries if status is None or summary.status is status]
+
+    async def locate(self, run_id: str, ctx: RunContext) -> str | None:
+        async def _work(conn: Connection) -> str | None:
+            cursor = await conn.execute(self._select_log_key, (ctx.namespace_key, run_id, _SORTED_LIFECYCLE_KINDS))
+            row = await cursor.fetchone()
+            return row[0] if row is not None else None
+
+        return await self._run(_work, "locate")
 
     async def _lock_log(self, conn: Connection, namespace: str, log_key: str) -> None:
         """Serialize this log's writes, and bound the wait.

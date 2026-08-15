@@ -70,6 +70,7 @@ _CALLS = [
     pytest.param(lambda store: store.read_run("s-1", "r-1", _ctx()), id="read_run"),
     pytest.param(lambda store: store.run_status("s-1", "r-1", _ctx()), id="run_status"),
     pytest.param(lambda store: store.list_runs(_ctx()), id="list_runs"),
+    pytest.param(lambda store: store.locate("r-1", _ctx()), id="locate"),
     pytest.param(
         lambda store: store.claim_resume("s-1", "r-1", RunResumed(reason=None), _ctx(), ORIGIN), id="claim_resume"
     ),
@@ -172,6 +173,7 @@ async def test_a_colon_in_a_namespace_cannot_reach_into_another_namespaces_log(k
         assert await store.read("x:s", inner) == []
         assert await store.read_run("x:s", "r-1", inner) == []
         assert await store.list_runs(inner) == []
+        assert await store.locate("r-1", inner) is None
     finally:
         await store.aclose()
 
