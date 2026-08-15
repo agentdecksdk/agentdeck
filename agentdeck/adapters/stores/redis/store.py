@@ -145,12 +145,11 @@ class RedisEventStore(EventStorePort):
                 pipe.set(self._life_key(namespace, log_key, event.run_id), data)
                 pipe.sadd(self._log_runs_key(namespace, log_key), event.run_id)
                 pipe.sadd(self._namespace_runs_key(namespace), _member(log_key, event.run_id))
-                # Costed against every event, not just lifecycle ones: `log_key` never changes
-                # for a run, so writing it here — the first of which is always `run.started`,
-                # every run's row 0 — instead of on the far more frequent deltas is the same
-                # "once per run" a fresh write would be, at zero extra round trips (already
-                # inside this batch's pipeline) and no data this namespace's own run set
-                # (`_namespace_runs_key`) doesn't already carry as `log_key:run_id` members.
+                # Guarded like the three writes above, not run on every event: `log_key` never
+                # changes for a run, and its first lifecycle write is always `run.started` — a
+                # run's row 0 — so this is once-per-run in practice, at zero extra round trips
+                # (already inside this batch's pipeline) and no data this namespace's own run
+                # set (`_namespace_runs_key`) doesn't already carry as `log_key:run_id` members.
                 pipe.hset(self._locate_key(namespace), event.run_id, log_key)
 
     async def _stamp(

@@ -188,8 +188,13 @@ class SqliteEventStore(EventStorePort):
         return await self._run(partial(self._select_log_key, ctx.namespace_key, run_id), "locate")
 
     def _select_log_key(self, namespace: str, run_id: str) -> str | None:
+        # Restricted to lifecycle rows, like every other focused query: a run with none is
+        # indistinguishable from one this store never heard of, and locate must agree with
+        # list_runs/run_status rather than invent a third answer for that case.
         cursor = self._conn.execute(
-            "SELECT log_key FROM events WHERE namespace = ? AND run_id = ? LIMIT 1", (namespace, run_id)
+            "SELECT log_key FROM events WHERE namespace = ? AND run_id = ? "
+            f"AND json_extract(data, '$.kind') IN ({_KIND_SLOTS}) LIMIT 1",
+            (namespace, run_id, *_SORTED_LIFECYCLE_KINDS),
         )
         row = cursor.fetchone()
         return row[0] if row is not None else None

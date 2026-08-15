@@ -608,6 +608,16 @@ async def test_list_runs_skips_a_run_whose_log_holds_no_lifecycle_event(event_st
     assert await event_store.list_runs(ctx) == []
 
 
+async def test_locate_of_a_run_whose_log_holds_no_lifecycle_event_is_none(event_store: EventStorePort) -> None:
+    """The same case as ``list_runs`` above, for ``locate``: a run with no transition at all is
+    indistinguishable from one the store never heard of, everywhere else in this port — a
+    lookup that answered it differently would be a fourth backend-specific idea of what "no
+    status" means."""
+    ctx = _ctx()
+    await _write(event_store, [TextDelta(message_id="m1", text="hi")], ctx)
+    assert await event_store.locate("r-1", ctx) is None
+
+
 def _deltas(count: int) -> list[KnownPayload]:
     return [TextDelta(message_id="m1", text=str(which)) for which in range(count)]
 

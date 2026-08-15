@@ -56,7 +56,11 @@ class MemoryEventStore(EventStorePort):
         be handed the same number.
         """
         log = self._logs.setdefault((ctx.namespace, log_key), [])
-        self._run_logs[(ctx.namespace, ctx.run_id)] = log_key
+        if any(payload.kind in LIFECYCLE_KINDS for payload in payloads):
+            # Only on a lifecycle write, so a run with none recorded stays unlocatable — the same
+            # "indistinguishable from a run this store never heard of" `list_runs`/`run_status`
+            # already give it, rather than a third answer only `locate` would invent.
+            self._run_logs[(ctx.namespace, ctx.run_id)] = log_key
         seq = max((stored.seq for stored in log if stored.run_id == ctx.run_id), default=-1)
         events = []
         for payload in payloads:

@@ -155,8 +155,14 @@ class PostgresEventStore(EventStorePort):
             "SELECT DISTINCT ON (run_id) run_id, data FROM {table} "
             "WHERE namespace = %s AND log_key = %s AND run_id = ANY(%s) ORDER BY run_id, id DESC"
         ).format(table=table)
+        # Restricted to lifecycle rows, like every other focused query: a run with none is
+        # indistinguishable from one this store never heard of, and locate must agree with
+        # list_runs/run_status rather than invent a third answer for that case.
+        # Restricted to lifecycle rows, like every other focused query: a run with none is
+        # indistinguishable from one this store never heard of, and locate must agree with
+        # list_runs/run_status rather than invent a third answer for that case.
         self._select_log_key = sql.SQL(
-            "SELECT log_key FROM {table} WHERE namespace = %s AND run_id = %s LIMIT 1"
+            "SELECT log_key FROM {table} WHERE namespace = %s AND run_id = %s AND data->>'kind' = ANY(%s) LIMIT 1"
         ).format(table=table)
 
     async def _run[T](self, work: Callable[[Connection], Awaitable[T]], op: str) -> T:
@@ -341,7 +347,7 @@ class PostgresEventStore(EventStorePort):
 
     async def locate(self, run_id: str, ctx: RunContext) -> str | None:
         async def _work(conn: Connection) -> str | None:
-            cursor = await conn.execute(self._select_log_key, (ctx.namespace_key, run_id))
+            cursor = await conn.execute(self._select_log_key, (ctx.namespace_key, run_id, _SORTED_LIFECYCLE_KINDS))
             row = await cursor.fetchone()
             return row[0] if row is not None else None
 
