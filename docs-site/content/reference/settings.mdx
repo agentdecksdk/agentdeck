@@ -29,6 +29,7 @@ Defaults for the host-side Agents SDK runner.
 | `AGENTDECK_RUNNER_MAX_TURNS` | `int` | `30` | Maximum turns `Runner.run`/`run_streamed` may take before giving up. |
 | `AGENTDECK_RUNNER_MAX_TOKENS` | `int` or `None` | `None` | Cap on tokens per response for the host agent loop's `ModelSettings`. `None` means the model's own default (uncapped). |
 | `AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN` | `bool` | `False` | Append a synthetic user turn after a handoff's collapsed history so the transferred-to agent's request ends on a user role instead of an assistant one. Off by default: it changes what every model sees on every handoff, including against OpenAI, and only some OpenAI-compatible endpoints reject the assistant-terminated shape. |
+| `AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN` | `str` | `'Please continue.'` | Content of the synthetic user turn `handoff_ends_on_user_turn` appends. Override for a deployment whose conversations aren't English — the default is otherwise an English sentence injected into every handoff regardless of the conversation's own language. |
 
 ## `RuntimeSettings`
 

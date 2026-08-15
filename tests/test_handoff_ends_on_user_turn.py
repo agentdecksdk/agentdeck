@@ -1,4 +1,5 @@
-"""The request shape a handoff produces, on both sides of `AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN`.
+"""The request shape a handoff produces, on both sides of `AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN`,
+and what `AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN` puts in the turn it appends.
 
 `nest_handoff_history` (always on, `composition.resolve_run_settings`) collapses a handoff's
 transcript into a single assistant message — the transferred-to agent's request ends on that
@@ -85,3 +86,25 @@ async def test_setting_on_ends_the_transfer_on_a_user_turn(no_project: None, mon
     # adds a closing turn, it doesn't replace the SDK's own collapse.
     assert messages[-2]["role"] == "assistant"
     assert "book me Friday" in messages[-2]["content"]
+
+
+async def test_a_custom_closing_turn_reaches_the_wire(no_project: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The default is an English sentence — a non-English deployment overrides it, and that
+    override has to be what the model actually receives, not just what a unit test of the mapper
+    produces in isolation."""
+    monkeypatch.setenv("AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN", "true")
+    monkeypatch.setenv("AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN", "Bitte fahren Sie fort.")
+    messages = await _receiving_agents_messages(monkeypatch)
+
+    assert messages[-1] == {"role": "user", "content": "Bitte fahren Sie fort."}
+
+
+def test_a_blank_closing_turn_is_refused_at_settings_load(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty (or whitespace-only) user turn is exactly the shape a provider strict enough to
+    need `handoff_ends_on_user_turn` is likely to reject too — refused at boot rather than
+    reaching one at request time."""
+    monkeypatch.setenv("AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN", "   ")
+    get_settings.cache_clear()
+
+    with pytest.raises(ValueError, match="AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN cannot be blank"):
+        get_settings()

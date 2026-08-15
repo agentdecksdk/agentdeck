@@ -119,6 +119,7 @@ def resolve_run_settings(settings: Settings | None = None) -> RunSettings:
         workflow_name=resolved.runner.workflow_name,
         nest_handoff_history=True,
         handoff_ends_on_user_turn=resolved.runner.handoff_ends_on_user_turn,
+        handoff_closing_turn=resolved.runner.handoff_closing_turn,
         temperature=resolved.runner.temperature,
         max_tokens=resolved.runner.max_tokens,
         max_turns=resolved.runner.max_turns,

@@ -38,6 +38,12 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   handoff, including against OpenAI, so it stays opt-in rather than becoming everyone's new
   default behavior. Wired into both places agentdeck sets `nest_handoff_history` — a
   Runtime-driven run and a workflow node driving an agent of its own.
+- **`AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN`** (#178), defaulting to `"Please continue."` — the
+  content of the user turn `AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN` appends. Override it for
+  a deployment whose conversations aren't English: the default is otherwise an English sentence
+  injected into every handoff regardless of the conversation's own language. An empty (or
+  whitespace-only) value refuses to start rather than silently producing an empty user turn —
+  the shape a provider strict enough to need the setting is likely to reject too.
 
 ### Changed
 

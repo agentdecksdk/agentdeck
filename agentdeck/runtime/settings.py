@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.sources import YamlConfigSettingsSource
 
@@ -278,6 +278,22 @@ class RunnerSettings(LayeredSettings):
         "every model sees on every handoff, including against OpenAI, and only some OpenAI-compatible "
         "endpoints reject the assistant-terminated shape.",
     )
+    handoff_closing_turn: str = Field(
+        default="Please continue.",
+        description="Content of the synthetic user turn `handoff_ends_on_user_turn` appends. Override for a "
+        "deployment whose conversations aren't English — the default is otherwise an English sentence "
+        "injected into every handoff regardless of the conversation's own language.",
+    )
+
+    @field_validator("handoff_closing_turn")
+    @classmethod
+    def _handoff_closing_turn_is_not_blank(cls, value: str) -> str:
+        # An empty (or whitespace-only) turn is exactly the shape a provider strict enough to
+        # need `handoff_ends_on_user_turn` is likely to reject too — refuse it here rather than
+        # let it reach one at request time.
+        if not value.strip():
+            raise ValueError("AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN cannot be blank")
+        return value
 
 
 class RuntimeSettings(LayeredSettings):
