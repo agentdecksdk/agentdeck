@@ -54,10 +54,10 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 ### Fixed
 
 - **`EventStorePort.run_status` no longer returns `PENDING` for a run the store never heard
-  of.** It now returns `None` for that case, distinguishing it from a run that exists but hasn't
-  logged a lifecycle transition yet — the two used to fold into the same value. Only the default
-  projection changes (no adapter overrides `run_status`); `RunStatus.PENDING` and `status_of()`'s
-  own contract are unchanged.
+  of** (#294). It now returns `None` for that case, distinguishing it from a run that exists but
+  hasn't logged a lifecycle transition yet — the two used to fold into the same value. Only the
+  default projection changes (no adapter overrides `run_status`); `RunStatus.PENDING` and
+  `status_of()`'s own contract are unchanged.
 - **The documentation entry path now points readers to skills, sessions, durable stores and the
   API reference instead of ending at a two-link dead end** (#239). The getting-started page now lists the
   next concepts to read, the concepts overview names the reference as the source for exact API
