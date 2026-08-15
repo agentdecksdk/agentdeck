@@ -219,13 +219,18 @@ from agentdeck.deck import Deck
 async def main():
     root = Path(sys.argv[1])
     tag = sys.argv[2]
-    (root / f"ready-{tag}").touch()
-    deadline = time.monotonic() + 20.0
-    while not (root / "go").exists():
-        if time.monotonic() > deadline:
-            raise RuntimeError("the 'go' file never appeared")
-        time.sleep(0.005)
     async with Deck.from_project() as deck:
+        # The gate sits right at the contended call, not before opening the deck: opening
+        # (bundle import, store connect) takes its own variable time, and gating before it
+        # would let the two ticks serialize — passing even with a broken claim, since the
+        # loser would then find the thread already resumed in the checkpointer rather than
+        # actually losing the race for it.
+        (root / f"ready-{tag}").touch()
+        deadline = time.monotonic() + 20.0
+        while not (root / "go").exists():
+            if time.monotonic() > deadline:
+                raise RuntimeError("the 'go' file never appeared")
+            time.sleep(0.005)
         return await deck._tick()
 
 print(json.dumps(asyncio.run(main()), default=str))
