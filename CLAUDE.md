@@ -105,6 +105,11 @@ and import law they describe are what shipped). Layout and import law also in
 
 - Remote: `github.com/agentdecksdk/agentdeck` (public). **`dev` is the default
   branch** — PRs and day-to-day commits target `dev`. `main` is release-only.
+- **No attribution trailers.** Commit messages, PR bodies and issue bodies carry
+  no `🤖 Generated with…` line and no `Co-Authored-By: Claude…`. Applies to every
+  agent working in this repo, including subagents, which inherit the instruction
+  from their harness and have to be told here instead. `git log` records who
+  pushed; the PR body records what changed and why.
 - **Open the PR as a draft on your first commit, then push as you work.** Not at
   the end: CI then runs while the slice is still in your hands instead of after a
   review round, and a run that dies (quota, API error, a removed worktree) leaves
