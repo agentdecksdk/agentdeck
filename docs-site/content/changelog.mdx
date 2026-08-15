@@ -44,8 +44,36 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
   exhausted — the shape a multi-step tool chain or a handoff round trip needs to script.
   A single name keeps its existing one-shot behavior unchanged.
 
+### Removed
+
+- **Breaking: the six run-scoped verbs move from flat `Deck` methods to `deck.runs.*`, and
+  `tick`/`due_resumes` leave the public surface entirely** (#294). `deck.pause`, `deck.cancel`,
+  `deck.resume`, `deck.answer`, `deck.status` and `deck.pending` are gone; call
+  `deck.runs.pause(...)`, `deck.runs.cancel(...)`, `deck.runs.resume(...)`,
+  `deck.runs.answer(...)`, `deck.runs.status(...)` and `deck.runs.pending(...)` instead — same
+  signatures, same behavior, just grouped under the noun they act on rather than sitting flat
+  beside the catalog and the two verbs (`run`/`stream`) that start a turn. `deck.tick()` and
+  `deck.due_resumes()` — the timer sweep nothing in agentdeck calls yet — are no longer public at
+  all; `sleep_until` keeps working, since the underlying sweep is unchanged, just no longer
+  reachable from outside `Deck`.
+
 ### Fixed
 
+- **`sleep_until` now actually wakes up** (#303). An open `Deck` sweeps for its own lifetime —
+  started in `__aenter__`, cancelled in `__aexit__` — resuming any durable workflow parked past
+  its wake moment with no cron or scheduler wired in by the user. Previously `_tick`/`_due_resumes`
+  (the mechanism behind the sweep) were never called by anything, so a parked timer held
+  `WAITING_HUMAN` forever, keeping its session claim, until something else happened to call the
+  now-private `_tick`. The interval is `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` (default 30s) on
+  `RuntimeSettings`, on by default — there is no deployment for which silently never waking a timer
+  is the safer choice. A sweep that raises is logged and retried on the next interval rather than
+  ending the loop; a process that opens the deck, takes a turn and closes within one interval never
+  sweeps at all, and the deadline fires on whoever next holds the deck open past that.
+- **`EventStorePort.run_status` no longer returns `PENDING` for a run the store never heard
+  of** (#294). It now returns `None` for that case, distinguishing it from a run that exists but
+  hasn't logged a lifecycle transition yet — the two used to fold into the same value. Only the
+  default projection changes (no adapter overrides `run_status`); `RunStatus.PENDING` and
+  `status_of()`'s own contract are unchanged.
 - **The documentation entry path now points readers to skills, sessions, durable stores and the
   API reference instead of ending at a two-link dead end** (#239). The getting-started page now lists the
   next concepts to read, the concepts overview names the reference as the source for exact API
