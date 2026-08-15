@@ -182,6 +182,20 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   says so, rather than reading identically to the data case. Crash reconciliation renders a
   `DataBlock` the same way on its log-side transcript, so a turn that carries one does not read as
   a permanent session divergence on every turn after it.
+- **A langgraph workflow run now has a safe point, so `pause` and `cancel` can reach it**
+  (#128). `LangGraphEngine` checkpoints the run's control gate between two `updates` chunks
+  (langgraph's own node boundary), which is what produces `control.observed{safe_point:
+  "node_boundary"}`; a workflow run previously had no safe point at all, so a signal against it
+  sat unread until the graph finished on its own.
+
+  **A resumed pause continues from that boundary: it never replays.** Unlike an interrupted
+  run, which re-enters from its start, a paused workflow's checkpoint already has everything
+  before the pause, so `deck.runs.resume` re-enters langgraph with `None` (its own idiom for
+  continuing a thread) rather than the run's original input, and no already-completed node
+  runs again. That guarantee holds for `durable=True` from any process; a `durable=False`
+  workflow can only be resumed from the process that paused it (its checkpoint lives in that
+  engine's own memory, ADR-D5), and is refused, naming `durable = True`, if resumed from
+  another one instead of being silently replayed from the entry node with empty state.
 
 ### Added
 
