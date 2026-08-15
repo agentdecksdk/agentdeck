@@ -57,6 +57,14 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   exhausted — the shape a multi-step tool chain or a handoff round trip needs to script.
   A single name keeps its existing one-shot behavior unchanged.
 
+### Deprecated
+
+- **`Usage.usd` is documented as reserved, not populated** (#177). agentdeck does not price
+  model calls — no provider returns dollars in a response body, and a price depends on a
+  contract, a tier and a date rather than on the call — so the field is `None` unless a caller
+  sets its own cost. No behavior changes; it was always `None` in practice. Slated for removal
+  at the next major.
+
 ### Removed
 
 - **Breaking: `RunStatus.PENDING` is deleted, and `status_of([])` returns `None`** (#295). It

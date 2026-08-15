@@ -184,6 +184,15 @@ what lets a v1 dashboard render a stream from a v1.4 engine. The envelope is **c
 (D9): new needs go into payloads or into `run.started`; an envelope addition must
 demonstrate that routing/ordering/isolation itself is impossible without it.
 
+*(Ruled 2026-08-15, issue #177.)* `Usage.usd` is reserved, not populated: agentdeck does not
+price model calls, since no provider returns dollars in a response and a price depends on a
+contract, a tier and a date rather than on the call. Deleting the field outright is a **major**
+bump under D8 above — more blast radius than the tidiness is worth for a field that never carried
+a value — so it stays for now and is **slated for removal at the next major**. Caveat for whenever
+that lands: removing an optional field with a default does not actually break an old reader, which
+defaults it to `None` — so the removal should amend D8 with that carve-out rather than quietly
+taking a minor bump against its written rule.
+
 ```python
 # core/events.py
 class Event(BaseModel):
