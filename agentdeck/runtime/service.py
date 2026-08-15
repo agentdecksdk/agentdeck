@@ -465,10 +465,7 @@ class Runtime:
         """
         claim, event = await self._store.claim_start(ctx.log_key, opening, ctx, spec.name, self._stale_run_after)
         if claim.held_by is not None or event is None:
-            raise SessionBusyError(
-                f"session {ctx.log_key!r} already has run {claim.held_by!r} in flight, "
-                f"so run {ctx.run_id!r} cannot start on it — see {_SESSIONS_DOCS}"
-            )
+            raise SessionBusyError(await self._session_busy_message(ctx, claim.held_by))
         for tail in claim.overridden:
             try:
                 await self._close_abandoned(tail, ctx)
@@ -480,6 +477,30 @@ class Runtime:
                 logger.exception("could not close abandoned run %s; leaving it for the next turn", tail.run_id)
         await self._fan_out(event)
         return event
+
+    async def _session_busy_message(self, ctx: RunContext, held_by: str | None) -> str:
+        """What ``SessionBusyError`` says, which depends on why the holder is still open.
+
+        A ``RUNNING`` holder really is "in flight." One parked at ``PAUSED`` or
+        ``WAITING_ANSWER`` is not — nothing is executing it, and no ``stale_run_after`` will
+        ever free it — so the message names the verb that actually unsticks that run instead
+        of repeating a claim that is false of it.
+        """
+        status = None if held_by is None else await self._store.run_status(ctx.log_key, held_by, ctx)
+        if status is RunStatus.WAITING_ANSWER:
+            return (
+                f"session {ctx.log_key!r} is held by run {held_by!r}, parked waiting for an answer — "
+                f"supply it with deck.runs.answer(...) or end it with deck.runs.cancel(...), see {_SESSIONS_DOCS}"
+            )
+        if status is RunStatus.PAUSED:
+            return (
+                f"session {ctx.log_key!r} is held by run {held_by!r}, paused — "
+                f"lift it with deck.runs.resume(...) or end it with deck.runs.cancel(...), see {_SESSIONS_DOCS}"
+            )
+        return (
+            f"session {ctx.log_key!r} already has run {held_by!r} in flight, "
+            f"so run {ctx.run_id!r} cannot start on it — see {_SESSIONS_DOCS}"
+        )
 
     async def _close_abandoned(self, tail: Event, ctx: RunContext) -> None:
         """Close a run this turn took the session from. Nobody else can: its process is gone,

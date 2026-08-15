@@ -276,20 +276,24 @@ class RunnerSettings(LayeredSettings):
 class RuntimeSettings(LayeredSettings):
     """Knobs the Runtime itself reads.
 
-    ``stale_run_after_seconds`` is how long an open run may write nothing before it stops
-    holding its session. One session runs one turn at a time, and a run whose process was
+    ``stale_run_after_seconds`` is how long a **running** open run may write nothing before it
+    stops holding its session. One session runs one turn at a time, and a run whose process was
     killed outright never records its ending — silence is the only thing that separates it
     from a turn still working, so the session would otherwise stay claimed for good. **One
     hour** by default: generous next to any real turn, short enough that a crash costs a
     session an hour rather than forever, and the trade is deliberate — a permanently wedged
-    session is worse than a rare premature takeover. Two consequences worth knowing when
-    tuning it: a session a killed process left claimed is refused until it elapses, and a run
-    waiting on a human answer for longer than it is closed as failed the next time somebody
-    starts a turn on that session.
+    session is worse than a rare premature takeover. One consequence worth knowing when tuning
+    it: a session a killed process left claimed is refused until it elapses.
 
-    **Set it well above the longest stretch a healthy turn can go without writing an event** — a
-    slow tool call, a long model call, a human thinking. This is the one setting here that can
-    cost you the guarantee rather than tune it: shortened far enough, an open run looks abandoned
+    It never applies to a run parked ``PAUSED`` or waiting on an answer: both are suspended by
+    definition, so silence there is not evidence a worker died, only that nobody has resumed or
+    answered it yet. Such a run holds its session until something acts on it — a resume, an
+    answer, or a cancel — however long that takes, deliberately: destroying a parked approval to
+    free a lock is the worse failure.
+
+    **Set it well above the longest stretch a healthy running turn can go without writing an
+    event** — a slow tool call, a long model call. This is the one setting here that can cost
+    you the guarantee rather than tune it: shortened far enough, an open run looks abandoned
     while it is still working, so the next turn takes the session *from a live turn* and both run
     on one conversation. That is not a premature cleanup, it is one turn per session no longer
     holding. The lower bound is a property of the deployment, not of the code — how long a turn
@@ -318,9 +322,10 @@ class RuntimeSettings(LayeredSettings):
     stale_run_after_seconds: float = Field(
         default=60.0 * 60.0,
         gt=0,
-        description="How long, in seconds, an open run may go without writing an event before it is treated "
-        "as abandoned and its session ownership is released for another worker to claim. Must be positive; set "
-        "it above the longest gap a healthy turn can go quiet.",
+        description="How long, in seconds, a running open run may go without writing an event before it is "
+        "treated as abandoned and its session ownership is released for another worker to claim. Never applies "
+        "to a run paused or waiting on an answer — those hold their session until resumed, answered, or "
+        "cancelled. Must be positive; set it above the longest gap a healthy turn can go quiet.",
     )
 
     sweep_interval_seconds: float = Field(

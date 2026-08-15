@@ -26,6 +26,7 @@ from agentdeck.core.events import (
     RunCompleted,
     RunFailed,
     RunInterrupted,
+    RunPaused,
     RunStarted,
     TextDelta,
     Usage,
@@ -618,7 +619,12 @@ async def test_a_turn_arriving_while_another_is_in_flight_is_refused() -> None:
 
 async def test_a_turn_on_a_session_whose_run_is_waiting_on_a_human_is_refused() -> None:
     """A suspended run has not finished: it still owns the engine thread it will resume on, so a
-    new turn there would run over the state that resume needs."""
+    new turn there would run over the state that resume needs.
+
+    The refusal names the call that actually frees this session and never claims the holder is
+    "in flight" — that would be false of a run nobody is running, and the regression this guards
+    is exactly that false claim reaching a caller.
+    """
     spec = stub_spec("Approver", RunInterrupted(interrupt_id="i1", reason="approval", payload={}))
     store = MemoryEventStore()
     runtime = Runtime([StubEngine()], store, {spec.name: spec})
@@ -629,10 +635,35 @@ async def test_a_turn_on_a_session_whose_run_is_waiting_on_a_human_is_refused() 
             "Approver", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
         )
     ][-1].kind == "run.interrupted"
-    with pytest.raises(SessionBusyError, match="r-1"):
+    with pytest.raises(SessionBusyError, match="r-1") as refused:
         async for _ in runtime.run("Approver", INPUT, run_id="r-2", session_id=CTX.session_id, namespace=CTX.namespace):
             pass
+    assert "deck.runs.answer" in str(refused.value)
+    assert "deck.runs.cancel" in str(refused.value)
+    assert "in flight" not in str(refused.value)
     assert [event.kind for event in await store.read(CTX.log_key, CTX)] == ["run.started", "run.interrupted"]
+
+
+async def test_a_turn_on_a_session_whose_run_is_paused_is_refused_naming_resume() -> None:
+    """The other suspended status: a paused run is not waiting for a value, so the message
+    names ``resume`` rather than ``answer`` — the operation that would actually work
+    (`docs/design/run-lifecycle.md`'s own rule for refusals)."""
+    spec = stub_spec("Chatty", RunPaused(reason="operator"))
+    store = MemoryEventStore()
+    runtime = Runtime([StubEngine()], store, {spec.name: spec})
+
+    assert [
+        event
+        async for event in runtime.run(
+            "Chatty", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+        )
+    ][-1].kind == "run.paused"
+    with pytest.raises(SessionBusyError, match="r-1") as refused:
+        async for _ in runtime.run("Chatty", INPUT, run_id="r-2", session_id=CTX.session_id, namespace=CTX.namespace):
+            pass
+    assert "deck.runs.resume" in str(refused.value)
+    assert "deck.runs.cancel" in str(refused.value)
+    assert "in flight" not in str(refused.value)
 
 
 async def test_a_turn_after_the_previous_one_finished_is_not_refused() -> None:

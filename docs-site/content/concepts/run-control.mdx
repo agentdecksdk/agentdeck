@@ -73,7 +73,10 @@ one case with no bound on it, because a paused run has no loop reaching safe poi
 is recorded, and the next `resume` honours it — ending the run `cancelled` instead of playing
 it on. So the cancel is never lost and can never be overridden by a resume, but it becomes an
 effect only when somebody next touches the run. A paused run that nobody ever picks up stays
-paused, holding its session until `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` takes it over.
+paused, holding its session **forever** — no `stale_run_after` timer reaches a paused or waiting
+run, deliberately (see [Sessions and
+Memory](/concepts/sessions-and-memory#one-turn-at-a-time)) — until a `resume` lifts it or a
+`cancel` ends it.
 
 ## What resume replays
 

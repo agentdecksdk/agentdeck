@@ -35,7 +35,7 @@ Knobs the Runtime itself reads.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` | `float` | `3600.0` | How long, in seconds, an open run may go without writing an event before it is treated as abandoned and its session ownership is released for another worker to claim. Must be positive; set it above the longest gap a healthy turn can go quiet. |
+| `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` | `float` | `3600.0` | How long, in seconds, a running open run may go without writing an event before it is treated as abandoned and its session ownership is released for another worker to claim. Never applies to a run paused or waiting on an answer — those hold their session until resumed, answered, or cancelled. Must be positive; set it above the longest gap a healthy turn can go quiet. |
 | `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` | `float` | `30.0` | How often, in seconds, an open Deck sweeps for a `sleep_until` timer whose wake moment has passed and resumes it, with no cron or scheduler required. Must be positive; runs for the Deck's own lifetime, started when it opens and cancelled when it closes. |
 
 ## `LangfuseSettings`

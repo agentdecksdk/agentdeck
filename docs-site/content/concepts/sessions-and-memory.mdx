@@ -94,6 +94,20 @@ except SessionBusyError as busy:
 The refusal is the log deciding, not a lock the caller has to manage: opening a run is a
 conditional write that fails if the session already has one open, so exactly one caller ever
 wins, whether the two calls came from the same process or two different ones. Over HTTP the
-same refusal arrives as `409`. A run that dies without closing cleanly (a killed worker, not a
-graceful exit) still frees the session eventually — once it has gone quiet for
+same refusal arrives as `409`. A **running** run that dies without closing cleanly (a killed
+worker, not a graceful exit) still frees the session eventually — once it has gone quiet for
 `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`, described in [Run Control](/concepts/run-control).
+
+A run **parked** — paused, or waiting on a human answer — is different, and deliberately so: it
+holds the session until someone acts on it, however long that takes. No timer ever takes it
+over, because nothing is silently dying there to infer from silence — the run is exactly where
+it stopped, waiting. The refusal names the call that frees it instead of claiming the holder is
+"in flight", which would be false of a run nobody is running:
+
+```text
+session 'wa-1' is held by run '<run_id>', parked waiting for an answer — supply it with
+deck.runs.answer(...) or end it with deck.runs.cancel(...), see ...
+```
+
+An approval nobody ever answers holds its session forever, not for an hour — `deck.runs.cancel`
+is what ends it.

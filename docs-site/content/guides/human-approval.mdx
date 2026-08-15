@@ -120,7 +120,9 @@ curl -X POST http://localhost:8000/workflows/QuoteApproval/quote-42/resume -d '{
 A workflow's `thread_id` is its session: one turn on it at a time, so a second `POST` to the
 same thread while the approval is outstanding answers **409**, the same as talking over an
 agent conversation that is still mid-turn. The approval holds the session until someone
-answers it or until `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` decides nobody is coming back.
+answers it or cancels the run — deliberately with no timer to fall back on:
+`AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` only ever applies to a run that is still running,
+never to one parked waiting for this.
 
 Pausing or cancelling a run by `run_id` — [Run Control](/concepts/run-control) — does not
 reach a workflow run today: a workflow has no safe point of its own, so `interrupt()` is the

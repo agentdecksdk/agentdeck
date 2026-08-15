@@ -86,6 +86,7 @@ whether a pause or cancel landed are the ones already open to you:
 There is no way today to poll "is run X paused yet" without either of those two paths. If your
 pause or cancel is taking longer than [the bound Run Control describes](/concepts/run-control#how-long-a-pause-or-cancel-takes-to-land),
 the run is not stuck — it is either still finishing the tool call it was in, or nobody has
-touched it since it paused. A paused run that nobody resumes holds its session open until
-`AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` takes it over; it is not consuming a live loop in
-the meantime, so there is nothing to cancel out of urgency beyond recording the cancel itself.
+touched it since it paused. A paused run that nobody resumes holds its session open **forever**
+— `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` never reaches a paused run, deliberately — until a
+`resume` or a `cancel` ends the wait; it is not consuming a live loop in the meantime, so there
+is nothing to cancel out of urgency beyond recording the cancel itself.

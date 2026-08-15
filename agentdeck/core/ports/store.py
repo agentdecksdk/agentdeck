@@ -120,11 +120,18 @@ class EventStorePort(ABC):
         Losing never raises — two turns at once is a double-clicked send button, so the refusal is
         data. An unreachable store does raise: it cannot know whether anybody holds anything.
 
-        ``stale_after`` is how long an open run may be silent before it stops holding the session:
-        one whose last event is older than that comes back in ``overridden`` for the caller to
-        close. A duration rather than a cutoff instant, because the caller no longer owns the clock
-        the comparison is made in — the store does, and only it can subtract from its own now.
-        Without this a process killed mid-run wedges its session for good.
+        ``stale_after`` is how long a **running** open run may be silent before it stops holding
+        the session: one whose last event is older than that comes back in ``overridden`` for the
+        caller to close. A duration rather than a cutoff instant, because the caller no longer owns
+        the clock the comparison is made in — the store does, and only it can subtract from its own
+        now. Without this a process killed mid-run wedges its session for good.
+
+        It never applies to ``PAUSED`` or ``WAITING_ANSWER``: both are suspended by definition —
+        no worker is executing them — so silence is not evidence of anything, and a timer built to
+        infer a dead worker from silence has nothing to infer there. A parked run holds its session
+        until something acts on it: :meth:`claim_resume`, or a cancel recorded against it. Held
+        forever if nobody ever does either, which is the deliberate trade — a wedged session is
+        recoverable by an explicit cancel; a silently destroyed approval is not.
         """
 
     @abstractmethod

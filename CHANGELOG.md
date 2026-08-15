@@ -10,6 +10,19 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Upgrading
 
+- **Breaking: `deck.run(...)`/`deck.stream(...)` now raises `SessionBusyError` on a session
+  held by a run parked `PAUSED` or `WAITING_ANSWER`, however long ago it went quiet** (#311).
+  Every store's `claim_start` applied `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` to *any* open
+  run, including one suspended waiting for a human — so a parked approval was silently closed
+  `failed` (destroying it) by the very next turn started on its session once the window had
+  passed, contradicting the README's own promise that an approval outlives the process that
+  asked for it. The timer now only ever applies to `RUNNING`; a parked run holds its session
+  until `deck.runs.answer`/`deck.runs.resume` continues it or `deck.runs.cancel` ends it,
+  however long that takes. `SessionBusyError`'s message reflects it too: a parked holder names
+  the call that frees it instead of claiming it is "in flight", which was never true of it.
+  If your deployment relied on a stale approval being cleaned up automatically, call
+  `deck.runs.cancel(run_id)` on it explicitly instead — see [Sessions and
+  Memory](https://agentdecksdk.com/concepts/sessions-and-memory#one-turn-at-a-time).
 - **`redis` is no longer installed by `pip install agentdeck-sdk`** (#253). A deployment with
   `AGENTDECK_SESSION=redis://...` or `AGENTDECK_EVENTS=redis://...` now raises `ImportError` at
   boot — `Deck.__aenter__` resolves both through `SessionFactory.from_settings()` and

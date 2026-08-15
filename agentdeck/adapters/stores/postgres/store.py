@@ -24,7 +24,7 @@ from psycopg import sql
 
 from agentdeck.core.events import Event
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
-from agentdeck.core.status import LIFECYCLE_KINDS, TERMINAL_STATUSES, can_resume, status_of
+from agentdeck.core.status import LIFECYCLE_KINDS, STATES, can_resume, status_of
 from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
@@ -273,7 +273,12 @@ class PostgresEventStore(EventStorePort):
                 cursor = await conn.execute(_SELECT_NOW)
                 stale_before = (await cursor.fetchone())[0] - stale_after  # ty: ignore[not-subscriptable]
                 overridden: list[Event] = []
-                for _run_id, last in await self._open_runs(conn, ctx.namespace_key, log_key):
+                for _run_id, status, last in await self._open_runs(conn, ctx.namespace_key, log_key):
+                    if STATES[status].suspended:
+                        # No worker to be dead: PAUSED and WAITING_ANSWER have no engine polling
+                        # a clock, so silence is not evidence of anything and the timer does not
+                        # apply — the log deciding alone is what makes this hold permanent.
+                        return SessionClaim(held_by=last.run_id), None
                     if last.ts > stale_before:
                         return SessionClaim(held_by=last.run_id), None
                     overridden.append(last)
@@ -345,23 +350,24 @@ class PostgresEventStore(EventStorePort):
         row = await cursor.fetchone()
         return Event.model_validate(row[0]) if row is not None else None
 
-    async def _open_runs(self, conn: Connection, namespace: str, log_key: str) -> list[tuple[str, Event]]:
+    async def _open_runs(self, conn: Connection, namespace: str, log_key: str) -> list[tuple[str, RunStatus, Event]]:
         """Every run in this log that has recorded a transition but not a terminal one,
-        paired with its own last event — whatever kind — because that event is the run's
-        last sign of life, and silence is all that separates an abandoned run from a
-        working one.
+        paired with its own status and its own last event — whatever kind — because that
+        event is the run's last sign of life, and silence is all that separates an abandoned
+        run from a working one.
         """
         cursor = await conn.execute(self._select_log_lifecycle, (namespace, log_key, _SORTED_LIFECYCLE_KINDS))
         open_runs = [
-            row[0]
+            (row[0], status)
             for row in await cursor.fetchall()
-            if status_of([Event.model_validate(row[1])]) not in TERMINAL_STATUSES
+            if (status := status_of([Event.model_validate(row[1])])) is not None and not STATES[status].terminal
         ]
         if not open_runs:
             return []
-        cursor = await conn.execute(self._select_last_events, (namespace, log_key, open_runs))
+        run_ids = [run_id for run_id, _ in open_runs]
+        cursor = await conn.execute(self._select_last_events, (namespace, log_key, run_ids))
         last_events = {row[0]: Event.model_validate(row[1]) for row in await cursor.fetchall()}
-        return [(run_id, last_events[run_id]) for run_id in open_runs]
+        return [(run_id, status, last_events[run_id]) for run_id, status in open_runs]
 
     async def aclose(self) -> None:
         try:

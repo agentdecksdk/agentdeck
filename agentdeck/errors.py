@@ -43,12 +43,13 @@ class ContextTypeError(ConfigError):
 
 
 class SessionBusyError(AgentdeckError):
-    """A turn was asked for on a session that already has a run in flight.
+    """A turn was asked for on a session another run already holds.
 
     One session runs one turn at a time: a second turn would hand the engine a conversation
     the first one is still changing. Not a store failure — the log answered, and the answer
-    was no. The message names the run holding the session, which is what a caller retries
-    behind or reports.
+    was no. The message names the run holding the session, and — when that run is parked
+    waiting for an answer or a resume rather than actually running — the call that frees it,
+    which is what a caller retries behind or reports.
     """
 
 
