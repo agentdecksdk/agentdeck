@@ -47,13 +47,14 @@ still works, and that belongs in v3.3.
 
 What is in it:
 
-- **Silent wrong answers first.** A tool that raises completes the run with no error recorded; a
-  tool returning something unserializable has its `repr()` written into both the log and the
-  model's context. Those are worse than crashes and go first.
-- **Things accepted then discarded.** `Agent(model=…)` is honoured by nothing. A cancel against a
-  run waiting on a human returns success and changes nothing.
-- **Defaults that trap you.** A default install cannot run a durable workflow; the default event
-  store empties the approval inbox on restart.
+- **Silent wrong answers first.** Fixed: a tool that raises now records `tool.call.completed.error`
+  instead of completing the run with no trace of the failure. Still open, and worse than a crash:
+  a tool returning something unserializable still writes its `repr()` into both the log and the
+  model's context.
+- **Things accepted then discarded.** Fixed: a cancel against a run waiting on a human now ends it
+  immediately instead of returning success and changing nothing.
+- **Defaults that trap you.** Fixed: a default install can now run a durable workflow. Still open:
+  the default event store empties the approval inbox on restart.
 - **A test harness.** An exported stub-runner, so scripting a model costs a line instead of sixty
   — the reason several of the above went unnoticed.
 - **Simplification.** Undoing over-engineering is on-theme for this release rather than a
