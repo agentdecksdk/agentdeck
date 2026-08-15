@@ -23,7 +23,7 @@ import asyncio
 import inspect
 from typing import TYPE_CHECKING, Any
 
-from agents import RunContextWrapper, function_tool
+from agents import RunContextWrapper, default_tool_error_function, function_tool
 
 from agentdeck.authoring.injection import analyze_callable, check_context_type, describe_callable
 from agentdeck.core.context import Context, RunContext
@@ -60,9 +60,28 @@ def compile_tool(target: Callable[..., Any], *, context_type: object | None = No
             "it gets no portability guarantee)."
         )
     check_context_type(analysis, context_type)
+    # `failure_error_function=_tool_failure` is passed on both branches so a raised tool still
+    # lands on `tool.call.completed.error`, whether or not it declares `Context[...]`. Any other
+    # `@function_tool` kwarg (`name_override`, `is_enabled`, ...) belongs right here too, once
+    # something needs to forward it; nothing about this split is what stops that today.
     if analysis.context_parameter is None:
-        return function_tool(target)
-    return function_tool(_bridge(analysis))
+        return function_tool(target, failure_error_function=_tool_failure)
+    return function_tool(_bridge(analysis), failure_error_function=_tool_failure)
+
+
+def _tool_failure(ctx: RunContextWrapper[Any], error: Exception) -> str:
+    """The SDK's own default error text, plus a side record of the exception for the openai-agents
+    engine's translator to read back onto ``tool.call.completed.error`` (#250).
+
+    Delegating to :func:`default_tool_error_function` rather than inlining its string keeps the
+    model-visible message byte-identical to what an uncompiled ``@function_tool`` produces today —
+    including its JSON-decode special case — for as long as the SDK's own default does.
+    """
+    run = ctx.context
+    call_id = getattr(ctx, "tool_call_id", None)
+    if isinstance(run, RunContext) and call_id is not None:
+        run.tool_failures[call_id] = f"{type(error).__name__}: {error}"
+    return default_tool_error_function(ctx, error)
 
 
 def _bridge(analysis: CallableAnalysis) -> Callable[..., Any]:

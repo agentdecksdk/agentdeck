@@ -28,17 +28,19 @@ from agentdeck.core.events import (
 logger = logging.getLogger(__name__)
 
 
-def translate(event: Any, tool_names: dict[str, str]) -> KnownPayload | None:
+def translate(event: Any, tool_names: dict[str, str], tool_failures: dict[str, str]) -> KnownPayload | None:
     """One stream event → one payload, or ``None`` for anything M0 doesn't surface.
 
     ``tool_names`` is the run's own ``call_id`` → tool-name map: ``tool.call.completed``
     doesn't carry the name, so it is remembered from the paired ``tool.call.started``.
+    ``tool_failures`` is the same run's ``call_id`` → formatted-exception map, written by
+    ``compile_tool``'s failure formatter (#250) and read back here, once, per call.
     """
     if event.type == "raw_response_event":
         return _translate_raw(event.data)
     if event.type != "run_item_stream_event":
         return None  # agent_updated_stream_event: bookkeeping only, no payload
-    return _translate_item(event.item, tool_names)
+    return _translate_item(event.item, tool_names, tool_failures)
 
 
 def _translate_raw(data: Any) -> KnownPayload | None:
@@ -47,12 +49,12 @@ def _translate_raw(data: Any) -> KnownPayload | None:
     return TextDelta(message_id=data.item_id, text=data.delta)
 
 
-def _translate_item(item: Any, tool_names: dict[str, str]) -> KnownPayload | None:
+def _translate_item(item: Any, tool_names: dict[str, str], tool_failures: dict[str, str]) -> KnownPayload | None:
     kind = item.type
     if kind == "tool_call_item":
         return _tool_call_started(item, tool_names)
     if kind == "tool_call_output_item":
-        return _tool_call_completed(item, tool_names)
+        return _tool_call_completed(item, tool_names, tool_failures)
     if kind == "message_output_item":
         return _message_completed(item)
     if kind == "handoff_output_item":
@@ -89,10 +91,14 @@ def _parse_args(arguments: str | None) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {"_raw": arguments}
 
 
-def _tool_call_completed(item: Any, tool_names: dict[str, str]) -> KnownPayload:
+def _tool_call_completed(item: Any, tool_names: dict[str, str], tool_failures: dict[str, str]) -> KnownPayload:
     call_id = item.call_id or ""
     result = str(item.output)
     encoded = result.encode()
+    # `.pop`, not `.get`: a call_id is read back at most once, so a long run's failures don't
+    # sit in this dict for its whole lifetime. Capped the same way result_preview is, for the
+    # same reason — a traceback can carry whatever the failing call's arguments carried.
+    error = tool_failures.pop(call_id, None)
     # TODO(#52): a non-function tool call (computer-use, MCP approval) never populates
     # tool_names via _tool_call_started (that function returns None for it), so its
     # result lands here as an orphan tool.call.completed with tool="unknown" and no
@@ -103,6 +109,7 @@ def _tool_call_completed(item: Any, tool_names: dict[str, str]) -> KnownPayload:
         result_preview=result[:RESULT_PREVIEW_MAX],
         result_size=len(encoded),
         result_sha256=hashlib.sha256(encoded).hexdigest(),
+        error=error[:RESULT_PREVIEW_MAX] if error is not None else None,
     )
 
 
