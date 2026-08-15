@@ -6,21 +6,24 @@ honors it — that makes the ordering deterministic without a clock or a sleep a
 signal lands *mid-stream* is pinned separately, in ``tests/test_run_control.py``, off the
 scripted model's own hold/release events.
 
-The langgraph engine is deliberately absent: it makes no gate checkpoint yet, so a workflow
-run has no safe point to honor a signal at (issue #128). Adding one is a change to that
-adapter, and this file is where it will be held to the same contract when it lands.
+Cases are factories, not built values: control state (a paused thread) lives on the engine
+instance itself for langgraph, so a case shared across every test function in this module would
+leak one test's pause into the next test's run on the same ``thread_id``. A fresh engine (and
+spec) per test closes that off for all three cases alike, langgraph included.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import pytest
 from agents import Agent
 from event_log_checks import check_contiguous, check_terminal
+from langgraph.graph import END, START, StateGraph
 
 from agentdeck.adapters.control.memory import MemoryControlPort
+from agentdeck.adapters.engines.langgraph import LangGraphEngine
 from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
 from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
@@ -34,17 +37,22 @@ from agentdeck.runtime.service import Runtime
 from agentdeck.testing import ScriptedModel
 
 if TYPE_CHECKING:
-    from agentdeck.core.events import Event
+    from agentdeck.core.events import Event, SafePoint
     from agentdeck.core.ports import EnginePort
 
 
 @dataclass(frozen=True)
 class ControlCase:
-    """One engine's controllable run: streams a few items, then completes."""
+    """One engine's controllable run: streams a few items, then completes.
+
+    ``safe_point`` is what this engine honors a signal at — the platform's contract is that
+    every engine has one, not that they all have the *same* one.
+    """
 
     id: str
     engine: EnginePort
     spec: InvocableSpec
+    safe_point: SafePoint = "stream_item"
 
 
 def _stub_case() -> ControlCase:
@@ -65,12 +73,38 @@ def _openai_agents_case() -> ControlCase:
     return ControlCase(id="openai-agents", engine=OpenAIAgentsEngine(), spec=spec)
 
 
-CASES = [_stub_case(), _openai_agents_case()]
+class _LangGraphState(TypedDict, total=False):
+    input: str
+    a: bool
+    b: bool
+    c: bool
 
 
-@pytest.fixture(params=CASES, ids=lambda case: case.id)
+def _langgraph_case() -> ControlCase:
+    # Every node ignores whatever state it is handed and returns a fixed patch, so a pause
+    # honored mid-graph and a later, unrelated test reusing the same ``thread_id`` (this
+    # module's ``ctx`` is the same for every test) can never see each other's leftovers —
+    # the same "safe to share across every test function" property langgraph_cases.py's
+    # nodes are written for.
+    graph: StateGraph[Any] = StateGraph(_LangGraphState)
+    graph.add_node("a", lambda _state: {"a": True})
+    graph.add_node("b", lambda _state: {"b": True})
+    graph.add_node("c", lambda _state: {"c": True})
+    graph.add_edge(START, "a")
+    graph.add_edge("a", "b")
+    graph.add_edge("b", "c")
+    graph.add_edge("c", END)
+    spec = InvocableSpec(name="Chatty", kind=InvocableKind.WORKFLOW, engine=LangGraphEngine.engine, native=graph)
+    return ControlCase(id="langgraph", engine=LangGraphEngine(), spec=spec, safe_point="node_boundary")
+
+
+CASE_FACTORIES = [_stub_case, _openai_agents_case, _langgraph_case]
+CASE_IDS = ["stub", "openai-agents", "langgraph"]
+
+
+@pytest.fixture(params=CASE_FACTORIES, ids=CASE_IDS)
 def case(request: pytest.FixtureRequest) -> ControlCase:
-    return request.param
+    return request.param()
 
 
 @dataclass
@@ -160,15 +194,15 @@ async def test_a_pause_request_is_not_a_status_transition(harness: Harness) -> N
     assert _kinds(up_to_the_request)[-1] == "control.requested"
 
 
-async def test_the_safe_point_a_signal_was_honored_at_is_recorded(harness: Harness) -> None:
-    """``safe_point`` is what tells "cancel took eight seconds" from "a tool call did": both
-    engines honor this signal between two streamed items and say so."""
+async def test_the_safe_point_a_signal_was_honored_at_is_recorded(harness: Harness, case: ControlCase) -> None:
+    """``safe_point`` is what tells "cancel took eight seconds" from "a tool call did": every
+    engine honors this signal at its own safe point and says so."""
     await harness.control.signal(harness.ctx.run_id, Signal.CANCEL)
 
     events = await harness.play()
     observed = _payload(events, "control.observed")
 
-    assert (observed.verb, observed.safe_point) == ("cancel", "stream_item")
+    assert (observed.verb, observed.safe_point) == ("cancel", case.safe_point)
 
 
 async def test_the_reason_travels_from_the_request_to_the_effect(harness: Harness) -> None:

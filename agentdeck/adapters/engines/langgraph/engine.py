@@ -18,6 +18,14 @@ structured coming out. Text in keeps the single ``{"input": text}`` channel. Tha
 is the last ``values`` chunk rather than a checkpoint read, so a graph compiled without a
 checkpointer still reports one.
 
+A gate checkpoint between two ``updates`` chunks (issue #128) is this engine's ``node_boundary``
+safe point: nothing is mid-execution there, so a pause lands somewhere well defined. Resuming one
+is not a fresh ``start``: langgraph's own idiom for continuing a thread from its checkpoint is an
+``astream(None, config)`` call, which is what a *resumed pause* passes instead of the run's
+original input — see ``start``'s use of ``history`` and ``_continue_from_pause``. An ``interrupt()``
+suspension is unrelated and untouched: it resumes with ``Command(resume=value)``, always through
+``resume``, never through this path.
+
 The ``StateGraph``'s schema must be a ``TypedDict`` (or pydantic model), never a bare
 ``dict``: langgraph treats a bare ``dict`` as one opaque channel, so a node's return
 replaces the *entire* state instead of merging into it, which would silently break the
@@ -39,8 +47,10 @@ from pydantic import BaseModel
 
 from agentdeck.adapters.engines.langgraph.checkpointer import resolve_checkpointer
 from agentdeck.core.content import DataBlock, TextBlock
+from agentdeck.core.control import ControlSignalled
 from agentdeck.core.events import Custom, NodeUpdated, RunCompleted, RunInterrupted, Usage
 from agentdeck.core.ports import EnginePort
+from agentdeck.core.status import LIFECYCLE_KINDS
 from agentdeck.errors import DOCS_URL, ConfigError
 
 if TYPE_CHECKING:
@@ -58,6 +68,7 @@ if TYPE_CHECKING:
     from agentdeck.core.invocable import InvocableSpec
 
 _INTERRUPT_KEY = "__interrupt__"
+_METADATA_KEY = "__metadata__"
 _KNOWN_REASONS = frozenset({"human", "pause", "approval"})
 _WORKFLOWS_DOCS = f"{DOCS_URL}/concepts/workflows"
 
@@ -137,13 +148,59 @@ class LangGraphEngine(EnginePort):
         history: Sequence[Event],
         ctx: RunContext,
     ) -> AsyncGenerator[KnownPayload, None]:
+        thread_id = self._thread_id(ctx)
+        # ``resume_run`` re-enters a paused run through this same method (ADR-D5: the engine
+        # loads its own execution state, the Runtime does not carry it) — its own claim is the
+        # ``run.resumed`` this history now ends on, right after the ``run.paused`` this engine
+        # wrote. Filtered to ``ctx.run_id``, not just the kind: ``history`` is
+        # ``Runtime.run()``'s whole *session* log (``log_key`` is ``session_id or run_id``),
+        # read before this run's own claim closes out whatever the session's previous run left
+        # behind — so an abandoned run's stale ``[..., "run.paused", "run.resumed"]`` tail is
+        # still sitting there when a genuinely new run starts on the same session. Without the
+        # ``run_id`` filter that stranger's tail reads as this run continuing a pause, and a
+        # fresh run's own input is silently discarded in favor of someone else's checkpoint.
+        lifecycle = [event.kind for event in history if event.kind in LIFECYCLE_KINDS and event.run_id == ctx.run_id]
+        graph_input = (
+            await self._continue_from_pause(spec, thread_id)
+            if lifecycle[-2:] == ["run.paused", "run.resumed"]
+            else _to_graph_input(input)
+        )
         # aclosing at every delegation: closing an async generator unwinds its own frame only,
         # so an inner one iterated with a bare `async for` is abandoned to the GC — which
         # finalizes it in a fresh context, where a ContextVar reset (the workspace scope
         # ``_drive`` opens) raises instead of releasing.
-        async with aclosing(self._drive(spec, _to_graph_input(input), self._thread_id(ctx), ctx)) as stream:
+        async with aclosing(self._drive(spec, graph_input, thread_id, ctx)) as stream:
             async for payload in stream:
                 yield payload
+
+    async def _continue_from_pause(self, spec: InvocableSpec, thread_id: str) -> None:
+        """``None`` is langgraph's own idiom for continuing a thread from its last checkpoint —
+        what a resumed pause needs, since (unlike an interrupt) there is no value to hand back.
+        Returning it here, instead of the run's original input, is what keeps a completed node
+        from running twice.
+
+        Refused rather than silently replayed from the entry node when there is nothing to
+        continue from: ``durable=False`` never compiles with a checkpointer at all (mirrors the
+        ``interrupt()`` refusal in ``_drive``, for the same reason), and a non-durable graph's
+        in-memory one (``engine.py``'s own default) does not survive a resume landing in another
+        process — ADR-D5 makes an engine's checkpointer its own working memory, never shared with
+        another engine instance.
+        """
+        durable = spec.metadata.get(DURABLE_KEY)
+        if durable is False:
+            raise ConfigError(
+                f"{spec.name} paused at a node boundary but is durable=False: with no checkpointer "
+                f"the paused run cannot be resumed. Set `durable = True` on the workflow — see {_WORKFLOWS_DOCS}",
+            )
+        checkpointer = self._checkpointer_for(spec)
+        config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
+        if checkpointer is None or await checkpointer.aget_tuple(config) is None:
+            raise ConfigError(
+                f"{spec.name} paused at a node boundary, but this process has no checkpoint for "
+                f"thread {thread_id!r}: a non-durable checkpoint does not survive across processes. "
+                f"Set `durable = True` on the workflow, with a durable checkpoint backend — see {_WORKFLOWS_DOCS}",
+            )
+        return None
 
     async def resume(
         self,
@@ -294,8 +351,39 @@ class LangGraphEngine(EnginePort):
                         yield payload
                     yield pause
                     return  # the graph suspended; its terminal event arrives on resume
+                if graph_input is None:
+                    # Only a resumed *pause* passes ``None`` (an interrupt resumes with
+                    # ``Command(resume=value)``, a fresh start with the converted input) — so
+                    # this is the one path where langgraph's own re-announcement of the step its
+                    # checkpoint was loaded from, marked ``cached``, can turn up. Reporting it
+                    # would tell a reader the node that already ran, ran again. An interrupt
+                    # resume gets the identical artifact from langgraph today and keeps it
+                    # unfiltered — the same "not part of this issue" call
+                    # ``test_langgraph_fanout_interrupt.py`` already made for it (#122).
+                    #
+                    # Verified against langgraph 1.2.11: ``pregel/_loop.py`` sets ``cached`` at
+                    # the start of the tick that re-enters a checkpoint, for every task with
+                    # pending writes from before, and ``pregel/_io.py`` renders it onto this key.
+                    # It is not part of ``UpdatesStreamPart``'s public contract (that docstring
+                    # names ``__metadata__`` but not ``cached``), so a version bump is the one
+                    # thing that can move this seam: if the key disappears, a resumed run goes
+                    # back to re-reporting the pre-pause node as a duplicate ``node.updated``; if
+                    # its meaning shifts, a genuine update could be swallowed instead. Both are
+                    # what ``tests/test_langgraph_node_boundary_pause.py`` would catch.
+                    metadata = chunk.get(_METADATA_KEY)
+                    if isinstance(metadata, Mapping) and metadata.get("cached"):
+                        continue
                 for node, patch in chunk.items():
                     yield NodeUpdated(node=node, state_patch=self._as_patch(patch, node))
+                try:
+                    # Between two ``updates`` chunks, never inside one: this superstep's writes
+                    # are already checkpointed, so a pause honored here lands somewhere well
+                    # defined (``node_boundary``) rather than mid-node.
+                    await ctx.gate.checkpoint("node_boundary")
+                except ControlSignalled as signalled:
+                    for payload in signalled.payloads:
+                        yield payload
+                    return
         yield RunCompleted(
             output=[DataBlock(data=self._as_data(state, "final state"))],
             usage=Usage(input_tokens=0, output_tokens=0),

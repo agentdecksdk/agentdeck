@@ -46,8 +46,9 @@ A signal is acted on at the next **safe point**, never mid-token and never by ki
 - `tool_dispatch` — before a tool call is dispatched.
 - `node_boundary` — between two graph nodes.
 
-Agent runs today honor `stream_item`. A workflow (LangGraph) run has no safe point yet, so
-pause and cancel do not reach one — see [issue #128](https://github.com/agentdecksdk/agentdeck/issues/128).
+An agent run honors `stream_item`. A workflow (LangGraph) run honors `node_boundary`: nothing
+in the graph is mid-execution between two `updates` chunks, so a pause or cancel always lands
+somewhere well defined.
 
 **A tool call that is already running is never interrupted.** If you pause while a tool is
 executing, the call runs to completion and the run stops before the step that would have used
@@ -81,15 +82,31 @@ it or a `cancel` ends it.
 ## What resume replays
 
 A paused run is suspended **in the log**, not parked in memory: the process is free to exit, and
-any worker holding the same event store can lift the pause. There is no stack to return to, so
-resuming re-enters the engine with the run's original input and the log as history — the run
-keeps its `run_id`, and `seq` carries on from where it stopped.
+any worker holding the same event store can lift the pause. The run keeps its `run_id`, and
+`seq` carries on from where it stopped, whatever kind of run it is. What a resume continues from
+there is not the same for an agent and a workflow:
 
-The consequence to design for: **work the paused turn had already done can happen again.** The
-model is asked again, and a tool it had already called may be called a second time. `RunContext`
-has no idempotency-key field to lean on for this — only `run_id`, which does stay the same
-across a resume (see above) if your own side effects want a key to dedupe against. Keep tools
-idempotent, and treat a resumed turn the way you treat a resumed LangGraph interrupt node.
+| Run | Resume continues from |
+| --- | --- |
+| Agent | the run's original input, replayed with the log as history |
+| Workflow (LangGraph), `durable = True` | the node boundary it paused at, from any process |
+| Workflow (LangGraph), `durable = False`, same process | the node boundary it paused at |
+| Workflow (LangGraph), `durable = False`, another process | refused, naming `durable = True` |
+
+**An agent run has no stack to return to**, so resuming re-enters the engine with the run's
+original input and the log as history: work the paused turn had already done can happen again.
+The model is asked again, and a tool it had already called may be called a second time.
+`RunContext` has no idempotency-key field to lean on for this, only `run_id` (which does stay the
+same across a resume, see above) if your own side effects want a key to dedupe against. Keep
+tools idempotent, and treat a resumed turn the way you treat a resumed LangGraph interrupt node.
+
+**A workflow run has its own checkpoint**, one `updates` chunk (a node boundary) at a time, so
+resuming continues it instead of replaying: no node that already ran runs again. That is only as
+durable as the checkpoint backing it. A `durable = False` workflow's checkpoint lives in the
+memory of the process that paused it, so lifting that pause from a *different* process is
+refused rather than silently replayed from the entry node with an empty state. Set
+`durable = True` on the workflow (with a durable checkpoint backend) for a pause that must be
+resumable from anywhere.
 
 `resume` returns the events the continuation produced — an empty list means there was
 nothing to resume (the run finished, was cancelled, is still running, or another worker got
