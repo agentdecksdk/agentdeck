@@ -798,7 +798,10 @@ class Deck:
             )
         )
         if not applied:
-            raise NotFoundError(f"No pending run {run_id!r}.")
+            # Nothing was played: a lost race, or a run the routing ended instead of answering.
+            # Re-read the state rather than repeating a guess — after a cancel served here the
+            # run is terminal, and "no pending run" is the true answer to what was asked.
+            raise await self._not_answerable(run_id)
         return result
 
     async def _not_answerable(self, run_id: str) -> AgentdeckError:

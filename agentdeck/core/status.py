@@ -233,7 +233,7 @@ _WAITING_ANSWER_ROW: Mapping[str | None, Ruling] = {
     "pause": Ruling(
         Action.REFUSE,
         consume=False,
-        why="this run was paused before the answer arrived: lift it with deck.runs.resume, then answer",
+        why="an operator asked this run to stop before the answer arrived, and answering it would override that",
     ),
     "resume": Ruling(Action.PROCEED, consume=True, why="a lifted pause leaves the answer free to land"),
     None: _NOTHING_PENDING,
