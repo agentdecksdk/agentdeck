@@ -158,9 +158,6 @@ class PostgresEventStore(EventStorePort):
         # Restricted to lifecycle rows, like every other focused query: a run with none is
         # indistinguishable from one this store never heard of, and locate must agree with
         # list_runs/run_status rather than invent a third answer for that case.
-        # Restricted to lifecycle rows, like every other focused query: a run with none is
-        # indistinguishable from one this store never heard of, and locate must agree with
-        # list_runs/run_status rather than invent a third answer for that case.
         self._select_log_key = sql.SQL(
             "SELECT log_key FROM {table} WHERE namespace = %s AND run_id = %s AND data->>'kind' = ANY(%s) LIMIT 1"
         ).format(table=table)
