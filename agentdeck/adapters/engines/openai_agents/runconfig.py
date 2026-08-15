@@ -20,11 +20,14 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
-from agents import ModelSettings, MultiProvider, OpenAIProvider, RunConfig
+from agents import ModelSettings, MultiProvider, OpenAIProvider, RunConfig, default_handoff_history_mapper
 from openai import AsyncOpenAI
+
+if TYPE_CHECKING:
+    from agents.items import TResponseInputItem
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,9 +46,22 @@ class RunSettings:
     use_responses: bool = True
     workflow_name: str = "Agent workflow"
     nest_handoff_history: bool = False
+    handoff_ends_on_user_turn: bool = False
     temperature: float | None = None
     max_tokens: int | None = None
     max_turns: int = 10
+
+
+def handoff_ends_on_user_turn_mapper(transcript: list[TResponseInputItem]) -> list[TResponseInputItem]:
+    """``RunConfig.handoff_history_mapper``: the SDK's own collapse, plus a closing user turn.
+
+    ``nest_handoff_history`` folds everything into one assistant message, and some
+    OpenAI-compatible endpoints reject a request that ends on anything but a user role. The
+    collapsed content already carries the real transcript, so the turn appended here is a
+    fixed prompt rather than a repeat of it.
+    """
+    closing_turn = cast("TResponseInputItem", {"role": "user", "content": "Please continue."})
+    return [*default_handoff_history_mapper(transcript), closing_turn]
 
 
 def build_run_config(settings: RunSettings, *, sandbox: Any = None) -> RunConfig:
@@ -60,6 +76,7 @@ def build_run_config(settings: RunSettings, *, sandbox: Any = None) -> RunConfig
         # once set, so a per-agent default lives on the compiled SDK agent instead
         # (`authoring.compile.compile_agent`), where an agent's own declaration still wins.
         nest_handoff_history=settings.nest_handoff_history,
+        handoff_history_mapper=handoff_ends_on_user_turn_mapper if settings.handoff_ends_on_user_turn else None,
         tracing_disabled=not tracing_enabled(),
         model_provider=_provider(settings) or MultiProvider(),
         # ``include_usage`` asks the Chat-Completions API to emit the streaming usage chunk
@@ -115,4 +132,4 @@ def _provider(settings: RunSettings) -> OpenAIProvider | None:
     )
 
 
-__all__ = ["RunSettings", "build_run_config", "tracing_enabled"]
+__all__ = ["RunSettings", "build_run_config", "handoff_ends_on_user_turn_mapper", "tracing_enabled"]

@@ -271,6 +271,13 @@ class RunnerSettings(LayeredSettings):
         description="Cap on tokens per response for the host agent loop's `ModelSettings`. `None` means the "
         "model's own default (uncapped).",
     )
+    handoff_ends_on_user_turn: bool = Field(
+        default=False,
+        description="Append a synthetic user turn after a handoff's collapsed history so the transferred-to "
+        "agent's request ends on a user role instead of an assistant one. Off by default: it changes what "
+        "every model sees on every handoff, including against OpenAI, and only some OpenAI-compatible "
+        "endpoints reject the assistant-terminated shape.",
+    )
 
 
 class RuntimeSettings(LayeredSettings):
