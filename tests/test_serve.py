@@ -205,9 +205,9 @@ def test_resuming_a_thread_already_answered_out_of_band_is_a_404_not_a_dropped_v
     """
     deck = client.app.state.deck
     client.post("/workflows/ApprovalFlow?thread_id=t-ghost", json={"request": "tue 9am"})
-    pending = _in_the_servers_loop(client, deck.pending)
+    pending = _in_the_servers_loop(client, deck.runs.pending)
     [mine] = [run for run in pending if run.thread_id == "t-ghost"]
-    answered = _in_the_servers_loop(client, deck.answer, mine.run_id, "yes")
+    answered = _in_the_servers_loop(client, deck.runs.answer, mine.run_id, "yes")
     assert answered["outcome"] == "booked"
 
     ghost = client.post("/workflows/ApprovalFlow/t-ghost/resume", json={"value": "no"})

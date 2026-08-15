@@ -123,8 +123,10 @@ async def test_redis_keyspace_prefix_is_disjoint_across_processes(monkeypatch: p
     assert int(second_prefix.rsplit("-", 1)[1]) > int(first_prefix.rsplit("-", 1)[1])
 
 
-async def test_run_status_with_no_events_is_pending(event_store: EventStorePort) -> None:
-    assert await event_store.run_status("s-1", "r-1", _ctx()) is RunStatus.PENDING
+async def test_run_status_with_no_events_is_none(event_store: EventStorePort) -> None:
+    """A run this store never heard of is ``None`` — not ``PENDING``, which would be
+    indistinguishable from a run that exists but hasn't logged a lifecycle transition yet."""
+    assert await event_store.run_status("s-1", "r-1", _ctx()) is None
 
 
 async def test_run_status_follows_the_last_lifecycle_transition(event_store: EventStorePort) -> None:
@@ -717,7 +719,7 @@ async def test_the_focused_queries_never_answer_from_another_namespaces_log(even
     await _write(event_store, [_started(), _interrupted(thread_id=None)], _ctx("acme"))
     intruder = _ctx("globex")
 
-    assert await event_store.run_status("s-1", "r-1", intruder) is RunStatus.PENDING
+    assert await event_store.run_status("s-1", "r-1", intruder) is None
     assert await event_store.list_runs(intruder) == []
     assert await event_store.read("s-1", intruder, offset=0) == []
     assert await event_store.read_run("s-1", "r-1", intruder) == []

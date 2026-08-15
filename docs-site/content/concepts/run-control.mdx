@@ -10,9 +10,9 @@ running it or from another one entirely — see [Pause, Resume, Cancel](/operati
 for how to reach one from outside the process. In your own code it looks like this:
 
 ```python no-test reason="needs a live run_id from a run this process is streaming"
-await deck.pause(run_id, reason="operator stepped away")
-events = await deck.resume(run_id)
-await deck.cancel(run_id, reason="user closed the tab")
+await deck.runs.pause(run_id, reason="operator stepped away")
+events = await deck.runs.resume(run_id)
+await deck.runs.cancel(run_id, reason="user closed the tab")
 ```
 
 ## Asking is not stopping

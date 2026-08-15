@@ -667,6 +667,29 @@ async def test_stream_before_open_raises(no_project):
             pass
 
 
+@pytest.mark.asyncio
+async def test_runs_namespace_ops_after_close_raise_not_open(no_project):
+    """Every ``deck.runs.*`` op still forwards through ``_require_open()`` after the rename —
+    a closed deck raises the same ``ConfigError`` it did when these were flat methods."""
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        pass
+
+    with pytest.raises(ConfigError, match="not open"):
+        await deck.runs.pause("r-1")
+    with pytest.raises(ConfigError, match="not open"):
+        await deck.runs.cancel("r-1")
+    with pytest.raises(ConfigError, match="not open"):
+        await deck.runs.resume("r-1")
+    with pytest.raises(ConfigError, match="not open"):
+        await deck.runs.status("r-1")
+    with pytest.raises(ConfigError, match="not open"):
+        await deck.runs.pending()
+    with pytest.raises(ConfigError, match="not open"):
+        await deck.runs.answer("r-1", "yes")
+
+
 # --- opening a Deck wires the MCP servers build() only resolved as unconnected (#173) -------
 #
 # build() compiles every agent's mcp= against MCPLifecycle before __aenter__ has connected
@@ -1028,13 +1051,13 @@ def test_sessions_keyed_by_id(no_project):
     assert deck.session_for("a") is not deck.session_for("b")
 
 
-# --- pending() lists a paused run, answer() answers it by run_id --------------------------
+# --- runs.pending() lists a paused run, runs.answer() answers it by run_id ----------------
 
 
 @pytest.mark.asyncio
 async def test_pending_lists_a_paused_run_and_answer_completes_it(no_project, monkeypatch):
-    """``answer`` pairs with ``pending``: a caller lists the inbox, then answers one run by
-    the ``run_id`` it named there — no name, thread id, or session id supplied by hand."""
+    """``runs.answer`` pairs with ``runs.pending``: a caller lists the inbox, then answers one
+    run by the ``run_id`` it named there — no name, thread id, or session id supplied by hand."""
     from agentdeck.runtime.settings import reset_settings_cache
 
     monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
@@ -1046,11 +1069,11 @@ async def test_pending_lists_a_paused_run_and_answer_completes_it(no_project, mo
             paused = await deck.run("Approval", {"request": "tue 9am"}, session_id="t-1")
             assert paused["type"] == "interrupt"
 
-            [pending] = await deck.pending()
+            [pending] = await deck.runs.pending()
             assert pending.run_id  # minted by the Runtime, not supplied by the caller
             assert pending.thread_id == "t-1"
 
-            result = await deck.answer(pending.run_id, "yes")
+            result = await deck.runs.answer(pending.run_id, "yes")
     finally:
         reset_settings_cache()
 
@@ -1063,19 +1086,19 @@ async def test_answer_of_an_unknown_run_id_raises_not_found(no_project):
 
     async with deck:
         with pytest.raises(NotFoundError, match="nonexistent"):
-            await deck.answer("nonexistent", "yes")
+            await deck.runs.answer("nonexistent", "yes")
 
 
-# --- tick() resumes a Deck.run() interrupt through the Runtime, not a checkpointer ghost ----
+# --- _tick() resumes a Deck.run() interrupt through the Runtime, not a checkpointer ghost ----
 
 
 @pytest.mark.asyncio
 async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost(no_project, monkeypatch, caplog):
-    """A timer interrupt ``Deck.run()`` parked is the same thread ``Deck.tick()`` finds on the
+    """A timer interrupt ``Deck.run()`` parked is the same thread ``Deck._tick()`` finds on the
     checkpointer — the log and the checkpointer already agree on the *listing* (direction one,
-    already true post-#164). Resuming it by calling the workflow directly, as ``tick()`` used
+    already true post-#164). Resuming it by calling the workflow directly, as ``_tick()`` used
     to, never told the event log: the run stayed ``WAITING_HUMAN`` forever and kept holding its
-    session claim (direction two — the still-live half of #120). ``tick()`` must resume through
+    session claim (direction two — the still-live half of #120). ``_tick()`` must resume through
     the Runtime instead, so the log's run closes and a fresh run on the same thread does not
     hit a stale-lock ``SessionBusyError``.
     """
@@ -1092,11 +1115,11 @@ async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost
             assert paused["type"] == "interrupt"
 
             # direction 1: the checkpointer-sourced listing already sees a Deck.run() interrupt.
-            due = await deck.due_resumes()
+            due = await deck._due_resumes()
             assert [d["thread_id"] for d in due] == ["t-tick"]
 
             with caplog.at_level("WARNING"):
-                finished = await deck.tick()
+                finished = await deck._tick()
             # the reconciled resume passes the interrupt payload's own ISO string, not the
             # parsed datetime, so the Runtime logs the answer cleanly instead of warning that
             # a datetime "cannot be held" and dropping it. `agentdeck.composition`'s own
@@ -1106,9 +1129,9 @@ async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost
             other_warnings = [r for r in caplog.records if r.name != "agentdeck.composition"]
             assert not other_warnings, [r.message for r in other_warnings]
 
-            # direction 2: resuming through tick() must close the *logged* run too, not just
+            # direction 2: resuming through _tick() must close the *logged* run too, not just
             # the checkpoint — a ghost WAITING_HUMAN entry is exactly what this pins against.
-            assert await deck.pending() == []
+            assert await deck.runs.pending() == []
 
             # ...and release the session claim it was holding, not leave it stale-locked.
             again = await deck.run("Timer", {}, session_id="t-tick")
@@ -1119,16 +1142,16 @@ async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost
 
 @pytest.mark.asyncio
 async def test_pause_and_resume_reach_the_runtime_this_deck_composed(no_project, scripted):
-    """The wiring, end to end and with nothing hand-built: ``Deck.pause`` writes to the very
-    control port this Deck's own Runtime got, the run stops at its own safe point, and
-    ``Deck.resume`` plays it on to completion."""
+    """The wiring, end to end and with nothing hand-built: ``Deck.runs.pause`` writes to the
+    very control port this Deck's own Runtime got, the run stops at its own safe point, and
+    ``Deck.runs.resume`` plays it on to completion."""
     deck = Deck(agents=[_greeter()])
 
     async with deck:
         run_id = "r-control"
-        assert await deck.pause(run_id, "operator stepped away") is True
+        assert await deck.runs.pause(run_id, "operator stepped away") is True
         paused = [event async for event in deck.stream("Greeter", "hi there", run_id=run_id)]
-        resumed = await deck.resume(run_id)
+        resumed = await deck.runs.resume(run_id)
 
     assert [event.kind for event in paused][-3:] == ["control.requested", "control.observed", "run.paused"]
     assert next(e.payload.reason for e in paused if e.kind == "run.paused") == "operator stepped away"

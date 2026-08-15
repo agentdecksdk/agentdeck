@@ -1,5 +1,5 @@
 """Durable timer waits (issue #22): sleep_until pauses a durable workflow until a wall-clock
-moment; Deck.tick() resumes threads whose wake time has passed. Reuses the #10 interrupt
+moment; Deck._tick() resumes threads whose wake time has passed. Reuses the #10 interrupt
 machinery end to end, including across a process restart.
 """
 
@@ -30,8 +30,8 @@ def test_past_timer_is_due_and_completes_after_tick(app_project_timers):
     async def _scenario():
         async with app:
             paused = await app.run("PastTimerFlow", {}, session_id="t-past")
-            due = await app.due_resumes()
-            finished = await app.tick()
+            due = await app._due_resumes()
+            finished = await app._tick()
         return paused, due, finished
 
     paused, due, finished = asyncio.run(_scenario())
@@ -40,7 +40,7 @@ def test_past_timer_is_due_and_completes_after_tick(app_project_timers):
     assert paused["payload"]["type"] == TIMER_TYPE
     # the memory saver is cached per process (see test_workflow_interrupts.py), so scope to this thread
     assert [d for d in due if d["thread_id"] == "t-past"] == [paused]
-    assert any(f.get("woke_at") for f in finished if isinstance(f, dict))  # tick() resumed it
+    assert any(f.get("woke_at") for f in finished if isinstance(f, dict))  # _tick() resumed it
 
 
 def test_future_timer_is_pending_but_not_due(app_project_timers):
@@ -49,8 +49,8 @@ def test_future_timer_is_pending_but_not_due(app_project_timers):
     async def _scenario():
         async with app:
             paused = await app.run("FutureTimerFlow", {}, session_id="t-future")
-            pending = await app.pending()
-            due = await app.due_resumes()
+            pending = await app.runs.pending()
+            due = await app._due_resumes()
         return paused, pending, due
 
     paused, pending, due = asyncio.run(_scenario())
@@ -75,7 +75,7 @@ def test_sleep_until_rejects_naive_datetime(app_project_timers):
 def test_due_resumes_rejects_naive_now(app_project_timers):
     app = app_project_timers
     with pytest.raises(ValueError, match="timezone-aware"):
-        asyncio.run(app.due_resumes(datetime.now()))  # noqa: DTZ005 - deliberately naive
+        asyncio.run(app._due_resumes(datetime.now()))  # noqa: DTZ005 - deliberately naive
 
 
 @pytest.fixture
@@ -162,8 +162,8 @@ async def main():
     async with Deck.from_project() as deck:
         if sys.argv[1] == "start":
             return await deck.run("TimerFlow", {}, session_id="restart-timer")
-        due = await deck.due_resumes()
-        resumed = await deck.tick()
+        due = await deck._due_resumes()
+        resumed = await deck._tick()
         return {"due": due, "resumed": resumed}
 
 print(json.dumps(asyncio.run(main()), default=str))
@@ -185,7 +185,7 @@ def _run_script(arg: str, cwd: str, env: dict[str, str]) -> str:
 
 
 def test_tick_survives_a_process_restart(tmp_path):
-    """A different process reads the timer inbox off the sqlite file and Deck.tick() resumes
+    """A different process reads the timer inbox off the sqlite file and Deck._tick() resumes
     it — the acceptance test for #22, in miniature."""
     import json
 

@@ -142,17 +142,20 @@ separate options rather than "just point everyone at the same file."
 ## A listed exception: timer resumes
 
 The claim at the top of this page — every consumer of a run reads this log — has one carve-out.
-`Deck.due_resumes()` lists which timer-paused workflow threads are due, and `Deck.tick()` resumes
-them, by reading each workflow's own LangGraph checkpointer, not this log. That is deliberate:
-the checkpoint backend defaults to durable (`sqlite`) while the event store defaults to
-`memory`, so listing off the log alone would stop surviving a process restart under the default
-configuration — exactly the guarantee a due timer keeps its wake-up call across one restart.
-When a due thread also has a run `Deck.pending()` already knows about (parked by a `Deck.run()`
-or HTTP call, which does go through the Runtime), `tick()` resumes it *through the Runtime*, so
-that resume itself lands in the log like any other; only a thread with no logged run at all —
-parked by calling a durable `Workflow`'s own `run`/`resume` directly — falls back to resuming
-straight off the checkpointer, since there is no log entry to reconcile. See [Workflows →
-Timers](/concepts/workflows#timers) for where this shows up in practice.
+An internal sweep lists which timer-paused workflow threads are due and resumes them, by reading
+each workflow's own LangGraph checkpointer, not this log. That is deliberate: the checkpoint
+backend defaults to durable (`sqlite`) while the event store defaults to `memory`, so listing off
+the log alone would stop surviving a process restart under the default configuration — exactly
+the guarantee a due timer keeps its wake-up call across one restart. This sweep has no public
+entry point today — nothing in agentdeck calls it yet, so a due `sleep_until` only wakes once
+something else (a future deck-owned clock) drives it.
+
+When a due thread also has a run `deck.runs.pending()` already knows about (parked by a
+`Deck.run()` or HTTP call, which does go through the Runtime), the sweep resumes it *through the
+Runtime*, so that resume itself lands in the log like any other; only a thread with no logged run
+at all — parked by calling a durable `Workflow`'s own `run`/`resume` directly — falls back to
+resuming straight off the checkpointer, since there is no log entry to reconcile. See
+[Workflows → Timers](/concepts/workflows#timers) for where this shows up in practice.
 
 Next: [Run Control](/concepts/run-control) covers what a run in flight can be asked to do, and
 how those requests land in this same log.

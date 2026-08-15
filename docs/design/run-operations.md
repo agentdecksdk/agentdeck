@@ -66,6 +66,11 @@ note rather than removed in the same change.
 
 Two exceptions, which are removals: `tick` and `due_resumes`.
 
+**Amended 2026-08-15 (#294):** shipped as a removal in one change instead, for all six — not
+additive-then-deprecate. Twelve names for six verbs is the "two ways to do one thing" this repo
+rejects, and the blast radius (37 call sites, all within this repo) was small enough to take in
+one PR rather than carry a deprecation window for it.
+
 ## Open
 
 | | |
