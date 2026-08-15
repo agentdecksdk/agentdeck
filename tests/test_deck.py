@@ -1097,9 +1097,13 @@ async def test_answer_of_an_unknown_run_id_raises_not_found(no_project):
 
 
 @contextlib.asynccontextmanager
-async def _parked_approval(monkeypatch):
+async def _parked_approval(monkeypatch, *, namespace: str | None = None):
     """A workflow run stopped at its interrupt — ``WAITING_ANSWER``, holding its session, with
-    nothing left polling the gate. The state every case below signals against."""
+    nothing left polling the gate. The state every case below signals against.
+
+    ``namespace`` defaults to ``None``, the ordinary case every existing caller here exercises;
+    passing one parks the run outside the default namespace, for the one case that needs it.
+    """
     from agentdeck.runtime.settings import reset_settings_cache
 
     monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
@@ -1107,32 +1111,68 @@ async def _parked_approval(monkeypatch):
     try:
         deck = Deck(workflows=[_approval_workflow()])
         async with deck:
-            parked = await deck.run("Approval", {"request": "tue 9am"}, session_id="t-1")
+            parked = await deck.run("Approval", {"request": "tue 9am"}, session_id="t-1", namespace=namespace)
             assert parked["type"] == "interrupt"
-            [pending] = await deck.runs.pending()
+            [pending] = await deck.runs.pending(namespace=namespace)
             yield deck, pending.run_id
     finally:
         reset_settings_cache()
 
 
 @pytest.mark.asyncio
-async def test_a_cancel_against_a_parked_run_ends_it_when_the_answer_claims_it(no_project, monkeypatch):
-    """#229. A cancel recorded against a parked run used to be accepted, honored by nothing and
-    left no trace: only ``resume_run`` polled the port, and an approval does not come back that
-    way. Now the answer's claim reads the port and rules on what it finds, so the request becomes
-    the two events that are its whole honest story — no ``control.observed``, because the run
-    reached no safe point; it was already stopped when the cancel landed.
+async def test_a_cancel_against_a_parked_run_ends_it_immediately(no_project, monkeypatch):
+    """#229, #311. A cancel against a parked run used to be recorded and honored by nothing at
+    all — only ``resume_run`` polled the control port, and an approval does not come back that
+    way. #229 then made it honored, but only once some later ``deck.runs.answer`` happened to
+    claim the run — a technicality became a real risk once #311 stopped a stale timer from ever
+    reclaiming a parked run's session on its own, since a cancel nobody's answer ever noticed
+    would now wedge the session forever. The cancel claims and terminates the run itself, so the
+    request becomes the two events that are its whole honest story — no ``control.observed``,
+    because the run reached no safe point; it was already stopped when the cancel landed — and
+    the session is free the moment the cancel call returns, not on whichever later call notices.
     """
     async with _parked_approval(monkeypatch) as (deck, run_id):
         assert await deck.runs.cancel(run_id, "operator said stop") is True
-
-        with pytest.raises(NotFoundError):
-            await deck.runs.answer(run_id, "yes")
 
         assert await deck.runs.status(run_id) is RunStatus.CANCELLED
         log = await deck._require_open().store.read("t-1", _new_context("t-1"))
         assert [event.kind for event in log][-3:] == ["run.resumed", "control.requested", "run.cancelled"]
         assert next(e.payload.reason for e in log if e.kind == "run.cancelled") == "operator said stop"
+
+        # A now-superfluous answer still raises — the run is gone, not merely refused.
+        with pytest.raises(NotFoundError):
+            await deck.runs.answer(run_id, "yes")
+
+        # And the session it held is free: a new run on it succeeds instead of raising
+        # SessionBusyError, which is the whole point of cancelling it.
+        resumed = await deck.run("Approval", {"request": "wed 3pm"}, session_id="t-1")
+        assert resumed["type"] == "interrupt"
+
+
+@pytest.mark.asyncio
+async def test_a_cancel_against_a_parked_run_in_a_real_namespace_still_ends_it(no_project, monkeypatch):
+    """Review found the eager cancel unreachable from here for any run outside the default
+    namespace: ``RunOps.cancel``/``Deck._cancel`` did not accept or pass one, so the lookup
+    ``Runtime._cancel_suspended`` needs to find the run always scanned ``namespace=None`` and
+    silently missed it — cancel still returned ``True``, but nothing closed and the session
+    stayed held, forever, now that no timer ever reclaims it either. This is the same case as
+    ``test_a_cancel_against_a_parked_run_ends_it_immediately`` above, run through the public
+    surface with a real namespace rather than through the Runtime directly, since the Runtime
+    layer never had this gap.
+    """
+    async with _parked_approval(monkeypatch, namespace="acme") as (deck, run_id):
+        assert await deck.runs.cancel(run_id, "operator said stop", namespace="acme") is True
+
+        log = await deck._require_open().store.read(
+            "t-1", RunContext(run_id="reader", session_id="t-1", namespace="acme")
+        )
+        assert [event.kind for event in log][-3:] == ["run.resumed", "control.requested", "run.cancelled"]
+        assert next(e.payload.reason for e in log if e.kind == "run.cancelled") == "operator said stop"
+
+        # The session it held is free: a new run on it succeeds instead of raising
+        # SessionBusyError, which is the whole point of cancelling it.
+        resumed = await deck.run("Approval", {"request": "wed 3pm"}, session_id="t-1", namespace="acme")
+        assert resumed["type"] == "interrupt"
 
 
 @pytest.mark.asyncio

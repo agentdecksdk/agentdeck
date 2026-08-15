@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from agentdeck.core.events import Event
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
-from agentdeck.core.status import LIFECYCLE_KINDS, TERMINAL_STATUSES, RunStatus, can_resume, status_of
+from agentdeck.core.status import LIFECYCLE_KINDS, STATES, RunStatus, can_resume, status_of
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -91,8 +91,13 @@ class MemoryEventStore(EventStorePort):
         overridden: list[Event] = []
         for events in _by_run(self._logs.get((ctx.namespace, log_key), ())).values():
             status = status_of(events)
-            if status is None or status in TERMINAL_STATUSES:
+            if status is None or STATES[status].terminal:
                 continue
+            if STATES[status].suspended:
+                # No worker to be dead: PAUSED and WAITING_ANSWER have no engine polling a
+                # clock, so silence is not evidence of anything and the timer does not apply.
+                # The log deciding alone is what makes this session's hold permanent.
+                return SessionClaim(held_by=events[-1].run_id), None
             if events[-1].ts > stale_before:
                 return SessionClaim(held_by=events[-1].run_id), None
             overridden.append(events[-1])

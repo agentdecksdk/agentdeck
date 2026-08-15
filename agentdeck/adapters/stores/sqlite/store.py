@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from agentdeck.core.events import Event
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
-from agentdeck.core.status import LIFECYCLE_KINDS, TERMINAL_STATUSES, can_resume, status_of
+from agentdeck.core.status import LIFECYCLE_KINDS, STATES, can_resume, status_of
 from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
@@ -243,17 +243,23 @@ class SqliteEventStore(EventStorePort):
         with self._conn:
             stale_before = self._backend_now() - stale_after
             overridden: list[Event] = []
-            for _run_id, last in self._select_open_runs(ctx.namespace_key, log_key):
+            for _run_id, status, last in self._select_open_runs(ctx.namespace_key, log_key):
+                if STATES[status].suspended:
+                    # No worker to be dead: PAUSED and WAITING_ANSWER have no engine polling a
+                    # clock, so silence is not evidence of anything and the timer does not
+                    # apply — the log deciding alone is what makes this hold permanent.
+                    return SessionClaim(held_by=last.run_id), None
                 if last.ts > stale_before:
                     return SessionClaim(held_by=last.run_id), None
                 overridden.append(last)
             event = self._stamp_and_insert(log_key, [opening], ctx, origin)[0]
         return SessionClaim(overridden=tuple(overridden)), event
 
-    def _select_open_runs(self, namespace: str, log_key: str) -> list[tuple[str, Event]]:
+    def _select_open_runs(self, namespace: str, log_key: str) -> list[tuple[str, RunStatus, Event]]:
         """Every run in this log that has recorded a transition but not a terminal one, paired
-        with its own last event — whatever kind — because that event is the run's last sign of
-        life, and silence is all that separates an abandoned run from a working one.
+        with its own status and its own last event — whatever kind — because that event is the
+        run's last sign of life, and silence is all that separates an abandoned run from a
+        working one.
         """
         cursor = self._conn.execute(
             "SELECT run_id, data, MAX(id) FROM events "
@@ -262,11 +268,12 @@ class SqliteEventStore(EventStorePort):
             (namespace, log_key, *_SORTED_LIFECYCLE_KINDS),
         )
         open_runs = [
-            row[0]
+            (row[0], status)
             for row in cursor.fetchall()
-            if status_of([Event.model_validate(json.loads(row[1]))]) not in TERMINAL_STATUSES
+            if (status := status_of([Event.model_validate(json.loads(row[1]))])) is not None
+            and not STATES[status].terminal
         ]
-        return [(run_id, self._select_last_event(namespace, log_key, run_id)) for run_id in open_runs]
+        return [(run_id, status, self._select_last_event(namespace, log_key, run_id)) for run_id, status in open_runs]
 
     def _select_last_event(self, namespace: str, log_key: str, run_id: str) -> Event:
         cursor = self._conn.execute(

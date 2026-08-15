@@ -80,9 +80,11 @@ or `redis://` — in anything that outlives one process. See
 
 ### A killed worker holds its session for an hour
 
-A worker killed mid-turn leaves its `session_id` unusable for
+A worker killed while its run was **running** leaves its `session_id` unusable for
 `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`, which defaults to **3600**. There is no way to
-release it sooner.
+release it sooner. This does not apply to a worker killed while its run was paused or waiting
+on an answer — that session holds until the run is resumed, answered, or cancelled, on purpose,
+with no timer involved at all.
 
 **Until it is fixed:** lower the setting if your deployment restarts often. It trades against how
 long a healthy turn may go quiet.

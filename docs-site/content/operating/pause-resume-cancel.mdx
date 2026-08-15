@@ -19,11 +19,14 @@ curl -X POST http://localhost:8000/runs/$RUN_ID/resume
 ## What each call hands back
 
 `pause` and `cancel` both answer `{"run_id", "verb", "recorded": true}` the moment the request
-is written down — not when the run stops. `resume` answers `{"run_id", "status", "events"}`
-with the count of events the continuation produced, or `409` if the run was not paused: still
-running, already finished, already cancelled, or picked up by another caller first. None of
-those three cases is an error worth retrying differently; they are all "there was nothing here
-to resume."
+is written down — for a *live* run, that is before it stops, since both wait on the run's own
+gate to notice. A `cancel` against a run already paused or waiting on an answer is different:
+there is no gate left to notice anything, so the run is claimed and ended within the same call,
+and `recorded: true` is returned only once it already has been. `resume` answers
+`{"run_id", "status", "events"}` with the count of events the continuation produced, or `409`
+if the run was not paused: still running, already finished, already cancelled, or picked up by
+another caller first. None of those three cases is an error worth retrying differently; they
+are all "there was nothing here to resume."
 
 `pause` or `cancel` on a run that already ended is accepted and does nothing, so a double
 click is harmless.
@@ -86,6 +89,7 @@ whether a pause or cancel landed are the ones already open to you:
 There is no way today to poll "is run X paused yet" without either of those two paths. If your
 pause or cancel is taking longer than [the bound Run Control describes](/concepts/run-control#how-long-a-pause-or-cancel-takes-to-land),
 the run is not stuck — it is either still finishing the tool call it was in, or nobody has
-touched it since it paused. A paused run that nobody resumes holds its session open until
-`AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` takes it over; it is not consuming a live loop in
-the meantime, so there is nothing to cancel out of urgency beyond recording the cancel itself.
+touched it since it paused. A paused run that nobody resumes holds its session open **forever**
+— `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` never reaches a paused run, deliberately — until a
+`resume` or a `cancel` ends the wait; it is not consuming a live loop in the meantime, so there
+is nothing to cancel out of urgency beyond recording the cancel itself.

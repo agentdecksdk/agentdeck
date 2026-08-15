@@ -306,6 +306,51 @@ async def test_one_live_run_refuses_a_claim_even_beside_an_abandoned_one(event_s
     assert [event.run_id for event in await event_store.read("s-1", _ctx())] == ["r-dead", "r-live"]
 
 
+@pytest.mark.parametrize(
+    "opening",
+    [
+        pytest.param([_started(), _interrupted()], id="waiting_answer"),
+        pytest.param([_started(), RunPaused(reason="operator stepped away")], id="paused"),
+    ],
+)
+async def test_a_parked_run_is_never_overridden_however_stale(
+    event_store: EventStorePort, opening: Sequence[KnownPayload]
+) -> None:
+    """``PAUSED`` and ``WAITING_ANSWER`` have no worker to be dead: unlike a ``RUNNING`` run,
+    silence there is not evidence of anything, so no ``stale_after`` — however small — ever
+    steps over one.
+
+    The regression this guards: before this fix, every store applied the timer to *any* open
+    run, so a parked human approval was destroyed by the very next turn asked for on its
+    session once the window had passed — this test fails against that code with
+    ``EVERYTHING_IS_STALE``, which stales a run the instant it is written.
+    """
+    ctx = _ctx()
+    await _write(event_store, opening, ctx)
+
+    claim, event = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-2"), ORIGIN, EVERYTHING_IS_STALE)
+    assert (claim, event) == (SessionClaim(held_by="r-1"), None)
+    assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-1"] * len(opening)
+
+
+async def test_a_parked_run_refuses_a_claim_even_beside_a_genuinely_stale_running_one(
+    event_store: EventStorePort,
+) -> None:
+    """The mixed case: one run truly abandoned (``RUNNING``, silent past the cutoff) and one
+    parked waiting on a human, in the same log. ``EVERYTHING_IS_STALE`` makes both look old
+    enough to step over by timestamp alone — which is exactly why this has to be the case that
+    proves suspension is checked *before* the timer and not folded into the same comparison:
+    the parked run still holds the session, so the claim must refuse and close neither run, the
+    same principle as ``test_one_live_run_refuses_a_claim_even_beside_an_abandoned_one``.
+    """
+    await _write(event_store, [_started()], _ctx(run_id="r-dead"))
+    await _write(event_store, [_started(), _interrupted()], _ctx(run_id="r-parked"))
+
+    claim, event = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-new"), ORIGIN, EVERYTHING_IS_STALE)
+    assert (claim, event) == (SessionClaim(held_by="r-parked"), None)
+    assert [event.run_id for event in await event_store.read("s-1", _ctx())] == ["r-dead", "r-parked", "r-parked"]
+
+
 async def test_two_claims_gathered_on_one_session_have_exactly_one_winner(event_store: EventStorePort) -> None:
     """The claim's own atomicity, not the Runtime's use of it: an ``await`` slipped between the
     scan and the append would let both of these find the session idle, and every other test here

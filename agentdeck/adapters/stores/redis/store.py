@@ -38,7 +38,7 @@ from redis.exceptions import RedisError, WatchError
 
 from agentdeck.core.events import Event
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
-from agentdeck.core.status import LIFECYCLE_KINDS, TERMINAL_STATUSES, can_resume, status_of
+from agentdeck.core.status import LIFECYCLE_KINDS, STATES, can_resume, status_of
 from agentdeck.errors import StoreError
 
 if TYPE_CHECKING:
@@ -246,8 +246,17 @@ class RedisEventStore(EventStorePort):
                 # key went missing silently loses its session hold, and is not even reported
                 # in `overridden` for the winner to close. Hence `noeviction` up top; there is
                 # no answer a store can give here that is better than not evicting the record.
-                if life is None or status_of([Event.model_validate(json.loads(life))]) in TERMINAL_STATUSES:
+                if life is None:
                     continue
+                status = status_of([Event.model_validate(json.loads(life))])
+                if status is None or STATES[status].terminal:
+                    continue
+                if STATES[status].suspended:
+                    # No worker to be dead: PAUSED and WAITING_ANSWER have no engine polling a
+                    # clock, so silence is not evidence of anything and the timer does not
+                    # apply — the log deciding alone is what makes this hold permanent. No
+                    # need to read the run's tail at all here.
+                    return SessionClaim(held_by=run_id), None
                 last = await pipe.lindex(self._run_key(ctx.namespace_key, log_key, run_id), -1)
                 if last is None:
                     continue

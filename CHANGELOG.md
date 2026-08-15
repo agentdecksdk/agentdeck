@@ -10,6 +10,19 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Upgrading
 
+- **Breaking: `deck.run(...)`/`deck.stream(...)` now raises `SessionBusyError` on a session
+  held by a run parked `PAUSED` or `WAITING_ANSWER`, however long ago it went quiet** (#311).
+  Every store's `claim_start` applied `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` to *any* open
+  run, including one suspended waiting for a human — so a parked approval was silently closed
+  `failed` (destroying it) by the very next turn started on its session once the window had
+  passed, contradicting the README's own promise that an approval outlives the process that
+  asked for it. The timer now only ever applies to `RUNNING`; a parked run holds its session
+  until `deck.runs.answer`/`deck.runs.resume` continues it or `deck.runs.cancel` ends it,
+  however long that takes. `SessionBusyError`'s message reflects it too: a parked holder names
+  the call that frees it instead of claiming it is "in flight", which was never true of it.
+  If your deployment relied on a stale approval being cleaned up automatically, call
+  `deck.runs.cancel(run_id)` on it explicitly instead — see [Sessions and
+  Memory](https://agentdecksdk.com/concepts/sessions-and-memory#one-turn-at-a-time).
 - **`redis` is no longer installed by `pip install agentdeck-sdk`** (#253). A deployment with
   `AGENTDECK_SESSION=redis://...` or `AGENTDECK_EVENTS=redis://...` now raises `ImportError` at
   boot — `Deck.__aenter__` resolves both through `SessionFactory.from_settings()` and
@@ -136,13 +149,17 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   is the safer choice. A sweep that raises is logged and retried on the next interval rather than
   ending the loop; a process that opens the deck, takes a turn and closes within one interval never
   sweeps at all, and the deadline fires on whoever next holds the deck open past that.
-- **A cancel against a run waiting for an answer is honored instead of vanishing** (#229, #295).
-  `deck.runs.cancel` on a parked run returned `True`, recorded the signal, and the run answered on
-  anyway: only `resume_run` polled the control port, and an approval does not come back that way.
-  The next `deck.runs.answer` now ends the run, recording `control.requested` then `run.cancelled`
-  — no `control.observed`, because the run reached no safe point; it was already stopped when the
-  cancel landed. A cancel against a *paused* run likewise ends it at once rather than being
-  deferred to whoever eventually resumes it.
+- **A cancel against a run waiting for an answer is honored instead of vanishing** (#229, #295,
+  #311). `deck.runs.cancel` on a parked run returned `True`, recorded the signal, and the run
+  answered on anyway: only `resume_run` polled the control port, and an approval does not come
+  back that way. `deck.runs.cancel` against a suspended run now claims and terminates it right
+  there, recording `control.requested` then `run.cancelled` — no `control.observed`, because the
+  run reached no safe point; it was already stopped when the cancel landed. Ends the same way for
+  a *paused* run. Claiming happens at the cancel itself rather than being deferred to whoever
+  next answers or resumes: once #311 stopped a stale timer from ever reclaiming a parked run's
+  session, a deferred cancel could sit unread forever if nobody happened to touch the run again.
+  `deck.runs.cancel(run_id, reason, namespace=...)` takes the same `namespace` `deck.runs.pending`
+  already does, needed to locate a suspended run opened outside the default namespace at all.
 - **`deck.runs.resume` on a run that is waiting for an answer now refuses, naming
   `deck.runs.answer`** (#295), and `deck.runs.answer` on a paused run refuses naming
   `deck.runs.resume`. Both raise the new `agentdeck.errors.RunStateError`, which the HTTP surface
