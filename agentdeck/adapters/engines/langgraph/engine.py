@@ -346,13 +346,18 @@ class LangGraphEngine(EnginePort):
                         yield payload
                     yield pause
                     return  # the graph suspended; its terminal event arrives on resume
-                metadata = chunk.get(_METADATA_KEY)
-                if isinstance(metadata, Mapping) and metadata.get("cached"):
-                    # A resumed ``astream`` (this pause's or an interrupt's) re-announces the
-                    # step its checkpoint was loaded from, marked ``cached`` — langgraph's own
-                    # bookkeeping for a subscriber that only starts watching at the resume, not
-                    # new work. Reporting it here would tell a reader a completed node ran twice.
-                    continue
+                if graph_input is None:
+                    # Only a resumed *pause* passes ``None`` (an interrupt resumes with
+                    # ``Command(resume=value)``, a fresh start with the converted input) — so
+                    # this is the one path where langgraph's own re-announcement of the step its
+                    # checkpoint was loaded from, marked ``cached``, can turn up. Reporting it
+                    # would tell a reader the node that already ran, ran again. An interrupt
+                    # resume gets the identical artifact from langgraph today and keeps it
+                    # unfiltered — the same "not part of this issue" call
+                    # ``test_langgraph_fanout_interrupt.py`` already made for it (#122).
+                    metadata = chunk.get(_METADATA_KEY)
+                    if isinstance(metadata, Mapping) and metadata.get("cached"):
+                        continue
                 for node, patch in chunk.items():
                     yield NodeUpdated(node=node, state_patch=self._as_patch(patch, node))
                 try:

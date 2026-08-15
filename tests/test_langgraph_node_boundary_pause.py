@@ -60,6 +60,20 @@ def _spec(*, durable: bool | None = None) -> InvocableSpec:
     )
 
 
+def _one_node_graph() -> StateGraph[Any]:
+    g: StateGraph[Any] = StateGraph(_State)
+    g.add_node("only", _node("only"))
+    g.add_edge(START, "only")
+    g.add_edge("only", END)
+    return g
+
+
+def _one_node_spec() -> InvocableSpec:
+    return InvocableSpec(
+        name="OneNode", kind=InvocableKind.WORKFLOW, engine=LangGraphEngine.engine, native=_one_node_graph()
+    )
+
+
 def _kinds(events: list[Any]) -> list[str]:
     return [event.kind for event in events]
 
@@ -93,6 +107,35 @@ async def test_resume_continues_from_the_node_boundary_without_rerunning_a_compl
     assert _node_updates(resumed) == ["b", "c"]  # "a" never runs a second time
     completed = next(event for event in resumed if event.kind == "run.completed")
     assert completed.payload.output[0].data == {"input": "go", "calls": ["a", "b", "c"]}
+
+
+async def test_a_pause_at_the_last_node_boundary_resumes_straight_to_completion() -> None:
+    """The pause can land after the graph's *only* node, with nothing left to run. The resume
+    must still complete cleanly with the accumulated state and no ``node.updated`` at all --
+    not even langgraph's own replay of the step its checkpoint was loaded from, which a
+    one-node graph makes the *only* step there is to replay."""
+    spec = _one_node_spec()
+    engine = LangGraphEngine()
+    store = MemoryEventStore()
+    control = MemoryControlPort()
+    runtime = Runtime([engine], store, {spec.name: spec}, control=control, control_poll_interval=0.0)
+    ctx = RunContext(namespace="acme", run_id="r-last-boundary", session_id="s-last-boundary")
+
+    await control.signal(ctx.run_id, Signal.PAUSE)
+    paused = [
+        event
+        async for event in runtime.run(
+            spec.name, coerce_input("go"), run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace
+        )
+    ]
+    assert _kinds(paused)[-1] == "run.paused"
+    assert _node_updates(paused) == ["only"]
+
+    resumed = [event async for event in runtime.resume_run(ctx.run_id, namespace=ctx.namespace)]
+
+    assert _node_updates(resumed) == []  # nothing left to run, and the replay is filtered too
+    completed = next(event for event in resumed if event.kind == "run.completed")
+    assert completed.payload.output[0].data == {"input": "go", "calls": ["only"]}
 
 
 async def test_a_durable_pause_can_be_resumed_from_another_process() -> None:
