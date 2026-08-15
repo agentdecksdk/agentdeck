@@ -161,10 +161,14 @@ class EventStorePort(ABC):
         the namespace owns.
         """
 
-    async def run_status(self, log_key: str, run_id: str, ctx: RunContext) -> RunStatus:
-        """One run's status, derived from its own events only — never the whole log.
+    async def run_status(self, log_key: str, run_id: str, ctx: RunContext) -> RunStatus | None:
+        """One run's status, derived from its own events only — never the whole log. ``None``
+        when the run has no events at all: a run this store never heard of, which used to fold
+        into ``PENDING`` indistinguishably from one that exists but hasn't logged a lifecycle
+        transition yet.
 
         Default projection: fold :meth:`read_run` through ``status_of`` (ADR-D5: a projection,
         not a second store). A store with a cheaper way to answer may override it.
         """
-        return status_of(await self.read_run(log_key, run_id, ctx))
+        events = await self.read_run(log_key, run_id, ctx)
+        return status_of(events) if events else None

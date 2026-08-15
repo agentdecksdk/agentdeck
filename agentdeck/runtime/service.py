@@ -161,10 +161,8 @@ class Runtime:
             # caller's own coroutine — the one an ASGI server cancels when a client disconnects
             # before the response starts. A cancellation landing between the two would leave the
             # run open in the log and its session held for a whole staleness window.
-            # PENDING means no lifecycle event, which is indistinguishable from a run the
-            # store never saw — and every run records ``run.started`` first. So anything else
-            # is a run the claim did open, and it is owed a terminal event.
-            if await self._store.run_status(ctx.log_key, ctx.run_id, ctx) is not RunStatus.PENDING:
+            # Anything not None is a run the claim opened, and it is owed a terminal event.
+            if await self._store.run_status(ctx.log_key, ctx.run_id, ctx) is not None:
                 await self._close_cancelled(spec, ctx, "cancelled during the claim")
             raise
 

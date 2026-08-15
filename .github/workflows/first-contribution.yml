@@ -2,69 +2,143 @@ name: First contribution
 
 # `pull_request_target`, not `pull_request`: a PR from a fork gets a read-only token on the
 # latter, so neither job could comment — which is every external contribution, the only case
-# this workflow exists for. It is safe here because nothing checks out or runs the PR's code;
-# both jobs only call the API.
+# this workflow exists for.
+#
+# That trade is only safe while this file touches nothing the PR controls. It must never check
+# out the head, run PR code, source a file from the PR, or interpolate PR-controlled text into a
+# shell command. Reading GitHub metadata and calling the API is the whole permitted surface.
+# `AUTHOR` is the one PR-controlled value used, and it arrives through `env:` rather than a
+# `${{ }}` splice, so the shell sees it as data.
 on:
   pull_request_target:
     types: [opened, closed]
 
-permissions:
-  issues: write
-  pull-requests: write
+permissions: {}
 
 jobs:
-  # The greeting is what makes the <24h first-response target hold on a weekend. It is a
-  # welcome and a pointer, never a substitute for the human review that follows.
+  # The greeting is what makes the <24h first-response target hold on a weekend. It is a welcome
+  # and a pointer, never a substitute for the human review that follows.
   welcome:
-    if: github.event.action == 'opened'
+    if: >
+      github.event.action == 'opened' &&
+      !endsWith(github.event.pull_request.user.login, '[bot]')
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      AUTHOR: ${{ github.event.pull_request.user.login }}
+      NUMBER: ${{ github.event.pull_request.number }}
+      REPO: ${{ github.repository }}
     steps:
-      - uses: actions/first-interaction@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          pr-message: |
-            Thanks for opening your first PR here — a maintainer will read it shortly.
-
-            Two things worth knowing while you wait, both of which trip up first PRs:
-
-            - **PRs target `dev`**, not `main`. If the base is wrong, edit it at the top of
-              this page — no need to reopen anything.
-            - **`make check` is the gate**, and CI runs exactly that. A red run on a draft is
-              expected and is not a problem.
-
-            Your first run may sit waiting for a maintainer to approve it; that is a GitHub
-            default for fork PRs, not something you did.
-
-            Conventions are in
-            [CONTRIBUTING.md](https://github.com/agentdecksdk/agentdeck/blob/dev/CONTRIBUTING.md).
-            Anything unclear is fair game in
-            [Discussions](https://github.com/agentdecksdk/agentdeck/discussions) — or just ask
-            here.
-
-  # Recognition at the one moment it is both cheap and believed. Fires *after* the merge, so
-  # the star is never a condition of it.
-  thanks:
-    if: github.event.action == 'closed' && github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
-    steps:
-      - name: Say thanks if this is their first merged PR
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AUTHOR: ${{ github.event.pull_request.user.login }}
-          NUMBER: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
+      - name: Welcome a first-time PR author
+        shell: bash
         run: |
           set -euo pipefail
-          # Counts merged PRs by this author, this one included — so "1" is their first.
-          # ponytail: a count, not a full listing; --limit 2 is all the arithmetic needs.
+
+          # This PR is already in the count, so 1 means it is their first. Testing `-gt 1` rather
+          # than `!= 1` fails open: if the count ever comes back 0, greet anyway.
+          # ponytail: a count, not a listing; --limit 2 is all the arithmetic needs.
+          count=$(gh pr list --repo "$REPO" --author "$AUTHOR" --state all \
+                    --limit 2 --json number --jq 'length')
+          if [ "$count" -gt 1 ]; then
+            echo "$AUTHOR has opened $count PRs here — not their first, nothing to post."
+            exit 0
+          fi
+
+          # Capture before grepping. Piped straight into `grep -q`, the early exit closes the
+          # pipe, gh takes SIGPIPE, and `pipefail` turns that into a false negative — which posts
+          # a second copy of the thing the marker exists to prevent.
+          marker='<!-- agentdeck:first-pr-welcome -->'
+          bodies=$(gh api "repos/$REPO/issues/$NUMBER/comments" --paginate --jq '.[].body')
+          if grep -Fq "$marker" <<<"$bodies"; then
+            echo "Welcome already posted."
+            exit 0
+          fi
+
+          # Quoted heredoc: the body carries backticks, and unquoted they are command
+          # substitution. The name is spliced in afterwards by bash, not by the shell parser.
+          body=$(cat <<'EOF'
+          <!-- agentdeck:first-pr-welcome -->
+
+          Thanks for opening your first PR here, @AUTHOR. A maintainer will read it shortly.
+
+          Two things worth knowing while you wait, both of which trip up first PRs:
+
+          - **PRs target `dev`**, not `main`. If the base is wrong, edit it at the top of this
+            page; no need to reopen anything.
+          - **`make check` is the gate**, and CI runs exactly that. A red run on a draft is
+            expected and is not a problem.
+
+          Your first run may sit waiting for a maintainer to approve it. That is a GitHub default
+          for fork PRs, not something you did.
+
+          Conventions are in [CONTRIBUTING.md](https://github.com/agentdecksdk/agentdeck/blob/dev/CONTRIBUTING.md).
+          Anything unclear is fair game in [Discussions](https://github.com/agentdecksdk/agentdeck/discussions),
+          or just ask here.
+
+          <p align="center">
+            <img src="https://raw.githubusercontent.com/agentdecksdk/agentdeck/dev/.github/assets/contributors/welcome.png"
+                 alt="Welcome to the deck" width="640">
+          </p>
+          EOF
+          )
+          printf '%s\n' "${body//@AUTHOR/@$AUTHOR}" | gh pr comment "$NUMBER" --repo "$REPO" --body-file -
+
+  # Recognition at the one moment it is both cheap and believed. Fires *after* the merge, so the
+  # star is never a condition of it.
+  thanks:
+    if: >
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == true &&
+      !endsWith(github.event.pull_request.user.login, '[bot]')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      AUTHOR: ${{ github.event.pull_request.user.login }}
+      NUMBER: ${{ github.event.pull_request.number }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Say thanks if this is their first merged PR
+        shell: bash
+        run: |
+          set -euo pipefail
+
           merged=$(gh pr list --repo "$REPO" --author "$AUTHOR" --state merged \
                      --limit 2 --json number --jq 'length')
-          if [ "$merged" != "1" ]; then
+          if [ "$merged" -gt 1 ]; then
             echo "$AUTHOR has $merged merged PRs — not their first, nothing to post."
             exit 0
           fi
-          gh pr comment "$NUMBER" --repo "$REPO" --body "Thanks @${AUTHOR} — merged. You're now an AgentDeck contributor.
 
-          If you found AgentDeck useful, starring the repository helps the SDK reach more developers.
+          marker='<!-- agentdeck:first-merged-pr -->'
+          bodies=$(gh api "repos/$REPO/issues/$NUMBER/comments" --paginate --jq '.[].body')
+          if grep -Fq "$marker" <<<"$bodies"; then
+            echo "Thank-you already posted."
+            exit 0
+          fi
 
-          Happy to have you pick up another [\`good first issue\`](https://github.com/agentdecksdk/agentdeck/labels/good%20first%20issue) or [\`help wanted\`](https://github.com/agentdecksdk/agentdeck/labels/help%20wanted) task — and if anything was confusing while you worked on this, that is worth an issue of its own. A fresh pair of eyes on the docs is worth more to us than a fixed typo."
+          body=$(cat <<'EOF'
+          <!-- agentdeck:first-merged-pr -->
+
+          <p align="center">
+            <img src="https://raw.githubusercontent.com/agentdecksdk/agentdeck/dev/.github/assets/contributors/merged.png"
+                 alt="You are on the deck" width="640">
+          </p>
+
+          Thanks @AUTHOR, merged. You're now an AgentDeck contributor.
+
+          If you found AgentDeck useful, starring the repository helps the SDK reach more
+          developers.
+
+          Happy to have you pick up another [`good first issue`](https://github.com/agentdecksdk/agentdeck/labels/good%20first%20issue)
+          or [`help wanted`](https://github.com/agentdecksdk/agentdeck/labels/help%20wanted) task.
+          And if anything was confusing while you worked on this, that is worth an issue of its
+          own: a fresh pair of eyes on the docs is worth more to us than a fixed typo.
+          EOF
+          )
+          printf '%s\n' "${body//@AUTHOR/@$AUTHOR}" | gh pr comment "$NUMBER" --repo "$REPO" --body-file -

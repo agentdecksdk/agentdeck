@@ -10,8 +10,8 @@ async def main() -> None:
 
         # In a real deployment the answer comes from wherever the person is — a second process
         # reaches the same run through a shared event log, not through this variable.
-        [pending] = [p for p in await deck.pending() if p.thread_id == "refund-A-1003"]
-        final = await deck.answer(pending.run_id, "yes")
+        [pending] = [p for p in await deck.runs.pending() if p.thread_id == "refund-A-1003"]
+        final = await deck.runs.answer(pending.run_id, "yes")
         print(final)
 
 

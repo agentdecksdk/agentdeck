@@ -238,11 +238,11 @@ async def test_stream_ends_with_a_run_interrupted_event(app_project):
         assert events[2].payload.payload == {"question": "tue 9am"}
         assert events[2].payload.thread_id == "t-stream"
 
-        [pending] = [run for run in await app_project.pending() if run.thread_id == "t-stream"]
+        [pending] = [run for run in await app_project.runs.pending() if run.thread_id == "t-stream"]
 
-        # a run started on `stream` is answerable by `answer`, the inversion of what
+        # a run started on `stream` is answerable by `runs.answer`, the inversion of what
         # `run_workflow_stream` (deleted with the rest of v1's surface) could never do
-        result = await app_project.answer(pending.run_id, "yes")
+        result = await app_project.runs.answer(pending.run_id, "yes")
     assert result["outcome"] == "booked"
 
 
@@ -257,16 +257,17 @@ async def test_stream_without_an_interrupt_still_ends_with_run_completed(app_pro
 
 
 def test_deck_surface_runs_lists_and_answers(app_project):
-    """``Deck`` is the entry point: run -> pending() (every workflow) -> answer, by run_id."""
+    """``Deck`` is the entry point: run -> runs.pending() (every workflow) -> runs.answer, by
+    run_id."""
     deck = app_project
 
     async def _scenario():
         async with deck:
             paused = await deck.run("ApprovalFlow", {"request": "tue 9am"}, session_id="t-app")
-            pending = await deck.pending()
+            pending = await deck.runs.pending()
             # other tests in this process share the cached memory saver, so filter to this thread
             [mine] = [run for run in pending if run.thread_id == "t-app"]
-            resumed = await deck.answer(mine.run_id, "no")
+            resumed = await deck.runs.answer(mine.run_id, "no")
             # both run and answer write to the event log now —
             # read it back rather than trusting each call's own bookkeeping.
             events = await deck._runtime.store.read("t-app", RunContext(run_id="reader", session_id="t-app"))

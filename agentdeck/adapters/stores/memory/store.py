@@ -125,10 +125,14 @@ class MemoryEventStore(EventStorePort):
         ]
         # One fold per run through the port's own projection rather than a second inline
         # copy of it: re-walking a dev-sized dict is cheaper than two ways to derive status.
-        summaries = [
-            RunSummary(log_key=log_key, run_id=run_id, status=await self.run_status(log_key, run_id, ctx))
-            for log_key, run_id in dict.fromkeys(runs)
-        ]
+        summaries = []
+        for log_key, run_id in dict.fromkeys(runs):
+            found = await self.run_status(log_key, run_id, ctx)
+            # Never None here: `runs` above only keeps pairs that already had a LIFECYCLE_KINDS
+            # event, so `run_status` always has at least one event to fold — the `None` case
+            # (no events at all) cannot occur for a run this loop found in the first place.
+            assert found is not None
+            summaries.append(RunSummary(log_key=log_key, run_id=run_id, status=found))
         return [summary for summary in summaries if status is None or summary.status is status]
 
 

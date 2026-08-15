@@ -67,32 +67,32 @@ async def main() -> None:
         paused = await deck.run("QuoteApproval", {"request": "Berlin -> Munich"}, session_id="quote-42")
         print(paused)  # {"type": "interrupt", "payload": {"question": ...}, "thread_id": "quote-42"}
 
-        inbox = await deck.pending()
+        inbox = await deck.runs.pending()
         print([(p.run_id, p.thread_id, p.payload) for p in inbox])  # what a second process, or a later call in this one, would see
 
         [mine] = [p for p in inbox if p.thread_id == "quote-42"]
-        final = await deck.answer(mine.run_id, "yes")
+        final = await deck.runs.answer(mine.run_id, "yes")
         print(final)  # {"request": ..., "quote": ..., "approved": True}
 
 
 asyncio.run(main())
 ```
 
-`pending()` lists every paused run across the whole catalog — a real caller narrows it by
-`p.invocable == "QuoteApproval"` when more than one durable workflow is in flight. `answer()`
-needs only the `run_id` `pending()` named; it looks up which workflow and which thread that run
-belongs to itself.
+`runs.pending()` lists every paused run across the whole catalog — a real caller narrows it by
+`p.invocable == "QuoteApproval"` when more than one durable workflow is in flight. `runs.answer()`
+needs only the `run_id` `runs.pending()` named; it looks up which workflow and which thread that
+run belongs to itself.
 
 ### If the workflow takes a context, answer with it too
 
 `QuoteApproval` above needs nothing from the caller. A workflow declaring `Context[T]` does, and
-the context is the one thing `answer()` does *not* recover for you:
+the context is the one thing `runs.answer()` does *not* recover for you:
 
 ```python illustrative reason="continues the example above, for a workflow that declares Context[T]"
 # The interrupt node re-runs from its start, and the context is never serialized with the run —
 # so whoever answers has to hand it back. Omit it and the node reads `ctx.data` as None on the
 # second pass: no error, no warning, just a quietly wrong value.
-final = await deck.answer(mine.run_id, "yes", context=corpus)
+final = await deck.runs.answer(mine.run_id, "yes", context=corpus)
 ```
 
 Two rules meeting, and the result is silent. [The node re-runs from its
@@ -128,5 +128,5 @@ only way one of these pauses, and answering it is the only way it continues.
 
 Next: [Workflows](/concepts/workflows) covers timers (`sleep_until`) — the other thing
 `interrupt()` is used for — and what `as_tool()` does with the whole graph. The exact
-`Workflow(...)`, `Deck.run(...)`, `Deck.answer(...)` and `Deck.pending(...)` APIs are in
+`Workflow(...)`, `Deck.run(...)`, `Deck.runs.answer(...)` and `Deck.runs.pending(...)` APIs are in
 [Definitions](/reference/definitions) and [Deck](/reference/deck).

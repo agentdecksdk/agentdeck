@@ -63,7 +63,7 @@ one process on the same machine, not one file behind more than one machine.
 
 A paused run's *resume* is never a signal, even with the file backend: continuing a run needs
 its event log, so lifting a pause belongs to a process holding a Runtime —
-`POST /runs/{run_id}/resume` or `deck.resume(run_id)` — not to the CLI above.
+`POST /runs/{run_id}/resume` or `deck.runs.resume(run_id)` — not to the CLI above.
 
 ## Watching for the effect
 

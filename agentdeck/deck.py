@@ -111,7 +111,7 @@ def _validate_observers(observers: Sequence[EventSinkPort] | None) -> None:
 
 def _require_aware(now: datetime) -> datetime:
     if now.tzinfo is None:
-        raise ValueError(f"due_resumes/tick require a timezone-aware `now`; got naive {now!r}.")
+        raise ValueError(f"_due_resumes/_tick require a timezone-aware `now`; got naive {now!r}.")
     return now
 
 
@@ -182,7 +182,7 @@ async def _turn_result(events: AsyncGenerator[Event, None]) -> TurnResult:
     if result is None:
         raise RuntimeError(
             "the run ended without completing (paused or cancelled) — resume it with "
-            "Deck.resume, or inspect the event log for what happened."
+            "deck.runs.resume, or inspect the event log for what happened."
         )
     return result
 
@@ -311,11 +311,12 @@ class Deck:
 
     ``context=`` declares the *type* of the application context this catalog's callables receive
     — the class, not an instance of it. The value itself arrives per run (:meth:`run`,
-    :meth:`stream`, :meth:`answer`, :meth:`resume`), and a tool, a dynamic-instructions callable,
-    an agent hook or a workflow node declaring a :class:`~agentdeck.core.context.Context`
-    parameter receives it. Declaring the type is what makes :meth:`build` able to check every
-    such parameter against it before anything runs; a deck that declares none still runs exactly
-    the same, with the requirement unchecked until the callable is played.
+    :meth:`stream`, :meth:`RunOps.answer`, :meth:`RunOps.resume`), and a tool, a
+    dynamic-instructions callable, an agent hook or a workflow node declaring a
+    :class:`~agentdeck.core.context.Context` parameter receives it. Declaring the type is what
+    makes :meth:`build` able to check every such parameter against it before anything runs; a
+    deck that declares none still runs exactly the same, with the requirement unchecked until
+    the callable is played.
 
     ``observers=`` are the read-only taps on this Deck's event stream — telemetry, cost, audit,
     any :class:`~agentdeck.core.ports.EventSinkPort`, and :class:`agentdeck.observers.Langfuse`
@@ -332,7 +333,11 @@ class Deck:
 
 
     Public properties are :attr:`agents`, :attr:`workflows`, :attr:`skills` and :attr:`settings`
-    only — never ``runtime`` or ``store``, the infrastructure this class exists to hide.
+    only — never ``runtime`` or ``store``, the infrastructure this class exists to hide. Every
+    op that acts on a run already in flight — :meth:`RunOps.pause`, :meth:`RunOps.cancel`,
+    :meth:`RunOps.resume`, :meth:`RunOps.answer`, :meth:`RunOps.status`, :meth:`RunOps.pending`
+    — groups under :attr:`runs` instead, since :meth:`run` and :meth:`stream` already claim the
+    verb for *starting* one.
 
     **One Deck per process.** Constructing a second one while the first is still open raises
     ``ConfigError`` naming both projects. Sequential decks are fine: close one, construct the
@@ -386,6 +391,7 @@ class Deck:
         self._started_observers: tuple[EventSinkPort, ...] = ()
         self._started_mcp = False
         self._closed = False
+        self._runs = RunOps(self)
         # Last, so a constructor that raises above (a duplicate name, an unreadable capability)
         # leaves the process free for the next attempt instead of poisoning it.
         _claim_process(self)
@@ -439,6 +445,12 @@ class Deck:
     @property
     def skills(self) -> Skills | None:
         return self._skills_obj
+
+    @property
+    def runs(self) -> RunOps:
+        """The namespace for every op that acts on a run already in flight — see
+        :class:`RunOps`."""
+        return self._runs
 
     @property
     def settings(self) -> Settings:
@@ -691,8 +703,6 @@ class Deck:
             f"No agent or workflow named {name!r}. Available: {sorted({*self._agents, *self._workflows})}."
         )
 
-    # --- the flat run-control surface -----------------------------------------------------
-
     async def run(
         self,
         name: str,
@@ -742,27 +752,20 @@ class Deck:
             async for event in run:
                 yield event
 
-    async def pause(self, run_id: str, reason: str | None = None) -> bool:
-        """Ask the run to stop at its next safe point, and record why — recorded, not stopped:
-        a run inside a tool call stops at its own next safe point, and its own ``run.paused``
-        event is what reports that it did.
-        """
+    async def _pause(self, run_id: str, reason: str | None = None) -> bool:
+        """Implementation behind :meth:`RunOps.pause`."""
         return await self._require_open().signal(run_id, Signal.PAUSE, reason)
 
-    async def cancel(self, run_id: str, reason: str | None = None) -> bool:
-        """Ask the run to stop for good at its next safe point. Cancellation is terminal."""
+    async def _cancel(self, run_id: str, reason: str | None = None) -> bool:
+        """Implementation behind :meth:`RunOps.cancel`."""
         return await self._require_open().signal(run_id, Signal.CANCEL, reason)
 
-    async def resume(self, run_id: str, reason: str | None = None, *, context: object = None) -> list[Event]:
-        """Continue a paused run, returning every event the continuation produced. Empty means
-        nothing was resumed — this run is not paused.
-
-        ``context`` is resupplied, not remembered: the run's original value was never written to
-        the log, so a run that needs one and is lifted without it resumes with ``None``."""
+    async def _resume(self, run_id: str, reason: str | None = None, *, context: object = None) -> list[Event]:
+        """Implementation behind :meth:`RunOps.resume`."""
         return [event async for event in self._require_open().resume_run(run_id, context=context, reason=reason)]
 
-    async def status(self, run_id: str) -> RunStatus | None:
-        """This run's current status, or ``None`` if the log has never heard of it."""
+    async def _status(self, run_id: str) -> RunStatus | None:
+        """Implementation behind :meth:`RunOps.status`."""
         runtime = self._require_open()
         ctx = _new_context()
         for summary in await runtime.store.list_runs(ctx):
@@ -770,21 +773,12 @@ class Deck:
                 return summary.status
         return None
 
-    async def pending(self, namespace: str | None = None) -> list[PendingRun]:
-        """Every run currently waiting on a human, across this Deck's whole catalog."""
+    async def _pending(self, namespace: str | None = None) -> list[PendingRun]:
+        """Implementation behind :meth:`RunOps.pending`."""
         return await self._require_open().pending(namespace=namespace)
 
-    async def answer(self, run_id: str, value: Any, *, context: object = None) -> Any:
-        """Answer the interrupt the run named by ``run_id`` is paused on; returns the final
-        state or the next interrupt. Pairs with :meth:`pending`: list the inbox, answer one run
-        by the ``run_id`` it named there — the lookup this needs (invocable, thread, session)
-        travels with it, so a caller supplies only the id and the value.
-
-        ``context`` mirrors :meth:`run`'s, and has to be supplied again: the value is never
-        serialized, so the interrupted run's own copy is gone by the time anybody answers it. A
-        node that read ``ctx.data`` before the interrupt re-runs from its start on resume, so
-        omitting the context here is what makes it read ``None`` the second time.
-        """
+    async def _answer(self, run_id: str, value: Any, *, context: object = None) -> Any:
+        """Implementation behind :meth:`RunOps.answer`."""
         runtime = self._require_open()
         pending = next((run for run in await runtime.pending() if run.run_id == run_id), None)
         if pending is None:
@@ -803,11 +797,13 @@ class Deck:
             raise NotFoundError(f"No pending run {run_id!r}.")
         return result
 
-    async def due_resumes(self, now: datetime | None = None) -> list[InterruptResult]:
-        """Timer-paused threads (``sleep_until``) whose wake time has passed.
+    async def _due_resumes(self, now: datetime | None = None) -> list[InterruptResult]:
+        """Timer-paused threads (``sleep_until``) whose wake time has passed. Not public: nothing
+        in agentdeck calls this yet (the deck-owned clock that will is separate work, gated on
+        #212), so it stays reachable only for :meth:`_tick` and the test that pins it.
 
-        Listed off each workflow's own checkpointer rather than :meth:`pending`'s event log
-        (see :meth:`_pending_interrupts`) — a choice, not an oversight: by default the
+        Listed off each workflow's own checkpointer rather than :meth:`RunOps.pending`'s event
+        log (see :meth:`_pending_interrupts`) — a choice, not an oversight: by default the
         checkpoint backend is durable (``sqlite``) while the event store is not (``memory``),
         so a process that restarts keeps the checkpoint's memory of a parked thread but not
         the log's. Routing this listing through the log alone would silently stop surviving a
@@ -819,27 +815,30 @@ class Deck:
         return [p for p in pending if (wake_at := wake_at_of(p["payload"])) is not None and wake_at <= now]
 
     async def _pending_interrupts(self) -> list[InterruptResult]:
-        """Every thread paused on an interrupt, across the whole catalog — :meth:`due_resumes`'s
-        own filter, driven straight off each workflow's checkpointer rather than the Runtime's
-        log (the same source :meth:`tick` reads)."""
+        """Every thread paused on an interrupt, across the whole catalog —
+        :meth:`_due_resumes`'s own filter, driven straight off each workflow's checkpointer
+        rather than the Runtime's log (the same source :meth:`_tick` reads)."""
         pending: list[InterruptResult] = []
         for workflow in self._workflows.values():
             pending.extend(await workflow.pending())
         return pending
 
-    async def tick(self, now: datetime | None = None) -> list[Any]:
-        """Resume every thread whose ``sleep_until`` timer is due.
+    async def _tick(self, now: datetime | None = None) -> list[Any]:
+        """Resume every thread whose ``sleep_until`` timer is due. Not public, for the same
+        reason as :meth:`_due_resumes`: called by nothing yet, kept alive for the process that
+        will call it once #212 lands, and by the restart test that pins it today.
 
-        A thread the checkpointer lists as due may *also* be a run :meth:`pending` already
-        knows about — parked by a ``Deck.run()``/HTTP call that went through the Runtime, the
-        same as any other interrupt. Resuming such a thread by calling the workflow directly
-        (as this used to) never told the log: the run stayed ``WAITING_HUMAN`` and kept
-        holding its session claim forever, a ghost indistinguishable from the one #114 fixed
-        for :meth:`answer`. So a due thread with a matching logged run resumes through the
-        Runtime instead — closing that run and freeing its claim — and only a thread with no
-        logged run (parked by calling a durable :class:`Workflow`'s own ``run``/``resume``
-        directly, which never opens a run in the log to begin with) falls back to the direct
-        checkpointer resume, since there is no log entry to reconcile.
+        A thread the checkpointer lists as due may *also* be a run :meth:`RunOps.pending`
+        already knows about — parked by a ``Deck.run()``/HTTP call that went through the
+        Runtime, the same as any other interrupt. Resuming such a thread by calling the
+        workflow directly (as this used to) never told the log: the run stayed
+        ``WAITING_HUMAN`` and kept holding its session claim forever, a ghost indistinguishable
+        from the one #114 fixed for :meth:`RunOps.answer`. So a due thread with a matching
+        logged run resumes through the Runtime instead — closing that run and freeing its
+        claim — and only a thread with no logged run (parked by calling a durable
+        :class:`Workflow`'s own ``run``/``resume`` directly, which never opens a run in the log
+        to begin with) falls back to the direct checkpointer resume, since there is no log
+        entry to reconcile.
         """
         now = _require_aware(now) if now is not None else datetime.now(UTC)
         runtime = self._require_open()
@@ -889,6 +888,65 @@ class Deck:
         from agentdeck.serve import build_asgi_app
 
         return build_asgi_app(self)
+
+
+class RunOps:
+    """``deck.runs.*`` — every op that acts on a run already in flight, grouped under the noun
+    they share so it never sits beside :meth:`Deck.run`/:meth:`Deck.stream`, which start one
+    (docs/design/run-operations.md). The run id stays a plain argument and there is still
+    exactly one way to address a run; this only groups the six ops that take one.
+
+    Lives in ``agentdeck/deck.py`` rather than its own module: it needs ``Deck`` for
+    ``_require_open()``, and ``Deck`` needs it back for :attr:`Deck.runs`, so splitting the two
+    across modules would be a circular import for no gain. Each method here is a one-line
+    forward to the ``Deck`` method that carried this behavior before — the rename moved the
+    signature, not the implementation.
+    """
+
+    __slots__ = ("_deck",)
+
+    def __init__(self, deck: Deck) -> None:
+        self._deck = deck
+
+    async def pause(self, run_id: str, reason: str | None = None) -> bool:
+        """Ask the run to stop at its next safe point, and record why — recorded, not stopped:
+        a run inside a tool call stops at its own next safe point, and its own ``run.paused``
+        event is what reports that it did.
+        """
+        return await self._deck._pause(run_id, reason)
+
+    async def cancel(self, run_id: str, reason: str | None = None) -> bool:
+        """Ask the run to stop for good at its next safe point. Cancellation is terminal."""
+        return await self._deck._cancel(run_id, reason)
+
+    async def resume(self, run_id: str, reason: str | None = None, *, context: object = None) -> list[Event]:
+        """Continue a paused run, returning every event the continuation produced. Empty means
+        nothing was resumed — this run is not paused.
+
+        ``context`` is resupplied, not remembered: the run's original value was never written to
+        the log, so a run that needs one and is lifted without it resumes with ``None``."""
+        return await self._deck._resume(run_id, reason, context=context)
+
+    async def answer(self, run_id: str, value: Any, *, context: object = None) -> Any:
+        """Answer the interrupt the run named by ``run_id`` is paused on; returns the final
+        state or the next interrupt. Pairs with :meth:`pending`: list the inbox, answer one run
+        by the ``run_id`` it named there — the lookup this needs (invocable, thread, session)
+        travels with it, so a caller supplies only the id and the value.
+
+        ``context`` mirrors :meth:`Deck.run`'s, and has to be supplied again: the value is never
+        serialized, so the interrupted run's own copy is gone by the time anybody answers it. A
+        node that read ``ctx.data`` before the interrupt re-runs from its start on resume, so
+        omitting the context here is what makes it read ``None`` the second time.
+        """
+        return await self._deck._answer(run_id, value, context=context)
+
+    async def status(self, run_id: str) -> RunStatus | None:
+        """This run's current status, or ``None`` if the log has never heard of it."""
+        return await self._deck._status(run_id)
+
+    async def pending(self, namespace: str | None = None) -> list[PendingRun]:
+        """Every run currently waiting on a human, across this Deck's whole catalog."""
+        return await self._deck._pending(namespace)
 
 
 __all__ = ["Deck", "TurnResult"]
