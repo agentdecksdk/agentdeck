@@ -59,6 +59,15 @@ Three consequences:
 | the sweep reads the log | it needs the durable list of open suspensions and their deadlines, so #212's single-inbox fix stops being cleanup and becomes a dependency: you cannot expire what you cannot enumerate |
 | a short-lived process never sweeps | a serverless invocation opens the deck, takes a turn and closes before any interval elapses. Deadlines fire on whoever next holds a deck open, and that belongs in the docstring in those words |
 
+**Amended 2026-08-15 (#303):** shipped narrower than the middle row above. The sweep still reads
+each workflow's own checkpointer, exactly as `_tick`/`_due_resumes` already did — #212's
+single-inbox fix is not a dependency here and stays open, deliberately out of scope. "Opt-in" in
+this file's first paragraph turned out ambiguous: the sweep takes no flag and is on by default,
+since an operator who forgot to opt in would silently reinstate the exact trap this closes. What
+did land as designed: the task starts in `__aenter__`, is cancelled in `__aexit__`, and the
+interval is the one settings value promised (`AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS`, 30s
+default) on `RuntimeSettings` beside `stale_run_after_seconds`.
+
 ## Compatibility
 
 Additive. `deck.runs.*` lands with the flat names delegating to it, deprecated later with a release

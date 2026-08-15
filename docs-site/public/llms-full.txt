@@ -851,8 +851,9 @@ each workflow's own LangGraph checkpointer, not this log. That is deliberate: th
 backend defaults to durable (`sqlite`) while the event store defaults to `memory`, so listing off
 the log alone would stop surviving a process restart under the default configuration — exactly
 the guarantee a due timer keeps its wake-up call across one restart. This sweep has no public
-entry point today — nothing in agentdeck calls it yet, so a due `sleep_until` only wakes once
-something else (a future deck-owned clock) drives it.
+entry point — nothing outside `Deck` calls it — but an open `Deck` drives it on its own for as
+long as it stays open, on `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` (30 seconds by default), with
+no cron or scheduler required.
 
 When a due thread also has a run `deck.runs.pending()` already knows about (parked by a
 `Deck.run()` or HTTP call, which does go through the Runtime), the sweep resumes it *through the
@@ -1177,10 +1178,13 @@ interrupt machinery with a `{"type": "timer", "wake_at": …}` payload — so a 
 thread is distinguishable from a human-paused one in the inbox. Naive datetimes are
 rejected.
 
-AgentDeck runs no daemon, and today there is no public way to drive this sweep either: an
-internal listing finds timer threads whose moment has passed, and an internal resume plays each
-one — but nothing calls either yet, so a due `sleep_until` only wakes once something else (a
-future deck-owned clock) drives it.
+AgentDeck runs no daemon, and there is no public way to drive this sweep — but an open `Deck`
+drives it on its own: an internal listing finds timer threads whose moment has passed, and an
+internal resume plays each one, on a loop scoped to the deck's own lifetime (started when it
+opens, cancelled when it closes) rather than a cron or scheduler the user has to wire in. The
+interval is `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` (30 seconds by default). A process that
+opens the deck, takes a turn and closes within one interval never sweeps at all — a due
+`sleep_until` then wakes on whoever next holds the deck open past that.
 
 **Known limit: the listing reads the checkpointer, not the event log.** Both find due threads
 through each workflow's own LangGraph checkpointer rather than the [event
@@ -1984,15 +1988,18 @@ run's own copy is gone by the time anybody picks it up. Omitting it is not "keep
 had" — there is nothing kept, and the resumed run reads `None`. An interrupted node re-runs from
 its start, so that is the pass where a missing context shows up.
 
-**The timer sweep (`sleep_until`'s wake-up) is internal only in this release.** Nothing public
-lists or resumes a due timer thread yet — a deck-owned clock that will is separate,
-not-yet-shipped work. It reads each workflow's own checkpointer rather than the Runtime's log,
+**The timer sweep (`sleep_until`'s wake-up) is internal, but it runs on its own — no cron or
+scheduler required.** An open `Deck` sweeps for its own lifetime: started in `__aenter__`,
+cancelled in `__aexit__`, on an interval set by `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS`
+(30 seconds by default). It reads each workflow's own checkpointer rather than the Runtime's log,
 deliberately: the checkpoint backend defaults to durable (`sqlite`) while the event store
 defaults to `memory`, and listing off the log alone would stop surviving a process restart under
-that default pairing. Its resume, when it runs, goes through the Runtime whenever a due thread
-matches a run `runs.pending()` already knows about — closing that run's log entry and freeing its
-session claim, the same as `runs.answer()` does — and carries no context, for the same reason
-`runs.answer`/`runs.resume` need one supplied: see [below](#where-a-context-does-not-reach).
+that default pairing. Its resume goes through the Runtime whenever a due thread matches a run
+`runs.pending()` already knows about — closing that run's log entry and freeing its session
+claim, the same as `runs.answer()` does — and carries no context, for the same reason
+`runs.answer`/`runs.resume` need one supplied: see [below](#where-a-context-does-not-reach). A
+process that opens the deck, takes a turn and closes within one interval never sweeps at all —
+the deadline fires on whoever next holds the deck open past that.
 
 ## Serving over HTTP
 
@@ -2414,6 +2421,7 @@ Knobs the Runtime itself reads.
 | Env var | Type | Default | Description |
 |---|---|---|---|
 | `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` | `float` | `3600.0` | How long, in seconds, an open run may go without writing an event before it is treated as abandoned and its session ownership is released for another worker to claim. Must be positive; set it above the longest gap a healthy turn can go quiet. |
+| `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` | `float` | `30.0` | How often, in seconds, an open Deck sweeps for a `sleep_until` timer whose wake moment has passed and resumes it, with no cron or scheduler required. Must be positive; runs for the Deck's own lifetime, started when it opens and cancelled when it closes. |
 
 ## `LangfuseSettings`
 
@@ -2784,12 +2792,37 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
 
 ### Changed
 
+- **Breaking: `RunStatus.WAITING_HUMAN` is now `RunStatus.WAITING_ANSWER`**, value
+  `waiting_answer` (#295). The state pairs with the verb that leaves it, and covers a timer, a
+  webhook or another agent as honestly as a person — `sleep_until` parks here, so a wall-clock
+  wait was being recorded as a human one. An ordinary API break, not a schema change: status is
+  derived by folding the log and is never serialised into a payload, so no golden file and no
+  snapshot moves. `RunInterrupted.reason`'s `"human"` literal *is* in the schema and is
+  unchanged; renaming it is a separate versioned change.
+- **Breaking: `ControlPort` gains `consume(run_id, expected) -> bool`** (#295), the
+  compare-and-set that takes the intent a caller just ruled on and only that one. A third-party
+  adapter must implement it; both shipped adapters (`memory`, `sqlite`) do. It replaces
+  `resume_run` writing `RESUME` over whatever was pending — an unconditional write that could
+  overwrite, and silently destroy, a cancel that arrived while the run was suspended. A gate that
+  honors a signal now takes it too, so the port is empty afterwards rather than holding a
+  sentinel.
+- **A cancel or pause recorded against a *stopped* run is now read where that run is picked up**
+  (#295). A run that has already stopped has no loop polling the gate, so the operation
+  continuing it — an answer, or a resume — reads the control port at its claim and rules on what
+  it finds. Every such read ends in an event or an explicit no-op, never in silence.
+
 - **`agentdeck.testing.scripted_model_server`'s `tool_name=` now also accepts a sequence of
   names** (#248), one tool call per request in order, then plain text once the sequence is
   exhausted — the shape a multi-step tool chain or a handoff round trip needs to script.
   A single name keeps its existing one-shot behavior unchanged.
 
 ### Removed
+
+- **Breaking: `RunStatus.PENDING` is deleted, and `status_of([])` returns `None`** (#295). It
+  was the fold's identity element for an empty sequence, never a state a run is in: `run.started`
+  is a run's row 0, so there is no moment between "does not exist" and `RUNNING` for it to name.
+  A store already answered `None` for a run it never saw (#294); `status_of` now agrees, so
+  `status_of` is typed `RunStatus | None` and `can_resume` accepts `None`.
 
 - **Breaking: the six run-scoped verbs move from flat `Deck` methods to `deck.runs.*`, and
   `tick`/`due_resumes` leave the public surface entirely** (#294). `deck.pause`, `deck.cancel`,
@@ -2803,6 +2836,23 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
   reachable from outside `Deck`.
 
 ### Fixed
+
+- **A cancel against a run waiting for an answer is honored instead of vanishing** (#229, #295).
+  `deck.runs.cancel` on a parked run returned `True`, recorded the signal, and the run answered on
+  anyway: only `resume_run` polled the control port, and an approval does not come back that way.
+  The next `deck.runs.answer` now ends the run, recording `control.requested` then `run.cancelled`
+  — no `control.observed`, because the run reached no safe point; it was already stopped when the
+  cancel landed. A cancel against a *paused* run likewise ends it at once rather than being
+  deferred to whoever eventually resumes it.
+- **`deck.runs.resume` on a run that is waiting for an answer now refuses, naming
+  `deck.runs.answer`** (#295), and `deck.runs.answer` on a paused run refuses naming
+  `deck.runs.resume`. Both raise the new `agentdeck.errors.RunStateError`, which the HTTP surface
+  answers as `409`. `resume` used to return `[]` for a parked run — silence, to a caller holding
+  that run's only answer — because the lookup behind it listed `PAUSED` runs only.
+- **A pause recorded against a run waiting for an answer now refuses the answer** (#295) rather
+  than being silently lifted by it, and stays pending. Lifting would let an answer override an
+  operator who said stop; refusing costs the answerer one round trip and keeps both intents
+  intact.
 
 - **`EventStorePort.run_status` no longer returns `PENDING` for a run the store never heard
   of** (#294). It now returns `None` for that case, distinguishing it from a run that exists but

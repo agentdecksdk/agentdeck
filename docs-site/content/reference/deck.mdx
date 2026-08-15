@@ -296,15 +296,18 @@ run's own copy is gone by the time anybody picks it up. Omitting it is not "keep
 had" — there is nothing kept, and the resumed run reads `None`. An interrupted node re-runs from
 its start, so that is the pass where a missing context shows up.
 
-**The timer sweep (`sleep_until`'s wake-up) is internal only in this release.** Nothing public
-lists or resumes a due timer thread yet — a deck-owned clock that will is separate,
-not-yet-shipped work. It reads each workflow's own checkpointer rather than the Runtime's log,
+**The timer sweep (`sleep_until`'s wake-up) is internal, but it runs on its own — no cron or
+scheduler required.** An open `Deck` sweeps for its own lifetime: started in `__aenter__`,
+cancelled in `__aexit__`, on an interval set by `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS`
+(30 seconds by default). It reads each workflow's own checkpointer rather than the Runtime's log,
 deliberately: the checkpoint backend defaults to durable (`sqlite`) while the event store
 defaults to `memory`, and listing off the log alone would stop surviving a process restart under
-that default pairing. Its resume, when it runs, goes through the Runtime whenever a due thread
-matches a run `runs.pending()` already knows about — closing that run's log entry and freeing its
-session claim, the same as `runs.answer()` does — and carries no context, for the same reason
-`runs.answer`/`runs.resume` need one supplied: see [below](#where-a-context-does-not-reach).
+that default pairing. Its resume goes through the Runtime whenever a due thread matches a run
+`runs.pending()` already knows about — closing that run's log entry and freeing its session
+claim, the same as `runs.answer()` does — and carries no context, for the same reason
+`runs.answer`/`runs.resume` need one supplied: see [below](#where-a-context-does-not-reach). A
+process that opens the deck, takes a turn and closes within one interval never sweeps at all —
+the deadline fires on whoever next holds the deck open past that.
 
 ## Serving over HTTP
 

@@ -123,10 +123,13 @@ interrupt machinery with a `{"type": "timer", "wake_at": …}` payload — so a 
 thread is distinguishable from a human-paused one in the inbox. Naive datetimes are
 rejected.
 
-AgentDeck runs no daemon, and today there is no public way to drive this sweep either: an
-internal listing finds timer threads whose moment has passed, and an internal resume plays each
-one — but nothing calls either yet, so a due `sleep_until` only wakes once something else (a
-future deck-owned clock) drives it.
+AgentDeck runs no daemon, and there is no public way to drive this sweep — but an open `Deck`
+drives it on its own: an internal listing finds timer threads whose moment has passed, and an
+internal resume plays each one, on a loop scoped to the deck's own lifetime (started when it
+opens, cancelled when it closes) rather than a cron or scheduler the user has to wire in. The
+interval is `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` (30 seconds by default). A process that
+opens the deck, takes a turn and closes within one interval never sweeps at all — a due
+`sleep_until` then wakes on whoever next holds the deck open past that.
 
 **Known limit: the listing reads the checkpointer, not the event log.** Both find due threads
 through each workflow's own LangGraph checkpointer rather than the [event

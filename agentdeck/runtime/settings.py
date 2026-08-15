@@ -302,6 +302,15 @@ class RuntimeSettings(LayeredSettings):
     worker running more than a window fast takes over live sessions on sight — the same lost
     guarantee, arrived at by skew instead of configuration. Keep the fleet on NTP and treat the
     window as a budget skew eats into.
+
+    ``sweep_interval_seconds`` is how often an open Deck wakes a due ``sleep_until`` timer on its
+    own, with no cron or scheduler wired in. **On by default** — the interval only trades off wake
+    latency against one cheap checkpointer listing per tick; there is no deployment for which
+    disabling it is the safer choice. **30 seconds** by default: near-immediate next to any timer a
+    workflow would actually set (minutes to days), and light enough that a catalog with no timers
+    at all costs nothing more than an idle sleep. A process that opens the Deck, takes a turn and
+    closes within one interval never sweeps at all; a due timer then wakes on whoever next holds
+    the Deck open past that.
     """
 
     model_config = settings_config("AGENTDECK_RUNTIME_")
@@ -312,6 +321,14 @@ class RuntimeSettings(LayeredSettings):
         description="How long, in seconds, an open run may go without writing an event before it is treated "
         "as abandoned and its session ownership is released for another worker to claim. Must be positive; set "
         "it above the longest gap a healthy turn can go quiet.",
+    )
+
+    sweep_interval_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        description="How often, in seconds, an open Deck sweeps for a `sleep_until` timer whose wake moment "
+        "has passed and resumes it, with no cron or scheduler required. Must be positive; runs for the Deck's "
+        "own lifetime, started when it opens and cancelled when it closes.",
     )
 
     @property

@@ -35,8 +35,10 @@ the caller constructed and handed in stays the caller's).
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import uuid
-from contextlib import aclosing
+from contextlib import aclosing, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
@@ -92,6 +94,8 @@ if TYPE_CHECKING:
 _DEFAULT_ENGINE_NAMES: tuple[str, str] = (OpenAIAgentsEngine.engine, LangGraphEngine.engine)
 
 _State = Literal["NEW", "BUILT", "OPEN", "CLOSED"]
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_observers(observers: Sequence[EventSinkPort] | None) -> None:
@@ -388,6 +392,7 @@ class Deck:
         self._engine_instances: tuple[EnginePort, ...] | None = None
         self._runtime: Runtime | None = None
         self._sessions: ExecutionStore | None = None
+        self._sweeper: asyncio.Task[None] | None = None
         self._owns_store = False
         self._started_observers: tuple[EventSinkPort, ...] = ()
         self._started_mcp = False
@@ -629,7 +634,25 @@ class Deck:
             agents = list(self._agents.values())
             refresh_mcp_status({name: invocables[name].native for name in self._agents}, agents)
         self._state = "OPEN"
+        self._sweeper = asyncio.create_task(self._sweep())
         return self
+
+    async def _sweep(self) -> None:
+        """Wake a parked ``sleep_until`` on this Deck's own clock, for as long as this Deck
+        stays open — no cron, no user-wired scheduler. Sleeps for
+        ``settings.runtime.sweep_interval_seconds``, then drives :meth:`_tick` by hand, the
+        same call a test does; a tick that raises is logged and the loop keeps going, since one
+        transient store error must not silently end every future wake. A process that opens the
+        Deck, takes a turn and closes within one interval never sweeps at all — a due timer's
+        wake-up happens on whoever next holds the Deck open past that.
+        """
+        interval = self.settings.runtime.sweep_interval_seconds
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await self._tick()
+            except Exception:
+                logger.exception("timer sweep failed; will retry next interval")
 
     async def __aexit__(self, *exc_info: object) -> None:
         await self.aclose()
@@ -659,6 +682,17 @@ class Deck:
         if self._closed:
             return
         self._closed = True
+        if self._sweeper is not None:
+            # Cancelled and awaited before anything below tears down, so no *new* tick can start
+            # once teardown begins. This does not wait out a tick already in flight: a store call
+            # blocked in `asyncio.to_thread` (every SqliteEventStore call) keeps running on its OS
+            # thread after the awaited cancellation returns, so an in-flight tick's write can still
+            # land after `runtime.drain()`/the store close below start. Narrowing that window needs
+            # a cooperative stop (a flag cancellation only interrupts the `asyncio.sleep` on, with
+            # `aclose()` awaiting a tick already running to actually finish) — not done here.
+            self._sweeper.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._sweeper
         try:
             # Draining closes the sinks, which is what finishes the Langfuse sink's open
             # observations and pushes the SDK's buffer out of the process.
@@ -821,9 +855,9 @@ class Deck:
         return RunStateError(f"run {run_id!r} cannot be answered: {allowed.why}")
 
     async def _due_resumes(self, now: datetime | None = None) -> list[InterruptResult]:
-        """Timer-paused threads (``sleep_until``) whose wake time has passed. Not public: nothing
-        in agentdeck calls this yet (the deck-owned clock that will is separate work, gated on
-        #212), so it stays reachable only for :meth:`_tick` and the test that pins it.
+        """Timer-paused threads (``sleep_until``) whose wake time has passed. Not public: it is
+        :meth:`_sweep`'s own listing (through :meth:`_tick`) on every interval, and a test that
+        wants determinism drives it by hand instead of waiting on the sweep's clock.
 
         Listed off each workflow's own checkpointer rather than :meth:`RunOps.pending`'s event
         log (see :meth:`_pending_interrupts`) — a choice, not an oversight: by default the
@@ -847,9 +881,9 @@ class Deck:
         return pending
 
     async def _tick(self, now: datetime | None = None) -> list[Any]:
-        """Resume every thread whose ``sleep_until`` timer is due. Not public, for the same
-        reason as :meth:`_due_resumes`: called by nothing yet, kept alive for the process that
-        will call it once #212 lands, and by the restart test that pins it today.
+        """Resume every thread whose ``sleep_until`` timer is due. Not public: :meth:`_sweep`
+        calls it on every interval for as long as this Deck stays open, and a test that wants
+        determinism calls it directly instead of waiting on that clock.
 
         A thread the checkpointer lists as due may *also* be a run :meth:`RunOps.pending`
         already knows about — parked by a ``Deck.run()``/HTTP call that went through the
