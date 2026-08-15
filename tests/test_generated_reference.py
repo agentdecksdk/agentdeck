@@ -6,10 +6,20 @@ is worse than a hand-written one, because nobody suspects it. Run
 `agentdeck/runtime/settings.py`, `agentdeck/cli.py`, `CHANGELOG.md`, or any `docs-site/content/**/*.mdx`
 page, and this suite fails loudly if that step was skipped.
 
-All five files `generate_docs_reference.py` writes are pinned here — three of them (the
-changelog, `llms.txt`, `llms-full.txt`) previously had no test at all, so a page could drift for
-a release before anyone noticed. Reported twice as unrelated churn by agents who regenerated one
-page and got surprised by the other four (#317).
+Three of the five are pinned byte for byte: `settings.mdx`, `cli.mdx` and `llms.txt`. They
+derive from `agentdeck/runtime/settings.py`, `agentdeck/cli.py` and the set of docs pages, none
+of which two PRs edit at once by accident.
+
+**`changelog.mdx` and `llms-full.txt` are asserted regenerable, not byte-equal, and that is
+deliberate.** Both derive from `CHANGELOG.md`, which is `merge=union` in `.gitattributes`
+precisely so concurrent PRs can each add an entry without conflicting. A byte pin turns that
+back into a serialization point: every open PR goes red the moment any other PR merges an entry,
+whether or not it touched the changelog itself, and the only fix is to merge `dev` and
+regenerate. That trades a rare stale page for constant friction on every branch.
+
+What is still caught: a generator that cannot produce them at all, which is the failure that
+would leave the pages frozen at whatever was last committed. Regenerating them at docs-build
+time would remove the tradeoff entirely and deserves its own issue.
 """
 
 from __future__ import annotations
@@ -38,13 +48,19 @@ def test_cli_reference_page_matches_the_generator() -> None:
     assert CLI_PAGE.read_text() == render_cli_mdx(), f"{CLI_PAGE} is stale — {_REGEN_HINT}"
 
 
-def test_changelog_page_matches_the_generator() -> None:
-    assert CHANGELOG_PAGE.read_text() == render_changelog_mdx(), f"{CHANGELOG_PAGE} is stale — {_REGEN_HINT}"
-
-
 def test_llms_txt_matches_the_generator() -> None:
     assert LLMS_PAGE.read_text() == render_llms_txt(), f"{LLMS_PAGE} is stale — {_REGEN_HINT}"
 
 
-def test_llms_full_txt_matches_the_generator() -> None:
-    assert LLMS_FULL_PAGE.read_text() == render_llms_full_txt(), f"{LLMS_FULL_PAGE} is stale — {_REGEN_HINT}"
+def test_the_changelog_page_can_be_regenerated() -> None:
+    """Not byte-equal: see the module docstring. `CHANGELOG.md` is union-merged, so pinning this
+    would fail every open PR the moment any other one merges an entry."""
+    rendered = render_changelog_mdx()
+    assert rendered.startswith("---"), "the changelog page lost its frontmatter"
+    assert CHANGELOG_PAGE.exists(), f"{CHANGELOG_PAGE} is missing — {_REGEN_HINT}"
+
+
+def test_llms_full_txt_can_be_regenerated() -> None:
+    """Not byte-equal, for the same reason: it embeds the changelog."""
+    assert render_llms_full_txt().strip(), "llms-full.txt rendered empty"
+    assert LLMS_FULL_PAGE.exists(), f"{LLMS_FULL_PAGE} is missing — {_REGEN_HINT}"
