@@ -47,7 +47,7 @@ from agentdeck.core.status import (
     Verdict,
     decide,
 )
-from agentdeck.errors import NotFoundError, RunStateError, SessionBusyError, StoreError
+from agentdeck.errors import DOCS_URL, NotFoundError, RunStateError, SessionBusyError, StoreError
 from agentdeck.runtime.dispatch import SinkDispatch
 
 if TYPE_CHECKING:
@@ -67,6 +67,7 @@ logger = logging.getLogger(__name__)
 # rather than imported so a bare ``Runtime()`` needs no settings at all; ``build_runtime`` is
 # the caller that resolves the configured value and passes it in.
 _DEFAULT_STALE_RUN_AFTER = timedelta(hours=1)
+_SESSIONS_DOCS = f"{DOCS_URL}/concepts/sessions-and-memory"
 
 
 @dataclass(frozen=True, slots=True)
@@ -466,7 +467,7 @@ class Runtime:
         if claim.held_by is not None or event is None:
             raise SessionBusyError(
                 f"session {ctx.log_key!r} already has run {claim.held_by!r} in flight, "
-                f"so run {ctx.run_id!r} cannot start on it"
+                f"so run {ctx.run_id!r} cannot start on it — see {_SESSIONS_DOCS}"
             )
         for tail in claim.overridden:
             try:

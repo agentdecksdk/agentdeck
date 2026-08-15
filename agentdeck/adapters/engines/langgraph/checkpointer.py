@@ -26,7 +26,7 @@ from functools import cache, partial
 from typing import TYPE_CHECKING, Any, TypeVar
 from weakref import WeakKeyDictionary
 
-from agentdeck.errors import StoreError
+from agentdeck.errors import DOCS_URL, StoreError
 
 if TYPE_CHECKING:
     from asyncio import AbstractEventLoop
@@ -34,7 +34,10 @@ if TYPE_CHECKING:
 
     from langgraph.checkpoint.base import BaseCheckpointSaver
 
-_DURABILITY_HINT = 'install the "durability" extra: pip install "agentdeck[durability]"'
+_DURABILITY_HINT = (
+    'install the "durability" extra: pip install "agentdeck-sdk[durability]" — '
+    f"see {DOCS_URL}/concepts/choosing-a-store-backend"
+)
 
 _T = TypeVar("_T")
 

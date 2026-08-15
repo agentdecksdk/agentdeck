@@ -11,6 +11,11 @@ types (``FileNotFoundError``, ``RuntimeError``).
 
 from __future__ import annotations
 
+# The canonical docs-site origin (see tests/test_docs_site.py's SITE_LINK, which knows both
+# live origins and treats this one as canonical). One place to fix on a domain change, so an
+# error message can link a page here instead of repeating a URL at each site.
+DOCS_URL = "https://agentdecksdk.com"
+
 
 class AgentdeckError(Exception):
     """Base for every error agentdeck raises."""

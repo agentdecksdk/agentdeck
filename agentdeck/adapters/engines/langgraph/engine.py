@@ -41,7 +41,7 @@ from agentdeck.adapters.engines.langgraph.checkpointer import resolve_checkpoint
 from agentdeck.core.content import DataBlock, TextBlock
 from agentdeck.core.events import Custom, NodeUpdated, RunCompleted, RunInterrupted, Usage
 from agentdeck.core.ports import EnginePort
-from agentdeck.errors import ConfigError
+from agentdeck.errors import DOCS_URL, ConfigError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Callable, Sequence
@@ -59,6 +59,7 @@ if TYPE_CHECKING:
 
 _INTERRUPT_KEY = "__interrupt__"
 _KNOWN_REASONS = frozenset({"human", "pause", "approval"})
+_WORKFLOWS_DOCS = f"{DOCS_URL}/concepts/workflows"
 
 DURABLE_KEY = "durable"
 """``spec.metadata[DURABLE_KEY]``: whether this workflow's state must outlive the process.
@@ -182,7 +183,8 @@ class LangGraphEngine(EnginePort):
             # A durable graph loads and persists its state by thread, so running one under a
             # thread nobody can name back is a lost run.
             raise ValueError(
-                f"{spec.name} is durable=True; a thread_id is required to load/persist checkpointed state.",
+                f"{spec.name} is durable=True; a thread_id is required to load/persist checkpointed state "
+                f"— see {_WORKFLOWS_DOCS}",
             )
         config: RunnableConfig = {
             "configurable": {

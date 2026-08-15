@@ -23,6 +23,7 @@ from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
+from agentdeck.errors import DOCS_URL
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import (
@@ -42,6 +43,8 @@ if TYPE_CHECKING:
     from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort
 
 logger = logging.getLogger(__name__)
+
+_STORE_DOCS = f"{DOCS_URL}/concepts/choosing-a-store-backend"
 
 
 def build_runtime(
@@ -159,7 +162,8 @@ def resolve_control_port(settings: ControlSettings | None = None) -> ControlPort
             raise ValueError("the sqlite control port needs a file path: set AGENTDECK_CONTROL=sqlite:///<path>")
         return SqliteControlPort(rest)
     raise ValueError(
-        f"unknown control backend {scheme!r} in AGENTDECK_CONTROL={control.url!r}; expected memory or sqlite"
+        f"unknown control backend {scheme!r} in AGENTDECK_CONTROL={control.url!r}; expected memory or sqlite "
+        f"— see {_STORE_DOCS}"
     )
 
 
@@ -191,7 +195,7 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
         except ImportError as exc:
             raise ImportError(
                 'the redis event store needs the redis client — install the "redis" extra: '
-                'pip install "agentdeck-sdk[redis]"'
+                f'pip install "agentdeck-sdk[redis]" — see {_STORE_DOCS}'
             ) from exc
         return RedisEventStore(events.url)
     if scheme in ("postgres", "postgresql"):
@@ -200,12 +204,12 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
         except ImportError as exc:
             raise ImportError(
                 'the postgres event store needs psycopg — install the "durability" extra: '
-                'pip install "agentdeck[durability]"'
+                f'pip install "agentdeck-sdk[durability]" — see {_STORE_DOCS}'
             ) from exc
         return PostgresEventStore(events.url)
     raise ValueError(
         f"unknown event store scheme {scheme!r} in AGENTDECK_EVENTS={events.url!r}; expected memory, sqlite, "
-        "redis, rediss, or postgresql"
+        f"redis, rediss, or postgresql — see {_STORE_DOCS}"
     )
 
 

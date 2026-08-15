@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from pydantic import BaseModel
 
-from agentdeck.errors import ConfigError
+from agentdeck.errors import DOCS_URL, ConfigError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Iterable, Sequence
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 _UNSET: Any = object()
 _CAMEL_RE = re.compile(r"(?<!^)(?=[A-Z])")
+_WORKFLOWS_DOCS = f"{DOCS_URL}/concepts/workflows"
 
 
 class WorkflowDeclaration:
@@ -149,7 +150,8 @@ class Workflow:
     def _thread_scoped_options(self, thread_id: str | None, runner_options: dict[str, Any]) -> dict[str, Any]:
         if self.durable and thread_id is None:
             raise ValueError(
-                f"{self.name} is durable=True; a thread_id is required to load/persist checkpointed state.",
+                f"{self.name} is durable=True; a thread_id is required to load/persist checkpointed state "
+                f"— see {_WORKFLOWS_DOCS}",
             )
         if thread_id is None:
             return runner_options
