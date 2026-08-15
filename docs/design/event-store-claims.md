@@ -16,7 +16,7 @@ sharing a store would both read an idle session and both open a run on it.
 | claim | tests | on losing |
 |---|---|---|
 | `claim_start(log_key, opening, ctx, origin, stale_after) -> (SessionClaim, Event \| None)` | this log has no open run | `SessionClaim.held_by` names the holder, nothing is written, `Event` is `None` |
-| `claim_resume(log_key, run_id, resumed, ctx, origin) -> Event \| None` | `run_id` is `WAITING_HUMAN` | `None`; the loser reads the `RUNNING` the winner's append published |
+| `claim_resume(log_key, run_id, resumed, ctx, origin) -> Event \| None` | `run_id` is `WAITING_ANSWER` | `None`; the loser reads the `RUNNING` the winner's append published |
 
 Neither raises on losing — two turns at once is a double-clicked send button, so the refusal is
 **data**. Only an unreachable store raises (`StoreError`): it cannot know whether anybody holds
@@ -27,7 +27,7 @@ must not implement the port.
 ## When a session is busy
 
 A session is busy while one of its runs has recorded a lifecycle transition and not a terminal one —
-**`WAITING_HUMAN` included**, because an interrupted run still owns the engine thread it will resume
+**`WAITING_ANSWER` included**, because an interrupted run still owns the engine thread it will resume
 on, and a second run against that thread would overwrite the checkpoints the resume needs. A run
 with no transition at all is `PENDING`, which no store can tell from a run it never saw, so it holds
 nothing — the line `list_runs` already draws.

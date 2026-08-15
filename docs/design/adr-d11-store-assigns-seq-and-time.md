@@ -70,7 +70,7 @@ persisted.
   documented to be, and the refetch promise becomes true.
 - **`claim_resume` loses half its contract.** Its stale-`seq` guard exists because a caller stamps
   before claiming; when the store assigns, that race cannot occur. One question remains: is this
-  run `WAITING_HUMAN`?
+  run `WAITING_ANSWER`?
 - **`last_seq` comes off the port** — but only one of its three callers is arithmetic, and the ADR
   originally mis-stated this. `service.py:451` is the arithmetic and stops existing.
   `service.py:152` is an *existence probe* on the cancellation path (*did the claim commit before

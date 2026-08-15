@@ -37,8 +37,17 @@ from agentdeck.core.events import (
     RunStarted,
 )
 from agentdeck.core.reporting import Reporter
-from agentdeck.core.status import RunStatus
-from agentdeck.errors import NotFoundError, SessionBusyError, StoreError
+from agentdeck.core.status import (
+    PRECONDITIONS,
+    SUSPENDED_KINDS,
+    Action,
+    Operation,
+    Ruling,
+    RunStatus,
+    Verdict,
+    decide,
+)
+from agentdeck.errors import NotFoundError, RunStateError, SessionBusyError, StoreError
 from agentdeck.runtime.dispatch import SinkDispatch
 
 if TYPE_CHECKING:
@@ -46,14 +55,13 @@ if TYPE_CHECKING:
     from typing import Any
 
     from agentdeck.core.content import Input
+    from agentdeck.core.control import ControlSignal
     from agentdeck.core.events import KnownPayload
     from agentdeck.core.invocable import InvocableSpec
     from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort
+    from agentdeck.core.ports.store import RunSummary
 
 logger = logging.getLogger(__name__)
-
-# A run ending on one of these is waiting, not finished: its terminal event arrives on resume.
-SUSPENDED_KINDS = frozenset({"run.interrupted", "run.paused"})
 
 # Mirrors ``RuntimeSettings.stale_run_after_seconds``'s own default (60.0 * 60.0) — duplicated
 # rather than imported so a bare ``Runtime()`` needs no settings at all; ``build_runtime`` is
@@ -63,7 +71,7 @@ _DEFAULT_STALE_RUN_AFTER = timedelta(hours=1)
 
 @dataclass(frozen=True, slots=True)
 class PendingRun:
-    """One run currently ``WAITING_HUMAN`` — what :meth:`Runtime.pending` lists."""
+    """One run currently ``WAITING_ANSWER`` — what :meth:`Runtime.pending` lists."""
 
     run_id: str
     session_id: str | None
@@ -190,23 +198,52 @@ class Runtime:
         this caller hands it. Omitting it is not "keep what the run had" — it is ``None``, and a
         node that read ``ctx.data`` before the interrupt reads ``None`` after it.
 
-        The store's conditional append makes the ``WAITING_HUMAN`` -> ``RUNNING`` transition
+        The store's conditional append makes the ``WAITING_ANSWER`` -> ``RUNNING`` transition
         atomic, so exactly one caller wins even when the callers are separate processes; the
         winner opens the run with ``run.resumed``, seq recovered from the log's own
         ``max(seq)`` so it stays contiguous across a process restart — never reset to 0.
         From there the engine plays on exactly like ``run()`` plays an opening: same
         terminal/suspended/exception handling.
 
-        A stray resume — wrong status, already resumed by a racing caller, or a completed
-        run — is a no-op: nothing is read from the engine, nothing is yielded.
+        A stray resume — already resumed by a racing caller, or a completed run — is a no-op:
+        nothing is read from the engine, nothing is yielded. A run an operator asked to *stop*
+        is not stray, and refuses instead: honoring the answer would let it silently override
+        somebody who said stop. Both intents survive the refusal — the run is still waiting, and
+        the pause is still pending for whoever reads next.
+
+        A **cancel** recorded while the run waited ends it here rather than answering it, for
+        the reason :meth:`resume_run` gives: this claim is the only thing that will ever look.
         """
         spec, engine = self._resolve(name)
         ctx, reports = self._bind(
             self._context(run_id=run_id, session_id=session_id, namespace=namespace, data=context)
         )
+        status = await self._store.run_status(ctx.log_key, run_id, ctx)
+        if status is None:
+            return
+        # No precondition check here: which states admit an answer is the front door's business
+        # (``Deck._answer``), and this method is also where a *loser* lands — a caller whose run
+        # was answered out from under it reads ``RUNNING`` and must still no-op, which is what
+        # the claim below does for it. Refusing here would turn every lost race into an error.
+        #
+        # The routing refusal is different and has to be read *before* the claim, which is the
+        # one place this path departs from resume_run's order: the claim is the ``run.resumed``
+        # carrying the answer, so once it lands the answer cannot be taken back.
+        refusal, _ = await self._peek(run_id, status)
+        if refusal.action is Action.REFUSE:
+            raise RunStateError(f"run {run_id!r} cannot be answered: {refusal.why}")
         opening = await self._claim_resume(spec, ctx, value)
         if opening is None:
             return
+        ruling, pending = await self._route(run_id, status)
+        if ruling.action is Action.TERMINATE and pending is not None:
+            yield opening
+            yield await self._record(ControlRequested(verb="cancel", reason=pending.reason), spec, ctx)
+            yield await self._record(RunCancelled(reason=pending.reason), spec, ctx)
+            return
+        # Any other ruling plays the run on, including a pause that landed inside the window the
+        # peek left open: the answer is recorded by now, so the run resumes and meets that pause
+        # at its first safe point instead.
         stream = engine.resume(spec, thread_id, value, ctx)
         async with aclosing(self._play(opening, stream, spec, ctx, engine, reports)) as resumed:
             async for event in resumed:
@@ -232,9 +269,11 @@ class Runtime:
         where the safe points are — a step the paused turn already took can be taken twice, so
         a tool with side effects has to tolerate being called again.
 
-        A run that is not paused is a no-op: nothing is claimed, nothing is yielded. That
-        covers the ordinary races — a run that finished, was cancelled, or was already resumed
-        by another worker — without a second answer for a caller to branch on.
+        Which states admit a resume is :data:`PRECONDITIONS`' business, not this method's. A
+        run that is already running or already over is a no-op — that covers the ordinary races
+        without a second answer for a caller to branch on — while one waiting for a *value*
+        refuses, naming ``deck.runs.answer``, because silence there reads as "resumed" to a
+        caller who is in fact holding the run's only answer.
 
         A **cancel** recorded while the run was paused is honored here instead of resuming it,
         because this claim is the only thing that will ever look for it: a paused run has no
@@ -243,19 +282,27 @@ class Runtime:
         resume a run somebody cancelled does not quietly override them.
         """
         ctx = self._context(run_id=run_id, namespace=namespace, data=context)
-        found = await self._paused(run_id, ctx)
-        if found is None:
+        summary = await self._find(run_id, ctx)
+        if summary is None:
             return
-        log_key, started, session_id = found
-        spec, engine = self._resolve(started.invocable)
+        allowed = PRECONDITIONS[summary.status, Operation.RESUME]
+        if allowed.verdict is Verdict.REFUSED:
+            raise RunStateError(f"run {run_id!r} cannot be resumed: {allowed.why}")
+        if allowed.verdict is Verdict.NO_OP:
+            return
+        started = await self._opening_of(summary.log_key, run_id, ctx)
+        if started is None:
+            return
+        session_id, opened = started
+        spec, engine = self._resolve(opened.invocable)
         run_ctx, reports = self._bind(replace(ctx, run_id=run_id, session_id=session_id))
         opening = await self._claim_resume(spec, run_ctx, None, reason)
         if opening is None:
             return
         # Read control only after the claim: the claim is what makes this caller the one actor
         # on the run, so an answer read before it could belong to somebody else's turn.
-        pending = None if self._control is None else await self._control.poll(run_id)
-        if pending is not None and pending.verb is Signal.CANCEL:
+        ruling, pending = await self._route(run_id, summary.status)
+        if ruling.action is Action.TERMINATE and pending is not None:
             yield opening
             # No ``control.observed``: that event says the run reached a safe point and acted
             # there, and this run reached none — it was already stopped when the cancel landed.
@@ -263,14 +310,8 @@ class Runtime:
             yield await self._record(ControlRequested(verb="cancel", reason=pending.reason), spec, run_ctx)
             yield await self._record(RunCancelled(reason=pending.reason), spec, run_ctx)
             return
-        if pending is not None and pending.verb is Signal.PAUSE and self._control is not None:
-            # Lift the pause this resume answers, so the run does not stop again at its first
-            # safe point. Written only when a pause is what is actually pending: an unconditional
-            # RESUME here would overwrite — and silently destroy — a cancel that arrived while
-            # the run was suspended, which is the one signal nothing else will ever notice.
-            await self._control.signal(run_id, Signal.RESUME, reason)
-        history = await self._store.read(log_key, run_ctx)
-        stream = engine.start(spec, started.input, history, run_ctx)
+        history = await self._store.read(summary.log_key, run_ctx)
+        stream = engine.start(spec, opened.input, history, run_ctx)
         async with aclosing(self._play(opening, stream, spec, run_ctx, engine, reports)) as resumed:
             async for event in resumed:
                 yield event
@@ -287,12 +328,11 @@ class Runtime:
         Not for lifting a pause: a paused run has no loop left to notice anything, so
         :meth:`resume_run` is what continues it (and writes ``RESUME`` itself).
 
-        Cancelling a run that is already **paused** is recorded here like any other signal, and
-        honored by the next :meth:`resume_run` — which ends the run ``cancelled`` rather than
-        playing it on. So the request is never lost, but it does become an effect later than a
-        cancel against a live run does: a paused run nobody ever picks up stays paused, holding
-        its session until ``stale_run_after`` takes it over. Turning that into an immediate
-        terminal event needs a store-side conditional append, which is #45's follow-up, not this.
+        Not the only way a signal becomes an effect. A run that has already stopped has no loop
+        left to poll the gate, so the operation continuing it reads the port at its claim and
+        rules on what it finds (``docs/design/run-lifecycle.md``) — which is how a cancel against
+        a parked run ends it instead of vanishing. A run nobody ever picks up still stays parked,
+        holding its session until ``stale_run_after`` takes it over.
         """
         if self._control is None:
             logger.warning("no ControlPort is wired: %s for run %s was not recorded", verb.value, run_id)
@@ -356,22 +396,54 @@ class Runtime:
             logger.error("engine %r ended run %s after %r, not a terminal event", engine.engine, ctx.run_id, last)
             yield await self._record(_engine_failed(f"engine {engine.engine!r} ended after {last!r}"), spec, ctx)
 
-    async def _paused(self, run_id: str, ctx: RunContext) -> tuple[str, RunStarted, str | None] | None:
-        """Where a paused run lives, what it was asked to do, and whose session it holds.
+    async def _find(self, run_id: str, ctx: RunContext) -> RunSummary | None:
+        """Where a run lives and what state it is in. ``None`` means no run of this namespace
+        answers to that id.
 
         Addressed by ``run_id`` alone, like every other control operation, so the store's own
         status projection is what locates it — a caller holding a ``run_id`` from a stream it
-        was watching has neither the log key nor the invocable's name. ``None`` means no paused
-        run of this namespace answers to that id, which is the same answer a resumed, finished or
-        cancelled run gives.
+        was watching has neither the log key nor the invocable's name. Deliberately *unfiltered*:
+        narrowing the listing to one status was how a run in every other state came back
+        indistinguishable from one that does not exist, which is what let a resume against a
+        parked run report nothing at all.
         """
-        for summary in await self._store.list_runs(ctx, status=RunStatus.PAUSED):
-            if summary.run_id != run_id:
-                continue
-            for event in await self._store.read_run(summary.log_key, run_id, ctx):
-                if isinstance(event.payload, RunStarted):
-                    return summary.log_key, event.payload, event.session_id
+        for summary in await self._store.list_runs(ctx):
+            if summary.run_id == run_id:
+                return summary
         return None
+
+    async def _opening_of(self, log_key: str, run_id: str, ctx: RunContext) -> tuple[str | None, RunStarted] | None:
+        """Whose session this run holds and what it was asked to do — its own ``run.started``.
+        Read only once the state machine has admitted the operation, so a refused or no-op call
+        never pays for a run's log."""
+        for event in await self._store.read_run(log_key, run_id, ctx):
+            if isinstance(event.payload, RunStarted):
+                return event.session_id, event.payload
+        return None
+
+    async def _peek(self, run_id: str, status: RunStatus) -> tuple[Ruling, ControlSignal | None]:
+        """Read the control port and rule on what is there, taking nothing. For the one decision
+        that has to be made before a claim — whether the operation is refused at all."""
+        pending = None if self._control is None else await self._control.poll(run_id)
+        return decide(status, None if pending is None else pending.verb), pending
+
+    async def _route(self, run_id: str, status: RunStatus) -> tuple[Ruling, ControlSignal | None]:
+        """The one way a stopped run's pending intent is read: poll, decide, and take the intent
+        the ruling acted on.
+
+        Taking it is a compare-and-set rather than a clear, so an intent that changed under this
+        caller is not destroyed by it. Losing that set means the ruling was made about somebody
+        else's signal, so the port is read once more and ruled on again — the second ruling acts
+        without taking anything, which leaves whatever is pending now for the gate to meet at the
+        run's first safe point.
+        """
+        ruling, pending = await self._peek(run_id, status)
+        if pending is None or self._control is None or not ruling.consume:
+            return ruling, pending
+        if await self._control.consume(run_id, pending.verb):
+            return ruling, pending
+        logger.info("control intent for run %s changed under this caller; re-reading it", run_id)
+        return await self._peek(run_id, status)
 
     async def _claim_session(self, opening: RunStarted, spec: InvocableSpec, ctx: RunContext) -> Event:
         """Open this run, or refuse the turn: the store decides, in one conditional append.
@@ -451,7 +523,7 @@ class Runtime:
         self, spec: InvocableSpec, ctx: RunContext, value: Any, reason: str | None = None
     ) -> Event | None:
         """Take the run's suspended -> ``RUNNING`` transition, or ``None`` if someone else
-        already has it. Suspended is ``WAITING_HUMAN`` or ``PAUSED``: the same claim serves
+        already has it. Suspended is ``WAITING_ANSWER`` or ``PAUSED``: the same claim serves
         both, because both are one run owed a terminal event and only one caller may continue
         it (``can_resume``).
 
@@ -477,7 +549,7 @@ class Runtime:
         return event
 
     async def pending(self, *, namespace: str | None = None) -> list[PendingRun]:
-        """Every run currently ``WAITING_HUMAN`` in this namespace.
+        """Every run currently ``WAITING_ANSWER`` in this namespace.
 
         Asks the store to project which runs are waiting rather than keeping an in-memory
         registry — a registry would go stale the moment a process restarted, which is
@@ -495,7 +567,7 @@ class Runtime:
         # answer inside its own refresh interval.
         ctx = self._context(namespace=namespace)
         out: list[PendingRun] = []
-        for summary in await self._store.list_runs(ctx, status=RunStatus.WAITING_HUMAN):
+        for summary in await self._store.list_runs(ctx, status=RunStatus.WAITING_ANSWER):
             found = _last_interrupt(await self._store.read_run(summary.log_key, summary.run_id, ctx))
             if found is None:
                 continue
@@ -666,4 +738,4 @@ def _last_interrupt(events: Sequence[Event]) -> tuple[Event, RunInterrupted] | N
     return None
 
 
-__all__ = ["PendingRun", "SUSPENDED_KINDS", "Runtime"]
+__all__ = ["PendingRun", "Runtime"]

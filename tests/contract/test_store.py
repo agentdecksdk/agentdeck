@@ -124,15 +124,16 @@ async def test_redis_keyspace_prefix_is_disjoint_across_processes(monkeypatch: p
 
 
 async def test_run_status_with_no_events_is_none(event_store: EventStorePort) -> None:
-    """A run this store never heard of is ``None`` — not ``PENDING``, which would be
-    indistinguishable from a run that exists but hasn't logged a lifecycle transition yet."""
+    """A run this store never heard of has no status at all. There is deliberately no member
+    naming that case: it would be indistinguishable from a run that exists but has logged no
+    lifecycle transition yet, and ``run.started`` is a run's row 0 so neither ever happens."""
     assert await event_store.run_status("s-1", "r-1", _ctx()) is None
 
 
 async def test_run_status_follows_the_last_lifecycle_transition(event_store: EventStorePort) -> None:
     ctx = _ctx()
     await _write(event_store, [_started(), _interrupted()], ctx)
-    assert await event_store.run_status("s-1", "r-1", ctx) is RunStatus.WAITING_HUMAN
+    assert await event_store.run_status("s-1", "r-1", ctx) is RunStatus.WAITING_ANSWER
 
 
 async def test_run_status_is_scoped_to_one_run_not_the_whole_log(event_store: EventStorePort) -> None:
@@ -189,7 +190,7 @@ async def test_claim_start_refuses_a_session_that_already_has_a_run_going(event_
 
 
 async def test_claim_start_refuses_a_session_whose_run_is_waiting_on_a_human(event_store: EventStorePort) -> None:
-    """``WAITING_HUMAN`` is not free: the interrupted run still owns its engine's thread, and a
+    """``WAITING_ANSWER`` is not free: the interrupted run still owns its engine's thread, and a
     second run against it would write over the checkpoints that run resumes from."""
     ctx = _ctx()
     await _interrupt(event_store, ctx)
@@ -221,8 +222,8 @@ async def test_claim_start_wins_once_the_previous_run_is_closed(
 
 
 async def test_a_run_that_recorded_no_transition_holds_no_session(event_store: EventStorePort) -> None:
-    """``PENDING`` is indistinguishable from a run the store never saw, so it cannot hold
-    anything — the same line ``list_runs`` draws."""
+    """A run with no transition is indistinguishable from one the store never saw, so it
+    cannot hold anything — the same line ``list_runs`` draws."""
     ctx = _ctx()
     await _write(event_store, [TextDelta(message_id="m1", text="hi")], _ctx(run_id="r-0"))
 
@@ -383,7 +384,7 @@ async def test_a_second_batch_carries_on_from_where_the_first_stopped(event_stor
 
 
 async def _interrupt(event_store: EventStorePort, ctx: RunContext, run_id: str = "r-1") -> None:
-    """Leave one run parked in ``WAITING_HUMAN`` — the only status a resume may claim."""
+    """Leave one run parked in ``WAITING_ANSWER`` — the only status a resume may claim."""
     parked = ctx if ctx.run_id == run_id else _ctx(ctx.namespace, run_id=run_id, log_key=ctx.log_key)
     await _write(event_store, [_started(), _interrupted()], parked)
 
@@ -417,7 +418,7 @@ async def test_claim_resume_wins_on_a_paused_run_too(event_store: EventStorePort
     owed a terminal event just as a parked approval is, and only one caller may continue it.
 
     This is the positive half of the guard below — without it, a store could refuse every
-    status but ``WAITING_HUMAN`` and no test would notice that pause had stopped resuming.
+    status but ``WAITING_ANSWER`` and no test would notice that pause had stopped resuming.
     """
     ctx = _ctx()
     await _write(event_store, [_started(), RunPaused(reason="operator")], ctx)
@@ -494,8 +495,8 @@ async def test_list_runs_filters_by_status(event_store: EventStorePort) -> None:
     await _write(event_store, [_started()], ctx)
     await _write(event_store, [_started(), _interrupted(thread_id="t-2")], _ctx(run_id="r-2"))
 
-    waiting = await event_store.list_runs(ctx, status=RunStatus.WAITING_HUMAN)
-    assert [(summary.run_id, summary.status) for summary in waiting] == [("r-2", RunStatus.WAITING_HUMAN)]
+    waiting = await event_store.list_runs(ctx, status=RunStatus.WAITING_ANSWER)
+    assert [(summary.run_id, summary.status) for summary in waiting] == [("r-2", RunStatus.WAITING_ANSWER)]
 
     everyone = await event_store.list_runs(ctx)
     assert {summary.run_id for summary in everyone} == {"r-1", "r-2"}
@@ -512,13 +513,13 @@ async def test_list_runs_enumerates_runs_across_every_log_key_of_the_namespace(e
     await _write(event_store, [_started(), _interrupted(thread_id=None)], ctx)
     await _write(event_store, [_started(), _interrupted(thread_id=None)], _ctx(run_id="r-2", log_key="s-2"))
 
-    waiting = await event_store.list_runs(ctx, status=RunStatus.WAITING_HUMAN)
+    waiting = await event_store.list_runs(ctx, status=RunStatus.WAITING_ANSWER)
     assert {(summary.log_key, summary.run_id) for summary in waiting} == {("s-1", "r-1"), ("s-2", "r-2")}
 
 
 async def test_list_runs_skips_a_run_whose_log_holds_no_lifecycle_event(event_store: EventStorePort) -> None:
-    """Such a run is ``PENDING``, which no listing can tell apart from a run the store never
-    saw — both stores leave it out rather than one inventing it."""
+    """Such a run folds to no status at all, which no listing can tell apart from a run the
+    store never saw — both stores leave it out rather than one inventing it."""
     ctx = _ctx()
     await _write(event_store, [TextDelta(message_id="m1", text="hi")], ctx)
     assert await event_store.list_runs(ctx) == []

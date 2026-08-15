@@ -235,7 +235,7 @@ print(json.dumps(asyncio.run(main()), default=str))
 def test_two_decks_racing_tick_do_not_double_resume_the_same_thread(tmp_path):
     """Two processes hold the same durable checkpoint and event store, both find the same past-
     due thread, and both call ``_tick()`` at the same instant. ``_tick()`` resumes through the
-    Runtime, whose claim on the WAITING_HUMAN -> RUNNING transition is a conditional append — so
+    Runtime, whose claim on the WAITING_ANSWER -> RUNNING transition is a conditional append — so
     exactly one of the two calls may resume the thread and the other must find nothing left to
     do, not resume the graph a second time. A logged run is what puts ``_tick()`` on that claimed
     path at all (see ``_tick``'s own docstring), so the event store has to be durable and shared

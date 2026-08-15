@@ -112,10 +112,10 @@ class EventStorePort(ABC):
         Condition and write must be one operation, which is what carries this across processes:
         two servers sharing a store would both read an idle session and both open a run on it.
 
-        An **open run** recorded a lifecycle transition and no terminal one. ``WAITING_HUMAN``
+        An **open run** recorded a lifecycle transition and no terminal one. ``WAITING_ANSWER``
         counts — an interrupted run still owns its engine's thread, and a second run against it
-        would overwrite the checkpoints the first resumes from. A run with no transition at all is
-        ``PENDING``, indistinguishable from one the store never saw, so it holds nothing.
+        would overwrite the checkpoints the first resumes from. A run with no transition at all has
+        no status, indistinguishable from one the store never saw, so it holds nothing.
 
         Losing never raises — two turns at once is a double-clicked send button, so the refusal is
         data. An unreachable store does raise: it cannot know whether anybody holds anything.
@@ -131,10 +131,10 @@ class EventStorePort(ABC):
     async def claim_resume(
         self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
     ) -> Event | None:
-        """Stamp and append ``resumed`` if and only if ``run_id`` is ``WAITING_HUMAN``, in one
+        """Stamp and append ``resumed`` if and only if ``run_id`` is ``WAITING_ANSWER``, in one
         indivisible step. The event when appended, ``None`` when not.
 
-        The write publishing the ``WAITING_HUMAN`` -> ``RUNNING`` transition is the same write
+        The write publishing the ``WAITING_ANSWER`` -> ``RUNNING`` transition is the same write
         that tests for it, which is what makes double-resume protection hold between processes
         and not merely between tasks. A store that cannot do both indivisibly must not implement
         this port. A concurrent loser reads ``RUNNING`` — the winner's append is what flipped it —
@@ -156,16 +156,17 @@ class EventStorePort(ABC):
         """Every run in this namespace that recorded a lifecycle transition, across all its logs,
         optionally narrowed to one status.
 
-        ``PENDING`` runs are left out, being indistinguishable from ones the store never heard of.
+        A run with no transition at all is left out, being indistinguishable from one the store
+        never heard of.
         Index this however the store can: finding waiting runs must not cost a fold of every log
         the namespace owns.
         """
 
     async def run_status(self, log_key: str, run_id: str, ctx: RunContext) -> RunStatus | None:
         """One run's status, derived from its own events only — never the whole log. ``None``
-        when the run has no events at all: a run this store never heard of, which used to fold
-        into ``PENDING`` indistinguishably from one that exists but hasn't logged a lifecycle
-        transition yet.
+        when the run has no events at all: a run this store never heard of, which is also what
+        a run that exists but has logged no lifecycle transition yet looks like. No status
+        names that case, because ``run.started`` is a run's row 0.
 
         Default projection: fold :meth:`read_run` through ``status_of`` (ADR-D5: a projection,
         not a second store). A store with a cheaper way to answer may override it.

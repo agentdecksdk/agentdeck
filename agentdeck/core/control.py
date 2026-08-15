@@ -18,9 +18,10 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar
 
 from agentdeck.core.events import ControlObserved, ControlRequested, RunCancelled, RunPaused
+from agentdeck.core.status import Action, RunStatus, decide
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from agentdeck.core.events import ControlVerb, KnownPayload, SafePoint
     from agentdeck.core.ports.control import ControlPort
@@ -98,6 +99,14 @@ class RunPausedError(ControlSignalled):
         return RunPaused(reason=self.reason)
 
 
+# Which exception carries which effect — declared, not branched on, so the only place a verb is
+# tested against a name is a table. ``POLICY`` says *whether* to halt; this says how.
+_HALTED_BY: Mapping[Signal, type[ControlSignalled]] = {
+    Signal.CANCEL: RunCancelledError,
+    Signal.PAUSE: RunPausedError,
+}
+
+
 class Gate:
     """One run's cooperative safe point. Bound to a ``run_id`` by the Runtime, never by the
     caller; with no ``control`` port (the default) ``checkpoint()`` is a no-op.
@@ -141,10 +150,14 @@ class Gate:
             return
         self._polled_at = now
         pending = await self._control.poll(self._run_id)
-        if pending is None or pending.verb is Signal.RESUME:
-            # RESUME is a lifted pause, not an instruction: a run that is already running has
-            # nothing to do about it, and reading it again next interval costs nothing.
+        ruling = decide(RunStatus.RUNNING, None if pending is None else pending.verb)
+        if pending is None or ruling.action is not Action.HALT:
+            # The two explicit no-ops of the ``RUNNING`` row: an empty port, and a RESUME, which
+            # is a lifted pause rather than an instruction — a run that is already running has
+            # nothing to do about one, and reading it again next interval costs nothing.
             return
-        if pending.verb is Signal.CANCEL:
-            raise RunCancelledError(self._run_id, safe_point, pending.reason)
-        raise RunPausedError(self._run_id, safe_point, pending.reason)
+        if ruling.consume:
+            # Before the raise, because the raise is what records the effect: an intent left
+            # pending behind an honored one would be honored a second time on the next resume.
+            await self._control.consume(self._run_id, pending.verb)
+        raise _HALTED_BY[pending.verb](self._run_id, safe_point, pending.reason)

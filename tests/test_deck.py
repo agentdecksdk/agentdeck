@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib
 import json
 import socket
@@ -22,8 +23,10 @@ from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring import Agent, Workflow
 from agentdeck.authoring.timers import sleep_until
 from agentdeck.core.context import RunContext
-from agentdeck.deck import Deck, TurnResult
-from agentdeck.errors import ConfigError, NotFoundError
+from agentdeck.core.control import Signal
+from agentdeck.core.status import RunStatus
+from agentdeck.deck import Deck, TurnResult, _new_context
+from agentdeck.errors import ConfigError, NotFoundError, RunStateError
 from agentdeck.mcp import MCP
 from agentdeck.skills import Skills
 from agentdeck.testing import ScriptedModel, patch_model
@@ -1090,6 +1093,137 @@ async def test_answer_of_an_unknown_run_id_raises_not_found(no_project):
             await deck.runs.answer("nonexistent", "yes")
 
 
+# --- the control port is read where a stopped run is claimed, not only where it is resumed ---
+
+
+@contextlib.asynccontextmanager
+async def _parked_approval(monkeypatch):
+    """A workflow run stopped at its interrupt — ``WAITING_ANSWER``, holding its session, with
+    nothing left polling the gate. The state every case below signals against."""
+    from agentdeck.runtime.settings import reset_settings_cache
+
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
+    reset_settings_cache()
+    try:
+        deck = Deck(workflows=[_approval_workflow()])
+        async with deck:
+            parked = await deck.run("Approval", {"request": "tue 9am"}, session_id="t-1")
+            assert parked["type"] == "interrupt"
+            [pending] = await deck.runs.pending()
+            yield deck, pending.run_id
+    finally:
+        reset_settings_cache()
+
+
+@pytest.mark.asyncio
+async def test_a_cancel_against_a_parked_run_ends_it_when_the_answer_claims_it(no_project, monkeypatch):
+    """#229. A cancel recorded against a parked run used to be accepted, honored by nothing and
+    left no trace: only ``resume_run`` polled the port, and an approval does not come back that
+    way. Now the answer's claim reads the port and rules on what it finds, so the request becomes
+    the two events that are its whole honest story — no ``control.observed``, because the run
+    reached no safe point; it was already stopped when the cancel landed.
+    """
+    async with _parked_approval(monkeypatch) as (deck, run_id):
+        assert await deck.runs.cancel(run_id, "operator said stop") is True
+
+        with pytest.raises(NotFoundError):
+            await deck.runs.answer(run_id, "yes")
+
+        assert await deck.runs.status(run_id) is RunStatus.CANCELLED
+        log = await deck._require_open().store.read("t-1", _new_context("t-1"))
+        assert [event.kind for event in log][-3:] == ["run.resumed", "control.requested", "run.cancelled"]
+        assert next(e.payload.reason for e in log if e.kind == "run.cancelled") == "operator said stop"
+
+
+@pytest.mark.asyncio
+async def test_a_pause_against_a_parked_run_refuses_the_answer_and_stays_pending(no_project, monkeypatch):
+    """The design's deliberate cell. Lifting the pause would let an answer silently override an
+    operator who said stop, so the answer is refused and *both* intents survive — the run is
+    still waiting, and the pause is still pending for whoever reads next. A refusal that ate the
+    intent would lose the very stop it cited.
+    """
+    async with _parked_approval(monkeypatch) as (deck, run_id):
+        assert await deck.runs.pause(run_id, "operator stepped away") is True
+
+        with pytest.raises(RunStateError, match="override"):
+            await deck.runs.answer(run_id, "yes")
+
+        assert await deck.runs.status(run_id) is RunStatus.WAITING_ANSWER
+        control = deck._require_open()._control
+        assert (await control.poll(run_id)).verb is Signal.PAUSE
+
+
+@pytest.mark.asyncio
+async def test_resuming_a_run_that_is_waiting_for_an_answer_names_answer(no_project, monkeypatch):
+    """``_paused`` used to narrow its listing to ``PAUSED``, so a parked run came back
+    indistinguishable from one that does not exist and ``resume`` returned ``[]`` — silence, to a
+    caller who is in fact holding the run's only answer. It refuses now, and names the verb."""
+    async with _parked_approval(monkeypatch) as (deck, run_id):
+        with pytest.raises(RunStateError, match=r"deck\.runs\.answer"):
+            await deck.runs.resume(run_id)
+
+        assert await deck.runs.status(run_id) is RunStatus.WAITING_ANSWER
+
+
+@pytest.mark.asyncio
+async def test_a_paused_timer_defers_its_wake_without_stopping_the_rest_of_the_sweep(no_project, monkeypatch):
+    """A due timer is answered through the very path an approval is, so the routing's refusal
+    reaches it too — and an exception raised there would abort the sweep for every *other* due
+    thread in the catalog. Deferring is also the right answer on its own terms: waking a run an
+    operator asked to stop would override them exactly as answering it would.
+    """
+    from agentdeck.runtime.settings import reset_settings_cache
+
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
+    reset_settings_cache()
+    past = datetime.now(UTC) - timedelta(days=1)
+    try:
+        deck = Deck(workflows=[_timer_workflow("Timer", past)])
+
+        async with deck:
+            assert (await deck.run("Timer", {}, session_id="t-stopped"))["type"] == "interrupt"
+            assert (await deck.run("Timer", {}, session_id="t-free"))["type"] == "interrupt"
+            stopped = next(run for run in await deck.runs.pending() if run.thread_id == "t-stopped")
+            assert await deck.runs.pause(stopped.run_id, "operator stepped away") is True
+
+            woke = await deck._tick()
+
+            # The free thread woke, once — not both, and crucially not none, which is what a
+            # refusal escaping the loop would have produced.
+            assert woke == [{"woke_at": past.isoformat()}]
+            # The stopped one is still parked, and still holds the pause it was stopped with.
+            assert [run.thread_id for run in await deck.runs.pending()] == ["t-stopped"]
+            assert await deck.runs.status(stopped.run_id) is RunStatus.WAITING_ANSWER
+
+            # Take the pause back and let it finish, so the process-wide memory saver does not
+            # hand this thread to the next test's timer sweep. Reaching for the port directly is
+            # the point: there is no public verb that lifts a pause on a run that is waiting for
+            # a value, which is the gap noted on #295.
+            control = deck._require_open()._control
+            assert await control.consume(stopped.run_id, Signal.PAUSE) is True
+            await deck.runs.answer(stopped.run_id, past.isoformat())
+            assert await deck.runs.pending() == []
+    finally:
+        reset_settings_cache()
+
+
+@pytest.mark.asyncio
+async def test_answering_a_paused_run_names_resume(no_project, scripted):
+    """The mirror image, and the other half of why legality is a table rather than a listing
+    filter: a paused run is not waiting for a value, and "No pending run" told a caller nothing
+    about which of the two verbs would have worked."""
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        run_id = "r-paused"
+        assert await deck.runs.pause(run_id, "operator stepped away") is True
+        [event async for event in deck.stream("Greeter", "hi there", run_id=run_id)]
+
+        assert await deck.runs.status(run_id) is RunStatus.PAUSED
+        with pytest.raises(RunStateError, match=r"deck\.runs\.resume"):
+            await deck.runs.answer(run_id, "yes")
+
+
 # --- _tick() resumes a Deck.run() interrupt through the Runtime, not a checkpointer ghost ----
 
 
@@ -1098,7 +1232,7 @@ async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost
     """A timer interrupt ``Deck.run()`` parked is the same thread ``Deck._tick()`` finds on the
     checkpointer — the log and the checkpointer already agree on the *listing* (direction one,
     already true post-#164). Resuming it by calling the workflow directly, as ``_tick()`` used
-    to, never told the event log: the run stayed ``WAITING_HUMAN`` forever and kept holding its
+    to, never told the event log: the run stayed ``WAITING_ANSWER`` forever and kept holding its
     session claim (direction two — the still-live half of #120). ``_tick()`` must resume through
     the Runtime instead, so the log's run closes and a fresh run on the same thread does not
     hit a stale-lock ``SessionBusyError``.
@@ -1131,7 +1265,7 @@ async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost
             assert not other_warnings, [r.message for r in other_warnings]
 
             # direction 2: resuming through _tick() must close the *logged* run too, not just
-            # the checkpoint — a ghost WAITING_HUMAN entry is exactly what this pins against.
+            # the checkpoint — a ghost WAITING_ANSWER entry is exactly what this pins against.
             assert await deck.runs.pending() == []
 
             # ...and release the session claim it was holding, not leave it stale-locked.

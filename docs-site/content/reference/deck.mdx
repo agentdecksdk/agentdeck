@@ -284,7 +284,7 @@ pending = await deck.runs.pending()  # every run currently waiting on a human, a
 result = await deck.runs.answer(pending[0].run_id, "yes")
 ```
 
-`runs.pending()` lists every run currently `WAITING_HUMAN`, across every workflow the catalog
+`runs.pending()` lists every run currently `WAITING_ANSWER`, across every workflow the catalog
 holds — the approval inbox, read off the event log. `runs.answer(run_id, value)` answers the
 interrupt that run is paused on and returns the final state (or the next `InterruptResult`); it
 looks the run up itself (which workflow, which thread, which session) from the same source

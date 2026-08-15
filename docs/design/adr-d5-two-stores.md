@@ -182,10 +182,10 @@ name:
 | LangGraph gets no code | Its checkpointer write *is* the graph step, so there is no second write to crash between, and a run's thread is its own (`thread_id = run_id`), so a lost turn cannot poison a later one |
 
 **The one thing that is worse than unrepairable: a stranded resume.** The conditional append that claims a resume records
-`run.resumed` and flips the run `WAITING_HUMAN` → `RUNNING` *before* the engine sees the resume
+`run.resumed` and flips the run `WAITING_ANSWER` → `RUNNING` *before* the engine sees the resume
 value, which the log does not carry (the payload holds only `reason`). A crash in that window
 leaves the log saying `RUNNING` while the checkpointer is still parked at the interrupt: replay
 cannot help, because §3's safety condition — inputs are not lossy in the log — does not hold for a
 value the log never had, and every later resume is refused as stray. The run can never be
 continued at all. Tracked as #94; recovering it needs a recorded resume value or a way back to
-`WAITING_HUMAN`, both decisions of their own.
+`WAITING_ANSWER`, both decisions of their own.

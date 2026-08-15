@@ -277,12 +277,12 @@ a known kind rather than skipping it the way it can with an unknown one.
 
 Separately, `run.resumed` gained `value: Input | None` — the answer the resume carried, stored
 in full under §4.1's content policy. It rides on that event because the same append is the
-`WAITING_HUMAN` → `RUNNING` transition: recording the value anywhere else leaves the window
+`WAITING_ANSWER` → `RUNNING` transition: recording the value anywhere else leaves the window
 #94 measured, where the log says a run was answered, no longer holds the answer, and the
 engine parked at its interrupt can never be brought back in line — a run stranded, recoverable
 only by hand. The reverse direction needs no new vocabulary either: status is a fold over an
 append-only log, so a resume that cannot be carried through returns the run to
-`WAITING_HUMAN` by recording its interrupt again. **D8: additive minor**, no `v` bump — two
+`WAITING_ANSWER` by recording its interrupt again. **D8: additive minor**, no `v` bump — two
 new kinds and one new optional field, nothing renamed, removed or redefined. Measured against
 `origin/dev`'s own parser: a v2.0.0b4 reader parses the new `run.resumed` and drops `value` as
 an unknown field, and reads both new kinds as `UnknownEvent` with no status effect — so
@@ -360,20 +360,25 @@ diverges: **`design/run-lifecycle.md`**, which wins on this subject.
 
 Transitions are guarded in one place (`core/status.py`): a signal arriving after a terminal state
 is a **no-op, not an error** — the race is inherent and the state machine absorbs it. `PAUSED` and
-`WAITING_HUMAN` are distinct states because they resume differently.
+`WAITING_ANSWER` are distinct states because they resume differently.
 
 *(Amended 2026-08-06, issue #44: the two `control.*` kinds are deliberately **not** in this
 machine. A recorded signal moves nothing — a paused run is one that emitted `run.paused`, not
 one somebody asked to pause — so `LIFECYCLE_KINDS` stays the seven kinds it already was.)*
 
 > **Amended 2026-08-14, audited at `da46439`.** The state machine was right; the per-state
-> properties and the (state × intent) policy were never written down anywhere, and three claims
-> this section made are no longer true of the tree. All of it now lives in
-> `design/run-lifecycle.md`, along with the mermaid machine that replaced this section's ASCII
-> one. The divergences:
-> guarded in five places, not one; `CANCELLED` is unreachable from `WAITING_HUMAN` (#229); `PAUSED`
-> is unreachable for a workflow run (#128); and `WAITING_HUMAN` is misnamed, because `sleep_until`
-> parks there too.
+> properties and the (state × intent) policy were never written down anywhere, and four claims
+> this section made were not true of the tree: transitions were guarded in five places rather
+> than one, `CANCELLED` was unreachable from the parked state (#229), `PAUSED` is unreachable for
+> a workflow run (#128), and the parked state was named `WAITING_HUMAN` although `sleep_until`
+> parks there too. All of it now lives in `design/run-lifecycle.md`, along with the mermaid
+> machine that replaced this section's ASCII one.
+>
+> **Resolved 2026-08-15 by #295**, except #128. The four tables that section describes are built,
+> `core/status.py` is the one place a lifecycle rule is written again, `CANCELLED` is reachable
+> from both suspended states, and the state is `WAITING_ANSWER`. A workflow run still cannot
+> reach `PAUSED`: no table makes the langgraph adapter call `checkpoint()`, so it still has no
+> safe point.
 
 ### 4.5 Ports
 
@@ -947,7 +952,7 @@ the sketch above, all deliberate.)*
 **`Gate.checkpoint()` never blocks.** The sketch said "blocks while PAUSED"; it does not. A
 paused run raises out of the gate, unwinds to the Runtime, records `run.paused` and lets the
 process go, because a pause held in a parked coroutine dies with the worker and cannot be lifted
-by any other one. §4.4's `PAUSED` is therefore a suspended status like `WAITING_HUMAN`, and
+by any other one. §4.4's `PAUSED` is therefore a suspended status like `WAITING_ANSWER`, and
 `can_resume` admits both: one conditional append (`run.resumed`) serves both transitions, which
 is also what keeps two racing resumes from playing a turn twice. Resume then re-enters the engine
 with the run's own `run.started` input and the log as history — "resume without a stack" applied

@@ -140,12 +140,12 @@ class RunResumed(CoreModel):
     """The run continues: same ``run_id``, ``seq`` keeps counting.
 
     ``value`` is the answer, stored in full and riding on this event so that the write flipping
-    ``WAITING_HUMAN`` to ``RUNNING`` is the same write that stores it — two writes leave a window
+    ``WAITING_ANSWER`` to ``RUNNING`` is the same write that stores it — two writes leave a window
     where the log says a run was answered but no longer holds what the answer was. ``None`` is a
     resume answering nothing, which is what lifting a pause looks like.
 
     Not irreversible: the log is append-only and status is a fold over it, so a resume that cannot
-    be carried through returns the run to ``WAITING_HUMAN`` by recording its interrupt again.
+    be carried through returns the run to ``WAITING_ANSWER`` by recording its interrupt again.
     """
 
     kind: Literal["run.resumed"] = "run.resumed"

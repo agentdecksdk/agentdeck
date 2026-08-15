@@ -59,7 +59,7 @@ from typing import TYPE_CHECKING, Any
 
 from agentdeck.core.content import coerce_input
 from agentdeck.core.status import status_of
-from agentdeck.errors import AgentdeckError, NotFoundError, SessionBusyError
+from agentdeck.errors import AgentdeckError, NotFoundError, RunStateError, SessionBusyError
 from agentdeck.surfaces.serve.compat import (
     chat_frames,
     chat_result,
@@ -140,6 +140,13 @@ def build_asgi_app(deck: Deck) -> Any:
     # names the holding run, which is what a caller retries behind.
     @api.exception_handler(SessionBusyError)
     async def session_busy(_request: Request, exc: SessionBusyError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+    # The other refusal the state machine issues rather than the server failing: the operation
+    # is not one this run's state admits. Its message names the operation that would have
+    # worked, which is the whole reason it exists, so it is echoed back like the two above.
+    @api.exception_handler(RunStateError)
+    async def wrong_run_state(_request: Request, exc: RunStateError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @api.exception_handler(AgentdeckError)
@@ -234,7 +241,10 @@ def build_asgi_app(deck: Deck) -> Any:
             # finished, cancelled, or already picked up by another worker. All of those are the
             # same answer to this request, and none of them is an error the caller should retry.
             raise HTTPException(status_code=409, detail=f"run {run_id!r} is not paused")
-        return {"run_id": run_id, "status": status_of(events).value, "events": len(events)}
+        # The events came back from a resume, so they always carry a lifecycle kind; the fallback
+        # is there because ``status_of`` answers ``None`` for a sequence that carries none.
+        status = status_of(events)
+        return {"run_id": run_id, "status": status.value if status else None, "events": len(events)}
 
     def _reason(body: dict[str, Any] | None) -> str | None:
         """The optional ``reason`` a control request carries, validated at the trust boundary:
