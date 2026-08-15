@@ -767,7 +767,7 @@ async def test_a_run_resurrected_into_an_interrupt_takes_its_session_back() -> N
     """The worse half of the same premature takeover: the resurrected run's next write is not a
     terminal event but ``run.interrupted``, which is a run *waiting*, not a run finished.
 
-    So it does not merely land behind its own ``run.failed`` — it becomes ``WAITING_HUMAN`` and
+    So it does not merely land behind its own ``run.failed`` — it becomes ``WAITING_ANSWER`` and
     takes the session back, after a turn was told the session was free and used it. The session
     ends up held by the run that was declared dead, and it is listed as pending, meaning a
     resume can be addressed to a run whose log says it was abandoned.
@@ -805,7 +805,7 @@ async def test_a_run_resurrected_into_an_interrupt_takes_its_session_back() -> N
     assert [event.kind for event in resurrected] == ["run.started", "text.delta", "run.failed", "run.interrupted"]
     assert check_contiguous(resurrected) == [], "the log stays dense however wrong its shape is"
     assert check_terminal(resurrected) == "terminal event 'run.failed' at index 2 of 4, not last"
-    assert await store.run_status(CTX.log_key, "r-1", CTX) is RunStatus.WAITING_HUMAN
+    assert await store.run_status(CTX.log_key, "r-1", CTX) is RunStatus.WAITING_ANSWER
     assert "r-1" in [run.run_id for run in await runtime.pending(namespace=CTX.namespace)], (
         "the evicted run is resumable again"
     )

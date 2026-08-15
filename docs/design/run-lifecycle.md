@@ -9,10 +9,10 @@ what a pending signal does when it is read.
 events, there is no status table, and appending is the only way a decision becomes true. Nothing
 holds a status field and nothing caches a fold.
 
-**Built versus designed.** The machine, the states and the drift are the tree at `da46439`. The two
-rule tables and the routing are **#295, not built** — and they use `WAITING_ANSWER`, which the tree
-still spells `WAITING_HUMAN` until that lands. *Drift* and *Declared, never produced* quote the tree,
-so they keep the old name.
+**Built.** #295 built the four tables, the routing and the rename; this file describes the tree.
+*Drift* and *Declared, never produced* are dated audit records of the tree at `da46439`, kept with
+their verdicts rather than deleted — they are what the tables were written against, and they still
+spell the parked state `WAITING_HUMAN`, which is what it was called then.
 
 ## The machine
 
@@ -135,28 +135,29 @@ discipline and already guards the kind tables against the schema.
 
 ## Drift
 
-The tree at `da46439`, which still spells the parked state `WAITING_HUMAN`.
+The tree at `da46439`, which still spelled the parked state `WAITING_HUMAN`. Resolved by #295
+except where the verdict says otherwise.
 
-| claim | truth in the tree |
-|---|---|
-| §4.4: transitions are "guarded in one place (`core/status.py`)" | Guarded in five: `RESUMABLE_STATUSES` and `TERMINAL_STATUSES` (`core/status.py:37,57`), `SUSPENDED_KINDS` (`runtime/service.py:56`), two `if pending.verb is …` branches in `resume_run` (`runtime/service.py:260,268`), and the `status=PAUSED` filter inside `_paused` (`runtime/service.py:362`) |
-| §4.4: `CANCELLED` is "reachable from … `WAITING_HUMAN`" | It is not. `Runtime.resume` never polls the control port, so a `cancel` recorded against a parked run is read by nothing (#229); a `pause` vanishes the same way |
-| `Deck.runs.resume` on a parked run reports something | It returns `[]`: `_paused` lists only `PAUSED` runs, so the state is never seen |
-| `PAUSED` is reachable for any run | Not for a workflow run — the langgraph adapter never calls `gate.checkpoint()` (#128) |
+| claim | truth in the tree at `da46439` | now |
+|---|---|---|
+| §4.4: transitions are "guarded in one place (`core/status.py`)" | Guarded in five: `RESUMABLE_STATUSES` and `TERMINAL_STATUSES` (`core/status.py:37,57`), `SUSPENDED_KINDS` (`runtime/service.py:56`), two `if pending.verb is …` branches in `resume_run` (`runtime/service.py:260,268`), and the `status=PAUSED` filter inside `_paused` (`runtime/service.py:362`) | True again: `STATES`, `TRANSITIONS`, `PRECONDITIONS` and `POLICY` are the only places a rule is written |
+| §4.4: `CANCELLED` is "reachable from … `WAITING_HUMAN`" | It is not. `Runtime.resume` never polls the control port, so a `cancel` recorded against a parked run is read by nothing (#229); a `pause` vanishes the same way | Reachable: the answer's claim reads the port and rules on what it finds |
+| `Deck.runs.resume` on a parked run reports something | It returns `[]`: `_paused` lists only `PAUSED` runs, so the state is never seen | It refuses, naming `deck.runs.answer` |
+| `PAUSED` is reachable for any run | Not for a workflow run — the langgraph adapter never calls `gate.checkpoint()` (#128) | **Unchanged.** No table makes the adapter call `checkpoint()`; still #128 |
 
 ## Declared, never produced
 
 | declaration | why nothing produces it |
 |---|---|
-| `RunStatus.PENDING` | The fold's identity element for an empty sequence, never a state a run is in: `run.started` is row 0, so there is no moment between "does not exist" and `RUNNING`. #295 deletes it and #294 already stops the store returning it for a run it never saw |
+| `RunStatus.PENDING` *(deleted by #295)* | The fold's identity element for an empty sequence, never a state a run is in: `run.started` is row 0, so there is no moment between "does not exist" and `RUNNING`. `status_of([])` answers `None` now |
 | `SafePoint`'s `tool_dispatch`, `node_boundary` | Every `checkpoint()` call site is bare, so `stream_item` is the only value emitted |
 | `RunFailed.error_code`'s `tool_error`, `budget_exceeded`, `deadline` | Only `engine_error` and `cancelled_hard` are ever constructed, and a tool that raises ends the run `completed` (#250) |
 
-## `WAITING_HUMAN` is misnamed
+## `WAITING_HUMAN` was misnamed
 
-`WAITING_ANSWER` pairs the state with the verb that leaves it.
+Renamed by #295. `WAITING_ANSWER` pairs the state with the verb that leaves it.
 
-`sleep_until` parks here, so a wall-clock wait is recorded as a human one, and
+`sleep_until` parks here, so a wall-clock wait was recorded as a human one, and
 `RunInterrupted.reason` defaults anything unrecognised to `"human"`
 (`adapters/engines/langgraph/engine.py:331`) — including a timer payload, which carries no `reason`
 at all.

@@ -21,5 +21,14 @@ class MemoryControlPort(ControlPort):
     async def poll(self, run_id: str) -> ControlSignal | None:
         return self._signals.get(run_id)
 
+    async def consume(self, run_id: str, expected: Signal) -> bool:
+        # Compare and delete under no await, so no other task can slip a signal in between the
+        # two — the same "atomic for free" the in-memory event store's claims rely on.
+        pending = self._signals.get(run_id)
+        if pending is None or pending.verb is not expected:
+            return False
+        del self._signals[run_id]
+        return True
+
 
 __all__ = ["MemoryControlPort"]

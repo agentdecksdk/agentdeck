@@ -390,7 +390,10 @@ async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None
     assert len([event for event in log if event.kind == "text.delta"]) > 1  # the replay is in the log
     assert check_terminal(log) is None
     assert check_contiguous(log) == []
-    assert await control.poll(ctx.run_id) == ControlSignal(verb=Signal.RESUME, reason=None)
+    # The pause is *taken*, not papered over with a RESUME sentinel: the gate that honored it
+    # consumed it, so the replayed turn meets an empty port and does not stop again at its own
+    # first safe point. An empty port is also what makes a cancel arriving later legible.
+    assert await control.poll(ctx.run_id) is None
 
 
 async def test_lifting_a_pause_resupplies_the_run_s_application_context() -> None:

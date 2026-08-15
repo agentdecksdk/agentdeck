@@ -91,7 +91,7 @@ class MemoryEventStore(EventStorePort):
         overridden: list[Event] = []
         for events in _by_run(self._logs.get((ctx.namespace, log_key), ())).values():
             status = status_of(events)
-            if status is RunStatus.PENDING or status in TERMINAL_STATUSES:
+            if status is None or status in TERMINAL_STATUSES:
                 continue
             if events[-1].ts > stale_before:
                 return SessionClaim(held_by=events[-1].run_id), None

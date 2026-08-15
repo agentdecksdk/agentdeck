@@ -89,6 +89,16 @@ class SqliteControlPort(ControlPort):
         row = await self._run(partial(self._read, run_id), "poll")
         return ControlSignal(verb=Signal(row[0]), reason=row[1]) if row is not None else None
 
+    async def consume(self, run_id: str, expected: Signal) -> bool:
+        return await self._run(partial(self._take, run_id, expected.value), "consume")
+
+    def _take(self, run_id: str, sig: str) -> bool:
+        # One statement, so the comparison and the delete cannot be separated by a peer process's
+        # write — which is the whole point of the port method being a compare-and-set.
+        deleted = self._conn.execute("DELETE FROM signals WHERE run_id = ? AND signal = ?", (run_id, sig))
+        self._conn.commit()
+        return deleted.rowcount > 0
+
     def _write(self, run_id: str, sig: str, reason: str | None) -> None:
         self._conn.execute(
             "INSERT INTO signals (run_id, signal, reason) VALUES (?, ?, ?) "

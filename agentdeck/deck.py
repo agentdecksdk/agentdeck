@@ -65,7 +65,8 @@ from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
 from agentdeck.core.events import NodeUpdated, RunCompleted, RunInterrupted
 from agentdeck.core.ports import EventSinkPort
-from agentdeck.errors import ConfigError, NotFoundError
+from agentdeck.core.status import PRECONDITIONS, Operation, Verdict
+from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, RunStateError
 from agentdeck.mcp import MCP
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.registry import PROJECT_DIR, PluginRegistry, mount_project_dir
@@ -782,7 +783,10 @@ class Deck:
         runtime = self._require_open()
         pending = next((run for run in await runtime.pending() if run.run_id == run_id), None)
         if pending is None:
-            raise NotFoundError(f"No pending run {run_id!r}.")
+            # The inbox lists WAITING_ANSWER runs only, so a miss means some other state — and
+            # which one decides whether the caller is told to lift a pause, told the run is over,
+            # or told nothing answers to this id at all.
+            raise await self._not_answerable(run_id)
         result, applied = await _workflow_result(
             runtime.resume(
                 pending.invocable,
@@ -794,8 +798,27 @@ class Deck:
             )
         )
         if not applied:
-            raise NotFoundError(f"No pending run {run_id!r}.")
+            # Nothing was played: a lost race, or a run the routing ended instead of answering.
+            # Re-read the state rather than repeating a guess — after a cancel served here the
+            # run is terminal, and "no pending run" is the true answer to what was asked.
+            raise await self._not_answerable(run_id)
         return result
+
+    async def _not_answerable(self, run_id: str) -> AgentdeckError:
+        """Why this run is not one an answer can land on, in the words :data:`PRECONDITIONS`
+        wrote for whoever was refused.
+
+        Only a ``REFUSED`` state gets the new error. A run the log never heard of, one that had
+        already ended, and one answered by somebody else between the listing and this read all
+        keep the ``NotFoundError`` they have always raised — the caller's question was "which
+        pending run is this", and for all three the answer is still "none"."""
+        status = await self._status(run_id)
+        if status is None:
+            return NotFoundError(f"No pending run {run_id!r}.")
+        allowed = PRECONDITIONS[status, Operation.ANSWER]
+        if allowed.verdict is not Verdict.REFUSED:
+            return NotFoundError(f"No pending run {run_id!r}.")
+        return RunStateError(f"run {run_id!r} cannot be answered: {allowed.why}")
 
     async def _due_resumes(self, now: datetime | None = None) -> list[InterruptResult]:
         """Timer-paused threads (``sleep_until``) whose wake time has passed. Not public: nothing
@@ -832,7 +855,7 @@ class Deck:
         already knows about — parked by a ``Deck.run()``/HTTP call that went through the
         Runtime, the same as any other interrupt. Resuming such a thread by calling the
         workflow directly (as this used to) never told the log: the run stayed
-        ``WAITING_HUMAN`` and kept holding its session claim forever, a ghost indistinguishable
+        ``WAITING_ANSWER`` and kept holding its session claim forever, a ghost indistinguishable
         from the one #114 fixed for :meth:`RunOps.answer`. So a due thread with a matching
         logged run resumes through the Runtime instead — closing that run and freeing its
         claim — and only a thread with no logged run (parked by calling a durable
@@ -853,19 +876,26 @@ class Deck:
                 if logged_run is None:
                     results.append(await workflow.resume(pending["thread_id"], wake_at))
                     continue
-                result, applied = await _workflow_result(
-                    runtime.resume(
-                        logged_run.invocable,
-                        logged_run.thread_id,
-                        # The payload's own ISO string, not the parsed `wake_at`: this value
-                        # also becomes the logged `run.resumed`, and a bare `datetime` fails
-                        # that event's JSON validation — recorded as a lost answer, with a
-                        # warning, even though the graph itself would have resumed fine.
-                        pending["payload"][WAKE_AT_KEY],
-                        run_id=logged_run.run_id,
-                        session_id=logged_run.session_id,
+                try:
+                    result, applied = await _workflow_result(
+                        runtime.resume(
+                            logged_run.invocable,
+                            logged_run.thread_id,
+                            # The payload's own ISO string, not the parsed `wake_at`: this value
+                            # also becomes the logged `run.resumed`, and a bare `datetime` fails
+                            # that event's JSON validation — recorded as a lost answer, with a
+                            # warning, even though the graph itself would have resumed fine.
+                            pending["payload"][WAKE_AT_KEY],
+                            run_id=logged_run.run_id,
+                            session_id=logged_run.session_id,
+                        )
                     )
-                )
+                except RunStateError:
+                    # An operator asked this run to stop before its timer came due. Waking it
+                    # would override them, so the wake defers — the same ruling an answer gets,
+                    # for the same reason. Caught per run, not per sweep: one held-back timer
+                    # must not stop every other due thread in the catalog from waking.
+                    continue
                 # A lost race (some other caller already resumed this run) leaves nothing to
                 # report — not a fallback to the direct resume, which would just re-enter a
                 # thread the winner has already moved on from.
