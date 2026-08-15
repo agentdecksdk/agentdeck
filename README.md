@@ -114,7 +114,9 @@ export OPENAI_MODEL=gpt-4.1-mini OPENAI_API_KEY=sk-...
 
 The distribution is **`agentdeck-sdk`**; the import stays `agentdeck`. `OPENAI_BASE_URL` points it at any
 OpenAI-compatible endpoint instead (a gateway, vLLM, Ollama). Extras: `serve` for the HTTP
-surface, `durability` for the Postgres/SQLite stores, `observability` for Langfuse tracing.
+surface, `durability` for the Postgres checkpointer and event store (SQLite ships in base —
+`durable=True` works out of the box), `redis` for Redis-backed sessions or event log,
+`observability` for Langfuse tracing.
 
 Contributing to agentdeck itself is a different setup — see
 [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -159,8 +161,8 @@ to survive being operated.
   or in Redis.
 - **One event log per run** — every turn, however it was started, appends to the same ordered
   log: text deltas, tool calls, token usage, the result. Status is folded from it, not stored.
-- **Run control** — a run in flight can be paused, resumed or cancelled by id, at documented
-  safe points, from another process.
+- **Run control** — an agent or workflow run in flight can be paused, resumed or cancelled by
+  id, at documented safe points, from another process.
 - **Human approval** — a `durable=True` workflow node calls `interrupt()`, the run parks, and
   `deck.runs.pending()` / `deck.runs.answer()` finish it later, possibly somewhere else.
 - **An HTTP surface** — `agentdeck-serve` puts chat, SSE streaming, workflows, and the approval

@@ -645,8 +645,9 @@ A signal is acted on at the next **safe point**, never mid-token and never by ki
 - `tool_dispatch` — before a tool call is dispatched.
 - `node_boundary` — between two graph nodes.
 
-Agent runs today honor `stream_item`. A workflow (LangGraph) run has no safe point yet, so
-pause and cancel do not reach one — see [issue #128](https://github.com/agentdecksdk/agentdeck/issues/128).
+An agent run honors `stream_item`. A workflow (LangGraph) run honors `node_boundary`: nothing
+in the graph is mid-execution between two `updates` chunks, so a pause or cancel always lands
+somewhere well defined.
 
 **A tool call that is already running is never interrupted.** If you pause while a tool is
 executing, the call runs to completion and the run stops before the step that would have used
@@ -667,25 +668,44 @@ Two things add up, and both are bounded:
 For a streaming answer that is typically well under half a second. For a run inside a 30-second
 tool call it is 30 seconds, and no setting can change that without killing the call.
 
-Both of those are about a run that is *live*. Cancelling a run that is already **paused** is the
-one case with no bound on it, because a paused run has no loop reaching safe points: the request
-is recorded, and the next `resume` honours it — ending the run `cancelled` instead of playing
-it on. So the cancel is never lost and can never be overridden by a resume, but it becomes an
-effect only when somebody next touches the run. A paused run that nobody ever picks up stays
-paused, holding its session until `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` takes it over.
+Both of those are about a run that is *live*. Cancelling a run that is already **paused** (or
+waiting on an answer) is different, not slower: there is no gate left to notice a request, so
+`deck.runs.cancel` claims the run itself and ends it right there instead of merely recording
+something for a later `resume`/`answer` to find — a **pause** against a suspended run, by
+contrast, does stay merely recorded, since lifting or answering it is what would act on it. A
+paused or waiting run that nobody ever cancels stays parked, holding its session **forever** —
+no `stale_run_after` timer reaches it, deliberately (see [Sessions and
+Memory](/concepts/sessions-and-memory#one-turn-at-a-time)) — until a `resume`/`answer` continues
+it or a `cancel` ends it.
 
 ## What resume replays
 
 A paused run is suspended **in the log**, not parked in memory: the process is free to exit, and
-any worker holding the same event store can lift the pause. There is no stack to return to, so
-resuming re-enters the engine with the run's original input and the log as history — the run
-keeps its `run_id`, and `seq` carries on from where it stopped.
+any worker holding the same event store can lift the pause. The run keeps its `run_id`, and
+`seq` carries on from where it stopped, whatever kind of run it is. What a resume continues from
+there is not the same for an agent and a workflow:
 
-The consequence to design for: **work the paused turn had already done can happen again.** The
-model is asked again, and a tool it had already called may be called a second time. `RunContext`
-has no idempotency-key field to lean on for this — only `run_id`, which does stay the same
-across a resume (see above) if your own side effects want a key to dedupe against. Keep tools
-idempotent, and treat a resumed turn the way you treat a resumed LangGraph interrupt node.
+| Run | Resume continues from |
+| --- | --- |
+| Agent | the run's original input, replayed with the log as history |
+| Workflow (LangGraph), `durable = True` | the node boundary it paused at, from any process |
+| Workflow (LangGraph), `durable = False`, same process | the node boundary it paused at |
+| Workflow (LangGraph), `durable = False`, another process | refused, naming `durable = True` |
+
+**An agent run has no stack to return to**, so resuming re-enters the engine with the run's
+original input and the log as history: work the paused turn had already done can happen again.
+The model is asked again, and a tool it had already called may be called a second time.
+`RunContext` has no idempotency-key field to lean on for this, only `run_id` (which does stay the
+same across a resume, see above) if your own side effects want a key to dedupe against. Keep
+tools idempotent, and treat a resumed turn the way you treat a resumed LangGraph interrupt node.
+
+**A workflow run has its own checkpoint**, one `updates` chunk (a node boundary) at a time, so
+resuming continues it instead of replaying: no node that already ran runs again. That is only as
+durable as the checkpoint backing it. A `durable = False` workflow's checkpoint lives in the
+memory of the process that paused it, so lifting that pause from a *different* process is
+refused rather than silently replayed from the entry node with an empty state. Set
+`durable = True` on the workflow (with a durable checkpoint backend) for a pause that must be
+resumable from anywhere.
 
 `resume` returns the events the continuation produced — an empty list means there was
 nothing to resume (the run finished, was cancelled, is still running, or another worker got
@@ -697,7 +717,7 @@ already did — an email that was sent stays sent. That holds for a run cancelle
 too: `resume` finds the pending cancel and ends the run rather than continuing it, so asking
 to resume does not quietly override whoever cancelled.
 
-`paused` is also not `waiting_human`: a run stopped on an `interrupt()` is waiting for an answer
+`paused` is also not `waiting_answer`: a run stopped on an `interrupt()` is waiting for an answer
 and resumes *with a value*; a paused run is waiting for an operator and resumes with nothing.
 
 ---
@@ -812,13 +832,13 @@ or read with the version that wrote it. Only `sqlite`, `postgresql` and `redis` 
 
 ## Status is a fold, not a field
 
-A run's status — `pending`, `running`, `paused`, `waiting_human`, `completed`, `failed`, or
-`cancelled` — is not written anywhere as its own row. `status_of` derives it by folding the
-run's own lifecycle events in order and taking the last transition; a log with none of those
-folds to `pending`, and a log ending in `run.completed` folds to `completed` every time it's
-asked, with no cache to go stale after a restart. `paused` and `waiting_human` differ in what
-resuming them takes — nothing for a pause, an answer for an interrupt — which [Run
-Control](/concepts/run-control) covers in full.
+A run's status — `running`, `paused`, `waiting_answer`, `completed`, `failed`, or `cancelled` —
+is not written anywhere as its own row. `status_of` derives it by folding the run's own lifecycle
+events in order and taking the last transition; a log with none of those folds to `None`, and a
+log ending in `run.completed` folds to `completed` every time it's asked, with no cache to go
+stale after a restart. `paused` and `waiting_answer` differ in what resuming them takes — nothing
+for a pause, an answer for an interrupt — which [Run Control](/concepts/run-control) covers in
+full.
 
 ## The log is not the engine's memory
 
@@ -963,9 +983,23 @@ except SessionBusyError as busy:
 The refusal is the log deciding, not a lock the caller has to manage: opening a run is a
 conditional write that fails if the session already has one open, so exactly one caller ever
 wins, whether the two calls came from the same process or two different ones. Over HTTP the
-same refusal arrives as `409`. A run that dies without closing cleanly (a killed worker, not a
-graceful exit) still frees the session eventually — once it has gone quiet for
+same refusal arrives as `409`. A **running** run that dies without closing cleanly (a killed
+worker, not a graceful exit) still frees the session eventually — once it has gone quiet for
 `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`, described in [Run Control](/concepts/run-control).
+
+A run **parked** — paused, or waiting on a human answer — is different, and deliberately so: it
+holds the session until someone acts on it, however long that takes. No timer ever takes it
+over, because nothing is silently dying there to infer from silence — the run is exactly where
+it stopped, waiting. The refusal names the call that frees it instead of claiming the holder is
+"in flight", which would be false of a run nobody is running:
+
+```text
+session 'wa-1' is held by run '<run_id>', parked waiting for an answer — supply it with
+deck.runs.answer(...) or end it with deck.runs.cancel(...), see ...
+```
+
+An approval nobody ever answers holds its session forever, not for an hour — `deck.runs.cancel`
+is what ends it.
 
 ---
 
@@ -1410,7 +1444,9 @@ curl -X POST http://localhost:8000/workflows/QuoteApproval/quote-42/resume -d '{
 A workflow's `thread_id` is its session: one turn on it at a time, so a second `POST` to the
 same thread while the approval is outstanding answers **409**, the same as talking over an
 agent conversation that is still mid-turn. The approval holds the session until someone
-answers it or until `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` decides nobody is coming back.
+answers it or cancels the run — deliberately with no timer to fall back on:
+`AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` only ever applies to a run that is still running,
+never to one parked waiting for this.
 
 Pausing or cancelling a run by `run_id` — [Run Control](/concepts/run-control) — does not
 reach a workflow run today: a workflow has no safe point of its own, so `interrupt()` is the
@@ -1510,11 +1546,14 @@ curl -X POST http://localhost:8000/runs/$RUN_ID/resume
 ## What each call hands back
 
 `pause` and `cancel` both answer `{"run_id", "verb", "recorded": true}` the moment the request
-is written down — not when the run stops. `resume` answers `{"run_id", "status", "events"}`
-with the count of events the continuation produced, or `409` if the run was not paused: still
-running, already finished, already cancelled, or picked up by another caller first. None of
-those three cases is an error worth retrying differently; they are all "there was nothing here
-to resume."
+is written down — for a *live* run, that is before it stops, since both wait on the run's own
+gate to notice. A `cancel` against a run already paused or waiting on an answer is different:
+there is no gate left to notice anything, so the run is claimed and ended within the same call,
+and `recorded: true` is returned only once it already has been. `resume` answers
+`{"run_id", "status", "events"}` with the count of events the continuation produced, or `409`
+if the run was not paused: still running, already finished, already cancelled, or picked up by
+another caller first. None of those three cases is an error worth retrying differently; they
+are all "there was nothing here to resume."
 
 `pause` or `cancel` on a run that already ended is accepted and does nothing, so a double
 click is harmless.
@@ -1577,9 +1616,10 @@ whether a pause or cancel landed are the ones already open to you:
 There is no way today to poll "is run X paused yet" without either of those two paths. If your
 pause or cancel is taking longer than [the bound Run Control describes](/concepts/run-control#how-long-a-pause-or-cancel-takes-to-land),
 the run is not stuck — it is either still finishing the tool call it was in, or nobody has
-touched it since it paused. A paused run that nobody resumes holds its session open until
-`AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` takes it over; it is not consuming a live loop in
-the meantime, so there is nothing to cancel out of urgency beyond recording the cancel itself.
+touched it since it paused. A paused run that nobody resumes holds its session open **forever**
+— `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` never reaches a paused run, deliberately — until a
+`resume` or a `cancel` ends the wait; it is not consuming a live loop in the meantime, so there
+is nothing to cancel out of urgency beyond recording the cancel itself.
 
 ---
 
@@ -1898,8 +1938,11 @@ for the life of that run. Anything larger belongs in a `ResourceBlock`.
 An engine that cannot express a block raises `ConfigError` naming the block type, rather than
 dropping it — a turn that silently loses its image is worse than one that refuses. Two known
 limits on the openai-agents engine at the pinned `openai-agents==0.17.0`: `AudioBlock` needs the
-Chat-Completions path (`OPENAI_USE_RESPONSES=false`), and `ResourceBlock`/`DataBlock` are not sent
-to the model at all.
+Chat-Completions path (`OPENAI_USE_RESPONSES=false`), and `ResourceBlock` is not sent to the model
+at all — a `uri` is a pointer, not content, and the engine never fetches it. `DataBlock` **is**
+sent: it renders as its own part, `json.dumps(data, ensure_ascii=False)` with nothing wrapped
+around it, since it is already a separate entry in the model's content list rather than text
+concatenated into a caller's own prompt.
 
 `stream` yields the same `Event` objects a run's log would hand back after the fact — `text.delta`
 per token for an agent, `node.updated` per completed node for a workflow, a terminal event last —
@@ -1934,9 +1977,15 @@ engine ran the turn. `stream` does not return one; it yields the events themselv
 | Field | Type | Meaning |
 |---|---|---|
 | `output` | `Any` | the run's structured output (a `DataBlock`'s data), or the joined text of the final message |
-| `usage` | `Usage` | `input_tokens`, `output_tokens`, `usd` (`None` when no price is known for the model) — the run's authoritative total |
+| `usage` | `Usage` | `input_tokens`, `output_tokens`, `usd` — the run's authoritative total |
 | `run_id` | `str` | this run's id |
 | `session_id` | `str \| None` | the session this turn belongs to, if `session_id=` was given |
+
+**`usage.usd` is always `None`, on purpose.** agentdeck does not price model calls: no provider
+returns a dollar figure in a response, and a price depends on a contract, a tier and a date
+rather than on the call, so owning a table for every model on every provider would trade an
+empty field for a stale one. `usd` is reserved for a caller that supplies its own cost; compute
+one from `input_tokens`/`output_tokens` and your own price table if you need it (#177).
 
 Calling `Agent.run()` directly — the class's own headless runner, bypassing `Deck` and the
 Runtime entirely — still returns the SDK's own `RunResult`; see
@@ -2413,6 +2462,8 @@ Defaults for the host-side Agents SDK runner.
 | `AGENTDECK_RUNNER_TEMPERATURE` | `float` | `1.0` | Sampling temperature for the host agent loop's model. |
 | `AGENTDECK_RUNNER_MAX_TURNS` | `int` | `30` | Maximum turns `Runner.run`/`run_streamed` may take before giving up. |
 | `AGENTDECK_RUNNER_MAX_TOKENS` | `int` or `None` | `None` | Cap on tokens per response for the host agent loop's `ModelSettings`. `None` means the model's own default (uncapped). |
+| `AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN` | `bool` | `False` | Append a synthetic user turn after a handoff's collapsed history so the transferred-to agent's request ends on a user role instead of an assistant one. Off by default: it changes what every model sees on every handoff, including against OpenAI, and only some OpenAI-compatible endpoints reject the assistant-terminated shape. |
+| `AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN` | `str` | `'Please continue.'` | Content of the synthetic user turn `handoff_ends_on_user_turn` appends. Override for a deployment whose conversations aren't English — the default is otherwise an English sentence injected into every handoff regardless of the conversation's own language. |
 
 ## `RuntimeSettings`
 
@@ -2420,7 +2471,7 @@ Knobs the Runtime itself reads.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` | `float` | `3600.0` | How long, in seconds, an open run may go without writing an event before it is treated as abandoned and its session ownership is released for another worker to claim. Must be positive; set it above the longest gap a healthy turn can go quiet. |
+| `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` | `float` | `3600.0` | How long, in seconds, a running open run may go without writing an event before it is treated as abandoned and its session ownership is released for another worker to claim. Never applies to a run paused or waiting on an answer — those hold their session until resumed, answered, or cancelled. Must be positive; set it above the longest gap a healthy turn can go quiet. |
 | `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` | `float` | `30.0` | How often, in seconds, an open Deck sweeps for a `sleep_until` timer whose wake moment has passed and resumes it, with no cron or scheduler required. Must be positive; runs for the Deck's own lifetime, started when it opens and cancelled when it closes. |
 
 ## `LangfuseSettings`
@@ -2613,61 +2664,33 @@ quietly tracked because most of these fail *silently* — you get a plausible wr
 error — and an hour spent debugging one of them is an hour this page could have saved.
 
 <Callout type="warning">
-  The worst kind first: **a tool that raises still completes the run successfully.** If you are
-  debugging an agent that seems to ignore its tools, read that entry before anything else.
+  The worst kind left: **a tool returning something unserializable still reaches the model as a
+  raw memory address.** If an agent's answers look subtly corrupted, read that entry first.
 </Callout>
 
 ## Silent wrong answers
 
 These produce no error. Nothing in the log says anything went wrong.
 
-### A tool that raises completes the run
-
-An exception inside a tool produces no machine-readable signal at any layer. The run completes,
-the caller gets a normal result, HTTP answers `200`, and `tool.call.completed.error` is never
-set. The only trace is that the model saw an error string and may or may not have mentioned it.
-
-**Until it is fixed:** catch exceptions inside your own tools and return a string the model can
-act on. Do not rely on the run failing.
-&nbsp;→ [#250](https://github.com/agentdecksdk/agentdeck/issues/250)
-
 ### A tool returning something unserializable reaches the model as a memory address
 
 Return a value JSON cannot carry and it is neither rejected nor flagged — it is coerced to its
 `repr()`, and that string, typically containing a raw memory address, enters both the event log
-and the prompt.
+and the prompt. `result_sha256`/`result_size` are computed over that same repr, so two identical
+non-serializable results are recorded as two different ones.
+
+This was filed as #251 and closed by folding its done-when items into #250 (below), on the
+reasoning that both are "a tool result mishandled in the same translation function". #250's fix
+shipped only the raise half; this half — the warning and the hashing fix — was never
+implemented. The behavior described here is unchanged in the tree, and no open issue currently
+tracks it.
 
 **Until it is fixed:** return JSON-compatible values from tools. If you return an object today,
 check what the model is actually receiving.
-&nbsp;→ [#251, folded into #250](https://github.com/agentdecksdk/agentdeck/issues/250)
-
-### Cancelling a run that is waiting on a human does nothing
-
-`deck.runs.cancel(run_id)` against a run parked at `interrupt()` returns `True` and records the
-signal. Nothing reads it. The run stays answerable, and answering it executes the rest of the
-workflow for real. No event is written, so the log shows no trace that a cancel was asked for.
-
-**Until it is fixed:** do not rely on cancel to stop a pending approval. Guard the post-approval
-nodes with your own check.
-&nbsp;→ [#229](https://github.com/agentdecksdk/agentdeck/issues/229)
-
-### `usage.usd` is always `None`
-
-The cost field exists on every `Usage` and never carries a cost.
-
-**Until it is fixed:** compute cost from `input_tokens`/`output_tokens` and your own price table.
-&nbsp;→ [#177](https://github.com/agentdecksdk/agentdeck/issues/177)
+&nbsp;→ [#251](https://github.com/agentdecksdk/agentdeck/issues/251), folded into
+[#250](https://github.com/agentdecksdk/agentdeck/issues/250), which did not implement this half
 
 ## Defaults that will trap you
-
-### A default install cannot run a durable workflow
-
-`AGENTDECK_CHECKPOINT` defaults to `sqlite://.agentdeck/checkpoints.sqlite3`, but the SQLite
-checkpointer lives behind the `[durability]` extra. So `durable = True` — which every human
-approval needs — fails on a plain install.
-
-**Until it is fixed:** install `agentdeck-sdk[durability]` if you use `durable = True`.
-&nbsp;→ [#232](https://github.com/agentdecksdk/agentdeck/issues/232)
 
 ### Approvals disappear on restart, under the shipped defaults
 
@@ -2683,9 +2706,11 @@ or `redis://` — in anything that outlives one process. See
 
 ### A killed worker holds its session for an hour
 
-A worker killed mid-turn leaves its `session_id` unusable for
+A worker killed while its run was **running** leaves its `session_id` unusable for
 `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`, which defaults to **3600**. There is no way to
-release it sooner.
+release it sooner. This does not apply to a worker killed while its run was paused or waiting
+on an answer — that session holds until the run is resumed, answered, or cancelled, on purpose,
+with no timer involved at all.
 
 **Until it is fixed:** lower the setting if your deployment restarts often. It trades against how
 long a healthy turn may go quiet.
@@ -2702,13 +2727,14 @@ Gemini's endpoint the message is:
 400 - Please ensure that single turn requests end with a user role or the role field is empty.
 ```
 
-A transfer produces an assistant tool-call followed by a tool result, so the transferred-to
-agent's request ends on a non-user role, which some providers reject. **The handoff mechanism
-itself is fine** — a bidirectional round trip works against a compliant endpoint.
+agentdeck collapses a handoff's transcript into a single message before handing it to the next
+agent, and that message's role is `assistant` — the transferred-to agent's request carries no
+user role at all, which some providers reject. **The handoff mechanism itself is fine** — a
+bidirectional round trip works against a compliant endpoint.
 
-**Until it is fixed:** run handoffs against OpenAI. `Agent(model=...)` does not help: it selects a
-model *name*, while the endpoint is process-wide via `OPENAI_BASE_URL`, so every agent in a run
-reaches the same provider.
+**Until it is fixed:** set `AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN=true`, which appends a
+closing user turn after the collapsed transcript. Off by default, because it changes what every
+model sees on every handoff, including against OpenAI.
 &nbsp;→ [#178](https://github.com/agentdecksdk/agentdeck/issues/178)
 
 ## Rough edges
@@ -2718,12 +2744,8 @@ Not silent, not traps — just things that will cost you a few minutes.
 | What | Issue |
 |---|---|
 | `run()`'s return type makes the documented interrupt idiom fail a type checker | [#231](https://github.com/agentdecksdk/agentdeck/issues/231) |
-| An engine failure over HTTP returns bare text rather than the documented 500 shape | [#243](https://github.com/agentdecksdk/agentdeck/issues/243) |
 | `answer()` accepts any value with no validation, and the node owns interpreting it | [#235](https://github.com/agentdecksdk/agentdeck/issues/235) |
-| Omitting `context` on `answer()` silently gives the re-run node `None` | [#255](https://github.com/agentdecksdk/agentdeck/issues/255) |
 | The CLI can send signals but cannot read anything — no inbox, no run view | [#256](https://github.com/agentdecksdk/agentdeck/issues/256) |
-| `redis` is a base dependency because the default session path imports it | [#253](https://github.com/agentdecksdk/agentdeck/issues/253) |
-| A `DataBlock` cannot be sent *to* a model, only received from one | [#226](https://github.com/agentdecksdk/agentdeck/issues/226) |
 | `Deck.asgi()` cannot serve an agent whose tools declare a `Context` | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
 
 ## Fixed in v3.1.0
@@ -2738,10 +2760,28 @@ worth it, and in full in the [changelog](/changelog).
 | Checkpointer connection failures surfaced as raw driver exceptions | [#233](https://github.com/agentdecksdk/agentdeck/issues/233) |
 | `agentdeck-serve --help` crashed instead of printing usage | [#245](https://github.com/agentdecksdk/agentdeck/issues/245) |
 
+## Fixed in v3.2.0
+
+| What | Issue |
+|---|---|
+| A tool that raises completed the run with `tool.call.completed.error` never set | [#250](https://github.com/agentdecksdk/agentdeck/issues/250) |
+| Cancelling a run waiting on a human did nothing | [#229](https://github.com/agentdecksdk/agentdeck/issues/229) |
+| A default install could not run a `durable=True` workflow — the SQLite checkpointer moved into base dependencies | [#232](https://github.com/agentdecksdk/agentdeck/issues/232) |
+| An engine failure over HTTP returned bare text rather than the documented 500 shape | [#243](https://github.com/agentdecksdk/agentdeck/issues/243) |
+| Omitting `context` on `answer()` silently gave the re-run node `None` — now demonstrated in the human-approval guide | [#255](https://github.com/agentdecksdk/agentdeck/issues/255) |
+| `redis` was a base dependency because the default session path imported it unconditionally | [#253](https://github.com/agentdecksdk/agentdeck/issues/253) |
+| A `DataBlock` could not be sent *to* a model, only received from one | [#226](https://github.com/agentdecksdk/agentdeck/issues/226) |
+
+<Callout type="info">
+  `usage.usd` used to be listed on this page. It isn't a defect: agentdeck does not price model
+  calls, on purpose ([#177](https://github.com/agentdecksdk/agentdeck/issues/177)) — see
+  [`TurnResult`](/reference/deck#turnresult) for the ruling, not a fix.
+</Callout>
+
 ## What is being done about all this
 
-Every entry above is on **v3.2 — hardening**, which exists for exactly this list. See the
-[Roadmap](/roadmap).
+Everything still open above is on **v3.2 — hardening**, which exists for exactly this list. See
+the [Roadmap](/roadmap).
 
 <Callout type="info">
   Hit something that is not here?
@@ -2769,6 +2809,19 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
 
 ### Upgrading
 
+- **Breaking: `deck.run(...)`/`deck.stream(...)` now raises `SessionBusyError` on a session
+  held by a run parked `PAUSED` or `WAITING_ANSWER`, however long ago it went quiet** (#311).
+  Every store's `claim_start` applied `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` to *any* open
+  run, including one suspended waiting for a human — so a parked approval was silently closed
+  `failed` (destroying it) by the very next turn started on its session once the window had
+  passed, contradicting the README's own promise that an approval outlives the process that
+  asked for it. The timer now only ever applies to `RUNNING`; a parked run holds its session
+  until `deck.runs.answer`/`deck.runs.resume` continues it or `deck.runs.cancel` ends it,
+  however long that takes. `SessionBusyError`'s message reflects it too: a parked holder names
+  the call that frees it instead of claiming it is "in flight", which was never true of it.
+  If your deployment relied on a stale approval being cleaned up automatically, call
+  `deck.runs.cancel(run_id)` on it explicitly instead — see [Sessions and
+  Memory](https://agentdecksdk.com/concepts/sessions-and-memory#one-turn-at-a-time).
 - **`redis` is no longer installed by `pip install agentdeck-sdk`** (#253). A deployment with
   `AGENTDECK_SESSION=redis://...` or `AGENTDECK_EVENTS=redis://...` now raises `ImportError` at
   boot — `Deck.__aenter__` resolves both through `SessionFactory.from_settings()` and
@@ -2789,6 +2842,20 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
   checkpointer when a workflow is `durable`), and a sibling module inside a bundle is
   imported relatively (`from .pipeline import …`). A `TypedDict` state is fine; a pydantic
   model is not required.
+- **`AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN`** (#178). agentdeck collapses a handoff's
+  transcript into a single assistant-role message before handing it to the next agent, and some
+  OpenAI-compatible endpoints (Gemini's, for one) reject a request that carries no user role at
+  all. Setting this to `true` appends a closing user turn after the collapsed transcript, via
+  `RunConfig.handoff_history_mapper`. Off by default: it changes what every model sees on every
+  handoff, including against OpenAI, so it stays opt-in rather than becoming everyone's new
+  default behavior. Wired into both places agentdeck sets `nest_handoff_history` — a
+  Runtime-driven run and a workflow node driving an agent of its own.
+- **`AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN`** (#178), defaulting to `"Please continue."` — the
+  content of the user turn `AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN` appends. Override it for
+  a deployment whose conversations aren't English: the default is otherwise an English sentence
+  injected into every handoff regardless of the conversation's own language. An empty (or
+  whitespace-only) value refuses to start rather than silently producing an empty user turn —
+  the shape a provider strict enough to need the setting is likely to reject too.
 
 ### Changed
 
@@ -2815,6 +2882,23 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
   names** (#248), one tool call per request in order, then plain text once the sequence is
   exhausted — the shape a multi-step tool chain or a handoff round trip needs to script.
   A single name keeps its existing one-shot behavior unchanged.
+- **Error messages a first-time user hits during composition or a first run now name the one
+  docs page that answers them** (#238): the skill frontmatter/discovery `ConfigError`s (missing
+  `description`, a name that doesn't match its directory, a duplicate name across skill roots),
+  `SessionBusyError`, the store/checkpoint `ImportError`s for the `durability` and `redis`
+  extras, the unknown-scheme `ValueError`s for `AGENTDECK_CONTROL`/`AGENTDECK_EVENTS`/
+  `AGENTDECK_CHECKPOINT`, and the durable-workflow missing-`thread_id` `ValueError` (both the
+  direct-call and the langgraph-engine copy). No error type or field changed, only the
+  message text. In passing, the two durability install hints now say `agentdeck-sdk[durability]`
+  (the actual distribution name) instead of the pre-rename `agentdeck[durability]`.
+
+### Deprecated
+
+- **`Usage.usd` is documented as reserved, not populated** (#177). agentdeck does not price
+  model calls — no provider returns dollars in a response body, and a price depends on a
+  contract, a tier and a date rather than on the call — so the field is `None` unless a caller
+  sets its own cost. No behavior changes; it was always `None` in practice. Slated for removal
+  at the next major.
 
 ### Removed
 
@@ -2837,13 +2921,44 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
 
 ### Fixed
 
-- **A cancel against a run waiting for an answer is honored instead of vanishing** (#229, #295).
-  `deck.runs.cancel` on a parked run returned `True`, recorded the signal, and the run answered on
-  anyway: only `resume_run` polled the control port, and an approval does not come back that way.
-  The next `deck.runs.answer` now ends the run, recording `control.requested` then `run.cancelled`
-  — no `control.observed`, because the run reached no safe point; it was already stopped when the
-  cancel landed. A cancel against a *paused* run likewise ends it at once rather than being
-  deferred to whoever eventually resumes it.
+- **A tool that raises is now recorded on `tool.call.completed.error`** (#250). The field has
+  been in the schema since v3.0.0 and nothing ever set it, so a database call that timed out or
+  an API that 500'd left no machine-readable trace anywhere: the run completed, HTTP answered
+  200, and the only sign of failure was whatever prose the model chose to write about it — which
+  a model that paraphrases past the word "error" omits entirely. `compile_tool` now passes its
+  own `failure_error_function` to the Agents SDK, records the exception type and message, and
+  the openai-agents translator moves it onto the paired `tool.call.completed`, capped at
+  `RESULT_PREVIEW_MAX` like `result_preview` beside it.
+
+  **Nothing the model sees changes**, deliberately: the formatter delegates to the SDK's own
+  `default_tool_error_function`, so the failure text and the agent's freedom to retry are
+  byte-identical to before. A tool failure is still not a run failure, the run still ends
+  `completed`, and no event kind was added. One gap, by design: a tool the author decorated with
+  `@function_tool` themselves is passed to the engine untouched and keeps its own failure
+  handling, so its exceptions stay unrecorded — that is the existing trade for handing in a
+  pre-built SDK tool, not a new one.
+
+- **`sleep_until` now actually wakes up** (#303). An open `Deck` sweeps for its own lifetime —
+  started in `__aenter__`, cancelled in `__aexit__` — resuming any durable workflow parked past
+  its wake moment with no cron or scheduler wired in by the user. Previously `_tick`/`_due_resumes`
+  (the mechanism behind the sweep) were never called by anything, so a parked timer held
+  `WAITING_ANSWER` forever, keeping its session claim, until something else happened to call the
+  now-private `_tick`. The interval is `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` (default 30s) on
+  `RuntimeSettings`, on by default — there is no deployment for which silently never waking a timer
+  is the safer choice. A sweep that raises is logged and retried on the next interval rather than
+  ending the loop; a process that opens the deck, takes a turn and closes within one interval never
+  sweeps at all, and the deadline fires on whoever next holds the deck open past that.
+- **A cancel against a run waiting for an answer is honored instead of vanishing** (#229, #295,
+  #311). `deck.runs.cancel` on a parked run returned `True`, recorded the signal, and the run
+  answered on anyway: only `resume_run` polled the control port, and an approval does not come
+  back that way. `deck.runs.cancel` against a suspended run now claims and terminates it right
+  there, recording `control.requested` then `run.cancelled` — no `control.observed`, because the
+  run reached no safe point; it was already stopped when the cancel landed. Ends the same way for
+  a *paused* run. Claiming happens at the cancel itself rather than being deferred to whoever
+  next answers or resumes: once #311 stopped a stale timer from ever reclaiming a parked run's
+  session, a deferred cancel could sit unread forever if nobody happened to touch the run again.
+  `deck.runs.cancel(run_id, reason, namespace=...)` takes the same `namespace` `deck.runs.pending`
+  already does, needed to locate a suspended run opened outside the default namespace at all.
 - **`deck.runs.resume` on a run that is waiting for an answer now refuses, naming
   `deck.runs.answer`** (#295), and `deck.runs.answer` on a paused run refuses naming
   `deck.runs.resume`. Both raise the new `agentdeck.errors.RunStateError`, which the HTTP surface
@@ -2885,6 +3000,46 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
   `None` rather than an error, and the run continues with a quietly wrong value. Both rules were
   already documented separately and correctly; their interaction was stated once in prose and
   never demonstrated, and two clean-room reviewers missed the consequence anyway.
+- **The openai-agents engine no longer refuses a `DataBlock` on input** (#226). It used to raise
+  `ConfigError` there — a `DataBlock` was an output-only block in practice, so the typed way to
+  hand a model structured per-run context did not exist and every embedded application invented
+  its own prose preamble. It now renders as its own part, `json.dumps(data, ensure_ascii=False)`
+  with nothing wrapped around it: each block is already a separate entry in the SDK's content
+  list, so the boundary between it and a neighbouring `TextBlock` is the API's own rather than a
+  delimiter this adapter
+  invents, and there is no open/close token embedded data could spoof to escape early.
+  `ResourceBlock` still raises — a `uri` is a pointer the engine never fetches, and the message now
+  says so, rather than reading identically to the data case. Crash reconciliation renders a
+  `DataBlock` the same way on its log-side transcript, so a turn that carries one does not read as
+  a permanent session divergence on every turn after it.
+- **A langgraph workflow run now has a safe point, so `pause` and `cancel` can reach it**
+  (#128). `LangGraphEngine` checkpoints the run's control gate between two `updates` chunks
+  (langgraph's own node boundary), which is what produces `control.observed{safe_point:
+  "node_boundary"}`; a workflow run previously had no safe point at all, so a signal against it
+  sat unread until the graph finished on its own.
+
+  **A resumed pause continues from that boundary: it never replays.** Unlike an interrupted
+  run, which re-enters from its start, a paused workflow's checkpoint already has everything
+  before the pause, so `deck.runs.resume` re-enters langgraph with `None` (its own idiom for
+  continuing a thread) rather than the run's original input, and no already-completed node
+  runs again. That guarantee holds for `durable=True` from any process; a `durable=False`
+  workflow can only be resumed from the process that paused it (its checkpoint lives in that
+  engine's own memory, ADR-D5), and is refused, naming `durable = True`, if resumed from
+  another one instead of being silently replayed from the entry node with empty state.
+- **Docs swept against nine issues closed since the last pass** (#317). `known-issues.mdx` gains
+  a `Fixed in v3.2.0` section (#250, #229, #232, #243, #255, #253, #226); `usage.usd` moves off
+  the page entirely, since #177 ruled it a design position rather than a defect. The one entry
+  that stayed open got reworded rather than removed: a tool's non-serializable return still
+  reaches the model as a `repr()` — #251 was closed by folding it into #250, but #250's fix
+  shipped only the raise half, so this half is untracked by any open issue today. `run-control.mdx`
+  and `runs-and-the-event-log.mdx` drop their last `waiting_human`/`pending` references, both
+  renamed away by #295. `README.md`'s extras line now matches `pyproject.toml` (SQLite
+  checkpointer in base, `redis` its own extra) and its run-control bullet says "agent or workflow".
+- **`tests/test_generated_reference.py` now pins all five files `generate_docs_reference.py`
+  writes, not two** (#317). `changelog.mdx`, `llms.txt` and `llms-full.txt` had no test at all, so
+  they could drift from `CHANGELOG.md`/the site's own pages for a whole release with `make check`
+  green throughout — reported as unrelated churn by two different agents this week when they
+  regenerated one page and were surprised by the other four changing too.
 
 ### Added
 

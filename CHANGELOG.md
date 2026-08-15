@@ -227,6 +227,20 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   workflow can only be resumed from the process that paused it (its checkpoint lives in that
   engine's own memory, ADR-D5), and is refused, naming `durable = True`, if resumed from
   another one instead of being silently replayed from the entry node with empty state.
+- **Docs swept against nine issues closed since the last pass** (#317). `known-issues.mdx` gains
+  a `Fixed in v3.2.0` section (#250, #229, #232, #243, #255, #253, #226); `usage.usd` moves off
+  the page entirely, since #177 ruled it a design position rather than a defect. The one entry
+  that stayed open got reworded rather than removed: a tool's non-serializable return still
+  reaches the model as a `repr()` — #251 was closed by folding it into #250, but #250's fix
+  shipped only the raise half, so this half is untracked by any open issue today. `run-control.mdx`
+  and `runs-and-the-event-log.mdx` drop their last `waiting_human`/`pending` references, both
+  renamed away by #295. `README.md`'s extras line now matches `pyproject.toml` (SQLite
+  checkpointer in base, `redis` its own extra) and its run-control bullet says "agent or workflow".
+- **`tests/test_generated_reference.py` now pins all five files `generate_docs_reference.py`
+  writes, not two** (#317). `changelog.mdx`, `llms.txt` and `llms-full.txt` had no test at all, so
+  they could drift from `CHANGELOG.md`/the site's own pages for a whole release with `make check`
+  green throughout — reported as unrelated churn by two different agents this week when they
+  regenerated one page and were surprised by the other four changing too.
 
 ### Added
 
