@@ -15,14 +15,20 @@ one. Audio is chat-completions only: at the pinned ``openai-agents==0.17.0``/``o
 the Responses API's content list has no audio member, so an ``AudioBlock`` under
 ``use_responses=True`` raises rather than reaching the endpoint and coming back as an opaque 400.
 
-A ``DataBlock`` renders as its own ``input_text`` part: ``json.dumps(block.data)``, nothing
-wrapped around it (see ``_part_of``). Each block is already a separate entry in the SDK's
-content list, so the boundary between it and a neighbouring ``TextBlock`` is the API's own,
-not a delimiter this adapter invents — there is no paired open/close token embedded data could
-spoof to escape early, the way a hand-rolled ``<context>...</context>`` preamble can be broken
-by a value that contains ``</context>``. ``ResourceBlock`` still raises: a URI is a pointer, not
-content, and rendering just the pointer would let a caller believe the model saw the bytes at
-that address when it never fetched them.
+A ``DataBlock`` renders as its own ``input_text`` part (``reconcile.render_data_block``:
+``json.dumps(block.data, ensure_ascii=False)``, nothing wrapped around it — see ``_part_of``).
+Each block is already a separate entry in the SDK's content list, so the boundary between it and
+a neighbouring ``TextBlock`` is the API's own, not a delimiter this adapter invents — there is no
+paired open/close token embedded data could spoof to escape early, the way a hand-rolled
+``<context>...</context>`` preamble can be broken by a value that contains ``</context>``.
+``ResourceBlock`` still raises: a URI is a pointer, not content, and rendering just the pointer
+would let a caller believe the model saw the bytes at that address when it never fetched them.
+
+The renderer lives in ``reconcile.py``, not here: a ``DataBlock`` now produces the same
+``{"type": "input_text", "text": ...}`` shape a real ``TextBlock`` does, so the SDK session
+stores it indistinguishably from one — and ``reconcile``'s log-side transcript has to render it
+identically, or a turn that carried a ``DataBlock`` would look like a permanent divergence on
+every later turn. One function, called from both sides, is what keeps that from drifting.
 """
 
 from __future__ import annotations
@@ -37,7 +43,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 from agents import Agent, Runner
 from pydantic import BaseModel
 
-from agentdeck.adapters.engines.openai_agents.reconcile import reconcile
+from agentdeck.adapters.engines.openai_agents.reconcile import reconcile, render_data_block
 from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings, build_run_config
 from agentdeck.adapters.engines.openai_agents.sessions import ExecutionStore
 from agentdeck.adapters.engines.openai_agents.translate import translate
@@ -278,7 +284,7 @@ def _part_of(block: ContentBlock, *, use_responses: bool) -> dict[str, Any]:
             "input_audio": {"data": block.data_b64, "format": _audio_format(block.media_type)},
         }
     if isinstance(block, DataBlock):
-        return {"type": "input_text", "text": json.dumps(block.data, ensure_ascii=False)}
+        return {"type": "input_text", "text": render_data_block(block)}
     if isinstance(block, ResourceBlock):
         raise ConfigError(
             "openai-agents engine cannot send a 'resource' block to the model: "

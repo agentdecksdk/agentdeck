@@ -4,6 +4,10 @@ canonical parts a live multimodal turn would have written into the SDK session. 
 ``_to_sdk_input`` could emit a parts list, the two agreed by accident: the session's content
 was always the bare string the log side had already joined. This pins that they still agree
 once the session can hold a list of typed parts instead.
+
+Issue #226: a ``DataBlock`` renders as an ``input_text`` part too, so it joins ``TextBlock`` on
+the log side (via ``render_data_block``) rather than being silently dropped from the
+comparison — dropping it would make any turn that carried one read as a permanent divergence.
 """
 
 from __future__ import annotations
@@ -11,8 +15,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from agentdeck.adapters.engines.openai_agents.reconcile import _item_text, _text_of, reconcile
-from agentdeck.core.content import ImageBlock, TextBlock
+from agentdeck.adapters.engines.openai_agents.reconcile import _item_text, _text_of, reconcile, render_data_block
+from agentdeck.core.content import DataBlock, ImageBlock, TextBlock
 from agentdeck.core.events import Event, RunStarted
 
 TS = datetime(2026, 1, 1, tzinfo=UTC)
@@ -72,6 +76,35 @@ async def test_reconcile_sees_no_divergence_for_a_text_image_text_turn():
             {"type": "input_text", "text": "a"},
             {"type": "input_image", "image_url": "data:image/png;base64,AA=="},
             {"type": "input_text", "text": "b"},
+        ],
+    }
+    session = _FakeSession("sess_1", [session_item])
+
+    result = await reconcile(session, [_started(blocks)])
+
+    assert result is None
+    assert session.added == []  # already in agreement, nothing to repair
+
+
+def test_data_block_renders_the_same_text_on_both_sides():
+    """The exact scenario #226 introduced: a ``DataBlock`` now produces an ``input_text`` part
+    indistinguishable from a real ``TextBlock``'s, so the log side has to render it identically
+    to ``engine._part_of`` or the two transcripts never agree."""
+    block = DataBlock(data={"page": "reference/deck"})
+    assert _text_of([block]) == render_data_block(block) == '{"page": "reference/deck"}'
+
+
+async def test_reconcile_sees_no_divergence_for_a_turn_carrying_a_data_block():
+    """Without a matching renderer on the log side, this scenario used to report a spurious
+    ``session_diverged`` on every turn after the one that carried a ``DataBlock`` — the session
+    stored its rendered JSON as a plain ``input_text`` part, indistinguishable from a
+    ``TextBlock``'s, and the log side used to drop the block entirely instead of rendering it."""
+    blocks = [TextBlock(text="what page am I on?"), DataBlock(data={"page": "reference/deck"})]
+    session_item = {
+        "role": "user",
+        "content": [
+            {"type": "input_text", "text": "what page am I on?"},
+            {"type": "input_text", "text": '{"page": "reference/deck"}'},
         ],
     }
     session = _FakeSession("sess_1", [session_item])

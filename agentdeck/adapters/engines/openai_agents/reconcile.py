@@ -24,11 +24,12 @@ instead.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import TYPE_CHECKING, Any, Literal
 from weakref import WeakKeyDictionary
 
-from agentdeck.core.content import TextBlock
+from agentdeck.core.content import DataBlock, TextBlock
 from agentdeck.core.events import Custom, InputAppended, MessageCompleted, RunCancelled, RunStarted
 
 if TYPE_CHECKING:
@@ -168,11 +169,28 @@ def _item_text(content: Any) -> str:
 
 
 def _text_of(input: Input) -> str:
-    return _join_texts(block.text for block in input if isinstance(block, TextBlock))
+    """A ``DataBlock`` counts alongside ``TextBlock`` here (#226): it renders as its own
+    ``input_text`` part with a ``text`` key indistinguishable from a real one, so
+    ``_item_text`` picks it up on the session side whether this function includes it or not.
+    Excluding it here would make every turn that carries one look like a permanent
+    divergence — ``render_data_block`` is the one place both sides render it, so they agree."""
+    return _join_texts(
+        render_data_block(block) if isinstance(block, DataBlock) else block.text
+        for block in input
+        if isinstance(block, TextBlock | DataBlock)
+    )
+
+
+def render_data_block(block: DataBlock) -> str:
+    """The one place a ``DataBlock`` becomes text — ``engine._part_of`` (the SDK part a live
+    turn sends) and ``_text_of`` above (the log-side transcript reconcile compares it against)
+    both call this, so a session repair and a live turn can never render the same block two
+    different ways."""
+    return json.dumps(block.data, ensure_ascii=False)
 
 
 def _as_item(role: Role, text: str) -> TResponseInputItem:
     return {"role": role, "content": text}
 
 
-__all__ = ["DIVERGED", "reconcile"]
+__all__ = ["DIVERGED", "reconcile", "render_data_block"]

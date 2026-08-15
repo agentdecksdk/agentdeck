@@ -134,7 +134,9 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   between it and a neighbouring `TextBlock` is the API's own rather than a delimiter this adapter
   invents, and there is no open/close token embedded data could spoof to escape early.
   `ResourceBlock` still raises — a `uri` is a pointer the engine never fetches, and the message now
-  says so, rather than reading identically to the data case.
+  says so, rather than reading identically to the data case. Crash reconciliation renders a
+  `DataBlock` the same way on its log-side transcript, so a turn that carries one does not read as
+  a permanent session divergence on every turn after it.
 
 ### Added
 
