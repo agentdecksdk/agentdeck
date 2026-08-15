@@ -803,14 +803,17 @@ class Deck:
 
     async def _not_answerable(self, run_id: str) -> AgentdeckError:
         """Why this run is not one an answer can land on, in the words :data:`PRECONDITIONS`
-        wrote for whoever was refused. ``NotFoundError`` stays the answer for an id the log has
-        never heard of, and for the race in which the run was answered between the listing and
-        this read."""
+        wrote for whoever was refused.
+
+        Only a ``REFUSED`` state gets the new error. A run the log never heard of, one that had
+        already ended, and one answered by somebody else between the listing and this read all
+        keep the ``NotFoundError`` they have always raised — the caller's question was "which
+        pending run is this", and for all three the answer is still "none"."""
         status = await self._status(run_id)
         if status is None:
             return NotFoundError(f"No pending run {run_id!r}.")
         allowed = PRECONDITIONS[status, Operation.ANSWER]
-        if allowed.verdict is Verdict.LEGAL:
+        if allowed.verdict is not Verdict.REFUSED:
             return NotFoundError(f"No pending run {run_id!r}.")
         return RunStateError(f"run {run_id!r} cannot be answered: {allowed.why}")
 

@@ -155,7 +155,7 @@ _LEGALITY: Mapping[RunStatus, Mapping[Operation, Precondition]] = {
     TERMINAL_STATUSES,
     {
         Operation.RUN: _LEGAL,
-        Operation.ANSWER: Precondition(Verdict.REFUSED, "the run has already ended, so there is nothing to answer"),
+        Operation.ANSWER: Precondition(Verdict.NO_OP, "the run has already ended, so there is nothing to answer"),
         Operation.RESUME: Precondition(Verdict.NO_OP, "the run has already ended, so there is no pause to lift"),
     },
 )

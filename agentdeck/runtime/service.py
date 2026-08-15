@@ -220,14 +220,14 @@ class Runtime:
         status = await self._store.run_status(ctx.log_key, run_id, ctx)
         if status is None:
             return
-        allowed = PRECONDITIONS[status, Operation.ANSWER]
-        if allowed.verdict is Verdict.REFUSED:
-            raise RunStateError(f"run {run_id!r} cannot be answered: {allowed.why}")
-        if allowed.verdict is Verdict.NO_OP:
-            return
-        # A refusal has to be read *before* the claim, which is the one place this path departs
-        # from resume_run's order: the claim is the ``run.resumed`` carrying the answer, so once
-        # it lands the answer is recorded and can no longer be taken back.
+        # No precondition check here: which states admit an answer is the front door's business
+        # (``Deck._answer``), and this method is also where a *loser* lands — a caller whose run
+        # was answered out from under it reads ``RUNNING`` and must still no-op, which is what
+        # the claim below does for it. Refusing here would turn every lost race into an error.
+        #
+        # The routing refusal is different and has to be read *before* the claim, which is the
+        # one place this path departs from resume_run's order: the claim is the ``run.resumed``
+        # carrying the answer, so once it lands the answer cannot be taken back.
         refusal, _ = await self._peek(run_id, status)
         if refusal.action is Action.REFUSE:
             raise RunStateError(f"run {run_id!r} cannot be answered: {refusal.why}")
