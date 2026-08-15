@@ -36,7 +36,7 @@ class RunContext:
     Empty is rejected rather than accepted, because stores encode ``None`` as the empty key —
     so an explicit ``""`` would silently share a bucket with unnamespaced runs.
 
-    Four values and two seams, and nothing else: a field AgentDeck's own machinery never
+    Four values and three seams, and nothing else: a field AgentDeck's own machinery never
     reads is not infrastructure, it is a guess about a mechanism that does not exist yet.
     ``trace_id``, ``budget``, ``triggered_by``, ``parent_run_id``, ``deadline`` and
     ``idempotency_key`` were all of that, and each comes back with the thing that enforces it.
@@ -49,9 +49,17 @@ class RunContext:
     *identity* ``namespace`` carefully is not either: ``namespace`` says which runs are kept
     apart, ``data`` says what this one was handed to work with, and neither says who is acting.
 
-    ``gate`` and ``reporter`` are the two fields that are not values — a cooperative seam has to
-    reach code the Runtime never sees. Both default to doing nothing and only the Runtime rebinds
-    them, so a context built by hand is still a plain value object.
+    ``gate`` and ``reporter`` are two of the three fields that are not values — a cooperative seam
+    has to reach code the Runtime never sees. Both default to doing nothing and only the Runtime
+    rebinds them, so a context built by hand is still a plain value object.
+
+    ``tool_failures`` is the third: the openai-agents engine's own seam, not the Runtime's. A
+    compiled tool that raises is caught deep inside the Agents SDK, where the only way back out
+    is the ``failure_error_function`` the SDK calls to format the model-visible message — so
+    ``compile_tool`` records the exception here, keyed by the SDK's own ``call_id``, and the
+    engine's translator reads it back onto ``tool.call.completed.error`` once the matching result
+    arrives. Left out of the repr for the same reason as ``data``: an exception message can carry
+    whatever the failing tool's arguments carried.
     """
 
     run_id: str
@@ -60,6 +68,7 @@ class RunContext:
     data: object = field(default=None, repr=False)
     gate: Gate = field(default_factory=Gate)
     reporter: Reporter = field(default_factory=Reporter)
+    tool_failures: dict[str, str] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         if self.namespace is not None and not self.namespace:

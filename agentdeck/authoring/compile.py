@@ -20,7 +20,11 @@ in the model-visible schema. This used to be a rejection ("wrap it with ``@funct
 the good reason that an uncompiled callable reached the SDK and failed mid-run with a ``UserError``
 about hosted tools; compiling it here keeps that failure from happening while giving the callable
 a real contract. A pre-built SDK tool object is still accepted and passed straight through, as
-engine-native: nothing here introspects it, and it carries no portability guarantee.
+engine-native: nothing here introspects it, and it carries no portability guarantee. That
+includes the failure formatter ``compile_tool`` attaches (#250) — a tool the author decorated
+with ``@function_tool`` themselves keeps whatever ``failure_error_function`` they chose, so its
+exceptions stay off ``tool.call.completed.error``. Passing one is opting out of what compiling
+buys, which is the same trade the sentence above names, not a second one.
 
 ``instructions=`` and ``hooks=`` go through that same compiler rather than a mechanism each:
 a callable in ``instructions=`` becomes the SDK's dynamic-instructions shape, and a hooks object

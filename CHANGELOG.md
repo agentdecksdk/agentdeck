@@ -95,6 +95,23 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Fixed
 
+- **A tool that raises is now recorded on `tool.call.completed.error`** (#250). The field has
+  been in the schema since v3.0.0 and nothing ever set it, so a database call that timed out or
+  an API that 500'd left no machine-readable trace anywhere: the run completed, HTTP answered
+  200, and the only sign of failure was whatever prose the model chose to write about it — which
+  a model that paraphrases past the word "error" omits entirely. `compile_tool` now passes its
+  own `failure_error_function` to the Agents SDK, records the exception type and message, and
+  the openai-agents translator moves it onto the paired `tool.call.completed`, capped at
+  `RESULT_PREVIEW_MAX` like `result_preview` beside it.
+
+  **Nothing the model sees changes**, deliberately: the formatter delegates to the SDK's own
+  `default_tool_error_function`, so the failure text and the agent's freedom to retry are
+  byte-identical to before. A tool failure is still not a run failure, the run still ends
+  `completed`, and no event kind was added. One gap, by design: a tool the author decorated with
+  `@function_tool` themselves is passed to the engine untouched and keeps its own failure
+  handling, so its exceptions stay unrecorded — that is the existing trade for handing in a
+  pre-built SDK tool, not a new one.
+
 - **`sleep_until` now actually wakes up** (#303). An open `Deck` sweeps for its own lifetime —
   started in `__aenter__`, cancelled in `__aexit__` — resuming any durable workflow parked past
   its wake moment with no cron or scheduler wired in by the user. Previously `_tick`/`_due_resumes`

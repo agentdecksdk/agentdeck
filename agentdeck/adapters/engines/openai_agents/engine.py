@@ -145,7 +145,7 @@ class OpenAIAgentsEngine(EnginePort):
             try:
                 async with aclosing(stream) as events:
                     async for event in events:
-                        payload = self._translate(event, tool_names)
+                        payload = self._translate(event, tool_names, ctx.tool_failures)
                         if payload is not None:
                             yield payload
                         try:
@@ -204,8 +204,8 @@ class OpenAIAgentsEngine(EnginePort):
                 )
             )
 
-    def _translate(self, event: Any, tool_names: dict[str, str]) -> KnownPayload | None:
-        payload = translate(event, tool_names)
+    def _translate(self, event: Any, tool_names: dict[str, str], tool_failures: dict[str, str]) -> KnownPayload | None:
+        payload = translate(event, tool_names, tool_failures)
         return payload if payload is not None else _usage_reported(event)
 
     def _terminal(self, result: RunResultStreaming) -> Sequence[KnownPayload]:
