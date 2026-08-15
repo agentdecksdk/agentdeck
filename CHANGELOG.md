@@ -66,6 +66,14 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   message text. In passing, the two durability install hints now say `agentdeck-sdk[durability]`
   (the actual distribution name) instead of the pre-rename `agentdeck[durability]`.
 
+### Deprecated
+
+- **`Usage.usd` is documented as reserved, not populated** (#177). agentdeck does not price
+  model calls — no provider returns dollars in a response body, and a price depends on a
+  contract, a tier and a date rather than on the call — so the field is `None` unless a caller
+  sets its own cost. No behavior changes; it was always `None` in practice. Slated for removal
+  at the next major.
+
 ### Removed
 
 - **Breaking: `RunStatus.PENDING` is deleted, and `status_of([])` returns `None`** (#295). It
