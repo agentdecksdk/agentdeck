@@ -78,6 +78,15 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   (#295). A run that has already stopped has no loop polling the gate, so the operation
   continuing it — an answer, or a resume — reads the control port at its claim and rules on what
   it finds. Every such read ends in an event or an explicit no-op, never in silence.
+- **Breaking: `EventStorePort` gains `locate(run_id, ctx) -> log_key | None`** (#316), so finding
+  the log holding a run id is an indexed lookup rather than a scan of every run in the namespace
+  — `log_key` is the session id for a run under one, so a run id alone never named its own log.
+  A third-party adapter must implement it; all four shipped ones (`memory`, `sqlite`, `redis`,
+  `postgres`) do, adding no data any of them didn't already hold: SQLite and Postgres gain an
+  index over `events`' own `namespace`/`run_id` columns (`CREATE INDEX IF NOT EXISTS`, so it
+  applies cleanly to a database an earlier build already created), and memory/Redis keep a
+  derived `(namespace, run_id) -> log_key` mapping a replay of the log rebuilds. `Deck._status`
+  (behind `deck.runs.status`) uses it now instead of walking `list_runs`.
 
 - **`agentdeck.testing.scripted_model_server`'s `tool_name=` now also accepts a sequence of
   names** (#248), one tool call per request in order, then plain text once the sequence is

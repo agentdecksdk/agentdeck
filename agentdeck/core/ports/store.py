@@ -169,6 +169,19 @@ class EventStorePort(ABC):
         the namespace owns.
         """
 
+    @abstractmethod
+    async def locate(self, run_id: str, ctx: RunContext) -> str | None:
+        """The ``log_key`` holding ``run_id`` in ``ctx``'s namespace, or ``None``.
+
+        ``log_key`` is ``session_id or run_id`` (``RunContext.log_key``), so a run under a
+        session is not found by its own id without this: the log it lives in is named by the
+        session, not by the run. A caller that means to read or fold that run — :meth:`read_run`,
+        :meth:`run_status`, a future resume-by-id — needs this first.
+
+        A run this store never heard of, and a run id that belongs to a different namespace,
+        both answer ``None`` — indistinguishable, as everywhere else in this port.
+        """
+
     async def run_status(self, log_key: str, run_id: str, ctx: RunContext) -> RunStatus | None:
         """One run's status, derived from its own events only — never the whole log. ``None``
         when the run has no events at all: a run this store never heard of, which is also what
