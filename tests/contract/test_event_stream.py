@@ -14,7 +14,7 @@ import pytest
 from event_log_checks import check_contiguous, check_terminal
 
 from agentdeck.core.events import CURRENT_VERSION, TERMINAL_KINDS, RunInterrupted
-from agentdeck.runtime.service import SUSPENDED_KINDS
+from agentdeck.core.status import SUSPENDED_KINDS
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator

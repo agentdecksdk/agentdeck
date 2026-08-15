@@ -124,8 +124,9 @@ async def test_redis_keyspace_prefix_is_disjoint_across_processes(monkeypatch: p
 
 
 async def test_run_status_with_no_events_is_none(event_store: EventStorePort) -> None:
-    """A run this store never heard of is ``None`` — not ``PENDING``, which would be
-    indistinguishable from a run that exists but hasn't logged a lifecycle transition yet."""
+    """A run this store never heard of has no status at all. There is deliberately no member
+    naming that case: it would be indistinguishable from a run that exists but has logged no
+    lifecycle transition yet, and ``run.started`` is a run's row 0 so neither ever happens."""
     assert await event_store.run_status("s-1", "r-1", _ctx()) is None
 
 
@@ -221,8 +222,8 @@ async def test_claim_start_wins_once_the_previous_run_is_closed(
 
 
 async def test_a_run_that_recorded_no_transition_holds_no_session(event_store: EventStorePort) -> None:
-    """``PENDING`` is indistinguishable from a run the store never saw, so it cannot hold
-    anything — the same line ``list_runs`` draws."""
+    """A run with no transition is indistinguishable from one the store never saw, so it
+    cannot hold anything — the same line ``list_runs`` draws."""
     ctx = _ctx()
     await _write(event_store, [TextDelta(message_id="m1", text="hi")], _ctx(run_id="r-0"))
 
@@ -517,8 +518,8 @@ async def test_list_runs_enumerates_runs_across_every_log_key_of_the_namespace(e
 
 
 async def test_list_runs_skips_a_run_whose_log_holds_no_lifecycle_event(event_store: EventStorePort) -> None:
-    """Such a run is ``PENDING``, which no listing can tell apart from a run the store never
-    saw — both stores leave it out rather than one inventing it."""
+    """Such a run folds to no status at all, which no listing can tell apart from a run the
+    store never saw — both stores leave it out rather than one inventing it."""
     ctx = _ctx()
     await _write(event_store, [TextDelta(message_id="m1", text="hi")], ctx)
     assert await event_store.list_runs(ctx) == []

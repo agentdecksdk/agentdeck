@@ -1165,6 +1165,39 @@ async def test_resuming_a_run_that_is_waiting_for_an_answer_names_answer(no_proj
 
 
 @pytest.mark.asyncio
+async def test_a_paused_timer_defers_its_wake_without_stopping_the_rest_of_the_sweep(no_project, monkeypatch):
+    """A due timer is answered through the very path an approval is, so the routing's refusal
+    reaches it too — and an exception raised there would abort the sweep for every *other* due
+    thread in the catalog. Deferring is also the right answer on its own terms: waking a run an
+    operator asked to stop would override them exactly as answering it would.
+    """
+    from agentdeck.runtime.settings import reset_settings_cache
+
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
+    reset_settings_cache()
+    past = datetime.now(UTC) - timedelta(days=1)
+    try:
+        deck = Deck(workflows=[_timer_workflow("Timer", past)])
+
+        async with deck:
+            assert (await deck.run("Timer", {}, session_id="t-stopped"))["type"] == "interrupt"
+            assert (await deck.run("Timer", {}, session_id="t-free"))["type"] == "interrupt"
+            stopped = next(run for run in await deck.runs.pending() if run.thread_id == "t-stopped")
+            assert await deck.runs.pause(stopped.run_id, "operator stepped away") is True
+
+            woke = await deck._tick()
+
+            # The free thread woke, once — not both, and crucially not none, which is what a
+            # refusal escaping the loop would have produced.
+            assert woke == [{"woke_at": past.isoformat()}]
+            # The stopped one is still parked, and still holds the pause it was stopped with.
+            assert [run.thread_id for run in await deck.runs.pending()] == ["t-stopped"]
+            assert await deck.runs.status(stopped.run_id) is RunStatus.WAITING_ANSWER
+    finally:
+        reset_settings_cache()
+
+
+@pytest.mark.asyncio
 async def test_answering_a_paused_run_names_resume(no_project, scripted):
     """The mirror image, and the other half of why legality is a table rather than a listing
     filter: a paused run is not waiting for a value, and "No pending run" told a caller nothing

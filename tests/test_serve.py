@@ -165,6 +165,28 @@ def test_resuming_a_run_that_is_not_paused_is_a_conflict_not_a_success(client):
     assert "not paused" in response.json()["detail"]
 
 
+def test_resuming_a_run_that_is_waiting_for_an_answer_is_a_conflict_that_names_the_verb(client):
+    """The run *does* exist and *is* stopped, so neither 404 nor the generic "not paused" 409
+    fits: it is waiting for a value, and the caller reached for the wrong one of the two verbs.
+    A state refusal is not a server fault either — without its own handler ``RunStateError``
+    would fall through to the catch-all and answer 500 with the message swallowed, which is
+    exactly the information this endpoint exists to hand back.
+    """
+    deck = client.app.state.deck
+    client.post("/workflows/ApprovalFlow?thread_id=t-wrong-verb", json={"request": "tue 9am"})
+    pending = _in_the_servers_loop(client, deck.runs.pending)
+    [mine] = [run for run in pending if run.thread_id == "t-wrong-verb"]
+
+    response = client.post(f"/runs/{mine.run_id}/resume")
+
+    assert response.status_code == 409, response.text
+    assert "deck.runs.answer" in response.json()["detail"]
+    # Refused, not consumed: the approval is still answerable, which also keeps the process-wide
+    # memory saver clean for the tests after this one.
+    answered = _in_the_servers_loop(client, deck.runs.answer, mine.run_id, "yes")
+    assert answered["outcome"] == "booked"
+
+
 def test_a_control_reason_that_is_not_a_string_is_refused_at_the_boundary(client):
     """The reason is recorded in the log and read by whoever asks why a run stopped, so it is
     validated where it arrives — 422 from the edge, not a 500 out of a payload class later."""

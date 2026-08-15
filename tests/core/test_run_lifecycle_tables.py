@@ -22,6 +22,7 @@ from agentdeck.core.status import (
     RunStatus,
     Verdict,
     decide,
+    status_of,
 )
 
 _TERMINAL = (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED)
@@ -103,6 +104,16 @@ def test_a_pause_against_a_waiting_run_refuses_the_answer_and_keeps_both_intents
     assert ruling.action is Action.REFUSE
     assert ruling.consume is False
     assert "stop" in ruling.why
+
+
+def test_an_empty_sequence_folds_to_no_status_at_all() -> None:
+    """``RunStatus.PENDING`` used to be the fold's identity element, and it named a state no run
+    is ever in: ``run.started`` is row 0, so there is no moment between "does not exist" and
+    ``RUNNING``. It was declared and never produced, which made every store that returned it
+    indistinguishable from one answering about a run it had never seen."""
+    assert status_of([]) is None
+    assert not hasattr(RunStatus, "PENDING")
+    assert len(RunStatus) == 6
 
 
 def test_a_refusal_names_the_operation_that_would_have_worked() -> None:

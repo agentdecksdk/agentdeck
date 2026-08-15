@@ -876,19 +876,26 @@ class Deck:
                 if logged_run is None:
                     results.append(await workflow.resume(pending["thread_id"], wake_at))
                     continue
-                result, applied = await _workflow_result(
-                    runtime.resume(
-                        logged_run.invocable,
-                        logged_run.thread_id,
-                        # The payload's own ISO string, not the parsed `wake_at`: this value
-                        # also becomes the logged `run.resumed`, and a bare `datetime` fails
-                        # that event's JSON validation — recorded as a lost answer, with a
-                        # warning, even though the graph itself would have resumed fine.
-                        pending["payload"][WAKE_AT_KEY],
-                        run_id=logged_run.run_id,
-                        session_id=logged_run.session_id,
+                try:
+                    result, applied = await _workflow_result(
+                        runtime.resume(
+                            logged_run.invocable,
+                            logged_run.thread_id,
+                            # The payload's own ISO string, not the parsed `wake_at`: this value
+                            # also becomes the logged `run.resumed`, and a bare `datetime` fails
+                            # that event's JSON validation — recorded as a lost answer, with a
+                            # warning, even though the graph itself would have resumed fine.
+                            pending["payload"][WAKE_AT_KEY],
+                            run_id=logged_run.run_id,
+                            session_id=logged_run.session_id,
+                        )
                     )
-                )
+                except RunStateError:
+                    # An operator asked this run to stop before its timer came due. Waking it
+                    # would override them, so the wake defers — the same ruling an answer gets,
+                    # for the same reason. Caught per run, not per sweep: one held-back timer
+                    # must not stop every other due thread in the catalog from waking.
+                    continue
                 # A lost race (some other caller already resumed this run) leaves nothing to
                 # report — not a fallback to the direct resume, which would just re-enter a
                 # thread the winner has already moved on from.
