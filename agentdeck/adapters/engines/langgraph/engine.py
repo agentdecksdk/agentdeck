@@ -152,9 +152,14 @@ class LangGraphEngine(EnginePort):
         # ``resume_run`` re-enters a paused run through this same method (ADR-D5: the engine
         # loads its own execution state, the Runtime does not carry it) — its own claim is the
         # ``run.resumed`` this history now ends on, right after the ``run.paused`` this engine
-        # wrote. Any other tail is a genuine start, including a fresh run on a thread a *finished*
-        # run once used, so this cannot mistake one for the other.
-        lifecycle = [event.kind for event in history if event.kind in LIFECYCLE_KINDS]
+        # wrote. Filtered to ``ctx.run_id``, not just the kind: ``history`` is
+        # ``Runtime.run()``'s whole *session* log (``log_key`` is ``session_id or run_id``),
+        # read before this run's own claim closes out whatever the session's previous run left
+        # behind — so an abandoned run's stale ``[..., "run.paused", "run.resumed"]`` tail is
+        # still sitting there when a genuinely new run starts on the same session. Without the
+        # ``run_id`` filter that stranger's tail reads as this run continuing a pause, and a
+        # fresh run's own input is silently discarded in favor of someone else's checkpoint.
+        lifecycle = [event.kind for event in history if event.kind in LIFECYCLE_KINDS and event.run_id == ctx.run_id]
         graph_input = (
             await self._continue_from_pause(spec, thread_id)
             if lifecycle[-2:] == ["run.paused", "run.resumed"]
@@ -355,6 +360,16 @@ class LangGraphEngine(EnginePort):
                     # resume gets the identical artifact from langgraph today and keeps it
                     # unfiltered — the same "not part of this issue" call
                     # ``test_langgraph_fanout_interrupt.py`` already made for it (#122).
+                    #
+                    # Verified against langgraph 1.2.11: ``pregel/_loop.py`` sets ``cached`` at
+                    # the start of the tick that re-enters a checkpoint, for every task with
+                    # pending writes from before, and ``pregel/_io.py`` renders it onto this key.
+                    # It is not part of ``UpdatesStreamPart``'s public contract (that docstring
+                    # names ``__metadata__`` but not ``cached``), so a version bump is the one
+                    # thing that can move this seam: if the key disappears, a resumed run goes
+                    # back to re-reporting the pre-pause node as a duplicate ``node.updated``; if
+                    # its meaning shifts, a genuine update could be swallowed instead. Both are
+                    # what ``tests/test_langgraph_node_boundary_pause.py`` would catch.
                     metadata = chunk.get(_METADATA_KEY)
                     if isinstance(metadata, Mapping) and metadata.get("cached"):
                         continue
