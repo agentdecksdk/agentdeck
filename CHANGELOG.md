@@ -133,7 +133,11 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   `encode(None, run_id) == run_id`, so stored ids, the unnamespaced CLI (`agentdeck runs
   signal`) and the frozen v1 HTTP wire are unaffected. A caller-supplied `run_id` starting with
   `adr:` is now refused — that prefix is reserved for a namespaced ref, and without the
-  reservation an unnamespaced ref could be crafted to collide with one.
+  reservation an unnamespaced ref could be crafted to collide with one. `agentdeck runs signal`
+  now builds a `RunContext` to reach that same refusal, rather than writing straight to the
+  `ControlPort`: a forged `run_id` shaped like a real `encode(namespace, run_id)` could otherwise
+  reach a live namespaced run's `Gate` with no validation at all, from the one caller-facing
+  surface that talks to a `ControlPort` without going through a `Runtime`.
 
   **Breaking, sqlite only:** the `signals` table's primary key is now `ref`, not `run_id`. A
   file with no pending signal migrates automatically in place. A file with one or more pending

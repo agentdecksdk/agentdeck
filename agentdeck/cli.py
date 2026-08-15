@@ -20,6 +20,7 @@ import argparse
 import asyncio
 
 from agentdeck.adapters.control.sqlite import SqliteControlPort
+from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
 
 
@@ -45,7 +46,12 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     control = SqliteControlPort(args.control_db)
-    asyncio.run(control.signal(args.run_id, Signal(args.signal), args.reason))
+    # Through RunContext, not straight to the port: this CLI has no --namespace, so ref == run_id
+    # for every legitimate input (encode(None, run_id) == run_id) — but routing it here is what
+    # makes the ``adr:`` reservation fire for a forged run_id too, the same as every other caller.
+    # A bare ``control.signal(args.run_id, ...)`` would reach the port with no validation at all.
+    ref = RunContext(run_id=args.run_id).ref
+    asyncio.run(control.signal(ref, Signal(args.signal), args.reason))
     return 0
 
 
