@@ -86,7 +86,11 @@ last field that should be exempt from the rule ``JsonData`` applies everywhere e
 
 
 class Usage(CoreModel):
-    """Token and cost accounting. ``usd`` is None when no price is known for the model."""
+    """Token accounting. agentdeck does not price model calls — no provider returns dollars in a
+    response, and a price depends on a contract, a tier and a date rather than on the call, so
+    owning a table for every model on every provider would trade an empty field for a stale one.
+    ``usd`` is reserved for a caller that supplies its own cost; agentdeck itself never sets it,
+    and the field is slated for removal at the next major (#177)."""
 
     input_tokens: NonNegativeInt
     output_tokens: NonNegativeInt
