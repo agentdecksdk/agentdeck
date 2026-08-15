@@ -256,16 +256,35 @@ holds, so nothing has to thread a new value and no call site can forget one.
 | `claim_create` | new: append `run.created` if and only if this `(namespace, run_id)` has no run. Same conditional-append shape as `claim_start`/`claim_resume` |
 | `claim_start` | the three-way rule above, replacing the two-way one #311 shipped |
 | `list_runs` | gains `limit`; already namespace-aware through `ctx` |
-| resolution | `get()` resolves a ref to its `log_key` through `list_runs` within the decoded namespace |
+| `locate` | new: `locate(run_id, ctx) -> str \| None`, the `log_key` holding that run |
 
-That last row is the one deliberate shortcut. `log_key` is `session_id or run_id`, so a ref does
-not name its own log, and resolution is a scan of one namespace. It is what `Deck._status`
-already does today (`deck.py:806`).
+### `locate`, and why `get()` is not a scan
 
-```python
-# ponytail: O(runs in namespace) per get(); a ref -> log_key index in the store is the
-# upgrade, warranted when a namespace holds enough runs for this to show up in a profile.
-```
+`log_key` is `session_id or run_id`, so a ref does not name its own log and `get()` cannot read
+one without first finding it. `Deck._status` solves this today by walking `list_runs`
+(`deck.py:806`), which is O(runs in the namespace) on the operation this whole design is built
+around.
+
+**Every backend already holds what the answer needs; none of them can currently be asked.**
+
+| store | resolution |
+|---|---|
+| memory | `dict[(namespace, run_id)] -> log_key`, maintained in `_stamp` beside the log it already writes |
+| sqlite | `CREATE INDEX events_by_run_id ON events (namespace, run_id, id)`, then `SELECT log_key … LIMIT 1` |
+| postgres | the same index and the same query |
+| redis | `HSET locate:{ns} run_id log_key` in the append pipeline that already does five writes; `HGET` to read |
+
+**None of these is a second source of truth.** The SQL stores add no data at all: `namespace`,
+`log_key` and `run_id` are already columns on `events` (`sqlite/store.py:33-40`), and the
+existing `events_by_run` index leads with `log_key`, so it cannot serve this lookup. The new one
+is an index over facts the log already holds. Memory and redis keep a derived mapping that is
+rebuildable by replay, so a lost or corrupted one is recoverable rather than authoritative.
+ADR-D5 holds: the log remains the only thing that decides anything.
+
+The sqlite index migrates cleanly on an existing database, unlike the `UNIQUE` constraint noted
+at `sqlite/store.py:47`. That one only applies to files this build creates, because existing
+duplicate rows would refuse it; a plain index has nothing to conflict with, so
+`CREATE INDEX IF NOT EXISTS` builds it on open.
 
 ## 6. Compatibility
 
@@ -274,7 +293,7 @@ already does today (`deck.py:806`).
 | unnamespaced deployments | **nothing changes.** `encode(None, rid) == rid`, so stored ids, the CLI and the v1 wire all keep working |
 | frozen v1 HTTP wire | cannot move: `compat.py` is unnamespaced by design, and `tests/golden/` replays it every `make test` |
 | namespaced control signals | **behaviour changes and that is the fix.** A signal that used to hit both tenants now hits one |
-| sqlite control table | schema migration: the primary key changes meaning. Existing rows are unnamespaced and migrate as identity |
+| sqlite control table | schema migration: the primary key changes meaning. **Verify before assuming it is free** — existing rows migrate as identity only if no deployment ran namespaced against this port, and if one did, its rows are already ambiguous and would silently address the wrong run afterwards instead of colliding loudly. Needs a check, not a footnote |
 | `deck.runs.status/pause/resume/cancel/answer` | move to `Run`. A deprecated bridge is possible but should be short-lived |
 | `deck.runs.pending()` | replaced by `list(status="waiting_answer")`, which returns richer objects |
 | `deck.runs.cancel(namespace=…)` | the parameter #311 added is absorbed; `Run` carries the namespace |
@@ -287,9 +306,16 @@ already does today (`deck.py:806`).
 |---|---|
 | 1 | the schema PR: `run.created`, `RunStatus.CREATED`, `holds_session`, snapshot |
 | 2 | identity and control: `encode`, ports, four control adapters, `Gate`, `Runtime`, `claim_create`, the three-way claim rule |
-| 3 | the surface: `Run`, `deck.runs.*`, `InterruptResult`, docs |
+| 3 | `locate` across four stores, plus the sqlite and postgres index |
+| 4 | the surface: `Run`, `deck.runs.*`, `InterruptResult`, docs |
 
-Stage 2 is where the cross-tenant defect is actually fixed, and it is shippable without stage 3.
+Stage 2 is where the cross-tenant defect is actually fixed, and it is shippable on its own.
+Stage 3 is independent of stage 2 and can go in parallel: it makes `Deck._status` O(1) today,
+before any of the new surface exists.
+
+Stage 2 is several PRs, not one. It touches four control adapters, `Gate`, `Runtime` and four
+stores, and changes the meaning of a primary key. It is the largest change since #295 and should
+be planned as such rather than as a single slice.
 
 ## Interrupts
 
@@ -357,3 +383,8 @@ forever is the duplicate surface the brief bans. Needs a version, not a policy.
 **Does `list()` need cross-namespace listing?** An operator view of every parked run has no
 namespace to pass. It does not exist today either, and adding it means deciding whether the
 isolation boundary has an above.
+
+**Does `locate` belong on the store port, or is it `list_runs` with an argument?** It is a
+lookup, not a listing, and merging them would give one method two return shapes. Kept separate
+here, but it is the kind of split that reads as duplication to a reviewer who has not needed it
+yet.
