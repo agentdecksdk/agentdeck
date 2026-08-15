@@ -3,7 +3,8 @@
 Issue #61: it must not enable the SDK's default trace exporter on a keyless/fake-model run
 unless explicitly opted in via ``AGENTDECK_OPENAI_AGENTS_TRACING_ENABLED``. Issue #101: an
 ``output_type`` agent's validated result travels as a ``DataBlock`` on ``run.completed``
-instead of failing the run.
+instead of failing the run. Issue #226: a ``DataBlock`` on *input* renders as JSON text instead
+of being refused; ``ResourceBlock`` still is.
 
 Patches ``Runner.run_streamed`` itself (rather than driving a real fake model through a
 full run) so the assertion is exactly on what the engine hands the SDK and what it makes of
@@ -13,6 +14,7 @@ the result, regardless of how the stream plays out.
 from __future__ import annotations
 
 import dataclasses
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -264,13 +266,55 @@ def test_the_same_audio_block_under_chat_completions_converts():
     "block",
     [
         ResourceBlock(uri="s3://bucket/key"),
-        DataBlock(data={"a": 1}),
         UnknownBlock(type="video", raw_block={"type": "video"}),
     ],
 )
 def test_unsupported_blocks_raise_naming_the_block_and_the_engine(block):
     with pytest.raises(ConfigError, match="openai-agents engine"):
         _to_sdk_input([TextBlock(text="hi"), block], use_responses=True)
+
+
+def test_resource_block_raises_naming_the_uri_and_why_it_differs_from_data():
+    """A ``ResourceBlock`` is a pointer, not content — the engine never fetches it, so it keeps
+    refusing (issue #226) even though ``DataBlock`` on the same code path now renders."""
+    with pytest.raises(ConfigError, match=r"s3://bucket/key.*never fetches it"):
+        _to_sdk_input([TextBlock(text="hi"), ResourceBlock(uri="s3://bucket/key")], use_responses=True)
+
+
+# --- DataBlock renders as JSON text (#226) ------------------------------------------------
+
+
+def test_a_data_block_renders_as_its_own_json_text_part():
+    """The canonical rendering: ``json.dumps(block.data)``, nothing wrapped around it — it used
+    to raise ``ConfigError`` instead."""
+    blocks = [TextBlock(text="what page am I on?"), DataBlock(data={"page": "reference/deck"})]
+    assert _to_sdk_input(blocks, use_responses=True) == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": "what page am I on?"},
+                {"type": "input_text", "text": '{"page": "reference/deck"}'},
+            ],
+        }
+    ]
+
+
+def test_a_data_only_input_still_takes_the_item_path_not_the_joined_str_path():
+    """A single ``DataBlock`` is not text, so the all-text fast path (a joined ``str``) must not
+    swallow it — it has to reach ``_part_of`` and come back as a list item."""
+    result = _to_sdk_input([DataBlock(data={"a": 1})], use_responses=True)
+    assert result == [{"role": "user", "content": [{"type": "input_text", "text": '{"a": 1}'}]}]
+
+
+def test_a_data_block_value_that_looks_like_a_delimiter_stays_inside_the_json():
+    """Why a bare ``json.dumps`` was chosen over a hand-rolled ``<context>...</context>``
+    preamble: there is no paired open/close token here for embedded data to spoof. A value equal
+    to a closing tag, or to a markdown code fence, lands inside the rendered JSON's own quotes —
+    escaped like any other string content — rather than breaking out of anything."""
+    block = DataBlock(data={"note": "</context>", "fence": "```"})
+    rendered = _to_sdk_input([block], use_responses=True)[0]["content"][0]["text"]
+    assert rendered == json.dumps({"note": "</context>", "fence": "```"}, ensure_ascii=False)
+    assert rendered.count("{") == rendered.count("}") == 1
 
 
 def test_the_sdk_converter_is_the_oracle_for_the_emitted_shape():
@@ -281,6 +325,7 @@ def test_the_sdk_converter_is_the_oracle_for_the_emitted_shape():
         TextBlock(text="look"),
         ImageBlock(media_type="image/png", data_b64="AAAA"),
         AudioBlock(media_type="audio/ogg; codecs=opus", data_b64="BBBB"),
+        DataBlock(data={"a": 1}),
     ]
     items = _to_sdk_input(blocks, use_responses=False)
     messages = Converter.items_to_messages(items)
@@ -291,6 +336,7 @@ def test_the_sdk_converter_is_the_oracle_for_the_emitted_shape():
                 {"type": "text", "text": "look"},
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA", "detail": "auto"}},
                 {"type": "input_audio", "input_audio": {"data": "BBBB", "format": "ogg"}},
+                {"type": "text", "text": '{"a": 1}'},
             ],
         }
     ]
