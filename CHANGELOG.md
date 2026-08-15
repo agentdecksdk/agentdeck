@@ -122,6 +122,26 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Fixed
 
+- **A cancel or pause could land on the wrong tenant's run when two namespaces shared a
+  caller-supplied `run_id`** (#315). Both `ControlPort` adapters (`memory`, `sqlite`) kept one
+  pending signal per bare `run_id` — `acme/order-1234` and `globex/order-1234` shared a row, so
+  a cancel meant for one could land on the other, and `consume()`'s compare-and-set made the two
+  fight over the same slot. The control plane now addresses a run by `ref`, a derived, opaque
+  address (`encode(namespace, run_id)`) that `RunContext.ref` computes, never stores, and never
+  takes as a constructor argument — `Gate`, `Runtime.signal`/`resume`/`resume_run` and both
+  `ControlPort` adapters all key by it. **Unnamespaced deployments see no change at all**:
+  `encode(None, run_id) == run_id`, so stored ids, the unnamespaced CLI (`agentdeck runs
+  signal`) and the frozen v1 HTTP wire are unaffected. A caller-supplied `run_id` starting with
+  `adr:` is now refused — that prefix is reserved for a namespaced ref, and without the
+  reservation an unnamespaced ref could be crafted to collide with one.
+
+  **Breaking, sqlite only:** the `signals` table's primary key is now `ref`, not `run_id`. A
+  file with no pending signal migrates automatically in place. A file with one or more pending
+  signals refuses to open instead: the old schema never recorded a namespace at all, so a
+  pending row cannot be told apart from one that collided under the very bug being fixed here,
+  and carrying it forward under a guessed identity could silently re-address it to an unrelated
+  run. Let every in-flight run settle (or clear the `signals` table) before upgrading.
+
 - **A tool that raises is now recorded on `tool.call.completed.error`** (#250). The field has
   been in the schema since v3.0.0 and nothing ever set it, so a database call that timed out or
   an API that 500'd left no machine-readable trace anywhere: the run completed, HTTP answered

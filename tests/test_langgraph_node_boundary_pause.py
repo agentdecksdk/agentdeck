@@ -94,7 +94,7 @@ async def test_resume_continues_from_the_node_boundary_without_rerunning_a_compl
     runtime = Runtime([engine], store, {spec.name: spec}, control=control, control_poll_interval=0.0)
     ctx = RunContext(namespace="acme", run_id="r-node-boundary", session_id="s-node-boundary")
 
-    await control.signal(ctx.run_id, Signal.PAUSE)
+    await control.signal(ctx.ref, Signal.PAUSE)
     paused = [
         event
         async for event in runtime.run(
@@ -134,7 +134,7 @@ async def test_a_stale_resumed_tail_from_an_abandoned_run_does_not_leak_into_a_f
     session_id = "s-shared"
     ctx_a = RunContext(namespace="acme", run_id="r-a", session_id=session_id)
 
-    await control.signal(ctx_a.run_id, Signal.PAUSE)
+    await control.signal(ctx_a.ref, Signal.PAUSE)
     paused = [
         event
         async for event in runtime.run(
@@ -184,7 +184,7 @@ async def test_a_pause_at_the_last_node_boundary_resumes_straight_to_completion(
     runtime = Runtime([engine], store, {spec.name: spec}, control=control, control_poll_interval=0.0)
     ctx = RunContext(namespace="acme", run_id="r-last-boundary", session_id="s-last-boundary")
 
-    await control.signal(ctx.run_id, Signal.PAUSE)
+    await control.signal(ctx.ref, Signal.PAUSE)
     paused = [
         event
         async for event in runtime.run(
@@ -218,7 +218,7 @@ async def test_a_durable_pause_can_be_resumed_from_another_process() -> None:
         control=control,
         control_poll_interval=0.0,
     )
-    await control.signal(ctx.run_id, Signal.PAUSE)
+    await control.signal(ctx.ref, Signal.PAUSE)
     paused = [
         event
         async for event in runtime1.run(
@@ -250,7 +250,7 @@ async def test_resuming_a_non_durable_pause_from_another_process_is_refused() ->
     ctx = RunContext(namespace="acme", run_id="r-cross-process", session_id="s-cross-process")
 
     runtime1 = Runtime([LangGraphEngine()], store, {spec.name: spec}, control=control, control_poll_interval=0.0)
-    await control.signal(ctx.run_id, Signal.PAUSE)
+    await control.signal(ctx.ref, Signal.PAUSE)
     paused = [
         event
         async for event in runtime1.run(
@@ -282,7 +282,7 @@ async def test_a_durable_false_pause_is_refused_even_in_the_same_process() -> No
     runtime = Runtime([engine], store, {spec.name: spec}, control=control, control_poll_interval=0.0)
     ctx = RunContext(namespace="acme", run_id="r-non-durable", session_id="s-non-durable")
 
-    await control.signal(ctx.run_id, Signal.PAUSE)
+    await control.signal(ctx.ref, Signal.PAUSE)
     paused = [
         event
         async for event in runtime.run(

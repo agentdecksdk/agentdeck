@@ -56,9 +56,9 @@ class CountingControlPort(MemoryControlPort):
         super().__init__()
         self.reads = 0
 
-    async def poll(self, run_id: str) -> ControlSignal | None:
+    async def poll(self, ref: str) -> ControlSignal | None:
         self.reads += 1
-        return await super().poll(run_id)
+        return await super().poll(ref)
 
 
 class FakeClock:
@@ -279,7 +279,7 @@ async def test_a_pause_signalled_mid_stream_lands_after_the_chunk_that_was_in_fl
 
     consumer = asyncio.create_task(consume())
     await model.holding.wait()  # the turn is parked after its first delta
-    await control.signal(ctx.run_id, Signal.PAUSE, "operator")
+    await control.signal(ctx.ref, Signal.PAUSE, "operator")
     hold.set()
     events = await consumer
 
@@ -306,18 +306,18 @@ async def test_a_pause_during_a_tool_call_waits_for_the_call_to_return() -> None
     """
     calls: list[str] = []
     control = MemoryControlPort()
+    ctx = _ctx()
 
     @function_tool
     async def slow_lookup() -> str:
         """Look something up, slowly."""
         if not calls:
-            await control.signal("r-1", Signal.PAUSE, "asked while a tool was running")
+            await control.signal(ctx.ref, Signal.PAUSE, "asked while a tool was running")
         calls.append("slow_lookup")
         return "damaged"
 
     model = TailScriptedModel("it was damaged", tool_name="slow_lookup")
     runtime, store = _agent_runtime(model, control, tools=[slow_lookup])
-    ctx = _ctx()
 
     paused = [
         event
@@ -375,7 +375,7 @@ async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None
 
     consumer = asyncio.create_task(consume())
     await model.holding.wait()
-    await control.signal(ctx.run_id, Signal.PAUSE)
+    await control.signal(ctx.ref, Signal.PAUSE)
     hold.set()
     paused = await consumer
 
@@ -393,7 +393,7 @@ async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None
     # The pause is *taken*, not papered over with a RESUME sentinel: the gate that honored it
     # consumed it, so the replayed turn meets an empty port and does not stop again at its own
     # first safe point. An empty port is also what makes a cancel arriving later legible.
-    assert await control.poll(ctx.run_id) is None
+    assert await control.poll(ctx.ref) is None
 
 
 async def test_lifting_a_pause_resupplies_the_run_s_application_context() -> None:
@@ -407,17 +407,17 @@ async def test_lifting_a_pause_resupplies_the_run_s_application_context() -> Non
     calendar = Calendar()
     seen: list[Any] = []
     control = MemoryControlPort()
+    ctx = _ctx()
 
     async def peek(environment: Context[Calendar]) -> str:
         """Look at the run's environment."""
         seen.append(environment.data)
         if len(seen) == 1:
-            await control.signal("r-1", Signal.PAUSE, "asked while a tool was running")
+            await control.signal(ctx.ref, Signal.PAUSE, "asked while a tool was running")
         return "looked"
 
     model = TailScriptedModel("done", tool_name="peek")
     runtime, _ = _agent_runtime(model, control, tools=[compile_tool(peek)])
-    ctx = _ctx()
 
     paused = [
         event
@@ -444,16 +444,16 @@ async def test_lifting_a_pause_without_a_context_replays_with_none() -> None:
     had", because the run's value was never written down for anyone to keep."""
     seen: list[Any] = []
     control = MemoryControlPort()
+    ctx = _ctx()
 
     async def peek(environment: Context[Calendar]) -> str:
         """Look at the run's environment."""
         seen.append(environment.data)
         if len(seen) == 1:
-            await control.signal("r-1", Signal.PAUSE, "asked while a tool was running")
+            await control.signal(ctx.ref, Signal.PAUSE, "asked while a tool was running")
         return "looked"
 
     runtime, _ = _agent_runtime(TailScriptedModel("done", tool_name="peek"), control, tools=[compile_tool(peek)])
-    ctx = _ctx()
 
     async for _ in runtime.run(
         "Chatty",
@@ -480,7 +480,7 @@ async def test_a_signal_is_honored_with_a_store_that_never_yields() -> None:
     still lands and the run still closes."""
     control = MemoryControlPort()
     ctx = _ctx()
-    await control.signal(ctx.run_id, Signal.CANCEL, "before it even opened")
+    await control.signal(ctx.ref, Signal.CANCEL, "before it even opened")
     spec = stub_spec(
         "Chatty",
         TextDelta(message_id="m-1", text="one "),
@@ -544,7 +544,7 @@ async def test_a_paused_run_keeps_holding_its_session_so_no_second_turn_starts_o
     store = MemoryEventStore()
     runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
     ctx = _ctx(run_id="r-paused")
-    await control.signal(ctx.run_id, Signal.PAUSE)
+    await control.signal(ctx.ref, Signal.PAUSE)
 
     paused = [
         event
@@ -563,3 +563,75 @@ async def test_a_paused_run_keeps_holding_its_session_so_no_second_turn_starts_o
             namespace=_ctx().namespace,
         )
         await anext(second)
+
+
+# --- namespace isolation (#315) ---------------------------------------------------------
+
+
+async def test_two_namespaces_sharing_one_run_id_pause_and_resume_independently() -> None:
+    """The defect itself: both control ports keyed a signal by ``run_id`` alone, so
+    ``acme``'s ``order-1234`` and ``globex``'s ``order-1234`` fought over one row — a pause
+    meant for one landed on both, and a resume of one could not tell them apart either.
+
+    Only reachable through the Runtime directly: ``deck.runs.pause``/``resume`` take no
+    ``namespace`` (out of scope for #315 — the ``Run`` object absorbs it later, per
+    docs/design/run-identity.md), while ``deck.runs.cancel`` already has one, which is why the
+    cancel side of this collision is proven through ``Deck`` instead
+    (``tests/test_deck.py::test_a_cancel_in_one_namespace_leaves_the_same_run_id_in_another_untouched``).
+    """
+    control = MemoryControlPort()
+    spec = stub_spec(
+        "Chatty",
+        TextDelta(message_id="m-1", text="hi"),
+        RunCompleted(output=coerce_input("hi"), usage=Usage(input_tokens=0, output_tokens=0)),
+    )
+    store = MemoryEventStore()
+    runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
+
+    # Signalled before either run opens, so the first safe point is the one that honors it —
+    # deterministic without a clock or a sleep, the same technique the contract suite uses.
+    assert await runtime.signal("order-1234", Signal.PAUSE, namespace="acme") is True
+
+    # globex checks the gate first, deliberately: on the bare-run_id-keyed port this used to be,
+    # whichever run polls first takes the one shared row — pausing the bystander and leaving
+    # acme, the run the signal actually named, to complete untouched. Order must not matter.
+    globex = [
+        event async for event in runtime.run("Chatty", coerce_input("hi"), run_id="order-1234", namespace="globex")
+    ]
+    acme = [event async for event in runtime.run("Chatty", coerce_input("hi"), run_id="order-1234", namespace="acme")]
+
+    assert _kinds(globex)[-1] == "run.completed"  # the same caller run_id, a different tenant
+    assert _kinds(acme)[-1] == "run.paused"  # the namespace the pause actually targeted
+
+    resumed_acme = [event async for event in runtime.resume_run("order-1234", namespace="acme")]
+    resumed_globex = [event async for event in runtime.resume_run("order-1234", namespace="globex")]
+
+    assert _kinds(resumed_acme)[-1] == "run.completed"  # acme's own paused run, lifted
+    assert resumed_globex == []  # globex's run was never paused, so nothing to resume
+
+
+async def test_two_namespaces_sharing_one_run_id_do_not_clobber_each_other_s_signal() -> None:
+    """The other half of the compare-and-set collision: a bare-run_id-keyed port holds one row
+    per run, so acme's pause and globex's cancel — signalled against the identical caller
+    ``run_id`` — fought over that one slot. The second write silently destroyed the first
+    tenant's intent, and ``consume()``'s compare-and-set then took whichever verb survived on
+    behalf of whichever run polled first, not necessarily the one it was actually meant for."""
+    control = MemoryControlPort()
+    spec = stub_spec(
+        "Chatty",
+        TextDelta(message_id="m-1", text="hi"),
+        RunCompleted(output=coerce_input("hi"), usage=Usage(input_tokens=0, output_tokens=0)),
+    )
+    store = MemoryEventStore()
+    runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
+
+    assert await runtime.signal("order-1234", Signal.PAUSE, namespace="acme") is True
+    assert await runtime.signal("order-1234", Signal.CANCEL, namespace="globex") is True
+
+    globex = [
+        event async for event in runtime.run("Chatty", coerce_input("hi"), run_id="order-1234", namespace="globex")
+    ]
+    acme = [event async for event in runtime.run("Chatty", coerce_input("hi"), run_id="order-1234", namespace="acme")]
+
+    assert _kinds(globex)[-1] == "run.cancelled"  # its own signal, not acme's pause
+    assert _kinds(acme)[-1] == "run.paused"  # its own signal, not overwritten by globex's later one

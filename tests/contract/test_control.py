@@ -168,7 +168,7 @@ async def test_a_paused_run_records_the_request_the_observation_and_stops(harnes
     """The three phases, in order, and then nothing: a paused run's own log ends at
     ``run.paused``, which is what "emits no further agent steps while paused" means for a
     reader that was not watching."""
-    await harness.control.signal(harness.ctx.run_id, Signal.PAUSE)
+    await harness.control.signal(harness.ctx.ref, Signal.PAUSE)
 
     events = await harness.play()
     kinds = _kinds(events)
@@ -185,7 +185,7 @@ async def test_a_pause_request_is_not_a_status_transition(harness: Harness) -> N
     """A run stays ``RUNNING`` through its own ``control.requested``: only the effect moves the
     needle. Folded off the real log rather than a hand-built one, so a producer that recorded
     the request as a transition would fail here."""
-    await harness.control.signal(harness.ctx.run_id, Signal.PAUSE)
+    await harness.control.signal(harness.ctx.ref, Signal.PAUSE)
 
     events = await harness.play()
     up_to_the_request = events[: _kinds(events).index("control.requested") + 1]
@@ -197,7 +197,7 @@ async def test_a_pause_request_is_not_a_status_transition(harness: Harness) -> N
 async def test_the_safe_point_a_signal_was_honored_at_is_recorded(harness: Harness, case: ControlCase) -> None:
     """``safe_point`` is what tells "cancel took eight seconds" from "a tool call did": every
     engine honors this signal at its own safe point and says so."""
-    await harness.control.signal(harness.ctx.run_id, Signal.CANCEL)
+    await harness.control.signal(harness.ctx.ref, Signal.CANCEL)
 
     events = await harness.play()
     observed = _payload(events, "control.observed")
@@ -208,7 +208,7 @@ async def test_the_safe_point_a_signal_was_honored_at_is_recorded(harness: Harne
 async def test_the_reason_travels_from_the_request_to_the_effect(harness: Harness) -> None:
     """One string, recorded twice on purpose: on the request, so the log says who asked and
     why, and on the effect, so a reader of the terminal event alone still has it."""
-    await harness.control.signal(harness.ctx.run_id, Signal.CANCEL, "the user closed the tab")
+    await harness.control.signal(harness.ctx.ref, Signal.CANCEL, "the user closed the tab")
 
     events = await harness.play()
 
@@ -219,7 +219,7 @@ async def test_the_reason_travels_from_the_request_to_the_effect(harness: Harnes
 async def test_a_resumed_run_continues_the_same_run_and_completes_it(harness: Harness) -> None:
     """Same ``run_id``, ``seq`` carrying on from the pause, one terminal event at the end of
     the whole log — the pause is a seam in one run, not two runs."""
-    await harness.control.signal(harness.ctx.run_id, Signal.PAUSE)
+    await harness.control.signal(harness.ctx.ref, Signal.PAUSE)
     paused = await harness.play()
 
     resumed = await harness.resume("operator lifted the pause")
@@ -238,7 +238,7 @@ async def test_a_resumed_run_continues_the_same_run_and_completes_it(harness: Ha
 async def test_a_cancelled_run_is_terminal_and_cannot_be_resumed(harness: Harness) -> None:
     """Cancel is the one verb with no way back: a resume against it writes nothing at all,
     which is also what keeps a terminal event the run's last event."""
-    await harness.control.signal(harness.ctx.run_id, Signal.CANCEL)
+    await harness.control.signal(harness.ctx.ref, Signal.CANCEL)
     cancelled = await harness.play()
     before = await harness.log()
 
@@ -259,7 +259,7 @@ async def test_cancelling_a_paused_run_ends_it_immediately(harness: Harness) -> 
 
     No ``control.observed`` here, unlike a cancel served at a safe point: this run reached none.
     """
-    await harness.control.signal(harness.ctx.run_id, Signal.PAUSE)
+    await harness.control.signal(harness.ctx.ref, Signal.PAUSE)
     await harness.play()
 
     cancelled = await harness.runtime.signal(
@@ -299,8 +299,8 @@ async def test_a_signal_that_lost_the_race_with_a_terminal_event_records_nothing
 async def test_pausing_twice_records_one_request(harness: Harness) -> None:
     """A double-clicked pause is one pending signal, so the run stops once and the log says so
     once — idempotent because the port keeps one signal per run, not a queue of them."""
-    await harness.control.signal(harness.ctx.run_id, Signal.PAUSE, "first")
-    await harness.control.signal(harness.ctx.run_id, Signal.PAUSE, "second")
+    await harness.control.signal(harness.ctx.ref, Signal.PAUSE, "first")
+    await harness.control.signal(harness.ctx.ref, Signal.PAUSE, "second")
 
     events = await harness.play()
     kinds = _kinds(events)
@@ -313,7 +313,7 @@ async def test_pausing_twice_records_one_request(harness: Harness) -> None:
 async def test_only_one_of_two_concurrent_resumes_continues_a_paused_run(harness: Harness) -> None:
     """Two callers, one paused run: the claim that flips ``PAUSED`` to ``RUNNING`` is the store's
     conditional append, so the loser plays nothing rather than running the turn twice."""
-    await harness.control.signal(harness.ctx.run_id, Signal.PAUSE)
+    await harness.control.signal(harness.ctx.ref, Signal.PAUSE)
     await harness.play()
 
     first = await harness.resume()
