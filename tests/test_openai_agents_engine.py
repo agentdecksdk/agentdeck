@@ -311,9 +311,12 @@ def test_a_data_block_value_that_looks_like_a_delimiter_stays_inside_the_json():
     preamble: there is no paired open/close token here for embedded data to spoof. A value equal
     to a closing tag, or to a markdown code fence, lands inside the rendered JSON's own quotes —
     escaped like any other string content — rather than breaking out of anything."""
-    block = DataBlock(data={"note": "</context>", "fence": "```"})
-    rendered = _to_sdk_input([block], use_responses=True)[0]["content"][0]["text"]
-    assert rendered == json.dumps({"note": "</context>", "fence": "```"}, ensure_ascii=False)
+    data = {"note": "</context>", "fence": "```", "quoted": 'a " and a \\ inside'}
+    rendered = _to_sdk_input([DataBlock(data=data)], use_responses=True)[0]["content"][0]["text"]
+    assert rendered == json.dumps(data, ensure_ascii=False)
+    # The quote is the character that would end a string early if anything here concatenated
+    # rather than serialised, so round-tripping it back is what proves the escaping held.
+    assert json.loads(rendered) == data
     assert rendered.count("{") == rendered.count("}") == 1
 
 
