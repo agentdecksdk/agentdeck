@@ -40,7 +40,7 @@ check what the model is actually receiving.
 
 ### Cancelling a run that is waiting on a human does nothing
 
-`deck.cancel(run_id)` against a run parked at `interrupt()` returns `True` and records the
+`deck.runs.cancel(run_id)` against a run parked at `interrupt()` returns `True` and records the
 signal. Nothing reads it. The run stays answerable, and answering it executes the rest of the
 workflow for real. No event is written, so the log shows no trace that a cancel was asked for.
 
@@ -69,9 +69,9 @@ approval needs — fails on a plain install.
 ### Approvals disappear on restart, under the shipped defaults
 
 `AGENTDECK_EVENTS` defaults to `memory://` while `AGENTDECK_CHECKPOINT` defaults to durable
-SQLite. `deck.pending()` reads the event log; the timer path reads the checkpointer. After a
-restart the two disagree, and a parked approval can never be answered because `pending()` returns
-an empty list.
+SQLite. `deck.runs.pending()` reads the event log; the timer path reads the checkpointer. After a
+restart the two disagree, and a parked approval can never be answered because `runs.pending()`
+returns an empty list.
 
 **Until it is fixed:** set `AGENTDECK_EVENTS` to a durable store — `sqlite://`, `postgresql://`
 or `redis://` — in anything that outlives one process. See

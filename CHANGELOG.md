@@ -38,6 +38,19 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   exhausted — the shape a multi-step tool chain or a handoff round trip needs to script.
   A single name keeps its existing one-shot behavior unchanged.
 
+### Removed
+
+- **Breaking: the six run-scoped verbs move from flat `Deck` methods to `deck.runs.*`, and
+  `tick`/`due_resumes` leave the public surface entirely** (#294). `deck.pause`, `deck.cancel`,
+  `deck.resume`, `deck.answer`, `deck.status` and `deck.pending` are gone; call
+  `deck.runs.pause(...)`, `deck.runs.cancel(...)`, `deck.runs.resume(...)`,
+  `deck.runs.answer(...)`, `deck.runs.status(...)` and `deck.runs.pending(...)` instead — same
+  signatures, same behavior, just grouped under the noun they act on rather than sitting flat
+  beside the catalog and the two verbs (`run`/`stream`) that start a turn. `deck.tick()` and
+  `deck.due_resumes()` — the timer sweep nothing in agentdeck calls yet — are no longer public at
+  all; `sleep_until` keeps working, since the underlying sweep is unchanged, just no longer
+  reachable from outside `Deck`.
+
 ### Fixed
 
 - **The documentation entry path now points readers to skills, sessions, durable stores and the

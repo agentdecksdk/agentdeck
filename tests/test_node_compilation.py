@@ -267,8 +267,8 @@ async def test_answer_resupplies_the_context_to_the_node_that_re_runs(no_project
     async with deck:
         paused = await deck.run("Approval", {"request": "tue 9am"}, session_id="t-1", context=calendar)
         assert paused["type"] == "interrupt"
-        [pending] = await deck.pending()
-        result = await deck.answer(pending.run_id, "yes", context=calendar)
+        [pending] = await deck.runs.pending()
+        result = await deck.runs.answer(pending.run_id, "yes", context=calendar)
 
     assert result["out"] == "yes@15:00"
     # Once before the interrupt and once after: both passes saw the very same object.
@@ -288,9 +288,9 @@ async def test_answering_without_a_context_resumes_with_none_rather_than_the_old
 
     async with deck:
         await deck.run("Approval", {"request": "tue 9am"}, session_id="t-1", context=Calendar())
-        [pending] = await deck.pending()
+        [pending] = await deck.runs.pending()
         with pytest.raises(AttributeError):  # the node reads ``.slot`` off ``None``
-            await deck.answer(pending.run_id, "yes")
+            await deck.runs.answer(pending.run_id, "yes")
 
     assert seen[-1] is None
 

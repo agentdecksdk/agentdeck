@@ -98,8 +98,8 @@ async def main() -> None:
     async with Deck.from_project() as deck:
         paused = await deck.run("Approval", {}, session_id="quote-42")
         if paused["type"] == "interrupt":
-            [mine] = [p for p in await deck.pending() if p.thread_id == "quote-42"]
-            await deck.answer(mine.run_id, "yes")
+            [mine] = [p for p in await deck.runs.pending() if p.thread_id == "quote-42"]
+            await deck.runs.answer(mine.run_id, "yes")
 
 
 asyncio.run(main())
@@ -123,16 +123,18 @@ interrupt machinery with a `{"type": "timer", "wake_at": …}` payload — so a 
 thread is distinguishable from a human-paused one in the inbox. Naive datetimes are
 rejected.
 
-AgentDeck runs no daemon: you own the cadence. `Deck.due_resumes()` lists timer threads whose
-moment has passed, and `Deck.tick()` resumes every one of them.
+AgentDeck runs no daemon, and today there is no public way to drive this sweep either: an
+internal listing finds timer threads whose moment has passed, and an internal resume plays each
+one — but nothing calls either yet, so a due `sleep_until` only wakes once something else (a
+future deck-owned clock) drives it.
 
-**Known limit: the listing reads the checkpointer, not the event log.** Both calls find due
-threads through each workflow's own LangGraph checkpointer rather than the [event
+**Known limit: the listing reads the checkpointer, not the event log.** Both find due threads
+through each workflow's own LangGraph checkpointer rather than the [event
 log](/concepts/runs-and-the-event-log#a-listed-exception-timer-resumes) — deliberately, since
 the checkpoint backend defaults to durable (`sqlite`) while the event store defaults to
 `memory`, and a due timer surviving a process restart depends on the checkpointer's own
-durability. `tick()` still resumes a due thread *through the Runtime* when it matches a run
-`Deck.pending()` already knows about, so that resume itself is recorded in the log like any
+durability. The resume still plays a due thread *through the Runtime* when it matches a run
+`deck.runs.pending()` already knows about, so that resume itself is recorded in the log like any
 other; only a thread with no logged run at all falls back to resuming straight off the
 checkpointer.
 

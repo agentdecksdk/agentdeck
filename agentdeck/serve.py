@@ -44,7 +44,7 @@ Endpoints:
                                         the continuation this call played — 409 if the run is
                                         not paused
 
-The workflow inbox above reads the event log, while ``Deck.due_resumes()`` still reads
+The workflow inbox above reads the event log, while ``Deck._due_resumes()`` still reads
 the graph's checkpointer — so the two disagree once approvals are driven through both doors
 (see the CHANGELOG for the plan to join them).
 """
@@ -220,15 +220,15 @@ def build_asgi_app(deck: Deck) -> Any:
 
     @api.post("/runs/{run_id}/pause")
     async def pause_run(run_id: str, body: dict[str, Any] | None = None) -> Any:
-        return await _control(_deck().pause, run_id, body, "pause")
+        return await _control(_deck().runs.pause, run_id, body, "pause")
 
     @api.post("/runs/{run_id}/cancel")
     async def cancel_run(run_id: str, body: dict[str, Any] | None = None) -> Any:
-        return await _control(_deck().cancel, run_id, body, "cancel")
+        return await _control(_deck().runs.cancel, run_id, body, "cancel")
 
     @api.post("/runs/{run_id}/resume")
     async def resume_run(run_id: str, body: dict[str, Any] | None = None) -> Any:
-        events = await _deck().resume(run_id, _reason(body))
+        events = await _deck().runs.resume(run_id, _reason(body))
         if not events:
             # 409, not 404: the run may well exist and simply not be paused — running,
             # finished, cancelled, or already picked up by another worker. All of those are the
@@ -262,7 +262,7 @@ def build_asgi_app(deck: Deck) -> Any:
     async def pending_interrupts(name: str) -> Any:
         deck = _deck()
         _require_workflow(deck, name)
-        return interrupt_inbox(await deck.pending(), name)
+        return interrupt_inbox(await deck.runs.pending(), name)
 
     @api.post("/workflows/{name}/{thread_id}/resume")
     async def resume_workflow(name: str, thread_id: str, body: dict[str, Any]) -> Any:
@@ -271,14 +271,14 @@ def build_asgi_app(deck: Deck) -> Any:
         deck = _deck()
         _require_workflow(deck, name)
         # v1's own 404 names the thread, not a run_id the caller never posted — so the lookup
-        # stays here rather than moving into Deck.answer, whose own miss talks about run_id.
+        # stays here rather than moving into Deck.runs.answer, whose own miss talks about run_id.
         paused = next(
-            (run for run in await deck.pending() if run.invocable == name and run.thread_id == thread_id),
+            (run for run in await deck.runs.pending() if run.invocable == name and run.thread_id == thread_id),
             None,
         )
         if paused is None:
             raise NotFoundError(f"No paused run of {name!r} on thread {thread_id!r}.")
-        return await deck.answer(paused.run_id, body["value"])
+        return await deck.runs.answer(paused.run_id, body["value"])
 
     return api
 
