@@ -26,7 +26,7 @@ from agentdeck.core.content import DataBlock
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import RunCompleted
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
-from agentdeck.errors import StoreError
+from agentdeck.errors import DOCS_URL, StoreError
 from agentdeck.runtime.discovery import DURABLE_KEY
 
 if TYPE_CHECKING:
@@ -89,6 +89,20 @@ async def test_a_non_durable_workflow_starts_fresh_on_a_thread_it_already_ran() 
 
     assert first == ["a"]
     assert second == ["b"], f"the second run resumed the first's state: {second}"
+
+
+async def test_a_durable_workflow_with_no_session_id_raises_naming_the_docs() -> None:
+    """A durable graph loads and persists its state by thread; a run with nothing to name that
+    thread by is a lost run, refused before it starts rather than compiled with no checkpoint."""
+    engine = LangGraphEngine()
+    spec = _spec({DURABLE_KEY: True})
+    ctx = RunContext(namespace="acme", run_id="r-1", session_id=None)
+
+    with pytest.raises(ValueError, match="thread_id") as excinfo:
+        async for _ in engine.start(spec, [DataBlock(data={"input": "a"})], [], ctx):
+            pass
+
+    assert f"{DOCS_URL}/concepts/workflows" in str(excinfo.value)
 
 
 async def test_a_spec_that_never_declared_durable_keeps_the_engines_own_checkpointer() -> None:

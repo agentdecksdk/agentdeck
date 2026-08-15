@@ -34,7 +34,7 @@ from agentdeck.core.events import (
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports import EventSinkPort, SessionClaim
 from agentdeck.core.status import RunStatus, status_of
-from agentdeck.errors import ConfigError, NotFoundError, SessionBusyError, StoreError
+from agentdeck.errors import DOCS_URL, ConfigError, NotFoundError, SessionBusyError, StoreError
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import RuntimeSettings, reset_settings_cache
 
@@ -609,6 +609,9 @@ async def test_a_turn_arriving_while_another_is_in_flight_is_refused() -> None:
 
     assert "'s-1'" in str(refused.value)
     assert "'r-1'" in str(refused.value)
+    # Same reasoning as the skills case: names the one page (concepts/sessions-and-memory)
+    # that documents "one turn at a time," not just that this turn was refused.
+    assert f"{DOCS_URL}/concepts/sessions-and-memory" in str(refused.value)
     assert [event.kind for event in await first][-1] == "run.completed"
     assert {event.run_id for event in await store.read(CTX.log_key, CTX)} == {"r-1"}
 

@@ -12,11 +12,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentdeck.errors import ConfigError, NotFoundError
+from agentdeck.errors import DOCS_URL, ConfigError, NotFoundError
 from agentdeck.skills.bundle import SKILL_MD_FILENAME, SkillBundle
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+_SKILLS_DOCS = f"{DOCS_URL}/concepts/skills"
 
 
 class Skills:
@@ -64,7 +66,7 @@ class Skills:
                 if bundle.name in merged:
                     raise ConfigError(
                         f"skill {bundle.name!r} found under both {found_under[bundle.name]} and "
-                        f"{child} — a skill name must be unique across roots."
+                        f"{child} — a skill name must be unique across roots — see {_SKILLS_DOCS}"
                     )
                 merged[bundle.name] = bundle
                 found_under[bundle.name] = child
@@ -105,10 +107,12 @@ def _validate_bundle(bundle: SkillBundle, path: Path) -> None:
     if bundle.name != path.name:
         raise ConfigError(
             f"{path / SKILL_MD_FILENAME}: frontmatter declares name {bundle.name!r}, which must "
-            f"match its directory name {path.name!r}."
+            f"match its directory name {path.name!r} — see {_SKILLS_DOCS}"
         )
     if not bundle.description:
-        raise ConfigError(f"{path / SKILL_MD_FILENAME}: missing a 'description' in its frontmatter.")
+        raise ConfigError(
+            f"{path / SKILL_MD_FILENAME}: missing a 'description' in its frontmatter — see {_SKILLS_DOCS}"
+        )
 
 
 __all__ = ["Skills", "SkillBundle"]

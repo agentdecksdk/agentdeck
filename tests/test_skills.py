@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentdeck.authoring.skills import _load_skill, skills_resolver
-from agentdeck.errors import ConfigError, NotFoundError
+from agentdeck.errors import DOCS_URL, ConfigError, NotFoundError
 from agentdeck.skills import Skills
 
 if TYPE_CHECKING:
@@ -63,8 +63,12 @@ def test_frontmatter_name_mismatch_fails_build(tmp_path):
 def test_missing_description_fails_build(tmp_path):
     _write_skill(tmp_path, "booking", name="booking", description=None)
 
-    with pytest.raises(ConfigError, match="description"):
+    with pytest.raises(ConfigError, match="description") as excinfo:
         Skills(tmp_path).build()
+
+    # A first-time user hits this before ever opening the docs site — the message names the
+    # one page (concepts/skills) that documents the frontmatter contract, not just the rule.
+    assert f"{DOCS_URL}/concepts/skills" in str(excinfo.value)
 
 
 def test_validate_false_is_lenient_about_name_and_description(tmp_path):

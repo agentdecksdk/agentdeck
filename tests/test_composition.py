@@ -14,7 +14,7 @@ from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.composition import build_runtime, resolve_event_store
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
-from agentdeck.errors import NotFoundError
+from agentdeck.errors import DOCS_URL, NotFoundError
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import EventsSettings, reset_settings_cache
@@ -172,8 +172,10 @@ def test_resolve_event_store_rejects_sqlite_with_no_path_after_the_scheme():
 
 
 def test_resolve_event_store_rejects_an_unknown_scheme():
-    with pytest.raises(ValueError, match="unknown event store scheme"):
+    with pytest.raises(ValueError, match="unknown event store scheme") as excinfo:
         resolve_event_store(EventsSettings(url="not-a-backend://nothing"))
+
+    assert f"{DOCS_URL}/concepts/choosing-a-store-backend" in str(excinfo.value)
 
 
 def test_resolve_event_store_builds_redis_from_a_url():
@@ -217,6 +219,7 @@ def test_resolve_event_store_redis_without_the_extra_names_the_install_command()
         except ImportError as exc:
             assert "redis" in str(exc)
             assert 'pip install "agentdeck-sdk[redis]"' in str(exc), str(exc)
+            assert "choosing-a-store-backend" in str(exc), str(exc)
             print("raised the right error")
         else:
             raise AssertionError("expected an ImportError")
@@ -284,8 +287,10 @@ def test_resolve_control_port_rejects_an_unknown_scheme():
     from agentdeck.composition import resolve_control_port
     from agentdeck.runtime.settings import ControlSettings
 
-    with pytest.raises(ValueError, match="unknown control backend"):
+    with pytest.raises(ValueError, match="unknown control backend") as excinfo:
         resolve_control_port(ControlSettings(url="not-a-backend://nothing"))
+
+    assert f"{DOCS_URL}/concepts/choosing-a-store-backend" in str(excinfo.value)
 
 
 @pytest.mark.parametrize(

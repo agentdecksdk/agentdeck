@@ -17,6 +17,7 @@ from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
 from agentdeck.authoring import Workflow
+from agentdeck.errors import DOCS_URL
 from agentdeck.runtime.settings import reset_settings_cache
 
 
@@ -61,8 +62,10 @@ def test_durable_false_ignores_thread_id_and_never_persists():
 def test_durable_true_without_thread_id_raises():
     wf = _make_counter_workflow(durable=True)
 
-    with pytest.raises(ValueError, match="thread_id"):
+    with pytest.raises(ValueError, match="thread_id") as excinfo:
         asyncio.run(wf.run(None))
+
+    assert f"{DOCS_URL}/concepts/workflows" in str(excinfo.value)
 
 
 def test_durable_memory_backend_resumes_by_thread_id(monkeypatch):
@@ -174,8 +177,10 @@ def test_unknown_backend_raises(monkeypatch):
     reset_settings_cache()
     wf = _make_counter_workflow(durable=True)
 
-    with pytest.raises(ValueError, match="unknown checkpoint backend"):
+    with pytest.raises(ValueError, match="unknown checkpoint backend") as excinfo:
         asyncio.run(wf.run(None, thread_id="a"))
+
+    assert f"{DOCS_URL}/concepts/choosing-a-store-backend" in str(excinfo.value)
 
 
 def test_postgres_resolves_the_async_saver(monkeypatch):

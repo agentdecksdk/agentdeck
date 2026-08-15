@@ -56,6 +56,15 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   names** (#248), one tool call per request in order, then plain text once the sequence is
   exhausted — the shape a multi-step tool chain or a handoff round trip needs to script.
   A single name keeps its existing one-shot behavior unchanged.
+- **Error messages a first-time user hits during composition or a first run now name the one
+  docs page that answers them** (#238): the skill frontmatter/discovery `ConfigError`s (missing
+  `description`, a name that doesn't match its directory, a duplicate name across skill roots),
+  `SessionBusyError`, the store/checkpoint `ImportError`s for the `durability` and `redis`
+  extras, the unknown-scheme `ValueError`s for `AGENTDECK_CONTROL`/`AGENTDECK_EVENTS`/
+  `AGENTDECK_CHECKPOINT`, and the durable-workflow missing-`thread_id` `ValueError` (both the
+  direct-call and the langgraph-engine copy). No error type or field changed, only the
+  message text. In passing, the two durability install hints now say `agentdeck-sdk[durability]`
+  (the actual distribution name) instead of the pre-rename `agentdeck[durability]`.
 
 ### Deprecated
 

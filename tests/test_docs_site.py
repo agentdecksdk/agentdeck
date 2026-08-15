@@ -230,6 +230,25 @@ def test_docs_site_links_in_repo_markdown_reach_a_real_page(document: Path) -> N
         )
 
 
+# An error message builds its link from the one shared ``DOCS_URL`` constant, never a repeated
+# ``https://agentdecksdk.com`` literal (that is the whole point of the constant) — so the source
+# text carries `{DOCS_URL}/concepts/whatever` rather than a URL `SITE_LINK` above would match.
+ERROR_DOCS_LINK = re.compile(r"\{DOCS_URL\}(/[\w/-]+)")
+
+
+@pytest.mark.parametrize("source", sorted((ROOT / "agentdeck").rglob("*.py")), ids=lambda p: str(p.relative_to(ROOT)))
+def test_docs_site_links_in_error_messages_reach_a_real_page(source: Path) -> None:
+    """An error message naming its one canonical page links it the same way a README does, and
+    the same rename that orphans a README link orphans one of these silently: nothing executes
+    an error message to notice the 404.
+    """
+    for slug in ERROR_DOCS_LINK.findall(source.read_text()):
+        slug = slug.strip("/")
+        assert not slug or (CONTENT / f"{slug}.mdx").exists() or (CONTENT / slug / "index.mdx").exists(), (
+            f"{source.relative_to(ROOT)}: docs-site link /{slug} has no page"
+        )
+
+
 def test_every_public_deck_method_is_documented_somewhere() -> None:
     """`Deck` is the API this release exists to offer, so a public name absent from the whole
     site is undiscoverable — `asgi()` was, and it is how you serve a deck.
