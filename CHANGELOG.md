@@ -53,6 +53,16 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Fixed
 
+- **`sleep_until` now actually wakes up** (#303). An open `Deck` sweeps for its own lifetime —
+  started in `__aenter__`, cancelled in `__aexit__` — resuming any durable workflow parked past
+  its wake moment with no cron or scheduler wired in by the user. Previously `_tick`/`_due_resumes`
+  (the mechanism behind the sweep) were never called by anything, so a parked timer held
+  `WAITING_HUMAN` forever, keeping its session claim, until something else happened to call the
+  now-private `_tick`. The interval is `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` (default 30s) on
+  `RuntimeSettings`, on by default — there is no deployment for which silently never waking a timer
+  is the safer choice. A sweep that raises is logged and retried on the next interval rather than
+  ending the loop; a process that opens the deck, takes a turn and closes within one interval never
+  sweeps at all, and the deadline fires on whoever next holds the deck open past that.
 - **`EventStorePort.run_status` no longer returns `PENDING` for a run the store never heard
   of** (#294). It now returns `None` for that case, distinguishing it from a run that exists but
   hasn't logged a lifecycle transition yet — the two used to fold into the same value. Only the

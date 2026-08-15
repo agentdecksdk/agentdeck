@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import json
 import socket
@@ -1194,3 +1195,118 @@ async def test_injected_session_factory_is_used_and_closed_once(no_project, monk
         assert deck.session_for("s1") is fake.sessions[":s1"]
 
     assert fake.closed == 1
+
+
+# --- the deck sweeps its own lifetime for a due sleep_until, with no cron wired in (#303) ----
+
+
+async def _wait_until(condition, *, timeout: float = 5.0, interval: float = 0.01) -> None:
+    """Poll ``condition`` (a zero-arg async callable returning a bool) until it is true, never
+    sleeping a fixed guess at how long the sweep should take — see coding-standards §8, "assert
+    the promise, not the timing"."""
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + timeout
+    while not await condition():
+        if loop.time() >= deadline:
+            raise AssertionError(f"condition not met within {timeout}s")
+        await asyncio.sleep(interval)
+
+
+async def _pending_is_empty(deck: Deck) -> bool:
+    return not await deck.runs.pending()
+
+
+@pytest.mark.asyncio
+async def test_sweeper_task_starts_on_open_and_is_actually_gone_after_close(no_project):
+    """Not just that ``__aexit__`` ran: the task itself must be done, so a deck that closes
+    leaves no background loop still scheduled."""
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        sweeper = deck._sweeper
+        assert sweeper is not None
+        assert not sweeper.done()
+
+    assert sweeper.done()
+    assert sweeper.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_sweep_resumes_a_due_timer_with_the_deck_left_open_and_tick_never_called_by_hand(no_project, monkeypatch):
+    """The point of #303: nobody here calls ``_tick()``. The deck parks a run on a past-due
+    ``sleep_until``, then just stays open past one sweep interval, and its own background loop
+    is what has to notice and resume it."""
+    from agentdeck.runtime.settings import reset_settings_cache
+
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
+    monkeypatch.setenv("AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS", "0.02")
+    reset_settings_cache()
+    past = datetime.now(UTC) - timedelta(days=1)
+    try:
+        deck = Deck(workflows=[_timer_workflow("Timer", past)])
+
+        async with deck:
+            paused = await deck.run("Timer", {}, session_id="t-sweep")
+            assert paused["type"] == "interrupt"
+
+            await _wait_until(lambda: _pending_is_empty(deck))
+    finally:
+        reset_settings_cache()
+
+
+@pytest.mark.asyncio
+async def test_sweep_with_no_timers_anywhere_does_nothing_and_raises_nothing(no_project, monkeypatch, caplog):
+    """Most decks have no timers at all — the common case, asserted directly: a catalog with
+    only a plain agent sweeps past several intervals with no error and nothing to do."""
+    from agentdeck.runtime.settings import reset_settings_cache
+
+    monkeypatch.setenv("AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS", "0.02")
+    reset_settings_cache()
+    try:
+        deck = Deck(agents=[_greeter()])
+
+        with caplog.at_level("ERROR"):
+            async with deck:
+                await asyncio.sleep(0.1)  # several sweep intervals, idle throughout
+
+        assert not caplog.records
+    finally:
+        reset_settings_cache()
+
+
+@pytest.mark.asyncio
+async def test_sweep_survives_a_raising_tick_and_keeps_going_on_the_next_interval(no_project, monkeypatch, caplog):
+    """A transient store error on one sweep must not silently end every future wake — the loop
+    logs it and tries again next interval instead of dying."""
+    from agentdeck.runtime.settings import reset_settings_cache
+
+    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
+    monkeypatch.setenv("AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS", "0.02")
+    reset_settings_cache()
+    past = datetime.now(UTC) - timedelta(days=1)
+    try:
+        deck = Deck(workflows=[_timer_workflow("Timer", past)])
+
+        async with deck:
+            paused = await deck.run("Timer", {}, session_id="t-flaky")
+            assert paused["type"] == "interrupt"
+
+            real_tick = deck._tick
+            calls = 0
+
+            async def _flaky_tick(*args, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 1:
+                    raise RuntimeError("simulated store failure")
+                return await real_tick(*args, **kwargs)
+
+            monkeypatch.setattr(deck, "_tick", _flaky_tick)
+
+            with caplog.at_level("ERROR"):
+                await _wait_until(lambda: _pending_is_empty(deck))
+
+            assert calls >= 2
+            assert any("timer sweep failed" in r.message for r in caplog.records)
+    finally:
+        reset_settings_cache()

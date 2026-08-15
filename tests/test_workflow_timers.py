@@ -1,6 +1,7 @@
 """Durable timer waits (issue #22): sleep_until pauses a durable workflow until a wall-clock
 moment; Deck._tick() resumes threads whose wake time has passed. Reuses the #10 interrupt
-machinery end to end, including across a process restart.
+machinery end to end, including across a process restart and across two processes racing the
+same due thread (#303).
 """
 
 import asyncio
@@ -8,6 +9,7 @@ import os
 import subprocess
 import sys
 import textwrap
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -205,3 +207,76 @@ def test_tick_survives_a_process_restart(tmp_path):
     assert finished["due"] == [paused]
     resumed_woke_at = datetime.fromisoformat(finished["resumed"][0]["woke_at"])
     assert resumed_woke_at == datetime.fromisoformat(paused["payload"]["wake_at"])
+
+
+# --- two decks sweeping the same due thread must not both resume it (#303) ------------------
+
+_RACE_SCRIPT = """
+import asyncio, json, sys, time
+from pathlib import Path
+from agentdeck.deck import Deck
+
+async def main():
+    root = Path(sys.argv[1])
+    tag = sys.argv[2]
+    (root / f"ready-{tag}").touch()
+    deadline = time.monotonic() + 20.0
+    while not (root / "go").exists():
+        if time.monotonic() > deadline:
+            raise RuntimeError("the 'go' file never appeared")
+        time.sleep(0.005)
+    async with Deck.from_project() as deck:
+        return await deck._tick()
+
+print(json.dumps(asyncio.run(main()), default=str))
+"""
+
+
+def test_two_decks_racing_tick_do_not_double_resume_the_same_thread(tmp_path):
+    """Two processes hold the same durable checkpoint and event store, both find the same past-
+    due thread, and both call ``_tick()`` at the same instant. ``_tick()`` resumes through the
+    Runtime, whose claim on the WAITING_HUMAN -> RUNNING transition is a conditional append — so
+    exactly one of the two calls may resume the thread and the other must find nothing left to
+    do, not resume the graph a second time. A logged run is what puts ``_tick()`` on that claimed
+    path at all (see ``_tick``'s own docstring), so the event store has to be durable and shared
+    across all three processes here, not the default in-process ``memory://``.
+    """
+    import json
+
+    bundle = tmp_path / ".agentdeck" / "workflows" / "timer_flow"
+    bundle.mkdir(parents=True)
+    (bundle / "workflow.py").write_text(textwrap.dedent(_RESTART_WORKFLOW_PY))
+    env = {
+        **os.environ,
+        "AGENTDECK_CHECKPOINT": f"sqlite://{tmp_path / 'checkpoints.sqlite3'}",
+        "AGENTDECK_EVENTS": f"sqlite://{tmp_path / 'events.sqlite3'}",
+    }
+
+    _run_script("start", str(tmp_path), env)
+
+    tags = ("a", "b")
+    racers = [
+        subprocess.Popen(
+            [sys.executable, "-c", textwrap.dedent(_RACE_SCRIPT), str(tmp_path), tag],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=str(tmp_path),
+            env=env,
+        )
+        for tag in tags
+    ]
+    deadline = time.monotonic() + 20.0
+    while not all((tmp_path / f"ready-{tag}").exists() for tag in tags):
+        assert time.monotonic() < deadline, "one of the racing processes never reached its gate"
+        time.sleep(0.005)
+    (tmp_path / "go").touch()
+
+    resumed_by_tag = {}
+    for tag, racer in zip(tags, racers, strict=True):
+        stdout, stderr = racer.communicate(timeout=30)
+        assert racer.returncode == 0, stderr
+        resumed_by_tag[tag] = json.loads(stdout.strip())
+
+    resumed_lengths = [len(resumed) for resumed in resumed_by_tag.values()]
+    assert sum(resumed_lengths) == 1, resumed_by_tag

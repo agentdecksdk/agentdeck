@@ -35,8 +35,10 @@ the caller constructed and handed in stays the caller's).
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import uuid
-from contextlib import aclosing
+from contextlib import aclosing, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
@@ -91,6 +93,8 @@ if TYPE_CHECKING:
 _DEFAULT_ENGINE_NAMES: tuple[str, str] = (OpenAIAgentsEngine.engine, LangGraphEngine.engine)
 
 _State = Literal["NEW", "BUILT", "OPEN", "CLOSED"]
+
+logger = logging.getLogger(__name__)
 
 
 def _validate_observers(observers: Sequence[EventSinkPort] | None) -> None:
@@ -387,6 +391,7 @@ class Deck:
         self._engine_instances: tuple[EnginePort, ...] | None = None
         self._runtime: Runtime | None = None
         self._sessions: ExecutionStore | None = None
+        self._sweeper: asyncio.Task[None] | None = None
         self._owns_store = False
         self._started_observers: tuple[EventSinkPort, ...] = ()
         self._started_mcp = False
@@ -628,7 +633,25 @@ class Deck:
             agents = list(self._agents.values())
             refresh_mcp_status({name: invocables[name].native for name in self._agents}, agents)
         self._state = "OPEN"
+        self._sweeper = asyncio.create_task(self._sweep())
         return self
+
+    async def _sweep(self) -> None:
+        """Wake a parked ``sleep_until`` on this Deck's own clock, for as long as this Deck
+        stays open — no cron, no user-wired scheduler. Sleeps for
+        ``settings.runtime.sweep_interval_seconds``, then drives :meth:`_tick` by hand, the
+        same call a test does; a tick that raises is logged and the loop keeps going, since one
+        transient store error must not silently end every future wake. A process that opens the
+        Deck, takes a turn and closes within one interval never sweeps at all — a due timer's
+        wake-up happens on whoever next holds the Deck open past that.
+        """
+        interval = self.settings.runtime.sweep_interval_seconds
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                await self._tick()
+            except Exception:
+                logger.exception("timer sweep failed; will retry next interval")
 
     async def __aexit__(self, *exc_info: object) -> None:
         await self.aclose()
@@ -658,6 +681,12 @@ class Deck:
         if self._closed:
             return
         self._closed = True
+        if self._sweeper is not None:
+            # Cancelled before anything below tears down, so a tick in flight never races the
+            # runtime/store shutdown it reads from.
+            self._sweeper.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._sweeper
         try:
             # Draining closes the sinks, which is what finishes the Langfuse sink's open
             # observations and pushes the SDK's buffer out of the process.

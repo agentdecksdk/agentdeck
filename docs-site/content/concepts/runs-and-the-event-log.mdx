@@ -147,8 +147,9 @@ each workflow's own LangGraph checkpointer, not this log. That is deliberate: th
 backend defaults to durable (`sqlite`) while the event store defaults to `memory`, so listing off
 the log alone would stop surviving a process restart under the default configuration — exactly
 the guarantee a due timer keeps its wake-up call across one restart. This sweep has no public
-entry point today — nothing in agentdeck calls it yet, so a due `sleep_until` only wakes once
-something else (a future deck-owned clock) drives it.
+entry point — nothing outside `Deck` calls it — but an open `Deck` drives it on its own for as
+long as it stays open, on `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` (30 seconds by default), with
+no cron or scheduler required.
 
 When a due thread also has a run `deck.runs.pending()` already knows about (parked by a
 `Deck.run()` or HTTP call, which does go through the Runtime), the sweep resumes it *through the
