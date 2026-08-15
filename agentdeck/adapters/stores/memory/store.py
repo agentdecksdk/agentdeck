@@ -32,6 +32,11 @@ class MemoryEventStore(EventStorePort):
     def __init__(self, clock: Callable[[], datetime] = _now) -> None:
         self._logs: dict[tuple[str | None, str], list[Event]] = {}
         self._clock = clock
+        # Derived, not a second source of truth: every entry is reconstructible by folding
+        # `_logs` for the run's `run_id`, and a lost one only costs a scan until `_stamp`
+        # writes it again. Kept beside the log for the same reason `_logs` itself is a dict:
+        # `locate` must not cost a walk of the namespace.
+        self._run_logs: dict[tuple[str | None, str], str] = {}
 
     async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
         events = self._stamp(log_key, payloads, ctx, origin)
@@ -51,6 +56,7 @@ class MemoryEventStore(EventStorePort):
         be handed the same number.
         """
         log = self._logs.setdefault((ctx.namespace, log_key), [])
+        self._run_logs[(ctx.namespace, ctx.run_id)] = log_key
         seq = max((stored.seq for stored in log if stored.run_id == ctx.run_id), default=-1)
         events = []
         for payload in payloads:
@@ -139,6 +145,9 @@ class MemoryEventStore(EventStorePort):
             assert found is not None
             summaries.append(RunSummary(log_key=log_key, run_id=run_id, status=found))
         return [summary for summary in summaries if status is None or summary.status is status]
+
+    async def locate(self, run_id: str, ctx: RunContext) -> str | None:
+        return self._run_logs.get((ctx.namespace, run_id))
 
 
 # The unique-index equivalent this store used to need is gone: no caller supplies a ``seq``, and

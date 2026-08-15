@@ -803,10 +803,10 @@ class Deck:
         """Implementation behind :meth:`RunOps.status`."""
         runtime = self._require_open()
         ctx = _new_context()
-        for summary in await runtime.store.list_runs(ctx):
-            if summary.run_id == run_id:
-                return summary.status
-        return None
+        log_key = await runtime.store.locate(run_id, ctx)
+        if log_key is None:
+            return None
+        return await runtime.store.run_status(log_key, run_id, ctx)
 
     async def _pending(self, namespace: str | None = None) -> list[PendingRun]:
         """Implementation behind :meth:`RunOps.pending`."""

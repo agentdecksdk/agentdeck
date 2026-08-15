@@ -3,11 +3,13 @@ worker that can reach the instance.
 
 Redis has no query planner to lean on, so the log carries its own indexes — a list per log
 for append order, a list per run for a run's own slice, a sorted set of that run's ``seq``
-numbers, the run's latest lifecycle event, and a set of the runs each log and each namespace
-owns. Every write updates all of them inside one ``MULTI``/``EXEC``, so a reader never sees
+numbers, the run's latest lifecycle event, a set of the runs each log and each namespace
+owns, and a namespace-wide hash from ``run_id`` to the ``log_key`` holding it (``locate``).
+Every write updates all of them inside one ``MULTI``/``EXEC``, so a reader never sees
 an event in the log that is missing from its run's index. Status is still *derived* by
 folding through ``core.status`` (ADR-D5: the log is the sole source of truth) — what the
-indexes store is the last lifecycle **event**, never a status of their own.
+indexes store is the last lifecycle **event**, never a status of their own, and the
+``locate`` hash stores nothing the namespace's own run set doesn't already carry.
 
 Every key sits under one prefix (``agentdeck:events`` by default), which is how the
 operational separation ADR-D5 asks for is expressed here: an instance that also holds the
@@ -30,7 +32,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.parse import quote, unquote
 
 from redis.asyncio import Redis
@@ -120,6 +122,9 @@ class RedisEventStore(EventStorePort):
     def _namespace_runs_key(self, namespace: str) -> str:
         return f"{self._prefix}:runs:{_segment(namespace)}"
 
+    def _locate_key(self, namespace: str) -> str:
+        return f"{self._prefix}:locate:{_segment(namespace)}"
+
     def _queue_writes(self, pipe: Pipeline, namespace: str, log_key: str, events: Iterable[Event]) -> None:
         """Buffer one batch's writes — the log, the run's slice and every index — onto a
         pipeline already in ``MULTI``, so no concurrent reader sees part of them.
@@ -140,6 +145,13 @@ class RedisEventStore(EventStorePort):
                 pipe.set(self._life_key(namespace, log_key, event.run_id), data)
                 pipe.sadd(self._log_runs_key(namespace, log_key), event.run_id)
                 pipe.sadd(self._namespace_runs_key(namespace), _member(log_key, event.run_id))
+                # Costed against every event, not just lifecycle ones: `log_key` never changes
+                # for a run, so writing it here — the first of which is always `run.started`,
+                # every run's row 0 — instead of on the far more frequent deltas is the same
+                # "once per run" a fresh write would be, at zero extra round trips (already
+                # inside this batch's pipeline) and no data this namespace's own run set
+                # (`_namespace_runs_key`) doesn't already carry as `log_key:run_id` members.
+                pipe.hset(self._locate_key(namespace), event.run_id, log_key)
 
     async def _stamp(
         self, pipe: Pipeline, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str
@@ -321,6 +333,13 @@ class RedisEventStore(EventStorePort):
             if life is not None and (folded := status_of([Event.model_validate(json.loads(life))])) is not None
         ]
         return [summary for summary in summaries if status is None or summary.status is status]
+
+    async def locate(self, run_id: str, ctx: RunContext) -> str | None:
+        try:
+            found = await self._client.hget(self._locate_key(ctx.namespace_key), run_id)
+        except RedisError as exc:
+            raise StoreError(f"event log locate failed: {exc}") from exc
+        return cast("str | None", found)  # decode_responses=True: never the bytes half of the stub's union
 
     async def _watched[T](self, attempt: Callable[[Pipeline], Awaitable[T]], op: str) -> T:
         """Run one optimistic write until ``EXEC`` is not aborted by a concurrent one.
