@@ -59,12 +59,18 @@ later `run()` opens a **new** run on the session and never re-enters this one.
 
 Preconditions, checked before anything is read from the control port.
 
-| state | `run` | `answer` | `resume` | `pause` · `cancel` |
-|---|---|---|---|---|
-| `RUNNING` | refused, session busy | refused, nothing awaits one | no-op | recorded |
-| `PAUSED` | refused, session busy | refused, naming `resume` | legal | recorded |
-| `WAITING_ANSWER` | refused, session busy | legal | refused, naming `answer` | recorded |
-| terminal | opens a **new** run | no-op | no-op | recorded, never read |
+| state | `run` | `answer` | `resume` | `pause` | `cancel` |
+|---|---|---|---|---|---|
+| `RUNNING` | refused, session busy | refused, nothing awaits one | no-op | recorded | recorded |
+| `PAUSED` | refused, session busy | refused, naming `resume` | legal | recorded | claimed, terminates at once |
+| `WAITING_ANSWER` | refused, session busy | legal | refused, naming `answer` | recorded | claimed, terminates at once |
+| terminal | opens a **new** run | no-op | no-op | recorded, never read | recorded, never read |
+
+`pause` and `cancel` were one merged column before #311: both were "recorded", read only once
+something next claimed the run. `cancel` against a suspended run no longer waits for that — it
+claims the run itself and terminates it in the same call, because nothing else was ever
+guaranteed to (`signal()`'s own docstring). `pause` still only records; lifting or answering a
+suspended run is what acts on it.
 
 ## What a pending signal does when it is read
 

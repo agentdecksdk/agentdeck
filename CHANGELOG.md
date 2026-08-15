@@ -158,6 +158,8 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   a *paused* run. Claiming happens at the cancel itself rather than being deferred to whoever
   next answers or resumes: once #311 stopped a stale timer from ever reclaiming a parked run's
   session, a deferred cancel could sit unread forever if nobody happened to touch the run again.
+  `deck.runs.cancel(run_id, reason, namespace=...)` takes the same `namespace` `deck.runs.pending`
+  already does, needed to locate a suspended run opened outside the default namespace at all.
 - **`deck.runs.resume` on a run that is waiting for an answer now refuses, naming
   `deck.runs.answer`** (#295), and `deck.runs.answer` on a paused run refuses naming
   `deck.runs.resume`. Both raise the new `agentdeck.errors.RunStateError`, which the HTTP surface

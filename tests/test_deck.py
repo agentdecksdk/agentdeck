@@ -1097,9 +1097,13 @@ async def test_answer_of_an_unknown_run_id_raises_not_found(no_project):
 
 
 @contextlib.asynccontextmanager
-async def _parked_approval(monkeypatch):
+async def _parked_approval(monkeypatch, *, namespace: str | None = None):
     """A workflow run stopped at its interrupt — ``WAITING_ANSWER``, holding its session, with
-    nothing left polling the gate. The state every case below signals against."""
+    nothing left polling the gate. The state every case below signals against.
+
+    ``namespace`` defaults to ``None``, the ordinary case every existing caller here exercises;
+    passing one parks the run outside the default namespace, for the one case that needs it.
+    """
     from agentdeck.runtime.settings import reset_settings_cache
 
     monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
@@ -1107,9 +1111,9 @@ async def _parked_approval(monkeypatch):
     try:
         deck = Deck(workflows=[_approval_workflow()])
         async with deck:
-            parked = await deck.run("Approval", {"request": "tue 9am"}, session_id="t-1")
+            parked = await deck.run("Approval", {"request": "tue 9am"}, session_id="t-1", namespace=namespace)
             assert parked["type"] == "interrupt"
-            [pending] = await deck.runs.pending()
+            [pending] = await deck.runs.pending(namespace=namespace)
             yield deck, pending.run_id
     finally:
         reset_settings_cache()
@@ -1142,6 +1146,32 @@ async def test_a_cancel_against_a_parked_run_ends_it_immediately(no_project, mon
         # And the session it held is free: a new run on it succeeds instead of raising
         # SessionBusyError, which is the whole point of cancelling it.
         resumed = await deck.run("Approval", {"request": "wed 3pm"}, session_id="t-1")
+        assert resumed["type"] == "interrupt"
+
+
+@pytest.mark.asyncio
+async def test_a_cancel_against_a_parked_run_in_a_real_namespace_still_ends_it(no_project, monkeypatch):
+    """Review found the eager cancel unreachable from here for any run outside the default
+    namespace: ``RunOps.cancel``/``Deck._cancel`` did not accept or pass one, so the lookup
+    ``Runtime._cancel_suspended`` needs to find the run always scanned ``namespace=None`` and
+    silently missed it — cancel still returned ``True``, but nothing closed and the session
+    stayed held, forever, now that no timer ever reclaims it either. This is the same case as
+    ``test_a_cancel_against_a_parked_run_ends_it_immediately`` above, run through the public
+    surface with a real namespace rather than through the Runtime directly, since the Runtime
+    layer never had this gap.
+    """
+    async with _parked_approval(monkeypatch, namespace="acme") as (deck, run_id):
+        assert await deck.runs.cancel(run_id, "operator said stop", namespace="acme") is True
+
+        log = await deck._require_open().store.read(
+            "t-1", RunContext(run_id="reader", session_id="t-1", namespace="acme")
+        )
+        assert [event.kind for event in log][-3:] == ["run.resumed", "control.requested", "run.cancelled"]
+        assert next(e.payload.reason for e in log if e.kind == "run.cancelled") == "operator said stop"
+
+        # The session it held is free: a new run on it succeeds instead of raising
+        # SessionBusyError, which is the whole point of cancelling it.
+        resumed = await deck.run("Approval", {"request": "wed 3pm"}, session_id="t-1", namespace="acme")
         assert resumed["type"] == "interrupt"
 
 
