@@ -20,11 +20,15 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
-from agents import ModelSettings, MultiProvider, OpenAIProvider, RunConfig
+from agents import ModelSettings, MultiProvider, OpenAIProvider, RunConfig, default_handoff_history_mapper
 from openai import AsyncOpenAI
+
+if TYPE_CHECKING:
+    from agents.handoffs import HandoffHistoryMapper
+    from agents.items import TResponseInputItem
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,9 +47,28 @@ class RunSettings:
     use_responses: bool = True
     workflow_name: str = "Agent workflow"
     nest_handoff_history: bool = False
+    handoff_ends_on_user_turn: bool = False
+    handoff_closing_turn: str = "Please continue."
     temperature: float | None = None
     max_tokens: int | None = None
     max_turns: int = 10
+
+
+def build_handoff_ends_on_user_turn_mapper(closing_turn: str) -> HandoffHistoryMapper:
+    """``RunConfig.handoff_history_mapper``: the SDK's own collapse, plus a closing user turn.
+
+    ``nest_handoff_history`` folds everything into one assistant message, and some
+    OpenAI-compatible endpoints reject a request that ends on anything but a user role. The
+    collapsed content already carries the real transcript, so ``closing_turn`` (configurable —
+    the default is an English sentence, which isn't right for every deployment) is appended
+    rather than repeating it.
+    """
+
+    def _mapper(transcript: list[TResponseInputItem]) -> list[TResponseInputItem]:
+        closing_item = cast("TResponseInputItem", {"role": "user", "content": closing_turn})
+        return [*default_handoff_history_mapper(transcript), closing_item]
+
+    return _mapper
 
 
 def build_run_config(settings: RunSettings, *, sandbox: Any = None) -> RunConfig:
@@ -60,6 +83,11 @@ def build_run_config(settings: RunSettings, *, sandbox: Any = None) -> RunConfig
         # once set, so a per-agent default lives on the compiled SDK agent instead
         # (`authoring.compile.compile_agent`), where an agent's own declaration still wins.
         nest_handoff_history=settings.nest_handoff_history,
+        handoff_history_mapper=(
+            build_handoff_ends_on_user_turn_mapper(settings.handoff_closing_turn)
+            if settings.handoff_ends_on_user_turn
+            else None
+        ),
         tracing_disabled=not tracing_enabled(),
         model_provider=_provider(settings) or MultiProvider(),
         # ``include_usage`` asks the Chat-Completions API to emit the streaming usage chunk
@@ -115,4 +143,4 @@ def _provider(settings: RunSettings) -> OpenAIProvider | None:
     )
 
 
-__all__ = ["RunSettings", "build_run_config", "tracing_enabled"]
+__all__ = ["RunSettings", "build_handoff_ends_on_user_turn_mapper", "build_run_config", "tracing_enabled"]

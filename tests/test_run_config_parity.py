@@ -24,7 +24,7 @@ import httpx
 import pytest
 from agents import Agent, OpenAIProvider
 
-from agentdeck.adapters.engines.openai_agents.runconfig import build_run_config
+from agentdeck.adapters.engines.openai_agents.runconfig import build_handoff_ends_on_user_turn_mapper, build_run_config
 from agentdeck.authoring.runners.agent import HeadlessRunner
 from agentdeck.composition import resolve_run_settings
 from agentdeck.runtime.settings import reset_settings_cache
@@ -49,6 +49,8 @@ _SETTINGS_ENV = {
     "AGENTDECK_RUNNER_TEMPERATURE": "0.25",
     "AGENTDECK_RUNNER_MAX_TURNS": "7",
     "AGENTDECK_RUNNER_MAX_TOKENS": "512",
+    "AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN": "false",
+    "AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN": "Please continue.",
     "AGENTDECK_LANGFUSE_PUBLIC_KEY": "",
     "AGENTDECK_LANGFUSE_SECRET_KEY": "",
 }
@@ -89,6 +91,21 @@ def _one_certificate_bundle(tmp_path: Path) -> Path:
     return bundle
 
 
+_PARITY_TRANSCRIPT = [{"role": "user", "content": "hi"}]
+
+
+def _mapper_output(config: RunConfig) -> list[object] | None:
+    """What `handoff_history_mapper` produces for one fixed sample transcript, or `None`.
+
+    The mapper is built fresh per call (it closes over the configured closing-turn text), so
+    two independently-built closures are never the same object even when they behave
+    identically — comparing their output is what actually proves the two resolvers agree.
+    """
+    if config.handoff_history_mapper is None:
+        return None
+    return config.handoff_history_mapper(_PARITY_TRANSCRIPT)
+
+
 def _fingerprint(config: RunConfig, max_turns: int) -> dict[str, object]:
     """A resolved run config as plain comparable values, SDK client objects excluded."""
     provider = config.model_provider
@@ -98,6 +115,7 @@ def _fingerprint(config: RunConfig, max_turns: int) -> dict[str, object]:
         "workflow_name": config.workflow_name,
         "model": config.model,
         "nest_handoff_history": config.nest_handoff_history,
+        "handoff_history_mapper_output": _mapper_output(config),
         "tracing_disabled": config.tracing_disabled,
         "temperature": config.model_settings.temperature,
         "max_tokens": config.model_settings.max_tokens,
@@ -120,6 +138,7 @@ def _expected(**overrides: object) -> dict[str, object]:
         # two builds.
         "model": None,
         "nest_handoff_history": True,
+        "handoff_history_mapper_output": None,
         "tracing_disabled": True,
         "temperature": 0.25,
         "max_tokens": 512,
@@ -170,5 +189,40 @@ def test_ca_bundle_becomes_the_clients_trust_store(
     expected = _expected(
         use_responses=False,
         trusted_cas=_ca_subjects(ssl.create_default_context(cafile=str(bundle))),
+    )
+    assert fingerprints == [expected, expected]
+
+
+def test_handoff_ends_on_user_turn_wires_the_same_mapper_into_both_resolvers(
+    resolved_run_configs: Callable[..., list[dict[str, object]]],
+) -> None:
+    """Both `nest_handoff_history` call sites hit the same defect, so both are wired to the
+    setting — leaving one out is exactly the inconsistency this fingerprint exists to catch.
+    Asserts the *default* closing-turn text explicitly, so a later edit to it is a failing test
+    here rather than a silent change to what every handoff says.
+    """
+    fingerprints = resolved_run_configs(AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN="true")
+
+    expected = _expected(
+        handoff_history_mapper_output=build_handoff_ends_on_user_turn_mapper("Please continue.")(_PARITY_TRANSCRIPT)
+    )
+    assert fingerprints == [expected, expected]
+
+
+def test_a_custom_closing_turn_agrees_between_both_resolvers_too(
+    resolved_run_configs: Callable[..., list[dict[str, object]]],
+) -> None:
+    """Not just the default text — an overridden one has to reach both resolvers identically,
+    or a non-English deployment gets a different closing turn depending on which entry point a
+    handoff happened to arrive through."""
+    fingerprints = resolved_run_configs(
+        AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN="true",
+        AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN="Bitte fahren Sie fort.",
+    )
+
+    expected = _expected(
+        handoff_history_mapper_output=build_handoff_ends_on_user_turn_mapper("Bitte fahren Sie fort.")(
+            _PARITY_TRANSCRIPT
+        )
     )
     assert fingerprints == [expected, expected]
