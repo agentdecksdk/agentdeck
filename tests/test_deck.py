@@ -1193,6 +1193,15 @@ async def test_a_paused_timer_defers_its_wake_without_stopping_the_rest_of_the_s
             # The stopped one is still parked, and still holds the pause it was stopped with.
             assert [run.thread_id for run in await deck.runs.pending()] == ["t-stopped"]
             assert await deck.runs.status(stopped.run_id) is RunStatus.WAITING_ANSWER
+
+            # Take the pause back and let it finish, so the process-wide memory saver does not
+            # hand this thread to the next test's timer sweep. Reaching for the port directly is
+            # the point: there is no public verb that lifts a pause on a run that is waiting for
+            # a value, which is the gap noted on #295.
+            control = deck._require_open()._control
+            assert await control.consume(stopped.run_id, Signal.PAUSE) is True
+            await deck.runs.answer(stopped.run_id, past.isoformat())
+            assert await deck.runs.pending() == []
     finally:
         reset_settings_cache()
 
