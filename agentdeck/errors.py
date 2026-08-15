@@ -47,6 +47,17 @@ class SessionBusyError(AgentdeckError):
     """
 
 
+class RunStateError(AgentdeckError):
+    """The operation is not one this run's state admits — answering a paused run, resuming one
+    that is waiting for a value, or answering one an operator asked to stop.
+
+    The state machine answered, and the answer was no; nothing was written. The message names
+    the operation that *would* have worked, because a caller holding a ``run_id`` off a stream
+    it was watching has no other way to find out which one that is
+    (``docs/design/run-lifecycle.md``).
+    """
+
+
 class StoreError(AgentdeckError):
     """A durable store failed — the event log, or the control-signal rows beside it.
 
@@ -61,6 +72,7 @@ __all__ = [
     "ConfigError",
     "ContextTypeError",
     "NotFoundError",
+    "RunStateError",
     "SessionBusyError",
     "SkillError",
     "StoreError",

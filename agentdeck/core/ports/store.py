@@ -112,7 +112,7 @@ class EventStorePort(ABC):
         Condition and write must be one operation, which is what carries this across processes:
         two servers sharing a store would both read an idle session and both open a run on it.
 
-        An **open run** recorded a lifecycle transition and no terminal one. ``WAITING_HUMAN``
+        An **open run** recorded a lifecycle transition and no terminal one. ``WAITING_ANSWER``
         counts — an interrupted run still owns its engine's thread, and a second run against it
         would overwrite the checkpoints the first resumes from. A run with no transition at all is
         ``PENDING``, indistinguishable from one the store never saw, so it holds nothing.
@@ -131,10 +131,10 @@ class EventStorePort(ABC):
     async def claim_resume(
         self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
     ) -> Event | None:
-        """Stamp and append ``resumed`` if and only if ``run_id`` is ``WAITING_HUMAN``, in one
+        """Stamp and append ``resumed`` if and only if ``run_id`` is ``WAITING_ANSWER``, in one
         indivisible step. The event when appended, ``None`` when not.
 
-        The write publishing the ``WAITING_HUMAN`` -> ``RUNNING`` transition is the same write
+        The write publishing the ``WAITING_ANSWER`` -> ``RUNNING`` transition is the same write
         that tests for it, which is what makes double-resume protection hold between processes
         and not merely between tasks. A store that cannot do both indivisibly must not implement
         this port. A concurrent loser reads ``RUNNING`` — the winner's append is what flipped it —

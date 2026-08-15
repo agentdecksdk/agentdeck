@@ -314,9 +314,13 @@ class PostgresEventStore(EventStorePort):
             cursor = await conn.execute(self._select_last_lifecycle, (ctx.namespace_key, _SORTED_LIFECYCLE_KINDS))
             return [(row[0], row[1], row[2]) for row in await cursor.fetchall()]
 
+        # The filter never drops a row: the query selects lifecycle kinds only, so every row
+        # folds to a status. It is what narrows ``status_of``'s ``None`` — the "no transition at
+        # all" answer, which a run found by this query cannot give.
         summaries = [
-            RunSummary(log_key=log_key, run_id=run_id, status=status_of([Event.model_validate(data)]))
+            RunSummary(log_key=log_key, run_id=run_id, status=folded)
             for log_key, run_id, data in await self._run(_work, "list_runs")
+            if (folded := status_of([Event.model_validate(data)])) is not None
         ]
         return [summary for summary in summaries if status is None or summary.status is status]
 

@@ -126,7 +126,7 @@ async def test_uc2_claim_pipeline_survives_a_restart(tmp_path: Any) -> None:
     # "restart": brand-new Runtime, store and engine, reading only the two files on disk.
     runtime2, store2 = _runtime(db_path, checkpoint_path)
     status_ctx = RunContext(run_id="n/a", session_id=SESSION_ID)
-    assert status_of(await store2.read(status_ctx.log_key, status_ctx)) is RunStatus.WAITING_HUMAN
+    assert status_of(await store2.read(status_ctx.log_key, status_ctx)) is RunStatus.WAITING_ANSWER
 
     workflow_app = build_workflow_app(runtime2)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=workflow_app), base_url="http://test") as client2:
@@ -299,7 +299,7 @@ def test_uc2_claim_pipeline_survives_a_real_process_restart(tmp_path: Any) -> No
 
     async def _read_thread_id() -> str:
         history = await store.read(ctx.log_key, ctx)
-        assert status_of(history) is RunStatus.WAITING_HUMAN
+        assert status_of(history) is RunStatus.WAITING_ANSWER
         interrupted = next(event for event in history if event.kind == "run.interrupted")
         assert interrupted.payload.thread_id is not None
         return interrupted.payload.thread_id

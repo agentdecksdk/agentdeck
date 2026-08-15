@@ -234,7 +234,10 @@ def build_asgi_app(deck: Deck) -> Any:
             # finished, cancelled, or already picked up by another worker. All of those are the
             # same answer to this request, and none of them is an error the caller should retry.
             raise HTTPException(status_code=409, detail=f"run {run_id!r} is not paused")
-        return {"run_id": run_id, "status": status_of(events).value, "events": len(events)}
+        # The events came back from a resume, so they always carry a lifecycle kind; the fallback
+        # is there because ``status_of`` answers ``None`` for a sequence that carries none.
+        status = status_of(events)
+        return {"run_id": run_id, "status": status.value if status else None, "events": len(events)}
 
     def _reason(body: dict[str, Any] | None) -> str | None:
         """The optional ``reason`` a control request carries, validated at the trust boundary:

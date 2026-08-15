@@ -65,7 +65,8 @@ from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
 from agentdeck.core.events import NodeUpdated, RunCompleted, RunInterrupted
 from agentdeck.core.ports import EventSinkPort
-from agentdeck.errors import ConfigError, NotFoundError
+from agentdeck.core.status import PRECONDITIONS, Operation, Verdict
+from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, RunStateError
 from agentdeck.mcp import MCP
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.registry import PROJECT_DIR, PluginRegistry, mount_project_dir
@@ -782,7 +783,10 @@ class Deck:
         runtime = self._require_open()
         pending = next((run for run in await runtime.pending() if run.run_id == run_id), None)
         if pending is None:
-            raise NotFoundError(f"No pending run {run_id!r}.")
+            # The inbox lists WAITING_ANSWER runs only, so a miss means some other state — and
+            # which one decides whether the caller is told to lift a pause, told the run is over,
+            # or told nothing answers to this id at all.
+            raise await self._not_answerable(run_id)
         result, applied = await _workflow_result(
             runtime.resume(
                 pending.invocable,
@@ -796,6 +800,19 @@ class Deck:
         if not applied:
             raise NotFoundError(f"No pending run {run_id!r}.")
         return result
+
+    async def _not_answerable(self, run_id: str) -> AgentdeckError:
+        """Why this run is not one an answer can land on, in the words :data:`PRECONDITIONS`
+        wrote for whoever was refused. ``NotFoundError`` stays the answer for an id the log has
+        never heard of, and for the race in which the run was answered between the listing and
+        this read."""
+        status = await self._status(run_id)
+        if status is None:
+            return NotFoundError(f"No pending run {run_id!r}.")
+        allowed = PRECONDITIONS[status, Operation.ANSWER]
+        if allowed.verdict is Verdict.LEGAL:
+            return NotFoundError(f"No pending run {run_id!r}.")
+        return RunStateError(f"run {run_id!r} cannot be answered: {allowed.why}")
 
     async def _due_resumes(self, now: datetime | None = None) -> list[InterruptResult]:
         """Timer-paused threads (``sleep_until``) whose wake time has passed. Not public: nothing
@@ -832,7 +849,7 @@ class Deck:
         already knows about — parked by a ``Deck.run()``/HTTP call that went through the
         Runtime, the same as any other interrupt. Resuming such a thread by calling the
         workflow directly (as this used to) never told the log: the run stayed
-        ``WAITING_HUMAN`` and kept holding its session claim forever, a ghost indistinguishable
+        ``WAITING_ANSWER`` and kept holding its session claim forever, a ghost indistinguishable
         from the one #114 fixed for :meth:`RunOps.answer`. So a due thread with a matching
         logged run resumes through the Runtime instead — closing that run and freeing its
         claim — and only a thread with no logged run (parked by calling a durable

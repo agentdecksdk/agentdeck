@@ -1097,7 +1097,7 @@ async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost
     """A timer interrupt ``Deck.run()`` parked is the same thread ``Deck._tick()`` finds on the
     checkpointer — the log and the checkpointer already agree on the *listing* (direction one,
     already true post-#164). Resuming it by calling the workflow directly, as ``_tick()`` used
-    to, never told the event log: the run stayed ``WAITING_HUMAN`` forever and kept holding its
+    to, never told the event log: the run stayed ``WAITING_ANSWER`` forever and kept holding its
     session claim (direction two — the still-live half of #120). ``_tick()`` must resume through
     the Runtime instead, so the log's run closes and a fresh run on the same thread does not
     hit a stale-lock ``SessionBusyError``.
@@ -1130,7 +1130,7 @@ async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost
             assert not other_warnings, [r.message for r in other_warnings]
 
             # direction 2: resuming through _tick() must close the *logged* run too, not just
-            # the checkpoint — a ghost WAITING_HUMAN entry is exactly what this pins against.
+            # the checkpoint — a ghost WAITING_ANSWER entry is exactly what this pins against.
             assert await deck.runs.pending() == []
 
             # ...and release the session claim it was holding, not leave it stale-locked.

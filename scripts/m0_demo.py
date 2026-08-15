@@ -450,8 +450,8 @@ async def run_uc2(tmp: Path) -> None:
     store2 = SqliteEventStore(db_path)
     runtime2 = build_runtime(engines=[engine2], invocables={"ClaimPipeline": _spec()}, store=store2)
     status_ctx = RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="n/a", trace_id="t", session_id=session_id)
-    assert status_of(await store2.read(status_ctx.log_key, status_ctx)) is RunStatus.WAITING_HUMAN
-    print("  status read from disk after restart: WAITING_HUMAN")
+    assert status_of(await store2.read(status_ctx.log_key, status_ctx)) is RunStatus.WAITING_ANSWER
+    print("  status read from disk after restart: WAITING_ANSWER")
 
     workflow_app = build_workflow_app(runtime2)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=workflow_app), base_url="http://demo") as client2:

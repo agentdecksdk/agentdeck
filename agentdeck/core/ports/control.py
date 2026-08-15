@@ -33,3 +33,14 @@ class ControlPort(ABC):
     @abstractmethod
     async def poll(self, run_id: str) -> ControlSignal | None:
         """The signal currently pending for ``run_id``, or ``None``."""
+
+    @abstractmethod
+    async def consume(self, run_id: str, expected: Signal) -> bool:
+        """Clear ``run_id``'s pending signal if and only if it is still ``expected``. ``True``
+        when this caller took it, ``False`` when somebody else's write got there first.
+
+        The compare-and-set a honored signal needs, and the reason it is not a plain clear: an
+        unconditional write would overwrite, and silently destroy, a cancel that arrived while
+        the run was suspended — the one signal nothing else will ever notice. A caller that
+        loses re-reads rather than acting on the intent it no longer holds.
+        """

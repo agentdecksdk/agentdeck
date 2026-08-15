@@ -630,5 +630,5 @@ def test_a_resume_that_cannot_be_carried_through_returns_the_run_to_waiting(exam
     assert status_of(stranded) is RunStatus.RUNNING
 
     repaired = [*stranded, make_event(examples["run.interrupted"].payload, 3)]
-    assert status_of(repaired) is RunStatus.WAITING_HUMAN
+    assert status_of(repaired) is RunStatus.WAITING_ANSWER
     assert check_terminal(repaired) == "no terminal event"

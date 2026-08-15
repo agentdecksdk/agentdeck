@@ -169,9 +169,13 @@ class SqliteEventStore(EventStorePort):
         """Overrides the port's per-run fold: one statement returns each run's *last*
         lifecycle row, so a listing deserializes one event per run instead of all of them."""
         rows = await self._run(partial(self._select_last_lifecycle, ctx.namespace_key), "list_runs")
+        # The filter never drops a row: the query selects lifecycle kinds only, so every row
+        # folds to a status. It is what narrows ``status_of``'s ``None`` — the "no transition at
+        # all" answer, which a run found by this query cannot give.
         summaries = [
-            RunSummary(log_key=log_key, run_id=run_id, status=status_of([Event.model_validate(json.loads(data))]))
+            RunSummary(log_key=log_key, run_id=run_id, status=folded)
             for log_key, run_id, data in rows
+            if (folded := status_of([Event.model_validate(json.loads(data))])) is not None
         ]
         return [summary for summary in summaries if status is None or summary.status is status]
 

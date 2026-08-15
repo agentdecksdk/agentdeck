@@ -268,7 +268,7 @@ class RedisEventStore(EventStorePort):
     ) -> Event | None:
         """The port's conditional append over ``WATCH``/``MULTI``/``EXEC``: the run's status
         and its ``seq`` index are watched, so the write that publishes the
-        ``WAITING_HUMAN`` -> ``RUNNING`` transition is the write that tested for it.
+        ``WAITING_ANSWER`` -> ``RUNNING`` transition is the write that tested for it.
 
         A loser gets its clean ``None`` from what the winner wrote, never from a guess. An
         unreachable store raises instead, because it cannot know whether anybody resumed.
@@ -303,10 +303,13 @@ class RedisEventStore(EventStorePort):
                 lifecycles = await pipe.execute()
         except RedisError as exc:
             raise StoreError(f"event log list_runs failed: {exc}") from exc
+        # The added clause never drops a run: the key it reads holds a lifecycle event, so every
+        # one folds to a status. It is what narrows ``status_of``'s ``None`` — the "no transition
+        # at all" answer, which a run with a life key cannot give.
         summaries = [
-            RunSummary(log_key=log_key, run_id=run_id, status=status_of([Event.model_validate(json.loads(life))]))
+            RunSummary(log_key=log_key, run_id=run_id, status=folded)
             for (log_key, run_id), life in zip(runs, lifecycles, strict=True)
-            if life is not None
+            if life is not None and (folded := status_of([Event.model_validate(json.loads(life))])) is not None
         ]
         return [summary for summary in summaries if status is None or summary.status is status]
 
