@@ -1,93 +1,121 @@
 # The run lifecycle
 
-Which event moves a run's state, what is true of each state, and what a request does to a run
-sitting in one. Audited against the tree at `da46439`, 2026-08-14.
+Which event moves a run's state, what is true of each state, which operation is legal in one, and
+what a pending signal does when it is read.
 
 `design/agentdeck-v2-architecture.md` §4.4 summarises this file; on the lifecycle this file wins.
 
-The log *is* the state — `core/status.py` folds a run's lifecycle events and there is no status
-table, so `status_of` after a restart returns whatever the log says.
+**The rule underneath all of it:** the log *is* the state. `core/status.py` folds a run's lifecycle
+events, there is no status table, and appending is the only way a decision becomes true. Nothing
+holds a status field and nothing caches a fold.
+
+**Built versus designed.** The machine, the states and the drift are the tree at `da46439`. The two
+rule tables and the routing are **#295, not built** — and they use `WAITING_ANSWER`, which the tree
+still spells `WAITING_HUMAN` until that lands. *Drift* and *Declared, never produced* quote the tree,
+so they keep the old name.
 
 ## The machine
 
 ```mermaid
 stateDiagram-v2
-    [*] --> PENDING
-    PENDING --> RUNNING: run.started
+    [*] --> RUNNING: run.started
     RUNNING --> PAUSED: run.paused
     PAUSED --> RUNNING: run.resumed
-    RUNNING --> WAITING_HUMAN: run.interrupted
-    WAITING_HUMAN --> RUNNING: run.resumed
+    RUNNING --> WAITING_ANSWER: run.interrupted
+    WAITING_ANSWER --> RUNNING: run.resumed
     RUNNING --> COMPLETED: run.completed
     RUNNING --> FAILED: run.failed
     RUNNING --> CANCELLED: run.cancelled
     PAUSED --> CANCELLED: run.cancelled
+    WAITING_ANSWER --> CANCELLED: run.cancelled
 ```
 
-Seven states and the seven `LIFECYCLE_KINDS` that move them, as built; no other kind in the
-schema moves a state.
+Six states and the seven `LIFECYCLE_KINDS` that move them. No other kind in the schema moves a
+state. `run.resumed` carries the answer when it leaves `WAITING_ANSWER` and `None` when it lifts a
+pause, which is how one kind serves both edges.
 
-## Per-state properties
+## What is true of each state
 
 Held today as three collections in two modules — `RESUMABLE_STATUSES` and `TERMINAL_STATUSES` in
 `core/status.py`, `SUSPENDED_KINDS` in `runtime/service.py` — each carrying a third of this table.
 
-| state | terminal | suspended | resumes with | observable |
+| state | terminal | suspended | resumes with |
+|---|---|---|---|
+| `RUNNING` | no | no | — |
+| `PAUSED` | no | yes | nothing |
+| `WAITING_ANSWER` | no | yes | a value |
+| `COMPLETED` · `FAILED` · `CANCELLED` | yes | no | — |
+
+**Which state a suspension gets is decided by how it resumes, not by who caused it.** With a value
+is `WAITING_ANSWER`; with nothing is `PAUSED`. So code pausing itself would be `PAUSED`, not a
+seventh state.
+
+**Terminal** means no outgoing transition and nothing owed. The play loop stops reading after a
+terminal kind so nothing can follow one into the log, a signal arriving afterwards is a no-op
+rather than an error, and `CANCELLED` is excluded from resumable because terminal is terminal. A
+later `run()` opens a **new** run on the session and never re-enters this one.
+
+## Which operation is legal in which state
+
+Preconditions, checked before anything is read from the control port.
+
+| state | `run` | `answer` | `resume` | `pause` · `cancel` |
 |---|---|---|---|---|
-| `PENDING` | no | no | — | **no** |
-| `RUNNING` | no | no | — | yes |
-| `PAUSED` | no | yes | nothing | yes |
-| `WAITING_HUMAN` | no | yes | a value | yes |
-| `COMPLETED` · `FAILED` · `CANCELLED` | yes | no | — | yes |
+| `RUNNING` | refused, session busy | refused, nothing awaits one | no-op | recorded |
+| `PAUSED` | refused, session busy | refused, naming `resume` | legal | recorded |
+| `WAITING_ANSWER` | refused, session busy | legal | refused, naming `answer` | recorded |
+| terminal | opens a **new** run | no-op | no-op | recorded, never read |
 
-## What a request does to a run in each state
+## What a pending signal does when it is read
 
-A *total* function of (state, intent) — the half that exists in no module. A missing pair is how a
-request gets accepted and then read by nothing.
+A signal is a request, never a record. It is read at one of two moments: a gate checkpoint while
+the run is live, or the claim that begins the operation continuing a stopped run. The columns are
+**what was pending at that moment**, not what the caller just called.
 
-| state | `cancel` | `pause` | `resume` | `answer` |
+| state, read at | `cancel` | `pause` | `resume` | nothing |
 |---|---|---|---|---|
-| `RUNNING` | at next safe point | at next safe point | no-op | refuse |
-| `PAUSED` | honored by next resume | no-op | continue, lift the pause | refuse |
-| `WAITING_HUMAN` | **terminate** ‡#229 | lift — the answer is the continuation ‡ | **refuse**, naming `answer` ‡ | continue with the value |
-| terminal | no-op | no-op | no-op | no-op |
-| `PENDING` | refuse | refuse | refuse | refuse |
+| `RUNNING`, a gate checkpoint | raise: requested, observed, cancelled · *consume* | raise: requested, observed, paused · *consume* | return; a lifted pause has nothing to do · *leave* | return |
+| `PAUSED`, a resume claims it | terminate: requested, cancelled · *consume* | the resume **is** the answer to it: lift · *consume* | proceed · *consume* | proceed |
+| `WAITING_ANSWER`, an answer claims it | terminate: requested, cancelled · *consume* | **refuse the answer, naming the pause** · *leave* | proceed · *consume* | proceed |
+| terminal | no-op · *consume* | no-op · *consume* | no-op · *consume* | — |
 
-‡ Ruled, not built: the three `WAITING_HUMAN` cells are what should happen. What happens today is
-in *Drift* below — the rest of the table is behaviour.
+Sixteen cells, total, asserted at import. A missing ruling is a missing key, which is a failing
+test rather than a request that is accepted and read by nothing.
 
-Two rules govern the table. A ruling names the rows to append **and** what becomes of the request
-(`consume` or `leave` — `consume` needs the port method §4.5 records as missing). And **every
-control-port read ends in an event or an explicit no-op, never in silence**; silence is
-unobservable, which is #229 and its two unfiled siblings at once.
+Two cells carry the design's opinions:
 
-## Routing a request
+**A cancel against a stopped run terminates immediately**, rather than today's deferral to the next
+resume. `signal()` defers because nothing claims the run on the cancel path; the routing below
+claims first, so the race that forced the deferral is gone.
 
-The rule the whole design hangs off: **the log is the only place run state lives, and appending is
-the only way a decision becomes true.** Nothing holds a status field, nothing caches a fold, and
-the module that owns the rules holds no state at all — delete its memory between two calls and
-nothing is lost.
+**A pause against a run waiting for an answer refuses the answer** rather than being lifted by it.
+Lifting would let an answer silently override an operator who said stop. Refusing costs the
+answerer one round trip and keeps both intents intact. The better end state is to accept the
+answer, resume, and stop at the first safe point — which a workflow cannot do until it has one
+(#128), so it is not the first version.
+
+## Routing
 
 Five steps, in this order.
 
 | | | |
 |---|---|---|
 | 1 | claim | the conditional append that makes this caller the only actor on the run |
-| 2 | fold | read the log, derive the state. `runtime/service.py:259` already states why this must follow the claim: an intent read before it "could belong to somebody else's turn" |
-| 3 | intent | read the control port. A request, never a record |
-| 4 | decide | `POLICY[state, intent] -> Ruling` |
+| 2 | fold | read the log, derive the state. `runtime/service.py:259` states why this must follow the claim: an intent read before it "could belong to somebody else's turn" |
+| 3 | intent | read the control port |
+| 4 | decide | look up the two tables above |
 | 5 | append | the ruling's events. Nothing else makes it real |
 
-A `Ruling` carries three things, and the third is the one that is currently implicit:
+A `Ruling` carries what to append, **what becomes of the intent** (`consume` or `leave`), and one
+sentence of why, which doubles as the error message and the test name. `consume` needs
+`ControlPort.consume(run_id, expected) -> bool`, recorded as missing in
+`agentdeck-v2-architecture.md` §4.5; `resume_run` hand-rolls it today and documents why an
+unconditional write "would overwrite, and silently destroy, a cancel that arrived while the run was
+suspended".
 
-| field | |
-|---|---|
-| what to append | the events, or none |
-| what becomes of the intent | `consume` or `leave`. `resume_run` hand-rolls this today and documents why an unconditional write "would overwrite, and silently destroy, a cancel that arrived while the run was suspended" |
-| why | one sentence, which is simultaneously the error message, the docs cell and the test name |
-
-`consume` needs `ControlPort.consume(run_id, expected) -> bool`, recorded as missing in
-`agentdeck-v2-architecture.md` §4.5.
+**The invariant:** every read of the control port ends in an event or an explicit no-op, **never in
+silence**. Silence cannot be tested, logged or seen by a user, which is how three defects survived a
+release.
 
 ## The declaration
 
@@ -96,21 +124,18 @@ files make a rename churn, and that file already is this subject.
 
 | | replaces |
 |---|---|
-| `STATES` — terminal, suspended, resumes-with, per state | `RESUMABLE_STATUSES`, `TERMINAL_STATUSES` (`core/status.py`) and `SUSPENDED_KINDS` (`runtime/service.py:56`): three collections in two modules, each holding a third of one table |
-| `TRANSITIONS` — event kind to state | `_KIND_TO_STATUS`, unchanged in substance |
-| `POLICY` — (state, intent) to `Ruling` | two `if pending.verb is …` branches in `resume_run`, the `status=PAUSED` filter inside `_paused`, and, for the cells nothing implements, silence |
+| `STATES` | `RESUMABLE_STATUSES`, `TERMINAL_STATUSES`, `SUSPENDED_KINDS` |
+| `TRANSITIONS` | `_KIND_TO_STATUS`, unchanged in substance |
+| `PRECONDITIONS`, `POLICY` | two `if pending.verb is …` branches, a `status=PAUSED` query filter, and, for the cells nothing implements, silence |
 
 Every derived set stays derived, which is the pattern `TERMINAL_STATUSES` already uses: a terminal
 kind added without a transition raises at import rather than answering wrongly at runtime.
-
-`POLICY` is **total**: six states after `PENDING` goes, four intents, twenty-four cells, asserted
-at import. A missing ruling becomes a missing key, and a missing key is a test failure rather than
-a request that is accepted and then read by nothing.
-
-`tests/core/test_vocabularies_agree.py` is where that assertion belongs. It exists for exactly this
+`tests/core/test_vocabularies_agree.py` is where the totality assertions belong; it exists for this
 discipline and already guards the kind tables against the schema.
 
 ## Drift
+
+The tree at `da46439`, which still spells the parked state `WAITING_HUMAN`.
 
 | claim | truth in the tree |
 |---|---|
@@ -123,7 +148,7 @@ discipline and already guards the kind tables against the schema.
 
 | declaration | why nothing produces it |
 |---|---|
-| `RunStatus.PENDING` | A run with no events has no rows to list, so no caller can observe it — a deletion candidate |
+| `RunStatus.PENDING` | The fold's identity element for an empty sequence, never a state a run is in: `run.started` is row 0, so there is no moment between "does not exist" and `RUNNING`. #295 deletes it and #294 already stops the store returning it for a run it never saw |
 | `SafePoint`'s `tool_dispatch`, `node_boundary` | Every `checkpoint()` call site is bare, so `stream_item` is the only value emitted |
 | `RunFailed.error_code`'s `tool_error`, `budget_exceeded`, `deadline` | Only `engine_error` and `cancelled_hard` are ever constructed, and a tool that raises ends the run `completed` (#250) |
 
@@ -133,9 +158,9 @@ discipline and already guards the kind tables against the schema.
 
 `sleep_until` parks here, so a wall-clock wait is recorded as a human one, and
 `RunInterrupted.reason` defaults anything unrecognised to `"human"`
-(`adapters/engines/langgraph/engine.py:331`) — including a timer payload, which carries no
-`reason` at all.
+(`adapters/engines/langgraph/engine.py:331`) — including a timer payload, which carries no `reason`
+at all.
 
 The enum rename is an ordinary API break: the value is in no golden file and no snapshot, because
-status is derived, so `coding-standards.md` §7 does not apply. `RunInterrupted.reason`'s literal
-*is* in the schema, and renaming it is a separate versioned change.
+status is derived and never serialised into a payload, so `coding-standards.md` §7 does not apply.
+`RunInterrupted.reason`'s literal *is* in the schema, and renaming it is a separate versioned change.
