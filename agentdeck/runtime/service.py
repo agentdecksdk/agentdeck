@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
-from contextlib import aclosing, suppress
+from contextlib import aclosing, asynccontextmanager, suppress
 from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -52,14 +52,14 @@ from agentdeck.errors import DOCS_URL, NotFoundError, RunStateError, SessionBusy
 from agentdeck.runtime.dispatch import SinkDispatch
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Mapping, Sequence
+    from collections.abc import AsyncGenerator, AsyncIterator, Mapping, Sequence
     from typing import Any
 
     from agentdeck.core.content import Input
     from agentdeck.core.control import ControlSignal
     from agentdeck.core.events import KnownPayload
     from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort
+    from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort, LeasePort
     from agentdeck.core.ports.store import RunSummary
 
 logger = logging.getLogger(__name__)
@@ -68,6 +68,14 @@ logger = logging.getLogger(__name__)
 # rather than imported so a bare ``Runtime()`` needs no settings at all; ``build_runtime`` is
 # the caller that resolves the configured value and passes it in.
 _DEFAULT_STALE_RUN_AFTER = timedelta(hours=1)
+
+# Mirrors ``RuntimeSettings.lease_ttl_seconds``, duplicated for the same reason as above.
+_DEFAULT_LEASE_TTL = timedelta(seconds=90)
+
+# How many renewals fit in one TTL. Six gives a 90-second lease a 15-second heartbeat: five
+# consecutive misses before a live run is declared dead, which is the margin a GC pause or a
+# briefly slow store gets to not cost a takeover.
+_RENEWALS_PER_TTL = 6
 _SESSIONS_DOCS = f"{DOCS_URL}/concepts/sessions-and-memory"
 
 
@@ -90,6 +98,13 @@ class Runtime:
     (ADR-D11); a caller that wants to hold time injects a clock into the store instead —
     ``MemoryEventStore(clock=...)``, ``RedisEventStore(clock=...)``.
 
+    ``lease`` is how a killed worker is recognised as one instead of waited out. A live run
+    holds a lease and renews it while it plays; a process killed outright stops renewing, and
+    the next turn on that session can then assert positively that nobody is executing the run
+    it finds open. Without a lease backend the two mechanisms below are all there is, which is
+    why ``stale_run_after`` stays: a backend that knows nothing about a run never reports it,
+    so this degrades to the timer rather than guessing.
+
     ``stale_run_after`` is how long a **running** run may go silent before it stops holding its
     session — never a suspended one, which holds until resumed, answered or cancelled.
     ``Runtime`` takes no ambient configuration at all — it defaults to one hour and never reads
@@ -109,6 +124,8 @@ class Runtime:
         control: ControlPort | None = None,
         stale_run_after: timedelta = _DEFAULT_STALE_RUN_AFTER,
         control_poll_interval: float = CONTROL_POLL_INTERVAL,
+        lease: LeasePort | None = None,
+        lease_ttl: timedelta = _DEFAULT_LEASE_TTL,
     ) -> None:
         self._engines = {engine.engine: engine for engine in engines}
         self._store = store
@@ -117,6 +134,8 @@ class Runtime:
         self._control = control
         self._stale_run_after = stale_run_after
         self._control_poll_interval = control_poll_interval
+        self._lease = lease
+        self._lease_ttl = lease_ttl
 
     @property
     def store(self) -> EventStorePort:
@@ -172,7 +191,7 @@ class Runtime:
             input=input,
         )
         try:
-            claimed = await self._claim_session(opening, spec, ctx)
+            claimed = await self._claim_session(opening, spec, ctx, history)
         except asyncio.CancelledError:
             # The claim commits this run before anything is yielded, and it is awaited in the
             # caller's own coroutine — the one an ASGI server cancels when a client disconnects
@@ -404,20 +423,28 @@ class Runtime:
         every one of them owes the log the same four endings: a terminal event, a suspension, a
         consumer that walked away, or an exception. ``reports`` is drained the same way for all
         three, and for the same reason there is one body at all.
+
+        The lease is held here, around the whole of it, for exactly that reason: a run is being
+        executed precisely while this body is reading its engine, and every one of the four
+        endings leaves through this method. A run that parks at a suspension releases too —
+        nothing is executing it then, and #311's rule is that the log alone decides how long
+        a suspended run holds its session.
         """
         last = opening.kind
         try:
-            yield opening
-            async with aclosing(stream) as payloads:
-                async for payload in payloads:
-                    async for report in self._drain(reports, spec, ctx):
-                        yield report
-                    yield await self._record(payload, spec, ctx)
-                    last = payload.kind
-                    if last in TERMINAL_KINDS:
-                        # Terminal means terminal: stop reading so nothing can follow it into
-                        # the log. An engine yielding more after this gets it discarded.
-                        break
+            async with self._holding(ctx.run_id):
+                yield opening
+                async with aclosing(stream) as payloads:
+                    async for payload in payloads:
+                        async for report in self._drain(reports, spec, ctx):
+                            yield report
+                        yield await self._record(payload, spec, ctx)
+                        last = payload.kind
+                        if last in TERMINAL_KINDS:
+                            # Terminal means terminal: stop reading so nothing can follow it
+                            # into the log. An engine yielding more after this gets it
+                            # discarded.
+                            break
         except GeneratorExit:
             # Nobody is listening any more, so there is no event to yield — but an unclosed
             # run in the log is indistinguishable from one still in flight.
@@ -443,6 +470,72 @@ class Runtime:
             # An engine that just stops leaves consumers waiting forever; close the run for it.
             logger.error("engine %r ended run %s after %r, not a terminal event", engine.engine, ctx.run_id, last)
             yield await self._record(_engine_failed(f"engine {engine.engine!r} ended after {last!r}"), spec, ctx)
+
+    @asynccontextmanager
+    async def _holding(self, run_id: str) -> AsyncIterator[None]:
+        """Assert, for as long as the body runs, that this worker is executing ``run_id``.
+
+        The mechanism is the port's; the acquire/renew/release cycle is policy and lives here,
+        the same way :class:`~agentdeck.core.control.Gate` sits above ``ControlPort``. Every
+        exit releases, including the ones that end the run badly — and the one exit that cannot
+        release, the process being killed, is the whole reason the lease has a TTL.
+
+        Nothing here can fail a turn. A lease is an *improvement* on the staleness timer, so a
+        lease backend that is unreachable, or that refuses the acquire, leaves the run playing
+        under the timer alone rather than taking a working turn down with it.
+        """
+        lease = self._lease
+        if lease is None:
+            yield
+            return
+        with suppress(StoreError):
+            if not await lease.acquire(run_id, self._lease_ttl):
+                # A run id is minted per run and globally unique, so this means two workers
+                # believe they are playing one run. Worth saying; not worth refusing, since
+                # the log's own conditional append already decided which of them plays.
+                logger.warning("run %s is already leased by another worker", run_id)
+        renewing = asyncio.create_task(self._renew(lease, run_id))
+        try:
+            yield
+        finally:
+            renewing.cancel()
+            with suppress(StoreError):
+                await lease.release(run_id)
+
+    async def _renew(self, lease: LeasePort, run_id: str) -> None:
+        """Say, every ``lease_ttl / _RENEWALS_PER_TTL``, that this run is still being executed.
+
+        # ponytail: an asyncio renewer cannot run while the event loop is blocked, so a tool
+        # doing synchronous I/O or CPU-bound work for longer than one TTL lets a *live* run's
+        # lease expire and be taken over. Raise ``AGENTDECK_RUNTIME_LEASE_TTL_SECONDS`` above
+        # the longest stall a deployment can produce; move the renewer to its own thread if
+        # that ceiling is ever the binding one.
+        """
+        interval = self._lease_ttl.total_seconds() / _RENEWALS_PER_TTL
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                if not await lease.renew(run_id, self._lease_ttl):
+                    logger.warning("run %s lost its lease while still playing", run_id)
+            except StoreError:
+                # Keep renewing: one unreachable moment is not a reason to stop asserting
+                # liveness for the rest of the run, and the TTL is the backstop if it persists.
+                logger.exception("could not renew the lease for run %s", run_id)
+
+    async def _dead_runs(self, history: Sequence[Event]) -> frozenset[str]:
+        """Which runs in this log a lease can positively assert nobody is executing.
+
+        Empty whenever there is no lease port, whenever the backend never saw these runs, and
+        whenever it cannot be reached — three different kinds of ignorance, all of which must
+        read as "no knowledge" rather than "dead", or a session gets taken from a live worker.
+        """
+        if self._lease is None or not history:
+            return frozenset()
+        try:
+            return await self._lease.dead({event.run_id for event in history})
+        except StoreError:
+            logger.exception("could not read the run leases; falling back to the staleness timer")
+            return frozenset()
 
     async def _find(self, run_id: str, ctx: RunContext) -> RunSummary | None:
         """Where a run lives and what state it is in. ``None`` means no run of this namespace
@@ -494,7 +587,9 @@ class Runtime:
         logger.info("control intent for run %s changed under this caller; re-reading it", id)
         return await self._peek(id, status)
 
-    async def _claim_session(self, opening: RunStarted, spec: InvocableSpec, ctx: RunContext) -> Event:
+    async def _claim_session(
+        self, opening: RunStarted, spec: InvocableSpec, ctx: RunContext, history: Sequence[Event]
+    ) -> Event:
         """Open this run, or refuse the turn: the store decides, in one conditional append.
 
         A session's engine state is one conversation, and only its engine can lock it — so the
@@ -506,12 +601,20 @@ class Runtime:
 
         An open run nobody is coming back for would otherwise hold its session for good: every
         graceful exit closes its run, so this is the process that was killed outright. Such a
-        run stops holding the session once it has been silent for ``stale_run_after``, and this
-        turn closes it — loudly, and accepting that a takeover can be premature, because a
+        run stops holding the session on either of two findings — a lease this worker can see
+        has expired, or, failing that, silence for longer than ``stale_run_after`` — and this
+        turn closes it. Loudly, and accepting that a takeover can be premature, because a
         session wedged forever is the worse failure. Failing to close it is not worth failing
         this turn over: the next one meets the same stale run and tries again.
+
+        ``history`` is the read this turn already did, reused rather than repeated: it names
+        every run in this session, which is the set to ask the lease about. A run that opened
+        between that read and this claim is simply not in the set, so it is judged by the timer
+        and holds its session — the safe direction to be wrong in.
         """
-        claim, event = await self._store.claim_start(ctx.log_key, opening, ctx, spec.name, self._stale_run_after)
+        claim, event = await self._store.claim_start(
+            ctx.log_key, opening, ctx, spec.name, self._stale_run_after, dead=await self._dead_runs(history)
+        )
         if claim.held_by is not None or event is None:
             raise SessionBusyError(await self._session_busy_message(ctx, claim.held_by))
         for tail in claim.overridden:
@@ -575,6 +678,12 @@ class Runtime:
         abandoned = replace(ctx, run_id=tail.run_id, session_id=tail.session_id)
         event = (await self._store.append(ctx.log_key, [payload], abandoned, tail.origin))[0]
         await self._fan_out(event)
+        if self._lease is not None:
+            # The dead worker's expired row has done its job and nothing else prunes it. Not
+            # required for correctness — the run is terminal now, so no claim ever consults it
+            # again — but a lease table that only grows is a table nobody trusts.
+            with suppress(StoreError):
+                await self._lease.release(tail.run_id)
 
     async def _close_cancelled(self, spec: InvocableSpec, ctx: RunContext, reason: str) -> None:
         """Write the closing ``run.cancelled`` while this task is already being cancelled.

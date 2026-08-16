@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING
 from agentdeck.adapters.control.memory import MemoryControlPort
 from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings
+from agentdeck.adapters.leases.memory import MemoryLeasePort
+from agentdeck.adapters.leases.sqlite import SqliteLeasePort
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.errors import DOCS_URL
@@ -40,7 +42,7 @@ if TYPE_CHECKING:
     from datetime import timedelta
 
     from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort
+    from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort, LeasePort
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +63,9 @@ def build_runtime(
     ``invocables`` defaults to discovery over ``./.agentdeck`` — pass a mapping to run
     specs built in code instead. ``store`` defaults to the configured event store,
     ``control`` to the configured control port, and ``stale_run_after`` to
-    ``RuntimeSettings.stale_run_after``.
+    ``RuntimeSettings.stale_run_after``. The lease port comes from the same setting the
+    control port does and is never passed in: both are per-run ephemeral state for one
+    deployment, so an operator answers that question once.
 
     ``sinks`` defaults to none, and telemetry in particular is *not* resolved here. A sink can
     hold a live client with background threads, and resolving one while a Runtime is assembled
@@ -81,7 +85,16 @@ def build_runtime(
     control = control or resolve_control_port()
     if stale_run_after is None:
         stale_run_after = get_settings().runtime.stale_run_after
-    return Runtime(engines, store, specs, sinks=sinks, control=control, stale_run_after=stale_run_after)
+    return Runtime(
+        engines,
+        store,
+        specs,
+        sinks=sinks,
+        control=control,
+        stale_run_after=stale_run_after,
+        lease=resolve_lease_port(),
+        lease_ttl=get_settings().runtime.lease_ttl,
+    )
 
 
 def resolve_observers() -> tuple[EventSinkPort, ...]:
@@ -169,6 +182,37 @@ def resolve_control_port(settings: ControlSettings | None = None) -> ControlPort
     )
 
 
+def resolve_lease_port(settings: ControlSettings | None = None) -> LeasePort:
+    """Build the lease port from ``AGENTDECK_CONTROL``'s scheme, the same URL the control port
+    reads: ``memory://`` (default) or ``sqlite://<path>``.
+
+    One setting for two ports, deliberately. They answer different questions and stay separate
+    types, but both are ephemeral per-run state for one deployment, and making an operator
+    point them at two places would be asking the same question twice.
+
+    Always built, like the control port: a lease that reports nothing costs a start one
+    dictionary lookup, and there is no deployment where *not* asserting liveness is the safer
+    choice.
+    """
+    control = settings if settings is not None else get_settings().control
+    scheme, rest = parse_backend_url(control.url)
+    if scheme == "memory":
+        logger.warning(
+            "AGENTDECK_CONTROL is 'memory://': run leases are visible only inside this process, so a worker "
+            "killed outright still holds its session for AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS (an hour by "
+            "default). Set AGENTDECK_CONTROL=sqlite:///<path> to free it within one lease TTL instead."
+        )
+        return MemoryLeasePort()
+    if scheme == "sqlite":
+        if not rest:
+            raise ValueError("the sqlite lease port needs a file path: set AGENTDECK_CONTROL=sqlite:///<path>")
+        return SqliteLeasePort(rest)
+    raise ValueError(
+        f"unknown control backend {scheme!r} in AGENTDECK_CONTROL={control.url!r}; expected memory or sqlite "
+        f"— see {_STORE_DOCS}"
+    )
+
+
 def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePort:
     """Build the event store named by ``AGENTDECK_EVENTS``'s scheme: ``memory://`` (default),
     ``sqlite://<path>``, ``redis://``/``rediss://<url>``, or ``postgresql://<dsn>``.
@@ -220,6 +264,7 @@ __all__ = [
     "resolve_checkpoint",
     "resolve_control_port",
     "resolve_event_store",
+    "resolve_lease_port",
     "resolve_observers",
     "resolve_run_settings",
 ]

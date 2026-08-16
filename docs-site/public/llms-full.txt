@@ -2069,6 +2069,11 @@ for waiting in await deck.runs.list(status=RunStatus.WAITING_ANSWER):
 nobody can know at the moment of asking. [Run Control](/concepts/run-control) is the full
 contract: what a safe point is, why a request is not a status change, and what a resume replays.
 
+A `follow=True` ends at the same boundary `deck.stream()` does — a terminal event or a
+suspension — not at the run's true end. Following a run that was later resumed past an
+interrupt replays only up to that interrupt; call `events()` again, or read it with
+`follow=False`, to see what came after.
+
 **`await run` raises rather than blocks once the run has stopped without finishing.** `PAUSED`
 and `WAITING_ANSWER` both raise `RunSuspendedError` (a `RunStateError`) instead of hanging with no
 timeout parameter to escape it — `.pending` on the exception carries the interrupt's own payload
@@ -2528,6 +2533,7 @@ Knobs the Runtime itself reads.
 | Env var | Type | Default | Description |
 |---|---|---|---|
 | `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` | `float` | `3600.0` | How long, in seconds, a running open run may go without writing an event before it is treated as abandoned and its session ownership is released for another worker to claim. Never applies to a run paused or waiting on an answer — those hold their session until resumed, answered, or cancelled. Must be positive; set it above the longest gap a healthy turn can go quiet. |
+| `AGENTDECK_RUNTIME_LEASE_TTL_SECONDS` | `float` | `90.0` | How long, in seconds, a run's lease stays valid without renewal. A worker renews its lease six times per TTL while it plays a run, so a process killed outright frees its session within one TTL instead of one `stale_run_after_seconds`. Only takes effect with a lease backend shared across processes (`AGENTDECK_CONTROL=sqlite:///<path>`); with the in-memory default nothing is ever reported dead and the staleness timer remains the only backstop. Must be positive; set it above the longest the event loop can be blocked in one go. |
 | `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` | `float` | `30.0` | How often, in seconds, an open Deck sweeps for a `sleep_until` timer whose wake moment has passed and resumes it, with no cron or scheduler required. Must be positive; runs for the Deck's own lifetime, started when it opens and cancelled when it closes. |
 
 ## `LangfuseSettings`
@@ -2761,16 +2767,21 @@ or `redis://` — in anything that outlives one process. See
 [Choosing a Store Backend](/concepts/choosing-a-store-backend).
 &nbsp;→ [#212](https://github.com/agentdecksdk/agentdeck/issues/212)
 
-### A killed worker holds its session for an hour
+### A killed worker holds its session for an hour, unless leases are shared
 
-A worker killed while its run was **running** leaves its `session_id` unusable for
-`AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`, which defaults to **3600**. There is no way to
-release it sooner. This does not apply to a worker killed while its run was paused or waiting
-on an answer — that session holds until the run is resumed, answered, or cancelled, on purpose,
-with no timer involved at all.
+With the default `AGENTDECK_CONTROL=memory://`, a worker killed while its run was **running**
+leaves its `session_id` unusable for `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`, which defaults
+to **3600**. Run leases live in that process only, so the worker taking over knows nothing about
+the one that died and has nothing but the timer to go on.
 
-**Until it is fixed:** lower the setting if your deployment restarts often. It trades against how
-long a healthy turn may go quiet.
+**Fix it by sharing them:** set `AGENTDECK_CONTROL=sqlite:///<path>` and the next worker reads the
+dead one's lapsed lease directly, freeing the session within one `AGENTDECK_RUNTIME_LEASE_TTL_SECONDS`
+(**90** by default) instead of an hour. Lower the staleness setting too if you cannot share a
+backend; it trades against how long a healthy turn may go quiet.
+
+Neither applies to a worker killed while its run was paused or waiting on an answer — that session
+holds until the run is resumed, answered, or cancelled, on purpose, with no timer and no lease
+involved at all.
 &nbsp;→ [#244](https://github.com/agentdecksdk/agentdeck/issues/244)
 
 ## Provider compatibility
@@ -2865,6 +2876,41 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
 
 ### Upgrading
 
+- **Breaking: `deck.runs` is now `start`/`get`/`list`, and a `Run` handle owns every op that
+  acts on a run already in flight** (#322). `deck.runs.pause/cancel/resume/answer/status/pending`
+  are removed, not deprecated. `await deck.runs.start(name, input, ...)` begins a run and hands
+  back a `Run` (`.id`, `.key`, `.namespace`, `.session_id`) whose own methods replace them:
+  `run.status()`, `run.pause(reason)`, `run.resume()`, `run.cancel(reason)`, `run.pending()`,
+  `run.answer(value)`, `run.events(from_seq=0, follow=False)`, and `await run` for the result — a
+  `TurnResult` for an agent, the graph's own state for a workflow. `deck.runs.get(id)` (optionally
+  `namespace=`) or `deck.runs.get(namespace=, key=)` rehydrates a handle to a run that already
+  exists; it never mutates and raises `NotFoundError` for one this namespace has never heard of.
+  `deck.runs.list(namespace=, status=, limit=)` replaces the old `pending()` inbox and stays
+  scoped to one namespace. Two handles on one run always agree — the durable store is the only
+  thing either reads from. `deck.run()`/`deck.stream()` are unchanged in behavior (still return
+  an interrupt as a value rather than raising); `await run` on a `Run` that is `PAUSED` or
+  `WAITING_ANSWER` instead raises the new `RunSuspendedError` (a `RunStateError`), carrying
+  `.pending`, since there is no timeout parameter to wait either state out. `context=` is retained
+  on the handle `runs.start()` returns for that handle's whole life — `resume()`/`answer()` no
+  longer take one, and a handle from `get()` always resupplies `None`. `PendingRun` is no longer
+  public (`deck.runs.list(status=RunStatus.WAITING_ANSWER)` replaces it); `InterruptResult` gains
+  the canonical `id` alongside its existing fields. `EventStorePort.locate()` is removed (no
+  caller left once `Deck._status` went with it) and replaced by `find_by_key(ctx, key)`, the read
+  side of the `(namespace, key)` claim, across all four stores.
+- **Breaking: a run's `id` is now minted, never derived from a caller-supplied value** (#324).
+  `deck.run(...)`/`deck.stream(...)` no longer accept `run_id=`: the keyword is `key=`, an
+  optional stable application identifier for lookup and idempotency, and it plays no part in
+  the run's own address any more. Every run gets a fresh, globally unique `id` regardless of
+  `key`, so two namespaces reusing one key now get two unrelated runs instead of the collision
+  risk `run_id=` carried. `(namespace, key)` is a permanent claim once a run starts with it — a
+  second `deck.run(..., key=...)` reusing one raises `DuplicateKeyError` rather than replaying
+  the run that holds it, and the pairing survives a restart. The `events` table gains a `key`
+  column and its run-scoped uniqueness tightens from `(namespace, log_key, run_id, seq)` to
+  `(namespace, run_id, seq)`, so one logical run can no longer be split across two log keys. An
+  existing SQLite events database is migrated in place on open (`key` column added, the tightened
+  index rebuilt); a database with rows that genuinely violate the tighter constraint raises
+  `StoreError` naming the conflict instead of silently picking a survivor. `list_runs` gains a
+  `limit` parameter across all four stores.
 - **Breaking: `deck.run(...)`/`deck.stream(...)` now raises `SessionBusyError` on a session
   held by a run parked `PAUSED` or `WAITING_ANSWER`, however long ago it went quiet** (#311).
   Every store's `claim_start` applied `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` to *any* open
@@ -2942,6 +2988,20 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
   applies cleanly to a database an earlier build already created), and memory/Redis keep a
   derived `(namespace, run_id) -> log_key` mapping a replay of the log rebuilds. `Deck._status`
   (behind `deck.runs.status`) uses it now instead of walking `list_runs`.
+- **Breaking: `deck.run(...)`/`deck.stream(...)` no longer stop a run when its caller stops
+  reading it** (#325). Execution used to *be* consuming the event generator, so closing
+  `stream()`'s frame (or having the task reading it cancelled, as a real HTTP disconnect does)
+  closed the run underneath it as `run.cancelled`. A run now advances in a deck-owned task from
+  the moment it starts, independent of whether anyone is still watching — the same task any
+  number of readers may observe through the store without stealing its events from one another
+  or advancing it, and without needing to have started it themselves. A client that disconnects
+  mid-stream therefore no longer stops the turn it was reading: the run keeps executing to its
+  own natural end (bounded to one turn, its session freed once it reaches one), and the explicit
+  `deck.runs.cancel(run_id)` is how a caller who wants that back gets it. `deck.stream()`'s wire
+  bytes are unchanged (`tests/golden/` proves it byte-for-byte) and `deck.run()`'s propagated
+  exception on a failed turn is unchanged; only the disconnect-cancels-execution coupling is
+  gone. `Deck.aclose()` now settles or cancels whatever it is still executing before closing the
+  store, and logs which happened per run.
 
 - **`agentdeck.testing.scripted_model_server`'s `tool_name=` now also accepts a sequence of
   names** (#248), one tool call per request in order, then plain text once the sequence is
@@ -2986,6 +3046,22 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
 
 ### Fixed
 
+- **A worker killed outright held its session for up to an hour** (#244). Liveness was inferred
+  from silence, and a healthy turn can be quiet for a long time — so the staleness window had to
+  be generous, and one crashed process locked one user out of one conversation for
+  `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` (3600 by default), with no way to shorten it after
+  the fact. A run now holds a **lease** while it plays and renews it six times per TTL, so the
+  next turn on that session can positively assert that nobody is executing the run it found open,
+  instead of waiting out a timer. With `AGENTDECK_CONTROL=sqlite:///<path>` a killed worker's
+  session is claimable within one lease TTL (**90 seconds** by default, set with
+  `AGENTDECK_RUNTIME_LEASE_TTL_SECONDS`). The new `LeasePort` reports only runs it **held and
+  watched expire** — a run it
+  has never seen is never reported dead — so with the `memory://` default, which knows nothing
+  about any other process, behavior is exactly as before and the staleness timer remains the only
+  backstop; boot warns when that is the case. Suspended runs are unaffected: `PAUSED` and
+  `WAITING_ANSWER` have no worker to be dead, so they still hold their session until resumed,
+  answered or cancelled. No new public API on `Deck` or `deck.runs`. Redis and Postgres lease
+  backends follow when `AGENTDECK_CONTROL` gains those schemes.
 - **A cancel or pause could land on the wrong tenant's run when two namespaces shared a
   caller-supplied `run_id`** (#315). Both `ControlPort` adapters (`memory`, `sqlite`) kept one
   pending signal per bare `run_id` — `acme/order-1234` and `globex/order-1234` shared a row, so

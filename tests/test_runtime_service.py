@@ -17,6 +17,7 @@ from never_yields import NeverYields
 from pydantic import ValidationError
 
 from agentdeck.adapters.engines.stub import StubEngine, stub_spec
+from agentdeck.adapters.leases.memory import MemoryLeasePort
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.composition import build_runtime
 from agentdeck.core.content import DataBlock, TextBlock
@@ -689,6 +690,102 @@ async def test_a_turn_does_not_take_over_a_session_whose_run_is_merely_quiet() -
     assert [event.kind for event in await store.read(CTX.log_key, CTX)] == ["run.started"]
 
 
+async def test_a_lease_frees_a_killed_workers_session_without_waiting_out_the_staleness_window(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """#244, in one case. The window is left at the hour it defaults to and the abandoned run is
+    a minute old, so the timer alone would refuse this turn — as the case above it asserts.
+
+    A shared lease says what silence cannot: the worker holding ``r-0`` stopped renewing, so it
+    is not quiet, it is gone. The session is taken over now instead of in fifty-nine minutes.
+    """
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    clock = _Held()
+    store = MemoryEventStore(clock=clock)
+    await _leave_open(store, clock, "r-0", timedelta(minutes=1))
+    lease = MemoryLeasePort()
+    await lease.acquire("r-0", timedelta(seconds=-1))  # the killed worker's lease, lapsed
+    runtime = Runtime([StubEngine()], store, {spec.name: spec}, stale_run_after=timedelta(hours=1), lease=lease)
+
+    with caplog.at_level(logging.WARNING):
+        events = [
+            event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+        ]
+
+    assert events[-1].kind == "run.completed"
+    assert [event.kind for event in await store.read_run(CTX.log_key, "r-0", CTX)] == ["run.started", "run.failed"]
+    assert "took it over and closed it as failed" in caplog.text
+
+
+async def test_a_lease_that_knows_nothing_leaves_the_staleness_window_in_charge() -> None:
+    """The default deployment, and the reason it is safe to ship on by default: two processes,
+    each with its own in-memory lease, know nothing of each other's runs.
+
+    The peer's lease here has *expired* — and the runtime's own port, which never saw ``r-0``,
+    still reports nothing. So the session holds and the turn is refused, which is exactly what
+    happens today with no lease at all. Absence of knowledge is never death.
+    """
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    clock = _Held()
+    store = MemoryEventStore(clock=clock)
+    await _leave_open(store, clock, "r-0", timedelta(minutes=1))
+    killed_worker = MemoryLeasePort()
+    await killed_worker.acquire("r-0", timedelta(seconds=-1))
+    runtime = Runtime(
+        [StubEngine()], store, {spec.name: spec}, stale_run_after=timedelta(minutes=5), lease=MemoryLeasePort()
+    )
+
+    with pytest.raises(SessionBusyError, match="r-0"):
+        async for _ in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
+            pass
+    assert [event.kind for event in await store.read(CTX.log_key, CTX)] == ["run.started"]
+
+
+async def test_a_suspended_run_holds_its_session_even_when_its_lease_has_expired() -> None:
+    """A parked run has no worker, so its lease lapsing says nothing about whether anyone is
+    coming back — and #311's ruling is that only the log releases such a run, never a clock.
+
+    The lease of a run that parked *always* expires, since the run that stopped playing stopped
+    renewing. If that counted as evidence, every approval waiting overnight would be destroyed
+    by the next turn on its session. Suspension is checked before the dead set, for that reason.
+    """
+    spec = stub_spec("Approver", RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1"))
+    store = MemoryEventStore()
+    runtime = Runtime([StubEngine()], store, {spec.name: spec}, stale_run_after=timedelta(seconds=0.001), lease=None)
+    parked = [
+        event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+    ]
+    parked_run_id = parked[0].run_id
+    assert parked[-1].kind == "run.interrupted"
+
+    lease = MemoryLeasePort()
+    await lease.acquire(parked_run_id, timedelta(seconds=-1))
+    next_turn = Runtime([StubEngine()], store, {spec.name: spec}, stale_run_after=timedelta(seconds=0.001), lease=lease)
+
+    with pytest.raises(SessionBusyError, match="parked waiting for an answer"):
+        async for _ in next_turn.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
+            pass
+
+
+async def test_a_run_holds_a_lease_while_it_plays_and_releases_it_when_it_ends() -> None:
+    """The assertion the takeover reads. It has to be true for the whole of the play and false
+    the moment the run is over, or a completed run's stale lease answers for the next one."""
+    engine = _Stalling()
+    spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
+    lease = MemoryLeasePort()
+    runtime = Runtime([engine], store := MemoryEventStore(), {spec.name: spec}, lease=lease)
+
+    playing = asyncio.create_task(_collect(runtime))
+    async with asyncio.timeout(WEDGE_TIMEOUT):
+        await engine.quiet.wait()
+        run_id = (await store.read(CTX.log_key, CTX))[0].run_id
+        assert await lease.acquire(run_id, timedelta(seconds=60)) is False, "a playing run holds its lease"
+        engine.release.set()
+        await playing
+
+    assert await lease.acquire(run_id, timedelta(seconds=60)) is True, "an ended run holds nothing"
+
+
 async def test_a_run_that_writes_again_after_being_taken_over_lands_behind_its_terminal_event() -> None:
     """The cost of a takeover that was premature, and what it is now. The run this turn stepped
     over was alive after all, and it writes again after the closing ``run.failed``.
@@ -797,9 +894,16 @@ async def test_a_cancellation_during_the_claim_closes_the_run_and_frees_the_sess
             self.committed = asyncio.Event()
 
         async def claim_start(
-            self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+            self,
+            log_key: str,
+            opening: RunStarted,
+            ctx: RunContext,
+            origin: str,
+            stale_after: timedelta,
+            *,
+            dead: frozenset[str] = frozenset(),
         ) -> tuple[SessionClaim, Event | None]:
-            claimed = await super().claim_start(log_key, opening, ctx, origin, stale_after)
+            claimed = await super().claim_start(log_key, opening, ctx, origin, stale_after, dead=dead)
             if not self.committed.is_set():
                 self.committed.set()
                 await asyncio.Event().wait()  # a cancellation is the only way out, which is the point

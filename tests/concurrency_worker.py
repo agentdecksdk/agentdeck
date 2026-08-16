@@ -343,7 +343,14 @@ class ClaimStartTimingStore(SqliteEventStore):
         self._tag = tag
 
     async def claim_start(
-        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+        self,
+        log_key: str,
+        opening: RunStarted,
+        ctx: RunContext,
+        origin: str,
+        stale_after: timedelta,
+        *,
+        dead: frozenset[str] = frozenset(),
     ) -> tuple[SessionClaim, Event | None]:
         await _barrier(self._sync, f"claim.{log_key}", self._tag)
         # This peer's own real id, regardless of whether its claim goes on to win or lose: the
@@ -352,7 +359,7 @@ class ClaimStartTimingStore(SqliteEventStore):
         session_attempt_runid_file(self._sync, log_key, self._tag).write_text(ctx.run_id)
         started = time.time_ns()
         try:
-            return await super().claim_start(log_key, opening, ctx, origin, stale_after)
+            return await super().claim_start(log_key, opening, ctx, origin, stale_after, dead=dead)
         finally:
             with self._windows.open("a") as handle:
                 handle.write(f"{log_key} {started} {time.time_ns()}\n")
@@ -407,11 +414,18 @@ class StallingStore(SqliteEventStore):
         return written
 
     async def claim_start(
-        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+        self,
+        log_key: str,
+        opening: RunStarted,
+        ctx: RunContext,
+        origin: str,
+        stale_after: timedelta,
+        *,
+        dead: frozenset[str] = frozenset(),
     ) -> tuple[SessionClaim, Event | None]:
         # A run's opening event is written by the session claim, not by append, so counting a
         # run's durable events means counting at both doors.
-        claim, event = await super().claim_start(log_key, opening, ctx, origin, stale_after)
+        claim, event = await super().claim_start(log_key, opening, ctx, origin, stale_after, dead=dead)
         if event is not None:
             await self._stall_once_deep_enough([event])
         return claim, event

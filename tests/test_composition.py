@@ -1,5 +1,6 @@
 """The assembly seam: one function builds every Runtime, and Deck is one of its callers."""
 
+import logging
 import subprocess
 import sys
 import textwrap
@@ -280,6 +281,33 @@ def test_resolve_control_port_rejects_sqlite_with_no_path_after_the_scheme():
 
     with pytest.raises(ValueError, match="AGENTDECK_CONTROL=sqlite"):
         resolve_control_port(ControlSettings(url="sqlite://"))
+
+
+def test_the_lease_port_follows_the_control_setting(tmp_path):
+    """One setting, two ports: both are ephemeral per-run state for one deployment, so an
+    operator names the backend once and the lease port lands wherever the signals did."""
+    from agentdeck.adapters.leases.memory import MemoryLeasePort
+    from agentdeck.adapters.leases.sqlite import SqliteLeasePort
+    from agentdeck.composition import resolve_lease_port
+    from agentdeck.runtime.settings import ControlSettings
+
+    assert isinstance(resolve_lease_port(ControlSettings()), MemoryLeasePort)
+    assert isinstance(
+        resolve_lease_port(ControlSettings(url=f"sqlite://{tmp_path / 'control.sqlite3'}")), SqliteLeasePort
+    )
+
+
+def test_a_memory_lease_backend_warns_that_a_killed_worker_still_wedges_its_session(caplog):
+    """The default reports no knowledge about any peer, so the hour-long window is still what a
+    crash costs. An operator finds that out at boot rather than during the outage."""
+    from agentdeck.composition import resolve_lease_port
+    from agentdeck.runtime.settings import ControlSettings
+
+    with caplog.at_level(logging.WARNING):
+        resolve_lease_port(ControlSettings())
+
+    assert "AGENTDECK_CONTROL=sqlite" in caplog.text
+    assert "killed outright" in caplog.text
 
 
 def test_resolve_control_port_rejects_an_unknown_scheme():
