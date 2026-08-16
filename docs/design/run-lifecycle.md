@@ -152,14 +152,14 @@ except where the verdict says otherwise.
 | §4.4: transitions are "guarded in one place (`core/status.py`)" | Guarded in five: `RESUMABLE_STATUSES` and `TERMINAL_STATUSES` (`core/status.py:37,57`), `SUSPENDED_KINDS` (`runtime/service.py:56`), two `if pending.verb is …` branches in `resume_run` (`runtime/service.py:260,268`), and the `status=PAUSED` filter inside `_paused` (`runtime/service.py:362`) | True again: `STATES`, `TRANSITIONS`, `PRECONDITIONS` and `POLICY` are the only places a rule is written |
 | §4.4: `CANCELLED` is "reachable from … `WAITING_HUMAN`" | It is not. `Runtime.resume` never polls the control port, so a `cancel` recorded against a parked run is read by nothing (#229); a `pause` vanishes the same way | Reachable: the answer's claim reads the port and rules on what it finds |
 | `Deck.runs.resume` on a parked run reports something | It returns `[]`: `_paused` lists only `PAUSED` runs, so the state is never seen | It refuses, naming `deck.runs.answer` |
-| `PAUSED` is reachable for any run | Not for a workflow run — the langgraph adapter never calls `gate.checkpoint()` (#128) | **Unchanged.** No table makes the adapter call `checkpoint()`; still #128 |
+| `PAUSED` is reachable for any run | Not for a workflow run — the langgraph adapter never calls `gate.checkpoint()` (#128) | Reachable: `LangGraphEngine._play` checkpoints at the node boundary between `updates` chunks (#312) |
 
 ## Declared, never produced
 
 | declaration | why nothing produces it |
 |---|---|
 | `RunStatus.PENDING` *(deleted by #295)* | The fold's identity element for an empty sequence, never a state a run is in: `run.started` is row 0, so there is no moment between "does not exist" and `RUNNING`. `status_of([])` answers `None` now |
-| `SafePoint`'s `tool_dispatch`, `node_boundary` | Every `checkpoint()` call site is bare, so `stream_item` is the only value emitted |
+| `SafePoint`'s `tool_dispatch` | The only `checkpoint()` call site outside the langgraph engine is bare, so `stream_item` is the only value the openai-agents engine emits; nothing checkpoints before a tool dispatch yet. `node_boundary` moved out of this row when the langgraph engine started emitting it (#312) |
 | `RunFailed.error_code`'s `tool_error`, `budget_exceeded`, `deadline` | Only `engine_error` and `cancelled_hard` are ever constructed, and a tool that raises ends the run `completed` (#250) |
 
 ## `WAITING_HUMAN` was misnamed

@@ -108,13 +108,13 @@ or read with the version that wrote it. Only `sqlite`, `postgresql` and `redis` 
 
 ## Status is a fold, not a field
 
-A run's status — `pending`, `running`, `paused`, `waiting_human`, `completed`, `failed`, or
-`cancelled` — is not written anywhere as its own row. `status_of` derives it by folding the
-run's own lifecycle events in order and taking the last transition; a log with none of those
-folds to `pending`, and a log ending in `run.completed` folds to `completed` every time it's
-asked, with no cache to go stale after a restart. `paused` and `waiting_human` differ in what
-resuming them takes — nothing for a pause, an answer for an interrupt — which [Run
-Control](/concepts/run-control) covers in full.
+A run's status — `running`, `paused`, `waiting_answer`, `completed`, `failed`, or `cancelled` —
+is not written anywhere as its own row. `status_of` derives it by folding the run's own lifecycle
+events in order and taking the last transition; a log with none of those folds to `None`, and a
+log ending in `run.completed` folds to `completed` every time it's asked, with no cache to go
+stale after a restart. `paused` and `waiting_answer` differ in what resuming them takes — nothing
+for a pause, an answer for an interrupt — which [Run Control](/concepts/run-control) covers in
+full.
 
 ## The log is not the engine's memory
 
