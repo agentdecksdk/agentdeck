@@ -55,6 +55,18 @@ runner drives the call-then-continue loop once the model decides to use it. Noth
 `agentdeck` sits between the two — `tools` just hands the SDK's `Agent` constructor a list it
 already knows how to run.
 
+## When a tool raises
+
+A tool that raises does not fail the run. The exception is caught, the model is handed an error
+string and is free to retry or work around it, and the run completes normally. The exception's
+type and message are recorded on that call's `tool.call.completed` event, under `error`, so the
+failure is in the log even when the model writes an answer that never mentions it.
+
+That recording is something `agentdeck` attaches while compiling a plain function. A tool you
+decorated with `@function_tool` yourself (as `lookup_slot` above is) reaches the engine untouched
+and keeps whatever failure handling you gave it, so its exceptions stay off the event.
+Drop the decorator if you want the log entry; `tools` compiles the bare function perfectly well.
+
 ## Tools vs. skills
 
 `tools` is for exactly this: a function that runs in the host process and returns a value,

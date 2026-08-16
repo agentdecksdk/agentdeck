@@ -441,7 +441,7 @@ Every one of them is a single URL whose **scheme picks the backend**. There is n
 | `AGENTDECK_EVENTS` | the canonical event log — every run, every turn | `memory://` | no |
 | `AGENTDECK_CHECKPOINT` | LangGraph's state for `durable=True` workflows | `sqlite://.agentdeck/checkpoints.sqlite3` | same machine |
 | `AGENTDECK_SESSION` | an agent's conversation history per `session_id` | unset (in-process SQLite) | no |
-| `AGENTDECK_CONTROL` | pending pause/cancel signals for a live run | `memory://` | no |
+| `AGENTDECK_CONTROL` | pending pause/cancel signals, and each running run's liveness lease | `memory://` | no |
 
 The exhaustive field list, including the Redis-only session knobs, is in the [settings
 reference](/reference/settings) — this page is about which value to pick and what happens if you
@@ -493,7 +493,8 @@ export AGENTDECK_CONTROL=sqlite:///var/lib/agentdeck/control.sqlite3
 
 `postgresql://` — for the event log and the checkpointer both — needs the `durability` extra.
 `redis://` — for either the event log or sessions — needs the `redis` extra. The control port
-has no networked backend at all today: a signal still only reaches a run from the same machine.
+has no networked backend at all today: a signal, and a lease, still only reach a run from the same
+machine.
 
 **Tests.** `memory://` for all three that offer it, including
 `AGENTDECK_CHECKPOINT=memory://`, so nothing survives the test that wrote it and no file is left
@@ -519,10 +520,39 @@ requirements.** A workflow can pause durably in a Postgres checkpointer while
 *event log* — shows a second process nothing at all, because that log is still `memory://`. The
 approval is safely parked and nobody can find it.
 
-The **control port** is a third, smaller thing: a pending signal for a run in flight, which the
-run picks up at its next safe point. It only has to outlive the seconds between a request and
-that safe point, which is why `sqlite://` is as far as it goes — see
+The **control port** is a third, smaller thing: per-run scratch state that a second worker has to
+be able to read. Nothing in it is a record of what happened, only what is true right now, which
+is why `sqlite://` is as far as it goes — see
 [Pause, Resume, Cancel](/operating/pause-resume-cancel).
+
+## The control port is also the lease port
+
+It holds two things, and the second one is why sharing it matters more than the signal path
+alone suggests:
+
+| What | Written by | Read by |
+|---|---|---|
+| a pending pause or cancel | whoever asked | the run itself, at its next safe point |
+| a **lease** on a running run, renewed six times per TTL | the worker playing it | the next turn that finds that run still open |
+
+The lease is how a session gets freed by evidence instead of by a timer. A worker killed outright
+stops renewing; the next turn on that session reads the lapsed lease, knows nobody is playing that
+run, and closes it. Without a shared lease port there is nothing to read, so the only backstop is
+`AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` (**3600** by default), and one crashed process locks
+one user out of one conversation for the rest of that hour.
+
+```bash
+export AGENTDECK_CONTROL=sqlite:///var/lib/agentdeck/control.sqlite3
+```
+
+That drops the wait to one `AGENTDECK_RUNTIME_LEASE_TTL_SECONDS` (**90** by default). A lease is
+only ever evidence of death, never of life: a run the port has never seen is never reported dead,
+so `memory://` behaves exactly as it did before leases existed rather than freeing sessions it
+knows nothing about.
+
+None of this reaches a run that was **paused** or **waiting on an answer** when its worker died.
+There is no worker there to be dead, so that session holds until the run is resumed, answered or
+cancelled, with no timer and no lease involved.
 
 ## Changing your mind later
 
@@ -682,7 +712,7 @@ it or a `cancel` ends it.
 ## What resume replays
 
 A paused run is suspended **in the log**, not parked in memory: the process is free to exit, and
-any worker holding the same event store can lift the pause. The run keeps its `run_id`, and
+any worker holding the same event store can lift the pause. The run keeps its `id`, and
 `seq` carries on from where it stopped, whatever kind of run it is. What a resume continues from
 there is not the same for an agent and a workflow:
 
@@ -696,8 +726,8 @@ there is not the same for an agent and a workflow:
 **An agent run has no stack to return to**, so resuming re-enters the engine with the run's
 original input and the log as history: work the paused turn had already done can happen again.
 The model is asked again, and a tool it had already called may be called a second time.
-`RunContext` has no idempotency-key field to lean on for this, only `run_id` (which does stay the
-same across a resume, see above) if your own side effects want a key to dedupe against. Keep
+`RunContext` has no idempotency-key field to lean on for this, only the run's `id` (which does
+stay the same across a resume, see above) if your own side effects want a key to dedupe against. Keep
 tools idempotent, and treat a resumed turn the way you treat a resumed LangGraph interrupt node.
 
 **A workflow run has its own checkpoint**, one `updates` chunk (a node boundary) at a time, so
@@ -796,6 +826,17 @@ the two agree because the durable store is the only thing either ever reads from
 `same_run.events()` returns is whatever the run actually wrote, nothing cached in between — the
 same thing a later process, or a dashboard, would see calling `deck.runs.get(run.id)` against the
 same durable store.
+
+## Reading a run does not drive it
+
+A run advances in a deck-owned task from the moment it starts. Reading it is observation and
+nothing else: any number of readers can hold `events()` or `stream()` on one run without stealing
+events from each other, without advancing it, and without having started it. A reader that stops
+reading, or is cancelled, does not stop the run. It plays on to its own natural end, bounded to
+one turn, and frees its session there.
+
+Stopping a turn early is a separate, explicit act: `run.cancel(reason)`. See [Run
+Control](/concepts/run-control).
 
 The exact kinds in between `run.started` and `run.completed` depend on what the run did, not on
 a fixed shape: a `text.delta` per streamed chunk, a `tool.call.started`/`tool.call.completed`
@@ -1307,6 +1348,18 @@ runner drives the call-then-continue loop once the model decides to use it. Noth
 `agentdeck` sits between the two — `tools` just hands the SDK's `Agent` constructor a list it
 already knows how to run.
 
+## When a tool raises
+
+A tool that raises does not fail the run. The exception is caught, the model is handed an error
+string and is free to retry or work around it, and the run completes normally. The exception's
+type and message are recorded on that call's `tool.call.completed` event, under `error`, so the
+failure is in the log even when the model writes an answer that never mentions it.
+
+That recording is something `agentdeck` attaches while compiling a plain function. A tool you
+decorated with `@function_tool` yourself (as `lookup_slot` above is) reaches the engine untouched
+and keeps whatever failure handling you gave it, so its exceptions stay off the event.
+Drop the decorator if you want the log entry; `tools` compiles the bare function perfectly well.
+
 ## Tools vs. skills
 
 `tools` is for exactly this: a function that runs in the host process and returns a value,
@@ -1508,6 +1561,13 @@ partway through.
 curl -N -X POST "http://localhost:8000/agents/Scheduler/chat?stream=true" \
   -d '{"session_id": "sess-2", "message": "and Wednesday?"}'
 ```
+
+**A client that disconnects mid-stream does not cancel the turn.** The run advances in a
+deck-owned task and the SSE response is only watching it, so a closed browser tab, a dropped
+connection or a client timeout leaves the run playing to its own end, its answer in the log and
+its session freed there. Stopping a turn is an explicit `POST /runs/{run_id}/cancel` (or
+`run.cancel(...)` in Python), covered in [Pause, Resume,
+Cancel](/operating/pause-resume-cancel).
 
 ## Workflows on the same server
 
@@ -2265,7 +2325,7 @@ checkpoint, so there is nothing to recover either. What actually happens is not 
 thread resumes and the graph replays with `ctx.data` set to `None`. That surfaces wherever the
 node first touches it — an `AttributeError` on `None` if it reaches for an attribute, or, for a
 node written defensively as `if ctx.data:`, a plausible wrong answer and no failure at all. This is
-a real limitation of v3.0.0, stated rather than worked around: there is no deck-level context
+a real limitation, stated rather than worked around: there is no deck-level context
 provider and no way to supply one to the timer inbox. A `Run`'s own `resume()`/`answer()` are the
 only continuations that carry a context, and only because the handle that started it retained one
 ([above](#run)).
@@ -2447,7 +2507,7 @@ no checkpointer to resume from. `thread_id` is required when `durable` is `True`
 otherwise) and ignored when it is not.
 
 The same asymmetry as `Agent.run()` applies here. Calling `some_workflow.run(...)` directly drives
-the compiled graph and writes nothing to the event log; `Deck.run()` and `Deck.runs.answer()` are what
+the compiled graph and writes nothing to the event log; `Deck.run()` and `Run.answer()` are what
 the Runtime actually plays, and record the run — see [Deck](/reference/deck). `Deck.stream()`
 plays a workflow the same way, so nothing on `Deck` calls `run_stream()` — it stays useful for a
 script or a test that wants the raw graph stream with no log.
@@ -2580,7 +2640,7 @@ Where a run's pending control signals live — what pause and cancel are written
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_CONTROL` | `str` | `'memory://'` | Where a run's pending control signals live: `memory://` (default, reachable only from this process) or `sqlite://<path>` (crosses process boundaries — required for the `agentdeck runs signal` CLI to reach a run). The scheme names the backend. |
+| `AGENTDECK_CONTROL` | `str` | `'memory://'` | Where a run's pending control signals and its liveness lease live: `memory://` (default, reachable only from this process) or `sqlite://<path>` (crosses process boundaries, and is required for the `agentdeck runs signal` CLI to reach a run, and for a killed worker's session to be freed by its lapsed lease rather than by `stale_run_after_seconds`). The scheme names the backend. |
 
 ## `SessionSettings`
 
@@ -2631,74 +2691,112 @@ It also carries the first of the hardening work rather than waiting for the whol
 supported test harness. See the [changelog](/changelog) and
 [Known Issues](/known-issues#fixed-in-v310).
 
-## v3.2 — hardening · **next**
+## v4.0.0 — hardening · **released**
 
 > Make what exists more correct, more robust, more trustworthy. Ship no new user-facing
 > capability.
 
-Nearly forty issues, most of them findings from people using the SDK rather than reading it. The
-line for inclusion is **what happens when nothing is added**: a durable workflow that dies on a
-transient failure is a defect and belongs here; an agent that receives more tools than it needs
+Thirty-seven issues, most of them findings from people using the SDK rather than reading it. The
+line for inclusion was **what happens when nothing is added**: a durable workflow that dies on a
+transient failure is a defect and belonged here; an agent that receives more tools than it needs
 still works, and that belongs in v3.3.
 
-What is in it:
+The major version is what the hardening cost: a run's identity, the run-scoped API and the
+control plane all changed shape, and none of those breaks could be deferred without carrying the
+defect they fix.
 
-- **Silent wrong answers first.** Fixed: a tool that raises now records `tool.call.completed.error`
-  instead of completing the run with no trace of the failure. Still open, and worse than a crash:
-  a tool returning something unserializable still writes its `repr()` into both the log and the
-  model's context.
-- **Things accepted then discarded.** Fixed: a cancel against a run waiting on a human now ends it
-  immediately instead of returning success and changing nothing.
-- **Defaults that trap you.** Fixed: a default install can now run a durable workflow. Still open:
-  the default event store empties the approval inbox on restart.
-- **A test harness.** An exported stub-runner, so scripting a model costs a line instead of sixty
-  — the reason several of the above went unnoticed.
-- **Simplification.** Undoing over-engineering is on-theme for this release rather than a
-  distraction from it.
+- **A run has one identity, and it is minted.** `run_id=` is gone; `key=` is an application
+  identifier for lookup and idempotency, never the run's address. Two namespaces reusing one key
+  now get two unrelated runs instead of a collision, and a pause meant for one tenant can no
+  longer land on another's run.
+- **Every per-run verb moved onto a `Run` handle.** `deck.runs` is `start`/`get`/`list`; the
+  handle owns `pause`, `resume`, `cancel`, `answer`, `status`, `pending`, `events`, and `await`.
+- **Nothing accepted is silently discarded.** A cancel against a run waiting on a human ends it.
+  A pause recorded against a suspended run refuses the answer rather than being lifted by it.
+  A tool that raises records `tool.call.completed.error`.
+- **A killed worker is detected, not waited out.** A run holds a lease while it plays, so with a
+  shared control backend its session is free within 90 seconds instead of an hour.
+- **`sleep_until` wakes up.** An open deck sweeps for its own lifetime, with no cron wired in.
+- **A test harness**, exported, so scripting a model costs a line instead of sixty.
 
-The consequences you can hit today are on [Known Issues](/known-issues), with workarounds.
+What survived the milestone is on [Known Issues](/known-issues), with workarounds. The upgrade
+itself is in the [changelog](/changelog), which lists every break and what replaces it.
 
-## v3.3 — batteries
+## v5.0.0 — native workflows & universal invocation · **next**
 
-> Additive on the frozen API — what you reach for on your second day, once the surface underneath
-> is trustworthy.
+> Write agentic systems as normal Python, compose anything through one invocation model, and get
+> the same `Run` lifecycle, durability and observability whether the implementation is
+> AgentDeck-native or a wrapped LangGraph graph.
 
-Declarative MCP tool filters and read-only profiles. Reusable approval and external-action nodes.
-Presets for the SDK's hosted tools. A zero-config `Preset` for the infrastructure a deck opens.
-A CLI that can *read* — list the approval inbox, show a run, answer from a terminal.
+The change that earns a major version is not more workflow features. It is that a workflow becomes
+**ordinary Python**: an imperative `@workflow` with `ctx.invoke`, `ctx.run`, `ctx.reporter` and a
+durable operation/replay model. LangGraph and anything else become invocables behind one boundary,
+auto-wrapped where `.agentdeck/` finds them.
 
-## v3.4 — rooms & reach
+Deliberately narrow. What is in it:
 
-> More than one caller.
+- **An imperative `@workflow`**, and a universal invocable boundary an agent, a tool, a workflow
+  and a foreign SDK object all sit behind.
+- **Typed suspension**: `ask()`, `pause()`, `wait()`, `safepoint()` in place of today's untyped
+  `answer(value)` and its magic-dict interrupt vocabulary.
+- **Subagents** as a child run that falls out of the invocation tree rather than a second
+  execution system: usage, cancel, observability and depth included.
+- **One reporter per run**, rebuilt on the new context, with the same semantics for a native
+  workflow and a wrapped one.
+- **A handoff and an invocation named in the event model**, now that both share one trace.
+- **The LangGraph checkpoint namespace fix**, a blocker: seamless wrapping cannot be advertised
+  while a durable thread's identity can cross namespaces.
 
-Standard agent protocols (A2A, an MCP server surface, OpenAI-compatible) as adapters over the
-event stream. Per-user MCP credentials. Steering — injecting input into a run already in flight.
-Two decks side by side in one process. Inbox pagination and parallel interrupts.
+Everything below is downstream of it. Doing the composition or protocol work first would mean
+doing it twice.
 
-These are deliberately one release rather than five: they are the same identity question wearing
-different hats, and answering it five times separately produces five incompatible answers.
+## v5.1.0 — composition, skills & integrations
 
-## v3.5 — agents that work together
+> What you assemble a deck out of, once there is one way to invoke any of it.
 
-> One agent reaching another and getting something back.
+Skills consumed through the `SKILL.md` protocol with progressive disclosure, and pinned bundles
+you can install and verify. MCP authentication, per-user credentials, declarative per-agent tool
+filters, and presets for the SDK's hosted tools. A zero-config `Preset` for the infrastructure a
+deck opens. `.agentdeck/` composition ergonomics, including sharing a type between a bundle and
+the program that composes it, and a context-aware ASGI surface. Two decks side by side in one
+process. **Advisors**: consult a peer about the conversation you are already having, read-only,
+and resume with the answer without handing the conversation over. Advisors land here rather than
+in v5.0.0 because child-invocation semantics have to exist first.
 
-**Subagents** — delegate a bounded task and receive the result, as a child run with its own place
-in the event log, its cost rolled up into the parent, and cancel cascading to it.
-**Advisors** — consult a peer about the conversation you are already having, read-only, and
-resume with the answer without handing the conversation over.
+## v5.2.0 — operations, control & protocol surfaces
+
+> More than one caller, and someone operating it.
+
+Authentication on the mutating endpoints. Injecting messages into a run already in flight. A CLI
+that can *read*: list the approval inbox, show a run, answer from a terminal. Standard agent
+protocols (A2A, an MCP server surface, OpenAI-compatible) as adapters over the event stream.
+
+## Provisional, past v5.2
+
+Themed and named, not scheduled: what the native workflow and runtime work in v5.0.0 turns up will
+move things between these, so none of them is a milestone yet.
+
+| Theme | What is in it |
+|---|---|
+| Durability & runtime hardening | Lease and liveness beyond one machine, timer/inbox unification, recovery policies, durable suspension edge cases |
+| Observability & scale | Trace nesting and correlation, store query optimization, inbox pagination, due-work indexing |
+| Security & isolation | Sandboxing, safe context projection, stronger execution and tool boundaries |
+
+Docs, tests, simplification and small findings are continuous. They ship with whatever release
+they land in rather than waiting for one of their own.
 
 ## Not planned
 
 <Callout type="warning">
-  **Sandboxing.** AgentDeck runs your tools, skills and workflow nodes as ordinary Python in your
-  process, and a model-chosen tool call is trusted by design. This is not an oversight and it is
-  not on a milestone — read
+  **Nothing is sandboxed today.** AgentDeck runs your tools, skills and workflow nodes as ordinary
+  Python in your process, and a model-chosen tool call is trusted by design. Isolation is a named
+  provisional theme above, not a milestone with a date, so build as if it will never arrive. Read
   [SECURITY.md](https://github.com/agentdecksdk/agentdeck/blob/main/SECURITY.md) before you give an
   agent something destructive.
 </Callout>
 
 Also deliberately absent, and unlikely to change: a YAML agent format, an execution engine of
-AgentDeck's own, authentication and multi-tenancy beyond a shared token, model routing, and a
+AgentDeck's own, multi-tenancy beyond a namespace and a shared token, model routing, and a
 prompt-management or evaluation product. The
 [README](https://github.com/agentdecksdk/agentdeck#what-it-deliberately-does-not-do) explains why
 each one is somebody else's job.
@@ -2722,7 +2820,7 @@ Source: https://agentdecksdk.com/known-issues
 
 # Known Issues
 
-Everything here is real, reproduced, and open against **v3.1.0**. It is published rather than
+Everything here is real, reproduced, and open against **v4.0.0**. It is published rather than
 quietly tracked because most of these fail *silently* — you get a plausible wrong answer, not an
 error — and an hour spent debugging one of them is an hour this page could have saved.
 
@@ -2767,44 +2865,6 @@ or `redis://` — in anything that outlives one process. See
 [Choosing a Store Backend](/concepts/choosing-a-store-backend).
 &nbsp;→ [#212](https://github.com/agentdecksdk/agentdeck/issues/212)
 
-### A killed worker holds its session for an hour, unless leases are shared
-
-With the default `AGENTDECK_CONTROL=memory://`, a worker killed while its run was **running**
-leaves its `session_id` unusable for `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`, which defaults
-to **3600**. Run leases live in that process only, so the worker taking over knows nothing about
-the one that died and has nothing but the timer to go on.
-
-**Fix it by sharing them:** set `AGENTDECK_CONTROL=sqlite:///<path>` and the next worker reads the
-dead one's lapsed lease directly, freeing the session within one `AGENTDECK_RUNTIME_LEASE_TTL_SECONDS`
-(**90** by default) instead of an hour. Lower the staleness setting too if you cannot share a
-backend; it trades against how long a healthy turn may go quiet.
-
-Neither applies to a worker killed while its run was paused or waiting on an answer — that session
-holds until the run is resumed, answered, or cancelled, on purpose, with no timer and no lease
-involved at all.
-&nbsp;→ [#244](https://github.com/agentdecksdk/agentdeck/issues/244)
-
-## Provider compatibility
-
-### Handoffs fail against non-OpenAI endpoints
-
-Against an OpenAI-compatible endpoint that is not OpenAI, a handoff returns a bare 400. On
-Gemini's endpoint the message is:
-
-```text
-400 - Please ensure that single turn requests end with a user role or the role field is empty.
-```
-
-agentdeck collapses a handoff's transcript into a single message before handing it to the next
-agent, and that message's role is `assistant` — the transferred-to agent's request carries no
-user role at all, which some providers reject. **The handoff mechanism itself is fine** — a
-bidirectional round trip works against a compliant endpoint.
-
-**Until it is fixed:** set `AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN=true`, which appends a
-closing user turn after the collapsed transcript. Off by default, because it changes what every
-model sees on every handoff, including against OpenAI.
-&nbsp;→ [#178](https://github.com/agentdecksdk/agentdeck/issues/178)
-
 ## Rough edges
 
 Not silent, not traps — just things that will cost you a few minutes.
@@ -2828,10 +2888,15 @@ worth it, and in full in the [changelog](/changelog).
 | Checkpointer connection failures surfaced as raw driver exceptions | [#233](https://github.com/agentdecksdk/agentdeck/issues/233) |
 | `agentdeck-serve --help` crashed instead of printing usage | [#245](https://github.com/agentdecksdk/agentdeck/issues/245) |
 
-## Fixed in v3.2.0
+## Fixed in v4.0.0
 
 | What | Issue |
 |---|---|
+| A worker killed outright held its session for up to an hour; a run now holds a lease, and with `AGENTDECK_CONTROL=sqlite:///<path>` the session is free within one 90s TTL | [#244](https://github.com/agentdecksdk/agentdeck/issues/244) |
+| A handoff against a non-OpenAI endpoint returned a bare 400; set `AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN=true` to append the closing user turn those providers require. Off by default, since it changes what every model sees on every handoff | [#178](https://github.com/agentdecksdk/agentdeck/issues/178) |
+| A pause or cancel could land on the wrong tenant's run when two namespaces shared a caller-supplied `run_id` | [#315](https://github.com/agentdecksdk/agentdeck/issues/315) |
+| A parked approval was destroyed by the staleness timer once its window passed | [#311](https://github.com/agentdecksdk/agentdeck/issues/311) |
+| `sleep_until` never woke up: an open Deck now sweeps for its own lifetime | [#303](https://github.com/agentdecksdk/agentdeck/issues/303) |
 | A tool that raises completed the run with `tool.call.completed.error` never set | [#250](https://github.com/agentdecksdk/agentdeck/issues/250) |
 | Cancelling a run waiting on a human did nothing | [#229](https://github.com/agentdecksdk/agentdeck/issues/229) |
 | A default install could not run a `durable=True` workflow — the SQLite checkpointer moved into base dependencies | [#232](https://github.com/agentdecksdk/agentdeck/issues/232) |
@@ -2848,7 +2913,10 @@ worth it, and in full in the [changelog](/changelog).
 
 ## What is being done about all this
 
-The open entries above are the list **v3.2 — hardening** exists for. See the [Roadmap](/roadmap).
+The hardening milestone most of this page belonged to shipped as **v4.0.0** and closed. What is
+left above is being re-evaluated against the execution model **v5.0.0** introduces rather than
+carried forward as-is: the surfaces some of these entries describe are the ones it replaces. See
+the [Roadmap](/roadmap).
 
 <Callout type="info">
   Hit something that is not here?
@@ -3191,6 +3259,18 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
   workflow can only be resumed from the process that paused it (its checkpoint lives in that
   engine's own memory, ADR-D5), and is refused, naming `durable = True`, if resumed from
   another one instead of being silently replayed from the entry node with empty state.
+- **The docs site is swept against the whole v4.0.0 surface.** Three claims were stale rather than
+  merely thin: `definitions.mdx` named `Deck.runs.answer()`, removed by #322; `run-control.mdx`
+  still called a run's identity `run_id`, renamed by #324; and `choosing-a-store-backend.mdx` said
+  the control port "only has to outlive the seconds between a request and that safe point", which
+  #244 made false by putting each run's liveness lease in the same backend. Two v4 changes had no
+  page at all: a reader no longer drives the run it is reading (#325), now in
+  `runs-and-the-event-log.mdx` and `serve-over-http.mdx`, and a raising tool's exception landing on
+  `tool.call.completed.error` (#250), now in `add-a-tool.mdx` with the `@function_tool` opt-out
+  named. `known-issues.mdx` retitles its fixed table to v4.0.0 and moves #244 and #178 into it,
+  both closed; `roadmap.mdx` is rewritten around the shipped v4.0.0 and the v5.0.0/v5.1.0/v5.2.0
+  milestones that replace v3.3/v3.4/v3.5. `AGENTDECK_CONTROL`'s own description now says it holds
+  the lease port too, so the generated settings reference says it as well.
 - **Docs swept against nine issues closed since the last pass** (#317). `known-issues.mdx` gains
   a `Fixed in v3.2.0` section (#250, #229, #232, #243, #255, #253, #226); `usage.usd` moves off
   the page entirely, since #177 ruled it a design position rather than a defect. The one entry

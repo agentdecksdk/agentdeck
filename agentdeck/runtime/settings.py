@@ -489,6 +489,10 @@ class ControlSettings(LayeredSettings):
     so one file behind more than one *machine* is unsupported; that one waits for a Redis
     control port.
 
+    The same URL also resolves the **lease** port, which is where a run asserts that it is still
+    being played. Both are per-run scratch state a second worker has to be able to read, so they
+    share one setting rather than making an operator configure the same backend twice.
+
     This is a tiny table of pending intent, not a log: nothing here is a record of what
     happened to a run — that is the event store's job, and the control events in it.
     """
@@ -498,9 +502,10 @@ class ControlSettings(LayeredSettings):
 
     url: str = Field(
         default="memory://",
-        description="Where a run's pending control signals live: `memory://` (default, reachable only from "
-        "this process) or `sqlite://<path>` (crosses process boundaries — required for the `agentdeck runs "
-        "signal` CLI to reach a run). The scheme names the backend.",
+        description="Where a run's pending control signals and its liveness lease live: `memory://` (default, "
+        "reachable only from this process) or `sqlite://<path>` (crosses process boundaries, and is required for "
+        "the `agentdeck runs signal` CLI to reach a run, and for a killed worker's session to be freed by its lapsed "
+        "lease rather than by `stale_run_after_seconds`). The scheme names the backend.",
     )
 
 

@@ -83,7 +83,7 @@ it or a `cancel` ends it.
 ## What resume replays
 
 A paused run is suspended **in the log**, not parked in memory: the process is free to exit, and
-any worker holding the same event store can lift the pause. The run keeps its `run_id`, and
+any worker holding the same event store can lift the pause. The run keeps its `id`, and
 `seq` carries on from where it stopped, whatever kind of run it is. What a resume continues from
 there is not the same for an agent and a workflow:
 
@@ -97,8 +97,8 @@ there is not the same for an agent and a workflow:
 **An agent run has no stack to return to**, so resuming re-enters the engine with the run's
 original input and the log as history: work the paused turn had already done can happen again.
 The model is asked again, and a tool it had already called may be called a second time.
-`RunContext` has no idempotency-key field to lean on for this, only `run_id` (which does stay the
-same across a resume, see above) if your own side effects want a key to dedupe against. Keep
+`RunContext` has no idempotency-key field to lean on for this, only the run's `id` (which does
+stay the same across a resume, see above) if your own side effects want a key to dedupe against. Keep
 tools idempotent, and treat a resumed turn the way you treat a resumed LangGraph interrupt node.
 
 **A workflow run has its own checkpoint**, one `updates` chunk (a node boundary) at a time, so

@@ -523,7 +523,7 @@ checkpoint, so there is nothing to recover either. What actually happens is not 
 thread resumes and the graph replays with `ctx.data` set to `None`. That surfaces wherever the
 node first touches it — an `AttributeError` on `None` if it reaches for an attribute, or, for a
 node written defensively as `if ctx.data:`, a plausible wrong answer and no failure at all. This is
-a real limitation of v3.0.0, stated rather than worked around: there is no deck-level context
+a real limitation, stated rather than worked around: there is no deck-level context
 provider and no way to supply one to the timer inbox. A `Run`'s own `resume()`/`answer()` are the
 only continuations that carry a context, and only because the handle that started it retained one
 ([above](#run)).

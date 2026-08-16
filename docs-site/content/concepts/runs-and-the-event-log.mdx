@@ -71,6 +71,17 @@ the two agree because the durable store is the only thing either ever reads from
 same thing a later process, or a dashboard, would see calling `deck.runs.get(run.id)` against the
 same durable store.
 
+## Reading a run does not drive it
+
+A run advances in a deck-owned task from the moment it starts. Reading it is observation and
+nothing else: any number of readers can hold `events()` or `stream()` on one run without stealing
+events from each other, without advancing it, and without having started it. A reader that stops
+reading, or is cancelled, does not stop the run. It plays on to its own natural end, bounded to
+one turn, and frees its session there.
+
+Stopping a turn early is a separate, explicit act: `run.cancel(reason)`. See [Run
+Control](/concepts/run-control).
+
 The exact kinds in between `run.started` and `run.completed` depend on what the run did, not on
 a fixed shape: a `text.delta` per streamed chunk, a `tool.call.started`/`tool.call.completed`
 pair per tool call, `usage.reported` per model call, `message.completed` once a full reply is
