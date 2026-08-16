@@ -63,8 +63,8 @@ type and message are recorded on that call's `tool.call.completed` event, under 
 failure is in the log even when the model writes an answer that never mentions it.
 
 That recording is something `agentdeck` attaches while compiling a plain function. A tool you
-decorated with `@function_tool` yourself — as `lookup_slot` above is — reaches the engine
-untouched and keeps whatever failure handling you gave it, so its exceptions stay off the event.
+decorated with `@function_tool` yourself (as `lookup_slot` above is) reaches the engine untouched
+and keeps whatever failure handling you gave it, so its exceptions stay off the event.
 Drop the decorator if you want the log entry; `tools` compiles the bare function perfectly well.
 
 ## Tools vs. skills

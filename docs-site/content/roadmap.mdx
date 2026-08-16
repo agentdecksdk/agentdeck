@@ -73,15 +73,15 @@ itself is in the [changelog](/changelog), which lists every break and what repla
 > AgentDeck-native or a wrapped LangGraph graph.
 
 The change that earns a major version is not more workflow features. It is that a workflow becomes
-**ordinary Python** — an imperative `@workflow` with `ctx.invoke`, `ctx.run`, `ctx.reporter` and a
-durable operation/replay model — while LangGraph and anything else become invocables wrapped
-behind one boundary, auto-wrapped where `.agentdeck/` finds them.
+**ordinary Python**: an imperative `@workflow` with `ctx.invoke`, `ctx.run`, `ctx.reporter` and a
+durable operation/replay model. LangGraph and anything else become invocables behind one boundary,
+auto-wrapped where `.agentdeck/` finds them.
 
 Deliberately narrow. What is in it:
 
 - **An imperative `@workflow`**, and a universal invocable boundary an agent, a tool, a workflow
   and a foreign SDK object all sit behind.
-- **Typed suspension** — `ask()`, `pause()`, `wait()`, `safepoint()` in place of today's untyped
+- **Typed suspension**: `ask()`, `pause()`, `wait()`, `safepoint()` in place of today's untyped
   `answer(value)` and its magic-dict interrupt vocabulary.
 - **Subagents** as a child run that falls out of the invocation tree rather than a second
   execution system: usage, cancel, observability and depth included.
@@ -103,8 +103,8 @@ you can install and verify. MCP authentication, per-user credentials, declarativ
 filters, and presets for the SDK's hosted tools. A zero-config `Preset` for the infrastructure a
 deck opens. `.agentdeck/` composition ergonomics, including sharing a type between a bundle and
 the program that composes it, and a context-aware ASGI surface. Two decks side by side in one
-process. **Advisors** — consult a peer about the conversation you are already having, read-only,
-and resume with the answer without handing the conversation over — which lands here rather than
+process. **Advisors**: consult a peer about the conversation you are already having, read-only,
+and resume with the answer without handing the conversation over. Advisors land here rather than
 in v5.0.0 because child-invocation semantics have to exist first.
 
 ## v5.2.0 — operations, control & protocol surfaces
@@ -112,7 +112,7 @@ in v5.0.0 because child-invocation semantics have to exist first.
 > More than one caller, and someone operating it.
 
 Authentication on the mutating endpoints. Injecting messages into a run already in flight. A CLI
-that can *read* — list the approval inbox, show a run, answer from a terminal. Standard agent
+that can *read*: list the approval inbox, show a run, answer from a terminal. Standard agent
 protocols (A2A, an MCP server surface, OpenAI-compatible) as adapters over the event stream.
 
 ## Provisional, past v5.2
@@ -134,7 +134,7 @@ they land in rather than waiting for one of their own.
 <Callout type="warning">
   **Nothing is sandboxed today.** AgentDeck runs your tools, skills and workflow nodes as ordinary
   Python in your process, and a model-chosen tool call is trusted by design. Isolation is a named
-  provisional theme above, not a milestone with a date, so build as if it will never arrive — read
+  provisional theme above, not a milestone with a date, so build as if it will never arrive. Read
   [SECURITY.md](https://github.com/agentdecksdk/agentdeck/blob/main/SECURITY.md) before you give an
   agent something destructive.
 </Callout>

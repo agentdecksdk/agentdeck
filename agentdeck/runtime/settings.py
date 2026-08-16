@@ -503,8 +503,8 @@ class ControlSettings(LayeredSettings):
     url: str = Field(
         default="memory://",
         description="Where a run's pending control signals and its liveness lease live: `memory://` (default, "
-        "reachable only from this process) or `sqlite://<path>` (crosses process boundaries — required for the "
-        "`agentdeck runs signal` CLI to reach a run, and for a killed worker's session to be freed by its lapsed "
+        "reachable only from this process) or `sqlite://<path>` (crosses process boundaries, and is required for "
+        "the `agentdeck runs signal` CLI to reach a run, and for a killed worker's session to be freed by its lapsed "
         "lease rather than by `stale_run_after_seconds`). The scheme names the backend.",
     )
 
