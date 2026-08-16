@@ -1,8 +1,8 @@
-"""Cross-process run control: a signal addressed by a run's ``ref`` — never its bare ``run_id``.
+"""Cross-process run control: a signal addressed by a run's ``id`` — never its bare ``run_id``.
 
-No ``RunContext`` on the port methods, but a ``ref`` in place of one: a caller-supplied
+No ``RunContext`` on the port methods, but an ``id`` in place of one: a caller-supplied
 ``run_id`` is only unique within its own namespace (``deck.run(..., run_id=...)`` accepts one
-from the caller), so two namespaces sharing a ``run_id`` must not share a signal row. ``ref`` is
+from the caller), so two namespaces sharing a ``run_id`` must not share a signal row. ``id`` is
 ``agentdeck.core.context.encode(namespace, run_id)`` — derived, opaque, globally unique — and is
 what makes addressing a run this port never opened (a second terminal, an operator's dashboard)
 possible without those namespace parts ever reaching the transport. Same reason the port carries
@@ -23,11 +23,11 @@ if TYPE_CHECKING:
 
 
 class ControlPort(ABC):
-    """Write and read the pending signal for one run, from any process that knows its ref."""
+    """Write and read the pending signal for one run, from any process that knows its id."""
 
     @abstractmethod
-    async def signal(self, ref: str, sig: Signal, reason: str | None = None) -> None:
-        """Record ``sig`` for ``ref``, replacing whatever was pending. Idempotent.
+    async def signal(self, id: str, sig: Signal, reason: str | None = None) -> None:
+        """Record ``sig`` for ``id``, replacing whatever was pending. Idempotent.
 
         Signaling an ended run is harmless by construction, not by a check: nothing polls the gate
         once the run loop exits. ``RESUME`` lifts a pause rather than instructing a live run — it
@@ -35,12 +35,12 @@ class ControlPort(ABC):
         """
 
     @abstractmethod
-    async def poll(self, ref: str) -> ControlSignal | None:
-        """The signal currently pending for ``ref``, or ``None``."""
+    async def poll(self, id: str) -> ControlSignal | None:
+        """The signal currently pending for ``id``, or ``None``."""
 
     @abstractmethod
-    async def consume(self, ref: str, expected: Signal) -> bool:
-        """Clear ``ref``'s pending signal if and only if it is still ``expected``. ``True``
+    async def consume(self, id: str, expected: Signal) -> bool:
+        """Clear ``id``'s pending signal if and only if it is still ``expected``. ``True``
         when this caller took it, ``False`` when somebody else's write got there first.
 
         The compare-and-set a honored signal needs, and the reason it is not a plain clear: an

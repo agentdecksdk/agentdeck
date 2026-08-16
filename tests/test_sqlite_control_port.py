@@ -66,14 +66,14 @@ async def test_a_control_db_written_before_signals_carried_a_reason_still_opens(
     """The pending-signal table gained a column, and a file from an earlier version does not
     have it: reading one is how the caller would find out, so opening adds it in place.
 
-    Already on the ``ref`` schema (the run_id-to-ref migration is pinned on its own, below):
+    Already on the ``id`` schema (the run_id-to-id migration is pinned on its own, below):
     this fixture isolates the *other* migration, the one that added ``reason``.
     """
     db_path = tmp_path / "old-control.sqlite3"
     old = sqlite3.connect(db_path)
     try:
-        old.execute("CREATE TABLE signals (ref TEXT PRIMARY KEY, signal TEXT NOT NULL)")
-        old.execute("INSERT INTO signals (ref, signal) VALUES ('r-old', 'cancel')")
+        old.execute("CREATE TABLE signals (id TEXT PRIMARY KEY, signal TEXT NOT NULL)")
+        old.execute("INSERT INTO signals (id, signal) VALUES ('r-old', 'cancel')")
         old.commit()
     finally:
         old.close()
@@ -87,10 +87,10 @@ async def test_a_control_db_written_before_signals_carried_a_reason_still_opens(
         control.close()
 
 
-async def test_a_pre_ref_control_db_with_no_pending_signal_migrates_silently(tmp_path) -> None:
+async def test_a_pre_id_control_db_with_no_pending_signal_migrates_silently(tmp_path) -> None:
     """The pre-namespace schema (``run_id`` primary key) never recorded a namespace at all, so
     an *empty* table carries nothing that could be misattributed — it is safe to carry forward
-    as the new ``ref``-keyed table, and a signal written afterwards is readable straight away."""
+    as the new ``id``-keyed table, and a signal written afterwards is readable straight away."""
     db_path = tmp_path / "empty-run-id.sqlite3"
     old = sqlite3.connect(db_path)
     try:
@@ -101,14 +101,14 @@ async def test_a_pre_ref_control_db_with_no_pending_signal_migrates_silently(tmp
 
     control = SqliteControlPort(db_path)
     try:
-        assert await control.poll("some-ref") is None
-        await control.signal("some-ref", Signal.CANCEL, "after the migration")
-        assert await control.poll("some-ref") == ControlSignal(verb=Signal.CANCEL, reason="after the migration")
+        assert await control.poll("some-id") is None
+        await control.signal("some-id", Signal.CANCEL, "after the migration")
+        assert await control.poll("some-id") == ControlSignal(verb=Signal.CANCEL, reason="after the migration")
     finally:
         control.close()
 
 
-async def test_a_pre_ref_control_db_with_a_pending_signal_refuses_to_open(tmp_path) -> None:
+async def test_a_pre_id_control_db_with_a_pending_signal_refuses_to_open(tmp_path) -> None:
     """The pre-namespace schema stored every write under a bare ``run_id``, namespaced caller or
     not (that omission is exactly the defect #315 fixes) — so a row still pending at migration
     time cannot be trusted to have been unnamespaced. Re-keying it by identity could silently

@@ -46,12 +46,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     control = SqliteControlPort(args.control_db)
-    # Through RunContext, not straight to the port: this CLI has no --namespace, so ref == run_id
+    # Through RunContext, not straight to the port: this CLI has no --namespace, so id == run_id
     # for every legitimate input (encode(None, run_id) == run_id) — but routing it here is what
     # makes the ``adr:`` reservation fire for a forged run_id too, the same as every other caller.
     # A bare ``control.signal(args.run_id, ...)`` would reach the port with no validation at all.
-    ref = RunContext(run_id=args.run_id).ref
-    asyncio.run(control.signal(ref, Signal(args.signal), args.reason))
+    asyncio.run(control.signal(RunContext(run_id=args.run_id).id, Signal(args.signal), args.reason))
     return 0
 
 

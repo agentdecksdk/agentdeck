@@ -232,13 +232,13 @@ class Runtime:
         # The routing refusal is different and has to be read *before* the claim, which is the
         # one place this path departs from resume_run's order: the claim is the ``run.resumed``
         # carrying the answer, so once it lands the answer cannot be taken back.
-        refusal, _ = await self._peek(ctx.ref, status)
+        refusal, _ = await self._peek(ctx.id, status)
         if refusal.action is Action.REFUSE:
             raise RunStateError(f"run {run_id!r} cannot be answered: {refusal.why}")
         opening = await self._claim_resume(spec, ctx, value)
         if opening is None:
             return
-        ruling, pending = await self._route(ctx.ref, status)
+        ruling, pending = await self._route(ctx.id, status)
         if ruling.action is Action.TERMINATE and pending is not None:
             yield opening
             yield await self._record(ControlRequested(verb="cancel", reason=pending.reason), spec, ctx)
@@ -304,7 +304,7 @@ class Runtime:
             return
         # Read control only after the claim: the claim is what makes this caller the one actor
         # on the run, so an answer read before it could belong to somebody else's turn.
-        ruling, pending = await self._route(run_ctx.ref, summary.status)
+        ruling, pending = await self._route(run_ctx.id, summary.status)
         if ruling.action is Action.TERMINATE and pending is not None:
             yield opening
             # No ``control.observed``: that event says the run reached a safe point and acted
@@ -325,7 +325,7 @@ class Runtime:
         """Record a control request for ``run_id`` in ``namespace``, wherever it is running —
         except a cancel against a run already suspended, which ends it right here instead.
 
-        Addressed by ref (``agentdeck.core.context.encode(namespace, run_id)``), the same
+        Addressed by id (``agentdeck.core.context.encode(namespace, run_id)``), the same
         derivation a live run's Gate polls under (bound in :meth:`_bind`) — so two namespaces
         sharing one caller ``run_id`` never share a signal, for every verb, not only cancel.
 
@@ -351,8 +351,8 @@ class Runtime:
         if self._control is None:
             logger.warning("no ControlPort is wired: %s for run %s was not recorded", verb.value, run_id)
             return False
-        ref = self._context(run_id=run_id, namespace=namespace).ref
-        await self._control.signal(ref, verb, reason)
+        id = self._context(run_id=run_id, namespace=namespace).id
+        await self._control.signal(id, verb, reason)
         return True
 
     async def _cancel_suspended(self, run_id: str, reason: str | None, namespace: str | None) -> bool:
@@ -443,7 +443,7 @@ class Runtime:
         answers to that id.
 
         Addressed by ``run_id`` within ``ctx``'s namespace, the store's own addressing (unlike
-        the control plane, which addresses by ``ref`` — see ``core.context.encode``), so the
+        the control plane, which addresses by ``id`` — see ``core.context.encode``), so the
         store's own status projection is what locates it — a caller holding a ``run_id`` from a
         stream it was watching has neither the log key nor the invocable's name. Deliberately *unfiltered*:
         narrowing the listing to one status was how a run in every other state came back
@@ -464,13 +464,13 @@ class Runtime:
                 return event.session_id, event.payload
         return None
 
-    async def _peek(self, ref: str, status: RunStatus) -> tuple[Ruling, ControlSignal | None]:
+    async def _peek(self, id: str, status: RunStatus) -> tuple[Ruling, ControlSignal | None]:
         """Read the control port and rule on what is there, taking nothing. For the one decision
         that has to be made before a claim — whether the operation is refused at all."""
-        pending = None if self._control is None else await self._control.poll(ref)
+        pending = None if self._control is None else await self._control.poll(id)
         return decide(status, None if pending is None else pending.verb), pending
 
-    async def _route(self, ref: str, status: RunStatus) -> tuple[Ruling, ControlSignal | None]:
+    async def _route(self, id: str, status: RunStatus) -> tuple[Ruling, ControlSignal | None]:
         """The one way a stopped run's pending intent is read: poll, decide, and take the intent
         the ruling acted on.
 
@@ -480,13 +480,13 @@ class Runtime:
         without taking anything, which leaves whatever is pending now for the gate to meet at the
         run's first safe point.
         """
-        ruling, pending = await self._peek(ref, status)
+        ruling, pending = await self._peek(id, status)
         if pending is None or self._control is None or not ruling.consume:
             return ruling, pending
-        if await self._control.consume(ref, pending.verb):
+        if await self._control.consume(id, pending.verb):
             return ruling, pending
-        logger.info("control intent for run %s changed under this caller; re-reading it", ref)
-        return await self._peek(ref, status)
+        logger.info("control intent for run %s changed under this caller; re-reading it", id)
+        return await self._peek(id, status)
 
     async def _claim_session(self, opening: RunStarted, spec: InvocableSpec, ctx: RunContext) -> Event:
         """Open this run, or refuse the turn: the store decides, in one conditional append.
@@ -688,7 +688,7 @@ class Runtime:
         gate = (
             ctx.gate
             if self._control is None
-            else Gate(self._control, ctx.ref, poll_interval=self._control_poll_interval)
+            else Gate(self._control, ctx.id, poll_interval=self._control_poll_interval)
         )
         return replace(ctx, gate=gate, reporter=Reporter(reports)), reports
 

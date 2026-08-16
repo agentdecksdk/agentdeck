@@ -21,11 +21,11 @@ from agentdeck.core.events import RunCompleted, TextDelta, Usage
 from agentdeck.runtime.service import Runtime
 
 
-def _poll(db_path: object, ref: str) -> ControlSignal | None:
+def _poll(db_path: object, id: str) -> ControlSignal | None:
     async def _read() -> ControlSignal | None:
         control = SqliteControlPort(db_path)
         try:
-            return await control.poll(ref)
+            return await control.poll(id)
         finally:
             control.close()
 
@@ -34,7 +34,7 @@ def _poll(db_path: object, ref: str) -> ControlSignal | None:
 
 def test_a_signal_lands_under_the_bare_run_id_it_was_given(tmp_path) -> None:
     """The compatibility keystone in practice: this CLI has no ``--namespace``, so
-    ``encode(None, run_id) == run_id`` means the ref it writes under is byte-identical to what
+    ``encode(None, run_id) == run_id`` means the id it writes under is byte-identical to what
     the caller typed — zero behavior change for every real invocation."""
     db_path = tmp_path / "control.sqlite3"
 
@@ -47,7 +47,7 @@ def test_a_run_id_shaped_like_a_namespaced_ref_is_refused(tmp_path) -> None:
     """This used to call ``SqliteControlPort.signal()`` directly, with no ``RunContext`` and no
     validation at all — so a caller could type a ``run_id`` shaped exactly like
     ``encode(namespace, run_id)`` and hijack that namespace's live run: its ``Gate`` polls under
-    precisely that ref. Routed through ``RunContext`` now, so the ``adr:`` reservation fires
+    precisely that id. Routed through ``RunContext`` now, so the ``adr:`` reservation fires
     here too, and the forged signal is refused before it ever reaches the port."""
     db_path = tmp_path / "control.sqlite3"
 
@@ -60,7 +60,7 @@ def test_a_run_id_shaped_like_a_namespaced_ref_is_refused(tmp_path) -> None:
 
 
 async def test_an_unnamespaced_cli_signal_does_not_reach_a_namespaced_run() -> None:
-    """The isolation boundary this CLI now sits behind: it can only ever address a ref
+    """The isolation boundary this CLI now sits behind: it can only ever address an id
     byte-identical to a bare ``run_id`` (it has no ``--namespace`` flag and, per
     docs/design/run-identity.md, never will), so a namespaced run sharing that literal
     ``run_id`` is untouched — the same guarantee ``test_uc3_cross_process_cancel`` now relies on

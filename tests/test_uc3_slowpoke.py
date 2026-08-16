@@ -173,7 +173,7 @@ async def test_uc3_cancel_lands_at_next_safe_point_stable_across_20_runs() -> No
         ):
             events.append(event)
             if event.kind == "run.started":
-                await control.signal(ctx.ref, Signal.CANCEL)
+                await control.signal(ctx.id, Signal.CANCEL)
 
         kinds = [event.kind for event in events]
         assert check_terminal(events) is None, f"trial {trial}: {kinds}"
@@ -196,7 +196,7 @@ async def test_uc3_run_cancelled_is_terminal_and_a_followup_signal_is_a_noop() -
     ):
         events.append(event)
         if event.kind == "run.started":
-            await control.signal(ctx.ref, Signal.CANCEL)
+            await control.signal(ctx.id, Signal.CANCEL)
 
     assert status_of(events) is RunStatus.CANCELLED
     before = await store.read(ctx.log_key, ctx)
@@ -204,7 +204,7 @@ async def test_uc3_run_cancelled_is_terminal_and_a_followup_signal_is_a_noop() -
     # Nobody polls the gate once the run is over; a signal against a finished run is a
     # no-op precisely because there is no more checkpoint left to raise on, not because
     # this test re-derives the status machine's rule.
-    await control.signal(ctx.ref, Signal.CANCEL)
+    await control.signal(ctx.id, Signal.CANCEL)
     after = await store.read(ctx.log_key, ctx)
     assert after == before
 
@@ -223,7 +223,7 @@ async def test_uc3_replay_is_truncated_but_coherent_and_the_renderer_copes(
         if event.kind == "text.delta":
             delta_count += 1
             if delta_count == 3:  # let a few real chunks land before cutting the run off
-                await control.signal(ctx.ref, Signal.CANCEL)
+                await control.signal(ctx.id, Signal.CANCEL)
 
     log = await store.read(ctx.log_key, ctx)
     assert check_terminal(log) is None
@@ -343,7 +343,7 @@ def test_uc3_cross_process_cancel(tmp_path: Any) -> None:
     the ``agentdeck runs signal`` CLI, not a Python object shared with A — cancels it by
     ``run_id`` alone, obtained from the stream A is already printing (addressability
     demonstrated, not assumed). Unnamespaced on both sides: the CLI has no ``--namespace``
-    flag and never will (docs/design/run-identity.md), so it can only ever address a ref
+    flag and never will (docs/design/run-identity.md), so it can only ever address an id
     that is byte-identical to a caller's own ``run_id`` — this is that case."""
     control_db = str(tmp_path / "control.sqlite3")
     events_db = str(tmp_path / "events.sqlite3")

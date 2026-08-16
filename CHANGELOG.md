@@ -135,20 +135,20 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   caller-supplied `run_id`** (#315). Both `ControlPort` adapters (`memory`, `sqlite`) kept one
   pending signal per bare `run_id` — `acme/order-1234` and `globex/order-1234` shared a row, so
   a cancel meant for one could land on the other, and `consume()`'s compare-and-set made the two
-  fight over the same slot. The control plane now addresses a run by `ref`, a derived, opaque
-  address (`encode(namespace, run_id)`) that `RunContext.ref` computes, never stores, and never
-  takes as a constructor argument — `Gate`, `Runtime.signal`/`resume`/`resume_run` and both
-  `ControlPort` adapters all key by it. **Unnamespaced deployments see no change at all**:
-  `encode(None, run_id) == run_id`, so stored ids, the unnamespaced CLI (`agentdeck runs
-  signal`) and the frozen v1 HTTP wire are unaffected. A caller-supplied `run_id` starting with
-  `adr:` is now refused — that prefix is reserved for a namespaced ref, and without the
-  reservation an unnamespaced ref could be crafted to collide with one. `agentdeck runs signal`
+  fight over the same slot. The control plane now addresses a run by its `id`, an opaque address
+  that `RunContext.id` supplies — `Gate`, `Runtime.signal`/`resume`/`resume_run` and both
+  `ControlPort` adapters all key by it, and no path takes a bare caller-supplied `run_id`.
+  **Unnamespaced deployments see no change at all**: an unnamespaced id is byte-identical to
+  today's `run_id`, so stored ids, the unnamespaced CLI (`agentdeck runs signal`) and the frozen
+  v1 HTTP wire are unaffected. A caller-supplied `run_id` starting with `adr:` is now refused —
+  that prefix marks a namespaced id, and without the reservation an unnamespaced one could be
+  crafted to collide with it. `agentdeck runs signal`
   now builds a `RunContext` to reach that same refusal, rather than writing straight to the
   `ControlPort`: a forged `run_id` shaped like a real `encode(namespace, run_id)` could otherwise
   reach a live namespaced run's `Gate` with no validation at all, from the one caller-facing
   surface that talks to a `ControlPort` without going through a `Runtime`.
 
-  **Breaking, sqlite only:** the `signals` table's primary key is now `ref`, not `run_id`. A
+  **Breaking, sqlite only:** the `signals` table's primary key is now `id`, not `run_id`. A
   file with no pending signal migrates automatically in place. A file with one or more pending
   signals refuses to open instead: the old schema never recorded a namespace at all, so a
   pending row cannot be told apart from one that collided under the very bug being fixed here,

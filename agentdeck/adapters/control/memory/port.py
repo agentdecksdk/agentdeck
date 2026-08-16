@@ -1,4 +1,4 @@
-"""In-process ``ControlPort``: a dict keyed by ``ref``. Dev and single-process tests
+"""In-process ``ControlPort``: a dict keyed by ``id``. Dev and single-process tests
 only — process exit loses every pending signal, same posture as ``stores.memory``.
 """
 
@@ -15,19 +15,19 @@ class MemoryControlPort(ControlPort):
     def __init__(self) -> None:
         self._signals: dict[str, ControlSignal] = {}
 
-    async def signal(self, ref: str, sig: Signal, reason: str | None = None) -> None:
-        self._signals[ref] = ControlSignal(verb=sig, reason=reason)
+    async def signal(self, id: str, sig: Signal, reason: str | None = None) -> None:
+        self._signals[id] = ControlSignal(verb=sig, reason=reason)
 
-    async def poll(self, ref: str) -> ControlSignal | None:
-        return self._signals.get(ref)
+    async def poll(self, id: str) -> ControlSignal | None:
+        return self._signals.get(id)
 
-    async def consume(self, ref: str, expected: Signal) -> bool:
+    async def consume(self, id: str, expected: Signal) -> bool:
         # Compare and delete under no await, so no other task can slip a signal in between the
         # two — the same "atomic for free" the in-memory event store's claims rely on.
-        pending = self._signals.get(ref)
+        pending = self._signals.get(id)
         if pending is None or pending.verb is not expected:
             return False
-        del self._signals[ref]
+        del self._signals[id]
         return True
 
 

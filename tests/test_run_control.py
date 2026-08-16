@@ -56,9 +56,9 @@ class CountingControlPort(MemoryControlPort):
         super().__init__()
         self.reads = 0
 
-    async def poll(self, ref: str) -> ControlSignal | None:
+    async def poll(self, id: str) -> ControlSignal | None:
         self.reads += 1
-        return await super().poll(ref)
+        return await super().poll(id)
 
 
 class FakeClock:
@@ -279,7 +279,7 @@ async def test_a_pause_signalled_mid_stream_lands_after_the_chunk_that_was_in_fl
 
     consumer = asyncio.create_task(consume())
     await model.holding.wait()  # the turn is parked after its first delta
-    await control.signal(ctx.ref, Signal.PAUSE, "operator")
+    await control.signal(ctx.id, Signal.PAUSE, "operator")
     hold.set()
     events = await consumer
 
@@ -312,7 +312,7 @@ async def test_a_pause_during_a_tool_call_waits_for_the_call_to_return() -> None
     async def slow_lookup() -> str:
         """Look something up, slowly."""
         if not calls:
-            await control.signal(ctx.ref, Signal.PAUSE, "asked while a tool was running")
+            await control.signal(ctx.id, Signal.PAUSE, "asked while a tool was running")
         calls.append("slow_lookup")
         return "damaged"
 
@@ -375,7 +375,7 @@ async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None
 
     consumer = asyncio.create_task(consume())
     await model.holding.wait()
-    await control.signal(ctx.ref, Signal.PAUSE)
+    await control.signal(ctx.id, Signal.PAUSE)
     hold.set()
     paused = await consumer
 
@@ -393,7 +393,7 @@ async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None
     # The pause is *taken*, not papered over with a RESUME sentinel: the gate that honored it
     # consumed it, so the replayed turn meets an empty port and does not stop again at its own
     # first safe point. An empty port is also what makes a cancel arriving later legible.
-    assert await control.poll(ctx.ref) is None
+    assert await control.poll(ctx.id) is None
 
 
 async def test_lifting_a_pause_resupplies_the_run_s_application_context() -> None:
@@ -413,7 +413,7 @@ async def test_lifting_a_pause_resupplies_the_run_s_application_context() -> Non
         """Look at the run's environment."""
         seen.append(environment.data)
         if len(seen) == 1:
-            await control.signal(ctx.ref, Signal.PAUSE, "asked while a tool was running")
+            await control.signal(ctx.id, Signal.PAUSE, "asked while a tool was running")
         return "looked"
 
     model = TailScriptedModel("done", tool_name="peek")
@@ -450,7 +450,7 @@ async def test_lifting_a_pause_without_a_context_replays_with_none() -> None:
         """Look at the run's environment."""
         seen.append(environment.data)
         if len(seen) == 1:
-            await control.signal(ctx.ref, Signal.PAUSE, "asked while a tool was running")
+            await control.signal(ctx.id, Signal.PAUSE, "asked while a tool was running")
         return "looked"
 
     runtime, _ = _agent_runtime(TailScriptedModel("done", tool_name="peek"), control, tools=[compile_tool(peek)])
@@ -480,7 +480,7 @@ async def test_a_signal_is_honored_with_a_store_that_never_yields() -> None:
     still lands and the run still closes."""
     control = MemoryControlPort()
     ctx = _ctx()
-    await control.signal(ctx.ref, Signal.CANCEL, "before it even opened")
+    await control.signal(ctx.id, Signal.CANCEL, "before it even opened")
     spec = stub_spec(
         "Chatty",
         TextDelta(message_id="m-1", text="one "),
@@ -544,7 +544,7 @@ async def test_a_paused_run_keeps_holding_its_session_so_no_second_turn_starts_o
     store = MemoryEventStore()
     runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
     ctx = _ctx(run_id="r-paused")
-    await control.signal(ctx.ref, Signal.PAUSE)
+    await control.signal(ctx.id, Signal.PAUSE)
 
     paused = [
         event
