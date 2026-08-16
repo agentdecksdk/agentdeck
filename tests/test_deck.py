@@ -1611,6 +1611,11 @@ async def test_a_waiter_wakes_on_a_parked_run_rather_than_hanging(no_project, mo
             run = await deck.runs.start("Approval", {"request": "tue 9am"}, session_id="t-wake")
             with pytest.raises(RunSuspendedError):
                 await asyncio.wait_for(run, timeout=5)
+            # Answered rather than left parked: the durable LangGraph checkpointer is a
+            # process-wide singleton (`@cache`) that every workflow's own `pending()` walks
+            # unfiltered by name, so a thread left interrupted here would leak into any other
+            # test in the suite that lists its own inbox with no filter of its own.
+            await run.answer("yes")
     finally:
         reset_settings_cache()
 
