@@ -238,11 +238,12 @@ async def test_stream_ends_with_a_run_interrupted_event(app_project):
         assert events[2].payload.payload == {"question": "tue 9am"}
         assert events[2].payload.thread_id == "t-stream"
 
-        [pending] = [run for run in await app_project.runs.pending() if run.thread_id == "t-stream"]
+        run = await app_project.runs.get(events[0].run_id)
 
-        # a run started on `stream` is answerable by `runs.answer`, the inversion of what
+        # a run started on `stream` is answerable by `Run.answer`, the inversion of what
         # `run_workflow_stream` (deleted with the rest of v1's surface) could never do
-        result = await app_project.runs.answer(pending.run_id, "yes")
+        await run.answer("yes")
+        result = await run
     assert result["outcome"] == "booked"
 
 
@@ -257,17 +258,16 @@ async def test_stream_without_an_interrupt_still_ends_with_run_completed(app_pro
 
 
 def test_deck_surface_runs_lists_and_answers(app_project):
-    """``Deck`` is the entry point: run -> runs.pending() (every workflow) -> runs.answer, by
-    run_id."""
+    """``Deck`` is the entry point: run -> the interrupt's own ``id`` -> ``deck.runs.get`` ->
+    ``Run.answer``."""
     deck = app_project
 
     async def _scenario():
         async with deck:
             paused = await deck.run("ApprovalFlow", {"request": "tue 9am"}, session_id="t-app")
-            pending = await deck.runs.pending()
-            # other tests in this process share the cached memory saver, so filter to this thread
-            [mine] = [run for run in pending if run.thread_id == "t-app"]
-            resumed = await deck.runs.answer(mine.run_id, "no")
+            mine = await deck.runs.get(paused["id"])
+            await mine.answer("no")
+            resumed = await mine
             # both run and answer write to the event log now —
             # read it back rather than trusting each call's own bookkeeping.
             events = await deck._runtime.store.read("t-app", RunContext(run_id="reader", session_id="t-app"))
@@ -280,8 +280,7 @@ def test_deck_surface_runs_lists_and_answers(app_project):
     assert "run.resumed" in kinds  # answer's own claim, not a fresh run
     assert kinds[-1] == "run.completed"
 
-    assert paused == {"type": "interrupt", "payload": {"question": "tue 9am"}, "thread_id": "t-app"}
-    assert mine.payload == {"question": "tue 9am"}
+    assert paused == {"type": "interrupt", "payload": {"question": "tue 9am"}, "thread_id": "t-app", "id": mine.id}
     assert resumed["outcome"] == "dropped"
 
 

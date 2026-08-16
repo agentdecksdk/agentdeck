@@ -35,8 +35,8 @@ class MemoryEventStore(EventStorePort):
         self._clock = clock
         # Derived, not a second source of truth: every entry is reconstructible by folding
         # `_logs` for the run's `run_id`, and a lost one only costs a scan until `_stamp`
-        # writes it again. Kept beside the log for the same reason `_logs` itself is a dict:
-        # `locate` must not cost a walk of the namespace.
+        # writes it again. This is `_stamp`'s own one-log-per-run guard below, not a lookup
+        # anything outside this store reads.
         self._run_logs: dict[tuple[str | None, str], str] = {}
         # `(namespace, key)` is the store's own permanent claim, set once by whichever
         # `claim_start` first adopts a key and never cleared — this dict *is* the enforcement,
@@ -62,19 +62,19 @@ class MemoryEventStore(EventStorePort):
         """
         known_log = self._run_logs.get((ctx.namespace, ctx.run_id))
         if known_log is not None and known_log != log_key:
-            # `_run_logs` is the enforcement here, not just `locate`'s cache: one logical run
-            # writing under two log keys is exactly the corruption SQLite's tightened
-            # `events_by_run` index refuses at the DB level, and this store owes the same
-            # promise even though it has no index to lean on.
+            # `_run_logs` is the enforcement here: one logical run writing under two log keys
+            # is exactly the corruption SQLite's tightened `events_by_run` index refuses at the
+            # DB level, and this store owes the same promise even though it has no index to
+            # lean on.
             raise StoreError(
                 f"run {ctx.run_id!r} is already recorded under log {known_log!r} in namespace "
                 f"{ctx.namespace!r}; cannot also write it under {log_key!r}"
             )
         log = self._logs.setdefault((ctx.namespace, log_key), [])
         if any(payload.kind in LIFECYCLE_KINDS for payload in payloads):
-            # Only on a lifecycle write, so a run with none recorded stays unlocatable — the same
-            # "indistinguishable from a run this store never heard of" `list_runs`/`run_status`
-            # already give it, rather than a third answer only `locate` would invent.
+            # Only on a lifecycle write, so a run with none recorded stays unrecorded here too —
+            # the same "indistinguishable from a run this store never heard of" `list_runs`/
+            # `run_status` already give it.
             self._run_logs[(ctx.namespace, ctx.run_id)] = log_key
         seq = max((stored.seq for stored in log if stored.run_id == ctx.run_id), default=-1)
         events = []
@@ -179,8 +179,8 @@ class MemoryEventStore(EventStorePort):
         filtered = [summary for summary in summaries if status is None or summary.status is status]
         return filtered if limit is None else filtered[:limit]
 
-    async def locate(self, run_id: str, ctx: RunContext) -> str | None:
-        return self._run_logs.get((ctx.namespace, run_id))
+    async def find_by_key(self, ctx: RunContext, key: str) -> str | None:
+        return self._keys.get((ctx.namespace, key))
 
 
 # The unique-index equivalent this store used to need is gone: no caller supplies a ``seq``, and

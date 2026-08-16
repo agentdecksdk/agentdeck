@@ -5,14 +5,15 @@ description: What a safe point is, why asking a run to stop is not the same fact
 
 # Run Control
 
-A run in flight can be paused, resumed, or cancelled by its `run_id`, from the process
+A run in flight can be paused, resumed, or cancelled through a `Run` handle, from the process
 running it or from another one entirely — see [Pause, Resume, Cancel](/operating/pause-resume-cancel)
 for how to reach one from outside the process. In your own code it looks like this:
 
 ```python no-test reason="needs a live run_id from a run this process is streaming"
-await deck.runs.pause(run_id, reason="operator stepped away")
-events = await deck.runs.resume(run_id)
-await deck.runs.cancel(run_id, reason="user closed the tab")
+run = await deck.runs.get(run_id)
+await run.pause(reason="operator stepped away")
+await run.resume()
+await run.cancel(reason="user closed the tab")
 ```
 
 ## Asking is not stopping
@@ -71,7 +72,7 @@ tool call it is 30 seconds, and no setting can change that without killing the c
 
 Both of those are about a run that is *live*. Cancelling a run that is already **paused** (or
 waiting on an answer) is different, not slower: there is no gate left to notice a request, so
-`deck.runs.cancel` claims the run itself and ends it right there instead of merely recording
+`run.cancel` claims the run itself and ends it right there instead of merely recording
 something for a later `resume`/`answer` to find — a **pause** against a suspended run, by
 contrast, does stay merely recorded, since lifting or answering it is what would act on it. A
 paused or waiting run that nobody ever cancels stays parked, holding its session **forever** —
@@ -108,10 +109,11 @@ refused rather than silently replayed from the entry node with an empty state. S
 `durable = True` on the workflow (with a durable checkpoint backend) for a pause that must be
 resumable from anywhere.
 
-`resume` returns the events the continuation produced — an empty list means there was
-nothing to resume (the run finished, was cancelled, is still running, or another worker got
-there first). Exactly one caller can resume a paused run: the transition is a conditional append
-to the log, so two racing resumes cannot both play the turn.
+`run.resume()` itself returns nothing — read the continuation back with `run.events()`, or block
+for the final outcome with `await run`. A no-op (nothing to resume: the run finished, was
+cancelled, is still running, or another worker got there first) is silent the same way. Exactly
+one caller can resume a paused run: the transition is a conditional append to the log, so two
+racing resumes cannot both play the turn.
 
 **Cancel is terminal.** A cancelled run cannot be resumed, and a cancel cannot un-do what a tool
 already did — an email that was sent stays sent. That holds for a run cancelled *while paused*

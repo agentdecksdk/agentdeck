@@ -144,42 +144,39 @@ async def test_run_status_is_scoped_to_one_run_not_the_whole_log(event_store: Ev
     assert await event_store.run_status("s-1", "r-2", ctx) is RunStatus.COMPLETED
 
 
-async def test_locate_of_an_unknown_run_is_none(event_store: EventStorePort) -> None:
-    assert await event_store.locate("nobody", _ctx()) is None
+async def test_find_by_key_of_an_unclaimed_key_is_none(event_store: EventStorePort) -> None:
+    assert await event_store.find_by_key(_ctx(), "order-1234") is None
 
 
-async def test_locate_finds_a_runs_own_log(event_store: EventStorePort) -> None:
-    """A run with no session is its own log, the case a naive ``log_key``-shaped lookup gets
-    right by accident."""
-    ctx = _ctx(log_key="r-1")
-    await _write(event_store, [_started()], ctx)
-    assert await event_store.locate("r-1", ctx) == "r-1"
+async def test_find_by_key_resolves_to_the_run_that_claimed_it(event_store: EventStorePort) -> None:
+    """The read side of the permanent claim ``claim_start`` makes on ``ctx.key`` — plain
+    ``append`` never sets it, only the claim that adopts a key does."""
+    ctx = _ctx(run_id="r-1", key="order-1234")
+    claim, event = await event_store.claim_start(ctx.log_key, _started(), ctx, ORIGIN, timedelta(hours=1))
+    assert claim.held_by is None and event is not None
+
+    assert await event_store.find_by_key(ctx, "order-1234") == "r-1"
 
 
-async def test_locate_finds_a_run_under_a_session_by_its_own_run_id(event_store: EventStorePort) -> None:
-    """The case that catches a wrong implementation: ``log_key`` is the *session* id here, not
-    the run id, so a lookup keyed on ``log_key`` alone finds nothing for ``r-1``."""
-    ctx = _ctx(run_id="r-1", log_key="s-1")
-    await _write(event_store, [_started()], ctx)
-    assert await event_store.locate("r-1", ctx) == "s-1"
+async def test_find_by_key_never_reaches_into_another_namespaces_claim(event_store: EventStorePort) -> None:
+    """The same key claimed in one namespace is not another namespace's to find — the isolation
+    ``(namespace, key)``'s uniqueness only promises within one namespace."""
+    ctx = _ctx("acme", run_id="r-1", key="order-1234")
+    await event_store.claim_start(ctx.log_key, _started(), ctx, ORIGIN, timedelta(hours=1))
+
+    assert await event_store.find_by_key(_ctx("globex"), "order-1234") is None
 
 
-async def test_locate_never_reaches_into_another_namespaces_run(event_store: EventStorePort) -> None:
-    """A run id that exists, but only in a different namespace, is not this namespace's to find."""
-    await _write(event_store, [_started()], _ctx("acme", run_id="r-1"))
-    assert await event_store.locate("r-1", _ctx("globex")) is None
+async def test_find_by_key_tells_two_namespaces_sharing_one_key_apart(event_store: EventStorePort) -> None:
+    """#324: two namespaces may each claim the identical key and get two different runs; each
+    namespace's own lookup resolves to its own run, never the other's."""
+    acme = _ctx("acme", run_id="r-acme", key="order-1234")
+    globex = _ctx("globex", run_id="r-globex", key="order-1234")
+    await event_store.claim_start(acme.log_key, _started(), acme, ORIGIN, timedelta(hours=1))
+    await event_store.claim_start(globex.log_key, _started(), globex, ORIGIN, timedelta(hours=1))
 
-
-async def test_locate_tells_two_runs_of_one_session_apart(event_store: EventStorePort) -> None:
-    """A session's log holds more than one run over its life; each run id resolves to that one
-    log, not to whichever run happened to write it first."""
-    ctx = _ctx(log_key="s-1")
-    await _write(event_store, [_started(), _completed()], ctx)
-    second = _ctx(run_id="r-2", log_key="s-1")
-    await _write(event_store, [_started()], second)
-
-    assert await event_store.locate("r-1", ctx) == "s-1"
-    assert await event_store.locate("r-2", ctx) == "s-1"
+    assert await event_store.find_by_key(acme, "order-1234") == "r-acme"
+    assert await event_store.find_by_key(globex, "order-1234") == "r-globex"
 
 
 # ``stale_after`` is a duration measured against the store's own clock, so a case decides
@@ -427,7 +424,7 @@ async def test_claim_start_refuses_a_key_already_used_by_a_different_run(event_s
     )
     assert claim == SessionClaim() and event is not None
 
-    with pytest.raises(DuplicateKeyError, match="order-1234"):
+    with pytest.raises(DuplicateKeyError, match="order-1234.*r-1"):
         await event_store.claim_start(
             "s-2", _started(), _ctx(run_id="r-2", log_key="s-2", key="order-1234"), ORIGIN, NOTHING_IS_STALE
         )
@@ -720,16 +717,6 @@ async def test_list_runs_skips_a_run_whose_log_holds_no_lifecycle_event(event_st
     assert await event_store.list_runs(ctx) == []
 
 
-async def test_locate_of_a_run_whose_log_holds_no_lifecycle_event_is_none(event_store: EventStorePort) -> None:
-    """The same case as ``list_runs`` above, for ``locate``: a run with no transition at all is
-    indistinguishable from one the store never heard of, everywhere else in this port — a
-    lookup that answered it differently would be a fourth backend-specific idea of what "no
-    status" means."""
-    ctx = _ctx()
-    await _write(event_store, [TextDelta(message_id="m1", text="hi")], ctx)
-    assert await event_store.locate("r-1", ctx) is None
-
-
 def _deltas(count: int) -> list[KnownPayload]:
     return [TextDelta(message_id="m1", text=str(which)) for which in range(count)]
 
@@ -922,14 +909,15 @@ async def test_a_negative_offset_reads_from_the_start_and_a_negative_limit_is_re
 async def test_the_focused_queries_never_answer_from_another_namespaces_log(event_store: EventStorePort) -> None:
     """One namespace's populated log must read as untouched emptiness to another — the same
     isolation ``read``/``read_run`` already promise, on the queries that skip them."""
-    await _write(event_store, [_started(), _interrupted(thread_id=None)], _ctx("acme"))
+    acme = _ctx("acme", key="order-1234")
+    await event_store.claim_start(acme.log_key, _started(), acme, ORIGIN, timedelta(hours=1))
     intruder = _ctx("globex")
 
     assert await event_store.run_status("s-1", "r-1", intruder) is None
     assert await event_store.list_runs(intruder) == []
     assert await event_store.read("s-1", intruder, offset=0) == []
     assert await event_store.read_run("s-1", "r-1", intruder) == []
-    assert await event_store.locate("r-1", intruder) is None
+    assert await event_store.find_by_key(intruder, "order-1234") is None
 
 
 # Every public method of both SQLite-backed ports, so a method added later without the
@@ -950,7 +938,7 @@ _SQLITE_CALLS = [
         id="claim_start",
     ),
     pytest.param(SqliteEventStore, lambda port: port.list_runs(_ctx()), id="list_runs"),
-    pytest.param(SqliteEventStore, lambda port: port.locate("r-1", _ctx()), id="locate"),
+    pytest.param(SqliteEventStore, lambda port: port.find_by_key(_ctx(), "order-1234"), id="find_by_key"),
     pytest.param(SqliteControlPort, lambda port: port.signal("r-1", Signal.CANCEL), id="signal"),
     pytest.param(SqliteControlPort, lambda port: port.poll("r-1"), id="poll"),
 ]

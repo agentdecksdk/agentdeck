@@ -41,9 +41,9 @@ check what the model is actually receiving.
 ### Approvals disappear on restart, under the shipped defaults
 
 `AGENTDECK_EVENTS` defaults to `memory://` while `AGENTDECK_CHECKPOINT` defaults to durable
-SQLite. `deck.runs.pending()` reads the event log; the timer path reads the checkpointer. After a
-restart the two disagree, and a parked approval can never be answered because `runs.pending()`
-returns an empty list.
+SQLite. `deck.runs.list(status=RunStatus.WAITING_ANSWER)` reads the event log; the timer path
+reads the checkpointer. After a restart the two disagree, and a parked approval can never be
+answered because the listing returns empty.
 
 **Until it is fixed:** set `AGENTDECK_EVENTS` to a durable store — `sqlite://`, `postgresql://`
 or `redis://` — in anything that outlives one process. See

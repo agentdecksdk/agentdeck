@@ -157,17 +157,22 @@ defer and the parameter would promise something it never delivered.
 
 | Method | Signature | Returns |
 |---|---|---|
-| `run` | `(name, input, *, context=None, session_id=None, namespace=None, run_id=None)` | `TurnResult` for an agent; the final state (or an `InterruptResult`) for a workflow |
-| `stream` | `(name, input, *, context=None, session_id=None, namespace=None, run_id=None)` | `AsyncGenerator[Event]` — the run's own canonical events, live |
+| `run` | `(name, input, *, context=None, session_id=None, namespace=None, key=None)` | `TurnResult` for an agent; the final state (or an `InterruptResult`) for a workflow |
+| `stream` | `(name, input, *, context=None, session_id=None, namespace=None, key=None)` | `AsyncGenerator[Event]` — the run's own canonical events, live |
+| `runs.start` | `(name, input, *, context=None, session_id=None, namespace=None, key=None)` | a [`Run`](#run) handle — the same admission as `run`/`stream`, without waiting for or reading it |
 
-`run`/`stream` resolve `name` against whichever catalog holds it — an agent or a workflow — and
-play it on the Runtime, recorded exactly as `POST /agents/{name}/chat` or `POST /workflows/{name}`
-would record it. Pass `session_id=` for a conversational agent turn (same id, same history across
-calls) or a durable workflow's `thread_id` (required when that workflow is `durable = True`, so a
-later call with the same id resumes it). A node that calls `interrupt()` makes a workflow's `run`
-return an `InterruptResult` — `{"type": "interrupt", "payload": ..., "thread_id": ...}` — instead
-of a final state; see [Workflows](/concepts/workflows) for what that means for the node that
-paused, and answer it with `runs.answer()` below.
+`run`/`stream`/`runs.start` resolve `name` against whichever catalog holds it — an agent or a
+workflow — and play it on the Runtime, recorded exactly as `POST /agents/{name}/chat` or
+`POST /workflows/{name}` would record it. Pass `session_id=` for a conversational agent turn (same
+id, same history across calls) or a durable workflow's `thread_id` (required when that workflow is
+`durable = True`, so a later call with the same id resumes it). `key=` is an optional stable
+application identifier — for lookup (`runs.get(namespace=, key=)`) and idempotency, never the
+run's address: the run's own `id` is always minted, never derived from it, and reusing a
+`(namespace, key)` pair whose run already started raises `DuplicateKeyError` naming the run that
+holds it, rather than replaying that run. A node that calls `interrupt()` makes a workflow's `run`
+return an `InterruptResult` — `{"type": "interrupt", "payload": ..., "thread_id": ..., "id": ...}`
+— instead of a final state; see [Workflows](/concepts/workflows) for what that means for the node
+that paused, and answer it with the handle its own `id` names, [below](#run).
 
 ### What `input` accepts
 
@@ -260,51 +265,94 @@ Calling `Agent.run()` directly — the class's own headless runner, bypassing `D
 Runtime entirely — still returns the SDK's own `RunResult`; see
 [Definitions](/reference/definitions) for that distinction.
 
-## Reading a run back
+## `Run` and `deck.runs`
 
-`Deck` has no public event-log reader — `store` is deliberately not one of its properties. For a
-quick check, `runs.status(run_id)` folds a run's current `RunStatus` from its own events:
+`deck.runs` is the collection that finds or starts a `Run` — three operations, and no per-run op
+duplicated here. Once you hold a `Run`, every op that acts on it lives on the handle itself.
 
-```python no-test reason="needs a live run_id from a run this process started"
-current = await deck.runs.status(run_id)  # None if the log has never heard of this run_id
+```python no-test reason="needs an open deck and a live run"
+run = await deck.runs.start("Approval", {"order_id": "A-1003"}, session_id="t-1")
+
+same_run = await deck.runs.get(run.id)                              # canonical
+same_run = await deck.runs.get(namespace="acme", key="order-1234")  # application identity
+
+waiting = await deck.runs.list(namespace="acme", status=RunStatus.WAITING_ANSWER)
 ```
 
-A caller that needs the full log — every event, or every run in a namespace — reaches for the
-same `EventStorePort` the Runtime itself uses, e.g. `agentdeck.composition.resolve_event_store()`,
-or the HTTP surface's own endpoints once a project is served.
+| Method | Signature | Returns |
+|---|---|---|
+| `runs.start` | see [Starting a turn](#starting-a-turn) | `Run` |
+| `runs.get` | `(id=None, *, namespace=None, key=None)` — exactly one of `id`/`key` | `Run`; raises `NotFoundError` for one this namespace has never heard of |
+| `runs.list` | `(*, namespace=None, status=None, limit=None)` | `list[Run]`, scoped to one namespace — no cross-namespace listing |
 
-## Controlling a run in flight
+`get()` never mutates: it does not create, start, resume, claim ownership or move lifecycle
+state, and it takes no `context=` — a run recovered this way has durable identity and durable
+state, never the ephemeral value a live process held for it (see `context=` [below](#context)).
+It returns a run in any state, terminal included.
 
-```python no-test reason="needs a live run_id from a run this process is streaming"
-await deck.runs.pause(run_id, reason="operator stepped away")
-events = await deck.runs.resume(run_id)
-await deck.runs.cancel(run_id, reason="user closed the tab")
+### `Run`
+
+A deck-bound handle, not a second runtime — it holds no engine, store, MCP registry or observer,
+and delegates every operation back through the deck. A handle caches no authoritative state, so
+two handles on one run always agree: the durable store is the only thing either ever reads from.
+
+| Attribute | Type | Meaning |
+|---|---|---|
+| `id` | `str` | the canonical, minted, durable id |
+| `key` | `str \| None` | the caller's own application identifier, if one was given to `start()` |
+| `namespace` | `str \| None` | the isolation boundary this run was started in |
+| `session_id` | `str \| None` | the session this run belongs to, if any |
+
+| Method | Signature | Behavior |
+|---|---|---|
+| `status` | `() -> RunStatus` | this run's current status, folded from its own events |
+| `pause` | `(reason=None) -> bool` | ask it to stop at its next safe point; `False` means no control backend is configured |
+| `resume` | `() -> None` | continue a paused run; a no-op if it is not, in fact, paused |
+| `cancel` | `(reason=None) -> bool` | ask it to stop for good; a suspended run ends immediately rather than waiting for a safe point |
+| `pending` | `() -> InterruptResult \| None` | what it is waiting to be answered about, or `None` if it is not `WAITING_ANSWER` |
+| `answer` | `(value) -> None` | answer the interrupt it is paused on |
+| `events` | `(*, from_seq=0, follow=False) -> AsyncIterator[Event]` | this run's own events — a snapshot by default, tailed live with `follow=True` |
+| `await run` | | the result: a `TurnResult` for an agent, the graph's own state for a workflow |
+
+```python no-test reason="needs a live Run from runs.start/get"
+await run.pause("operator stepped away")
+await run.resume()
+await run.cancel("user closed the tab")
+
+for waiting in await deck.runs.list(status=RunStatus.WAITING_ANSWER):
+    await waiting.answer("yes")
 ```
 
-`runs.pause` and `runs.cancel` record a request and return immediately — not when the run
-actually stops, which nobody can know at the moment of asking. `runs.resume` plays a paused run's
-continuation and returns the events it produced, or an empty list if there was nothing to resume.
-[Run Control](/concepts/run-control) is the full contract: what a safe point is, why a request is
-not a status change, and what a resume replays.
+`pause`/`cancel` record a request and return immediately — not when the run actually stops, which
+nobody can know at the moment of asking. [Run Control](/concepts/run-control) is the full
+contract: what a safe point is, why a request is not a status change, and what a resume replays.
 
-## Workflow bookkeeping
+A `follow=True` ends at the same boundary `deck.stream()` does — a terminal event or a
+suspension — not at the run's true end. Following a run that was later resumed past an
+interrupt replays only up to that interrupt; call `events()` again, or read it with
+`follow=False`, to see what came after.
 
-```python no-test reason="needs a live run_id from a run this process paused"
-pending = await deck.runs.pending()  # every run currently waiting on a human, across the catalog
-result = await deck.runs.answer(pending[0].run_id, "yes")
+**`await run` raises rather than blocks once the run has stopped without finishing.** `PAUSED`
+and `WAITING_ANSWER` both raise `RunSuspendedError` (a `RunStateError`) instead of hanging with no
+timeout parameter to escape it — `.pending` on the exception carries the interrupt's own payload
+for the `WAITING_ANSWER` case, `None` for a plain pause:
+
+```python no-test reason="needs a live Run parked on an interrupt or a pause"
+from agentdeck.errors import RunSuspendedError
+
+try:
+    result = await run
+except RunSuspendedError as parked:
+    print(parked.status, parked.pending)  # RunStatus.WAITING_ANSWER, {"payload": ..., ...} — or PAUSED, None
 ```
 
-`runs.pending()` lists every run currently `WAITING_ANSWER`, across every workflow the catalog
-holds — the approval inbox, read off the event log. `runs.answer(run_id, value)` answers the
-interrupt that run is paused on and returns the final state (or the next `InterruptResult`); it
-looks the run up itself (which workflow, which thread, which session) from the same source
-`runs.pending()` reads, so a caller supplies only the id `runs.pending()` named and the value.
+A caller who wants to wait polls `status()`/`pending()` instead of awaiting.
 
-`runs.answer(run_id, value, context=...)` and `runs.resume(run_id, context=...)` take the same
-`context=` `run` does, and it has to be supplied again: the value is never serialized, so the
-run's own copy is gone by the time anybody picks it up. Omitting it is not "keep what the run
-had" — there is nothing kept, and the resumed run reads `None`. An interrupted node re-runs from
-its start, so that is the pass where a missing context shows up.
+`context=` is retained on the handle `runs.start()` returned, for that handle's whole life —
+`resume()` and `answer()` reuse it rather than taking one again. A handle recovered through
+`runs.get()` carries no context at all, since it was never written to the log, so `resume()`/
+`answer()` on it always resupply `None` — a node that read `ctx.data` before the pause or
+interrupt reads `None` on that replay.
 
 **The timer sweep (`sleep_until`'s wake-up) is internal, but it runs on its own — no cron or
 scheduler required.** An open `Deck` sweeps for its own lifetime: started in `__aenter__`,
@@ -313,11 +361,12 @@ cancelled in `__aexit__`, on an interval set by `AGENTDECK_RUNTIME_SWEEP_INTERVA
 deliberately: the checkpoint backend defaults to durable (`sqlite`) while the event store
 defaults to `memory`, and listing off the log alone would stop surviving a process restart under
 that default pairing. Its resume goes through the Runtime whenever a due thread matches a run
-`runs.pending()` already knows about — closing that run's log entry and freeing its session
-claim, the same as `runs.answer()` does — and carries no context, for the same reason
-`runs.answer`/`runs.resume` need one supplied: see [below](#where-a-context-does-not-reach). A
-process that opens the deck, takes a turn and closes within one interval never sweeps at all —
-the deadline fires on whoever next holds the deck open past that.
+`deck.runs.list(status=RunStatus.WAITING_ANSWER)` already knows about — closing that run's log
+entry and freeing its session claim, the same as `Run.answer()` does — and carries no context,
+for the same reason a handle from `runs.get()` has none: see
+[below](#where-a-context-does-not-reach). A process that opens the deck, takes a turn and closes
+within one interval never sweeps at all — the deadline fires on whoever next holds the deck open
+past that.
 
 ## Serving over HTTP
 
@@ -461,22 +510,23 @@ is never serialized, so it exists only for as long as some caller is holding it.
 
 **A context cannot cross the HTTP surface at all.** There is no wire form for a live object, and
 `asgi()` invents none. An agent or workflow whose callables require a context is therefore
-reachable from an embedded Python caller — `deck.run(...)`, `deck.runs.answer(...)` — and **not**
-from a served deck. `POST /agents/{name}/chat` will run it with `ctx.data` set to `None`. If a
-root needs a context, do not serve it; drive it from the process that holds the object.
+reachable from an embedded Python caller — `deck.run(...)`, a `Run` from `runs.start(context=...)`
+— and **not** from a served deck. `POST /agents/{name}/chat` will run it with `ctx.data` set to
+`None`. If a root needs a context, do not serve it; drive it from the process that holds the
+object.
 
 **The internal timer sweep cannot resume a context-requiring workflow.** The unsupported
 combination is specifically *`durable = True`* + a node that pauses on `sleep_until` + any node in
-that graph declaring `Context[T]`. The sweep's resume takes no `context=` — an autonomous resume
+that graph declaring `Context[T]`. The sweep's resume supplies no context — an autonomous resume
 has nobody present to supply one, and the original value was never written to the log or the
 checkpoint, so there is nothing to recover either. What actually happens is not an error: the
 thread resumes and the graph replays with `ctx.data` set to `None`. That surfaces wherever the
 node first touches it — an `AttributeError` on `None` if it reaches for an attribute, or, for a
 node written defensively as `if ctx.data:`, a plausible wrong answer and no failure at all. This is
 a real limitation of v3.0.0, stated rather than worked around: there is no deck-level context
-provider and no way to supply one to the timer inbox. `runs.answer(run_id, value, context=...)`
-and `runs.resume(run_id, context=...)` are the resumes that do take a context, because a caller is
-present.
+provider and no way to supply one to the timer inbox. A `Run`'s own `resume()`/`answer()` are the
+only continuations that carry a context, and only because the handle that started it retained one
+([above](#run)).
 
 **The headless runners pass no context.** `Agent.run()` calls the SDK's own `Runner.run` with no
 context object, so a tool that declares one fails when the model calls it — the compiled tool

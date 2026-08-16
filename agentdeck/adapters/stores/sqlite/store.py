@@ -42,14 +42,8 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS events_by_log ON events (namespace, log_key, id);
 CREATE UNIQUE INDEX IF NOT EXISTS events_by_run ON events (namespace, run_id, seq);
-CREATE INDEX IF NOT EXISTS events_by_run_id ON events (namespace, run_id, id);
 CREATE UNIQUE INDEX IF NOT EXISTS events_by_key ON events (namespace, key) WHERE key IS NOT NULL;
 """
-# events_by_run_id adds no data `events` doesn't already carry — it is an index over columns
-# already on every row, for `locate`'s "which log holds this run_id" query. Unlike the two
-# UNIQUE indexes, a plain one has nothing to conflict with, so it builds cleanly on a database
-# an earlier build already created, the same `executescript` call that no-ops the rest.
-#
 # events_by_run is the run-scoped identity guard: one seq per run is the promise consumers
 # refetch a gap with, and a duplicate is the one corruption a gap check cannot see. Scoped to
 # `(namespace, run_id, seq)` rather than `(namespace, log_key, run_id, seq)` — the shape this
@@ -116,6 +110,10 @@ def _migrate_events_schema(conn: sqlite3.Connection) -> None:
     run_index_columns = [row[2] for row in conn.execute("PRAGMA index_info(events_by_run)")]
     if "log_key" in run_index_columns:
         conn.execute("DROP INDEX events_by_run")
+    # `events_by_run_id` existed only for `locate`'s "which log holds this run_id" query, which
+    # #322 removed with no caller left for it — a database built before this drops it too, rather
+    # than carrying an index nothing queries through for good.
+    conn.execute("DROP INDEX IF EXISTS events_by_run_id")
 
 
 def _enable_wal(conn: sqlite3.Connection) -> None:
@@ -230,17 +228,15 @@ class SqliteEventStore(EventStorePort):
         filtered = [summary for summary in summaries if status is None or summary.status is status]
         return filtered if limit is None else filtered[:limit]
 
-    async def locate(self, run_id: str, ctx: RunContext) -> str | None:
-        return await self._run(partial(self._select_log_key, ctx.namespace_key, run_id), "locate")
+    async def find_by_key(self, ctx: RunContext, key: str) -> str | None:
+        return await self._run(partial(self._select_run_by_key, ctx.namespace_key, key), "find_by_key")
 
-    def _select_log_key(self, namespace: str, run_id: str) -> str | None:
-        # Restricted to lifecycle rows, like every other focused query: a run with none is
-        # indistinguishable from one this store never heard of, and locate must agree with
-        # list_runs/run_status rather than invent a third answer for that case.
+    def _select_run_by_key(self, namespace: str, key: str) -> str | None:
+        # `events_by_key` is a unique index over exactly these two columns, so this is the
+        # index's own lookup rather than a scan — the same query the INSERT it guards runs
+        # implicitly to decide whether to conflict.
         cursor = self._conn.execute(
-            "SELECT log_key FROM events WHERE namespace = ? AND run_id = ? "
-            f"AND json_extract(data, '$.kind') IN ({_KIND_SLOTS}) LIMIT 1",
-            (namespace, run_id, *_SORTED_LIFECYCLE_KINDS),
+            "SELECT run_id FROM events WHERE namespace = ? AND key = ? LIMIT 1", (namespace, key)
         )
         row = cursor.fetchone()
         return row[0] if row is not None else None
@@ -341,8 +337,11 @@ class SqliteEventStore(EventStorePort):
                 # and seq 0 have never been seen before. The one constraint left that can is
                 # `events_by_key`, and only when this run actually carries a key.
                 if ctx.key is not None:
+                    # The insert already failed, so the row that holds the key is a plain read
+                    # away — naming it here is what a caller refused a duplicate start acts on.
+                    holder = self._select_run_by_key(ctx.namespace_key, ctx.key)
                     raise DuplicateKeyError(
-                        f"key {ctx.key!r} is already used by another run in namespace {ctx.namespace!r}"
+                        f"key {ctx.key!r} is already used by run {holder!r} in namespace {ctx.namespace!r}"
                     ) from exc
                 raise
         return SessionClaim(overridden=tuple(overridden)), event

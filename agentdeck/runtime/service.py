@@ -281,7 +281,7 @@ class Runtime:
         Which states admit a resume is :data:`PRECONDITIONS`' business, not this method's. A
         run that is already running or already over is a no-op — that covers the ordinary races
         without a second answer for a caller to branch on — while one waiting for a *value*
-        refuses, naming ``deck.runs.answer``, because silence there reads as "resumed" to a
+        refuses, naming ``run.answer(...)``, because silence there reads as "resumed" to a
         caller who is in fact holding the run's only answer.
 
         A **cancel** recorded while the run was paused is honored here instead of resuming it,
@@ -538,12 +538,12 @@ class Runtime:
         if status is RunStatus.WAITING_ANSWER:
             return (
                 f"session {ctx.log_key!r} is held by run {held_by!r}, parked waiting for an answer — "
-                f"supply it with deck.runs.answer(...) or end it with deck.runs.cancel(...), see {_SESSIONS_DOCS}"
+                f"supply it with run.answer(...) or end it with run.cancel(...), see {_SESSIONS_DOCS}"
             )
         if status is RunStatus.PAUSED:
             return (
                 f"session {ctx.log_key!r} is held by run {held_by!r}, paused — "
-                f"lift it with deck.runs.resume(...) or end it with deck.runs.cancel(...), see {_SESSIONS_DOCS}"
+                f"lift it with run.resume() or end it with run.cancel(...), see {_SESSIONS_DOCS}"
             )
         return (
             f"session {ctx.log_key!r} already has run {held_by!r} in flight, "
@@ -652,6 +652,22 @@ class Runtime:
                 )
             )
         return out
+
+    async def find(self, run_id: str, *, namespace: str | None = None) -> RunSummary | None:
+        """Public wrapper over :meth:`_find`, for a caller that only needs to know where a run
+        lives and what state it is in — :meth:`status`, and ``deck.runs.get``'s own lookup."""
+        return await self._find(run_id, self._context(run_id=run_id, namespace=namespace))
+
+    async def status(self, run_id: str, *, namespace: str | None = None) -> RunStatus | None:
+        """This run's current status, or ``None`` if this namespace has never heard of it.
+
+        Reads :meth:`find` rather than a dedicated index: a run addressable by ``id`` alone
+        (docs/design/run-identity.md §1) needs no store-side lookup keyed any other way, and
+        this is the same projection :meth:`resume_run`/:meth:`_cancel_suspended` already fold
+        before they claim anything.
+        """
+        summary = await self.find(run_id, namespace=namespace)
+        return summary.status if summary is not None else None
 
     async def drain(self) -> None:
         """Flush what the sinks have not taken yet, then close them.

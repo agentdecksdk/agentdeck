@@ -133,13 +133,11 @@ class PostgresEventStore(EventStorePort):
             sql.SQL("CREATE UNIQUE INDEX IF NOT EXISTS events_by_run ON {table} (namespace, run_id, seq)").format(
                 table=table
             ),
-            # Adds no data the table doesn't already carry — an index over columns already on
-            # every row, for `locate`'s "which log holds this run_id" query. Unlike the UNIQUE
-            # index above, a plain one has nothing to conflict with, so it builds cleanly on a
-            # schema an earlier build already created, the same `IF NOT EXISTS` pass as the rest.
-            sql.SQL("CREATE INDEX IF NOT EXISTS events_by_run_id ON {table} (namespace, run_id, id)").format(
-                table=table
-            ),
+            # `events_by_run_id` existed only for `locate`'s "which log holds this run_id"
+            # query, which #322 removed with no caller left for it — a schema an earlier build
+            # already created drops it too, rather than carrying an index nothing queries
+            # through for good.
+            sql.SQL("DROP INDEX IF EXISTS {index}").format(index=sql.Identifier(schema, "events_by_run_id")),
             # `(namespace, key)`'s enforcement, partial so unkeyed rows — every row but a run's
             # own opening one — never compete for the constraint.
             sql.SQL(
@@ -176,11 +174,11 @@ class PostgresEventStore(EventStorePort):
             "SELECT DISTINCT ON (run_id) run_id, data FROM {table} "
             "WHERE namespace = %s AND log_key = %s AND run_id = ANY(%s) ORDER BY run_id, id DESC"
         ).format(table=table)
-        # Restricted to lifecycle rows, like every other focused query: a run with none is
-        # indistinguishable from one this store never heard of, and locate must agree with
-        # list_runs/run_status rather than invent a third answer for that case.
-        self._select_log_key = sql.SQL(
-            "SELECT log_key FROM {table} WHERE namespace = %s AND run_id = %s AND data->>'kind' = ANY(%s) LIMIT 1"
+        # `events_by_key` is a unique index over exactly these two columns, so this is the
+        # index's own lookup rather than a scan — the same query the INSERT it guards runs
+        # implicitly to decide whether to conflict.
+        self._select_run_by_key = sql.SQL(
+            "SELECT run_id FROM {table} WHERE namespace = %s AND key = %s LIMIT 1"
         ).format(table=table)
 
     async def _run[T](self, work: Callable[[Connection], Awaitable[T]], op: str) -> T:
@@ -347,7 +345,18 @@ class PostgresEventStore(EventStorePort):
                     raise
             return SessionClaim(overridden=tuple(overridden)), event
 
-        return await self._run(_work, "claim_start")
+        try:
+            return await self._run(_work, "claim_start")
+        except DuplicateKeyError:
+            # The insert already failed and its transaction rolled back, so the connection is
+            # free for a plain read: naming the actual holder here is what a caller refused a
+            # duplicate start acts on, and the ``UniqueViolation`` above is not raised inside a
+            # transaction that could still make this read see the losing attempt's own row.
+            assert ctx.key is not None  # the only branch above that raises DuplicateKeyError
+            holder = await self.find_by_key(ctx, ctx.key)
+            raise DuplicateKeyError(
+                f"key {ctx.key!r} is already used by run {holder!r} in namespace {ctx.namespace!r}"
+            ) from None
 
     async def claim_resume(
         self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
@@ -396,13 +405,13 @@ class PostgresEventStore(EventStorePort):
         filtered = [summary for summary in summaries if status is None or summary.status is status]
         return filtered if limit is None else filtered[:limit]
 
-    async def locate(self, run_id: str, ctx: RunContext) -> str | None:
+    async def find_by_key(self, ctx: RunContext, key: str) -> str | None:
         async def _work(conn: Connection) -> str | None:
-            cursor = await conn.execute(self._select_log_key, (ctx.namespace_key, run_id, _SORTED_LIFECYCLE_KINDS))
+            cursor = await conn.execute(self._select_run_by_key, (ctx.namespace_key, key))
             row = await cursor.fetchone()
             return row[0] if row is not None else None
 
-        return await self._run(_work, "locate")
+        return await self._run(_work, "find_by_key")
 
     async def _lock_log(self, conn: Connection, namespace: str, log_key: str) -> None:
         """Serialize this log's writes, and bound the wait.

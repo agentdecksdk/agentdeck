@@ -10,6 +10,27 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Upgrading
 
+- **Breaking: `deck.runs` is now `start`/`get`/`list`, and a `Run` handle owns every op that
+  acts on a run already in flight** (#322). `deck.runs.pause/cancel/resume/answer/status/pending`
+  are removed, not deprecated. `await deck.runs.start(name, input, ...)` begins a run and hands
+  back a `Run` (`.id`, `.key`, `.namespace`, `.session_id`) whose own methods replace them:
+  `run.status()`, `run.pause(reason)`, `run.resume()`, `run.cancel(reason)`, `run.pending()`,
+  `run.answer(value)`, `run.events(from_seq=0, follow=False)`, and `await run` for the result — a
+  `TurnResult` for an agent, the graph's own state for a workflow. `deck.runs.get(id)` (optionally
+  `namespace=`) or `deck.runs.get(namespace=, key=)` rehydrates a handle to a run that already
+  exists; it never mutates and raises `NotFoundError` for one this namespace has never heard of.
+  `deck.runs.list(namespace=, status=, limit=)` replaces the old `pending()` inbox and stays
+  scoped to one namespace. Two handles on one run always agree — the durable store is the only
+  thing either reads from. `deck.run()`/`deck.stream()` are unchanged in behavior (still return
+  an interrupt as a value rather than raising); `await run` on a `Run` that is `PAUSED` or
+  `WAITING_ANSWER` instead raises the new `RunSuspendedError` (a `RunStateError`), carrying
+  `.pending`, since there is no timeout parameter to wait either state out. `context=` is retained
+  on the handle `runs.start()` returns for that handle's whole life — `resume()`/`answer()` no
+  longer take one, and a handle from `get()` always resupplies `None`. `PendingRun` is no longer
+  public (`deck.runs.list(status=RunStatus.WAITING_ANSWER)` replaces it); `InterruptResult` gains
+  the canonical `id` alongside its existing fields. `EventStorePort.locate()` is removed (no
+  caller left once `Deck._status` went with it) and replaced by `find_by_key(ctx, key)`, the read
+  side of the `(namespace, key)` claim, across all four stores.
 - **Breaking: a run's `id` is now minted, never derived from a caller-supplied value** (#324).
   `deck.run(...)`/`deck.stream(...)` no longer accept `run_id=`: the keyword is `key=`, an
   optional stable application identifier for lookup and idempotency, and it plays no part in

@@ -119,5 +119,5 @@ def test_an_empty_sequence_folds_to_no_status_at_all() -> None:
 def test_a_refusal_names_the_operation_that_would_have_worked() -> None:
     """A caller holding a ``run_id`` off a stream it was watching has no other way to find out
     which of the two verbs this run is waiting for, so the message has to carry it."""
-    assert "deck.runs.answer" in PRECONDITIONS[RunStatus.WAITING_ANSWER, Operation.RESUME].why
-    assert "deck.runs.resume" in PRECONDITIONS[RunStatus.PAUSED, Operation.ANSWER].why
+    assert "run.answer(...)" in PRECONDITIONS[RunStatus.WAITING_ANSWER, Operation.RESUME].why
+    assert "run.resume()" in PRECONDITIONS[RunStatus.PAUSED, Operation.ANSWER].why

@@ -106,8 +106,8 @@ it stopped, waiting. The refusal names the call that frees it instead of claimin
 
 ```text
 session 'wa-1' is held by run '<run_id>', parked waiting for an answer — supply it with
-deck.runs.answer(...) or end it with deck.runs.cancel(...), see ...
+run.answer(...) or end it with run.cancel(...), see ...
 ```
 
-An approval nobody ever answers holds its session forever, not for an hour — `deck.runs.cancel`
+An approval nobody ever answers holds its session forever, not for an hour — `run.cancel(...)`
 is what ends it.

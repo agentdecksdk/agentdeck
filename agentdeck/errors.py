@@ -11,6 +11,10 @@ types (``FileNotFoundError``, ``RuntimeError``).
 
 from __future__ import annotations
 
+from typing import Any
+
+from agentdeck.core.status import RunStatus
+
 # The canonical docs-site origin (see tests/test_docs_site.py's SITE_LINK, which knows both
 # live origins and treats this one as canonical). One place to fix on a domain change, so an
 # error message can link a page here instead of repeating a URL at each site.
@@ -80,8 +84,26 @@ class DuplicateKeyError(AgentdeckError):
     ``(namespace, key)`` is consumed permanently once a run opens with it — not merely while
     that run is active — so this is not a race retried away; it is the store refusing a second
     start rather than silently handing back the run that already holds the key. The caller's
-    recovery path is ``get(namespace=, key=)`` (once that surface lands), not a retry.
+    recovery path is ``get(namespace=, key=)``, not a retry.
     """
+
+
+class RunSuspendedError(RunStateError):
+    """``await run`` reached a run that stopped suspended — ``PAUSED`` or ``WAITING_ANSWER`` —
+    rather than completing, failing or being cancelled.
+
+    There is no timeout parameter to wait either state out (``docs/design/run-identity.md``
+    §15): a caller who wanted to block would hang forever if nobody ever resumes or answers it,
+    so this raises instead. ``pending`` carries what :meth:`Run.answer` would need — the
+    interrupt's own payload — and is ``None`` for a plain pause, which only ``run.resume()``
+    lifts.
+    """
+
+    def __init__(self, run_id: str, status: RunStatus, pending: Any = None) -> None:
+        verb = "run.answer(...)" if status is RunStatus.WAITING_ANSWER else "run.resume()"
+        super().__init__(f"run {run_id!r} is {status.value}, not done: call {verb} instead of awaiting it.")
+        self.status = status
+        self.pending = pending
 
 
 __all__ = [
@@ -91,6 +113,7 @@ __all__ = [
     "DuplicateKeyError",
     "NotFoundError",
     "RunStateError",
+    "RunSuspendedError",
     "SessionBusyError",
     "SkillError",
     "StoreError",

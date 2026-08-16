@@ -78,8 +78,8 @@ class NeverYields(EventStorePort):
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
         return _drive(self._inner.list_runs(ctx, status))
 
-    async def locate(self, run_id: str, ctx: RunContext) -> str | None:
-        return _drive(self._inner.locate(run_id, ctx))
+    async def find_by_key(self, ctx: RunContext, key: str) -> str | None:
+        return _drive(self._inner.find_by_key(ctx, key))
 
 
 __all__ = ["NeverYields"]

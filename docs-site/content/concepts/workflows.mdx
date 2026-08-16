@@ -86,7 +86,8 @@ def _confirm(state) -> dict:
 ```
 
 A paused run returns an `InterruptResult` — `{"type": "interrupt", "payload": …,
-"thread_id": …}` — instead of a final state. List it in the inbox and answer it by `run_id`:
+"thread_id": …, "id": …}` — instead of a final state, and its own `id` is enough to answer it,
+no inbox lookup required:
 
 ```python
 import asyncio
@@ -98,8 +99,8 @@ async def main() -> None:
     async with Deck.from_project() as deck:
         paused = await deck.run("Approval", {}, session_id="quote-42")
         if paused["type"] == "interrupt":
-            [mine] = [p for p in await deck.runs.pending() if p.thread_id == "quote-42"]
-            await deck.runs.answer(mine.run_id, "yes")
+            mine = await deck.runs.get(paused["id"])
+            await mine.answer("yes")
 
 
 asyncio.run(main())
@@ -113,7 +114,7 @@ that pauses.
 
 If the node also reads a `Context[T]`, that second pass is where a forgotten context bites
 silently — see [answering with a
-context](/guides/human-approval#if-the-workflow-takes-a-context-answer-with-it-too).
+context](/guides/human-approval#if-the-workflow-takes-a-context-hold-the-same-handle-to-answer-it).
 </Callout>
 
 ## Timers
@@ -137,9 +138,9 @@ log](/concepts/runs-and-the-event-log#a-listed-exception-timer-resumes) — deli
 the checkpoint backend defaults to durable (`sqlite`) while the event store defaults to
 `memory`, and a due timer surviving a process restart depends on the checkpointer's own
 durability. The resume still plays a due thread *through the Runtime* when it matches a run
-`deck.runs.pending()` already knows about, so that resume itself is recorded in the log like any
-other; only a thread with no logged run at all falls back to resuming straight off the
-checkpointer.
+`deck.runs.list(status=RunStatus.WAITING_ANSWER)` already knows about, so that resume itself is
+recorded in the log like any other; only a thread with no logged run at all falls back to
+resuming straight off the checkpointer.
 
 ## Streaming and composition
 

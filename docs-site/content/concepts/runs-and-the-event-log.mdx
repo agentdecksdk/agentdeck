@@ -9,12 +9,12 @@ Every turn — a chat message or a workflow invocation — appends events to one
 that run. This log, not anything an engine keeps for itself, is what every consumer of a run
 reads: replay, audit, the HTTP surface, pause and resume.
 
-Every way of starting a turn writes here, and they all write the same thing. `run` and `stream`
-record a run exactly as `POST /agents/{name}/chat` and `POST /workflows/{name}` do, because all of
-them play the turn on the same Runtime. So a run you started from a script is as readable
-afterwards as one a client started over HTTP — same events, same order, same store. `Deck` has no
-public store property; reach for `agentdeck.composition.resolve_event_store()` — the same one the
-Runtime itself uses — to read one back.
+Every way of starting a turn writes here, and they all write the same thing. `run`, `stream` and
+`runs.start` record a run exactly as `POST /agents/{name}/chat` and `POST /workflows/{name}` do,
+because all of them play the turn on the same Runtime. So a run you started from a script is as
+readable afterwards as one a client started over HTTP — same events, same order, same store.
+`Deck` has no public store property; `deck.runs.get(id)` is the documented way back to a run,
+whether that's the same process moments later or a second one pointed at the same durable store.
 
 ```python file=.agentdeck/agents/greeter/agent.py
 from agentdeck import Agent
@@ -29,34 +29,26 @@ import os
 os.environ["AGENTDECK_EVENTS"] = "sqlite://./events.sqlite3"
 
 from agentdeck import Deck
-from agentdeck.composition import resolve_event_store
-from agentdeck.core import RunContext
 from agentdeck.core.status import status_of
 
 
 async def main() -> None:
-    run_id = None
-
     async with Deck.from_project() as deck:
-        # A run_id, not a context: the Runtime mints it and puts it on every event, so a
-        # caller that wants it reads it off the stream.
-        async for event in deck.stream(
+        run = await deck.runs.start(
             "Greeter", "book me a slot Tuesday", session_id="sess-1", namespace="workspace:acme"
-        ):
-            run_id = run_id or event.run_id  # already durable — appended before it is yielded
-    assert run_id is not None
+        )
+        await run  # waits for the turn to finish; a TurnResult back
 
-    # A second, independent handle on the same store: what a later process, or a
-    # dashboard, reads back. The store is an internal port, so it still takes a context.
-    store = resolve_event_store()
-    ctx = RunContext(run_id=run_id, session_id="sess-1", namespace="workspace:acme")
-    events = await store.read_run(ctx.log_key, run_id, ctx)
-    for event in events:
-        print(event.seq, event.kind)
-    seqs = {event.seq for event in events}
-    gaps = [n for n in range(max(seqs) + 1) if n not in seqs] if seqs else []
-    print("gaps:", gaps)
-    print("status:", status_of(events))
+        # A second, independent handle on the same run: what a later process, or a
+        # dashboard, reads back — `get` never mutates, so holding one changes nothing.
+        same_run = await deck.runs.get(run.id, namespace="workspace:acme")
+        events = [event async for event in same_run.events()]
+        for event in events:
+            print(event.seq, event.kind)
+        seqs = {event.seq for event in events}
+        gaps = [n for n in range(max(seqs) + 1) if n not in seqs] if seqs else []
+        print("gaps:", gaps)
+        print("status:", status_of(events))
 
 
 asyncio.run(main())
@@ -73,10 +65,11 @@ gaps: []
 status: completed
 ```
 
-The two calls to `Deck.from_project()` and `resolve_event_store()` never touch each other directly
-— the second one is a fresh store handle, built the same way the Runtime built its own. What comes
-back is whatever the first call actually wrote, nothing cached in between — the same handle a
-later process, or a dashboard, would build to read exactly what this run wrote.
+`run` and `same_run` never touch each other directly — a handle caches no authoritative state, so
+the two agree because the durable store is the only thing either ever reads from. What
+`same_run.events()` returns is whatever the run actually wrote, nothing cached in between — the
+same thing a later process, or a dashboard, would see calling `deck.runs.get(run.id)` against the
+same durable store.
 
 The exact kinds in between `run.started` and `run.completed` depend on what the run did, not on
 a fixed shape: a `text.delta` per streamed chunk, a `tool.call.started`/`tool.call.completed`
@@ -112,9 +105,9 @@ A run's status — `running`, `paused`, `waiting_answer`, `completed`, `failed`,
 is not written anywhere as its own row. `status_of` derives it by folding the run's own lifecycle
 events in order and taking the last transition; a log with none of those folds to `None`, and a
 log ending in `run.completed` folds to `completed` every time it's asked, with no cache to go
-stale after a restart. `paused` and `waiting_answer` differ in what resuming them takes — nothing
-for a pause, an answer for an interrupt — which [Run Control](/concepts/run-control) covers in
-full.
+stale after a restart. `await run.status()` is this same fold, done for you — `paused` and
+`waiting_answer` differ in what resuming them takes — nothing for a pause, an answer for an
+interrupt — which [Run Control](/concepts/run-control) covers in full.
 
 ## The log is not the engine's memory
 
@@ -151,12 +144,13 @@ entry point — nothing outside `Deck` calls it — but an open `Deck` drives it
 long as it stays open, on `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` (30 seconds by default), with
 no cron or scheduler required.
 
-When a due thread also has a run `deck.runs.pending()` already knows about (parked by a
-`Deck.run()` or HTTP call, which does go through the Runtime), the sweep resumes it *through the
-Runtime*, so that resume itself lands in the log like any other; only a thread with no logged run
-at all — parked by calling a durable `Workflow`'s own `run`/`resume` directly — falls back to
-resuming straight off the checkpointer, since there is no log entry to reconcile. See
-[Workflows → Timers](/concepts/workflows#timers) for where this shows up in practice.
+When a due thread also has a run `deck.runs.list(status=RunStatus.WAITING_ANSWER)` already knows
+about (parked by a `Deck.run()` or HTTP call, which does go through the Runtime), the sweep
+resumes it *through the Runtime*, so that resume itself lands in the log like any other; only a
+thread with no logged run at all — parked by calling a durable `Workflow`'s own `run`/`resume`
+directly — falls back to resuming straight off the checkpointer, since there is no log entry to
+reconcile. See [Workflows → Timers](/concepts/workflows#timers) for where this shows up in
+practice.
 
 Next: [Run Control](/concepts/run-control) covers what a run in flight can be asked to do, and
 how those requests land in this same log.

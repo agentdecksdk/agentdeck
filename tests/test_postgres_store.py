@@ -87,7 +87,7 @@ _CALLS = [
     pytest.param(lambda store: store.read_run("s-1", "r-1", _ctx()), id="read_run"),
     pytest.param(lambda store: store.run_status("s-1", "r-1", _ctx()), id="run_status"),
     pytest.param(lambda store: store.list_runs(_ctx()), id="list_runs"),
-    pytest.param(lambda store: store.locate("r-1", _ctx()), id="locate"),
+    pytest.param(lambda store: store.find_by_key(_ctx(), "order-1234"), id="find_by_key"),
     pytest.param(
         lambda store: store.claim_resume("s-1", "r-1", RunResumed(reason=None), _ctx(), ORIGIN), id="claim_resume"
     ),
@@ -327,11 +327,10 @@ async def test_a_session_claim_that_wins_on_a_stale_run_reports_it_for_the_calle
         await store.aclose()
 
 
-async def test_the_run_id_index_migrates_onto_a_schema_built_before_it_existed(keyspace: tuple[str, str]) -> None:
-    """``events_by_run_id`` is new; a schema an earlier build already created has the table but
-    not this index. Unlike the ``UNIQUE`` index beside it, a plain one has nothing to conflict
-    with, so opening the store adds it instead of refusing to open — asserted here rather than
-    assumed, against a schema this test builds by hand with the pre-``locate`` DDL.
+async def test_the_run_id_index_is_dropped_from_a_schema_built_before_it_was_removed(keyspace: tuple[str, str]) -> None:
+    """``events_by_run_id`` existed only for ``locate``'s "which log holds this run_id" query,
+    which #322 removed with no caller left for it — a schema an earlier build already created
+    has the index and drops it on open rather than carrying it for good.
     """
     dsn, schema = keyspace
     admin = await psycopg.AsyncConnection.connect(dsn, autocommit=True)
@@ -343,6 +342,7 @@ async def test_the_run_id_index_migrates_onto_a_schema_built_before_it_existed(k
         )
         await admin.execute(f'CREATE INDEX events_by_log ON "{schema}".events (namespace, log_key, id)')
         await admin.execute(f'CREATE UNIQUE INDEX events_by_run ON "{schema}".events (namespace, log_key, run_id, seq)')
+        await admin.execute(f'CREATE INDEX events_by_run_id ON "{schema}".events (namespace, run_id, id)')
 
         store = PostgresEventStore(dsn, schema=schema)
         try:
@@ -351,7 +351,7 @@ async def test_the_run_id_index_migrates_onto_a_schema_built_before_it_existed(k
                 "SELECT indexname FROM pg_indexes WHERE schemaname = %s AND tablename = 'events'", (schema,)
             )
             names = {row[0] for row in await cursor.fetchall()}
-            assert "events_by_run_id" in names
+            assert "events_by_run_id" not in names
         finally:
             await store.aclose()
     finally:

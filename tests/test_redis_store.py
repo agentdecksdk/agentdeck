@@ -70,7 +70,7 @@ _CALLS = [
     pytest.param(lambda store: store.read_run("s-1", "r-1", _ctx()), id="read_run"),
     pytest.param(lambda store: store.run_status("s-1", "r-1", _ctx()), id="run_status"),
     pytest.param(lambda store: store.list_runs(_ctx()), id="list_runs"),
-    pytest.param(lambda store: store.locate("r-1", _ctx()), id="locate"),
+    pytest.param(lambda store: store.find_by_key(_ctx(), "order-1234"), id="find_by_key"),
     pytest.param(
         lambda store: store.claim_resume("s-1", "r-1", RunResumed(reason=None), _ctx(), ORIGIN), id="claim_resume"
     ),
@@ -165,15 +165,15 @@ async def test_a_colon_in_a_namespace_cannot_reach_into_another_namespaces_log(k
     url, prefix = keyspace
     store = RedisEventStore(url, prefix=prefix)
     try:
-        outer = _ctx(namespace="acme:x", session_id="s")
+        outer = RunContext(namespace="acme:x", run_id="r-1", session_id="s", key="order-1234")
         inner = _ctx(namespace="acme", session_id="x:s")
-        await store.append("s", [_started()], outer, ORIGIN)
+        await store.claim_start("s", _started(), outer, ORIGIN, NOTHING_IS_STALE)
 
         assert [event.namespace for event in await store.read("s", outer)] == ["acme:x"]
         assert await store.read("x:s", inner) == []
         assert await store.read_run("x:s", "r-1", inner) == []
         assert await store.list_runs(inner) == []
-        assert await store.locate("r-1", inner) is None
+        assert await store.find_by_key(inner, "order-1234") is None
     finally:
         await store.aclose()
 
