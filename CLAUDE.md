@@ -119,6 +119,10 @@ and import law they describe are what shipped). Layout and import law also in
   draft mid-work is expected and is not a signal.
 - Release: bump `pyproject.toml` version + move Unreleased CHANGELOG entries
   on `dev`, merge to `main`, tag `vX.Y.Z` — release.yml verifies the tag
-  matches the version, runs the gate, and publishes a GitHub Release.
+  matches the version, runs the gate, and publishes a GitHub Release. **The tag
+  does not publish agentdecksdk.com**: that is served from the
+  `~/prjs/agentdeck-docs-release` worktree and needs `./redeploy.sh vX.Y.Z` run
+  by hand, or the published docs keep describing the previous release. Full
+  steps and the served-output checks are in `.claude/skills/release/SKILL.md`.
 - `AGENTS.md` just points here — this file is the single source of agent
   instructions.
