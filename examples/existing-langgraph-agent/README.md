@@ -64,7 +64,8 @@ existing graphs use — a pydantic model works too, and neither is required.
 
 - `deck.run("Triage", state)` — the final state, exactly as the graph returns it.
 - `deck.stream(...)` — `run.started`, a `node.updated` per node, `run.completed`, as they happen.
-- `deck.runs.status(run_id)` / `.pause` / `.resume` / `.cancel` — run control from another process.
+- `deck.runs.get(id)` — a `Run` handle, from another process, with `.status()`, `.pause()`,
+  `.resume()` and `.cancel()` on it.
 - `agentdeck-serve` — the same workflow over HTTP and SSE, with no code of yours.
 
 Adding `durable=True` and a `langgraph.types.interrupt()` call is the next step up: the run parks

@@ -412,14 +412,22 @@ v3 is a breaking release, so duplicate vocabulary is not preserved for its own s
 
 ## 13. Delivery
 
-| | |
-|---|---|
-| 1 | control plane by canonical id: ports, adapters, `Gate`, `Runtime`, `RunContext`. **The cross-tenant fix, shippable alone** (#315, PR #320 with §11's edits) |
-| 2 | store identity: the `id` column, `UNIQUE(namespace, id, seq)`, the `(namespace, key)` index, `claim_start` adopting the key |
-| 3 | execution ownership: the deck-owned task, `events()` as observation, `await run` as result waiting |
-| 4 | the surface: `Run`, `deck.runs.start/get/list`, `deck.run`/`stream` over the same machinery, `PendingRun`/`InterruptResult`, docs |
+**All four shipped 2026-08-16.**
 
-Stage 3 is the one that is not a refactor. It should not be planned as part of stage 4.
+| | | issue | on `dev` |
+|---|---|---|---|
+| 1 | control plane by canonical id: ports, adapters, `Gate`, `Runtime`, `RunContext`. The cross-tenant fix, shippable alone | #315 | `9c2d50e` |
+| 2 | store identity: the run's own column, `UNIQUE(namespace, run_id, seq)`, the `(namespace, key)` index, `claim_start` adopting the key | #324 | `baf66d2` |
+| 3 | execution ownership: the deck-owned task, `events()` as observation, `await run` as result waiting | #325 | `2e297b2` |
+| 4 | the surface: `Run`, `deck.runs.start/get/list`, `deck.run`/`stream` over the same machinery, `InterruptResult`, docs | #322 | `76e06b1` |
+
+Stage 3 was the one that was not a refactor, and was not planned as part of stage 4.
+
+Two things shipped under different names than this document gave them. The run column stayed
+`run_id` rather than becoming `id`, because the table already has an autoincrement `id` primary
+key; it holds the minted value regardless, since `Runtime.run()` no longer accepts a caller's
+`run_id=` at all. And `locate()` was replaced by `find_by_key()` rather than simply removed, since
+`get(namespace=, key=)` needs the read side of the claim.
 
 ## 14. Test matrix
 
