@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from agentdeck.core.events import Event
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
 from agentdeck.core.status import LIFECYCLE_KINDS, STATES, RunStatus, can_resume, status_of
+from agentdeck.errors import DuplicateKeyError, StoreError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -37,6 +38,10 @@ class MemoryEventStore(EventStorePort):
         # writes it again. Kept beside the log for the same reason `_logs` itself is a dict:
         # `locate` must not cost a walk of the namespace.
         self._run_logs: dict[tuple[str | None, str], str] = {}
+        # `(namespace, key)` is the store's own permanent claim, set once by whichever
+        # `claim_start` first adopts a key and never cleared — this dict *is* the enforcement,
+        # not a cache of something re-derivable from `_logs`.
+        self._keys: dict[tuple[str | None, str], str] = {}
 
     async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
         events = self._stamp(log_key, payloads, ctx, origin)
@@ -55,6 +60,16 @@ class MemoryEventStore(EventStorePort):
         reading the run's last ``seq`` and extending the log is all it would take for two tasks to
         be handed the same number.
         """
+        known_log = self._run_logs.get((ctx.namespace, ctx.run_id))
+        if known_log is not None and known_log != log_key:
+            # `_run_logs` is the enforcement here, not just `locate`'s cache: one logical run
+            # writing under two log keys is exactly the corruption SQLite's tightened
+            # `events_by_run` index refuses at the DB level, and this store owes the same
+            # promise even though it has no index to lean on.
+            raise StoreError(
+                f"run {ctx.run_id!r} is already recorded under log {known_log!r} in namespace "
+                f"{ctx.namespace!r}; cannot also write it under {log_key!r}"
+            )
         log = self._logs.setdefault((ctx.namespace, log_key), [])
         if any(payload.kind in LIFECYCLE_KINDS for payload in payloads):
             # Only on a lifecycle write, so a run with none recorded stays unlocatable — the same
@@ -96,6 +111,11 @@ class MemoryEventStore(EventStorePort):
     ) -> tuple[SessionClaim, Event | None]:
         """Atomic for free, like ``claim_resume``: the scan and ``_stamp`` are plain dict work
         with no suspension point between them, so no other task can open a run in the gap.
+
+        A busy session wins over a reused key: the session scan runs first and can return a
+        refusal before ``ctx.key`` is even looked at, matching sqlite/postgres, where the
+        session check is a read and the key check is a constraint the INSERT itself enforces.
+        Only once the session is free does a reused key raise instead of silently starting.
         """
         stale_before = self._clock() - stale_after
         overridden: list[Event] = []
@@ -111,7 +131,11 @@ class MemoryEventStore(EventStorePort):
             if events[-1].ts > stale_before:
                 return SessionClaim(held_by=events[-1].run_id), None
             overridden.append(events[-1])
+        if ctx.key is not None and (holder := self._keys.get((ctx.namespace, ctx.key))) is not None:
+            raise DuplicateKeyError(f"key {ctx.key!r} is already used by run {holder!r} in namespace {ctx.namespace!r}")
         event = self._stamp(log_key, [opening], ctx, origin)[0]
+        if ctx.key is not None:
+            self._keys[(ctx.namespace, ctx.key)] = ctx.run_id
         await asyncio.sleep(0)
         return SessionClaim(overridden=tuple(overridden)), event
 
@@ -130,7 +154,11 @@ class MemoryEventStore(EventStorePort):
         await asyncio.sleep(0)
         return event
 
-    async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
+    async def list_runs(
+        self, ctx: RunContext, status: RunStatus | None = None, limit: int | None = None
+    ) -> list[RunSummary]:
+        if limit is not None and limit < 0:
+            raise ValueError(f"limit must be None or >= 0, got {limit}")
         runs = [
             (log_key, event.run_id)
             for (namespace, log_key), log in self._logs.items()
@@ -148,7 +176,8 @@ class MemoryEventStore(EventStorePort):
             # (no events at all) cannot occur for a run this loop found in the first place.
             assert found is not None
             summaries.append(RunSummary(log_key=log_key, run_id=run_id, status=found))
-        return [summary for summary in summaries if status is None or summary.status is status]
+        filtered = [summary for summary in summaries if status is None or summary.status is status]
+        return filtered if limit is None else filtered[:limit]
 
     async def locate(self, run_id: str, ctx: RunContext) -> str | None:
         return self._run_logs.get((ctx.namespace, run_id))

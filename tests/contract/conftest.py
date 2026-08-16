@@ -47,9 +47,7 @@ async def played(case: Case, runtime: Runtime, ctx: RunContext) -> Played:
     """Play the case to the end. A raising engine is an outcome under test, not a failure."""
     events: list[Event] = []
     try:
-        async for event in runtime.run(
-            case.spec.name, case.input, run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace
-        ):
+        async for event in runtime.run(case.spec.name, case.input, session_id=ctx.session_id, namespace=ctx.namespace):
             events.append(event)
     except Exception as exc:  # the engine's exception is one of the things being asserted about
         return Played(events, exc)

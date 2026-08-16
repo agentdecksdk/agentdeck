@@ -7,7 +7,6 @@ anywhere belongs here, not as a one-off next to whatever found it.
 from __future__ import annotations
 
 from contextlib import aclosing
-from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -57,8 +56,9 @@ def test_a_suspended_run_ends_waiting_and_emits_no_terminal_event(case: Case, pl
 
 def test_the_envelope_comes_from_the_context_not_the_engine(case: Case, played: Played, ctx: RunContext) -> None:
     """An engine cannot set the namespace, the ids or the attribution — it never sees the envelope."""
+    run_id = played.events[0].run_id
     for event in played.events:
-        assert (event.namespace, event.run_id, event.session_id) == (ctx.namespace, ctx.run_id, ctx.session_id)
+        assert (event.namespace, event.run_id, event.session_id) == (ctx.namespace, run_id, ctx.session_id)
         assert event.origin == case.spec.name
         assert event.v == CURRENT_VERSION
         assert event.kind == event.payload.kind
@@ -71,9 +71,7 @@ async def test_every_event_is_in_the_store_before_a_consumer_sees_it(
     spots a gap can always refetch it, because the store is never behind the stream."""
     seen = 0
     async for event in _tolerant(
-        runtime.run(
-            case.spec.name, case.input, run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace
-        )
+        runtime.run(case.spec.name, case.input, session_id=ctx.session_id, namespace=ctx.namespace)
     ):
         seen += 1
         stored = await store.read(ctx.log_key, ctx)
@@ -94,9 +92,7 @@ async def test_an_abandoned_stream_leaves_a_closed_run_behind(
     event boundary, and the run is closed there: a later reader must be able to tell
     "abandoned" from "still in flight", which is the same reason an open run is a bug."""
     async with aclosing(
-        runtime.run(
-            case.spec.name, case.input, run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace
-        )
+        runtime.run(case.spec.name, case.input, session_id=ctx.session_id, namespace=ctx.namespace)
     ) as run:
         async for _ in run:
             break
@@ -113,23 +109,18 @@ async def test_a_gap_can_be_refetched_from_the_store_by_run(
     """What contiguous ``seq`` buys: a consumer that missed events asks the store for that run
     from the gap onward — and gets that run's tail only, even with two runs in the log."""
     first = await _played_out(case, runtime, ctx)
-    later_ctx = replace(ctx, run_id="r-2")
+    first_run_id = first[0].run_id
     second = [
         event
         async for event in _tolerant(
-            runtime.run(
-                case.spec.name,
-                case.input,
-                run_id=(later_ctx).run_id,
-                session_id=(later_ctx).session_id,
-                namespace=(later_ctx).namespace,
-            )
+            runtime.run(case.spec.name, case.input, session_id=ctx.session_id, namespace=ctx.namespace)
         )
     ]
+    second_run_id = second[0].run_id
 
-    assert await store.read_run(ctx.log_key, "r-1", ctx) == first
-    assert await store.read_run(ctx.log_key, "r-2", later_ctx) == second
-    assert await store.read_run(ctx.log_key, "r-2", later_ctx, from_seq=1) == second[1:]
+    assert await store.read_run(ctx.log_key, first_run_id, ctx) == first
+    assert await store.read_run(ctx.log_key, second_run_id, ctx) == second
+    assert await store.read_run(ctx.log_key, second_run_id, ctx, from_seq=1) == second[1:]
 
 
 async def test_a_second_run_in_the_session_counts_its_seq_from_zero_again(
@@ -141,7 +132,7 @@ async def test_a_second_run_in_the_session_counts_its_seq_from_zero_again(
     second = [
         event
         async for event in _tolerant(
-            runtime.run(case.spec.name, case.input, run_id="r-2", session_id=ctx.session_id, namespace=ctx.namespace)
+            runtime.run(case.spec.name, case.input, session_id=ctx.session_id, namespace=ctx.namespace)
         )
     ]
 
@@ -158,14 +149,13 @@ async def _played_out(case: Case, runtime: Runtime, ctx: RunContext) -> list[Eve
     events = [
         event
         async for event in _tolerant(
-            runtime.run(
-                case.spec.name, case.input, run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace
-            )
+            runtime.run(case.spec.name, case.input, session_id=ctx.session_id, namespace=ctx.namespace)
         )
     ]
     if not events or not isinstance(events[-1].payload, RunInterrupted):
         return events
-    thread_id = events[-1].payload.thread_id or ctx.run_id
+    run_id = events[0].run_id
+    thread_id = events[-1].payload.thread_id or run_id
     return events + [
         event
         async for event in _tolerant(
@@ -173,9 +163,9 @@ async def _played_out(case: Case, runtime: Runtime, ctx: RunContext) -> list[Eve
                 case.spec.name,
                 thread_id,
                 "approved",
-                run_id=(ctx).run_id,
-                session_id=(ctx).session_id,
-                namespace=(ctx).namespace,
+                run_id=run_id,
+                session_id=ctx.session_id,
+                namespace=ctx.namespace,
             )
         )
     ]

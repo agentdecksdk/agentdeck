@@ -41,7 +41,7 @@ from redis.exceptions import RedisError, WatchError
 from agentdeck.core.events import Event
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
 from agentdeck.core.status import LIFECYCLE_KINDS, STATES, can_resume, status_of
-from agentdeck.errors import StoreError
+from agentdeck.errors import DuplicateKeyError, StoreError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable, Sequence
@@ -124,6 +124,12 @@ class RedisEventStore(EventStorePort):
 
     def _locate_key(self, namespace: str) -> str:
         return f"{self._prefix}:locate:{_segment(namespace)}"
+
+    def _key_claim_key(self, namespace: str, key: str) -> str:
+        """``(namespace, key)``'s permanent claim: one string holding the ``run_id`` that
+        adopted it, watched and set inside the same ``claim_start`` transaction that opens the
+        run — this is the enforcement, not an index over data written elsewhere."""
+        return f"{self._prefix}:key:{_segment(namespace)}:{_segment(key)}"
 
     def _queue_writes(self, pipe: Pipeline, namespace: str, log_key: str, events: Iterable[Event]) -> None:
         """Buffer one batch's writes — the log, the run's slice and every index — onto a
@@ -237,9 +243,24 @@ class RedisEventStore(EventStorePort):
         A refusal is data, as the port requires — the losing caller re-reads and names the
         run that actually holds the session. Only an unreachable store or a hopelessly
         contended one raises.
+
+        Also adopts ``ctx.key`` when one is given: watched and read before anything else, so a
+        peer claiming it between this read and ``EXEC`` aborts this attempt (``WatchError``,
+        retried) rather than letting both through. The raise itself waits until after the
+        session scan below, so a busy session still wins over a reused key, matching
+        sqlite/postgres, where the session check is a read and the key check is a constraint
+        the INSERT itself enforces. On retry the key is occupied for good, which is
+        :class:`~agentdeck.errors.DuplicateKeyError`, not a refusal to hand back — the same
+        deterministic-failure reading the session claim above gives a lost race.
         """
 
         async def _attempt(pipe: Pipeline) -> tuple[SessionClaim, Event | None]:
+            key_addr = None
+            duplicate_key_holder = None
+            if ctx.key is not None:
+                key_addr = self._key_claim_key(ctx.namespace_key, ctx.key)
+                await pipe.watch(key_addr)
+                duplicate_key_holder = await pipe.get(key_addr)
             await pipe.watch(self._log_runs_key(ctx.namespace_key, log_key))
             run_ids = _sorted_text(await pipe.smembers(self._log_runs_key(ctx.namespace_key, log_key)))
             if run_ids:
@@ -275,9 +296,15 @@ class RedisEventStore(EventStorePort):
                 if tail.ts > stale_before:
                     return SessionClaim(held_by=run_id), None
                 overridden.append(tail)
+            if duplicate_key_holder is not None:
+                raise DuplicateKeyError(
+                    f"key {ctx.key!r} is already used by run {duplicate_key_holder!r} in namespace {ctx.namespace!r}"
+                )
             events = await self._stamp(pipe, log_key, [opening], ctx, origin)
             pipe.multi()
             self._queue_writes(pipe, ctx.namespace_key, log_key, events)
+            if key_addr is not None:
+                pipe.set(key_addr, ctx.run_id)
             await pipe.execute()
             return SessionClaim(overridden=tuple(overridden)), events[0]
 
@@ -310,10 +337,14 @@ class RedisEventStore(EventStorePort):
 
         return await self._watched(_attempt, "claim_resume")
 
-    async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
+    async def list_runs(
+        self, ctx: RunContext, status: RunStatus | None = None, limit: int | None = None
+    ) -> list[RunSummary]:
         """Overrides the port's per-run fold: the namespace's runs come off one set and each
         one's status off its stored last lifecycle event, so a listing deserializes one
         event per run instead of every event of every log."""
+        if limit is not None and limit < 0:
+            raise ValueError(f"limit must be None or >= 0, got {limit}")
         try:
             members = _sorted_text(await self._client.smembers(self._namespace_runs_key(ctx.namespace_key)))
             runs = [_split(member) for member in members]
@@ -331,7 +362,8 @@ class RedisEventStore(EventStorePort):
             for (log_key, run_id), life in zip(runs, lifecycles, strict=True)
             if life is not None and (folded := status_of([Event.model_validate(json.loads(life))])) is not None
         ]
-        return [summary for summary in summaries if status is None or summary.status is status]
+        filtered = [summary for summary in summaries if status is None or summary.status is status]
+        return filtered if limit is None else filtered[:limit]
 
     async def locate(self, run_id: str, ctx: RunContext) -> str | None:
         try:

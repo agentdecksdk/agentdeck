@@ -137,7 +137,6 @@ async def test_chat_frames_render_deltas_then_done_from_canonical_events(project
             runtime.run(
                 "Greeter",
                 coerce_input("when?"),
-                run_id=(ctx).run_id,
                 session_id=(ctx).session_id,
                 namespace=(ctx).namespace,
             )
@@ -172,7 +171,6 @@ async def test_a_failed_turn_ends_with_an_error_frame_while_the_log_keeps_the_fa
             runtime.run(
                 "Greeter",
                 coerce_input("hi"),
-                run_id=(ctx).run_id,
                 session_id=(ctx).session_id,
                 namespace=(ctx).namespace,
             )
@@ -203,7 +201,6 @@ async def test_a_disconnect_closes_its_run_in_the_log(project, scripted):
             runtime.run(
                 "Greeter",
                 coerce_input("hi"),
-                run_id=(ctx).run_id,
                 session_id=(ctx).session_id,
                 namespace=(ctx).namespace,
             )
@@ -254,7 +251,6 @@ async def test_a_structured_output_survives_the_canonical_stream(project, script
         runtime.run(
             "Structured",
             coerce_input("hi"),
-            run_id=(ctx).run_id,
             session_id=(ctx).session_id,
             namespace=(ctx).namespace,
         )

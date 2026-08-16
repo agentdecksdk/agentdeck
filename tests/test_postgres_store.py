@@ -120,8 +120,12 @@ async def test_two_connections_settle_a_resume_claim_on_one_winner(keyspace: tup
     """Repeated, because a broken transaction boundary shows up as an occasional second
     winner rather than a consistent one."""
     dsn, schema = keyspace
-    ctx = _ctx()
     for trial in range(10):
+        # A fresh run_id per trial, not just a fresh log_key: #324 tightened the run-scoped
+        # unique index to (namespace, run_id, seq) with no log_key in it, so reusing one run_id
+        # across trials would collide against the previous trial's own rows instead of testing
+        # this trial's race.
+        ctx = _ctx(run_id=f"r-{trial}")
         log_key = f"s-{trial}"
         seeder = PostgresEventStore(dsn, schema=schema)
         await seeder.append(log_key, [_started(), _interrupted()], ctx, ORIGIN)
@@ -131,11 +135,11 @@ async def test_two_connections_settle_a_resume_claim_on_one_winner(keyspace: tup
         await _warm(first, second, log_key, ctx)
         try:
             outcomes = await asyncio.gather(
-                first.claim_resume(log_key, "r-1", RunResumed(reason=None), ctx, ORIGIN),
-                second.claim_resume(log_key, "r-1", RunResumed(reason=None), ctx, ORIGIN),
+                first.claim_resume(log_key, ctx.run_id, RunResumed(reason=None), ctx, ORIGIN),
+                second.claim_resume(log_key, ctx.run_id, RunResumed(reason=None), ctx, ORIGIN),
             )
             assert [event is not None for event in outcomes].count(True) == 1, f"trial {trial}: {outcomes}"
-            stored = await first.read_run(log_key, "r-1", ctx)
+            stored = await first.read_run(log_key, ctx.run_id, ctx)
         finally:
             await first.aclose()
             await second.aclose()
@@ -148,15 +152,22 @@ async def test_two_connections_settle_a_session_claim_on_one_winner(keyspace: tu
     """The same race on the other claim: one session, two turns arriving together, and only
     one ``run.started`` may land in the log."""
     dsn, schema = keyspace
-    ctx = _ctx()
     for trial in range(10):
+        # Fresh run_ids per trial for the same reason as the resume race above: #324's tightened
+        # index has no log_key in it, so "r-a"/"r-b" reused across trials would collide with an
+        # earlier trial's own rows rather than exercising this trial's race.
+        ctx = _ctx()
         log_key = f"s-{trial}"
         first, second = PostgresEventStore(dsn, schema=schema), PostgresEventStore(dsn, schema=schema)
         await _warm(first, second, log_key, ctx)
         try:
             outcomes = await asyncio.gather(
-                first.claim_start(log_key, _started(), _ctx(run_id="r-a", log_key=log_key), ORIGIN, NOTHING_IS_STALE),
-                second.claim_start(log_key, _started(), _ctx(run_id="r-b", log_key=log_key), ORIGIN, NOTHING_IS_STALE),
+                first.claim_start(
+                    log_key, _started(), _ctx(run_id=f"r-a-{trial}", log_key=log_key), ORIGIN, NOTHING_IS_STALE
+                ),
+                second.claim_start(
+                    log_key, _started(), _ctx(run_id=f"r-b-{trial}", log_key=log_key), ORIGIN, NOTHING_IS_STALE
+                ),
             )
             stored = await first.read(log_key, ctx)
         finally:

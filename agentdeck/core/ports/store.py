@@ -132,6 +132,15 @@ class EventStorePort(ABC):
         until something acts on it: :meth:`claim_resume`, or a cancel recorded against it. Held
         forever if nobody ever does either, which is the deliberate trade — a wedged session is
         recoverable by an explicit cancel; a silently destroyed approval is not.
+
+        Also adopts ``ctx.key`` when one is given: ``(namespace, key)`` is a second, permanent
+        claim made in the same indivisible step as the session claim above, so two callers racing
+        on one key can never both open a run for it. Raises :class:`~agentdeck.errors.
+        DuplicateKeyError` when the key is already taken — by a run in this log or any other —
+        rather than returning the run that holds it, matching the deterministic-failure reading
+        of "a lost race never yields a second run for one logical identity". Enforced by the
+        store's own uniqueness, not a read-then-write check in Python, so it holds across
+        processes the same way the session claim does.
         """
 
     @abstractmethod
@@ -159,14 +168,19 @@ class EventStorePort(ABC):
         """
 
     @abstractmethod
-    async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
+    async def list_runs(
+        self, ctx: RunContext, status: RunStatus | None = None, limit: int | None = None
+    ) -> list[RunSummary]:
         """Every run in this namespace that recorded a lifecycle transition, across all its logs,
-        optionally narrowed to one status.
+        optionally narrowed to one status and capped at ``limit`` entries.
 
         A run with no transition at all is left out, being indistinguishable from one the store
         never heard of.
         Index this however the store can: finding waiting runs must not cost a fold of every log
         the namespace owns.
+
+        A negative ``limit`` raises ``ValueError``, the same pin :meth:`read` uses rather than
+        one store treating it as "no limit" and another as "none".
         """
 
     @abstractmethod

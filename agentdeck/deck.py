@@ -746,7 +746,7 @@ class Deck:
         context: object = None,
         session_id: str | None = None,
         namespace: str | None = None,
-        run_id: str | None = None,
+        key: str | None = None,
     ) -> TurnResult | Any:
         """Run ``name`` — an agent or a workflow, whichever this catalog holds it as — and
         return its outcome: a :class:`TurnResult` for an agent, the final state (or an
@@ -757,11 +757,16 @@ class Deck:
         or a workflow node that declares a :class:`~agentdeck.core.context.Context` parameter
         receives it; the model never does, and it is never written to the event log. The same
         object serves the whole run, by reference.
+
+        ``key`` is an optional stable application identifier — for lookup and idempotency, never
+        the run's address: the run's own id is always minted, never derived from it. Reusing a
+        ``(namespace, key)`` pair whose run already started raises ``DuplicateKeyError`` rather
+        than replaying that run, since this call always begins a new one.
         """
         root = self._root(name)
         runtime = self._require_open()
         content = coerce_input(input) if isinstance(root, Agent) else [_as_state_block(input)]
-        run = runtime.run(name, content, context=context, session_id=session_id, namespace=namespace, run_id=run_id)
+        run = runtime.run(name, content, context=context, session_id=session_id, namespace=namespace, key=key)
         if isinstance(root, Agent):
             return await _turn_result(run)
         result, _ = await _workflow_result(run)
@@ -775,14 +780,14 @@ class Deck:
         context: object = None,
         session_id: str | None = None,
         namespace: str | None = None,
-        run_id: str | None = None,
+        key: str | None = None,
     ) -> AsyncGenerator[Event, None]:
         """Streaming counterpart to :meth:`run`: yields the run's own canonical events."""
         root = self._root(name)
         runtime = self._require_open()
         content = coerce_input(input) if isinstance(root, Agent) else [_as_state_block(input)]
         async with aclosing(
-            runtime.run(name, content, context=context, session_id=session_id, namespace=namespace, run_id=run_id)
+            runtime.run(name, content, context=context, session_id=session_id, namespace=namespace, key=key)
         ) as run:
             async for event in run:
                 yield event

@@ -68,8 +68,11 @@ SUCCESSOR_RUN = "successor-turn-3"
 # Where the victim dies: the log append of the second turn's own opening event. At that
 # instant the log holds that turn's question and the durable session does not — the window
 # the whole exercise is about — and the SDK has not been called, so nothing can write it.
-STALL_RUN = KILLED_RUN
+#
+# Identified by position, not by run_id (#324 mints ids, so nothing here can predict one):
+# turn 1 writes the first STALL_KIND, turn 2 the second, and the second is where this stalls.
 STALL_KIND = "run.started"
+STALL_AT_NTH_START = 2
 MARKER = "asked"
 
 # A turn that outlives this is wedged, not slow — raising exits non-zero, which the test
@@ -172,13 +175,14 @@ class DurableSessions(ExecutionStore):
 
 
 class StallingStore(SqliteEventStore):
-    """Blocks forever once the log holds ``STALL_RUN``'s ``STALL_KIND`` event, so the test can
-    kill this process at exactly that point. Copied in spirit from the concurrency suite's own
-    stalling store: a SIGKILL is the only way out, which is the point."""
+    """Blocks forever once the log holds its ``STALL_AT_NTH_START``'th ``STALL_KIND`` event, so
+    the test can kill this process at exactly that point. Copied in spirit from the concurrency
+    suite's own stalling store: a SIGKILL is the only way out, which is the point."""
 
     def __init__(self, path: Path, marker: Path) -> None:
         super().__init__(path)
         self._marker = marker
+        self._starts_seen = 0
 
     async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
         written = await super().append(log_key, payloads, ctx, origin)
@@ -196,10 +200,13 @@ class StallingStore(SqliteEventStore):
         return claim, event
 
     async def _stall_if_written(self, events: Sequence[Event]) -> None:
-        if any(event.run_id == STALL_RUN and event.kind == STALL_KIND for event in events):
-            self._marker.touch()
-            while True:
-                await asyncio.sleep(0.05)
+        for event in events:
+            if event.kind == STALL_KIND:
+                self._starts_seen += 1
+                if self._starts_seen == STALL_AT_NTH_START:
+                    self._marker.touch()
+                    while True:
+                        await asyncio.sleep(0.05)
 
 
 def spec(model: Model) -> InvocableSpec:
@@ -253,7 +260,6 @@ async def _victim(root: Path) -> None:
         async for _event in runtime.run(
             AGENT,
             coerce_input(QUESTION_1),
-            run_id=(context(FIRST_RUN)).run_id,
             session_id=(context(FIRST_RUN)).session_id,
             namespace=(context(FIRST_RUN)).namespace,
         ):
@@ -261,7 +267,6 @@ async def _victim(root: Path) -> None:
     async for _event in runtime.run(
         AGENT,
         coerce_input(QUESTION_2),
-        run_id=(context(KILLED_RUN)).run_id,
         session_id=(context(KILLED_RUN)).session_id,
         namespace=(context(KILLED_RUN)).namespace,
     ):
@@ -277,7 +282,6 @@ async def _successor(root: Path) -> None:
         async for _event in runtime.run(
             AGENT,
             coerce_input(QUESTION_3),
-            run_id=(context(SUCCESSOR_RUN)).run_id,
             session_id=(context(SUCCESSOR_RUN)).session_id,
             namespace=(context(SUCCESSOR_RUN)).namespace,
         ):

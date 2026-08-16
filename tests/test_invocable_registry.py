@@ -191,7 +191,6 @@ async def test_discovered_specs_run_to_completion_on_their_engine(project: None,
             async for event in runtime.run(
                 name,
                 coerce_input("say hi"),
-                run_id=(ctx).run_id,
                 session_id=(ctx).session_id,
                 namespace=(ctx).namespace,
             )

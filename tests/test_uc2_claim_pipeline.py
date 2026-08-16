@@ -170,11 +170,11 @@ async def test_langgraph_transcript_fidelity() -> None:
         async for event in runtime.run(
             "ClaimPipeline",
             coerce_input("claim 7777"),
-            run_id=(ctx).run_id,
             session_id=(ctx).session_id,
             namespace=(ctx).namespace,
         )
     ]
+    run_id = events[0].run_id  # minted (#324), read off the run's own run.started
     thread_id = events[-1].payload.thread_id
     assert thread_id is not None
     events += [
@@ -183,7 +183,7 @@ async def test_langgraph_transcript_fidelity() -> None:
             "ClaimPipeline",
             thread_id,
             "approved",
-            run_id=(ctx).run_id,
+            run_id=run_id,
             session_id=(ctx).session_id,
             namespace=(ctx).namespace,
         )
@@ -260,15 +260,17 @@ class LateStore(SqliteEventStore):
 
 async def main():
     engine = LangGraphEngine(checkpointer=resolve_checkpointer("sqlite", sys.argv[2]))
-    gate = sys.argv[5] if len(sys.argv) > 5 else None
+    # resume mode: thread_id, then the run's own real id (#324 mints it, so a fresh process
+    # asked to resume has to be told rather than deriving it), then an optional gate.
+    gate = sys.argv[6] if len(sys.argv) > 6 else None
     store = LateStore(sys.argv[1], gate) if gate else SqliteEventStore(sys.argv[1])
     runtime = Runtime([engine], store, {"ClaimPipeline": _spec()})
-    ctx = RunContext(run_id="uc2-restart", session_id="s1")
+    ctx = RunContext(run_id="n/a", session_id="s1")
     if sys.argv[3] == "interrupt":
-        async for event in runtime.run("ClaimPipeline", coerce_input("claim 9911"), run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace):
+        async for event in runtime.run("ClaimPipeline", coerce_input("claim 9911"), session_id=(ctx).session_id, namespace=(ctx).namespace):
             print(event.kind)
     else:
-        async for event in runtime.resume("ClaimPipeline", sys.argv[4], "approved", run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace):
+        async for event in runtime.resume("ClaimPipeline", sys.argv[4], "approved", run_id=sys.argv[5], session_id=(ctx).session_id, namespace=(ctx).namespace):
             print(event.kind)
 
 
@@ -295,20 +297,20 @@ def test_uc2_claim_pipeline_survives_a_real_process_restart(tmp_path: Any) -> No
     assert first.stdout.split() == ["run.started", "node.updated", "run.interrupted"]
 
     store = SqliteEventStore(db_path)
-    ctx = RunContext(run_id="uc2-restart", session_id="s1")
+    ctx = RunContext(run_id="n/a", session_id="s1")
 
-    async def _read_thread_id() -> str:
+    async def _read_thread_id_and_run_id() -> tuple[str, str]:
         history = await store.read(ctx.log_key, ctx)
         assert status_of(history) is RunStatus.WAITING_ANSWER
         interrupted = next(event for event in history if event.kind == "run.interrupted")
         assert interrupted.payload.thread_id is not None
-        return interrupted.payload.thread_id
+        return interrupted.payload.thread_id, history[0].run_id
 
-    thread_id = asyncio.run(_read_thread_id())
+    thread_id, run_id = asyncio.run(_read_thread_id_and_run_id())
     store.close()
 
     second = subprocess.run(
-        [sys.executable, "-c", textwrap.dedent(_RESTART_SCRIPT), db_path, checkpoint_path, "resume", thread_id],
+        [sys.executable, "-c", textwrap.dedent(_RESTART_SCRIPT), db_path, checkpoint_path, "resume", thread_id, run_id],
         capture_output=True,
         text=True,
         env=env,
@@ -351,18 +353,18 @@ def test_two_processes_resuming_one_interrupt_produce_exactly_one_winner(tmp_pat
     assert interrupting.stdout.split() == ["run.started", "node.updated", "run.interrupted"]
 
     store = SqliteEventStore(db_path)
-    ctx = RunContext(run_id="uc2-restart", session_id=SESSION_ID)
+    ctx = RunContext(run_id="n/a", session_id=SESSION_ID)
 
-    async def _read_thread_id() -> str:
+    async def _read_thread_id_and_run_id() -> tuple[str, str]:
         history = await store.read(ctx.log_key, ctx)
         interrupted = next(event for event in history if event.kind == "run.interrupted")
         assert interrupted.payload.thread_id is not None
-        return interrupted.payload.thread_id
+        return interrupted.payload.thread_id, history[0].run_id
 
-    thread_id = asyncio.run(_read_thread_id())
+    thread_id, run_id = asyncio.run(_read_thread_id_and_run_id())
     store.close()
 
-    resume_args = [db_path, checkpoint_path, "resume", thread_id]
+    resume_args = [db_path, checkpoint_path, "resume", thread_id, run_id]
     loser = subprocess.Popen(
         [sys.executable, "-u", "-c", script, *resume_args, str(gate)],
         stdout=subprocess.PIPE,

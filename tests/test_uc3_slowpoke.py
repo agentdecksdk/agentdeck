@@ -161,19 +161,14 @@ async def test_uc3_cancel_lands_at_next_safe_point_stable_across_20_runs() -> No
     for trial in range(20):
         control = MemoryControlPort()
         runtime, _store = _build(control)
-        ctx = RunContext(namespace="demo", run_id=f"run-{trial}")
 
         events: list[Event] = []
-        async for event in runtime.run(
-            "SlowPoke",
-            coerce_input("go slow"),
-            run_id=(ctx).run_id,
-            session_id=(ctx).session_id,
-            namespace=(ctx).namespace,
-        ):
+        async for event in runtime.run("SlowPoke", coerce_input("go slow"), namespace="demo"):
             events.append(event)
             if event.kind == "run.started":
-                await control.signal(ctx.id, Signal.CANCEL)
+                # The run's own minted id, read off the event it was just recorded on — #324
+                # means nothing upstream of this loop can predict it any more.
+                await control.signal(event.run_id, Signal.CANCEL)
 
         kinds = [event.kind for event in events]
         assert check_terminal(events) is None, f"trial {trial}: {kinds}"
@@ -188,24 +183,27 @@ async def test_uc3_cancel_lands_at_next_safe_point_stable_across_20_runs() -> No
 async def test_uc3_run_cancelled_is_terminal_and_a_followup_signal_is_a_noop() -> None:
     control = MemoryControlPort()
     runtime, store = _build(control)
-    ctx = RunContext(namespace="demo", run_id="run-noop")
+    ctx = RunContext(namespace="demo", run_id="reader")  # a lookup-only context; never the run's own
 
     events: list[Event] = []
-    async for event in runtime.run(
-        "SlowPoke", coerce_input("go slow"), run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace
-    ):
+    real_id: str | None = None
+    async for event in runtime.run("SlowPoke", coerce_input("go slow"), namespace="demo"):
         events.append(event)
         if event.kind == "run.started":
-            await control.signal(ctx.id, Signal.CANCEL)
+            real_id = event.run_id
+            await control.signal(real_id, Signal.CANCEL)
+    assert real_id is not None
 
     assert status_of(events) is RunStatus.CANCELLED
-    before = await store.read(ctx.log_key, ctx)
+    # A sessionless run's log_key is its own id (RunContext.log_key), which is real_id here,
+    # not anything this test could have picked in advance.
+    before = await store.read(real_id, ctx)
 
     # Nobody polls the gate once the run is over; a signal against a finished run is a
     # no-op precisely because there is no more checkpoint left to raise on, not because
     # this test re-derives the status machine's rule.
-    await control.signal(ctx.id, Signal.CANCEL)
-    after = await store.read(ctx.log_key, ctx)
+    await control.signal(real_id, Signal.CANCEL)
+    after = await store.read(real_id, ctx)
     assert after == before
 
 
@@ -214,16 +212,18 @@ async def test_uc3_replay_is_truncated_but_coherent_and_the_renderer_copes(
 ) -> None:
     control = MemoryControlPort()
     runtime, store = _build(control)
-    ctx = RunContext(namespace="demo", run_id="run-replay", session_id="s-replay")
+    ctx = RunContext(namespace="demo", run_id="reader", session_id="s-replay")
 
     delta_count = 0
-    async for event in runtime.run(
-        "SlowPoke", coerce_input("go slow"), run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace
-    ):
+    real_id: str | None = None
+    async for event in runtime.run("SlowPoke", coerce_input("go slow"), session_id="s-replay", namespace="demo"):
+        if event.kind == "run.started":
+            real_id = event.run_id
         if event.kind == "text.delta":
             delta_count += 1
             if delta_count == 3:  # let a few real chunks land before cutting the run off
-                await control.signal(ctx.id, Signal.CANCEL)
+                assert real_id is not None
+                await control.signal(real_id, Signal.CANCEL)
 
     log = await store.read(ctx.log_key, ctx)
     assert check_terminal(log) is None
@@ -247,17 +247,11 @@ async def test_uc3_chaos_gap_detection_recovers_from_store() -> None:
     contiguous seq is for, demonstrated rather than merely argued."""
     control = MemoryControlPort()
     runtime, store = _build(control)
-    ctx = RunContext(namespace="demo", run_id="run-chaos", session_id="s-chaos")
+    ctx = RunContext(namespace="demo", run_id="reader", session_id="s-chaos")
 
     full_run = [
         event
-        async for event in runtime.run(
-            "SlowPoke",
-            coerce_input("go slow"),
-            run_id=(ctx).run_id,
-            session_id=(ctx).session_id,
-            namespace=(ctx).namespace,
-        )
+        async for event in runtime.run("SlowPoke", coerce_input("go slow"), session_id="s-chaos", namespace="demo")
     ]
     delta_indices = [i for i, event in enumerate(full_run) if event.kind == "text.delta"]
     assert len(delta_indices) >= 3  # need a genuine mid-run delta to drop, not the opening/terminal event
@@ -329,8 +323,7 @@ async def main():
     agent = Agent(name="SlowPoke", instructions="stall", model=SlowPokeModel())
     spec = InvocableSpec(name="SlowPoke", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
     runtime = Runtime([OpenAIAgentsEngine()], store, {"SlowPoke": spec}, control=control)
-    ctx = RunContext(run_id=sys.argv[3])
-    async for event in runtime.run("SlowPoke", coerce_input("go slow"), run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace):
+    async for event in runtime.run("SlowPoke", coerce_input("go slow"), key=sys.argv[3]):
         print(event.kind, event.run_id, event.seq, flush=True)
 
 
@@ -343,22 +336,27 @@ def test_uc3_cross_process_cancel(tmp_path: Any) -> None:
     the ``agentdeck runs signal`` CLI, not a Python object shared with A — cancels it by
     ``run_id`` alone, obtained from the stream A is already printing (addressability
     demonstrated, not assumed). Unnamespaced on both sides: the CLI has no ``--namespace``
-    flag and never will (docs/design/run-identity.md), so it can only ever address an id
-    that is byte-identical to a caller's own ``run_id`` — this is that case."""
+    flag and never will (docs/design/run-identity.md).
+
+    ``key`` is what Terminal A is launched with — an application identifier it happens to
+    choose, never the run's own address (#324). The run's real id is minted inside process A
+    and is only ever known to Terminal B because it reads it off the stream, never because it
+    guessed or was told the key.
+    """
     control_db = str(tmp_path / "control.sqlite3")
     events_db = str(tmp_path / "events.sqlite3")
-    run_id = "uc3-cross-process"
+    key = "uc3-cross-process"
 
     process_a = subprocess.Popen(
-        [sys.executable, "-u", "-c", textwrap.dedent(_SLOWPOKE_PROCESS_A_SCRIPT), control_db, events_db, run_id],
+        [sys.executable, "-u", "-c", textwrap.dedent(_SLOWPOKE_PROCESS_A_SCRIPT), control_db, events_db, key],
         stdout=subprocess.PIPE,
         text=True,
     )
     try:
         first_line = process_a.stdout.readline()  # type: ignore[union-attr]
-        kind, streamed_run_id, _seq = first_line.split()
+        kind, run_id, _seq = first_line.split()
         assert kind == "run.started"
-        assert streamed_run_id == run_id  # obtained from the stream, exactly what B signals
+        assert run_id != key  # minted, never the key a caller happened to pass
 
         terminal_b = subprocess.run(
             [sys.executable, "-m", "agentdeck.cli", "runs", "signal", run_id, "cancel", "--control-db", control_db],
@@ -380,10 +378,10 @@ def test_uc3_cross_process_cancel(tmp_path: Any) -> None:
     assert kinds.count("run.cancelled") == 1
 
     store = SqliteEventStore(events_db)
-    ctx = RunContext(run_id=run_id)
+    ctx = RunContext(run_id="reader")  # a lookup-only context; never the run's own
 
     async def _read_back() -> list[Event]:
-        return await store.read_run(ctx.log_key, run_id, ctx)
+        return await store.read_run(run_id, run_id, ctx)
 
     logged = asyncio.run(_read_back())
     assert check_terminal(logged) is None

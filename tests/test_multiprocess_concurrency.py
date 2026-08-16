@@ -209,12 +209,17 @@ def test_two_processes_resuming_one_interrupt_leave_one_winner_and_one_node_b_ex
     marks = worker.marks_file(tmp_path).read_text().split()
     attempts = _claim_windows(tmp_path)
     logs = _read_logs(tmp_path, [worker.resume_log_key(trial) for trial in range(RESUME_TRIALS)])
+    # The run's own id is minted inside the winning peer's ``run()`` call: it has nothing to do
+    # with the trial's ``resume_run_id``. That peer left the real one on disk for this to read.
+    sync = tmp_path / "sync"
+    real_ids = [worker.runid_file(sync, worker.resume_run_id(trial)).read_text() for trial in range(RESUME_TRIALS)]
     won: Counter[str] = Counter()
     raced = 0
 
     for trial in range(RESUME_TRIALS):
         log = logs[worker.resume_log_key(trial)]
-        windows = attempts[worker.resume_run_id(trial)]
+        real_id = real_ids[trial]
+        windows = attempts[real_id]
         assert len(windows) == len(TAGS), f"trial {trial}: {len(windows)} claims, both peers must attempt one"
         raced += _overlap(windows)
         yielded = {tag: _kinds(reported, tag, trial) for tag in TAGS}
@@ -223,8 +228,8 @@ def test_two_processes_resuming_one_interrupt_leave_one_winner_and_one_node_b_ex
         assert len(winners) == 1, f"trial {trial}: {winners or 'nobody'} won\n{_dump(log)}"
         assert yielded[winners[0]] == worker.APPROVED_KINDS, f"trial {trial}: {yielded}\n{_dump(log)}"
         won[winners[0]] += 1
-        assert marks.count(worker.resume_run_id(trial)) == 1, (
-            f"trial {trial}: the engine played node B {marks.count(worker.resume_run_id(trial))} times\n{_dump(log)}"
+        assert marks.count(real_id) == 1, (
+            f"trial {trial}: the engine played node B {marks.count(real_id)} times\n{_dump(log)}"
         )
 
         _assert_run_is_coherent(log, f"trial {trial}")
@@ -259,11 +264,15 @@ def test_a_cancel_racing_completion_leaves_exactly_one_terminal_event_with_nothi
     already completed, so the signal must add nothing to a log that is closed.
     """
     reported = _run_peers("cancel", CANCEL_TRIALS, tmp_path)
-    logs = _read_logs(tmp_path, [worker.cancel_run_id(trial) for trial in range(CANCEL_TRIALS)])
+    # The run's own id is minted inside peer "a"'s ``run()`` call: it has nothing to do with the
+    # trial's ``cancel_run_id``. "a" left the real one on disk for this to read.
+    sync = tmp_path / "sync"
+    real_ids = [worker.runid_file(sync, worker.cancel_run_id(trial)).read_text() for trial in range(CANCEL_TRIALS)]
+    logs = _read_logs(tmp_path, real_ids)
     winners: Counter[str] = Counter()
 
     for trial in range(CANCEL_TRIALS):
-        log = logs[worker.cancel_run_id(trial)]
+        log = logs[real_ids[trial]]
         assert _kinds(reported, "b", trial) == ["signalled"]
 
         _assert_run_is_coherent(log, f"trial {trial}")
@@ -325,7 +334,10 @@ def test_two_processes_starting_a_turn_on_one_session_leave_one_run_and_one_conv
         assert outcome[winner][0] == "run.started", f"trial {trial}: {outcome}\n{_dump(log)}"
         assert outcome[winner][-1] == "run.completed", f"trial {trial}: {outcome}\n{_dump(log)}"
 
-        assert {event.run_id for event in log} == {worker.session_run_id(trial, winner)}, _dump(log)
+        # The winning run's real id could not have been predicted ahead of time: the winner left
+        # it on disk the instant both peers left the claim barrier, before either was known to win.
+        winner_id = worker.session_attempt_runid_file(tmp_path / "sync", worker.session_log_key(trial), winner)
+        assert {event.run_id for event in log} == {winner_id.read_text()}, _dump(log)
         # Nothing here may reach the staleness path: these peers run with the real window, so a
         # closed-as-failed run would mean a live turn was taken over rather than merely refused —
         # a different defect from two turns racing, and this is where the two are told apart.
@@ -410,19 +422,25 @@ def test_a_session_a_killed_run_left_open_is_refused_until_the_staleness_window_
         if victim.poll() is None:
             victim.kill()
 
+    # The victim's real id could not have been predicted: it left it on disk the moment it
+    # observed its own first event, well before the stall that got it killed.
+    killed_id = worker.runid_file(tmp_path / "sync", worker.TAKEOVER_KILLED).read_text()
+
     refused = _takeover_successor(tmp_path, stale_after=None)
     assert refused.stdout.split()[2:] == [worker.REFUSED], refused.stdout
     still_held = _read_logs(tmp_path, [worker.TAKEOVER_LOG])[worker.TAKEOVER_LOG]
-    assert {event.run_id for event in still_held} == {worker.TAKEOVER_KILLED}, _dump(still_held)
+    assert {event.run_id for event in still_held} == {killed_id}, _dump(still_held)
     assert len(still_held) == worker.TAKEOVER_STALL_AFTER, _dump(still_held)
     assert check_terminal(still_held) == "no terminal event", _dump(still_held)
 
     taken = _takeover_successor(tmp_path, stale_after=_NO_WAIT)
     assert "took it over and closed it as failed" in taken.stderr, taken.stderr
 
+    # Minted the same way, and only written once the successor's own turn actually took over.
+    next_id = worker.runid_file(tmp_path / "sync", worker.TAKEOVER_NEXT).read_text()
     log = _read_logs(tmp_path, [worker.TAKEOVER_LOG])[worker.TAKEOVER_LOG]
-    abandoned = [event for event in log if event.run_id == worker.TAKEOVER_KILLED]
-    next_turn = [event for event in log if event.run_id == worker.TAKEOVER_NEXT]
+    abandoned = [event for event in log if event.run_id == killed_id]
+    next_turn = [event for event in log if event.run_id == next_id]
 
     assert [event.kind for event in next_turn] == taken.stdout.split()[2:], f"{taken.stdout}\n{_dump(log)}"
     _assert_run_is_coherent(next_turn, "the turn that took the session over")
@@ -463,12 +481,17 @@ def test_a_restart_continues_a_killed_processs_log_without_resetting_seq(tmp_pat
     assert successor.returncode == 0, successor.stderr
     lines = [line.split() for line in successor.stdout.splitlines() if line.strip()]
 
-    logs = _read_logs(tmp_path, [worker.RESTART_LOG, worker.RESTART_KILLED])
+    # Both real ids could not have been predicted: the victim left them on disk for this to read.
+    sync = tmp_path / "sync"
+    suspended_id = worker.runid_file(sync, worker.RESTART_SUSPENDED).read_text()
+    killed_id = worker.runid_file(sync, worker.RESTART_KILLED).read_text()
+
+    logs = _read_logs(tmp_path, [worker.RESTART_LOG, killed_id])
     log = logs[worker.RESTART_LOG]
-    resumed = [event for event in log if event.run_id == worker.RESTART_SUSPENDED]
+    resumed = [event for event in log if event.run_id == suspended_id]
     # A log of its own, because the victim's suspended run still holds the session and one
     # session takes one turn at a time: a second run there would have been refused, not killed.
-    killed = logs[worker.RESTART_KILLED]
+    killed = logs[killed_id]
 
     # Its seq check is the one that matters here: a resume that restarted the counter would
     # give 0,1,2,0,1,2,3 — no gaps to find, and still wrong.

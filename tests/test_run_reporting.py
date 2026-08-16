@@ -144,7 +144,6 @@ async def test_a_function_tool_reports_through_the_sdk_context() -> None:
         async for event in runtime.run(
             "Searcher",
             coerce_input("what is open?"),
-            run_id=(CTX).run_id,
             session_id=(CTX).session_id,
             namespace=(CTX).namespace,
         )
@@ -211,7 +210,6 @@ async def test_a_workflow_node_reports_through_the_graph_config() -> None:
         async for event in runtime.run(
             "Reviewer",
             coerce_input("review 4412"),
-            run_id=(CTX).run_id,
             session_id=(CTX).session_id,
             namespace=(CTX).namespace,
         )

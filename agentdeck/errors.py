@@ -74,10 +74,21 @@ class StoreError(AgentdeckError):
     """
 
 
+class DuplicateKeyError(AgentdeckError):
+    """A run started with a ``key`` already claimed by another run in the same namespace.
+
+    ``(namespace, key)`` is consumed permanently once a run opens with it — not merely while
+    that run is active — so this is not a race retried away; it is the store refusing a second
+    start rather than silently handing back the run that already holds the key. The caller's
+    recovery path is ``get(namespace=, key=)`` (once that surface lands), not a retry.
+    """
+
+
 __all__ = [
     "AgentdeckError",
     "ConfigError",
     "ContextTypeError",
+    "DuplicateKeyError",
     "NotFoundError",
     "RunStateError",
     "SessionBusyError",

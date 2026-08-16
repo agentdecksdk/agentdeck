@@ -10,6 +10,7 @@ the process that paused it, and ``durable=False`` from another one.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any, TypedDict
 
@@ -94,17 +95,17 @@ async def test_resume_continues_from_the_node_boundary_without_rerunning_a_compl
     runtime = Runtime([engine], store, {spec.name: spec}, control=control, control_poll_interval=0.0)
     ctx = RunContext(namespace="acme", run_id="r-node-boundary", session_id="s-node-boundary")
 
-    await control.signal(ctx.id, Signal.PAUSE)
-    paused = [
-        event
-        async for event in runtime.run(
-            spec.name, coerce_input("go"), run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace
-        )
-    ]
+    # The real, minted id is read off run.started before the engine is ever entered: an async
+    # generator does not advance between one anext and the next, so signalling right here is
+    # still ahead of the run's first safe point (#324).
+    stream = runtime.run(spec.name, coerce_input("go"), session_id=ctx.session_id, namespace=ctx.namespace)
+    started = await anext(stream)
+    await control.signal(started.run_id, Signal.PAUSE)
+    paused = [started, *[event async for event in stream]]
     assert _kinds(paused)[-3:] == ["control.requested", "control.observed", "run.paused"]
     assert _node_updates(paused) == ["a"]
 
-    resumed = [event async for event in runtime.resume_run(ctx.run_id, namespace=ctx.namespace)]
+    resumed = [event async for event in runtime.resume_run(started.run_id, namespace=ctx.namespace)]
 
     assert _node_updates(resumed) == ["b", "c"]  # "a" never runs a second time
     completed = next(event for event in resumed if event.kind == "run.completed")
@@ -134,21 +135,17 @@ async def test_a_stale_resumed_tail_from_an_abandoned_run_does_not_leak_into_a_f
     session_id = "s-shared"
     ctx_a = RunContext(namespace="acme", run_id="r-a", session_id=session_id)
 
-    await control.signal(ctx_a.id, Signal.PAUSE)
-    paused = [
-        event
-        async for event in runtime.run(
-            spec.name,
-            coerce_input("A-input"),
-            run_id=ctx_a.run_id,
-            session_id=ctx_a.session_id,
-            namespace=ctx_a.namespace,
-        )
-    ]
+    stream_a = runtime.run(spec.name, coerce_input("A-input"), session_id=ctx_a.session_id, namespace=ctx_a.namespace)
+    started_a = await anext(stream_a)
+    await control.signal(started_a.run_id, Signal.PAUSE)
+    paused = [started_a, *[event async for event in stream_a]]
     assert _kinds(paused)[-1] == "run.paused"
 
     # The crash: A's resume claim lands durably (bypassing the engine entirely, since that is
     # exactly what a process dying right after the claim looks like), and nothing else follows.
+    # ``ctx_a`` is rebuilt onto the run's own real id (#324 minted it, so "r-a" was never it) --
+    # everything else about the context (namespace, session) is unchanged.
+    ctx_a = replace(ctx_a, run_id=started_a.run_id)
     resumed_event = await store.claim_resume(
         ctx_a.log_key, ctx_a.run_id, RunResumed(reason=None, value=None), ctx_a, spec.name
     )
@@ -161,7 +158,6 @@ async def test_a_stale_resumed_tail_from_an_abandoned_run_does_not_leak_into_a_f
         async for event in runtime.run(
             spec.name,
             coerce_input("B-input"),
-            run_id=ctx_b.run_id,
             session_id=ctx_b.session_id,
             namespace=ctx_b.namespace,
         )
@@ -184,17 +180,14 @@ async def test_a_pause_at_the_last_node_boundary_resumes_straight_to_completion(
     runtime = Runtime([engine], store, {spec.name: spec}, control=control, control_poll_interval=0.0)
     ctx = RunContext(namespace="acme", run_id="r-last-boundary", session_id="s-last-boundary")
 
-    await control.signal(ctx.id, Signal.PAUSE)
-    paused = [
-        event
-        async for event in runtime.run(
-            spec.name, coerce_input("go"), run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace
-        )
-    ]
+    stream = runtime.run(spec.name, coerce_input("go"), session_id=ctx.session_id, namespace=ctx.namespace)
+    started = await anext(stream)
+    await control.signal(started.run_id, Signal.PAUSE)
+    paused = [started, *[event async for event in stream]]
     assert _kinds(paused)[-1] == "run.paused"
     assert _node_updates(paused) == ["only"]
 
-    resumed = [event async for event in runtime.resume_run(ctx.run_id, namespace=ctx.namespace)]
+    resumed = [event async for event in runtime.resume_run(started.run_id, namespace=ctx.namespace)]
 
     assert _node_updates(resumed) == []  # nothing left to run, and the replay is filtered too
     completed = next(event for event in resumed if event.kind == "run.completed")
@@ -218,13 +211,10 @@ async def test_a_durable_pause_can_be_resumed_from_another_process() -> None:
         control=control,
         control_poll_interval=0.0,
     )
-    await control.signal(ctx.id, Signal.PAUSE)
-    paused = [
-        event
-        async for event in runtime1.run(
-            spec.name, coerce_input("go"), run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace
-        )
-    ]
+    stream = runtime1.run(spec.name, coerce_input("go"), session_id=ctx.session_id, namespace=ctx.namespace)
+    started = await anext(stream)
+    await control.signal(started.run_id, Signal.PAUSE)
+    paused = [started, *[event async for event in stream]]
     assert _kinds(paused)[-1] == "run.paused"
 
     runtime2 = Runtime(
@@ -234,7 +224,7 @@ async def test_a_durable_pause_can_be_resumed_from_another_process() -> None:
         control=control,
         control_poll_interval=0.0,
     )
-    resumed = [event async for event in runtime2.resume_run(ctx.run_id, namespace=ctx.namespace)]
+    resumed = [event async for event in runtime2.resume_run(started.run_id, namespace=ctx.namespace)]
 
     assert _node_updates(resumed) == ["b", "c"]
     assert _kinds(resumed)[-1] == "run.completed"
@@ -250,13 +240,10 @@ async def test_resuming_a_non_durable_pause_from_another_process_is_refused() ->
     ctx = RunContext(namespace="acme", run_id="r-cross-process", session_id="s-cross-process")
 
     runtime1 = Runtime([LangGraphEngine()], store, {spec.name: spec}, control=control, control_poll_interval=0.0)
-    await control.signal(ctx.id, Signal.PAUSE)
-    paused = [
-        event
-        async for event in runtime1.run(
-            spec.name, coerce_input("go"), run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace
-        )
-    ]
+    stream = runtime1.run(spec.name, coerce_input("go"), session_id=ctx.session_id, namespace=ctx.namespace)
+    started = await anext(stream)
+    await control.signal(started.run_id, Signal.PAUSE)
+    paused = [started, *[event async for event in stream]]
     assert _kinds(paused)[-1] == "run.paused"
 
     # "another process": a second engine instance with its own in-memory checkpointer, sharing
@@ -265,7 +252,7 @@ async def test_resuming_a_non_durable_pause_from_another_process_is_refused() ->
 
     resumed: list[Any] = []
     with pytest.raises(ConfigError, match="durable"):
-        async for event in runtime2.resume_run(ctx.run_id, namespace=ctx.namespace):
+        async for event in runtime2.resume_run(started.run_id, namespace=ctx.namespace):
             resumed.append(event)
 
     assert _kinds(resumed) == ["run.resumed", "run.failed"]
@@ -282,18 +269,15 @@ async def test_a_durable_false_pause_is_refused_even_in_the_same_process() -> No
     runtime = Runtime([engine], store, {spec.name: spec}, control=control, control_poll_interval=0.0)
     ctx = RunContext(namespace="acme", run_id="r-non-durable", session_id="s-non-durable")
 
-    await control.signal(ctx.id, Signal.PAUSE)
-    paused = [
-        event
-        async for event in runtime.run(
-            spec.name, coerce_input("go"), run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace
-        )
-    ]
+    stream = runtime.run(spec.name, coerce_input("go"), session_id=ctx.session_id, namespace=ctx.namespace)
+    started = await anext(stream)
+    await control.signal(started.run_id, Signal.PAUSE)
+    paused = [started, *[event async for event in stream]]
     assert _kinds(paused)[-1] == "run.paused"
 
     resumed: list[Any] = []
     with pytest.raises(ConfigError, match="durable=False"):
-        async for event in runtime.resume_run(ctx.run_id, namespace=ctx.namespace):
+        async for event in runtime.resume_run(started.run_id, namespace=ctx.namespace):
             resumed.append(event)
 
     assert _kinds(resumed) == ["run.resumed", "run.failed"]

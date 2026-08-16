@@ -87,9 +87,7 @@ class Broken(EventSinkPort):
 async def test_an_unknown_invocable_is_reported_before_anything_is_written() -> None:
     runtime, store = _runtime()
     with pytest.raises(NotFoundError, match="Nope"):
-        async for _ in runtime.run(
-            "Nope", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        ):
+        async for _ in runtime.run("Nope", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
             pass
     assert await store.read(CTX.log_key, CTX) == []
 
@@ -98,9 +96,7 @@ async def test_an_invocable_whose_engine_is_not_registered_is_reported() -> None
     spec = InvocableSpec(name="Ghost", kind=InvocableKind.AGENT, engine="temporal")
     runtime = Runtime([StubEngine()], MemoryEventStore(), {spec.name: spec})
     with pytest.raises(NotFoundError, match="temporal"):
-        async for _ in runtime.run(
-            "Ghost", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        ):
+        async for _ in runtime.run("Ghost", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
             pass
 
 
@@ -110,10 +106,7 @@ async def test_the_envelope_timestamp_comes_from_the_stores_clock() -> None:
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
     runtime = Runtime([StubEngine()], MemoryEventStore(clock=lambda: TS), {spec.name: spec})
     events = [
-        event
-        async for event in runtime.run(
-            "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
+        event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
     assert {event.ts for event in events} == {TS}
 
@@ -131,16 +124,14 @@ async def test_run_started_carries_what_the_run_was_asked_for() -> None:
     ``run.started`` carries the ask and the envelope carries where it ran."""
     runtime, _ = _runtime()
     opening = [
-        event
-        async for event in runtime.run(
-            "Greeter", INPUT, run_id=CTX.run_id, session_id=CTX.session_id, namespace=CTX.namespace
-        )
+        event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ][0]
 
     assert opening.payload.invocable == "Greeter"
     assert opening.payload.kind_of_invocable == "agent"
     assert opening.payload.input == INPUT
-    assert (opening.run_id, opening.session_id, opening.namespace) == (CTX.run_id, CTX.session_id, CTX.namespace)
+    assert (opening.session_id, opening.namespace) == (CTX.session_id, CTX.namespace)
+    assert opening.run_id  # minted, never empty
 
 
 async def test_a_run_without_a_session_is_still_persisted_under_its_own_id() -> None:
@@ -148,12 +139,9 @@ async def test_a_run_without_a_session_is_still_persisted_under_its_own_id() -> 
     runtime, store = _runtime()
     ctx = replace(CTX, session_id=None)
     events = [
-        event
-        async for event in runtime.run(
-            "Greeter", INPUT, run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace
-        )
+        event async for event in runtime.run("Greeter", INPUT, session_id=ctx.session_id, namespace=ctx.namespace)
     ]
-    assert await store.read("r-1", ctx) == events
+    assert await store.read(events[0].run_id, ctx) == events
     assert all(event.session_id is None for event in events)
 
 
@@ -161,10 +149,7 @@ async def test_sinks_see_every_event_without_the_run_waiting_for_them() -> None:
     recorder = Recorder()
     runtime, _ = _runtime(sinks=[recorder])
     events = [
-        event
-        async for event in runtime.run(
-            "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
+        event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
     # the run finished without awaiting the sink; the sink catches up right after
     await runtime.drain()
@@ -186,15 +171,13 @@ async def test_sinks_see_the_resume_events_too_not_just_the_opening_run() -> Non
     runtime = Runtime([StubEngine()], MemoryEventStore(), {spec.name: spec}, sinks=[recorder])
 
     opening = [
-        event
-        async for event in runtime.run(
-            "Approver", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
+        event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
+    run_id = opening[0].run_id
     resumed = [
         event
         async for event in runtime.resume(
-            "Approver", "t1", "approved", run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+            "Approver", "t1", "approved", run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
         )
     ]
     await runtime.drain()
@@ -207,10 +190,7 @@ async def test_a_failing_sink_does_not_fail_the_run_or_starve_the_others() -> No
     recorder = Recorder()
     runtime, store = _runtime(sinks=[Broken(), recorder])
     events = [
-        event
-        async for event in runtime.run(
-            "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
+        event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
     await runtime.drain()
     assert [event.kind for event in events][-1] == "run.completed"
@@ -222,9 +202,7 @@ async def test_drain_waits_for_the_sink_emits_still_in_flight() -> None:
     """Without it, pending emits die with the event loop and the last audit events vanish."""
     recorder = Recorder()
     runtime, _ = _runtime(sinks=[recorder])
-    async for _ in runtime.run(
-        "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-    ):
+    async for _ in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
         pass
     await runtime.drain()
     assert len(recorder.events) == 3  # that the run never waited for them is the slow-sink test
@@ -249,10 +227,7 @@ async def test_a_sink_receives_the_stream_in_order_and_one_event_at_a_time() -> 
     sink = Reentrant()
     runtime, _ = _runtime(sinks=[sink])
     events = [
-        event
-        async for event in runtime.run(
-            "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
+        event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
     await runtime.drain()
     assert sink.events == events
@@ -272,10 +247,7 @@ async def test_a_slow_sink_does_not_hold_up_the_stream() -> None:
     slow = Slow()
     runtime, _ = _runtime(sinks=[slow])
     events = [
-        event
-        async for event in runtime.run(
-            "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
+        event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
     assert [event.kind for event in events][-1] == "run.completed"
     slow.release.set()
@@ -295,10 +267,7 @@ async def test_a_healthy_sink_sees_a_long_run_whole_even_when_the_store_never_yi
     runtime = Runtime([StubEngine()], store, {spec.name: spec}, sinks=[recorder])
 
     events = [
-        event
-        async for event in runtime.run(
-            "Firehose", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
+        event async for event in runtime.run("Firehose", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
     await runtime.drain()
 
@@ -322,12 +291,7 @@ async def test_a_stalling_sink_costs_one_task_however_many_events_it_misses() ->
     runtime = Runtime([StubEngine()], MemoryEventStore(), {spec.name: spec}, sinks=[stalled])
 
     before = len(asyncio.all_tasks())
-    events = [
-        event
-        async for event in runtime.run(
-            "Chatty", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
-    ]
+    events = [event async for event in runtime.run("Chatty", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)]
 
     assert len(events) == 62
     assert [event.kind for event in events][-1] == "run.completed"
@@ -346,9 +310,7 @@ async def test_the_engine_exception_reaches_the_caller_after_run_failed_is_recor
 
     seen: list[Event] = []
     with pytest.raises(ValueError, match="secret detail"):
-        async for event in runtime.run(
-            "Boom", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        ):
+        async for event in runtime.run("Boom", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
             seen.append(event)
 
     assert [event.kind for event in seen] == ["run.started", "text.delta", "run.failed"]
@@ -364,9 +326,7 @@ async def test_run_failed_names_the_exception_type_and_not_its_message() -> None
 
     seen: list[Event] = []
     with pytest.raises(ValueError):
-        async for event in runtime.run(
-            "Leaky", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        ):
+        async for event in runtime.run("Leaky", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
             seen.append(event)
 
     assert "sk-live-abc123" not in seen[-1].payload.message
@@ -378,10 +338,7 @@ async def test_an_engine_that_stops_without_a_terminal_event_gets_one_anyway() -
     spec = stub_spec("Quitter", TextDelta(message_id="m1", text="and then nothing"))
     runtime = Runtime([StubEngine()], MemoryEventStore(), {spec.name: spec})
     events = [
-        event
-        async for event in runtime.run(
-            "Quitter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
+        event async for event in runtime.run("Quitter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
     assert [event.kind for event in events] == ["run.started", "text.delta", "run.failed"]
     assert events[-1].payload.error_code == "engine_error"
@@ -402,13 +359,8 @@ async def test_the_engine_receives_the_history_the_store_holds() -> None:
     store = MemoryEventStore()
     runtime = Runtime([Nosy()], store, {spec.name: spec})
 
-    first = [
-        event
-        async for event in runtime.run(
-            "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
-    ]
-    async for _ in runtime.run("Greeter", INPUT, run_id="r-2", session_id=CTX.session_id, namespace=CTX.namespace):
+    first = [event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)]
+    async for _ in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
         pass
 
     assert seen_history[0] == []
@@ -428,10 +380,7 @@ async def test_nothing_an_engine_yields_after_a_terminal_payload_reaches_the_log
     runtime = Runtime([StubEngine()], store, {spec.name: spec})
 
     events = [
-        event
-        async for event in runtime.run(
-            "Chatterbox", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
+        event async for event in runtime.run("Chatterbox", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
     assert [event.kind for event in events] == ["run.started", "run.completed"]
     assert check_terminal(events) is None
@@ -445,9 +394,7 @@ async def test_an_abandoned_run_is_closed_in_the_log() -> None:
     store = MemoryEventStore()
     runtime = Runtime([StubEngine()], store, {spec.name: spec})
 
-    async with aclosing(
-        runtime.run("Chatty", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace)
-    ) as run:
+    async with aclosing(runtime.run("Chatty", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)) as run:
         async for _ in run:
             break
 
@@ -460,9 +407,7 @@ async def test_an_abandoned_run_is_closed_in_the_log() -> None:
 async def test_a_completed_run_is_not_cancelled_when_its_consumer_lets_go() -> None:
     """The close path must not fire on a run that already ended — that would be two terminals."""
     runtime, store = _runtime()
-    async with aclosing(
-        runtime.run("Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace)
-    ) as run:
+    async with aclosing(runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)) as run:
         async for _ in run:
             pass
     assert [event.kind for event in await store.read(CTX.log_key, CTX)][-1] == "run.completed"
@@ -474,9 +419,7 @@ async def test_a_suspended_run_is_not_cancelled_when_its_consumer_lets_go() -> N
     store = MemoryEventStore()
     runtime = Runtime([StubEngine()], store, {spec.name: spec})
 
-    async with aclosing(
-        runtime.run("Approver", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace)
-    ) as run:
+    async with aclosing(runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)) as run:
         async for _ in run:
             pass
 
@@ -489,9 +432,7 @@ async def test_an_invocable_with_no_script_is_a_config_error() -> None:
     runtime = Runtime([StubEngine()], MemoryEventStore(), {spec.name: spec})
 
     with pytest.raises(ConfigError, match="no stub script"):
-        async for _ in runtime.run(
-            "Empty", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        ):
+        async for _ in runtime.run("Empty", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
             pass
 
 
@@ -513,13 +454,19 @@ class _Blocking(StubEngine):
 
 
 class _Stalling(StubEngine):
-    """Plays one named run's first payload and then waits to be released: a turn that has gone
+    """Plays the first run's first payload and then waits to be released: a turn that has gone
     quiet mid-run, which is the state a staleness window cannot tell from a process that died.
-    Every other run plays straight through, so the turn that takes the session over is not
-    stalled by the same fixture."""
+    Every later run plays straight through, so the turn that takes the session over is not
+    stalled by the same fixture.
 
-    def __init__(self, quiet_run: str) -> None:
-        self._quiet_run = quiet_run
+    Which run is "the first" is call order, not a caller-chosen id: a run's id is minted by the
+    Runtime and unknowable ahead of its own ``run.started``, so the fixture cannot be told which
+    one to stall by name. The caller that starts the quiet run first, and gates the second start
+    on ``quiet`` being set, is what makes that order deterministic.
+    """
+
+    def __init__(self) -> None:
+        self._entered_quiet = False
         self.quiet = asyncio.Event()
         self.release = asyncio.Event()
 
@@ -527,7 +474,8 @@ class _Stalling(StubEngine):
         self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
     ) -> AsyncGenerator[KnownPayload, None]:
         stream = super().start(spec, input, history, ctx)
-        if ctx.run_id == self._quiet_run:
+        if not self._entered_quiet:
+            self._entered_quiet = True
             yield await anext(stream)
             self.quiet.set()
             await self.release.wait()
@@ -588,28 +536,33 @@ async def test_a_turn_arriving_while_another_is_in_flight_is_refused() -> None:
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
     store = MemoryEventStore()
     runtime = Runtime([engine], store, {spec.name: spec})
+    # The holding turn's own id, captured off its ``run.started`` as soon as it is known — an
+    # async generator never advances between one ``anext`` and the next, so nothing here can let
+    # the engine reach ``entered`` before this is set.
+    holder: dict[str, str] = {}
 
-    async def _play(run_id: str) -> list[Event]:
-        return [
-            event
-            async for event in runtime.run(
-                "Greeter", INPUT, run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
-            )
-        ]
+    async def _play() -> list[Event]:
+        events = []
+        async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
+            if not events:
+                holder.setdefault("first", event.run_id)
+            events.append(event)
+        return events
 
-    first = asyncio.create_task(_play("r-1"))
+    first = asyncio.create_task(_play())
     try:
         # Bounded, because the failure mode of a claim that does not refuse is this test waiting
         # on the engine it blocked: a wedge has to fail rather than hang the suite.
         async with asyncio.timeout(WEDGE_TIMEOUT):
             await engine.entered.wait()
             with pytest.raises(SessionBusyError) as refused:
-                await _play("r-2")
+                await _play()
     finally:
         engine.release.set()
 
+    first_run_id = holder["first"]
     assert "'s-1'" in str(refused.value)
-    assert "'r-1'" in str(refused.value)
+    assert f"{first_run_id!r}" in str(refused.value)
     # Unlike a parked holder, a RUNNING one really is "in flight" — the one branch of
     # ``_session_busy_message`` that keeps that wording rather than naming a verb.
     assert "in flight" in str(refused.value)
@@ -617,7 +570,7 @@ async def test_a_turn_arriving_while_another_is_in_flight_is_refused() -> None:
     # that documents "one turn at a time," not just that this turn was refused.
     assert f"{DOCS_URL}/concepts/sessions-and-memory" in str(refused.value)
     assert [event.kind for event in await first][-1] == "run.completed"
-    assert {event.run_id for event in await store.read(CTX.log_key, CTX)} == {"r-1"}
+    assert {event.run_id for event in await store.read(CTX.log_key, CTX)} == {first_run_id}
 
 
 async def test_a_turn_on_a_session_whose_run_is_waiting_on_a_human_is_refused() -> None:
@@ -632,14 +585,12 @@ async def test_a_turn_on_a_session_whose_run_is_waiting_on_a_human_is_refused() 
     store = MemoryEventStore()
     runtime = Runtime([StubEngine()], store, {spec.name: spec})
 
-    assert [
-        event
-        async for event in runtime.run(
-            "Approver", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
-    ][-1].kind == "run.interrupted"
-    with pytest.raises(SessionBusyError, match="r-1") as refused:
-        async for _ in runtime.run("Approver", INPUT, run_id="r-2", session_id=CTX.session_id, namespace=CTX.namespace):
+    opening = [
+        event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+    ]
+    assert opening[-1].kind == "run.interrupted"
+    with pytest.raises(SessionBusyError, match=opening[0].run_id) as refused:
+        async for _ in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
             pass
     assert "deck.runs.answer" in str(refused.value)
     assert "deck.runs.cancel" in str(refused.value)
@@ -655,14 +606,12 @@ async def test_a_turn_on_a_session_whose_run_is_paused_is_refused_naming_resume(
     store = MemoryEventStore()
     runtime = Runtime([StubEngine()], store, {spec.name: spec})
 
-    assert [
-        event
-        async for event in runtime.run(
-            "Chatty", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
-    ][-1].kind == "run.paused"
-    with pytest.raises(SessionBusyError, match="r-1") as refused:
-        async for _ in runtime.run("Chatty", INPUT, run_id="r-2", session_id=CTX.session_id, namespace=CTX.namespace):
+    opening = [
+        event async for event in runtime.run("Chatty", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+    ]
+    assert opening[-1].kind == "run.paused"
+    with pytest.raises(SessionBusyError, match=opening[0].run_id) as refused:
+        async for _ in runtime.run("Chatty", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
             pass
     assert "deck.runs.resume" in str(refused.value)
     assert "deck.runs.cancel" in str(refused.value)
@@ -672,17 +621,9 @@ async def test_a_turn_on_a_session_whose_run_is_paused_is_refused_naming_resume(
 async def test_a_turn_after_the_previous_one_finished_is_not_refused() -> None:
     """The ordinary case the claim must leave alone: a conversation is a sequence of turns."""
     runtime, store = _runtime()
-    first = [
-        event
-        async for event in runtime.run(
-            "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
-    ]
+    first = [event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)]
     second = [
-        event
-        async for event in runtime.run(
-            "Greeter", INPUT, run_id="r-2", session_id=CTX.session_id, namespace=CTX.namespace
-        )
+        event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
 
     assert first[-1].kind == "run.completed"
@@ -698,16 +639,10 @@ async def test_two_runs_without_a_session_never_contend() -> None:
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
     runtime = Runtime([engine], MemoryEventStore(), {spec.name: spec})
 
-    async def _play(run_id: str) -> list[Event]:
-        ctx = replace(CTX, run_id=run_id, session_id=None)
-        return [
-            event
-            async for event in runtime.run(
-                "Greeter", INPUT, run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace
-            )
-        ]
+    async def _play() -> list[Event]:
+        return [event async for event in runtime.run("Greeter", INPUT, session_id=None, namespace=CTX.namespace)]
 
-    both = await asyncio.gather(_play("r-1"), _play("r-2"))
+    both = await asyncio.gather(_play(), _play())
     assert [events[-1].kind for events in both] == ["run.completed", "run.completed"]
 
 
@@ -725,19 +660,17 @@ async def test_a_turn_takes_over_a_session_whose_run_went_silent_and_closes_it_a
 
     with caplog.at_level(logging.WARNING):
         events = [
-            event
-            async for event in runtime.run(
-                "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-            )
+            event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
         ]
 
+    new_run_id = events[0].run_id
     assert events[-1].kind == "run.completed"
     closed = await store.read_run(CTX.log_key, "r-0", CTX)
     assert [event.kind for event in closed] == ["run.started", "run.failed"]
     assert closed[-1].seq == 1
     assert closed[-1].origin == "Ghost", "the closing event belongs to the abandoned run, not the turn that closed it"
     assert closed[-1].payload.error_code == "cancelled_hard"
-    assert "r-1" in closed[-1].payload.message
+    assert new_run_id in closed[-1].payload.message
     assert "took it over and closed it as failed" in caplog.text
 
 
@@ -751,9 +684,7 @@ async def test_a_turn_does_not_take_over_a_session_whose_run_is_merely_quiet() -
     runtime = Runtime([StubEngine()], store, {spec.name: spec}, stale_run_after=timedelta(minutes=5))
 
     with pytest.raises(SessionBusyError, match="r-0"):
-        async for _ in runtime.run(
-            "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        ):
+        async for _ in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
             pass
     assert [event.kind for event in await store.read(CTX.log_key, CTX)] == ["run.started"]
 
@@ -772,27 +703,25 @@ async def test_a_run_that_writes_again_after_being_taken_over_lands_behind_its_t
     a coherently numbered log with an unmistakable shape, rather than two different events at one
     ``seq``, which nothing in the log could reveal.
     """
-    engine = _Stalling("r-1")
+    engine = _Stalling()
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
     # The ticking clock is the store's: every event it stamps is a second older than the last, so
     # the quiet run's own writes age it past the window without the test waiting for anything.
     store = MemoryEventStore(clock=_Ticking())
     runtime = Runtime([engine], store, {spec.name: spec}, stale_run_after=timedelta(seconds=1))
 
-    quiet = asyncio.create_task(_collect(runtime, "r-1"))
+    quiet = asyncio.create_task(_collect(runtime))
     async with asyncio.timeout(WEDGE_TIMEOUT):
         await engine.quiet.wait()
         taken = [
-            event
-            async for event in runtime.run(
-                "Greeter", INPUT, run_id="r-2", session_id=CTX.session_id, namespace=CTX.namespace
-            )
+            event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
         ]
         engine.release.set()
-        await quiet
+        quiet_events = await quiet
 
+    quiet_run_id = quiet_events[0].run_id
     assert taken[-1].kind == "run.completed"
-    resurrected = await store.read_run(CTX.log_key, "r-1", CTX)
+    resurrected = await store.read_run(CTX.log_key, quiet_run_id, CTX)
     pairs = [(event.run_id, event.seq) for event in resurrected]
     assert len(set(pairs)) == len(pairs), f"a seq answers to two events: {[(e.seq, e.kind) for e in resurrected]}"
     assert check_contiguous(resurrected) == []
@@ -815,7 +744,7 @@ async def test_a_run_resurrected_into_an_interrupt_takes_its_session_back() -> N
     and says nothing about a refused run reclaiming the session it was evicted from.
     ``check_terminal`` is what still gives it away.
     """
-    engine = _Stalling("r-1")
+    engine = _Stalling()
     spec = stub_spec(
         "Approver",
         TextDelta(message_id="m1", text="thinking"),
@@ -825,34 +754,29 @@ async def test_a_run_resurrected_into_an_interrupt_takes_its_session_back() -> N
     store = MemoryEventStore(clock=_Ticking())
     runtime = Runtime([engine], store, {spec.name: spec}, stale_run_after=timedelta(seconds=1))
 
-    quiet = asyncio.create_task(_collect(runtime, "r-1", "Approver"))
+    quiet = asyncio.create_task(_collect(runtime, "Approver"))
     async with asyncio.timeout(WEDGE_TIMEOUT):
         await engine.quiet.wait()
         taken = [
-            event
-            async for event in runtime.run(
-                "Approver", INPUT, run_id="r-2", session_id=CTX.session_id, namespace=CTX.namespace
-            )
+            event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
         ]
         engine.release.set()
-        await quiet
+        quiet_events = await quiet
 
+    quiet_run_id = quiet_events[0].run_id
     assert taken[-1].kind == "run.interrupted"
-    resurrected = await store.read_run(CTX.log_key, "r-1", CTX)
+    resurrected = await store.read_run(CTX.log_key, quiet_run_id, CTX)
     assert [event.kind for event in resurrected] == ["run.started", "text.delta", "run.failed", "run.interrupted"]
     assert check_contiguous(resurrected) == [], "the log stays dense however wrong its shape is"
     assert check_terminal(resurrected) == "terminal event 'run.failed' at index 2 of 4, not last"
-    assert await store.run_status(CTX.log_key, "r-1", CTX) is RunStatus.WAITING_ANSWER
-    assert "r-1" in [run.run_id for run in await runtime.pending(namespace=CTX.namespace)], (
+    assert await store.run_status(CTX.log_key, quiet_run_id, CTX) is RunStatus.WAITING_ANSWER
+    assert quiet_run_id in [run.run_id for run in await runtime.pending(namespace=CTX.namespace)], (
         "the evicted run is resumable again"
     )
 
 
-async def _collect(runtime: Runtime, run_id: str, name: str = "Greeter") -> list[Event]:
-    return [
-        event
-        async for event in runtime.run(name, INPUT, run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace)
-    ]
+async def _collect(runtime: Runtime, name: str = "Greeter") -> list[Event]:
+    return [event async for event in runtime.run(name, INPUT, session_id=CTX.session_id, namespace=CTX.namespace)]
 
 
 async def test_a_cancellation_during_the_claim_closes_the_run_and_frees_the_session() -> None:
@@ -863,7 +787,10 @@ async def test_a_cancellation_during_the_claim_closes_the_run_and_frees_the_sess
     """
 
     class _SlowClaim(MemoryEventStore):
-        """Commits the claim and then hangs, so a cancellation can land in exactly that gap."""
+        """Commits the first claim and then hangs, so a cancellation can land in exactly that
+        gap. Which claim is "the first" is call order, not a caller-chosen id (a run's id is
+        minted and unknowable ahead of its own ``run.started``): only the turn this test cancels
+        ever reaches this claim before the session is free again."""
 
         def __init__(self) -> None:
             super().__init__()
@@ -873,7 +800,7 @@ async def test_a_cancellation_during_the_claim_closes_the_run_and_frees_the_sess
             self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
         ) -> tuple[SessionClaim, Event | None]:
             claimed = await super().claim_start(log_key, opening, ctx, origin, stale_after)
-            if ctx.run_id == "r-1":
+            if not self.committed.is_set():
                 self.committed.set()
                 await asyncio.Event().wait()  # a cancellation is the only way out, which is the point
             return claimed
@@ -882,7 +809,7 @@ async def test_a_cancellation_during_the_claim_closes_the_run_and_frees_the_sess
     store = _SlowClaim()
     runtime = Runtime([StubEngine()], store, {spec.name: spec})
 
-    turn = asyncio.create_task(_collect(runtime, "r-1"))
+    turn = asyncio.create_task(_collect(runtime))
     async with asyncio.timeout(WEDGE_TIMEOUT):
         await store.committed.wait()
         turn.cancel()
@@ -896,10 +823,7 @@ async def test_a_cancellation_during_the_claim_closes_the_run_and_frees_the_sess
 
         # And the session is free again — the point of closing it rather than waiting the window out.
         next_turn = [
-            event
-            async for event in runtime.run(
-                "Greeter", INPUT, run_id="r-2", session_id=CTX.session_id, namespace=CTX.namespace
-            )
+            event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
         ]
         assert next_turn[-1].kind == "run.completed"
 
@@ -935,10 +859,7 @@ async def test_a_takeover_whose_bookkeeping_fails_still_leaves_this_turn_runnabl
 
     with caplog.at_level(logging.ERROR):
         events = [
-            event
-            async for event in runtime.run(
-                "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-            )
+            event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
         ]
 
     assert [event.kind for event in events][-1] == "run.completed"
@@ -979,10 +900,7 @@ async def test_the_staleness_window_comes_from_settings_when_it_is_not_passed_in
         runtime = build_runtime(engines=[StubEngine()], invocables={spec.name: spec}, store=store, sinks=())
 
         events = [
-            event
-            async for event in runtime.run(
-                "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-            )
+            event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
         ]
     finally:
         reset_settings_cache()
@@ -1026,10 +944,7 @@ async def test_a_run_that_reports_gets_its_reports_in_the_stream_in_order() -> N
     runtime = Runtime([_Reporting()], store, {spec.name: spec})
 
     events = [
-        event
-        async for event in runtime.run(
-            "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
+        event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
 
     assert [event.kind for event in events] == [
@@ -1056,10 +971,7 @@ async def test_a_report_made_during_the_last_thing_a_run_did_lands_before_the_te
     runtime = Runtime([_Reporting(before=1)], store, {spec.name: spec})
 
     events = [
-        event
-        async for event in runtime.run(
-            "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-        )
+        event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
 
     assert [event.kind for event in events[-2:]] == ["progress.reported", "run.completed"]
@@ -1073,15 +985,15 @@ async def test_a_reporting_run_still_folds_to_the_status_its_lifecycle_says() ->
     store = MemoryEventStore()
     runtime = Runtime([_Reporting()], store, {spec.name: spec})
 
-    async for _ in runtime.run(
-        "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-    ):
-        pass
+    events = [
+        event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+    ]
+    run_id = events[0].run_id
 
     log = await store.read(CTX.log_key, CTX)
     assert [event.kind for event in log if event.kind.endswith(".reported")] != []  # it did report
     assert status_of(log) is RunStatus.COMPLETED
-    assert [summary.run_id for summary in await store.list_runs(CTX, status=RunStatus.COMPLETED)] == ["r-1"]
+    assert [summary.run_id for summary in await store.list_runs(CTX, status=RunStatus.COMPLETED)] == [run_id]
 
 
 async def test_two_concurrent_runs_never_drain_each_others_reports() -> None:
@@ -1094,8 +1006,8 @@ async def test_two_concurrent_runs_never_drain_each_others_reports() -> None:
         async def start(
             self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
         ) -> AsyncGenerator[KnownPayload, None]:
-            await ctx.reporter.status(f"working on {ctx.run_id}")
-            if ctx.run_id == "r-1":
+            await ctx.reporter.status(f"working on {ctx.session_id}")
+            if ctx.session_id == "s-1":
                 entered.set()
                 await release.wait()
             yield DONE
@@ -1104,23 +1016,17 @@ async def test_two_concurrent_runs_never_drain_each_others_reports() -> None:
     store = MemoryEventStore()
     runtime = Runtime([_Interleaved()], store, {spec.name: spec})
 
-    async def drive(run_id: str, session_id: str) -> list[Event]:
-        ctx = replace(CTX, run_id=run_id, session_id=session_id)
-        return [
-            event
-            async for event in runtime.run(
-                "Greeter", INPUT, run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace
-            )
-        ]
+    async def drive(session_id: str) -> list[Event]:
+        return [event async for event in runtime.run("Greeter", INPUT, session_id=session_id, namespace=CTX.namespace)]
 
-    first = asyncio.create_task(drive("r-1", "s-1"))
+    first = asyncio.create_task(drive("s-1"))
     await asyncio.wait_for(entered.wait(), WEDGE_TIMEOUT)
-    second = await drive("r-2", "s-2")
+    second = await drive("s-2")
     release.set()
     reported = await asyncio.wait_for(first, WEDGE_TIMEOUT)
 
-    assert [event.payload.message for event in reported if event.kind == "status.reported"] == ["working on r-1"]
-    assert [event.payload.message for event in second if event.kind == "status.reported"] == ["working on r-2"]
+    assert [event.payload.message for event in reported if event.kind == "status.reported"] == ["working on s-1"]
+    assert [event.payload.message for event in second if event.kind == "status.reported"] == ["working on s-2"]
 
 
 async def test_a_resumed_run_can_report_too() -> None:
@@ -1131,14 +1037,12 @@ async def test_a_resumed_run_can_report_too() -> None:
     store = MemoryEventStore()
     runtime = Runtime([_Reporting()], store, {spec.name: spec})
 
-    async for _ in runtime.run(
-        "Asker", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-    ):
-        pass
+    opening = [event async for event in runtime.run("Asker", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)]
+    run_id = opening[0].run_id
     resumed = [
         event
         async for event in runtime.resume(
-            "Asker", "t-1", "yes", run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+            "Asker", "t-1", "yes", run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
         )
     ]
 
@@ -1157,10 +1061,7 @@ async def test_a_caller_built_context_reports_into_nothing() -> None:
     store = MemoryEventStore()
     runtime = Runtime([StubEngine()], store, {spec.name: spec})
     events = [
-        event
-        async for event in runtime.run(
-            "Greeter", INPUT, run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace
-        )
+        event async for event in runtime.run("Greeter", INPUT, session_id=ctx.session_id, namespace=ctx.namespace)
     ]
 
     assert [event.kind for event in events] == ["run.started", "run.completed"]
@@ -1193,10 +1094,7 @@ async def test_a_store_that_refuses_a_report_costs_the_report_not_the_run(caplog
 
     with caplog.at_level(logging.WARNING):
         events = [
-            event
-            async for event in runtime.run(
-                "Greeter", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-            )
+            event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
         ]
 
     # The run is untouched: it completes, and the report that survived is still in it.
@@ -1227,18 +1125,18 @@ async def test_the_answer_is_in_the_log_before_the_engine_has_been_asked_for_any
     dies. What the log holds here is all a successor gets, so it has to hold the answer.
     """
     runtime, store = _approver()
-    async for _ in runtime.run(
-        "Approver", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-    ):
-        pass
+    opened = [
+        event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+    ]
+    run_id = opened[0].run_id
 
     resuming = runtime.resume(
         "Approver",
         "t1",
         {"approved": True, "note": "ship it"},
-        run_id=(CTX).run_id,
-        session_id=(CTX).session_id,
-        namespace=(CTX).namespace,
+        run_id=run_id,
+        session_id=CTX.session_id,
+        namespace=CTX.namespace,
     )
     claim = await anext(resuming)  # the engine is only started after this is yielded
 
@@ -1251,12 +1149,12 @@ async def test_the_answer_is_in_the_log_before_the_engine_has_been_asked_for_any
 
 async def test_a_text_answer_is_recorded_the_way_a_turn_s_own_input_is() -> None:
     runtime, store = _approver()
-    async for _ in runtime.run(
-        "Approver", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-    ):
-        pass
+    opened = [
+        event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+    ]
+    run_id = opened[0].run_id
     async for _ in runtime.resume(
-        "Approver", "t1", "approved", run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+        "Approver", "t1", "approved", run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
     ):
         pass
 
@@ -1268,17 +1166,17 @@ async def test_an_answer_already_in_blocks_is_recorded_as_those_blocks() -> None
     """A caller answering an inbox in the field's own type must not have it wrapped in a data
     block: the same approval would then be two shapes depending on how it was spelled."""
     runtime, store = _approver()
-    async for _ in runtime.run(
-        "Approver", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-    ):
-        pass
+    opened = [
+        event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+    ]
+    run_id = opened[0].run_id
     async for _ in runtime.resume(
         "Approver",
         "t1",
         [TextBlock(text="approved")],
-        run_id=(CTX).run_id,
-        session_id=(CTX).session_id,
-        namespace=(CTX).namespace,
+        run_id=run_id,
+        session_id=CTX.session_id,
+        namespace=CTX.namespace,
     ):
         pass
 
@@ -1290,12 +1188,12 @@ async def test_an_empty_array_answer_is_data_not_content_with_no_blocks() -> Non
     """ "Nothing selected" is an answer. Recorded as content it would read as no blocks at all,
     which is indistinguishable from a resume that answered nothing — and unreconstructable."""
     runtime, store = _approver()
-    async for _ in runtime.run(
-        "Approver", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-    ):
-        pass
+    opened = [
+        event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+    ]
+    run_id = opened[0].run_id
     async for _ in runtime.resume(
-        "Approver", "t1", [], run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+        "Approver", "t1", [], run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
     ):
         pass
 
@@ -1307,12 +1205,12 @@ async def test_a_resume_with_nothing_to_answer_records_no_value() -> None:
     """Lifting an operator's pause answers no question, and an empty content list would claim
     that an answer arrived and was blank."""
     runtime, store = _approver()
-    async for _ in runtime.run(
-        "Approver", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-    ):
-        pass
+    opened = [
+        event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+    ]
+    run_id = opened[0].run_id
     async for _ in runtime.resume(
-        "Approver", "t1", None, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+        "Approver", "t1", None, run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
     ):
         pass
 
@@ -1353,19 +1251,19 @@ async def test_an_answer_the_log_cannot_hold_is_reported_rather_than_failing_the
     nothing — and says which run, because a silent skip leaves the log looking exactly like the
     bug this field fixed."""
     runtime, store = _approver()
-    async for _ in runtime.run(
-        "Approver", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-    ):
-        pass
+    opened = [
+        event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+    ]
+    run_id = opened[0].run_id
     with caplog.at_level(logging.WARNING):
         events = [
             event
             async for event in runtime.resume(
-                "Approver", "t1", value, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+                "Approver", "t1", value, run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
             )
         ]
 
     assert [event.kind for event in events] == ["run.resumed", "run.completed"]
     resumed = next(event for event in await store.read(CTX.log_key, CTX) if event.kind == "run.resumed")
     assert resumed.payload.value is None
-    assert "the answer for run r-1 is a" in caplog.text
+    assert f"the answer for run {run_id} is a" in caplog.text

@@ -4,8 +4,9 @@ that share a database rather than a filesystem.
 The SQLite store's own docstring points here for a networked deployment — WAL needs shared
 memory across processes, so a log on NFS is unreliable, and that is exactly the shape a
 multi-worker server has. Nothing else changes: append-only, one row per event, ``seq``
-scoped to one run within one log, and status still derived by folding events rather than
-stored (ADR-D5: the log is the sole source of truth).
+scoped to one run and unique across the whole namespace rather than within one log, and
+status still derived by folding events rather than stored (ADR-D5: the log is the sole
+source of truth).
 
 Everything this store owns lives in its **own schema** (``agentdeck_events`` by default),
 so a database that also holds the langgraph checkpointer's tables keeps the platform record
@@ -20,12 +21,13 @@ import hashlib
 from typing import TYPE_CHECKING, Any
 
 import psycopg
+from psycopg import errors as pg_errors
 from psycopg import sql
 
 from agentdeck.core.events import Event
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
 from agentdeck.core.status import LIFECYCLE_KINDS, STATES, can_resume, status_of
-from agentdeck.errors import StoreError
+from agentdeck.errors import DuplicateKeyError, StoreError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -98,6 +100,7 @@ class PostgresEventStore(EventStorePort):
         table = sql.Identifier(schema, "events")
         # Composed once: the schema name is an identifier, so it is quoted by psycopg
         # rather than interpolated — a schema is caller-supplied configuration.
+        events_by_run = sql.Identifier(schema, "events_by_run")
         self._ddl = (
             sql.SQL("CREATE SCHEMA IF NOT EXISTS {schema}").format(schema=sql.Identifier(schema)),
             sql.SQL(
@@ -106,17 +109,30 @@ class PostgresEventStore(EventStorePort):
                 " namespace TEXT NOT NULL,"
                 " log_key TEXT NOT NULL,"
                 " run_id TEXT NOT NULL,"
+                " key TEXT,"
                 " seq INTEGER NOT NULL,"
                 " data JSONB NOT NULL)"
             ).format(table=table),
+            # Additive migration for a schema an earlier build already created: `key` did not
+            # exist before #324, and Postgres's own `IF NOT EXISTS` makes adding it a no-op on a
+            # database that already has it (this build's own fresh-created one included).
+            sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS key TEXT").format(table=table),
             sql.SQL("CREATE INDEX IF NOT EXISTS events_by_log ON {table} (namespace, log_key, id)").format(table=table),
+            # `events_by_run` is dropped and rebuilt on every open rather than guarded with
+            # `IF NOT EXISTS`: an earlier build's index of the same name is scoped to
+            # `(namespace, log_key, run_id, seq)`, which lets one run_id+seq exist under two log
+            # keys — "one logical run split across two logs", the defect #324 closes. Same name,
+            # different columns, so `IF NOT EXISTS` would find the name taken and leave the old,
+            # looser shape in place. Harmless to repeat on a database already at this shape. If
+            # existing rows genuinely violate the tighter constraint, the CREATE below fails and
+            # the `StoreError` it raises names the underlying conflict rather than picking a
+            # survivor silently.
+            sql.SQL("DROP INDEX IF EXISTS {index}").format(index=events_by_run),
             # UNIQUE is the guard, not just the index: one seq per run is the promise consumers
             # refetch a gap with, and a duplicate is the one corruption a gap check cannot see.
-            # ponytail: only schemas this build creates get the constraint — one from an earlier
-            # beta keeps its non-unique index, and v2 has no migration story yet.
-            sql.SQL(
-                "CREATE UNIQUE INDEX IF NOT EXISTS events_by_run ON {table} (namespace, log_key, run_id, seq)"
-            ).format(table=table),
+            sql.SQL("CREATE UNIQUE INDEX IF NOT EXISTS events_by_run ON {table} (namespace, run_id, seq)").format(
+                table=table
+            ),
             # Adds no data the table doesn't already carry — an index over columns already on
             # every row, for `locate`'s "which log holds this run_id" query. Unlike the UNIQUE
             # index above, a plain one has nothing to conflict with, so it builds cleanly on a
@@ -124,9 +140,14 @@ class PostgresEventStore(EventStorePort):
             sql.SQL("CREATE INDEX IF NOT EXISTS events_by_run_id ON {table} (namespace, run_id, id)").format(
                 table=table
             ),
+            # `(namespace, key)`'s enforcement, partial so unkeyed rows — every row but a run's
+            # own opening one — never compete for the constraint.
+            sql.SQL(
+                "CREATE UNIQUE INDEX IF NOT EXISTS events_by_key ON {table} (namespace, key) WHERE key IS NOT NULL"
+            ).format(table=table),
         )
         self._insert = sql.SQL(
-            "INSERT INTO {table} (namespace, log_key, run_id, seq, data) VALUES (%s, %s, %s, %s, %s::jsonb)"
+            "INSERT INTO {table} (namespace, log_key, run_id, key, seq, data) VALUES (%s, %s, %s, %s, %s, %s::jsonb)"
         ).format(table=table)
         self._select_log = sql.SQL(
             "SELECT data FROM {table} WHERE namespace = %s AND log_key = %s ORDER BY id ASC LIMIT %s OFFSET %s"
@@ -239,7 +260,13 @@ class PostgresEventStore(EventStorePort):
         return [Event.model_validate(data) for data in await self._run(_work, "read_run")]
 
     async def _stamp_and_insert(
-        self, conn: Connection, log_key: str, payloads: list[KnownPayload], ctx: RunContext, origin: str
+        self,
+        conn: Connection,
+        log_key: str,
+        payloads: list[KnownPayload],
+        ctx: RunContext,
+        origin: str,
+        key: str | None = None,
     ) -> list[Event]:
         """Assign, build, insert — callable only with this log's advisory lock already held.
 
@@ -247,6 +274,10 @@ class PostgresEventStore(EventStorePort):
         database compare one clock rather than N (ADR-D11 §4). ``clock_timestamp`` rather than
         ``now()``, which is the transaction's start time and would hand every event in a batch
         the timestamp of the statement that opened it.
+
+        ``key`` is written on the batch's first row only — see the SQLite store's own
+        ``_stamp_and_insert`` for why: it is adopted once, by :meth:`claim_start`'s call for the
+        opening event, and every other row of every other call passes ``None``.
         """
         cursor = await conn.execute(_SELECT_NOW)
         now = (await cursor.fetchone())[0]  # ty: ignore[not-subscriptable] — one-row scalar select
@@ -266,7 +297,13 @@ class PostgresEventStore(EventStorePort):
                     payload=payload,
                 )
             )
-        await conn.cursor().executemany(self._insert, [_row(ctx.namespace_key, log_key, event) for event in events])
+        await conn.cursor().executemany(
+            self._insert,
+            [
+                _row(ctx.namespace_key, log_key, event, key if index == 0 else None)
+                for index, event in enumerate(events)
+            ],
+        )
         return events
 
     async def claim_start(
@@ -278,6 +315,11 @@ class PostgresEventStore(EventStorePort):
         A refused claim is still a clean answer: the loser waits the winner's transaction
         out and then reads the run it opened. Only a lock held past ``lock_timeout`` raises,
         because that is a store nobody can write to rather than a session somebody took.
+
+        Also adopts ``ctx.key`` when one is given, enforced by ``events_by_key`` rather than a
+        read here: the advisory lock above is per ``(namespace, log_key)``, but a key is a
+        namespace-wide claim two different sessions could race on, so the unique index — not
+        this lock — is what two servers actually agree through for it.
         """
 
         async def _work(conn: Connection) -> tuple[SessionClaim, Event | None]:
@@ -295,7 +337,14 @@ class PostgresEventStore(EventStorePort):
                     if last.ts > stale_before:
                         return SessionClaim(held_by=last.run_id), None
                     overridden.append(last)
-                event = (await self._stamp_and_insert(conn, log_key, [opening], ctx, origin))[0]
+                try:
+                    event = (await self._stamp_and_insert(conn, log_key, [opening], ctx, origin, key=ctx.key))[0]
+                except pg_errors.UniqueViolation as exc:
+                    if ctx.key is not None:
+                        raise DuplicateKeyError(
+                            f"key {ctx.key!r} is already used by another run in namespace {ctx.namespace!r}"
+                        ) from exc
+                    raise
             return SessionClaim(overridden=tuple(overridden)), event
 
         return await self._run(_work, "claim_start")
@@ -324,9 +373,13 @@ class PostgresEventStore(EventStorePort):
 
         return await self._run(_work, "claim_resume")
 
-    async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
+    async def list_runs(
+        self, ctx: RunContext, status: RunStatus | None = None, limit: int | None = None
+    ) -> list[RunSummary]:
         """Overrides the port's per-run fold: one statement returns each run's *last*
         lifecycle row, so a listing deserializes one event per run instead of all of them."""
+        if limit is not None and limit < 0:
+            raise ValueError(f"limit must be None or >= 0, got {limit}")
 
         async def _work(conn: Connection) -> list[tuple[str, str, dict[str, Any]]]:
             cursor = await conn.execute(self._select_last_lifecycle, (ctx.namespace_key, _SORTED_LIFECYCLE_KINDS))
@@ -340,7 +393,8 @@ class PostgresEventStore(EventStorePort):
             for log_key, run_id, data in await self._run(_work, "list_runs")
             if (folded := status_of([Event.model_validate(data)])) is not None
         ]
-        return [summary for summary in summaries if status is None or summary.status is status]
+        filtered = [summary for summary in summaries if status is None or summary.status is status]
+        return filtered if limit is None else filtered[:limit]
 
     async def locate(self, run_id: str, ctx: RunContext) -> str | None:
         async def _work(conn: Connection) -> str | None:
@@ -398,8 +452,8 @@ class PostgresEventStore(EventStorePort):
             raise StoreError(f"closing the event log failed: {exc}") from exc
 
 
-def _row(namespace: str, log_key: str, event: Event) -> tuple[str, str, str, int, str]:
-    return (namespace, log_key, event.run_id, event.seq, event.model_dump_json())
+def _row(namespace: str, log_key: str, event: Event, key: str | None) -> tuple[str, str, str, str | None, int, str]:
+    return (namespace, log_key, event.run_id, key, event.seq, event.model_dump_json())
 
 
 __all__ = ["PostgresEventStore"]

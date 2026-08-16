@@ -10,6 +10,20 @@ Fixed / Security` order — and are written to be attached to a release as-is.
 
 ### Upgrading
 
+- **Breaking: a run's `id` is now minted, never derived from a caller-supplied value** (#324).
+  `deck.run(...)`/`deck.stream(...)` no longer accept `run_id=`: the keyword is `key=`, an
+  optional stable application identifier for lookup and idempotency, and it plays no part in
+  the run's own address any more. Every run gets a fresh, globally unique `id` regardless of
+  `key`, so two namespaces reusing one key now get two unrelated runs instead of the collision
+  risk `run_id=` carried. `(namespace, key)` is a permanent claim once a run starts with it — a
+  second `deck.run(..., key=...)` reusing one raises `DuplicateKeyError` rather than replaying
+  the run that holds it, and the pairing survives a restart. The `events` table gains a `key`
+  column and its run-scoped uniqueness tightens from `(namespace, log_key, run_id, seq)` to
+  `(namespace, run_id, seq)`, so one logical run can no longer be split across two log keys. An
+  existing SQLite events database is migrated in place on open (`key` column added, the tightened
+  index rebuilt); a database with rows that genuinely violate the tighter constraint raises
+  `StoreError` naming the conflict instead of silently picking a survivor. `list_runs` gains a
+  `limit` parameter across all four stores.
 - **Breaking: `deck.run(...)`/`deck.stream(...)` now raises `SessionBusyError` on a session
   held by a run parked `PAUSED` or `WAITING_ANSWER`, however long ago it went quiet** (#311).
   Every store's `claim_start` applied `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` to *any* open
