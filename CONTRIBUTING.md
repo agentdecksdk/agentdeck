@@ -72,7 +72,7 @@ make check                  # lint + typecheck + lint-imports + tests — CI run
 
 ## Ground rules
 
-The full standards live in **`docs/coding-standards.md`** — read it before any
+The full standards live in **[`docs/engineering/`](docs/engineering/)** — read it before any
 non-trivial change; this list is the two-minute version.
 
 - **agentdeck owns configuration, not execution.** Execution stays in the

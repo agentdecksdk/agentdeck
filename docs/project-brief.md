@@ -1,3 +1,4 @@
+
 # AgentDeck v2 — Project Brief
 
 **Owner:** Sagi · **Date:** 2026-08-04 · **Status:** delivered as v3 (amended 2026-08-11)

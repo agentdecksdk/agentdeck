@@ -1,128 +1,61 @@
-# agentdeck
+# AgentDeck
 
-Declarative harness over the OpenAI Agents SDK + LangGraph, rebuilt as a small
-engine-agnostic core (one event schema, one Runtime, pluggable engine and
-protocol adapters) — see `docs/project-brief.md` for the why.
+AgentDeck is a declarative runtime harness for multi-agent systems and workflows (OpenAI Agents SDK + LangGraph).
 
-**Start at `docs/00-project-index.md`** — it maps every design/delivery doc,
-says which one wins when they disagree, and lists what's next.
-**All coding standards live in `docs/coding-standards.md`** (typing, errors,
-async/event-path law, test structure, naming, dependencies, security, PR/commit
-discipline, agent-specific rules). This file is deliberately short and does not
-restate them — read that file before writing any non-trivial code.
+**Core standards:** `docs/engineering/` — the linked suite of binding engineering law:
+1. [`docs/engineering/principles.md`](docs/engineering/principles.md) — Product philosophy & North Star.
+2. [`docs/engineering/coding-standards.md`](docs/engineering/coding-standards.md) — Binding front door for every code change.
+3. [`docs/engineering/coding-agents.md`](docs/engineering/coding-agents.md) — Mandatory rules for coding agents.
+4. Specialized standards: [`architecture.md`](docs/engineering/architecture.md), [`runtime-contracts.md`](docs/engineering/runtime-contracts.md), [`testing.md`](docs/engineering/testing.md), [`dependencies.md`](docs/engineering/dependencies.md), [`repository-policy.md`](docs/engineering/repository-policy.md), [`import-boundaries.md`](docs/engineering/import-boundaries.md).
 
-## Where things stand
+---
 
-**v3 is the live surface, and v1 is gone.** `App`, `agentdeck/agents/`,
-`agentdeck/workflows/` and the sandbox/skill-runtime machinery were deleted in
-#164 and #71 — if a doc still describes them, the doc is stale, not the tree.
+## 1. Product Philosophy & North Star
 
-- **`agentdeck/deck.py`** — `Deck`, the one composition root. Two front doors,
-  one catalog underneath: `Deck(agents=…, workflows=…, skills=…, mcp=…)` and
-  `Deck.from_project()`, which discovers the same four arguments from
-  `./.agentdeck/` (`agents/<bundle>/agent.py`, `workflows/<bundle>/workflow.py`,
-  `skills/*/SKILL.md`). Lifecycle is
-  `NEW → build() → BUILT → (async with) → OPEN → CLOSED`, and CLOSED is terminal.
-- **`agentdeck/authoring/`** — declarations (`Agent`, `Workflow`, nodes,
-  skills) compiled to an `InvocableSpec`. **`agentdeck/core/`** — event schema,
-  content blocks and ports. **`agentdeck/runtime/`** — execution.
-  **`agentdeck/adapters/`** — engines, stores, control, telemetry, MCP.
-- **The v1 HTTP/SSE wire is still frozen byte-for-byte**, served by
-  `surfaces/serve/compat.py` and enforced by `tests/golden/`, replayed on every
-  `make test`. That contract outlived the code that first produced it.
-- **What's left before `v3.0.0`:** `docs/delivery/roadmap-v3.md` — it holds the
-  waves, the rulings taken, and a relevancy verdict per open issue.
+> **Make powerful agentic systems feel obvious to build, compose, run, and operate.**
+> **Great software does the hard work so its users do not have to. Simple on the outside, elegant on the inside.**
 
-Design of record: `docs/design/agentdeck-v2-architecture.md` and
-`docs/design/adr-d5-two-stores.md` (both still name the effort "v2"; the layout
-and import law they describe are what shipped). Layout and import law also in
-`docs/coding-standards.md` §3.
+* **User owns intent, AgentDeck owns machinery:** Users define agents, tools, workflows, skills, and context. AgentDeck manages run identity, execution lifecycle, persistence, event streams, cancellation, and concurrency.
+* **Abstractions must delete complexity:** An abstraction is successful only when the caller needs to know *less*. Never leak internal plumbing (stores, resolvers, internal contexts, log keys) into public user APIs.
+* **One obvious path first:** One clean, standard path for common tasks (`await deck.run(...)`). Advanced knobs remain escape hatches, never obstacles.
+* **Conciseness is mandatory:** No fluff, no sprawling prose. If one sentence suffices, write one sentence. Code, comments, docs, PR descriptions, and issue specs must be terse, precise, and dense with signal.
 
-## Architecture rules
+---
 
-- agentdeck owns **configuration only** — settings, discovery, runner glue,
-  graph compilation. Execution stays in the Agents SDK / LangGraph. Don't move
-  execution logic into agentdeck.
-- An agent's contract with a skill is SKILL.md prose + `key=value` stdout lines.
-  Never import a skill's typed schema module from agent code.
-- Model calls never mutate external state directly; deterministic code does.
-- A node calling `interrupt()` re-runs **from its start** when the workflow
-  resumes — everything before the `interrupt()` call executes twice. Interrupt
-  nodes must be pure; side effects (external mutations, sent messages) belong in
-  earlier nodes. Interrupts require `durable = True` (a checkpointer).
-- **Sandboxing is not part of v3** (#163, deferred). Nothing is sandboxed, no
-  context crosses a process boundary, and the scaffolding for it was deleted —
-  don't reintroduce a port for it without that ruling being revisited.
+## 2. Architecture & Layout
 
-## v3 non-negotiables
+`Deck` is the single composition root: `Deck(...)` or `Deck.from_project()` (discovering `./.agentdeck/`).
 
-(Full detail, incl. typing/errors/async/tests/naming: `docs/coding-standards.md`.)
+* **`agentdeck/core/`**: Pure domain model, event schema, content blocks, ports, error taxonomy. **Imports stdlib + pydantic only** (enforced by `import-linter`).
+* **`agentdeck/runtime/`**: Execution orchestration, lifecycle state machine, event dispatch. Imports `core/` only.
+* **`agentdeck/adapters/`**: Pluggable integrations (engines: `openai_agents`, `langgraph`; stores: `sqlite`, `postgres`, `redis`; `mcp`; `telemetry`). Each adapter imports `core/` plus exactly one external technology. Adapters never import other adapters.
+* **`agentdeck/authoring/`**: Declarations (`Agent`, `Workflow`, `Skill`) compiled to specs.
+* **`agentdeck/surfaces/`**: Ingress surfaces (HTTP/SSE in `surfaces/serve/`, CLI).
 
-- `core/` imports **stdlib + pydantic only**, no exceptions — enforced by
-  `import-linter` (`.importlinter`, `make lint-imports`).
-- Events go through payload classes, never hand-built dicts; consumers use
-  `Event.model_validate` and tolerate `UnknownEvent`. New kinds/envelope changes
-  land only in dedicated schema PRs (`docs/coding-standards.md` §7).
-- Golden JSON snapshots (`tests/core/snapshots/`) change only with an explicit,
-  PR-declared schema change.
+---
 
-## Simplicity
+## 3. Engineering & Coding Standards
 
-- YAGNI first: no interface with one implementation, no config for a value that
-  never changes, no scaffolding "for later." Stdlib/native before a dependency;
-  a dependency before vendoring. Boring and short beats clever — a coding agent
-  should take the first solution that actually works, not the most extensible one.
-- This applies *inside* `docs/coding-standards.md`'s judgment-ledger process, not
-  instead of it: a deliberate shortcut still gets a one-line ledger entry (or a
-  `# ponytail:`-style comment naming the ceiling and the upgrade trigger), it just
-  shouldn't be gold-plated in the first place.
-- Exceptions the ladder never applies to: input validation at trust boundaries,
-  error handling that prevents data loss, the event/session invariants in
-  `docs/coding-standards.md` §6–§7, and anything the task explicitly asked for.
+* **Correctness before convenience:** Strict internal invariants, forgiving external APIs. Make invalid states impossible to express.
+* **Errors are part of the API:** Every error must state what happened, why it happened, and the exact code/action to resolve it.
+* **Typing:** Python ≥3.12. Strict annotations everywhere. Pydantic v2 models at system boundaries; `@dataclass(frozen=True, slots=True)` for internal immutable value objects. No unprincipled `Any`.
+* **Zero unnecessary abstractions:** YAGNI. Delete dead code aggressively. Do not add configuration for things that never change.
+* **Comments:** Extremely rare, max 1–2 lines explaining non-obvious *why*, never restating what the code does.
 
-## Conventions
+---
 
-- Python ≥3.12, ruff + `ty` (config in `pyproject.toml`), line length 120.
-- **`make check` is the gate** (lint + typecheck + lint-imports + test) — CI runs
-  exactly this. Pre-commit hooks (ruff, ruff-format, ty, hygiene) installed via
-  `pre-commit install`; keep the ruff-pre-commit rev in sync with the venv's
-  ruff version or the hook and `make lint` disagree.
-- `ty: ignore` only at deliberate SDK shims, with a comment.
-- Golden/goldens (`tests/golden/`, `tests/core/snapshots/`) never auto-update;
-  `make golden` regenerates them deliberately, with a PR justification.
-- Layered pydantic-settings; env prefixes are `AGENTDECK_*` (renamed from the
-  original project's `SYSAGENT_*` — never reintroduce the old prefix). Exception:
-  a variable a third-party SDK reads natively keeps its own name — `OPENAI_*`,
-  `TAVILY_*` — since prefixing it would make an operator set the same value twice.
-  Everything agentdeck owns is `AGENTDECK_*`, with no exceptions beyond that list.
-- Compose runs the package as an installed dependency, `.agentdeck/` mounted
-  read-only.
-- `openai==2.32.0` is pinned to `openai-agents==0.17.0` — don't loosen it
-  (openai 2.33+ crashes the run loop).
-- Add CHANGELOG entries under **Unreleased** with every user-visible change.
+## 4. Verification Gate & Conventions
 
-## Git / release
+* **Gate:** `make check` (runs ruff, ty typecheck, import-linter, and pytest). Must be 100% green.
+* **Settings & Env:** Layered pydantic-settings; all environment variables use the `AGENTDECK_*` prefix exclusively (except third-party SDK vars like `OPENAI_*`).
+* **Goldens & Snapshots:** `tests/golden/` and `tests/core/snapshots/` update only via intentional `make golden` with PR justification.
+* **CHANGELOG:** Add concise, user-facing entries under `## [Unreleased]` for any user-visible change.
 
-- Remote: `github.com/agentdecksdk/agentdeck` (public). **`dev` is the default
-  branch** — PRs and day-to-day commits target `dev`. `main` is release-only.
-- **No attribution trailers.** Commit messages, PR bodies and issue bodies carry
-  no `🤖 Generated with…` line and no `Co-Authored-By: Claude…`. Applies to every
-  agent working in this repo, including subagents, which inherit the instruction
-  from their harness and have to be told here instead. `git log` records who
-  pushed; the PR body records what changed and why.
-- **Open the PR as a draft on your first commit, then push as you work.** Not at
-  the end: CI then runs while the slice is still in your hands instead of after a
-  review round, and a run that dies (quota, API error, a removed worktree) leaves
-  a resumable branch rather than work stranded locally. Flip it with `gh pr ready`
-  only once your own `make check` is green and the body — including the judgment
-  ledger — is complete; if you end up blocked, leave it draft and say so. A red
-  draft mid-work is expected and is not a signal.
-- Release: bump `pyproject.toml` version + move Unreleased CHANGELOG entries
-  on `dev`, merge to `main`, tag `vX.Y.Z` — release.yml verifies the tag
-  matches the version, runs the gate, and publishes a GitHub Release. **The tag
-  does not publish agentdecksdk.com**: that is served from the
-  `~/prjs/agentdeck-docs-release` worktree and needs `./redeploy.sh vX.Y.Z` run
-  by hand, or the published docs keep describing the previous release. Full
-  steps and the served-output checks are in `.claude/skills/release/SKILL.md`.
-- `AGENTS.md` just points here — this file is the single source of agent
-  instructions.
+---
+
+## 5. Agent Instructions & Git Discipline
+
+* **Communication conciseness:** Keep text between tool calls to ≤25 words. Keep final responses to ≤100 words unless more detail is required.
+* **Branches:** `dev` is default; PRs target `dev`. `main` is release-only.
+* **No attribution trailers:** Never include `Co-Authored-By`, `🤖 Generated with`, or AI vendor signatures in commits, PRs, or issues.
+* **Draft PR workflow:** Open a draft PR on your first commit (`gh pr create --draft`) and push continuously as you work. Mark ready with `gh pr ready` only when `make check` is clean.
