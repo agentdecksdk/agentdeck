@@ -107,7 +107,14 @@ class MemoryEventStore(EventStorePort):
         return [event for event in log if event.run_id == run_id and event.seq >= from_seq]
 
     async def claim_start(
-        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+        self,
+        log_key: str,
+        opening: RunStarted,
+        ctx: RunContext,
+        origin: str,
+        stale_after: timedelta,
+        *,
+        dead: frozenset[str] = frozenset(),
     ) -> tuple[SessionClaim, Event | None]:
         """Atomic for free, like ``claim_resume``: the scan and ``_stamp`` are plain dict work
         with no suspension point between them, so no other task can open a run in the gap.
@@ -125,9 +132,13 @@ class MemoryEventStore(EventStorePort):
                 continue
             if STATES[status].suspended:
                 # No worker to be dead: PAUSED and WAITING_ANSWER have no engine polling a
-                # clock, so silence is not evidence of anything and the timer does not apply.
-                # The log deciding alone is what makes this session's hold permanent.
+                # clock, so silence is not evidence of anything and neither the timer nor an
+                # expired lease applies — checked before both, for that reason. The log
+                # deciding alone is what makes this session's hold permanent.
                 return SessionClaim(held_by=events[-1].run_id), None
+            if events[-1].run_id in dead:
+                overridden.append(events[-1])
+                continue
             if events[-1].ts > stale_before:
                 return SessionClaim(held_by=events[-1].run_id), None
             overridden.append(events[-1])

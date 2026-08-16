@@ -181,7 +181,14 @@ class SqliteEventStore(EventStorePort):
         return [Event.model_validate(json.loads(row)) for row in rows]
 
     async def claim_start(
-        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+        self,
+        log_key: str,
+        opening: RunStarted,
+        ctx: RunContext,
+        origin: str,
+        stale_after: timedelta,
+        *,
+        dead: frozenset[str] = frozenset(),
     ) -> tuple[SessionClaim, Event | None]:
         """The port's session claim as one ``BEGIN IMMEDIATE`` transaction, for the same reason
         ``claim_resume`` is one: the file's write lock, not this process, is what two servers
@@ -191,7 +198,9 @@ class SqliteEventStore(EventStorePort):
         and then read the run the winner opened. Only a lock held past the busy timeout raises,
         because that is a store nobody can write to rather than a session somebody else took.
         """
-        return await self._run(partial(self._claim_start, log_key, opening, ctx, origin, stale_after), "claim_start")
+        return await self._run(
+            partial(self._claim_start, log_key, opening, ctx, origin, stale_after, dead), "claim_start"
+        )
 
     async def claim_resume(
         self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
@@ -311,7 +320,13 @@ class SqliteEventStore(EventStorePort):
         return datetime.fromisoformat(cursor.fetchone()[0])
 
     def _claim_start(
-        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+        self,
+        log_key: str,
+        opening: RunStarted,
+        ctx: RunContext,
+        origin: str,
+        stale_after: timedelta,
+        dead: frozenset[str],
     ) -> tuple[SessionClaim, Event | None]:
         # Same lock-first reasoning as _claim: BEGIN IMMEDIATE takes the write lock before the
         # reads, so a peer cannot open a run in the gap between finding this session idle and
@@ -323,10 +338,11 @@ class SqliteEventStore(EventStorePort):
             for _run_id, status, last in self._select_open_runs(ctx.namespace_key, log_key):
                 if STATES[status].suspended:
                     # No worker to be dead: PAUSED and WAITING_ANSWER have no engine polling a
-                    # clock, so silence is not evidence of anything and the timer does not
-                    # apply — the log deciding alone is what makes this hold permanent.
+                    # clock, so silence is not evidence of anything and neither the timer nor an
+                    # expired lease applies — checked before both, for that reason. The log
+                    # deciding alone is what makes this hold permanent.
                     return SessionClaim(held_by=last.run_id), None
-                if last.ts > stale_before:
+                if last.run_id not in dead and last.ts > stale_before:
                     return SessionClaim(held_by=last.run_id), None
                 overridden.append(last)
             try:

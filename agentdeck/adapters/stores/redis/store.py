@@ -223,7 +223,14 @@ class RedisEventStore(EventStorePort):
         return [event for event in events if event.seq >= from_seq]
 
     async def claim_start(
-        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+        self,
+        log_key: str,
+        opening: RunStarted,
+        ctx: RunContext,
+        origin: str,
+        stale_after: timedelta,
+        *,
+        dead: frozenset[str] = frozenset(),
     ) -> tuple[SessionClaim, Event | None]:
         """The port's session claim over ``WATCH``/``MULTI``/``EXEC``: the log's set of runs
         and every open run's own keys are watched, so a peer opening a run under this
@@ -274,15 +281,16 @@ class RedisEventStore(EventStorePort):
                     continue
                 if STATES[status].suspended:
                     # No worker to be dead: PAUSED and WAITING_ANSWER have no engine polling a
-                    # clock, so silence is not evidence of anything and the timer does not
-                    # apply — the log deciding alone is what makes this hold permanent. No
-                    # need to read the run's tail at all here.
+                    # clock, so silence is not evidence of anything and neither the timer nor an
+                    # expired lease applies — checked before both, for that reason. The log
+                    # deciding alone is what makes this hold permanent. No need to read the
+                    # run's tail at all here.
                     return SessionClaim(held_by=run_id), None
                 last = await pipe.lindex(self._run_key(ctx.namespace_key, log_key, run_id), -1)
                 if last is None:
                     continue
                 tail = Event.model_validate(json.loads(last))
-                if tail.ts > stale_before:
+                if run_id not in dead and tail.ts > stale_before:
                     return SessionClaim(held_by=run_id), None
                 overridden.append(tail)
             if duplicate_key_holder is not None:

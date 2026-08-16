@@ -306,7 +306,9 @@ class RuntimeSettings(LayeredSettings):
     hour** by default: generous next to any real turn, short enough that a crash costs a
     session an hour rather than forever, and the trade is deliberate — a permanently wedged
     session is worse than a rare premature takeover. One consequence worth knowing when tuning
-    it: a session a killed process left claimed is refused until it elapses.
+    it: a session a killed process left claimed is refused until it elapses, unless a lease
+    backend shared across processes tells the next worker sooner — see ``lease_ttl_seconds``,
+    which is the mechanism that exists to make this window stop mattering.
 
     It never applies to a run parked ``PAUSED`` or waiting on an answer: both are suspended by
     definition, so silence there is not evidence a worker died, only that nobody has resumed or
@@ -351,6 +353,17 @@ class RuntimeSettings(LayeredSettings):
         "cancelled. Must be positive; set it above the longest gap a healthy turn can go quiet.",
     )
 
+    lease_ttl_seconds: float = Field(
+        default=90.0,
+        gt=0,
+        description="How long, in seconds, a run's lease stays valid without renewal. A worker renews its "
+        "lease six times per TTL while it plays a run, so a process killed outright frees its session within "
+        "one TTL instead of one `stale_run_after_seconds`. Only takes effect with a lease backend shared "
+        "across processes (`AGENTDECK_CONTROL=sqlite:///<path>`); with the in-memory default nothing is ever "
+        "reported dead and the staleness timer remains the only backstop. Must be positive; set it above the "
+        "longest the event loop can be blocked in one go.",
+    )
+
     sweep_interval_seconds: float = Field(
         default=30.0,
         gt=0,
@@ -362,6 +375,10 @@ class RuntimeSettings(LayeredSettings):
     @property
     def stale_run_after(self) -> timedelta:
         return timedelta(seconds=self.stale_run_after_seconds)
+
+    @property
+    def lease_ttl(self) -> timedelta:
+        return timedelta(seconds=self.lease_ttl_seconds)
 
 
 class LangfuseSettings(LayeredSettings):

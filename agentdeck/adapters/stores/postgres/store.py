@@ -305,7 +305,14 @@ class PostgresEventStore(EventStorePort):
         return events
 
     async def claim_start(
-        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+        self,
+        log_key: str,
+        opening: RunStarted,
+        ctx: RunContext,
+        origin: str,
+        stale_after: timedelta,
+        *,
+        dead: frozenset[str] = frozenset(),
     ) -> tuple[SessionClaim, Event | None]:
         """The port's session claim as one transaction holding this log's advisory lock, so
         only one of two servers can open a run on an idle session.
@@ -329,10 +336,11 @@ class PostgresEventStore(EventStorePort):
                 for _run_id, status, last in await self._open_runs(conn, ctx.namespace_key, log_key):
                     if STATES[status].suspended:
                         # No worker to be dead: PAUSED and WAITING_ANSWER have no engine polling
-                        # a clock, so silence is not evidence of anything and the timer does not
-                        # apply — the log deciding alone is what makes this hold permanent.
+                        # a clock, so silence is not evidence of anything and neither the timer
+                        # nor an expired lease applies — checked before both, for that reason.
+                        # The log deciding alone is what makes this hold permanent.
                         return SessionClaim(held_by=last.run_id), None
-                    if last.ts > stale_before:
+                    if last.run_id not in dead and last.ts > stale_before:
                         return SessionClaim(held_by=last.run_id), None
                     overridden.append(last)
                 try:

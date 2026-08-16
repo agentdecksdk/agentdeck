@@ -103,7 +103,14 @@ class EventStorePort(ABC):
 
     @abstractmethod
     async def claim_start(
-        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+        self,
+        log_key: str,
+        opening: RunStarted,
+        ctx: RunContext,
+        origin: str,
+        stale_after: timedelta,
+        *,
+        dead: frozenset[str] = frozenset(),
     ) -> tuple[SessionClaim, Event | None]:
         """Stamp and append ``opening`` — a run's ``run.started`` — if and only if this log has no
         open run, in one indivisible step. One session runs one turn at a time. The event is
@@ -120,15 +127,23 @@ class EventStorePort(ABC):
         Losing never raises — two turns at once is a double-clicked send button, so the refusal is
         data. An unreachable store does raise: it cannot know whether anybody holds anything.
 
-        ``stale_after`` is how long a **running** open run may be silent before it stops holding
-        the session: one whose last event is older than that comes back in ``overridden`` for the
-        caller to close. A duration rather than a cutoff instant, because the caller no longer owns
-        the clock the comparison is made in — the store does, and only it can subtract from its own
-        now. Without this a process killed mid-run wedges its session for good.
+        ``dead`` names the runs the caller **positively knows** are not being executed — a
+        :class:`~agentdeck.core.ports.lease.LeasePort` held and watched expire. Such a run stops
+        holding the session at once, whatever its last event's age, and comes back in
+        ``overridden``. Deciding a run is dead is the caller's, not the store's: the store has no
+        witness of any process but the one asking.
 
-        It never applies to ``PAUSED`` or ``WAITING_ANSWER``: both are suspended by definition —
-        no worker is executing them — so silence is not evidence of anything, and a timer built to
-        infer a dead worker from silence has nothing to infer there. A parked run holds its session
+        ``stale_after`` is the backstop for every run nothing knows anything about, which is all
+        of them when no lease backend is shared: how long a **running** open run may be silent
+        before it stops holding the session. One whose last event is older than that comes back in
+        ``overridden`` too. A duration rather than a cutoff instant, because the caller no longer
+        owns the clock the comparison is made in — the store does, and only it can subtract from
+        its own now. Without either of these a process killed mid-run wedges its session for good.
+
+        **Neither applies to ``PAUSED`` or ``WAITING_ANSWER``**, and suspension is checked first:
+        both are suspended by definition — no worker is executing them — so there is no worker to
+        be dead, silence is not evidence of anything, and a lease that expired because the run
+        parked says only that. A parked run holds its session
         until something acts on it: :meth:`claim_resume`, or a cancel recorded against it. Held
         forever if nobody ever does either, which is the deliberate trade — a wedged session is
         recoverable by an explicit cancel; a silently destroyed approval is not.
