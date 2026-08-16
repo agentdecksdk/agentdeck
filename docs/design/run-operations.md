@@ -5,6 +5,11 @@ in each state is `design/run-lifecycle.md`'s (state × intent) table; this file 
 
 Decided 2026-08-14. Amends `delivery/decision-v3-entry-point.md`: ruling 2 and its no-daemon note.
 
+> **Partly superseded 2026-08-16 by `design/run-identity.md`.** Its "the run id stays an argument,
+> there is no per-run object" ruling is reversed: lifecycle ops move onto a `Run` object and
+> `deck.runs` keeps `start`, `get` and `list`. The internal deadline sweep, the retirement of public
+> `tick`/`due_resumes`, and the reasoning for both stand unchanged.
+
 ## The namespace
 
 `deck.runs.<op>(run_id)`. Plural, because `deck.run(...)` already means *start a turn* and the two
