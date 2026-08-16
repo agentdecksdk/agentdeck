@@ -13,7 +13,7 @@ import dataclasses
 import pytest
 
 from agentdeck.adapters.control.memory import MemoryControlPort
-from agentdeck.core.context import Context, RunContext
+from agentdeck.core.context import DERIVED_PREFIX, Context, RunContext, encode
 from agentdeck.core.control import Gate, RunCancelledError, Signal
 
 
@@ -84,3 +84,42 @@ async def test_checkpoint_on_an_unwired_run_is_a_no_op() -> None:
     """A callable holding a context built by hand still runs — the seam defaults to doing
     nothing rather than to needing a Runtime."""
     await Context(RunContext(run_id="r-1")).checkpoint()
+
+
+# --- id: the derived, namespace-aware address (#315) -----------------------------------
+
+
+def test_encode_with_no_namespace_is_byte_identical_to_the_run_id() -> None:
+    """The compatibility keystone: every unnamespaced id is exactly today's run_id, so
+    stored ids, the unnamespaced CLI and the frozen v1 wire need no migration at all."""
+    assert encode(None, "order-1234") == "order-1234"
+    assert RunContext(run_id="order-1234").id == "order-1234"
+
+
+def test_encode_namespaces_a_ref_so_it_cannot_collide_with_the_bare_run_id() -> None:
+    acme_id = encode("acme", "order-1234")
+    globex_id = encode("globex", "order-1234")
+
+    assert acme_id != "order-1234"
+    assert globex_id != "order-1234"
+    assert acme_id != globex_id  # same caller run_id, two distinct addresses
+
+
+def test_ref_is_derived_from_namespace_and_run_id_not_stored() -> None:
+    ctx = RunContext(namespace="acme", run_id="order-1234")
+    assert ctx.id == encode("acme", "order-1234")
+    assert not hasattr(ctx, "_id")  # nothing to keep in sync with the pair it was computed from
+
+
+def test_a_caller_supplied_run_id_starting_with_the_derived_prefix_is_refused() -> None:
+    """Reserved because it is what makes an unnamespaced id unambiguous: without this, a
+    crafted ``run_id`` could be built to collide with a real namespaced id (see ``encode``)."""
+    with pytest.raises(ValueError, match=DERIVED_PREFIX):
+        RunContext(run_id=f"{DERIVED_PREFIX}acme:order-1234")
+
+
+def test_a_namespaced_run_id_starting_with_the_derived_prefix_is_also_refused() -> None:
+    """Unconditional, not only when unnamespaced: the reservation is over the whole run_id
+    space, so a caller cannot even hand it to a namespace to sidestep the check."""
+    with pytest.raises(ValueError, match=DERIVED_PREFIX):
+        RunContext(namespace="acme", run_id=f"{DERIVED_PREFIX}anything")

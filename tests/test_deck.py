@@ -1176,6 +1176,31 @@ async def test_a_cancel_against_a_parked_run_in_a_real_namespace_still_ends_it(n
 
 
 @pytest.mark.asyncio
+async def test_a_cancel_in_one_namespace_leaves_the_same_run_id_in_another_untouched(no_project, scripted):
+    """#315: both control ports keyed a pending signal by ``run_id`` alone, so ``acme``'s
+    ``order-1234`` and ``globex``'s ``order-1234`` shared one row — a cancel meant for one
+    landed on both, and ``consume()``'s compare-and-set made them fight over the same slot.
+    #314 shipped while the Runtime alone tested clean, so this is asserted at the Deck level,
+    through the surface a caller actually holds (docs/design/run-identity.md).
+
+    Signalled before either run opens, so the first safe point is the one that honors it —
+    deterministic without a clock or a sleep. ``globex`` streams first, deliberately: on the
+    bare-``run_id``-keyed port this used to be, whichever run polls the gate first takes the
+    one shared row, cancelling the bystander and leaving ``acme`` — the run the signal actually
+    named — to complete untouched. Order must not matter.
+    """
+    deck = Deck(agents=[_greeter()])
+    async with deck:
+        assert await deck.runs.cancel("order-1234", "acme said stop", namespace="acme") is True
+
+        globex = [event async for event in deck.stream("Greeter", "hi there", run_id="order-1234", namespace="globex")]
+        acme = [event async for event in deck.stream("Greeter", "hi there", run_id="order-1234", namespace="acme")]
+
+    assert [event.kind for event in globex][-1] == "run.completed"  # same run_id, a different tenant
+    assert [event.kind for event in acme][-1] == "run.cancelled"  # the namespace the cancel actually targeted
+
+
+@pytest.mark.asyncio
 async def test_a_pause_against_a_parked_run_refuses_the_answer_and_stays_pending(no_project, monkeypatch):
     """The design's deliberate cell. Lifting the pause would let an answer silently override an
     operator who said stop, so the answer is refused and *both* intents survive — the run is

@@ -62,9 +62,9 @@ class ControlSignalled(Exception):  # noqa: N818 — not an error: a signal hono
 
     verb: ClassVar[ControlVerb]
 
-    def __init__(self, run_id: str, safe_point: SafePoint, reason: str | None = None) -> None:
-        super().__init__(f"run {run_id} was signaled {self.verb} at a {safe_point} safe point")
-        self.run_id = run_id
+    def __init__(self, id: str, safe_point: SafePoint, reason: str | None = None) -> None:
+        super().__init__(f"run {id} was signaled {self.verb} at a {safe_point} safe point")
+        self.id = id
         self.safe_point: SafePoint = safe_point  # annotated: an inferred attribute widens to str
         self.reason = reason
 
@@ -108,7 +108,7 @@ _HALTED_BY: Mapping[Signal, type[ControlSignalled]] = {
 
 
 class Gate:
-    """One run's cooperative safe point. Bound to a ``run_id`` by the Runtime, never by the
+    """One run's cooperative safe point. Bound to an ``id`` by the Runtime, never by the
     caller; with no ``control`` port (the default) ``checkpoint()`` is a no-op.
 
     Nothing here ever parks a run: a checkpoint reads at most one pending signal, then returns or
@@ -123,7 +123,7 @@ class Gate:
     def __init__(
         self,
         control: ControlPort | None = None,
-        run_id: str = "",
+        id: str = "",
         *,
         poll_interval: float = CONTROL_POLL_INTERVAL,
         clock: Callable[[], float] = time.monotonic,
@@ -131,7 +131,7 @@ class Gate:
         if poll_interval < 0:
             raise ValueError(f"poll_interval must be 0 or more seconds, got {poll_interval}")
         self._control = control
-        self._run_id = run_id
+        self._id = id
         self._poll_interval = poll_interval
         self._clock = clock
         self._polled_at: float | None = None
@@ -149,7 +149,7 @@ class Gate:
         if self._polled_at is not None and now - self._polled_at < self._poll_interval:
             return
         self._polled_at = now
-        pending = await self._control.poll(self._run_id)
+        pending = await self._control.poll(self._id)
         ruling = decide(RunStatus.RUNNING, None if pending is None else pending.verb)
         if pending is None or ruling.action is not Action.HALT:
             # The two explicit no-ops of the ``RUNNING`` row: an empty port, and a RESUME, which
@@ -159,5 +159,5 @@ class Gate:
         if ruling.consume:
             # Before the raise, because the raise is what records the effect: an intent left
             # pending behind an honored one would be honored a second time on the next resume.
-            await self._control.consume(self._run_id, pending.verb)
-        raise _HALTED_BY[pending.verb](self._run_id, safe_point, pending.reason)
+            await self._control.consume(self._id, pending.verb)
+        raise _HALTED_BY[pending.verb](self._id, safe_point, pending.reason)
