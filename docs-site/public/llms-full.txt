@@ -2938,9 +2938,17 @@ Source: https://agentdecksdk.com/changelog
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v3.1.0**. Earlier releases are listed at the bottom.
+The current release is **v4.0.0**. Earlier releases are listed at the bottom.
 
-## Unreleased
+## v4.0.0
+
+*Released 2026-08-16.*
+
+**Hardening, and it cost a major version.** Thirty-seven issues, most of them findings
+from people using the SDK rather than reading it. Nothing here adds a user-facing
+capability; what it adds is the right to trust what was already there. Three things
+had to change shape to fix the defect underneath them: a run's identity, the
+run-scoped API, and the control plane. Read **Upgrading** before you bump.
 
 ### Upgrading
 
@@ -3300,83 +3308,11 @@ The current release is **v3.1.0**. Earlier releases are listed at the bottom.
   only the wheel, the README, the docs site and `examples/`, each building a small app and reporting
   what broke. Source of the `finding:`-labelled issues opened against v3.0.0.
 
-## v3.1.0
-
-*Released 2026-08-13.*
-
-**AgentDeck is on PyPI, under the name `agentdeck-sdk`.**
-
-```bash
-pip install agentdeck-sdk          # was: an install from the repository at a tag
-```
-
-**The import does not change.** `import agentdeck` is what it always was, and no code needs
-editing. Only the line that installs it moves.
-
-### Added
-
-- **`agentdeck.testing`**, the exported stub-runner test harness (#26): `ScriptedModel` (text
-  deltas, an optional tool call, mid-stream failure, a `hold` gate for catching a consumer
-  mid-await, configurable usage counts), `patch_model()` (swaps the SDK's model provider for the
-  duration of a `with` block), and `scripted_model_server()` (a local Chat-Completions-compatible
-  HTTP endpoint for a test that must run agentdeck as a real subprocess or a real HTTP client).
-  Every one of this repo's own hand-rolled scripted models now builds on it.
-
-### Changed
-
-- **The distribution is renamed `agentdeck` → `agentdeck-sdk`.** Not a preference: PyPI refuses
-  the name `agentdeck` as *"too similar to an existing project"* — an abandoned `agent-deck`
-  placeholder (one release, author `"Your Name"`, summary *"A placeholder package"*) that its
-  similarity check treats as the same name once separators are stripped. `agentdeck-sdk` also
-  matches the brand.
-
-  Install and import names now differ, which puts AgentDeck in company it did not choose but is
-  used to seeing — `openai-agents` imports as `agents`, `beautifulsoup4` as `bs4`,
-  `python-dateutil` as `dateutil`. Extras keep their names: `agentdeck-sdk[serve]`,
-  `[durability]`, `[observability]`.
-
-  A PEP 541 request for the squatted name is open. If it is granted, `agentdeck` becomes the
-  distribution and `agentdeck-sdk` becomes a shim that depends on it — no import changes then
-  either.
-
-- **Every install line is now a PyPI install**, not a pinned `git+https://…@vX.Y.Z` URL. The
-  git form still works and is still what a contributor uses for an unreleased commit.
-
-### Fixed
-
-- **`agentdeck.__version__` would have reported `0+unknown` after the rename.** It resolves
-  through `importlib.metadata.version()`, which takes the *distribution* name — renaming the
-  distribution without updating that call makes the lookup miss and fall through to the
-  not-installed fallback, silently. Caught before release; the fallback now only fires when the
-  package genuinely is not installed, which is what it is for.
-- **`Agent(model=...)` now actually runs on the model it names, instead of being silently
-  overridden by `OPENAI_MODEL` on every turn (#247).** The host Agents SDK's `RunConfig.model`
-  overrides *every* agent's own model once set, and every run's config set it from
-  `OPENAI_MODEL` unconditionally — so a per-agent override was accepted, type-checked, and then
-  discarded one layer later. The default is now resolved onto the compiled agent instead, at
-  build time: an agent that declares its own model keeps it, one that declares none still gets
-  `OPENAI_MODEL`, and this holds across handoffs and `as_tool()` since each agent resolves its
-  own model independently of which one is playing.
-- **A checkpoint connection failure now raises `StoreError` naming `AGENTDECK_CHECKPOINT`,
-  instead of a bare driver exception** (#233). An unwritable sqlite checkpoint path raised
-  `sqlite3.OperationalError: unable to open database file`, and a bad Postgres DSN raised
-  `psycopg.OperationalError` — neither said which setting caused it or that agentdeck had
-  resolved the path at all, unlike every other store, which already answers connection failures
-  this way. The sqlite message also names the resolved file path; the Postgres one does not,
-  since a DSN can carry a password. A driver error raised mid-run is unaffected.
-- `agentdeck-serve --help` (and `-h`) now prints usage and exits 0 instead of crashing with a
-  `FileNotFoundError` for a missing `./.agentdeck` project. `--host`/`--port` flags were added,
-  defaulting to the existing `HOST`/`PORT` env vars, so passing neither behaves exactly as
-  before; an unrecognized argument now exits 2 with usage instead of being silently ignored.
-  (#245)
-- **`AGENTDECK_RUNNER_WORKFLOW_NAME` no longer defaults to `local-sandbox-repl`.** That value named
-  v1's sandboxed local REPL, deleted in #71 — every untuned run was labeling its tracing (e.g.
-  Langfuse) after a development tool that no longer exists. The default is now `agentdeck`.
-
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v3.1.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.1.0) | 2026-08-13 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.1.0) |
 | [v3.0.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.1) | 2026-08-12 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.1) |
 | [v3.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0) | 2026-08-11 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0) |
 | [v3.0.0b1](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0b1) | 2026-08-10 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0b1) |

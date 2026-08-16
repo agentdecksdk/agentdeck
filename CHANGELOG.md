@@ -6,7 +6,13 @@ All notable changes to agentdeck. Format follows
 someone using the package, in `Added / Changed / Deprecated / Removed /
 Fixed / Security` order — and are written to be attached to a release as-is.
 
-## [Unreleased]
+## [4.0.0] - 2026-08-16
+
+**Hardening, and it cost a major version.** Thirty-seven issues, most of them findings
+from people using the SDK rather than reading it. Nothing here adds a user-facing
+capability; what it adds is the right to trust what was already there. Three things
+had to change shape to fix the defect underneath them: a run's identity, the
+run-scoped API, and the control plane. Read **Upgrading** before you bump.
 
 ### Upgrading
 
@@ -2203,7 +2209,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v3.0.0b1...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.0...HEAD
+[4.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v3.1.0...v4.0.0
 [3.0.0b1]: https://github.com/agentdecksdk/agentdeck/compare/v2.0.0...v3.0.0b1
 [2.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v2.0.0b4...v2.0.0
 [2.0.0b4]: https://github.com/agentdecksdk/agentdeck/compare/v2.0.0b3...v2.0.0b4
