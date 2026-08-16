@@ -21,7 +21,7 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   exists; it never mutates and raises `NotFoundError` for one this namespace has never heard of.
   `deck.runs.list(namespace=, status=, limit=)` replaces the old `pending()` inbox and stays
   scoped to one namespace. Two handles on one run always agree — the durable store is the only
-  thing either reads from. `deck.run()`/`deck.stream()` are unchanged in behavior (still returns
+  thing either reads from. `deck.run()`/`deck.stream()` are unchanged in behavior (still return
   an interrupt as a value rather than raising); `await run` on a `Run` that is `PAUSED` or
   `WAITING_ANSWER` instead raises the new `RunSuspendedError` (a `RunStateError`), carrying
   `.pending`, since there is no timeout parameter to wait either state out. `context=` is retained

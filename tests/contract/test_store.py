@@ -424,7 +424,7 @@ async def test_claim_start_refuses_a_key_already_used_by_a_different_run(event_s
     )
     assert claim == SessionClaim() and event is not None
 
-    with pytest.raises(DuplicateKeyError, match="order-1234"):
+    with pytest.raises(DuplicateKeyError, match="order-1234.*r-1"):
         await event_store.claim_start(
             "s-2", _started(), _ctx(run_id="r-2", log_key="s-2", key="order-1234"), ORIGIN, NOTHING_IS_STALE
         )

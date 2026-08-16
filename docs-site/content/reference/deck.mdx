@@ -327,6 +327,11 @@ for waiting in await deck.runs.list(status=RunStatus.WAITING_ANSWER):
 nobody can know at the moment of asking. [Run Control](/concepts/run-control) is the full
 contract: what a safe point is, why a request is not a status change, and what a resume replays.
 
+A `follow=True` ends at the same boundary `deck.stream()` does — a terminal event or a
+suspension — not at the run's true end. Following a run that was later resumed past an
+interrupt replays only up to that interrupt; call `events()` again, or read it with
+`follow=False`, to see what came after.
+
 **`await run` raises rather than blocks once the run has stopped without finishing.** `PAUSED`
 and `WAITING_ANSWER` both raise `RunSuspendedError` (a `RunStateError`) instead of hanging with no
 timeout parameter to escape it — `.pending` on the exception carries the interrupt's own payload

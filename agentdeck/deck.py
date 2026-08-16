@@ -1225,8 +1225,12 @@ class Run:
         ``follow=False`` (the default) is a snapshot: whatever the log holds right now, once.
         ``follow=True`` tails it like :meth:`Deck.stream` — replaying what already happened and
         then waiting on whatever comes next, whether or not this process is the one executing
-        it (docs/design/run-identity.md §9). Neither ever advances the run: reading is not
-        driving.
+        it. Neither ever advances the run: reading is not driving.
+
+        A follow ends at its own segment's boundary — a terminal event or a suspension — the
+        same as :meth:`Deck.stream`. Following a run that was later resumed past an interrupt
+        replays only up to that interrupt; call again (or use ``follow=False``) to see what
+        came after.
         """
         if follow:
             return self._deck._events(self.id, self._log_key, self._rc(), from_seq=from_seq)
