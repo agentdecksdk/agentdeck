@@ -323,9 +323,11 @@ async def _opened(run: AsyncGenerator[Event, None]) -> AsyncGenerator[Event, Non
     opening = await anext(run)
 
     async def replayed() -> AsyncGenerator[Event, None]:
-        # Closing this generator does not close the one it delegates to — a consumer that walks
-        # away must still land as a ``GeneratorExit`` inside the run, which is what closes it in
-        # the log.
+        # `aclosing` still cascades a `.aclose()` into `run` (`deck.stream()`'s own generator)
+        # when a consumer walks away — but that no longer stops the run itself. Execution is a
+        # deck-owned task from the moment `deck.stream()` started it (docs/design/
+        # run-identity.md §9), independent of whether anybody is still reading; a disconnected
+        # client only stops watching, and the run keeps going to its own natural end.
         async with aclosing(run):
             yield opening
             async for event in run:

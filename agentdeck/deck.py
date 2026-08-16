@@ -36,6 +36,7 @@ the caller constructed and handed in stays the caller's).
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import uuid
 from contextlib import aclosing, suppress
@@ -65,9 +66,9 @@ from agentdeck.composition import (
 from agentdeck.core.content import DataBlock, TextBlock, coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
-from agentdeck.core.events import NodeUpdated, RunCompleted, RunInterrupted
+from agentdeck.core.events import TERMINAL_KINDS, NodeUpdated, RunCompleted, RunInterrupted
 from agentdeck.core.ports import EventSinkPort
-from agentdeck.core.status import PRECONDITIONS, Operation, Verdict
+from agentdeck.core.status import PRECONDITIONS, SUSPENDED_KINDS, Operation, Verdict
 from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, RunStateError
 from agentdeck.mcp import MCP
 from agentdeck.runtime.discovery import InvocableRegistry
@@ -82,6 +83,7 @@ if TYPE_CHECKING:
     from agents.tool import FunctionTool
 
     from agentdeck.authoring.interrupts import InterruptResult
+    from agentdeck.core.content import Input
     from agentdeck.core.events import Event, Usage
     from agentdeck.core.invocable import InvocableSpec
     from agentdeck.core.ports import EnginePort, EventStorePort
@@ -158,6 +160,27 @@ def _new_context(session_id: str | None = None) -> RunContext:
     store. The Runtime does not: it takes run options and mints its own.
     """
     return RunContext(run_id=str(uuid.uuid4()), session_id=session_id)
+
+
+# Seconds :meth:`Deck._events` may go before re-reading the store for a run this process is not
+# itself driving — recovered through another handle, another worker, or one this call did not
+# start. A run this process *is* executing wakes this the instant its task produces something (or
+# settles), at no interval cost at all (``asyncio.wait`` returns the moment the task finishes,
+# never merely on the clock); this constant only bounds the case with no local task to wake it,
+# the same trade :data:`agentdeck.core.control.CONTROL_POLL_INTERVAL` makes for a run watching its
+# own control port.
+_FOLLOW_POLL_INTERVAL = 0.05
+
+
+async def _drain(events: AsyncGenerator[Event, None]) -> None:
+    """Advance ``events`` — a live ``runtime.run()`` generator — to its end and discard what it
+    yields. Persist-before-yield already wrote and fanned out each one before this loop ever
+    sees it, so nothing here needs to keep them: this is only what makes the run advance at all,
+    now that no caller's own ``async for`` has to (docs/design/run-identity.md §9).
+    """
+    async with aclosing(events):
+        async for _ in events:
+            pass
 
 
 async def _turn_result(events: AsyncGenerator[Event, None]) -> TurnResult:
@@ -393,6 +416,11 @@ class Deck:
         self._runtime: Runtime | None = None
         self._sessions: ExecutionStore | None = None
         self._sweeper: asyncio.Task[None] | None = None
+        # The one execution owner per run (docs/design/run-identity.md §9): keyed by run_id,
+        # populated by `_start`, and popped by `_execution_done` the moment the task settles —
+        # whichever way — so `_events` degrades to reading the store once nothing local is
+        # left to wake it.
+        self._executions: dict[str, asyncio.Task[None]] = {}
         self._owns_store = False
         self._started_observers: tuple[EventSinkPort, ...] = ()
         self._started_mcp = False
@@ -693,6 +721,22 @@ class Deck:
             self._sweeper.cancel()
             with suppress(asyncio.CancelledError):
                 await self._sweeper
+        # Every run this Deck itself is executing settles or is cancelled here, before the
+        # runtime drains and the store closes below — both are things a still-writing task
+        # needs. A task already done has already settled on its own (`run.completed`/
+        # `run.failed`/`run.cancelled` is already the log's last word on it); one still running
+        # is cancelled, which the Runtime's own `asyncio.CancelledError` arm turns into a
+        # `run.cancelled` for (persist-before-yield means that write lands before this awaits
+        # the task out). Either way is logged, so a close that had work in flight says which.
+        for run_id, task in list(self._executions.items()):
+            if task.done():
+                logger.info("closing deck: run %s had already settled", run_id)
+                continue
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+            logger.info("closing deck: run %s was cancelled", run_id)
+        self._executions.clear()
         try:
             # Draining closes the sinks, which is what finishes the Langfuse sink's open
             # observations and pushes the SDK's buffer out of the process.
@@ -738,6 +782,75 @@ class Deck:
             f"No agent or workflow named {name!r}. Available: {sorted({*self._agents, *self._workflows})}."
         )
 
+    async def _start(
+        self,
+        name: str,
+        content: Input,
+        *,
+        context: object = None,
+        session_id: str | None = None,
+        namespace: str | None = None,
+        key: str | None = None,
+    ) -> tuple[Event, asyncio.Task[None]]:
+        """Begin one run and hand the rest of its execution to a deck-owned task, returning as
+        soon as its own ``run.started`` is durable — whether or not anybody ever asks to see
+        this run again (docs/design/run-identity.md §9).
+
+        Everything a caller of ``runtime.run()`` used to have to keep draining for the run to
+        advance at all now happens here, once, in :func:`_drain`. This is the one place that
+        creates such a task, so it is also the one place a claim failure
+        (``SessionBusyError``, ``DuplicateKeyError``, an unknown invocable) still surfaces
+        synchronously to the caller — exactly as it did when ``runtime.run()``'s first event
+        was pulled directly.
+        """
+        runtime = self._require_open()
+        agen = runtime.run(name, content, context=context, session_id=session_id, namespace=namespace, key=key)
+        opening = await anext(agen)
+        task = asyncio.create_task(_drain(agen))
+        self._executions[opening.run_id] = task
+        task.add_done_callback(functools.partial(self._execution_done, opening.run_id))
+        return opening, task
+
+    def _execution_done(self, run_id: str, task: asyncio.Task[None]) -> None:
+        """Retire a settled execution task, whatever way it settled — completed, suspended, or
+        cancelled by :meth:`aclose`. The exception, if any, is retrieved here purely so asyncio
+        does not log it as unretrieved when nobody ever calls :meth:`run`/:meth:`stream` again
+        for this run; a caller who does still sees it, since a task's exception is cached, not
+        consumed, by reading it once.
+        """
+        self._executions.pop(run_id, None)
+        with suppress(asyncio.CancelledError):
+            task.exception()
+
+    async def _events(
+        self, run_id: str, log_key: str, ctx: RunContext, *, from_seq: int = 0
+    ) -> AsyncGenerator[Event, None]:
+        """One execution segment's own events, replayed from ``from_seq`` and tailed until the
+        segment stops advancing — a terminal outcome or a suspension, whichever it reaches
+        first. Reads only the store, never the Runtime (docs/design/run-identity.md §9): any
+        number of these may run over one run's segment at once, in this process or another
+        sharing the store, without ever stealing its events from each other or advancing it.
+
+        A run this process is itself executing wakes this the moment its task produces
+        something new, or settles, at no interval cost; one this process did not start —
+        recovered through another handle, another worker, or already over by the time anybody
+        looked — is read by polling every :data:`_FOLLOW_POLL_INTERVAL` instead.
+        """
+        store = self._require_open().store
+        seq = from_seq
+        while True:
+            batch = await store.read_run(log_key, run_id, ctx, from_seq=seq)
+            for event in batch:
+                yield event
+                seq = event.seq + 1
+                if event.kind in TERMINAL_KINDS or event.kind in SUSPENDED_KINDS:
+                    return
+            task = self._executions.get(run_id)
+            if task is not None and not task.done():
+                await asyncio.wait({task}, timeout=_FOLLOW_POLL_INTERVAL)
+            else:
+                await asyncio.sleep(_FOLLOW_POLL_INTERVAL)
+
     async def run(
         self,
         name: str,
@@ -764,12 +877,20 @@ class Deck:
         than replaying that run, since this call always begins a new one.
         """
         root = self._root(name)
-        runtime = self._require_open()
+        self._require_open()
         content = coerce_input(input) if isinstance(root, Agent) else [_as_state_block(input)]
-        run = runtime.run(name, content, context=context, session_id=session_id, namespace=namespace, key=key)
+        opening, task = await self._start(
+            name, content, context=context, session_id=session_id, namespace=namespace, key=key
+        )
+        # Settled before the log is read, not after: the segment's own exception (if any) has
+        # to preempt `_turn_result`'s "ended without completing" fallback, which would otherwise
+        # be all a caller ever saw of a run that in fact raised.
+        await task
+        ctx = RunContext(run_id=opening.run_id, session_id=opening.session_id, namespace=opening.namespace)
+        events = self._events(opening.run_id, ctx.log_key, ctx)
         if isinstance(root, Agent):
-            return await _turn_result(run)
-        result, _ = await _workflow_result(run)
+            return await _turn_result(events)
+        result, _ = await _workflow_result(events)
         return result
 
     async def stream(
@@ -782,15 +903,28 @@ class Deck:
         namespace: str | None = None,
         key: str | None = None,
     ) -> AsyncGenerator[Event, None]:
-        """Streaming counterpart to :meth:`run`: yields the run's own canonical events."""
+        """Streaming counterpart to :meth:`run`: yields the run's own canonical events.
+
+        Starting and observing are two different things now (docs/design/run-identity.md §9):
+        the run advances in a deck-owned task from the moment :meth:`_start` returns it, and a
+        caller that stops reading this generator — closes it, or has the task driving it
+        cancelled out from under it — only stops *watching*. It does not stop the run, which
+        keeps executing to its own natural end regardless.
+        """
         root = self._root(name)
-        runtime = self._require_open()
+        self._require_open()
         content = coerce_input(input) if isinstance(root, Agent) else [_as_state_block(input)]
-        async with aclosing(
-            runtime.run(name, content, context=context, session_id=session_id, namespace=namespace, key=key)
-        ) as run:
-            async for event in run:
+        opening, task = await self._start(
+            name, content, context=context, session_id=session_id, namespace=namespace, key=key
+        )
+        ctx = RunContext(run_id=opening.run_id, session_id=opening.session_id, namespace=opening.namespace)
+        async with aclosing(self._events(opening.run_id, ctx.log_key, ctx)) as events:
+            async for event in events:
                 yield event
+        # Read only once the segment's own events are all yielded, so a mid-stream failure's
+        # exception reaches the caller right after its `run.failed` — the same place it did
+        # when a caller's own `async for` drove the failing generator directly.
+        await task
 
     async def _pause(self, run_id: str, reason: str | None = None) -> bool:
         """Implementation behind :meth:`RunOps.pause`."""

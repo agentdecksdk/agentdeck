@@ -101,6 +101,20 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   applies cleanly to a database an earlier build already created), and memory/Redis keep a
   derived `(namespace, run_id) -> log_key` mapping a replay of the log rebuilds. `Deck._status`
   (behind `deck.runs.status`) uses it now instead of walking `list_runs`.
+- **Breaking: `deck.run(...)`/`deck.stream(...)` no longer stop a run when its caller stops
+  reading it** (#325). Execution used to *be* consuming the event generator, so closing
+  `stream()`'s frame (or having the task reading it cancelled, as a real HTTP disconnect does)
+  closed the run underneath it as `run.cancelled`. A run now advances in a deck-owned task from
+  the moment it starts, independent of whether anyone is still watching — the same task any
+  number of readers may observe through the store without stealing its events from one another
+  or advancing it, and without needing to have started it themselves. A client that disconnects
+  mid-stream therefore no longer stops the turn it was reading: the run keeps executing to its
+  own natural end (bounded to one turn, its session freed once it reaches one), and the explicit
+  `deck.runs.cancel(run_id)` is how a caller who wants that back gets it. `deck.stream()`'s wire
+  bytes are unchanged (`tests/golden/` proves it byte-for-byte) and `deck.run()`'s propagated
+  exception on a failed turn is unchanged; only the disconnect-cancels-execution coupling is
+  gone. `Deck.aclose()` now settles or cancels whatever it is still executing before closing the
+  store, and logs which happened per run.
 
 - **`agentdeck.testing.scripted_model_server`'s `tool_name=` now also accepts a sequence of
   names** (#248), one tool call per request in order, then plain text once the sequence is

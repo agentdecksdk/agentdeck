@@ -19,13 +19,15 @@ from agents import WebSearchTool, function_tool
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
+from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring import Agent, Workflow
 from agentdeck.authoring.timers import sleep_until
+from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
 from agentdeck.core.status import RunStatus
-from agentdeck.deck import Deck, TurnResult, _new_context
+from agentdeck.deck import Deck, TurnResult, _new_context, _turn_result
 from agentdeck.errors import ConfigError, NotFoundError, RunStateError
 from agentdeck.mcp import MCP
 from agentdeck.skills import Skills
@@ -1012,10 +1014,14 @@ async def test_stream_yields_canonical_events_and_is_recorded(no_project):
 
 
 @pytest.mark.asyncio
-async def test_stream_closes_the_runtime_generator_on_abandonment(no_project):
-    """A caller that stops mid-stream must not leave the run open in the log holding its
-    session forever: closing only ``stream``'s own frame would abandon the Runtime's
-    generator to the GC instead of closing it."""
+async def test_an_abandoned_stream_leaves_execution_running_to_completion(no_project):
+    """A caller that stops reading ``stream()`` only stops *watching* — the run itself is a
+    deck-owned task from the moment ``_start`` returns it, and keeps executing to its own
+    natural end regardless of whether anybody is still attached to observe it
+    (docs/design/run-identity.md §9). This used to be the opposite: closing ``stream()``'s own
+    frame closed the Runtime's generator underneath it, which is exactly the coupling between
+    observing and executing this design removes.
+    """
     deck = Deck(agents=[_greeter()])
 
     with patch_model(ScriptedModel(deltas=("Hel", "lo"))):
@@ -1024,10 +1030,161 @@ async def test_stream_closes_the_runtime_generator_on_abandonment(no_project):
             first = await anext(stream)
             second = await anext(stream)
             await stream.aclose()
+            # Deterministic settlement, not a sleep-and-hope: the execution task itself is the
+            # signal that this segment is over.
+            task = deck._executions.get(first.run_id)
+            if task is not None:
+                await task
             events = await deck._runtime.store.read("s1", _reader_ctx("s1"))
 
     assert (first.kind, second.kind) == ("run.started", "text.delta")
-    assert [event.kind for event in events] == ["run.started", "text.delta", "run.cancelled"]
+    assert [event.kind for event in events] == [
+        "run.started",
+        "text.delta",
+        "text.delta",
+        "usage.reported",
+        "message.completed",
+        "run.completed",
+    ]
+
+
+# --- execution ownership: one owner, any number of observers (docs/design/run-identity.md §9,
+# §14's "Execution ownership" matrix) --------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_two_observers_of_one_run_both_see_every_event_and_it_executes_once(no_project):
+    """Neither observer drives the run: two independent readers of one run's events both see
+    everything it produced, and the model was called exactly once."""
+    hold = asyncio.Event()
+    model = ScriptedModel(deltas=("Hel", "lo"), hold=hold)
+    deck = Deck(agents=[_greeter()])
+
+    async def _collect(events: Any) -> list[Any]:
+        return [event async for event in events]
+
+    with patch_model(model):
+        async with deck:
+            opening, task = await deck._start("Greeter", coerce_input("hello"), session_id="s1")
+            ctx = RunContext(run_id=opening.run_id, session_id=opening.session_id, namespace=opening.namespace)
+
+            watcher_a = asyncio.create_task(_collect(deck._events(opening.run_id, ctx.log_key, ctx)))
+            watcher_b = asyncio.create_task(_collect(deck._events(opening.run_id, ctx.log_key, ctx)))
+            # Caught mid-turn, inside its own await for the next event — the same window a
+            # second observer would attach in for real — before letting it finish.
+            await model.holding.wait()
+            hold.set()
+            events_a, events_b = await asyncio.gather(watcher_a, watcher_b)
+            await task
+            logged = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+
+    expected = ["run.started", "text.delta", "text.delta", "usage.reported", "message.completed", "run.completed"]
+    assert [e.kind for e in events_a] == expected
+    assert [e.kind for e in events_b] == expected
+    assert [e.kind for e in logged] == expected
+    assert model.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_events_replay_in_full_for_a_run_that_already_finished(no_project, scripted):
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        result = await deck.run("Greeter", "hello", session_id="s1")
+        ctx = RunContext(run_id=result.run_id, session_id="s1")
+        replayed = [event async for event in deck._events(result.run_id, "s1", ctx)]
+
+    assert [e.kind for e in replayed] == [
+        "run.started",
+        "text.delta",
+        "usage.reported",
+        "message.completed",
+        "run.completed",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_second_handle_awaits_the_same_result_as_the_first(no_project, scripted):
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        result = await deck.run("Greeter", "hello", session_id="s1")
+        ctx = RunContext(run_id=result.run_id, session_id="s1")
+        second = await _turn_result(deck._events(result.run_id, "s1", ctx))
+
+    assert second == result
+
+
+@pytest.mark.asyncio
+async def test_a_run_recovered_by_another_deck_can_be_observed_and_awaited(no_project, scripted):
+    """What a second process sees: no locally-owned execution task at all, only the store this
+    Deck shares with whichever one ran the turn — the ``get()``-recovered row of the
+    execution-ownership matrix, modelled here as a second ``Deck`` over the first one's store."""
+    store = MemoryEventStore()
+    deck_a = Deck(agents=[_greeter()], _store=store)
+    async with deck_a:
+        result = await deck_a.run("Greeter", "hello", session_id="s1")
+
+    deck_b = Deck(agents=[_greeter()], _store=store)
+    async with deck_b:
+        assert deck_b._executions == {}  # this "process" never started the run
+        ctx = RunContext(run_id=result.run_id, session_id="s1")
+        recovered = await _turn_result(deck_b._events(result.run_id, "s1", ctx))
+
+    assert recovered == result
+
+
+@pytest.mark.asyncio
+async def test_deck_run_and_start_then_await_produce_identical_logs(no_project, scripted):
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        via_run = await deck.run("Greeter", "hello", session_id="s1")
+        logged_via_run = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+
+        opening, task = await deck._start("Greeter", coerce_input("hello"), session_id="s2")
+        await task
+        ctx = RunContext(run_id=opening.run_id, session_id="s2")
+        via_start = await _turn_result(deck._events(opening.run_id, "s2", ctx))
+        logged_via_start = await deck._runtime.store.read("s2", _reader_ctx("s2"))
+
+    assert [e.kind for e in logged_via_run] == [e.kind for e in logged_via_start]
+    assert via_run.output == via_start.output
+
+
+@pytest.mark.asyncio
+async def test_a_finished_runs_execution_task_is_retired_promptly(no_project, scripted):
+    """No leak: the moment a run settles, its entry is gone — ``aclose()`` never has anything
+    left over from a run nobody is still executing."""
+    deck = Deck(agents=[_greeter()])
+
+    async with deck:
+        await deck.run("Greeter", "hello", session_id="s1")
+        assert deck._executions == {}
+
+
+@pytest.mark.asyncio
+async def test_closing_a_deck_cancels_a_run_still_in_flight_and_says_so(no_project, caplog):
+    """``aclose()`` settles or cancels every run it is still executing, and says which
+    (docs/design/run-identity.md §9) — the same discipline the sweeper already uses
+    (``deck.py``'s ``_sweep``). A run genuinely mid-turn when the deck closes has no chance to
+    finish on its own, so it is cancelled, and the Runtime's own ``asyncio.CancelledError`` arm
+    is what writes ``run.cancelled`` for it."""
+    hold = asyncio.Event()  # never set: this run is held for the deck's whole lifetime
+    model = ScriptedModel(deltas=("one", "two"), hold=hold)
+    deck = Deck(agents=[_greeter()])
+
+    with patch_model(model), caplog.at_level("INFO"):
+        async with deck:
+            opening, task = await deck._start("Greeter", coerce_input("hi"), session_id="s1")
+            await model.holding.wait()
+            assert not task.done()
+        assert task.cancelled()
+
+    assert "run %s was cancelled" not in caplog.text  # the format string, not the rendered line
+    assert f"run {opening.run_id} was cancelled" in caplog.text
+    events = await deck._runtime.store.read("s1", RunContext(run_id="reader", session_id="s1"))
+    assert [e.kind for e in events][-1] == "run.cancelled"
 
 
 @pytest.mark.asyncio

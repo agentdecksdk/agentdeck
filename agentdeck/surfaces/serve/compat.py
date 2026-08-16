@@ -77,9 +77,12 @@ async def chat_frames(events: AsyncGenerator[Event, None]) -> AsyncIterator[str]
     ``aclosing`` covers only one of the two shapes a disconnect takes, and not the common one:
     a server that leaves this generator suspended, whose next reader closes it. What the shipped
     stack actually does is **cancel** the task streaming the response, and that ``CancelledError``
-    travels into the run itself — closing the run there is the Runtime's job, and it is the
-    Runtime that records the ``run.cancelled``. Neither path is this generator's to guarantee, so
-    do not read this as one.
+    travels into whatever ``events`` is — fed a live ``runtime.run()`` generator directly (as a
+    lower-level caller may), that closes the run there and the Runtime records ``run.cancelled``.
+    Fed ``deck.stream()`` instead — what the shipped server actually calls — the run is a
+    deck-owned task the disconnect never reaches (docs/design/run-identity.md §9): it keeps
+    executing, and this generator only stops watching it. Neither path is this generator's to
+    guarantee, so do not read this as one.
     """
     turn = _Turn()
     try:
