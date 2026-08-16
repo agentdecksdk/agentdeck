@@ -66,9 +66,16 @@ class NeverYields(EventStorePort):
         return _drive(self._inner.read_run(log_key, run_id, ctx, from_seq))
 
     async def claim_start(
-        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+        self,
+        log_key: str,
+        opening: RunStarted,
+        ctx: RunContext,
+        origin: str,
+        stale_after: timedelta,
+        *,
+        dead: frozenset[str] = frozenset(),
     ) -> tuple[SessionClaim, Event | None]:
-        return _drive(self._inner.claim_start(log_key, opening, ctx, origin, stale_after))
+        return _drive(self._inner.claim_start(log_key, opening, ctx, origin, stale_after, dead=dead))
 
     async def claim_resume(
         self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str

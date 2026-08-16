@@ -50,16 +50,21 @@ or `redis://` — in anything that outlives one process. See
 [Choosing a Store Backend](/concepts/choosing-a-store-backend).
 &nbsp;→ [#212](https://github.com/agentdecksdk/agentdeck/issues/212)
 
-### A killed worker holds its session for an hour
+### A killed worker holds its session for an hour, unless leases are shared
 
-A worker killed while its run was **running** leaves its `session_id` unusable for
-`AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`, which defaults to **3600**. There is no way to
-release it sooner. This does not apply to a worker killed while its run was paused or waiting
-on an answer — that session holds until the run is resumed, answered, or cancelled, on purpose,
-with no timer involved at all.
+With the default `AGENTDECK_CONTROL=memory://`, a worker killed while its run was **running**
+leaves its `session_id` unusable for `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`, which defaults
+to **3600**. Run leases live in that process only, so the worker taking over knows nothing about
+the one that died and has nothing but the timer to go on.
 
-**Until it is fixed:** lower the setting if your deployment restarts often. It trades against how
-long a healthy turn may go quiet.
+**Fix it by sharing them:** set `AGENTDECK_CONTROL=sqlite:///<path>` and the next worker reads the
+dead one's lapsed lease directly, freeing the session within one `AGENTDECK_RUNTIME_LEASE_TTL_SECONDS`
+(**90** by default) instead of an hour. Lower the staleness setting too if you cannot share a
+backend; it trades against how long a healthy turn may go quiet.
+
+Neither applies to a worker killed while its run was paused or waiting on an answer — that session
+holds until the run is resumed, answered, or cancelled, on purpose, with no timer and no lease
+involved at all.
 &nbsp;→ [#244](https://github.com/agentdecksdk/agentdeck/issues/244)
 
 ## Provider compatibility

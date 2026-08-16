@@ -190,11 +190,18 @@ class StallingStore(SqliteEventStore):
         return written
 
     async def claim_start(
-        self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
+        self,
+        log_key: str,
+        opening: RunStarted,
+        ctx: RunContext,
+        origin: str,
+        stale_after: timedelta,
+        *,
+        dead: frozenset[str] = frozenset(),
     ) -> tuple[SessionClaim, Event | None]:
         # A turn's opening event is the session claim's own write, never an append, so a
         # fixture watching for one has to watch both doors.
-        claim, event = await super().claim_start(log_key, opening, ctx, origin, stale_after)
+        claim, event = await super().claim_start(log_key, opening, ctx, origin, stale_after, dead=dead)
         if event is not None:
             await self._stall_if_written([event])
         return claim, event
