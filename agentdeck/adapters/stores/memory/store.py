@@ -112,12 +112,11 @@ class MemoryEventStore(EventStorePort):
         """Atomic for free, like ``claim_resume``: the scan and ``_stamp`` are plain dict work
         with no suspension point between them, so no other task can open a run in the gap.
 
-        ``ctx.key``, when given, is checked against ``_keys`` before anything is written: a key
-        already claimed by a different run raises rather than refusing the session claim, since
-        the two are independent conditions the caller must tell apart.
+        A busy session wins over a reused key: the session scan runs first and can return a
+        refusal before ``ctx.key`` is even looked at, matching sqlite/postgres, where the
+        session check is a read and the key check is a constraint the INSERT itself enforces.
+        Only once the session is free does a reused key raise instead of silently starting.
         """
-        if ctx.key is not None and (holder := self._keys.get((ctx.namespace, ctx.key))) is not None:
-            raise DuplicateKeyError(f"key {ctx.key!r} is already used by run {holder!r} in namespace {ctx.namespace!r}")
         stale_before = self._clock() - stale_after
         overridden: list[Event] = []
         for events in _by_run(self._logs.get((ctx.namespace, log_key), ())).values():
@@ -132,6 +131,8 @@ class MemoryEventStore(EventStorePort):
             if events[-1].ts > stale_before:
                 return SessionClaim(held_by=events[-1].run_id), None
             overridden.append(events[-1])
+        if ctx.key is not None and (holder := self._keys.get((ctx.namespace, ctx.key))) is not None:
+            raise DuplicateKeyError(f"key {ctx.key!r} is already used by run {holder!r} in namespace {ctx.namespace!r}")
         event = self._stamp(log_key, [opening], ctx, origin)[0]
         if ctx.key is not None:
             self._keys[(ctx.namespace, ctx.key)] = ctx.run_id

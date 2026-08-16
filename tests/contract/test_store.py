@@ -468,6 +468,21 @@ async def test_two_namespaces_sharing_one_key_get_two_unrelated_runs(event_store
     assert acme_event.run_id != globex_event.run_id
 
 
+async def test_a_busy_session_refuses_before_a_reused_key_ever_raises(event_store: EventStorePort) -> None:
+    """The two refusals are independent, but a store only gets to check one first: a live run
+    still holding its session wins over the key check, so the caller sees the ordinary
+    `held_by` refusal rather than `DuplicateKeyError`, on every backend alike."""
+    first_claim, first_event = await event_store.claim_start(
+        "s-1", _started(), _ctx(run_id="r-1", key="order-1234"), ORIGIN, NOTHING_IS_STALE
+    )
+    assert first_claim == SessionClaim() and first_event is not None
+
+    claim, event = await event_store.claim_start(
+        "s-1", _started(), _ctx(run_id="r-2", key="order-1234"), ORIGIN, NOTHING_IS_STALE
+    )
+    assert (claim, event) == (SessionClaim(held_by="r-1"), None)
+
+
 async def test_two_concurrent_claim_starts_on_one_key_yield_exactly_one_winner(event_store: EventStorePort) -> None:
     """The enforcement's own atomicity, not a caller's discipline: an ``await`` slipped between
     reading whether the key is free and writing it down would let both of these through."""

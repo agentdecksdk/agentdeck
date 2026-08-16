@@ -4,8 +4,9 @@ that share a database rather than a filesystem.
 The SQLite store's own docstring points here for a networked deployment — WAL needs shared
 memory across processes, so a log on NFS is unreliable, and that is exactly the shape a
 multi-worker server has. Nothing else changes: append-only, one row per event, ``seq``
-scoped to one run within one log, and status still derived by folding events rather than
-stored (ADR-D5: the log is the sole source of truth).
+scoped to one run and unique across the whole namespace rather than within one log, and
+status still derived by folding events rather than stored (ADR-D5: the log is the sole
+source of truth).
 
 Everything this store owns lives in its **own schema** (``agentdeck_events`` by default),
 so a database that also holds the langgraph checkpointer's tables keeps the platform record

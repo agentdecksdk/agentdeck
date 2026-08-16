@@ -246,21 +246,21 @@ class RedisEventStore(EventStorePort):
 
         Also adopts ``ctx.key`` when one is given: watched and read before anything else, so a
         peer claiming it between this read and ``EXEC`` aborts this attempt (``WatchError``,
-        retried) rather than letting both through. On retry the key is occupied for good, which
-        is :class:`~agentdeck.errors.DuplicateKeyError`, not a refusal to hand back — the same
+        retried) rather than letting both through. The raise itself waits until after the
+        session scan below, so a busy session still wins over a reused key, matching
+        sqlite/postgres, where the session check is a read and the key check is a constraint
+        the INSERT itself enforces. On retry the key is occupied for good, which is
+        :class:`~agentdeck.errors.DuplicateKeyError`, not a refusal to hand back — the same
         deterministic-failure reading the session claim above gives a lost race.
         """
 
         async def _attempt(pipe: Pipeline) -> tuple[SessionClaim, Event | None]:
             key_addr = None
+            duplicate_key_holder = None
             if ctx.key is not None:
                 key_addr = self._key_claim_key(ctx.namespace_key, ctx.key)
                 await pipe.watch(key_addr)
-                holder = await pipe.get(key_addr)
-                if holder is not None:
-                    raise DuplicateKeyError(
-                        f"key {ctx.key!r} is already used by run {holder!r} in namespace {ctx.namespace!r}"
-                    )
+                duplicate_key_holder = await pipe.get(key_addr)
             await pipe.watch(self._log_runs_key(ctx.namespace_key, log_key))
             run_ids = _sorted_text(await pipe.smembers(self._log_runs_key(ctx.namespace_key, log_key)))
             if run_ids:
@@ -296,6 +296,10 @@ class RedisEventStore(EventStorePort):
                 if tail.ts > stale_before:
                     return SessionClaim(held_by=run_id), None
                 overridden.append(tail)
+            if duplicate_key_holder is not None:
+                raise DuplicateKeyError(
+                    f"key {ctx.key!r} is already used by run {duplicate_key_holder!r} in namespace {ctx.namespace!r}"
+                )
             events = await self._stamp(pipe, log_key, [opening], ctx, origin)
             pipe.multi()
             self._queue_writes(pipe, ctx.namespace_key, log_key, events)

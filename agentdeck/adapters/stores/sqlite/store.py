@@ -2,7 +2,8 @@
 
 New code, not a port of ``runtime/sessions.py`` — that module is engine-private execution
 state (ADR-D5), a different store with a different owner. This one is the platform record:
-append-only, one row per event, ``seq`` scoped to one run within one log.
+append-only, one row per event, ``seq`` scoped to one run, unique across the whole namespace
+rather than within one log — a run's id, not its log grouping, is what makes it distinct.
 """
 
 from __future__ import annotations
