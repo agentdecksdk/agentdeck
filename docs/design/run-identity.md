@@ -54,6 +54,24 @@ run = await deck.runs.start("SupportAgent", input, namespace="acme", key="order-
 when it is absent. This withdraws the `encode(namespace, run_id)` derivation and the `adr:` prefix
 reservation proposed in the previous revision; see §11 for what that costs PR #320.
 
+### Why the derivation works today and cannot survive the split
+
+There is no keyless case in the tree right now. `RunContext.run_id` is `run_id or str(uuid4())`
+(`runtime/service.py:677`), so one caller-facing id exists, it is never empty, and
+`encode(namespace, run_id)` always has both halves. That is the whole reason the derivation is
+sound today.
+
+Splitting that one value into a canonical `id` and an optional `key` is what breaks it. With no key
+there is nothing to derive an address from, and the alternative, minting a uuid *key* when the
+caller gives none, hands back a `run.key` the caller never chose and did not want, which is not what
+an application identifier is. Minting `id` and leaving `key` genuinely absent is the only shape that
+keeps both values honest.
+
+| caller passes | `run.key` | `run.id` |
+|---|---|---|
+| nothing | `None` | minted |
+| `key="order-1234"` | `"order-1234"` | minted, with `(namespace, key)` indexed to it |
+
 Storage enforces `UNIQUE(namespace, key)` when a key is given. Two namespaces may use one key and
 get two different runs:
 
@@ -340,15 +358,33 @@ stops being part of run identity.
 | `ControlSignalled` | message names the id |
 | `RunContext` | carries the canonical id, so nothing threads a new value by hand |
 
-### What this costs PR #320
+### What this costs PR #320, and why the derivation outlives it
 
 PR #320 is this change with a **derived** ref: `encode(namespace, run_id)` producing
 `adr:<ns>:<key>`, plus the `adr:` prefix reservation. The port shape it ships is right, and the
-source of the value is not. Three edits, not a rewrite:
+source of the value is not.
 
-- `encode` and `REF_PREFIX` are withdrawn; the ports take the minted `id`.
-- `RunContext.ref` becomes `RunContext.id`, carried rather than computed.
-- the `adr:` reservation and its CLI validation go, since nothing derives an address any more.
+**The derivation cannot be removed in that PR.** Every caller computes the address locally with no
+store in reach: `runtime.signal(run_id, verb, namespace=…)` derives it, and `cli.py` derives it
+holding only the control database. A minted id has no cross-process resolution until #324 persists
+`(namespace, key) → id`, so deleting `encode` before then ships a control plane a second process
+cannot address, which is the one capability the port exists for.
+
+So the rename lands here and the producer swaps in #324:
+
+| | where | |
+|---|---|---|
+| ports, `Gate`, `Runtime`, `ControlSignalled` take `id` | #315 | the signature is final from the start |
+| `RunContext.ref` becomes `RunContext.id` | #315 | still computed, marked as interim |
+| `encode`, `REF_PREFIX` and the `adr:` guard are deleted | #324 | the guard protects the derivation and dies with it |
+| `RunContext.id` becomes carried, not computed | #324 | the store mints and persists it |
+
+One port migration, not two: the control table's column is renamed once, and only the values
+flowing through it change. `encode(None, run_id) == run_id` still holds meanwhile, so #320 keeps the
+v1 wire guarantee untouched and the keystone's death stays #324's problem.
+
+The end state is lookup-free too: after #324 the CLI's argument is the canonical `id` itself, so
+signalling by id needs no resolution step either.
 
 Its two collision regression tests stay and are the right tests. They are runtime-level because
 `deck.runs.pause`/`resume` take no namespace today; that becomes reachable at the deck level once
