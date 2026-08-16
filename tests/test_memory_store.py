@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
+
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import TextBlock
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import KnownPayload, RunCompleted, TextDelta, Usage
+from agentdeck.core.events import KnownPayload, RunCompleted, RunStarted, TextDelta, Usage
+from agentdeck.errors import StoreError
 
 ORIGIN = "Greeter"
 
@@ -79,3 +82,15 @@ async def test_the_stub_completion_payload_round_trips_through_the_log() -> None
     payload = RunCompleted(output=[TextBlock(text="done")], usage=Usage(input_tokens=1, output_tokens=1))
     await store.append("s-1", [payload], ctx, ORIGIN)
     assert (await store.read("s-1", ctx))[0].payload == payload
+
+
+async def test_a_run_id_already_recorded_under_one_log_key_refuses_a_write_under_another() -> None:
+    """One logical run cannot be split across two log keys (#324): the same corruption
+    SQLite's tightened ``events_by_run`` index refuses at the DB level, enforced here through
+    the same ``_run_logs`` mapping ``locate`` already reads."""
+    store, ctx = MemoryEventStore(), _ctx()
+    opening = RunStarted(invocable=ORIGIN, kind_of_invocable="agent", input=[])
+    await store.append("s-1", [opening], ctx, ORIGIN)  # a lifecycle write is what records _run_logs
+
+    with pytest.raises(StoreError, match="r-1"):
+        await store.append("s-2", _deltas(1), ctx, ORIGIN)

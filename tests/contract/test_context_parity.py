@@ -54,12 +54,7 @@ def runtime(subject: Subject, store: MemoryEventStore) -> Runtime:
 
 
 async def _play(runtime: Runtime, subject: Subject, context: object) -> list[Event]:
-    return [
-        event
-        async for event in runtime.run(
-            subject.spec.name, subject.input, context=context, run_id="r-1", session_id="s-1"
-        )
-    ]
+    return [event async for event in runtime.run(subject.spec.name, subject.input, context=context, session_id="s-1")]
 
 
 # --- what the injected callable is handed -------------------------------------------------------
@@ -89,9 +84,9 @@ async def test_the_context_data_is_the_callers_own_object_by_reference(
 async def test_the_run_identity_travels_with_the_context(
     runtime: Runtime, subject: Subject, environment: Environment
 ) -> None:
-    await _play(runtime, subject, environment)
+    events = await _play(runtime, subject, environment)
 
-    assert (subject.seen[0].run_id, subject.seen[0].session_id) == ("r-1", "s-1")
+    assert (subject.seen[0].run_id, subject.seen[0].session_id) == (events[0].run_id, "s-1")
 
 
 async def test_a_run_given_no_context_reaches_the_callable_with_none(runtime: Runtime, subject: Subject) -> None:
@@ -137,8 +132,8 @@ async def test_the_stored_log_holds_no_trace_of_the_context_either(
 ) -> None:
     """Not only what a live consumer saw. A run read back afterwards is the form an auditor or a
     replay gets, and it is the one a leak would survive in."""
-    await _play(runtime, subject, environment)
+    events = await _play(runtime, subject, environment)
 
-    stored = await store.read_run("s-1", "r-1", _READER)
+    stored = await store.read_run("s-1", events[0].run_id, _READER)
     dumped = json.dumps([event.model_dump(mode="json") for event in stored])
     assert environment.secret not in dumped

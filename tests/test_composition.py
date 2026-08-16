@@ -91,7 +91,7 @@ async def test_build_runtime_discovers_the_project_when_given_no_invocables(proj
     kinds = [
         event.kind
         async for event in runtime.run(
-            "Shout", coerce_input("hello"), run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+            "Shout", coerce_input("hello"), session_id=(CTX).session_id, namespace=(CTX).namespace
         )
     ]
 
@@ -110,7 +110,7 @@ async def test_build_runtime_takes_explicit_specs_and_a_store_that_holds_time_st
     stamps = {
         event.ts
         async for event in runtime.run(
-            "Shout", coerce_input("hello"), run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+            "Shout", coerce_input("hello"), session_id=(CTX).session_id, namespace=(CTX).namespace
         )
     }
 
@@ -126,7 +126,6 @@ async def test_build_runtime_refuses_an_unknown_invocable(project):
             async for event in runtime.run(
                 "Nope",
                 coerce_input("hello"),
-                run_id=(CTX).run_id,
                 session_id=(CTX).session_id,
                 namespace=(CTX).namespace,
             )
@@ -406,7 +405,6 @@ async def test_deck_composes_one_runtime_over_the_whole_project(project):
             async for event in deck._runtime.run(
                 "Shout",
                 coerce_input("hello"),
-                run_id=(CTX).run_id,
                 session_id=(CTX).session_id,
                 namespace=(CTX).namespace,
             )

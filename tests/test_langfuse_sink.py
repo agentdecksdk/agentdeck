@@ -143,6 +143,9 @@ class Collector:
     traces: list[Observed] = field(default_factory=list)
     flushes: int = 0
     unfinished_at_flush: list[int] = field(default_factory=list)
+    # Filled in by `_traced()` after playing the run: the run's own minted id (#324), which is
+    # also `trace_key` below, since a caller cannot predict it any more.
+    run_id: str | None = None
 
     def root(
         self,
@@ -195,10 +198,8 @@ async def _traced(
     """Play a run through a real Runtime and hand back what the sink made of it."""
     collector = Collector()
     runtime = _runtime(collector, *steps, kind=kind, name=name)
-    async for _ in runtime.run(
-        name, INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-    ):
-        pass
+    async for event in runtime.run(name, INPUT, session_id=(CTX).session_id, namespace=(CTX).namespace):
+        collector.run_id = event.run_id
     await runtime.drain()
     return collector
 
@@ -229,10 +230,11 @@ def _started(run_id: str = "r-1") -> Event:
 
 async def test_a_workflow_run_becomes_one_trace_carrying_its_nodes_tools_and_usage() -> None:
     """The point of reading the stream: a workflow, which v1's runner-level tracing never saw."""
-    trace = (await _traced(*WORKFLOW)).only()
+    collector = await _traced(*WORKFLOW)
+    trace = collector.only()
 
     assert (trace.name, trace.kind) == ("Pipeline", "chain")
-    assert (trace.trace_key, trace.session_id) == ("r-1", "s-1")
+    assert (trace.trace_key, trace.session_id) == (collector.run_id, "s-1")
     assert trace.input == ["ship it"]
     assert trace.output == ["shipped"]
     assert trace.metadata["namespace"] == "acme"
@@ -295,7 +297,6 @@ async def test_image_bytes_are_described_to_the_trace_never_copied_into_it() -> 
     async for _ in runtime.run(
         "Viewer",
         [ImageBlock(media_type="image/png", data_b64="AAAA")],
-        run_id=(CTX).run_id,
         session_id=(CTX).session_id,
         namespace=(CTX).namespace,
     ):
@@ -347,7 +348,6 @@ async def test_structured_data_reaches_the_trace_as_json_on_both_ends() -> None:
     async for _ in runtime.run(
         "Pipeline",
         [DataBlock(data={"input": "claim 7777"})],
-        run_id=(CTX).run_id,
         session_id=(CTX).session_id,
         namespace=(CTX).namespace,
     ):
@@ -365,7 +365,6 @@ async def test_an_inline_data_uri_inside_structured_data_is_described_too() -> N
     async for _ in runtime.run(
         "Viewer",
         [DataBlock(data={"page": {"img": DATA_URI}})],
-        run_id=(CTX).run_id,
         session_id=(CTX).session_id,
         namespace=(CTX).namespace,
     ):
@@ -382,7 +381,6 @@ async def test_an_inline_data_uri_in_a_run_input_is_described_too() -> None:
     async for _ in runtime.run(
         "Viewer",
         [TextBlock(text=f"look at {DATA_URI}")],
-        run_id=(CTX).run_id,
         session_id=(CTX).session_id,
         namespace=(CTX).namespace,
     ):
@@ -429,18 +427,17 @@ async def test_an_interrupted_run_ships_its_half_and_the_resume_continues_the_sa
         kind=InvocableKind.WORKFLOW,
         name="Approver",
     )
-    async for _ in runtime.run(
-        "Approver", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-    ):
-        pass
+    run_id = None
+    async for event in runtime.run("Approver", INPUT, session_id=(CTX).session_id, namespace=(CTX).namespace):
+        run_id = event.run_id
     async for _ in runtime.resume(
-        "Approver", "t1", "approved", run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+        "Approver", "t1", "approved", run_id=run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
     ):
         pass
     await runtime.drain()
 
     waiting, continued = collector.traces
-    assert waiting.trace_key == continued.trace_key == "r-1"
+    assert waiting.trace_key == continued.trace_key == run_id
     assert (waiting.status, waiting.metadata["suspended"], waiting.metadata["interrupt_id"]) == (
         "waiting for approval",
         True,

@@ -265,21 +265,18 @@ async def test_a_pause_signalled_mid_stream_lands_after_the_chunk_that_was_in_fl
     runtime, store = _agent_runtime(model, control)
     ctx = _ctx()
 
+    # The real, minted id is read off ``run.started`` before the engine is ever entered: an
+    # async generator does not advance between one ``anext`` and the next, so nothing between
+    # here and the signal below can let the run reach a safe point first.
+    stream = runtime.run("Chatty", coerce_input("hi"), session_id=ctx.session_id, namespace=ctx.namespace)
+    started = await anext(stream)
+
     async def consume() -> list[Event]:
-        return [
-            event
-            async for event in runtime.run(
-                "Chatty",
-                coerce_input("hi"),
-                run_id=(ctx).run_id,
-                session_id=(ctx).session_id,
-                namespace=(ctx).namespace,
-            )
-        ]
+        return [started, *[event async for event in stream]]
 
     consumer = asyncio.create_task(consume())
     await model.holding.wait()  # the turn is parked after its first delta
-    await control.signal(ctx.id, Signal.PAUSE, "operator")
+    await control.signal(started.run_id, Signal.PAUSE, "operator")
     hold.set()
     events = await consumer
 
@@ -307,28 +304,26 @@ async def test_a_pause_during_a_tool_call_waits_for_the_call_to_return() -> None
     calls: list[str] = []
     control = MemoryControlPort()
     ctx = _ctx()
+    # The tool has no injected context (it is the SDK's own ``function_tool``, not
+    # ``compile_tool``), so a closure is the only channel it has to the run's real, minted id.
+    # Filled in below, before the run reaches the tool call this signals from inside.
+    run_id_holder: list[str] = []
 
     @function_tool
     async def slow_lookup() -> str:
         """Look something up, slowly."""
         if not calls:
-            await control.signal(ctx.id, Signal.PAUSE, "asked while a tool was running")
+            await control.signal(run_id_holder[0], Signal.PAUSE, "asked while a tool was running")
         calls.append("slow_lookup")
         return "damaged"
 
     model = TailScriptedModel("it was damaged", tool_name="slow_lookup")
     runtime, store = _agent_runtime(model, control, tools=[slow_lookup])
 
-    paused = [
-        event
-        async for event in runtime.run(
-            "Chatty",
-            coerce_input("what happened"),
-            run_id=(ctx).run_id,
-            session_id=(ctx).session_id,
-            namespace=(ctx).namespace,
-        )
-    ]
+    stream = runtime.run("Chatty", coerce_input("what happened"), session_id=ctx.session_id, namespace=ctx.namespace)
+    started = await anext(stream)
+    run_id_holder.append(started.run_id)
+    paused = [started, *[event async for event in stream]]
     kinds = _kinds(paused)
 
     assert calls == ["slow_lookup"]  # the call returned rather than being killed mid-flight
@@ -337,7 +332,7 @@ async def test_a_pause_during_a_tool_call_waits_for_the_call_to_return() -> None
     assert "message.completed" not in kinds, kinds  # the step the tool's result fed was not taken
     assert status_of(paused) is RunStatus.PAUSED
 
-    resumed = [event async for event in runtime.resume_run(ctx.run_id, namespace=ctx.namespace)]
+    resumed = [event async for event in runtime.resume_run(run_id_holder[0], namespace=ctx.namespace)]
 
     # The cost of a pause with no stack to return to, asserted rather than described: the turn
     # replays, so the tool is called a second time. This is why the safe-point contract tells
@@ -361,26 +356,20 @@ async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None
     runtime, store = _agent_runtime(model, control)
     ctx = _ctx()
 
+    stream = runtime.run("Chatty", coerce_input("hi"), session_id=ctx.session_id, namespace=ctx.namespace)
+    started = await anext(stream)
+
     async def consume() -> list[Event]:
-        return [
-            event
-            async for event in runtime.run(
-                "Chatty",
-                coerce_input("hi"),
-                run_id=(ctx).run_id,
-                session_id=(ctx).session_id,
-                namespace=(ctx).namespace,
-            )
-        ]
+        return [started, *[event async for event in stream]]
 
     consumer = asyncio.create_task(consume())
     await model.holding.wait()
-    await control.signal(ctx.id, Signal.PAUSE)
+    await control.signal(started.run_id, Signal.PAUSE)
     hold.set()
     paused = await consumer
 
     hold.set()  # the replayed turn must not stall on the pause fixture's own gate
-    resumed = [event async for event in runtime.resume_run(ctx.run_id, namespace=ctx.namespace)]
+    resumed = [event async for event in runtime.resume_run(started.run_id, namespace=ctx.namespace)]
     log = await store.read(ctx.log_key, ctx)
 
     assert _kinds(paused)[-1] == "run.paused"
@@ -393,7 +382,7 @@ async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None
     # The pause is *taken*, not papered over with a RESUME sentinel: the gate that honored it
     # consumed it, so the replayed turn meets an empty port and does not stop again at its own
     # first safe point. An empty port is also what makes a cancel arriving later legible.
-    assert await control.poll(ctx.id) is None
+    assert await control.poll(started.run_id) is None
 
 
 async def test_lifting_a_pause_resupplies_the_run_s_application_context() -> None:
@@ -413,7 +402,9 @@ async def test_lifting_a_pause_resupplies_the_run_s_application_context() -> Non
         """Look at the run's environment."""
         seen.append(environment.data)
         if len(seen) == 1:
-            await control.signal(ctx.id, Signal.PAUSE, "asked while a tool was running")
+            # The tool's own injected context already carries the run's real, minted id, so no
+            # closure or captured id is needed: the id it addresses is its own.
+            await control.signal(environment.run_id, Signal.PAUSE, "asked while a tool was running")
         return "looked"
 
     model = TailScriptedModel("done", tool_name="peek")
@@ -425,12 +416,12 @@ async def test_lifting_a_pause_resupplies_the_run_s_application_context() -> Non
             "Chatty",
             coerce_input("what happened"),
             context=calendar,
-            run_id=(ctx).run_id,
-            session_id=(ctx).session_id,
-            namespace=(ctx).namespace,
+            session_id=ctx.session_id,
+            namespace=ctx.namespace,
         )
     ]
-    resumed = [event async for event in runtime.resume_run(ctx.run_id, context=calendar, namespace=ctx.namespace)]
+    run_id = paused[0].run_id
+    resumed = [event async for event in runtime.resume_run(run_id, context=calendar, namespace=ctx.namespace)]
 
     assert _kinds(paused)[-1] == "run.paused"
     assert _kinds(resumed)[-1] == "run.completed"
@@ -450,21 +441,22 @@ async def test_lifting_a_pause_without_a_context_replays_with_none() -> None:
         """Look at the run's environment."""
         seen.append(environment.data)
         if len(seen) == 1:
-            await control.signal(ctx.id, Signal.PAUSE, "asked while a tool was running")
+            await control.signal(environment.run_id, Signal.PAUSE, "asked while a tool was running")
         return "looked"
 
     runtime, _ = _agent_runtime(TailScriptedModel("done", tool_name="peek"), control, tools=[compile_tool(peek)])
 
-    async for _ in runtime.run(
-        "Chatty",
-        coerce_input("what happened"),
-        context=Calendar(),
-        run_id=(ctx).run_id,
-        session_id=(ctx).session_id,
-        namespace=(ctx).namespace,
-    ):
-        pass
-    async for _ in runtime.resume_run(ctx.run_id, namespace=ctx.namespace):
+    events = [
+        event
+        async for event in runtime.run(
+            "Chatty",
+            coerce_input("what happened"),
+            context=Calendar(),
+            session_id=ctx.session_id,
+            namespace=ctx.namespace,
+        )
+    ]
+    async for _ in runtime.resume_run(events[0].run_id, namespace=ctx.namespace):
         pass
 
     assert seen[0] is not None
@@ -480,7 +472,6 @@ async def test_a_signal_is_honored_with_a_store_that_never_yields() -> None:
     still lands and the run still closes."""
     control = MemoryControlPort()
     ctx = _ctx()
-    await control.signal(ctx.id, Signal.CANCEL, "before it even opened")
     spec = stub_spec(
         "Chatty",
         TextDelta(message_id="m-1", text="one "),
@@ -490,12 +481,13 @@ async def test_a_signal_is_honored_with_a_store_that_never_yields() -> None:
     store = NeverYields(MemoryEventStore())
     runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
 
-    events = [
-        event
-        async for event in runtime.run(
-            "Chatty", coerce_input("hi"), run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace
-        )
-    ]
+    # The real id is read off ``run.started``, then the cancel is recorded before the stream is
+    # asked for anything else — still ahead of the engine's first checkpoint, which is what used
+    # to be meant by "before it even opened".
+    stream = runtime.run("Chatty", coerce_input("hi"), session_id=ctx.session_id, namespace=ctx.namespace)
+    started = await anext(stream)
+    await control.signal(started.run_id, Signal.CANCEL, "before it even opened")
+    events = [started, *[event async for event in stream]]
 
     assert _kinds(events)[-1] == "run.cancelled"
     assert check_terminal(events) is None
@@ -520,13 +512,12 @@ async def test_resuming_a_run_that_is_not_paused_is_a_noop() -> None:
 
     completed = [
         event
-        async for event in runtime.run(
-            "Chatty", coerce_input("hi"), run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace
-        )
+        async for event in runtime.run("Chatty", coerce_input("hi"), session_id=ctx.session_id, namespace=ctx.namespace)
     ]
+    run_id = completed[0].run_id
     before = await store.read(ctx.log_key, ctx)
 
-    assert [event async for event in runtime.resume_run(ctx.run_id, namespace=ctx.namespace)] == []
+    assert [event async for event in runtime.resume_run(run_id, namespace=ctx.namespace)] == []
     assert [event async for event in runtime.resume_run("never-heard-of-it", namespace=ctx.namespace)] == []
     assert await store.read(ctx.log_key, ctx) == before
     assert _kinds(completed)[-1] == "run.completed"
@@ -543,41 +534,39 @@ async def test_a_paused_run_keeps_holding_its_session_so_no_second_turn_starts_o
     )
     store = MemoryEventStore()
     runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
-    ctx = _ctx(run_id="r-paused")
-    await control.signal(ctx.id, Signal.PAUSE)
+    ctx = _ctx()
 
-    paused = [
-        event
-        async for event in runtime.run(
-            "Chatty", coerce_input("hi"), run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace
-        )
-    ]
+    # Signalled right after the real id is known and before the stream is asked for anything
+    # else, so the pause is still recorded ahead of the run's own first safe point.
+    stream = runtime.run("Chatty", coerce_input("hi"), session_id=ctx.session_id, namespace=ctx.namespace)
+    started = await anext(stream)
+    await control.signal(started.run_id, Signal.PAUSE)
+    paused = [started, *[event async for event in stream]]
 
     assert _kinds(paused)[-1] == "run.paused"
     with pytest.raises(SessionBusyError):
-        second = runtime.run(
-            "Chatty",
-            coerce_input("hi again"),
-            run_id="r-second",
-            session_id=_ctx().session_id,
-            namespace=_ctx().namespace,
-        )
+        second = runtime.run("Chatty", coerce_input("hi again"), session_id=ctx.session_id, namespace=ctx.namespace)
         await anext(second)
 
 
 # --- namespace isolation (#315) ---------------------------------------------------------
 
 
-async def test_two_namespaces_sharing_one_run_id_pause_and_resume_independently() -> None:
-    """The defect itself: both control ports keyed a signal by ``run_id`` alone, so
-    ``acme``'s ``order-1234`` and ``globex``'s ``order-1234`` fought over one row — a pause
-    meant for one landed on both, and a resume of one could not tell them apart either.
+async def test_two_namespaces_sharing_one_key_pause_and_resume_independently() -> None:
+    """#315/#324: both control ports used to key a signal by ``run_id`` alone, so ``acme``'s
+    ``order-1234`` and ``globex``'s ``order-1234`` fought over one row: a pause meant for one
+    landed on both, and a resume of one could not tell them apart either.
+
+    #324 changes the mechanism, not the intent: ``key`` is no longer the run's address at all,
+    so the two namespaces below sharing one key cannot even name the same id to collide over.
+    Each gets its own, read straight off its own ``run.started``. The isolation this guards is
+    now asserted through that real id rather than a caller-chosen one, the surface a caller
+    actually holds (docs/design/run-identity.md).
 
     Only reachable through the Runtime directly: ``deck.runs.pause``/``resume`` take no
-    ``namespace`` (out of scope for #315 — the ``Run`` object absorbs it later, per
-    docs/design/run-identity.md), while ``deck.runs.cancel`` already has one, which is why the
-    cancel side of this collision is proven through ``Deck`` instead
-    (``tests/test_deck.py::test_a_cancel_in_one_namespace_leaves_the_same_run_id_in_another_untouched``).
+    ``namespace`` (out of scope for #315), while ``deck.runs.cancel`` already has one, which is
+    why the cancel side of this collision is proven through ``Deck`` instead
+    (``tests/test_deck.py::test_a_cancel_in_one_namespace_leaves_the_same_key_in_another_untouched``).
     """
     control = MemoryControlPort()
     spec = stub_spec(
@@ -588,34 +577,34 @@ async def test_two_namespaces_sharing_one_run_id_pause_and_resume_independently(
     store = MemoryEventStore()
     runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
 
-    # Signalled before either run opens, so the first safe point is the one that honors it —
-    # deterministic without a clock or a sleep, the same technique the contract suite uses.
-    assert await runtime.signal("order-1234", Signal.PAUSE, namespace="acme") is True
+    globex_stream = runtime.run("Chatty", coerce_input("hi"), key="order-1234", namespace="globex")
+    globex_started = await anext(globex_stream)
+    acme_stream = runtime.run("Chatty", coerce_input("hi"), key="order-1234", namespace="acme")
+    acme_started = await anext(acme_stream)
 
-    # globex checks the gate first, deliberately: on the bare-run_id-keyed port this used to be,
-    # whichever run polls first takes the one shared row — pausing the bystander and leaving
-    # acme, the run the signal actually named, to complete untouched. Order must not matter.
-    globex = [
-        event async for event in runtime.run("Chatty", coerce_input("hi"), run_id="order-1234", namespace="globex")
-    ]
-    acme = [event async for event in runtime.run("Chatty", coerce_input("hi"), run_id="order-1234", namespace="acme")]
+    assert globex_started.run_id != acme_started.run_id  # same key, two unrelated runs
 
-    assert _kinds(globex)[-1] == "run.completed"  # the same caller run_id, a different tenant
-    assert _kinds(acme)[-1] == "run.paused"  # the namespace the pause actually targeted
+    # Signalled right after acme's real id is known, still ahead of either run's first safe
+    # point, the same determinism the contract suite gets from signalling before a run opens.
+    assert await runtime.signal(acme_started.run_id, Signal.PAUSE, namespace="acme") is True
 
-    resumed_acme = [event async for event in runtime.resume_run("order-1234", namespace="acme")]
-    resumed_globex = [event async for event in runtime.resume_run("order-1234", namespace="globex")]
+    globex = [globex_started, *[event async for event in globex_stream]]
+    acme = [acme_started, *[event async for event in acme_stream]]
+
+    assert _kinds(globex)[-1] == "run.completed"  # a different tenant, same key
+    assert _kinds(acme)[-1] == "run.paused"  # the run the signal actually named
+
+    resumed_acme = [event async for event in runtime.resume_run(acme_started.run_id, namespace="acme")]
+    resumed_globex = [event async for event in runtime.resume_run(globex_started.run_id, namespace="globex")]
 
     assert _kinds(resumed_acme)[-1] == "run.completed"  # acme's own paused run, lifted
-    assert resumed_globex == []  # globex's run was never paused, so nothing to resume
+    assert resumed_globex == []  # globex's run already completed, so nothing to resume
 
 
-async def test_two_namespaces_sharing_one_run_id_do_not_clobber_each_other_s_signal() -> None:
-    """The other half of the compare-and-set collision: a bare-run_id-keyed port holds one row
-    per run, so acme's pause and globex's cancel — signalled against the identical caller
-    ``run_id`` — fought over that one slot. The second write silently destroyed the first
-    tenant's intent, and ``consume()``'s compare-and-set then took whichever verb survived on
-    behalf of whichever run polled first, not necessarily the one it was actually meant for."""
+async def test_two_namespaces_sharing_one_key_do_not_clobber_each_other_s_signal() -> None:
+    """The other half of the same story: acme's pause and globex's cancel are signalled against
+    each run's own real id, so there is no shared slot left for one to destroy the other's
+    intent, even though both runs were started under the identical caller ``key``."""
     control = MemoryControlPort()
     spec = stub_spec(
         "Chatty",
@@ -625,13 +614,16 @@ async def test_two_namespaces_sharing_one_run_id_do_not_clobber_each_other_s_sig
     store = MemoryEventStore()
     runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
 
-    assert await runtime.signal("order-1234", Signal.PAUSE, namespace="acme") is True
-    assert await runtime.signal("order-1234", Signal.CANCEL, namespace="globex") is True
+    globex_stream = runtime.run("Chatty", coerce_input("hi"), key="order-1234", namespace="globex")
+    globex_started = await anext(globex_stream)
+    acme_stream = runtime.run("Chatty", coerce_input("hi"), key="order-1234", namespace="acme")
+    acme_started = await anext(acme_stream)
 
-    globex = [
-        event async for event in runtime.run("Chatty", coerce_input("hi"), run_id="order-1234", namespace="globex")
-    ]
-    acme = [event async for event in runtime.run("Chatty", coerce_input("hi"), run_id="order-1234", namespace="acme")]
+    assert await runtime.signal(acme_started.run_id, Signal.PAUSE, namespace="acme") is True
+    assert await runtime.signal(globex_started.run_id, Signal.CANCEL, namespace="globex") is True
+
+    globex = [globex_started, *[event async for event in globex_stream]]
+    acme = [acme_started, *[event async for event in acme_stream]]
 
     assert _kinds(globex)[-1] == "run.cancelled"  # its own signal, not acme's pause
-    assert _kinds(acme)[-1] == "run.paused"  # its own signal, not overwritten by globex's later one
+    assert _kinds(acme)[-1] == "run.paused"  # its own signal, not overwritten by globex's

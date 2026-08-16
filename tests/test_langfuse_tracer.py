@@ -108,7 +108,9 @@ def _attr(span, key: str):  # noqa: ANN001, ANN201 — reads one OTel attribute 
     return span.attributes.get(key)
 
 
-async def _run(spy, name: str = "Pipeline") -> None:  # noqa: ANN001
+async def _run(spy, name: str = "Pipeline") -> str:  # noqa: ANN001
+    """Plays the run and returns its own minted id, which the sink seeds the trace id from —
+    the only way a test can predict that seed now that #324 mints it rather than a caller."""
     spec = stub_spec(name, *WORKFLOW, kind=InvocableKind.WORKFLOW)
     runtime = Runtime(
         [StubEngine()],
@@ -116,18 +118,19 @@ async def _run(spy, name: str = "Pipeline") -> None:  # noqa: ANN001
         {spec.name: spec},
         sinks=[LangfuseSink(LangfuseTracer(spy.client))],
     )
-    async for _ in runtime.run(
-        name, INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-    ):
-        pass
+    run_id = None
+    async for event in runtime.run(name, INPUT, session_id=(CTX).session_id, namespace=(CTX).namespace):
+        run_id = event.run_id
     await runtime.drain()
+    assert run_id is not None
+    return run_id
 
 
 async def test_a_workflow_run_exports_one_langfuse_trace_with_its_spans_nested(spy) -> None:  # noqa: ANN001
-    await _run(spy)
+    run_id = await _run(spy)
 
     root = spy.by_name("Pipeline")
-    assert {span.context.trace_id for span in spy.spans} == {int(spy.client.create_trace_id(seed="r-1"), 16)}
+    assert {span.context.trace_id for span in spy.spans} == {int(spy.client.create_trace_id(seed=run_id), 16)}
     assert _attr(root, "langfuse.observation.type") == "chain"
     assert _attr(root, "session.id") == "s-1"
     assert _attr(root, "langfuse.trace.name") == "Pipeline"
@@ -152,11 +155,11 @@ async def test_the_trace_belongs_to_the_run_not_to_whatever_span_was_current(spy
     unrelated span, and a run's trace id must stay a function of the run alone.
     """
     with spy.provider.get_tracer("unrelated").start_as_current_span("someone-elses-span") as ambient:
-        await _run(spy)
+        run_id = await _run(spy)
 
     root = spy.by_name("Pipeline")
     assert root.context.trace_id != ambient.context.trace_id
-    assert root.context.trace_id == int(spy.client.create_trace_id(seed="r-1"), 16)
+    assert root.context.trace_id == int(spy.client.create_trace_id(seed=run_id), 16)
 
 
 async def test_an_inline_data_uri_in_tool_args_never_reaches_the_langfuse_media_store(spy) -> None:  # noqa: ANN001
@@ -178,9 +181,7 @@ async def test_an_inline_data_uri_in_tool_args_never_reaches_the_langfuse_media_
         {spec.name: spec},
         sinks=[LangfuseSink(LangfuseTracer(spy.client))],
     )
-    async for _ in runtime.run(
-        "Describer", INPUT, run_id=(CTX).run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
-    ):
+    async for _ in runtime.run("Describer", INPUT, session_id=(CTX).session_id, namespace=(CTX).namespace):
         pass
     await runtime.drain()
 

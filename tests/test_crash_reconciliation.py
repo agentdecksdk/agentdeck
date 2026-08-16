@@ -121,15 +121,17 @@ def _build(model: worker.ScriptedModel, sessions: ExecutionStore) -> tuple[Runti
     return Runtime([OpenAIAgentsEngine(sessions)], store, {worker.AGENT: worker.spec(model)}), store
 
 
-async def _play(runtime: Runtime, question: str, run_id: str) -> list[Event]:
+async def _play(runtime: Runtime, question: str, label: str) -> list[Event]:
+    """``label`` no longer names the run's own address (#324 mints it); it only distinguishes
+    calls in a docstring or a log line, so it feeds ``worker.context()`` for its
+    ``session_id``/``namespace`` alone."""
     return [
         event
         async for event in runtime.run(
             worker.AGENT,
             coerce_input(question),
-            run_id=(worker.context(run_id)).run_id,
-            session_id=(worker.context(run_id)).session_id,
-            namespace=(worker.context(run_id)).namespace,
+            session_id=(worker.context(label)).session_id,
+            namespace=(worker.context(label)).namespace,
         )
     ]
 
@@ -213,7 +215,6 @@ async def test_a_question_the_consumer_abandoned_is_not_replayed_in_front_of_its
     stream = runtime.run(
         worker.AGENT,
         coerce_input(worker.QUESTION_2),
-        run_id=(worker.context("abandoned")).run_id,
         session_id=(worker.context("abandoned")).session_id,
         namespace=(worker.context("abandoned")).namespace,
     )
@@ -246,7 +247,6 @@ async def test_a_turn_cancelled_after_its_answer_keeps_both_of_its_messages() ->
     stream = runtime.run(
         worker.AGENT,
         coerce_input(worker.QUESTION_2),
-        run_id=(worker.context("stopped")).run_id,
         session_id=(worker.context("stopped")).session_id,
         namespace=(worker.context("stopped")).namespace,
     )
@@ -388,7 +388,9 @@ async def test_a_turn_a_killed_process_never_wrote_to_its_session_survives_the_r
     reader = worker.context("reader")
     log = await store.read(worker.SESSION_ID, reader)
     assert _log_transcript(log) == [*FIRST_EXCHANGE, ["user", worker.QUESTION_2]], _kinds(log)
-    assert [event.kind for event in log if event.run_id == worker.KILLED_RUN] == ["run.started"], _kinds(log)
+    # The killed run's own id is minted (#324), never predictable — it is whichever run_id
+    # owns the log's last row, and it must hold nothing beyond its own opening event.
+    assert [event.kind for event in log if event.run_id == log[-1].run_id] == ["run.started"], _kinds(log)
     assert worker.transcript_of(await worker.durable_session(tmp_path).get_items()) == FIRST_EXCHANGE
 
     # The killed turn is still open in the log, and an open run holds its session. A restart

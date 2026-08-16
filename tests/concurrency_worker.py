@@ -153,13 +153,28 @@ def session_log_key(trial: int) -> str:
     return f"session-{trial}"
 
 
-def session_run_id(trial: int, tag: str) -> str:
-    return f"session-{trial}-{tag}"
-
-
 def attempted_file(sync: Path, key: str, tag: str) -> Path:
     """Marks that this peer's claim on ``key`` has been answered, win or refusal."""
     return sync / f"attempted.{key}.{tag}"
+
+
+def runid_file(sync: Path, name: str) -> Path:
+    """Where a process that started a run under ``name`` writes the run's real, minted id, so
+    another process that could not have predicted it (a peer, or the test once a trial has
+    settled) can learn it instead of guessing.
+
+    ``name`` is one of this file's own per-trial or per-scenario constants
+    (``resume_run_id(trial)``, ``TAKEOVER_KILLED``, ...): a caller-chosen value that used to
+    double as the run's own id and now only serves as a label to synchronize on.
+    """
+    return sync / f"runid.{name}"
+
+
+def session_attempt_runid_file(sync: Path, log_key: str, tag: str) -> Path:
+    """One peer's real id for its own attempt at ``log_key``'s claim, written the instant both
+    peers leave the claim barrier, so whichever loses the claim, or the test once the trial has
+    settled, can learn the winner's id without having been able to predict it."""
+    return runid_file(sync, f"{log_key}.{tag}")
 
 
 def session_key(trial: int) -> str:
@@ -331,6 +346,10 @@ class ClaimStartTimingStore(SqliteEventStore):
         self, log_key: str, opening: RunStarted, ctx: RunContext, origin: str, stale_after: timedelta
     ) -> tuple[SessionClaim, Event | None]:
         await _barrier(self._sync, f"claim.{log_key}", self._tag)
+        # This peer's own real id, regardless of whether its claim goes on to win or lose: the
+        # loser needs the winner's id to check what the refusal named, and neither peer can
+        # predict the other's minted id ahead of time.
+        session_attempt_runid_file(self._sync, log_key, self._tag).write_text(ctx.run_id)
         started = time.time_ns()
         try:
             return await super().claim_start(log_key, opening, ctx, origin, stale_after)
@@ -360,14 +379,26 @@ class FileSessions(ExecutionStore):
 
 
 class StallingStore(SqliteEventStore):
-    """Blocks forever once ``run_id`` has ``after`` events durable, so the test can kill
-    this process with that run genuinely open mid-stream — not tidily between two runs."""
+    """Blocks forever once a run this store has not been told to ``ignore`` reaches ``after``
+    durable events, so the test can kill this process with that run genuinely open mid-stream,
+    not tidily between two runs.
 
-    def __init__(self, path: Path, run_id: str, after: int, mid: Path) -> None:
+    A run's minted id can no longer be predicted before it opens, so a caller that has already
+    opened one run under this store and captured its real id off that run's own first event calls
+    :meth:`ignore` before opening a second. Doing so also wipes out whatever count that first
+    run's own opening event already left behind, so the second run still stalls at its own
+    ``after``th event rather than one event early.
+    """
+
+    def __init__(self, path: Path, after: int, mid: Path) -> None:
         super().__init__(path)
-        self._run_id = run_id
         self._after = after
         self._mid = mid
+        self._written = 0
+        self._ignored: set[str] = set()
+
+    def ignore(self, run_id: str) -> None:
+        self._ignored.add(run_id)
         self._written = 0
 
     async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
@@ -386,7 +417,7 @@ class StallingStore(SqliteEventStore):
         return claim, event
 
     async def _stall_once_deep_enough(self, events: Sequence[Event]) -> None:
-        self._written += sum(1 for event in events if event.run_id == self._run_id)
+        self._written += sum(1 for event in events if event.run_id not in self._ignored)
         if self._written >= self._after:
             self._mid.touch()
             while True:  # a SIGKILL from the test is the only way out, which is the point
@@ -505,32 +536,36 @@ async def _race_resume(tag: str, trials: int, root: Path) -> None:
     runtime = Runtime([MarkingStub(marks_file(root), sync, tag)], store, {APPROVER: approver_spec()})
     for trial in range(trials):
         async with asyncio.timeout(TRIAL_TIMEOUT):
-            ctx = context(resume_run_id(trial), resume_log_key(trial))
+            log_key = resume_log_key(trial)
             opened = sync / f"opened.{trial}"
+            runid = runid_file(sync, resume_run_id(trial))
             if tag == "a":
                 opening = [
                     event
                     async for event in runtime.run(
                         APPROVER,
                         coerce_input("go"),
-                        run_id=(ctx).run_id,
-                        session_id=(ctx).session_id,
-                        namespace=(ctx).namespace,
+                        session_id=log_key,
+                        namespace=TENANT,
                     )
                 ]
                 assert opening[-1].kind == "run.interrupted", [event.kind for event in opening]
+                # The run's real id, minted inside ``run()`` and unknowable ahead of time. The
+                # other peer never opened this run, so it has no other way to learn it.
+                runid.write_text(opening[0].run_id)
                 opened.touch()
             else:
                 await _await_file(opened)
+            real_id = runid.read_text()
             resumed = [
                 event
                 async for event in runtime.resume(
                     APPROVER,
                     THREAD_ID,
                     "approved",
-                    run_id=(ctx).run_id,
-                    session_id=(ctx).session_id,
-                    namespace=(ctx).namespace,
+                    run_id=real_id,
+                    session_id=log_key,
+                    namespace=TENANT,
                 )
             ]
             _report(trial, tag, [event.kind for event in resumed])
@@ -550,30 +585,30 @@ async def _race_cancel(tag: str, trials: int, root: Path) -> None:
     store = SqliteEventStore(events_db(root))
     for trial in range(trials):
         async with asyncio.timeout(TRIAL_TIMEOUT):
-            run_id = cancel_run_id(trial)
+            barrier_name = cancel_run_id(trial)
             finished = sync / f"finished.{trial}"
+            runid = runid_file(sync, cancel_run_id(trial))
             if tag == "b":
                 if cancel_is_racing(trial):
-                    await _barrier(sync, run_id, tag)
+                    await _barrier(sync, barrier_name, tag)
                 else:
                     await _await_file(finished)
-                await control.signal(run_id, Signal.CANCEL)
+                # The real id is minted inside "a"'s ``run()`` call, which this peer never made.
+                # It is written to disk the moment "a" sees its own first event, well before
+                # this barrier can be reached.
+                await _await_file(runid)
+                await control.signal(runid.read_text(), Signal.CANCEL)
                 _report(trial, tag, ["signalled"])
                 continue
             remaining = (trial // 2) % 3 if cancel_is_racing(trial) else None
-            agent = Agent(name="Racer", instructions="stream", model=BarrierModel(sync, run_id, tag, remaining))
+            agent = Agent(name="Racer", instructions="stream", model=BarrierModel(sync, barrier_name, tag, remaining))
             spec = InvocableSpec(name="Racer", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
             runtime = Runtime([OpenAIAgentsEngine()], store, {"Racer": spec}, control=control)
-            events = [
-                event
-                async for event in runtime.run(
-                    "Racer",
-                    coerce_input("go"),
-                    run_id=(context(run_id)).run_id,
-                    session_id=(context(run_id)).session_id,
-                    namespace=(context(run_id)).namespace,
-                )
-            ]
+            events: list[Event] = []
+            async for event in runtime.run("Racer", coerce_input("go"), namespace=TENANT):
+                if not events:
+                    runid.write_text(event.run_id)
+                events.append(event)
             finished.touch()
             _report(trial, tag, [event.kind for event in events])
 
@@ -597,23 +632,25 @@ async def _race_session(tag: str, trials: int, root: Path) -> None:
             agent = Agent(name=CHATTY, instructions="stream", model=model)
             spec = InvocableSpec(name=CHATTY, kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
             runtime = Runtime([engine], store, {CHATTY: spec})
-            ctx = context(session_run_id(trial, tag), log_key)
             try:
                 events = [
                     event
                     async for event in runtime.run(
                         CHATTY,
                         coerce_input(turn_input(tag)),
-                        run_id=ctx.run_id,
-                        session_id=ctx.session_id,
-                        namespace=ctx.namespace,
+                        session_id=log_key,
+                        namespace=TENANT,
                     )
                 ]
             except SessionBusyError as refusal:
                 # Asserted here rather than reported outwards: the refusal has to name the
-                # session and the run holding it, and a wrong message must fail the trial.
+                # session and the run holding it, and a wrong message must fail the trial. The
+                # winner's real id was never predictable, so it is read from the file
+                # ``ClaimStartTimingStore`` wrote for it the instant both peers left the barrier.
+                winner_runid = session_attempt_runid_file(sync, log_key, PEER[tag])
+                await _await_file(winner_runid)
                 assert session_log_key(trial) in str(refusal), str(refusal)
-                assert session_run_id(trial, PEER[tag]) in str(refusal), str(refusal)
+                assert winner_runid.read_text() in str(refusal), str(refusal)
                 _report(trial, tag, [REFUSED])
                 continue
             _report(trial, tag, [event.kind for event in events])
@@ -665,13 +702,17 @@ def _assert_assigned(written: list[Event], expected: int, ctx: RunContext) -> No
 
 async def _takeover_victim(root: Path) -> None:
     """Open a turn on the session and stall mid-stream, waiting to be killed with it open."""
-    store = StallingStore(events_db(root), TAKEOVER_KILLED, TAKEOVER_STALL_AFTER, root / "sync" / "mid")
+    sync = root / "sync"
+    store = StallingStore(events_db(root), TAKEOVER_STALL_AFTER, sync / "mid")
     runtime = Runtime([StubEngine()], store, {CHATTY: chatty_spec("killed")})
-    ctx = context(TAKEOVER_KILLED, TAKEOVER_LOG)
-    async for _event in runtime.run(
-        CHATTY, coerce_input("go"), run_id=ctx.run_id, session_id=ctx.session_id, namespace=ctx.namespace
-    ):
-        pass  # the store stalls this run partway through and never lets it finish
+    real_id: str | None = None
+    async for event in runtime.run(CHATTY, coerce_input("go"), session_id=TAKEOVER_LOG, namespace=TENANT):
+        if real_id is None:
+            # The run's own minted id, captured off its first event before the store ever gets
+            # a chance to stall: the successor learns it from here rather than predicting it.
+            real_id = event.run_id
+            runid_file(sync, TAKEOVER_KILLED).write_text(real_id)
+        # the store stalls this run partway through and never lets it finish
 
 
 async def _takeover_successor(root: Path) -> None:
@@ -683,81 +724,81 @@ async def _takeover_successor(root: Path) -> None:
     reads no settings, so this worker resolves the configured window explicitly, the same way
     ``build_runtime`` would.
     """
+    sync = root / "sync"
     store = SqliteEventStore(events_db(root))
     runtime = Runtime(
         [StubEngine()], store, {CHATTY: chatty_spec("next")}, stale_run_after=get_settings().runtime.stale_run_after
     )
-    ctx = context(TAKEOVER_NEXT, TAKEOVER_LOG)
     try:
         events = [
-            event
-            async for event in runtime.run(
-                CHATTY, coerce_input("go"), run_id=(ctx).run_id, session_id=(ctx).session_id, namespace=(ctx).namespace
-            )
+            event async for event in runtime.run(CHATTY, coerce_input("go"), session_id=TAKEOVER_LOG, namespace=TENANT)
         ]
     except SessionBusyError as refusal:
+        # The victim's real id was minted, not chosen, and this process never saw it start. It
+        # was left on disk the moment the victim observed its own first event.
+        killed_id = runid_file(sync, TAKEOVER_KILLED).read_text()
         assert TAKEOVER_LOG in str(refusal), str(refusal)
-        assert TAKEOVER_KILLED in str(refusal), str(refusal)
+        assert killed_id in str(refusal), str(refusal)
         _report(0, "successor", [REFUSED])
         return
+    runid_file(sync, TAKEOVER_NEXT).write_text(events[0].run_id)
     _report(0, "successor", [event.kind for event in events])
 
 
 async def _restart_victim(root: Path) -> None:
     """Suspend one run, then stall a second one mid-stream and wait to be killed."""
-    store = StallingStore(events_db(root), RESTART_KILLED, RESTART_STALL_AFTER, root / "sync" / "mid")
+    sync = root / "sync"
+    store = StallingStore(events_db(root), RESTART_STALL_AFTER, sync / "mid")
     runtime = Runtime([StubEngine()], store, {APPROVER: approver_spec(), CHATTY: chatty_spec("killed")})
-    suspended = context(RESTART_SUSPENDED, RESTART_LOG)
-    opening = [
-        event
-        async for event in runtime.run(
-            APPROVER,
-            coerce_input("go"),
-            run_id=(suspended).run_id,
-            session_id=(suspended).session_id,
-            namespace=(suspended).namespace,
-        )
-    ]
+    opening: list[Event] = []
+    async for event in runtime.run(APPROVER, coerce_input("go"), session_id=RESTART_LOG, namespace=TENANT):
+        if not opening:
+            # This run must complete (it only ever reaches ``run.interrupted``, never ``after``
+            # events), so its real id is told to the store to ignore before its own events could
+            # otherwise be mistaken for the start of the run meant to stall.
+            store.ignore(event.run_id)
+            runid_file(sync, RESTART_SUSPENDED).write_text(event.run_id)
+        opening.append(event)
     _report(0, "victim", [event.kind for event in opening])
     # Its own log, not the suspended run's: that session has an open run, and one session
     # admits one turn at a time, so a second run there would be refused rather than killed.
-    async for _event in runtime.run(
-        CHATTY,
-        coerce_input("go"),
-        run_id=(context(RESTART_KILLED)).run_id,
-        session_id=(context(RESTART_KILLED)).session_id,
-        namespace=(context(RESTART_KILLED)).namespace,
-    ):
-        pass  # the store stalls this run partway through and never lets it finish
+    real_id: str | None = None
+    async for event in runtime.run(CHATTY, coerce_input("go"), namespace=TENANT):
+        if real_id is None:
+            real_id = event.run_id
+            runid_file(sync, RESTART_KILLED).write_text(real_id)
+        # the store stalls this run partway through and never lets it finish
 
 
 async def _restart_successor(root: Path) -> None:
     """A fresh process on the dead one's log: continue what can be continued, no-op on the rest."""
+    sync = root / "sync"
     store = SqliteEventStore(events_db(root))
     runtime = Runtime([StubEngine()], store, {APPROVER: approver_spec(), CHATTY: chatty_spec("killed")})
-    suspended = context(RESTART_SUSPENDED, RESTART_LOG)
+    # Both real ids were minted by the victim, not chosen, and left on disk for this process
+    # (a fresh one that never saw either run open) to read back.
+    suspended_id = runid_file(sync, RESTART_SUSPENDED).read_text()
     resumed = [
         event
         async for event in runtime.resume(
             APPROVER,
             THREAD_ID,
             "approved",
-            run_id=(suspended).run_id,
-            session_id=(suspended).session_id,
-            namespace=(suspended).namespace,
+            run_id=suspended_id,
+            session_id=RESTART_LOG,
+            namespace=TENANT,
         )
     ]
     _report(0, "successor", [event.kind for event in resumed])
-    killed = context(RESTART_KILLED)
+    killed_id = runid_file(sync, RESTART_KILLED).read_text()
     stray = [
         event
         async for event in runtime.resume(
             CHATTY,
             THREAD_ID,
             "approved",
-            run_id=(killed).run_id,
-            session_id=(killed).session_id,
-            namespace=(killed).namespace,
+            run_id=killed_id,
+            namespace=TENANT,
         )
     ]
     _report(1, "successor", [event.kind for event in stray])

@@ -49,7 +49,7 @@ from agentdeck.core.events import (
 )
 from agentdeck.core.ports import SessionClaim
 from agentdeck.core.status import RunStatus
-from agentdeck.errors import StoreError
+from agentdeck.errors import DuplicateKeyError, StoreError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Coroutine, Iterable, Sequence
@@ -75,9 +75,9 @@ async def two_event_stores(request: pytest.FixtureRequest) -> AsyncIterator[tupl
         yield pair
 
 
-def _ctx(namespace: str = "acme", run_id: str = "r-1", log_key: str = "s-1") -> RunContext:
+def _ctx(namespace: str = "acme", run_id: str = "r-1", log_key: str = "s-1", key: str | None = None) -> RunContext:
     """The context a write is made in — which is now the whole envelope bar ``origin``."""
-    return RunContext(namespace=namespace, run_id=run_id, session_id=log_key)
+    return RunContext(namespace=namespace, run_id=run_id, session_id=log_key, key=key)
 
 
 def _started() -> RunStarted:
@@ -403,6 +403,88 @@ async def test_two_claims_gathered_on_one_session_have_exactly_one_winner(event_
     assert len(await event_store.read("s-1", _ctx())) == 1
 
 
+# --- ctx.key: a second, permanent claim over (namespace, key) — #324 -----------------------
+
+
+async def test_claim_start_without_a_key_never_touches_the_key_index(event_store: EventStorePort) -> None:
+    """The ordinary case, and the one every test above already exercises implicitly: a run
+    started with no key must never collide with another run started with no key either."""
+    first, event1 = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-1"), ORIGIN, NOTHING_IS_STALE)
+    second, event2 = await event_store.claim_start(
+        "s-2", _started(), _ctx(run_id="r-2", log_key="s-2"), ORIGIN, NOTHING_IS_STALE
+    )
+
+    assert first == SessionClaim() and event1 is not None
+    assert second == SessionClaim() and event2 is not None
+
+
+async def test_claim_start_refuses_a_key_already_used_by_a_different_run(event_store: EventStorePort) -> None:
+    """The strict reading of `run-identity.md` §15: a key is consumed for good the moment a run
+    opens with it, and a second start reusing it raises rather than handing back the run that
+    holds it or silently refusing the session claim instead."""
+    claim, event = await event_store.claim_start(
+        "s-1", _started(), _ctx(run_id="r-1", key="order-1234"), ORIGIN, NOTHING_IS_STALE
+    )
+    assert claim == SessionClaim() and event is not None
+
+    with pytest.raises(DuplicateKeyError, match="order-1234"):
+        await event_store.claim_start(
+            "s-2", _started(), _ctx(run_id="r-2", log_key="s-2", key="order-1234"), ORIGIN, NOTHING_IS_STALE
+        )
+    # The refused claim wrote nothing under its own log — a duplicate key is refused before
+    # anything about the losing run is recorded, the same "fails deterministically" promise a
+    # lost session claim already gives.
+    assert await event_store.read("s-2", _ctx(log_key="s-2")) == []
+
+
+async def test_claim_start_refuses_a_reused_key_even_under_a_fresh_session(event_store: EventStorePort) -> None:
+    """`(namespace, key)` is a namespace-wide claim, not a per-log one: reusing a key is refused
+    even when the second attempt targets a session the first one never touched, which is what
+    tells this apart from the ordinary per-log session-busy refusal above."""
+    await event_store.claim_start("s-1", _started(), _ctx(run_id="r-1", key="order-1234"), ORIGIN, NOTHING_IS_STALE)
+
+    with pytest.raises(DuplicateKeyError):
+        await event_store.claim_start(
+            "s-brand-new",
+            _started(),
+            _ctx(run_id="r-2", log_key="s-brand-new", key="order-1234"),
+            ORIGIN,
+            NOTHING_IS_STALE,
+        )
+
+
+async def test_two_namespaces_sharing_one_key_get_two_unrelated_runs(event_store: EventStorePort) -> None:
+    """The whole point of splitting `id` from `key`: two tenants using the same application
+    identifier never collide, because the key plays no part in either run's own address."""
+    acme_claim, acme_event = await event_store.claim_start(
+        "s-1", _started(), _ctx("acme", run_id="r-1", key="order-1234"), ORIGIN, NOTHING_IS_STALE
+    )
+    globex_claim, globex_event = await event_store.claim_start(
+        "s-1", _started(), _ctx("globex", run_id="r-2", key="order-1234"), ORIGIN, NOTHING_IS_STALE
+    )
+
+    assert acme_claim == SessionClaim() and acme_event is not None
+    assert globex_claim == SessionClaim() and globex_event is not None
+    assert acme_event.run_id != globex_event.run_id
+
+
+async def test_two_concurrent_claim_starts_on_one_key_yield_exactly_one_winner(event_store: EventStorePort) -> None:
+    """The enforcement's own atomicity, not a caller's discipline: an ``await`` slipped between
+    reading whether the key is free and writing it down would let both of these through."""
+    outcomes = await asyncio.gather(
+        event_store.claim_start("s-1", _started(), _ctx(run_id="r-1", key="order-1234"), ORIGIN, NOTHING_IS_STALE),
+        event_store.claim_start(
+            "s-2", _started(), _ctx(run_id="r-2", log_key="s-2", key="order-1234"), ORIGIN, NOTHING_IS_STALE
+        ),
+        return_exceptions=True,
+    )
+
+    winners = [outcome for outcome in outcomes if not isinstance(outcome, BaseException)]
+    losers = [outcome for outcome in outcomes if isinstance(outcome, BaseException)]
+    assert len(winners) == 1, outcomes
+    assert len(losers) == 1 and isinstance(losers[0], DuplicateKeyError), outcomes
+
+
 # Wide enough that a store handing two callers one number would be caught, small enough that the
 # case costs milliseconds. Every task appends a single payload, so the log must come back as
 # exactly this many events numbered 0..N-1 however the tasks were scheduled.
@@ -587,6 +669,21 @@ async def test_list_runs_filters_by_status(event_store: EventStorePort) -> None:
 
 async def test_list_runs_of_an_empty_store_is_empty(event_store: EventStorePort) -> None:
     assert await event_store.list_runs(_ctx()) == []
+
+
+async def test_list_runs_limit_caps_the_listing(event_store: EventStorePort) -> None:
+    await _write(event_store, [_started()], _ctx(run_id="r-1"))
+    await _write(event_store, [_started()], _ctx(run_id="r-2", log_key="s-2"))
+    await _write(event_store, [_started()], _ctx(run_id="r-3", log_key="s-3"))
+
+    assert len(await event_store.list_runs(_ctx())) == 3
+    assert len(await event_store.list_runs(_ctx(), limit=2)) == 2
+    assert await event_store.list_runs(_ctx(), limit=0) == []
+
+
+async def test_list_runs_negative_limit_is_refused(event_store: EventStorePort) -> None:
+    with pytest.raises(ValueError, match="limit"):
+        await event_store.list_runs(_ctx(), limit=-1)
 
 
 async def test_list_runs_enumerates_runs_across_every_log_key_of_the_namespace(event_store: EventStorePort) -> None:

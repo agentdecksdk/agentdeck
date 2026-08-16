@@ -1176,28 +1176,35 @@ async def test_a_cancel_against_a_parked_run_in_a_real_namespace_still_ends_it(n
 
 
 @pytest.mark.asyncio
-async def test_a_cancel_in_one_namespace_leaves_the_same_run_id_in_another_untouched(no_project, scripted):
-    """#315: both control ports keyed a pending signal by ``run_id`` alone, so ``acme``'s
+async def test_a_cancel_in_one_namespace_leaves_the_same_key_in_another_untouched(no_project, scripted):
+    """#315/#320: both control ports keyed a pending signal by ``run_id`` alone, so ``acme``'s
     ``order-1234`` and ``globex``'s ``order-1234`` shared one row — a cancel meant for one
     landed on both, and ``consume()``'s compare-and-set made them fight over the same slot.
-    #314 shipped while the Runtime alone tested clean, so this is asserted at the Deck level,
-    through the surface a caller actually holds (docs/design/run-identity.md).
 
-    Signalled before either run opens, so the first safe point is the one that honors it —
-    deterministic without a clock or a sleep. ``globex`` streams first, deliberately: on the
-    bare-``run_id``-keyed port this used to be, whichever run polls the gate first takes the
-    one shared row, cancelling the bystander and leaving ``acme`` — the run the signal actually
-    named — to complete untouched. Order must not matter.
+    #324 changes the mechanism, not the intent: ``key`` is no longer the run's address at all,
+    so the two namespaces below sharing one key cannot even name the same id to collide over —
+    each gets its own, read straight off its own ``run.started``. The isolation this guards is
+    now asserted through that real id rather than a caller-chosen one, the surface a caller
+    actually holds (docs/design/run-identity.md).
     """
     deck = Deck(agents=[_greeter()])
     async with deck:
-        assert await deck.runs.cancel("order-1234", "acme said stop", namespace="acme") is True
+        globex_stream = deck.stream("Greeter", "hi there", key="order-1234", namespace="globex")
+        globex_started = await anext(globex_stream)
+        acme_stream = deck.stream("Greeter", "hi there", key="order-1234", namespace="acme")
+        acme_started = await anext(acme_stream)
 
-        globex = [event async for event in deck.stream("Greeter", "hi there", run_id="order-1234", namespace="globex")]
-        acme = [event async for event in deck.stream("Greeter", "hi there", run_id="order-1234", namespace="acme")]
+        assert globex_started.run_id != acme_started.run_id  # same key, two unrelated runs
 
-    assert [event.kind for event in globex][-1] == "run.completed"  # same run_id, a different tenant
-    assert [event.kind for event in acme][-1] == "run.cancelled"  # the namespace the cancel actually targeted
+        # Signalled before either stream is asked to produce more, so the first safe point
+        # each hits is the one that observes it — deterministic without a clock or a sleep.
+        assert await deck.runs.cancel(acme_started.run_id, "acme said stop", namespace="acme") is True
+
+        globex = [globex_started, *[event async for event in globex_stream]]
+        acme = [acme_started, *[event async for event in acme_stream]]
+
+    assert [event.kind for event in globex][-1] == "run.completed"  # a different tenant, same key
+    assert [event.kind for event in acme][-1] == "run.cancelled"  # the run the signal actually named
 
 
 @pytest.mark.asyncio
@@ -1280,13 +1287,14 @@ async def test_answering_a_paused_run_names_resume(no_project, scripted):
     deck = Deck(agents=[_greeter()])
 
     async with deck:
-        run_id = "r-paused"
-        assert await deck.runs.pause(run_id, "operator stepped away") is True
-        [event async for event in deck.stream("Greeter", "hi there", run_id=run_id)]
+        stream = deck.stream("Greeter", "hi there")
+        started = await anext(stream)  # the run's own minted id, before it reaches a safe point
+        assert await deck.runs.pause(started.run_id, "operator stepped away") is True
+        [event async for event in stream]
 
-        assert await deck.runs.status(run_id) is RunStatus.PAUSED
+        assert await deck.runs.status(started.run_id) is RunStatus.PAUSED
         with pytest.raises(RunStateError, match=r"deck\.runs\.resume"):
-            await deck.runs.answer(run_id, "yes")
+            await deck.runs.answer(started.run_id, "yes")
 
 
 # --- _tick() resumes a Deck.run() interrupt through the Runtime, not a checkpointer ghost ----
@@ -1348,10 +1356,11 @@ async def test_pause_and_resume_reach_the_runtime_this_deck_composed(no_project,
     deck = Deck(agents=[_greeter()])
 
     async with deck:
-        run_id = "r-control"
-        assert await deck.runs.pause(run_id, "operator stepped away") is True
-        paused = [event async for event in deck.stream("Greeter", "hi there", run_id=run_id)]
-        resumed = await deck.runs.resume(run_id)
+        stream = deck.stream("Greeter", "hi there")
+        started = await anext(stream)  # the run's own minted id, before it reaches a safe point
+        assert await deck.runs.pause(started.run_id, "operator stepped away") is True
+        paused = [started, *[event async for event in stream]]
+        resumed = await deck.runs.resume(started.run_id)
 
     assert [event.kind for event in paused][-3:] == ["control.requested", "control.observed", "run.paused"]
     assert next(e.payload.reason for e in paused if e.kind == "run.paused") == "operator stepped away"

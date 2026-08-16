@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from agentdeck.core.events import Event
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
 from agentdeck.core.status import LIFECYCLE_KINDS, STATES, RunStatus, can_resume, status_of
-from agentdeck.errors import DuplicateKeyError
+from agentdeck.errors import DuplicateKeyError, StoreError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -60,6 +60,16 @@ class MemoryEventStore(EventStorePort):
         reading the run's last ``seq`` and extending the log is all it would take for two tasks to
         be handed the same number.
         """
+        known_log = self._run_logs.get((ctx.namespace, ctx.run_id))
+        if known_log is not None and known_log != log_key:
+            # `_run_logs` is the enforcement here, not just `locate`'s cache: one logical run
+            # writing under two log keys is exactly the corruption SQLite's tightened
+            # `events_by_run` index refuses at the DB level, and this store owes the same
+            # promise even though it has no index to lean on.
+            raise StoreError(
+                f"run {ctx.run_id!r} is already recorded under log {known_log!r} in namespace "
+                f"{ctx.namespace!r}; cannot also write it under {log_key!r}"
+            )
         log = self._logs.setdefault((ctx.namespace, log_key), [])
         if any(payload.kind in LIFECYCLE_KINDS for payload in payloads):
             # Only on a lifecycle write, so a run with none recorded stays unlocatable — the same

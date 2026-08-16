@@ -107,7 +107,14 @@ def _migrate_events_schema(conn: sqlite3.Connection) -> None:
         return
     if "key" not in columns:
         conn.execute("ALTER TABLE events ADD COLUMN key TEXT")
-    conn.execute("DROP INDEX IF EXISTS events_by_run")
+    # Only drop and rebuild when the index is genuinely the old shape: on a database already at
+    # this build's schema (freshly created, or already migrated), `events_by_run` already reads
+    # `(namespace, run_id, seq)`, and dropping it unconditionally on every open would force a
+    # write — and the write lock that comes with it — where opening an up-to-date file used to
+    # need none, which a peer mid-transaction would then see as a false contention.
+    run_index_columns = [row[2] for row in conn.execute("PRAGMA index_info(events_by_run)")]
+    if "log_key" in run_index_columns:
+        conn.execute("DROP INDEX events_by_run")
 
 
 def _enable_wal(conn: sqlite3.Connection) -> None:
