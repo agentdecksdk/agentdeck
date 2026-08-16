@@ -245,11 +245,15 @@ Fixed / Security` order — and are written to be attached to a release as-is.
   and `runs-and-the-event-log.mdx` drop their last `waiting_human`/`pending` references, both
   renamed away by #295. `README.md`'s extras line now matches `pyproject.toml` (SQLite
   checkpointer in base, `redis` its own extra) and its run-control bullet says "agent or workflow".
-- **`tests/test_generated_reference.py` now pins all five files `generate_docs_reference.py`
-  writes, not two** (#317). `changelog.mdx`, `llms.txt` and `llms-full.txt` had no test at all, so
-  they could drift from `CHANGELOG.md`/the site's own pages for a whole release with `make check`
-  green throughout — reported as unrelated churn by two different agents this week when they
-  regenerated one page and were surprised by the other four changing too.
+- **`tests/test_generated_reference.py` now covers all five files `generate_docs_reference.py`
+  writes, not two** (#317). `settings.mdx` and `cli.mdx` stay pinned byte for byte; `llms.txt`
+  joins them. `changelog.mdx` and `llms-full.txt` only assert the generator still produces them,
+  rather than pinning them too: both derive from `CHANGELOG.md`, which is `merge=union` so
+  concurrent PRs can each add an entry, and a byte pin would fail every open PR the moment any
+  other one merged one. The three previously untested pages could drift from `CHANGELOG.md`/the
+  site's own pages for a whole release with `make check` green throughout — reported as unrelated
+  churn by two different agents this week when they regenerated one page and were surprised by
+  the other four changing too.
 
 ### Added
 
