@@ -418,7 +418,7 @@ broken, and #311 shipped a namespace test that called `runtime.signal()` directl
 **Control-plane isolation**
 
 `acme/order-1234` and `globex/order-1234` alive at once: pause, cancel, resume and answer against
-one never touch the other. **Mandatory** — it is the defect this document starts from.
+one never touch the other. **Mandatory**: it is the defect this document starts from.
 
 **Execution ownership**
 
