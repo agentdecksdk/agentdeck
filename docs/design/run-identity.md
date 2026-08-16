@@ -294,7 +294,7 @@ today have to come apart:
 |---|---|---|
 | execution | exactly one owner, a deck-owned task created by `start()` | drains the engine generator and appends to the store |
 | observation | any number of consumers | `run.events()` replays the log from `from_seq` and tails it |
-| result waiting | any number of consumers | `await run` waits for a terminal lifecycle event, then reads the outcome from the log |
+| result waiting | any number of consumers | `await run` waits for the run to stop advancing, then reads the outcome from the log |
 
 The store is the only handoff. Neither `run.events()` nor `await run` may advance execution.
 
@@ -311,6 +311,11 @@ Four consequences to design against, not to discover:
 - **`await run` reads the outcome from the log**, so `run.completed` must carry everything
   `_turn_result` and `_workflow_result` build today. Verify before building; if it does not, that
   is a payload gap to close first.
+- **The wait primitive wakes on terminal *or* suspension**, not on terminal alone. A run that parks
+  in `WAITING_ANSWER` has stopped advancing and nothing further will happen without a caller, so a
+  waiter that only knows terminal states sleeps through the park. What the surface then does with a
+  suspended wake is §15's ruling and stays changeable there; the primitive underneath must be able
+  to see it either way.
 - **`deck.stream()` must stay byte-identical on the v1 wire.** It becomes start plus
   `events(follow=True)`, and `tests/golden/` is the proof.
 
@@ -471,24 +476,19 @@ one never touch the other. **Mandatory**: it is the defect this document starts 
 Persist a run, rebuild the deck, `get(id)`, and inspect durable status, history and result. Assert
 that ephemeral context did **not** survive.
 
-## 15. Open
+## 15. Rulings
 
-**Is `(namespace, key)` unique for all time, or only among active runs?** This document takes the
-strict reading: a key is consumed permanently, a second `start()` with it is refused, and `get()`
-is the recovery path. The looser reading lets a key be reused once its run is terminal, which suits
-a per-day idempotency key and weakens invariant 2 into a partial index.
+Settled 2026-08-16. All four were open when this document was written.
 
-**Does a refused duplicate `start()` raise, or return the existing run?** Raising is the strict
-reading of "fail deterministically". Returning the existing run is the Stripe convention and saves
-every caller a `try`, at the cost of a start that silently did nothing.
+| question | ruling | what it costs |
+|---|---|---|
+| is `(namespace, key)` unique for all time, or only among active runs? | **for all time.** A key is consumed permanently and `get(namespace=, key=)` is the recovery path | a per-day idempotency key has to carry the day in the key. The looser reading would weaken invariant 2 into a partial index |
+| does a refused duplicate `start()` raise, or return the existing run? | **raises**, naming the run that holds the key | every caller writes a `try`. Returning the existing run is the Stripe convention, but a start that silently did nothing is the worse surprise |
+| does `await run` on a `WAITING_ANSWER` run block or raise? | **raises**, carrying the pending request | a caller who wanted to wait polls instead. Blocking hangs forever when nobody answers, and there is no timeout parameter in this design to escape it |
+| does `list()` need cross-namespace listing? | **no.** `list()` stays namespace-scoped | an operator view of every parked run has no home yet. Adding one means ruling that the isolation boundary has an above, which is a separate decision and nothing needs it |
 
-**Does `await run` on a `WAITING_ANSWER` run block or raise?** Blocking is what a caller means; it
-also blocks forever if nobody answers. There is no timeout parameter in this design and adding one
-is a second decision.
-
-**Does `list()` need cross-namespace listing?** An operator view of every parked run has no
-namespace to pass. It does not exist today either, and adding it means deciding whether the
-isolation boundary has an above.
+The third ruling is the reversible one: §9's wait primitive wakes on suspension either way, so
+blocking is a surface change and not a rebuild. The first two are storage invariants and are not.
 
 ## Why this shape
 

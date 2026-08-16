@@ -118,5 +118,5 @@ already did — an email that was sent stays sent. That holds for a run cancelle
 too: `resume` finds the pending cancel and ends the run rather than continuing it, so asking
 to resume does not quietly override whoever cancelled.
 
-`paused` is also not `waiting_human`: a run stopped on an `interrupt()` is waiting for an answer
+`paused` is also not `waiting_answer`: a run stopped on an `interrupt()` is waiting for an answer
 and resumes *with a value*; a paused run is waiting for an operator and resumes with nothing.

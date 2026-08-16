@@ -245,9 +245,16 @@ engine ran the turn. `stream` does not return one; it yields the events themselv
 | Field | Type | Meaning |
 |---|---|---|
 | `output` | `Any` | the run's structured output (a `DataBlock`'s data), or the joined text of the final message |
-| `usage` | `Usage` | `input_tokens`, `output_tokens`, `usd` (`None` when no price is known for the model) — the run's authoritative total |
+| `usage` | `Usage` | `input_tokens`, `output_tokens`, `usd` — the run's authoritative total |
 | `run_id` | `str` | this run's id |
 | `session_id` | `str \| None` | the session this turn belongs to, if `session_id=` was given |
+
+**`usage.usd` is always `None`, on purpose.** agentdeck does not price model calls: no provider
+returns a dollar figure in a response, and a price depends on a contract, a tier and a date
+rather than on the call, so owning a table for every model on every provider would trade an
+empty field for a stale one. `usd` is reserved for a caller that supplies its own cost; compute
+one from `input_tokens`/`output_tokens` and your own price table if you need it (#177). The
+field is deprecated and slated for removal at the next major, so do not build on it.
 
 Calling `Agent.run()` directly — the class's own headless runner, bypassing `Deck` and the
 Runtime entirely — still returns the SDK's own `RunResult`; see

@@ -31,7 +31,7 @@ coverage:       ## per-module coverage — audit input for #71/#131, not part of
 golden:         ## re-record the wire + schema snapshots — deliberate, never automatic
 	AGENTDECK_GOLDEN_UPDATE=1 .venv/bin/pytest tests/golden tests/core -q
 
-docs-reference: ## regenerate docs-site/content/reference/{settings,cli}.mdx from the code
+docs-reference: ## regenerate the five generated docs-site files from the code
 	.venv/bin/python scripts/generate_docs_reference.py
 
 roadmap-sync:   ## refresh the live-status tables in docs/delivery/ from GitHub (gh required)
