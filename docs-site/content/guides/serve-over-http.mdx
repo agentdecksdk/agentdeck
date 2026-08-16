@@ -42,6 +42,13 @@ curl -N -X POST "http://localhost:8000/agents/Scheduler/chat?stream=true" \
   -d '{"session_id": "sess-2", "message": "and Wednesday?"}'
 ```
 
+**A client that disconnects mid-stream does not cancel the turn.** The run advances in a
+deck-owned task and the SSE response is only watching it, so a closed browser tab, a dropped
+connection or a client timeout leaves the run playing to its own end, its answer in the log and
+its session freed there. Stopping a turn is an explicit `POST /runs/{run_id}/cancel` (or
+`run.cancel(...)` in Python), covered in [Pause, Resume,
+Cancel](/operating/pause-resume-cancel).
+
 ## Workflows on the same server
 
 `POST /workflows/{name}` and its `?stream=true`, `/pending`, and `/{thread_id}/resume`

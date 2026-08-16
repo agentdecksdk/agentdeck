@@ -154,7 +154,7 @@ no checkpointer to resume from. `thread_id` is required when `durable` is `True`
 otherwise) and ignored when it is not.
 
 The same asymmetry as `Agent.run()` applies here. Calling `some_workflow.run(...)` directly drives
-the compiled graph and writes nothing to the event log; `Deck.run()` and `Deck.runs.answer()` are what
+the compiled graph and writes nothing to the event log; `Deck.run()` and `Run.answer()` are what
 the Runtime actually plays, and record the run — see [Deck](/reference/deck). `Deck.stream()`
 plays a workflow the same way, so nothing on `Deck` calls `run_stream()` — it stays useful for a
 script or a test that wants the raw graph stream with no log.

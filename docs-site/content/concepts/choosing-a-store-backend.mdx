@@ -18,7 +18,7 @@ Every one of them is a single URL whose **scheme picks the backend**. There is n
 | `AGENTDECK_EVENTS` | the canonical event log — every run, every turn | `memory://` | no |
 | `AGENTDECK_CHECKPOINT` | LangGraph's state for `durable=True` workflows | `sqlite://.agentdeck/checkpoints.sqlite3` | same machine |
 | `AGENTDECK_SESSION` | an agent's conversation history per `session_id` | unset (in-process SQLite) | no |
-| `AGENTDECK_CONTROL` | pending pause/cancel signals for a live run | `memory://` | no |
+| `AGENTDECK_CONTROL` | pending pause/cancel signals, and each running run's liveness lease | `memory://` | no |
 
 The exhaustive field list, including the Redis-only session knobs, is in the [settings
 reference](/reference/settings) — this page is about which value to pick and what happens if you
@@ -70,7 +70,8 @@ export AGENTDECK_CONTROL=sqlite:///var/lib/agentdeck/control.sqlite3
 
 `postgresql://` — for the event log and the checkpointer both — needs the `durability` extra.
 `redis://` — for either the event log or sessions — needs the `redis` extra. The control port
-has no networked backend at all today: a signal still only reaches a run from the same machine.
+has no networked backend at all today: a signal, and a lease, still only reach a run from the same
+machine.
 
 **Tests.** `memory://` for all three that offer it, including
 `AGENTDECK_CHECKPOINT=memory://`, so nothing survives the test that wrote it and no file is left
@@ -96,10 +97,39 @@ requirements.** A workflow can pause durably in a Postgres checkpointer while
 *event log* — shows a second process nothing at all, because that log is still `memory://`. The
 approval is safely parked and nobody can find it.
 
-The **control port** is a third, smaller thing: a pending signal for a run in flight, which the
-run picks up at its next safe point. It only has to outlive the seconds between a request and
-that safe point, which is why `sqlite://` is as far as it goes — see
+The **control port** is a third, smaller thing: per-run scratch state that a second worker has to
+be able to read. Nothing in it is a record of what happened, only what is true right now, which
+is why `sqlite://` is as far as it goes — see
 [Pause, Resume, Cancel](/operating/pause-resume-cancel).
+
+## The control port is also the lease port
+
+It holds two things, and the second one is why sharing it matters more than the signal path
+alone suggests:
+
+| What | Written by | Read by |
+|---|---|---|
+| a pending pause or cancel | whoever asked | the run itself, at its next safe point |
+| a **lease** on a running run, renewed six times per TTL | the worker playing it | the next turn that finds that run still open |
+
+The lease is how a session gets freed by evidence instead of by a timer. A worker killed outright
+stops renewing; the next turn on that session reads the lapsed lease, knows nobody is playing that
+run, and closes it. Without a shared lease port there is nothing to read, so the only backstop is
+`AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` (**3600** by default), and one crashed process locks
+one user out of one conversation for the rest of that hour.
+
+```bash
+export AGENTDECK_CONTROL=sqlite:///var/lib/agentdeck/control.sqlite3
+```
+
+That drops the wait to one `AGENTDECK_RUNTIME_LEASE_TTL_SECONDS` (**90** by default). A lease is
+only ever evidence of death, never of life: a run the port has never seen is never reported dead,
+so `memory://` behaves exactly as it did before leases existed rather than freeing sessions it
+knows nothing about.
+
+None of this reaches a run that was **paused** or **waiting on an answer** when its worker died.
+There is no worker there to be dead, so that session holds until the run is resumed, answered or
+cancelled, with no timer and no lease involved.
 
 ## Changing your mind later
 
