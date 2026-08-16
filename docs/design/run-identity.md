@@ -1,10 +1,15 @@
 # Run identity and the Run object
 
-What addresses a run, what a caller holds, and why the control plane can address the wrong
-tenant today.
+What addresses a run, what a caller holds, who drives execution, and why the control plane can
+address the wrong tenant today.
 
-Proposal, not built. Supersedes #314's `namespace=` patch, which is the consistent version of
-the mistake rather than the fix.
+Proposal, not built. Supersedes #314's `namespace=` patch and the `deck.runs.<op>(run_id)` shape
+ruled in `design/run-operations.md`, which kept the run id as an argument and rejected a per-run
+object.
+
+**Revised 2026-08-16.** The earlier revision of this document had `create()`, a `CREATED` state,
+`run.created`, `claim_create` and a `holds_session` axis. All of it is withdrawn. `start()` is the
+first operation, and the six states in `core/status.py` today are the whole lifecycle.
 
 ## The defect this starts from
 
@@ -14,96 +19,233 @@ the mistake rather than the fix.
 CREATE TABLE IF NOT EXISTS signals (run_id TEXT PRIMARY KEY, signal TEXT, reason TEXT)
 ```
 
-`acme/order-1234` and `globex/order-1234` share one row. A cancel for one cancels the other, a
-pause for one pauses the other, and `consume()`'s compare-and-set makes them fight over a single
-slot. The memory port has the same shape (`dict[str, ControlSignal]`), and `ControlPort`'s own
-docstring states the false premise out loud:
+`acme/order-1234` and `globex/order-1234` share one row. A cancel for one cancels the other, and
+`consume()`'s compare-and-set makes them fight over a single slot. The memory port has the same
+shape, and `ControlPort`'s docstring states the false premise out loud:
 
 > No `RunContext` on the port methods — `run_id` is globally unique.
 
-It is not. `deck.run(..., run_id=…)` accepts one (`deck.py:749`) and `service.py:614` mints a
-`uuid4()` only when the caller supplies none. The event stores were built correctly and key by
-`(namespace, log_key)`; the control plane was built on the premise the stores contradict.
+It is not. `deck.run(..., run_id=…)` accepts a caller-supplied id (`deck.py:749`) and
+`service.py:614` mints a `uuid4()` only when none is given. The event stores key by
+`(namespace, log_key)` and are correct; the control plane was built on the premise they contradict.
 
-**This is a live cross-tenant defect, not a design smell.** It is also the reason the fix is an
-identity change rather than three keyword arguments: every subsystem that addresses a run by a
-bare `run_id` is one namespace collision away from acting on a stranger.
+This is a live cross-tenant defect. It is also why the fix is an identity change rather than three
+keyword arguments: every subsystem addressing a run by a bare caller id is one collision away from
+acting on a stranger.
 
-## 4. The identity model
+## 1. Identity
 
-Two identities, one derived from the other.
+Four values, three of them public and one of them optional.
 
 | | who owns it | what it is |
 |---|---|---|
-| `(namespace, run_id)` | the caller | the logical/idempotency identity, chosen or defaulted |
-| `ref` | agentdeck | the durable address, globally unique, opaque |
+| `run.id` | agentdeck | the canonical durable identity, minted, opaque, globally addressable. Persist this to recover the exact run |
+| `run.namespace` | the caller | the isolation domain. **Not authorization** |
+| `run.key` | the caller | optional stable application identifier, for lookup and idempotency |
+| `run.session_id` | the caller | the conversation this run executes against |
 
-**`ref` is derived, not minted.** It is a pure function of the pair:
+`(namespace, key)` is the logical application identity. `id` is the physical one.
 
 ```python
-def encode(namespace: str | None, run_id: str) -> str:
-    if namespace is None:
-        return run_id                                     # byte-identical to today
-    return f"adr:{quote(namespace, safe='')}:{quote(run_id, safe='')}"
+run = await deck.runs.start("SupportAgent", input, namespace="acme", key="order-1234")
 ```
 
-Deriving rather than storing removes the mapping table, the second source of truth, and the
-atomic mint that would have had to guard it. Same pair always yields the same ref, in any
-process, with no round trip.
+**`id` is minted, never derived from `key`.** `key` is optional, so there is nothing to derive from
+when it is absent. This withdraws the `encode(namespace, run_id)` derivation and the `adr:` prefix
+reservation proposed in the previous revision; see §11 for what that costs PR #320.
 
-`adr:` is reserved: a caller-supplied `run_id` beginning with it is refused at `create()`, which
-is what makes an unnamespaced ref unambiguous. Validation at a trust boundary, so the simplicity
-ladder does not apply.
+### Why the derivation works today and cannot survive the split
 
-### `encode(None, run_id) == run_id` is the compatibility keystone
+There is no keyless case in the tree right now. `RunContext.run_id` is `run_id or str(uuid4())`
+(`runtime/service.py:677`), so one caller-facing id exists, it is never empty, and
+`encode(namespace, run_id)` always has both halves. That is the whole reason the derivation is
+sound today.
 
-Every unnamespaced ref is byte-identical to today's `run_id`. Stored ids keep working, the
-unnamespaced CLI and HTTP surfaces keep working, and the frozen v1 wire cannot move because
-`surfaces/serve/compat.py:10` is unnamespaced by design. Zero migration for every deployment
-that never set a namespace, which is all of them on the v1 wire.
+Splitting that one value into a canonical `id` and an optional `key` is what breaks it. With no key
+there is nothing to derive an address from, and the alternative, minting a uuid *key* when the
+caller gives none, hands back a `run.key` the caller never chose and did not want, which is not what
+an application identifier is. Minting `id` and leaving `key` genuinely absent is the only shape that
+keeps both values honest.
 
-The cost, accepted: a ref is not self-evidently a ref. Invariant 5 below is enforced by the port
-signatures taking refs, not by looking at a value.
+| caller passes | `run.key` | `run.id` |
+|---|---|---|
+| nothing | `None` | minted |
+| `key="order-1234"` | `"order-1234"` | minted, with `(namespace, key)` indexed to it |
 
-### Why this is not the composite key #314 rejected
+Storage enforces `UNIQUE(namespace, key)` when a key is given. Two namespaces may use one key and
+get two different runs:
 
-#314 rejected `"acme/order-1234"` as a **user-assembled, user-parsed** value, where delimiter
-escaping became the caller's problem and a mis-parse addressed the wrong tenant silently. This
-is system-minted and parsed by nobody but us. A caller stores `run.id` and hands it back; they
-never build one and never split one.
+```
+("acme",   "order-1234")   ->  id = run_7f3a…
+("globex", "order-1234")   ->  id = run_c19b…
+```
 
-### Invariants
+No internal path addresses a run by an unscoped caller key. Control, events, telemetry and lookup
+all take `id`.
 
-| | |
+### `run_id` is gone as a caller-facing word
+
+The parameter is `key`. `run_id` survives as the internal column name only until §11's rename
+lands. A caller who supplied `run_id=` supplies `key=`, and the value they get back as `run.id` is
+a different thing.
+
+## 2. No `create()`
+
+There is no `deck.runs.create()`, no `CREATED` state, no `run.created` event and no `claim_create`.
+A run exists because it started.
+
+`start()` is one atomic admission that either succeeds completely or fails:
+
+1. mints the canonical `id`;
+2. adopts `(namespace, key)`, refusing a key already in use;
+3. takes the session execution right;
+4. begins execution.
+
+A lost race fails deterministically. It never yields a second run for one logical identity.
+
+Queueing, scheduling, admission control and session branching are not reasons to ship a generic
+`create()` now. They are separate capabilities if a real use case arrives.
+
+## 3. Public API
+
+```
+Deck
+├── run(...)  -> Result
+└── runs
+    ├── start(...) -> Run
+    ├── get(...)   -> Run
+    └── list(...)  -> list[Run]
+
+Run
+├── id · key · namespace · session_id
+├── status() · pause() · resume() · cancel()
+├── pending() · answer()
+├── events()
+└── await run -> Result
+```
+
+`deck.runs` finds or starts runs; once you hold a run, you operate on it.
+
+### The simple path
+
+```python
+result = await deck.run("SupportAgent", input, session_id="customer-42",
+                        namespace="acme", key="order-1234", context=ctx)
+```
+
+Conceptually `start()` then `await run`, over the same machinery. There is one lifecycle
+implementation, not two. `deck.stream()` is the same start followed by `run.events()`.
+
+### The collection
+
+```python
+run  = await deck.runs.start(name, input, *, session_id=None, namespace=None,
+                             key=None, context=None) -> Run
+run  = await deck.runs.get(id) -> Run
+run  = await deck.runs.get(*, namespace=None, key=…) -> Run
+runs = await deck.runs.list(*, namespace=None, status=None, limit=None) -> list[Run]
+```
+
+Three operations, and no per-run operation is duplicated here. `deck.runs.cancel/resume/answer/
+status/pending` are removed rather than deprecated.
+
+```python
+for run in await deck.runs.list(namespace="acme", status=RunStatus.WAITING_ANSWER):
+    await run.answer("approved")
+```
+
+### The `Run` contract
+
+```python
+class Run:
+    _deck: Deck
+    id: str
+    key: str | None
+    namespace: str | None
+    session_id: str | None
+
+    async def status(self) -> RunStatus
+    async def pause(self, reason: str | None = None) -> bool
+    async def resume(self) -> None
+    async def cancel(self, reason: str | None = None) -> bool
+    async def pending(self) -> Any | None
+    async def answer(self, value: Any) -> None
+    def events(self, *, from_seq: int = 0, follow: bool = False) -> AsyncIterator[Event]
+    def __await__(self)                       # the result
+```
+
+A `Run` is a lightweight deck-bound handle. It holds no engine, store, MCP registry, observer or
+runtime, and it delegates every operation back through the deck's infrastructure. If it grows one
+of those, the design is wrong.
+
+`await run` is the result API. A `result()` alias may exist for ergonomics and must not become a
+second lifecycle concept.
+
+**A handle caches no authoritative state.** The durable store is the only authority, so two handles
+to one run agree by construction:
+
+```python
+a = await deck.runs.get(id)
+b = await deck.runs.get(id)
+await a.cancel()
+assert await b.status() is RunStatus.CANCELLED
+```
+
+## 4. `get()`
+
+`get()` rehydrates a handle to a run that already exists. It never creates, starts, resumes, claims
+ownership, takes a lock or moves lifecycle state. It returns runs in any state, terminal included,
+and raises `NotFoundError` for an unknown one.
+
+Two forms, no fuzzy search and no cross-namespace guessing:
+
+```python
+run = await deck.runs.get(run.id)                              # canonical
+run = await deck.runs.get(namespace="acme", key="order-1234")  # application identity
+```
+
+## 5. Session ownership
+
+One session runs one run at a time. Which states hold the session follows from
+`STATES[...].suspended` and `.terminal` already in `core/status.py`, so no new axis is declared:
+
+| holds the session | releases it |
 |---|---|
-| 1 | Two namespaces may use one `run_id` and get two different runs |
-| 2 | The same `(namespace, run_id)` always resolves to the same run, never a second one |
-| 3 | Creating that run is atomic across processes: first create wins, the loser gets the winner's run |
-| 4 | Uniqueness is enforced by a conditional append, not inferred from event-log layout |
-| 5 | No internal path addresses a run by bare `run_id`; ports take refs |
+| `RUNNING` · `PAUSED` · `WAITING_ANSWER` | `COMPLETED` · `FAILED` · `CANCELLED` |
 
-**Invariant 3 does not disappear because the ref is derived.** Two concurrent
-`create("ApprovalFlow", …, namespace="acme", run_id="order-1234")` calls compute the same ref
-and both try to append `run.created`. Without a conditional append that is two creation events
-for one run, and if they carried different inputs, `start()` has no answer for which input runs.
+A second `start()` on a held session raises `SessionBusyError`, naming the holder and the call that
+frees it. The invariant is the store's, not a Python pre-check: `claim_start` is already the atomic
+conditional append that enforces it (`core/ports/store.py:105`), and #311 already made a parked run
+hold until answered, resumed or cancelled.
 
-**Idempotent create**, following the Stripe convention:
+A future concurrency policy (reject, enqueue, interrupt, branch, race, merge) is out of scope. The
+default is the only behaviour: one active run per session.
 
-| second `create` with the same `(namespace, run_id)` | |
-|---|---|
-| identical input | returns the existing `Run`, appends nothing |
-| different input | raises, naming the key and that it is already in use |
+## 6. Context
 
-## 3. Lifecycle
+`context` is the application's ephemeral environment, supplied when execution starts and never
+written to the log.
 
-`CREATED` becomes a real state, produced by a real event.
+```python
+run = await deck.runs.start("Agent", input, context=ctx)
+await run.resume()          # same handle, same process, same context
+await run.answer("yes")
+```
+
+The handle returned by `start()` retains it for same-process continuation, so `resume(context=…)`
+and `answer(…, context=…)` are not parameters. `get()` does not accept `context` at all.
+
+A run recovered after a restart has durable identity and durable state. It does not have the
+context. No resolver, provider or factory is introduced now; explicit rebinding is a separate
+capability if a real case needs it.
+
+## 7. Lifecycle
+
+Unchanged from what `core/status.py` ships today.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> CREATED: run.created
-    CREATED --> RUNNING: run.started
     [*] --> RUNNING: run.started
-    CREATED --> CANCELLED: run.cancelled
     RUNNING --> PAUSED: run.paused
     PAUSED --> RUNNING: run.resumed
     RUNNING --> WAITING_ANSWER: run.interrupted
@@ -115,276 +257,254 @@ stateDiagram-v2
     WAITING_ANSWER --> CANCELLED: run.cancelled
 ```
 
-Status stays folded from the log, so `CREATED` needs `run.created` or it is unobservable, which
-is exactly why #295 deleted `PENDING`.
+An operation a state does not admit is refused by `PRECONDITIONS` with `RunStateError`. A terminal
+run stays retrievable, readable and awaitable, and never silently starts a second execution.
 
-### `StateFacts` gains a third axis
+No schema PR, no new event kind, no golden churn, no snapshot change.
 
-`core/status.py:63` carries `terminal` and `suspended`. It gains `holds_session`:
+## 8. Pending and interrupts
 
-| state | terminal | suspended | holds_session |
-|---|---|---|---|
-| `CREATED` | no | no | **no** |
-| `RUNNING` | no | no | yes |
-| `PAUSED` | no | yes | yes |
-| `WAITING_ANSWER` | no | yes | yes |
-| `COMPLETED` · `FAILED` · `CANCELLED` | yes | no | no |
+`PendingRun` carries `run_id`, `session_id`, `invocable`, `thread_id`, `payload`
+(`runtime/service.py:75`). `InterruptResult` carries `type`, `payload`, `thread_id`
+(`authoring/interrupts.py:17`), and `thread_id` is `session_id or run_id`, so for a session-ful run
+it is not the run's identity at all. A caller holding one cannot address the run it came from.
 
-This is what #295's table was built for: a third fact about a state, declared once, with every
-derived set following.
+Both gain the canonical `id`, and the flow closes with no second lookup:
 
-### The claim rule becomes three-way
+```python
+run = await deck.runs.get(id)
+pending = await run.pending()
+await run.answer("approved")
+```
 
-`claim_start` in all four stores:
+`PendingRun` as a public type is replaced by `list(status=WAITING_ANSWER)` returning runs.
+`thread_id` and checkpoint ids stay internal engine concepts and are never required by the public
+API.
 
-| the open run it finds | |
-|---|---|
-| `holds_session=False` (`CREATED`, terminal) | **skipped entirely** — never held, never overridden |
-| suspended | held forever, until answered, resumed or cancelled (#311) |
-| `RUNNING` | held, unless stale or known dead (#244) |
+## 9. Execution ownership
 
-The first row matters more than it looks. If `CREATED` fell into the stale branch, an old
-created-but-unstarted run would be closed `failed` by an unrelated turn, which is precisely the
-destroy-to-reclaim failure #311 just removed for parked runs.
+**The hardest part of this design, stated rather than hidden.**
 
-The correct race behaviour falls out of it: another turn may claim the session while a run sits
-`CREATED`, and that run's `start()` then refuses as session-busy. A `CREATED` run holds nothing,
-so it is never in anyone's way.
+Today execution is driven by consuming an async generator: `runtime.run()` yields, and the caller's
+`async for` is what advances the engine. `deck.runs.start()` returns a `Run` while execution
+continues, so the caller can no longer be the sole consumer, and three things that are one thing
+today have to come apart:
 
-### The questions `create()` raises, answered
+| | who | how |
+|---|---|---|
+| execution | exactly one owner, a deck-owned task created by `start()` | drains the engine generator and appends to the store |
+| observation | any number of consumers | `run.events()` replays the log from `from_seq` and tails it |
+| result waiting | any number of consumers | `await run` waits for a terminal lifecycle event, then reads the outcome from the log |
+
+The store is the only handoff. Neither `run.events()` nor `await run` may advance execution.
+
+That has to hold identically for the process that called `start()`, a second handle in that
+process, a handle from `get()`, another worker, and a run that already finished before anyone
+looked.
+
+Four consequences to design against, not to discover:
+
+- **The deck owns the task.** `aclose()` must settle or cancel in-flight execution tasks, the same
+  discipline as the sweeper (`deck.py:1419`).
+- **No gap between start and observe.** `events()` replays from `seq` 0 before following, so an
+  event emitted before a consumer attached is never missed.
+- **`await run` reads the outcome from the log**, so `run.completed` must carry everything
+  `_turn_result` and `_workflow_result` build today. Verify before building; if it does not, that
+  is a payload gap to close first.
+- **`deck.stream()` must stay byte-identical on the v1 wire.** It becomes start plus
+  `events(follow=True)`, and `tests/golden/` is the proof.
+
+## 10. Persistence invariants
+
+Enforced by the store, not by an API check.
 
 | | |
 |---|---|
-| Can a `CREATED` run be cancelled? | Yes. Non-terminal, so `run.cancelled` applies. |
-| Started exactly once? | Yes, by `claim_start`'s conditional append, the same mechanism that already prevents a double start. |
-| Repeated `start()`? | Refused, naming the state, through `PRECONDITIONS` — a new column, not new machinery. |
-| Does it hold a session? | No. See above. |
-| Survives restart? | Yes. It is in the log, and `get()` finds it. |
-| Abandoned ones? | Cost one log row and need no reaper. That is the payoff of not holding a session. |
-| Future `SCHEDULED`/`WAITING`? | More `holds_session=False` pre-run states. Additive, one row each. |
+| 1 | canonical run ids are unique |
+| 2 | `(namespace, key)` is unique when a key exists |
+| 3 | session ownership is taken atomically |
+| 4 | control signals target the canonical id |
+| 5 | one logical run cannot be split across unrelated log or session keys |
+| 6 | concurrent `start()` cannot produce two runs for one logical identity |
+| 7 | every handle observes the same durable state |
 
-## 1. Public API
+### What that changes
 
-`deck.runs` is a collection; a `Run` manages itself.
-
-```python
-run = await deck.runs.create(name, input, *, namespace=None, run_id=None,
-                             session_id=None, context=None) -> Run
-run = await deck.runs.start(name, input, *, namespace=None, run_id=None,
-                            session_id=None, context=None) -> Run
-run = await deck.runs.get(id_or_run_id, *, namespace=None) -> Run
-runs = await deck.runs.list(*, namespace=None, status=None, limit=None) -> list[Run]
-```
-
-`start()` is sugar and owns no lifecycle of its own:
-
-```python
-async def start(self, name, input, **kw) -> Run:
-    run = await self.create(name, input, **kw)
-    await run.start()
-    return run
-```
-
-`get()` takes one positional, read two ways: with no `namespace` it is a ref (what `run.id`
-returned); with a `namespace` it is the caller's own `run_id`. Both resolve through `encode`,
-so there is one lookup path and no overload on the inside.
-
-```python
-run = await deck.runs.get(saved_id)                                  # a ref
-run = await deck.runs.get("order-1234", namespace="acme")            # logical identity
-```
-
-`list()` replaces `pending()`. Filters stay two, deliberately, and no query DSL:
-
-```python
-for run in await deck.runs.list(namespace="acme", status="waiting_answer"):
-    await run.answer("approved")
-```
-
-## 2. The `Run` contract
-
-Bound to its `Deck`. Holds no engine, store, MCP or observer, and is not a second runtime.
-
-```python
-class Run:
-    id: str                       # the ref: opaque, persist it, hand it back to get()
-    run_id: str                   # the caller's own id
-    namespace: str | None
-    session_id: str | None
-
-    async def start(self) -> None
-    async def status(self) -> RunStatus
-    async def pause(self, reason: str | None = None) -> bool
-    async def resume(self, *, context: object = None) -> None
-    async def cancel(self, reason: str | None = None) -> bool
-    async def answer(self, value: Any, *, context: object = None) -> None
-    async def pending(self) -> Any | None        # the interrupt payload, or None
-    async def result(self) -> TurnResult | Any
-    def events(self, *, from_seq: int = 0) -> AsyncIterator[Event]
-```
-
-`pending()` is the answer to a gap the brief leaves open: `list()` returns `Run` objects and
-kills `PendingRun`, but `PendingRun.payload` is the question being asked and an approval flow is
-useless without it. It surfaces as a method on the run that is waiting.
-
-Everything currently on `deck.runs.status/pause/resume/cancel/answer` moves here and is not
-duplicated.
-
-`status()` returns `RunStatus`, never `None`: a `Run` exists only because a run was found, so
-absence is `get()`'s problem and is reported by raising there.
-
-## 5. Internal changes
-
-### Control plane, the correctness fix
+`events` is keyed `UNIQUE(namespace, log_key, run_id, seq)` (`sqlite/store.py:43`), so a run's
+identity is entangled with the log that happens to hold it, which is invariant 5's exposure. The
+run-scoped uniqueness becomes `(namespace, id, seq)`. `log_key` survives as the session grouping and
+stops being part of run identity.
 
 | | change |
 |---|---|
-| `ControlPort` | `signal/poll/consume(ref, …)`; docstring's "globally unique" premise replaced with the derivation |
-| memory port | `dict[str, ControlSignal]` keyed by ref |
-| sqlite port | `signals (ref TEXT PRIMARY KEY, …)`; **a migration, since the column changes meaning** |
-| `Gate` | bound to a ref, not a `run_id` (`core/control.py:126`) |
-| `Runtime` signal/poll/consume | pass refs throughout |
-| `ControlSignalled` | message names the ref |
-
-`RunContext` gains `ref` as a derived property over the `namespace` and `run_id` it already
-holds, so nothing has to thread a new value and no call site can forget one.
-
-### Store
-
-| | change |
-|---|---|
-| `claim_create` | new: append `run.created` if and only if this `(namespace, run_id)` has no run. Same conditional-append shape as `claim_start`/`claim_resume` |
-| `claim_start` | the three-way rule above, replacing the two-way one #311 shipped |
+| `events` | `id` column; `UNIQUE(namespace, id, seq)`; `log_key` demoted to session grouping |
+| `(namespace, key)` | a unique index, the enforcement point for invariant 2 |
+| `claim_start` | additionally adopts `(namespace, key)` in the same conditional append |
 | `list_runs` | gains `limit`; already namespace-aware through `ctx` |
-| `locate` | new: `locate(run_id, ctx) -> str \| None`, the `log_key` holding that run |
+| `locate` (#316, merged) | superseded for run addressing. The index it added is the shape the id-scoped read needs; the method goes when `Run` lands |
 
-### `locate`, and why `get()` is not a scan
+`StateFacts` is not extended. The `holds_session` axis existed only for `CREATED` and dies with it;
+§5's table is read off `terminal` and `suspended`, which are already there.
 
-`log_key` is `session_id or run_id`, so a ref does not name its own log and `get()` cannot read
-one without first finding it. `Deck._status` solves this today by walking `list_runs`
-(`deck.py:806`), which is O(runs in the namespace) on the operation this whole design is built
-around.
+## 11. Control plane
 
-**Every backend already holds what the answer needs; none of them can currently be asked.**
-
-| store | resolution |
+| | change |
 |---|---|
-| memory | `dict[(namespace, run_id)] -> log_key`, maintained in `_stamp` beside the log it already writes |
-| sqlite | `CREATE INDEX events_by_run_id ON events (namespace, run_id, id)`, then `SELECT log_key … LIMIT 1` |
-| postgres | the same index and the same query |
-| redis | `HSET locate:{ns} run_id log_key` in the append pipeline that already does five writes; `HGET` to read |
+| `ControlPort` | `signal/poll/consume(id, …)`; the "globally unique" premise replaced by the canonical id |
+| memory port | `dict[str, ControlSignal]` keyed by id |
+| sqlite port | `signals (run_id TEXT PRIMARY KEY, …)` becomes `id`; the primary key changes meaning, so a migration |
+| `Gate` | bound to the id (`core/control.py:126`) |
+| `Runtime` | signal, poll and consume paths carry the id |
+| `ControlSignalled` | message names the id |
+| `RunContext` | carries the canonical id, so nothing threads a new value by hand |
 
-**None of these is a second source of truth.** The SQL stores add no data at all: `namespace`,
-`log_key` and `run_id` are already columns on `events` (`sqlite/store.py:33-40`), and the
-existing `events_by_run` index leads with `log_key`, so it cannot serve this lookup. The new one
-is an index over facts the log already holds. Memory and redis keep a derived mapping that is
-rebuildable by replay, so a lost or corrupted one is recoverable rather than authoritative.
-ADR-D5 holds: the log remains the only thing that decides anything.
+### What this costs PR #320, and why the derivation outlives it
 
-The sqlite index migrates cleanly on an existing database, unlike the `UNIQUE` constraint noted
-at `sqlite/store.py:47`. That one only applies to files this build creates, because existing
-duplicate rows would refuse it; a plain index has nothing to conflict with, so
-`CREATE INDEX IF NOT EXISTS` builds it on open.
+PR #320 is this change with a **derived** ref: `encode(namespace, run_id)` producing
+`adr:<ns>:<key>`, plus the `adr:` prefix reservation. The port shape it ships is right, and the
+source of the value is not.
 
-## 6. Compatibility
+**The derivation cannot be removed in that PR.** Every caller computes the address locally with no
+store in reach: `runtime.signal(run_id, verb, namespace=…)` derives it, and `cli.py` derives it
+holding only the control database. A minted id has no cross-process resolution until #324 persists
+`(namespace, key) → id`, so deleting `encode` before then ships a control plane a second process
+cannot address, which is the one capability the port exists for.
+
+So the rename lands here and the producer swaps in #324:
+
+| | where | |
+|---|---|---|
+| ports, `Gate`, `Runtime`, `ControlSignalled` take `id` | #315 | the signature is final from the start |
+| `RunContext.ref` becomes `RunContext.id` | #315 | still computed, marked as interim |
+| `encode`, `REF_PREFIX` and the `adr:` guard are deleted | #324 | the guard protects the derivation and dies with it |
+| `RunContext.id` becomes carried, not computed | #324 | the store mints and persists it |
+
+One port migration, not two: the control table's column is renamed once, and only the values
+flowing through it change. `encode(None, run_id) == run_id` still holds meanwhile, so #320 keeps the
+v1 wire guarantee untouched and the keystone's death stays #324's problem.
+
+The end state is lookup-free too: after #324 the CLI's argument is the canonical `id` itself, so
+signalling by id needs no resolution step either.
+
+Its two collision regression tests stay and are the right tests. They are runtime-level because
+`deck.runs.pause`/`resume` take no namespace today; that becomes reachable at the deck level once
+`Run` lands, and the deck-level assertion is #322's to discharge.
+
+## 12. Compatibility
+
+v3 is a breaking release, so duplicate vocabulary is not preserved for its own sake.
 
 | | |
 |---|---|
-| unnamespaced deployments | **nothing changes.** `encode(None, rid) == rid`, so stored ids, the CLI and the v1 wire all keep working |
-| frozen v1 HTTP wire | cannot move: `compat.py` is unnamespaced by design, and `tests/golden/` replays it every `make test` |
-| namespaced control signals | **behaviour changes and that is the fix.** A signal that used to hit both tenants now hits one |
-| sqlite control table | schema migration: the primary key changes meaning. **Verify before assuming it is free** — existing rows migrate as identity only if no deployment ran namespaced against this port, and if one did, its rows are already ambiguous and would silently address the wrong run afterwards instead of colliding loudly. Needs a check, not a footnote |
-| `deck.runs.status/pause/resume/cancel/answer` | move to `Run`. A deprecated bridge is possible but should be short-lived |
-| `deck.runs.pending()` | replaced by `list(status="waiting_answer")`, which returns richer objects |
-| `deck.runs.cancel(namespace=…)` | the parameter #311 added is absorbed; `Run` carries the namespace |
-| `deck.run()` / `deck.stream()` | **kept**, as the run-to-completion front door the README and the frozen wire depend on, redefined as sugar over `create → start → result`. One lifecycle implementation, not two |
-| `run.created` | a new event kind: a dedicated schema PR, D8 minor, one new snapshot |
+| `await deck.run(...)` | unchanged experience, one new keyword (`key=`) and one removed (`run_id=`) |
+| `run_id=` | renamed to `key=`. Not aliased: the two words mean different things now, and keeping both is the confusion this design exists to remove |
+| `deck.runs.status/pause/resume/cancel/answer/pending` | removed, replaced by `Run` |
+| `PendingRun` | no longer public; `list(status=WAITING_ANSWER)` returns runs |
+| frozen v1 HTTP wire | must not move. `compat.py` is unnamespaced by design and `tests/golden/` replays it every `make test` |
+| namespaced control signals | behaviour changes, and that is the fix |
+| sqlite control table | a migration: the primary key changes meaning. Existing rows are identity-safe only if no deployment ran namespaced against this port. Verify, do not assume |
+| `design/run-operations.md` | its "there is no per-run object" ruling is reversed here, and `00-project-index.md`'s precedence table records it |
 
-### Delivery, three stages
+## 13. Delivery
 
 | | |
 |---|---|
-| 1 | the schema PR: `run.created`, `RunStatus.CREATED`, `holds_session`, snapshot |
-| 2 | identity and control: `encode`, ports, four control adapters, `Gate`, `Runtime`, `claim_create`, the three-way claim rule |
-| 3 | `locate` across four stores, plus the sqlite and postgres index |
-| 4 | the surface: `Run`, `deck.runs.*`, `InterruptResult`, docs |
+| 1 | control plane by canonical id: ports, adapters, `Gate`, `Runtime`, `RunContext`. **The cross-tenant fix, shippable alone** (#315, PR #320 with §11's edits) |
+| 2 | store identity: the `id` column, `UNIQUE(namespace, id, seq)`, the `(namespace, key)` index, `claim_start` adopting the key |
+| 3 | execution ownership: the deck-owned task, `events()` as observation, `await run` as result waiting |
+| 4 | the surface: `Run`, `deck.runs.start/get/list`, `deck.run`/`stream` over the same machinery, `PendingRun`/`InterruptResult`, docs |
 
-Stage 2 is where the cross-tenant defect is actually fixed, and it is shippable on its own.
-Stage 3 is independent of stage 2 and can go in parallel: it makes `Deck._status` O(1) today,
-before any of the new surface exists.
+Stage 3 is the one that is not a refactor. It should not be planned as part of stage 4.
 
-Stage 2 is several PRs, not one. It touches four control adapters, `Gate`, `Runtime` and four
-stores, and changes the meaning of a primary key. It is the largest change since #295 and should
-be planned as such rather than as a single slice.
+## 14. Test matrix
 
-## Interrupts
+Deck level, all of it. #314 exists because runtime-level tests passed while the public surface was
+broken, and #311 shipped a namespace test that called `runtime.signal()` directly.
 
-`InterruptResult` (`authoring/interrupts.py:17`) carries `type`, `payload` and `thread_id`, and
-`thread_id` is `session_id or run_id`, so for any run with a session it is not the run id at all.
-A caller holding one cannot address the run it came from.
-
-It gains the ref, and the flow closes with no second lookup:
-
-```python
-run = await deck.runs.start("ApprovalFlow", order, namespace="acme")
-if await run.pending() is not None:
-    await run.answer("approved")
-```
-
-`thread_id` and `session_id` stay what they are: execution and checkpoint concepts, never the
-identity of an agentdeck run.
-
-## 7. Test matrix
-
-Deck level, all of it. #314 exists because runtime-level tests passed while the public surface
-was broken, and #311 shipped a namespace test that called `runtime.signal()` directly.
+**Identity**
 
 | | asserts |
 |---|---|
-| same `run_id`, two namespaces | two distinct runs, neither visible to the other |
-| repeated `create`, identical input | the same run, no second `run.created` in the log |
-| repeated `create`, different input | raises, naming the key |
-| concurrent `create` from two processes | one `run.created`, both callers hold the same run |
-| `create` → `start` | one run, one `run.started` |
-| `deck.runs.start()` | identical log to the two-step, proving it is sugar |
-| `create` → restart → `get()` → `start()` | survives the process boundary |
-| `RUNNING` → `pause` → `resume` | resumes, no state lost |
-| `WAITING_ANSWER` → restart → `get()`/`list()` → `answer` | the approval outlives the process |
-| `cancel` from another worker | lands on the right run |
-| **control signal, colliding ids across namespaces** | `acme/order-1234` cancelled, `globex/order-1234` untouched. **The regression test for the defect this document starts from** |
-| `list(namespace=…, status=…)` | returns `Run` objects, filtered |
-| same `run_id`, different session context | refused, naming the conflict |
-| no namespace anywhere | byte-identical behaviour to today |
-| `CREATED` run, unrelated turn on the same session | the turn succeeds; the `CREATED` run's `start()` then refuses |
-| `start()` twice | the second refuses, naming the state |
+| same namespace, same key | one logical run, the duplicate refused |
+| different namespace, same key | two runs, neither visible to the other |
+| generated ids | unique across runs |
 
-## 8. Open
+**Session ownership**
 
-Genuinely unsettled by the existing architecture.
+| start against a session whose run is | |
+|---|---|
+| free | succeeds |
+| `RUNNING` · `PAUSED` · `WAITING_ANSWER` | `SessionBusyError` |
+| `COMPLETED` · `FAILED` · `CANCELLED` | succeeds |
 
-**Does `get()` raise or return `None` for an unknown ref?** #294 ruled that the *port* returns
-`RunStatus | None` and that the Deck must not answer the same question twice. `get()` is a
-different question, and returning `None` from a factory forces an `if` at every call site. Raise
-`NotFoundError`, probably, but it is a reversal of the shape #294 chose and should be ruled, not
-assumed.
+**Handles**
 
-**Does a `CREATED` run reserve its session?** The design says no, and the whole third-way claim
-rule depends on that. The counter-case is a caller who creates ten runs on one session expecting
-them to execute in order, and gets whichever starts first. That is arguably correct and
-arguably a footgun.
+| | asserts |
+|---|---|
+| `get(id)` on a running run, and on a completed one | both return a usable handle |
+| `get(namespace=, key=)` | resolves to the same run as `get(id)` |
+| `get` on an unknown id | `NotFoundError` |
+| two handles, one run | cancel through one is visible through the other |
 
-**Is the ref stable if a caller supplies no `run_id`?** It is derived from the minted `uuid4`, so
-yes, but it also means an auto-id run has no idempotency: retrying `create()` mints a new id and
-therefore a new run. That is today's behaviour and worth stating rather than discovering.
+**Lifecycle**
 
-**Deprecation window for `deck.runs.*` control ops.** A bridge is easy and a bridge that lives
-forever is the duplicate surface the brief bans. Needs a version, not a policy.
+`RUNNING → PAUSED → RUNNING`, `RUNNING → WAITING_ANSWER → RUNNING`, and `cancel` from `RUNNING`,
+`PAUSED` and `WAITING_ANSWER`. Every invalid transition on a terminal run is refused.
+
+**Control-plane isolation**
+
+`acme/order-1234` and `globex/order-1234` alive at once: pause, cancel, resume and answer against
+one never touch the other. **Mandatory**: it is the defect this document starts from.
+
+**Execution ownership**
+
+| | asserts |
+|---|---|
+| two consumers of `run.events()` | both see every event; neither steals execution |
+| `await run` from a second handle | returns the same result |
+| `events()` on a run that already finished | full replay |
+| `deck.run()` and `start()` + `await run` | identical logs |
+| `deck.stream()` | `tests/golden/` byte-identical |
+
+**Restart**
+
+Persist a run, rebuild the deck, `get(id)`, and inspect durable status, history and result. Assert
+that ephemeral context did **not** survive.
+
+## 15. Open
+
+**Is `(namespace, key)` unique for all time, or only among active runs?** This document takes the
+strict reading: a key is consumed permanently, a second `start()` with it is refused, and `get()`
+is the recovery path. The looser reading lets a key be reused once its run is terminal, which suits
+a per-day idempotency key and weakens invariant 2 into a partial index.
+
+**Does a refused duplicate `start()` raise, or return the existing run?** Raising is the strict
+reading of "fail deterministically". Returning the existing run is the Stripe convention and saves
+every caller a `try`, at the cost of a start that silently did nothing.
+
+**Does `await run` on a `WAITING_ANSWER` run block or raise?** Blocking is what a caller means; it
+also blocks forever if nobody answers. There is no timeout parameter in this design and adding one
+is a second decision.
 
 **Does `list()` need cross-namespace listing?** An operator view of every parked run has no
 namespace to pass. It does not exist today either, and adding it means deciding whether the
 isolation boundary has an above.
 
-**Does `locate` belong on the store port, or is it `list_runs` with an argument?** It is a
-lookup, not a listing, and merging them would give one method two return shapes. Kept separate
-here, but it is the kind of split that reads as duplication to a reviewer who has not needed it
-yet.
+## Why this shape
+
+Three levels, one progression:
+
+```python
+result = await deck.run(...)          # I only want the answer
+run    = await deck.runs.start(...)   # I need lifecycle control
+run    = await deck.runs.get(...)     # I already know the run
+runs   = await deck.runs.list(...)    # I need to discover runs
+```
+
+The alternative is what the tree has now: lifecycle scattered across `Deck`, `Runtime`, `Session`
+and raw ids, with `namespace`, `run_id`, `thread_id`, `session_id` and `log_key` as five things a
+caller coordinates by hand. Temporal's durable handles and LangGraph's thread-to-run model reach
+the same separation from the same pressure, with a larger Python surface than this needs.
+
+The API does not expose infrastructure complexity merely because the implementation is complex.
+Simple API, strong lifecycle semantics, durable identity, and the complexity inside agentdeck.
