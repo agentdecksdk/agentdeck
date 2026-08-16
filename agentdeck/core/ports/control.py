@@ -1,13 +1,11 @@
-"""Cross-process run control: a signal addressed by a run's ``id`` — never its bare ``run_id``.
+"""Cross-process run control: a signal addressed by a run's ``id``.
 
-No ``RunContext`` on the port methods, but an ``id`` in place of one: a caller-supplied
-``run_id`` is only unique within its own namespace (``deck.run(..., run_id=...)`` accepts one
-from the caller), so two namespaces sharing a ``run_id`` must not share a signal row. ``id`` is
-``agentdeck.core.context.encode(namespace, run_id)`` — derived, opaque, globally unique — and is
-what makes addressing a run this port never opened (a second terminal, an operator's dashboard)
-possible without those namespace parts ever reaching the transport. Same reason the port carries
-``reason``: the run's own loop records the request in the log, so the words travel with the
-signal or are lost.
+No ``RunContext`` on the port methods, but an ``id`` in place of one: it is minted once per
+run (never derived from ``namespace`` or a caller-supplied ``key``), so it is already globally
+unique, and two namespaces can never share a signal row. That is what makes addressing a run
+this port never opened (a second terminal, an operator's dashboard) possible without a
+namespace ever reaching the transport. Same reason the port carries ``reason``: the run's own
+loop records the request in the log, so the words travel with the signal or are lost.
 
 The transport only. What a signal means — the verbs, the safe point that notices one, the events
 that record it being honored — is core's, in :mod:`agentdeck.core.control`.

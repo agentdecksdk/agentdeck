@@ -134,7 +134,7 @@ class Runtime:
         context: object = None,
         session_id: str | None = None,
         namespace: str | None = None,
-        run_id: str | None = None,
+        key: str | None = None,
     ) -> AsyncGenerator[Event, None]:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
 
@@ -142,6 +142,12 @@ class Runtime:
         a ``Context[...]`` parameter and nothing else. It is held by reference for the run's whole
         life and never written to the log — the record says what a run was asked to do, not which
         live objects it held.
+
+        ``key`` is the caller's optional stable application identifier — for lookup and
+        idempotency, never the run's address. The run's own ``id`` is always minted here, never
+        derived from ``key``, so two namespaces reusing one key still get two distinct runs.
+        ``(namespace, key)`` is a permanent claim: reusing one whose run already started raises
+        ``DuplicateKeyError`` rather than handing back the run that holds it.
 
         One turn per session at a time: opening the run is a conditional append that fails if
         the session already has one in flight, so a second concurrent turn raises
@@ -154,7 +160,7 @@ class Runtime:
         """
         spec, engine = self._resolve(name)
         ctx, reports = self._bind(
-            self._context(run_id=run_id, session_id=session_id, namespace=namespace, data=context)
+            self._new_run_context(key=key, session_id=session_id, namespace=namespace, data=context)
         )
         # ponytail: whole log per run — window it (or hand the engine a summary) once a
         # session's history outgrows one read, which a real store will notice long before this does
@@ -325,9 +331,9 @@ class Runtime:
         """Record a control request for ``run_id`` in ``namespace``, wherever it is running —
         except a cancel against a run already suspended, which ends it right here instead.
 
-        Addressed by id (``agentdeck.core.context.encode(namespace, run_id)``), the same
-        derivation a live run's Gate polls under (bound in :meth:`_bind`) — so two namespaces
-        sharing one caller ``run_id`` never share a signal, for every verb, not only cancel.
+        ``run_id`` here is a run's own minted, globally unique id — the same value its Gate
+        polls under (bound in :meth:`_bind`) — so two namespaces can never collide over one:
+        each run's id is unrelated to the other's from the moment it was minted.
 
         ``False`` means this Runtime has no ``ControlPort`` and nothing was recorded — the one
         answer a caller has to act on. Everything else is deliberately not an answer here: the
@@ -442,10 +448,10 @@ class Runtime:
         """Where a run lives and what state it is in. ``None`` means no run of this namespace
         answers to that id.
 
-        Addressed by ``run_id`` within ``ctx``'s namespace, the store's own addressing (unlike
-        the control plane, which addresses by ``id`` — see ``core.context.encode``), so the
-        store's own status projection is what locates it — a caller holding a ``run_id`` from a
-        stream it was watching has neither the log key nor the invocable's name. Deliberately *unfiltered*:
+        Addressed by ``run_id`` within ``ctx``'s namespace — the same value the control plane
+        addresses by ``id``, since the two are one field now — so the store's own status
+        projection is what locates it: a caller holding a ``run_id`` from a stream it was
+        watching has neither the log key nor the invocable's name. Deliberately *unfiltered*:
         narrowing the listing to one status was how a run in every other state came back
         indistinguishable from one that does not exist, which is what let a resume against a
         parked run report nothing at all.
@@ -667,14 +673,29 @@ class Runtime:
         namespace: str | None = None,
         data: object = None,
     ) -> RunContext:
-        """Mint this run's context — the one place a ``RunContext`` is built for a caller.
-
-        Callers pass options, never a context: it carries the gate, the reporter and the id the
-        claim protocol addresses runs by, none of which an application should assemble. Getting
-        ``run_id`` wrong is not a type error but a silent no-op, so it is minted here unless a
-        caller has a reason of its own.
+        """Build a context for addressing a run whose id is already known — resume, signal,
+        answer, a lookup-only read. ``run_id`` here is that known id, carried through as-is;
+        it is minted only by :meth:`_new_run_context`, never by this one.
         """
         return RunContext(run_id=run_id or str(uuid4()), session_id=session_id, namespace=namespace, data=data)
+
+    def _new_run_context(
+        self,
+        *,
+        key: str | None = None,
+        session_id: str | None = None,
+        namespace: str | None = None,
+        data: object = None,
+    ) -> RunContext:
+        """Mint a fresh run's context — the one place a new run's ``run_id`` is minted.
+
+        ``key`` is the caller's optional identifier, carried through unchanged as ``ctx.key``:
+        it is never the source of ``run_id``, which is why this is a separate method from
+        :meth:`_context` rather than that one falling back to ``uuid4()``. A caller-supplied
+        value reaching ``run_id`` is exactly the derivation this design retired — two namespaces
+        given the same ``key`` must still mint two different, unrelated ids.
+        """
+        return RunContext(run_id=str(uuid4()), key=key, session_id=session_id, namespace=namespace, data=data)
 
     def _bind(self, ctx: RunContext) -> tuple[RunContext, deque[KnownPayload]]:
         """Give this run its control gate and its report buffer, and hand back both.
