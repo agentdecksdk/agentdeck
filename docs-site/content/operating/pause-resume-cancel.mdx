@@ -9,6 +9,9 @@ Anyone who knows a run's `run_id` can ask it to pause, resume, or cancel over HT
 dashboard, a curl command, or a second terminal. See [Run Control](/concepts/run-control) for
 what a safe point is and what a resume replays; this page is the operator's side: which
 endpoint to call, what it hands back, and what to do when a run does not seem to be stopping.
+An embedded Python caller reaches the same three verbs on a `Run` handle instead —
+`(await deck.runs.get(run_id)).pause(...)`/`.resume()`/`.cancel(...)`, see
+[Deck](/reference/deck#run) — but the wire below is what every HTTP caller gets either way.
 
 ```bash
 curl -X POST http://localhost:8000/runs/$RUN_ID/pause -d '{"reason": "operator stepped away"}'
@@ -66,14 +69,15 @@ one process on the same machine, not one file behind more than one machine.
 
 A paused run's *resume* is never a signal, even with the file backend: continuing a run needs
 its event log, so lifting a pause belongs to a process holding a Runtime —
-`POST /runs/{run_id}/resume` or `deck.runs.resume(run_id)` — not to the CLI above.
+`POST /runs/{run_id}/resume` or `(await deck.runs.get(run_id)).resume()` — not to the CLI above.
 
 ## Watching for the effect
 
 `recorded: true` is not "stopped." The question an operator actually has after pausing or
-cancelling a run is simple to ask and, today, has no single clean answer: **there is no
-endpoint that reports a run's current status by `run_id` alone.** The only ways to learn
-whether a pause or cancel landed are the ones already open to you:
+cancelling a run is simple to ask and, today, has no single clean answer over HTTP: **there is
+no endpoint that reports a run's current status by `run_id` alone** — an embedded Python caller
+has one (`(await deck.runs.get(run_id)).status()`), but nothing here exposes it on the wire. The
+only ways to learn whether a pause or cancel landed over HTTP are the ones already open to you:
 
 - If you (or your caller) are the one holding the streaming response — the SSE connection from
   `POST /agents/{name}/chat?stream=true` — the run's own `control.observed` and

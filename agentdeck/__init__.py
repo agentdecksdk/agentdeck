@@ -12,7 +12,7 @@ from importlib.metadata import version as _version
 
 from agentdeck.authoring import Agent, Workflow
 from agentdeck.core.context import Context
-from agentdeck.deck import Deck, TurnResult
+from agentdeck.deck import Deck, Run, TurnResult
 from agentdeck.errors import (
     AgentdeckError,
     ConfigError,
@@ -42,6 +42,7 @@ __all__ = [
     "ContextTypeError",
     "Deck",
     "NotFoundError",
+    "Run",
     "SessionBusyError",
     "SkillError",
     "StoreError",

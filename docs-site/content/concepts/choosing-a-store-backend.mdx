@@ -92,9 +92,9 @@ Memory](/concepts/sessions-and-memory).
 
 The consequence catches people out: **`durable=True` and a shared event log are two separate
 requirements.** A workflow can pause durably in a Postgres checkpointer while
-[`deck.runs.pending()`](/guides/human-approval) — which reads the *event log* — shows a second process
-nothing at all, because that log is still `memory://`. The approval is safely parked and
-nobody can find it.
+[`deck.runs.list(status=RunStatus.WAITING_ANSWER)`](/guides/human-approval) — which reads the
+*event log* — shows a second process nothing at all, because that log is still `memory://`. The
+approval is safely parked and nobody can find it.
 
 The **control port** is a third, smaller thing: a pending signal for a run in flight, which the
 run picks up at its next safe point. It only has to outlive the seconds between a request and

@@ -66,10 +66,18 @@ from agentdeck.composition import (
 from agentdeck.core.content import DataBlock, TextBlock, coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
-from agentdeck.core.events import TERMINAL_KINDS, NodeUpdated, RunCompleted, RunInterrupted
+from agentdeck.core.events import (
+    TERMINAL_KINDS,
+    NodeUpdated,
+    RunCancelled,
+    RunCompleted,
+    RunFailed,
+    RunInterrupted,
+    RunPaused,
+)
 from agentdeck.core.ports import EventSinkPort
-from agentdeck.core.status import PRECONDITIONS, SUSPENDED_KINDS, Operation, Verdict
-from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, RunStateError
+from agentdeck.core.status import PRECONDITIONS, SUSPENDED_KINDS, Operation, RunStatus, Verdict
+from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, RunStateError, RunSuspendedError
 from agentdeck.mcp import MCP
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.registry import PROJECT_DIR, PluginRegistry, mount_project_dir
@@ -77,7 +85,8 @@ from agentdeck.runtime.settings import Settings, get_settings
 from agentdeck.skills import Skills
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, Mapping, Sequence
+    import builtins
+    from collections.abc import AsyncGenerator, AsyncIterator, Generator, Mapping, Sequence
 
     from agents.memory.session import Session
     from agents.tool import FunctionTool
@@ -87,7 +96,6 @@ if TYPE_CHECKING:
     from agentdeck.core.events import Event, Usage
     from agentdeck.core.invocable import InvocableSpec
     from agentdeck.core.ports import EnginePort, EventStorePort
-    from agentdeck.core.status import RunStatus
     from agentdeck.runtime.service import PendingRun, Runtime
 
 # The two engine names a Deck's catalog always targets — read off each engine's own ``ClassVar``,
@@ -210,7 +218,7 @@ async def _turn_result(events: AsyncGenerator[Event, None]) -> TurnResult:
     if result is None:
         raise RuntimeError(
             "the run ended without completing (paused or cancelled) — resume it with "
-            "deck.runs.resume, or inspect the event log for what happened."
+            "(await deck.runs.get(run_id)).resume(), or inspect the event log for what happened."
         )
     return result
 
@@ -230,7 +238,7 @@ async def _workflow_result(events: AsyncGenerator[Event, None]) -> tuple[Any, bo
         async for event in events:
             payload = event.payload
             if isinstance(payload, RunInterrupted):
-                result, applied = interrupt_result(payload.payload, payload.thread_id or ""), True
+                result, applied = interrupt_result(payload.payload, payload.thread_id or "", id=event.run_id), True
             elif isinstance(payload, NodeUpdated):
                 applied = True
             elif isinstance(payload, RunCompleted):
@@ -243,6 +251,13 @@ def _as_state_block(state: Any) -> DataBlock:
     # `{}` — `DataBlock(data=None)` would reach the langgraph engine as a null state and fail
     # its own "must be a JSON object" check.
     return DataBlock(data=state if state is not None else {})
+
+
+def _content_for(root: Agent | Workflow, input: Any) -> Input:
+    """``input`` coerced the way ``root``'s own kind expects it — shared by every caller that
+    begins a run (:meth:`Deck.run`, :meth:`Deck.stream`, :meth:`Runs.start`), so the coercion
+    rule lives in exactly one place."""
+    return coerce_input(input) if isinstance(root, Agent) else [_as_state_block(input)]
 
 
 async def _aclose_store(store: EventStorePort) -> None:
@@ -339,12 +354,11 @@ class Deck:
 
     ``context=`` declares the *type* of the application context this catalog's callables receive
     — the class, not an instance of it. The value itself arrives per run (:meth:`run`,
-    :meth:`stream`, :meth:`RunOps.answer`, :meth:`RunOps.resume`), and a tool, a
-    dynamic-instructions callable, an agent hook or a workflow node declaring a
-    :class:`~agentdeck.core.context.Context` parameter receives it. Declaring the type is what
-    makes :meth:`build` able to check every such parameter against it before anything runs; a
-    deck that declares none still runs exactly the same, with the requirement unchecked until
-    the callable is played.
+    :meth:`stream`, :meth:`Runs.start`), and a tool, a dynamic-instructions callable, an agent
+    hook or a workflow node declaring a :class:`~agentdeck.core.context.Context` parameter
+    receives it. Declaring the type is what makes :meth:`build` able to check every such
+    parameter against it before anything runs; a deck that declares none still runs exactly the
+    same, with the requirement unchecked until the callable is played.
 
     ``observers=`` are the read-only taps on this Deck's event stream — telemetry, cost, audit,
     any :class:`~agentdeck.core.ports.EventSinkPort`, and :class:`agentdeck.observers.Langfuse`
@@ -361,11 +375,12 @@ class Deck:
 
 
     Public properties are :attr:`agents`, :attr:`workflows`, :attr:`skills` and :attr:`settings`
-    only — never ``runtime`` or ``store``, the infrastructure this class exists to hide. Every
-    op that acts on a run already in flight — :meth:`RunOps.pause`, :meth:`RunOps.cancel`,
-    :meth:`RunOps.resume`, :meth:`RunOps.answer`, :meth:`RunOps.status`, :meth:`RunOps.pending`
-    — groups under :attr:`runs` instead, since :meth:`run` and :meth:`stream` already claim the
-    verb for *starting* one.
+    only — never ``runtime`` or ``store``, the infrastructure this class exists to hide.
+    :attr:`runs` is :class:`Runs`, the collection that finds or starts a :class:`Run`: once a
+    caller holds one, every op that acts on it — :meth:`Run.pause`, :meth:`Run.cancel`,
+    :meth:`Run.resume`, :meth:`Run.answer`, :meth:`Run.status`, :meth:`Run.pending` — lives on
+    the handle itself, since :meth:`run` and :meth:`stream` already claim the verb for
+    *starting* one.
 
     **One Deck per process.** Constructing a second one while the first is still open raises
     ``ConfigError`` naming both projects. Sequential decks are fine: close one, construct the
@@ -425,7 +440,7 @@ class Deck:
         self._started_observers: tuple[EventSinkPort, ...] = ()
         self._started_mcp = False
         self._closed = False
-        self._runs = RunOps(self)
+        self._runs = Runs(self)
         # Last, so a constructor that raises above (a duplicate name, an unreadable capability)
         # leaves the process free for the next attempt instead of poisoning it.
         _claim_process(self)
@@ -481,9 +496,9 @@ class Deck:
         return self._skills_obj
 
     @property
-    def runs(self) -> RunOps:
-        """The namespace for every op that acts on a run already in flight — see
-        :class:`RunOps`."""
+    def runs(self) -> Runs:
+        """``start``/``get``/``list`` — the collection that finds or starts a :class:`Run`. See
+        :class:`Runs`."""
         return self._runs
 
     @property
@@ -878,7 +893,7 @@ class Deck:
         """
         root = self._root(name)
         self._require_open()
-        content = coerce_input(input) if isinstance(root, Agent) else [_as_state_block(input)]
+        content = _content_for(root, input)
         opening, task = await self._start(
             name, content, context=context, session_id=session_id, namespace=namespace, key=key
         )
@@ -913,7 +928,7 @@ class Deck:
         """
         root = self._root(name)
         self._require_open()
-        content = coerce_input(input) if isinstance(root, Agent) else [_as_state_block(input)]
+        content = _content_for(root, input)
         opening, task = await self._start(
             name, content, context=context, session_id=session_id, namespace=namespace, key=key
         )
@@ -926,40 +941,40 @@ class Deck:
         # when a caller's own `async for` drove the failing generator directly.
         await task
 
-    async def _pause(self, run_id: str, reason: str | None = None) -> bool:
-        """Implementation behind :meth:`RunOps.pause`."""
-        return await self._require_open().signal(run_id, Signal.PAUSE, reason)
+    async def _pause(self, run_id: str, reason: str | None = None, namespace: str | None = None) -> bool:
+        """Implementation behind :meth:`Run.pause`, and the v1 wire's blind signal (naming no
+        namespace is what an unnamespaced HTTP caller means, not an omission here)."""
+        return await self._require_open().signal(run_id, Signal.PAUSE, reason, namespace=namespace)
 
     async def _cancel(self, run_id: str, reason: str | None = None, namespace: str | None = None) -> bool:
-        """Implementation behind :meth:`RunOps.cancel`."""
+        """Implementation behind :meth:`Run.cancel`, and the v1 wire's blind signal."""
         return await self._require_open().signal(run_id, Signal.CANCEL, reason, namespace=namespace)
 
-    async def _resume(self, run_id: str, reason: str | None = None, *, context: object = None) -> list[Event]:
-        """Implementation behind :meth:`RunOps.resume`."""
-        return [event async for event in self._require_open().resume_run(run_id, context=context, reason=reason)]
-
-    async def _status(self, run_id: str) -> RunStatus | None:
-        """Implementation behind :meth:`RunOps.status`."""
-        runtime = self._require_open()
-        ctx = _new_context()
-        log_key = await runtime.store.locate(run_id, ctx)
-        if log_key is None:
-            return None
-        return await runtime.store.run_status(log_key, run_id, ctx)
+    async def _resume(
+        self, run_id: str, reason: str | None = None, *, context: object = None, namespace: str | None = None
+    ) -> list[Event]:
+        """Implementation behind :meth:`Run.resume`."""
+        return [
+            event
+            async for event in self._require_open().resume_run(
+                run_id, context=context, reason=reason, namespace=namespace
+            )
+        ]
 
     async def _pending(self, namespace: str | None = None) -> list[PendingRun]:
-        """Implementation behind :meth:`RunOps.pending`."""
+        """Implementation behind :meth:`Run.pending` and :meth:`Runs.list`'s
+        ``status=WAITING_ANSWER`` narrowing."""
         return await self._require_open().pending(namespace=namespace)
 
-    async def _answer(self, run_id: str, value: Any, *, context: object = None) -> Any:
-        """Implementation behind :meth:`RunOps.answer`."""
+    async def _answer(self, run_id: str, value: Any, *, context: object = None, namespace: str | None = None) -> Any:
+        """Implementation behind :meth:`Run.answer`."""
         runtime = self._require_open()
-        pending = next((run for run in await runtime.pending() if run.run_id == run_id), None)
+        pending = next((run for run in await runtime.pending(namespace=namespace) if run.run_id == run_id), None)
         if pending is None:
             # The inbox lists WAITING_ANSWER runs only, so a miss means some other state — and
             # which one decides whether the caller is told to lift a pause, told the run is over,
             # or told nothing answers to this id at all.
-            raise await self._not_answerable(run_id)
+            raise await self._not_answerable(run_id, namespace)
         result, applied = await _workflow_result(
             runtime.resume(
                 pending.invocable,
@@ -968,16 +983,17 @@ class Deck:
                 context=context,
                 run_id=pending.run_id,
                 session_id=pending.session_id,
+                namespace=namespace,
             )
         )
         if not applied:
             # Nothing was played: a lost race, or a run the routing ended instead of answering.
             # Re-read the state rather than repeating a guess — after a cancel served here the
             # run is terminal, and "no pending run" is the true answer to what was asked.
-            raise await self._not_answerable(run_id)
+            raise await self._not_answerable(run_id, namespace)
         return result
 
-    async def _not_answerable(self, run_id: str) -> AgentdeckError:
+    async def _not_answerable(self, run_id: str, namespace: str | None = None) -> AgentdeckError:
         """Why this run is not one an answer can land on, in the words :data:`PRECONDITIONS`
         wrote for whoever was refused.
 
@@ -985,7 +1001,7 @@ class Deck:
         already ended, and one answered by somebody else between the listing and this read all
         keep the ``NotFoundError`` they have always raised — the caller's question was "which
         pending run is this", and for all three the answer is still "none"."""
-        status = await self._status(run_id)
+        status = await self._require_open().status(run_id, namespace=namespace)
         if status is None:
             return NotFoundError(f"No pending run {run_id!r}.")
         allowed = PRECONDITIONS[status, Operation.ANSWER]
@@ -998,7 +1014,7 @@ class Deck:
         :meth:`_sweep`'s own listing (through :meth:`_tick`) on every interval, and a test that
         wants determinism drives it by hand instead of waiting on the sweep's clock.
 
-        Listed off each workflow's own checkpointer rather than :meth:`RunOps.pending`'s event
+        Listed off each workflow's own checkpointer rather than :meth:`Run.pending`'s event
         log (see :meth:`_pending_interrupts`) — a choice, not an oversight: by default the
         checkpoint backend is durable (``sqlite``) while the event store is not (``memory``),
         so a process that restarts keeps the checkpoint's memory of a parked thread but not
@@ -1024,12 +1040,12 @@ class Deck:
         calls it on every interval for as long as this Deck stays open, and a test that wants
         determinism calls it directly instead of waiting on that clock.
 
-        A thread the checkpointer lists as due may *also* be a run :meth:`RunOps.pending`
+        A thread the checkpointer lists as due may *also* be a run :meth:`Run.pending`
         already knows about — parked by a ``Deck.run()``/HTTP call that went through the
         Runtime, the same as any other interrupt. Resuming such a thread by calling the
         workflow directly (as this used to) never told the log: the run stayed
         ``WAITING_ANSWER`` and kept holding its session claim forever, a ghost indistinguishable
-        from the one #114 fixed for :meth:`RunOps.answer`. So a due thread with a matching
+        from the one #114 fixed for :meth:`Run.answer`. So a due thread with a matching
         logged run resumes through the Runtime instead — closing that run and freeing its
         claim — and only a thread with no logged run (parked by calling a durable
         :class:`Workflow`'s own ``run``/``resume`` directly, which never opens a run in the log
@@ -1093,17 +1109,205 @@ class Deck:
         return build_asgi_app(self)
 
 
-class RunOps:
-    """``deck.runs.*`` — every op that acts on a run already in flight, grouped under the noun
-    they share so it never sits beside :meth:`Deck.run`/:meth:`Deck.stream`, which start one
-    (docs/design/run-operations.md). The run id stays a plain argument and there is still
-    exactly one way to address a run; this only groups the six ops that take one.
+def _completed_result(deck: Deck, event: Event, payload: RunCompleted) -> Any:
+    """A run's own ``run.completed`` as the value :meth:`Run.__await__` hands back — a
+    :class:`TurnResult` for an agent, the graph's own state for a workflow.
 
-    Lives in ``agentdeck/deck.py`` rather than its own module: it needs ``Deck`` for
-    ``_require_open()``, and ``Deck`` needs it back for :attr:`Deck.runs`, so splitting the two
-    across modules would be a circular import for no gain. Each method here is a one-line
-    forward to the ``Deck`` method that carried this behavior before — the rename moved the
-    signature, not the implementation.
+    Keyed off ``event.origin`` (constant for one run, whichever event carries it) rather than
+    a name the caller supplied: a handle recovered through :meth:`Runs.get` never held one, and
+    reading it here is what lets :meth:`Run.__await__` work identically whether this process
+    started the run or only ever looked it up.
+    """
+    data = next((block.data for block in payload.output if isinstance(block, DataBlock)), None)
+    if isinstance(deck._root(event.origin), Agent):
+        output = (
+            data
+            if data is not None
+            else "".join(block.text for block in payload.output if isinstance(block, TextBlock))
+        )
+        return TurnResult(output=output, usage=payload.usage, run_id=event.run_id, session_id=event.session_id)
+    return data
+
+
+class Run:
+    """A deck-bound handle on one run — not a second runtime. It holds no engine, store, MCP
+    registry or observer, and delegates every operation back through the deck's own
+    infrastructure (docs/design/run-identity.md §3); if it ever grows one of those, the design
+    is wrong.
+
+    A handle caches no authoritative state: :attr:`id`, :attr:`key`, :attr:`namespace` and
+    :attr:`session_id` are the run's identity, fixed at construction, never its live status —
+    two handles on one run always agree, because the durable store is the only thing either
+    ever reads from. Constructed only by :meth:`Runs.start` and :meth:`Runs.get`, never
+    directly.
+
+    The context a caller passed to :meth:`Runs.start` is retained here for same-process
+    continuation (:meth:`resume`, :meth:`answer`) — never written to the log, and never
+    recovered by :meth:`Runs.get`: a handle rehydrated after a restart has durable state and no
+    context, and supplies ``None`` to whichever of those it calls.
+    """
+
+    __slots__ = ("_context", "_deck", "id", "key", "namespace", "session_id")
+
+    def __init__(
+        self,
+        deck: Deck,
+        *,
+        id: str,
+        key: str | None,
+        namespace: str | None,
+        session_id: str | None,
+        context: object,
+    ) -> None:
+        self._deck = deck
+        self.id = id
+        self.key = key
+        self.namespace = namespace
+        self.session_id = session_id
+        self._context = context
+
+    @property
+    def _log_key(self) -> str:
+        return self.session_id or self.id
+
+    def _rc(self) -> RunContext:
+        return RunContext(run_id=self.id, session_id=self.session_id, namespace=self.namespace)
+
+    async def status(self) -> RunStatus:
+        """This run's current status. Never ``None``: a handle only ever names a run that has
+        at least started, and a started run always has one."""
+        runtime = self._deck._require_open()
+        status = await runtime.status(self.id, namespace=self.namespace)
+        assert status is not None, f"a Run handle always names a run that exists: {self.id!r}"
+        return status
+
+    async def pause(self, reason: str | None = None) -> bool:
+        """Ask the run to stop at its next safe point, and record why — recorded, not stopped:
+        a run inside a tool call stops at its own next safe point, and its own ``run.paused``
+        event is what reports that it did. ``False`` means this deck has no control backend
+        wired, and nothing was recorded."""
+        return await self._deck._pause(self.id, reason, self.namespace)
+
+    async def resume(self) -> None:
+        """Continue a paused run. A no-op if this run is not, in fact, paused — running,
+        waiting for an answer instead (call :meth:`answer`), or already over."""
+        await self._deck._resume(self.id, context=self._context, namespace=self.namespace)
+
+    async def cancel(self, reason: str | None = None) -> bool:
+        """Ask the run to stop for good. A live run stops at its next safe point; one already
+        paused or waiting on an answer has none left to reach, so it ends immediately instead.
+        ``False`` means this deck has no control backend wired, and nothing was recorded.
+        """
+        return await self._deck._cancel(self.id, reason, self.namespace)
+
+    async def pending(self) -> InterruptResult | None:
+        """What this run is waiting to be answered about, or ``None`` if it is not
+        ``WAITING_ANSWER``."""
+        for run in await self._deck._pending(self.namespace):
+            if run.run_id == self.id:
+                return interrupt_result(run.payload, run.thread_id, id=self.id)
+        return None
+
+    async def answer(self, value: Any) -> None:
+        """Answer the interrupt this run is paused on. Raises ``RunStateError`` if it is not,
+        in fact, waiting for one — paused instead (call :meth:`resume`), or already over.
+
+        ``value`` is resupplied against the context :meth:`Runs.start` was given, not
+        recovered: the interrupted run's own copy was never written to the log, so a node that
+        read it before the interrupt reads ``None`` on this replay if this handle has none
+        either.
+        """
+        await self._deck._answer(self.id, value, context=self._context, namespace=self.namespace)
+
+    def events(self, *, from_seq: int = 0, follow: bool = False) -> AsyncIterator[Event]:
+        """This run's own canonical events, from ``from_seq``.
+
+        ``follow=False`` (the default) is a snapshot: whatever the log holds right now, once.
+        ``follow=True`` tails it like :meth:`Deck.stream` — replaying what already happened and
+        then waiting on whatever comes next, whether or not this process is the one executing
+        it (docs/design/run-identity.md §9). Neither ever advances the run: reading is not
+        driving.
+        """
+        if follow:
+            return self._deck._events(self.id, self._log_key, self._rc(), from_seq=from_seq)
+        return self._snapshot(from_seq)
+
+    async def _snapshot(self, from_seq: int) -> AsyncIterator[Event]:
+        store = self._deck._require_open().store
+        for event in await store.read_run(self._log_key, self.id, self._rc(), from_seq=from_seq):
+            yield event
+
+    def __await__(self) -> Generator[Any, None, Any]:
+        """The result: a :class:`TurnResult` for an agent, the graph's own state for a
+        workflow. Blocks while the run is still ``RUNNING``, wherever it is executing.
+
+        Raises rather than blocks once the run has stopped without finishing: ``RunStateError``
+        (as a :class:`~agentdeck.errors.RunSuspendedError`, carrying ``.pending``) for
+        ``PAUSED``/``WAITING_ANSWER`` — there is no timeout parameter to wait either out, and
+        the caller who wants one polls :meth:`status`/:meth:`pending` instead of blocking
+        forever on nobody ever calling :meth:`resume`/:meth:`answer` — and ``RuntimeError`` for
+        ``CANCELLED`` or a ``FAILED`` this process did not itself execute (one it did raises the
+        engine's own exception instead, the same as ``await`` on the task driving it always
+        would).
+        """
+        return self._result().__await__()
+
+    async def _result(self) -> Any:
+        """Wait out ``RUNNING``, however many resumed segments that takes, then read the run's
+        own true last event and decide the outcome from it.
+
+        Not :meth:`Deck._events`: that reads one *segment* and stops at its own first
+        terminal-or-suspended boundary, which is exactly wrong here — a run this handle's
+        :meth:`answer` already drove past its interrupt has that ``run.interrupted`` sitting
+        earlier in the very same log, and a segment read from ``seq`` 0 stops there without
+        ever reaching the ``run.completed`` that came after it. Folding :meth:`Runtime.status`
+        instead is what a segment boundary cannot fool: it is the run's current state, however
+        many segments produced it, and this loop only re-checks it, never a stale one.
+        """
+        deck = self._deck
+        runtime = deck._require_open()
+        while True:
+            status = await runtime.status(self.id, namespace=self.namespace)
+            assert status is not None, f"a Run handle always names a run that exists: {self.id!r}"
+            if status is not RunStatus.RUNNING:
+                break
+            task = deck._executions.get(self.id)
+            if task is not None:
+                # The real exception, traceback included — the same settle `Deck.run()`
+                # already does before it ever reads the log, so a run this process is
+                # executing raises its own failure rather than a `RuntimeError`
+                # reconstructed from `run.failed`.
+                await task
+            else:
+                await asyncio.sleep(_FOLLOW_POLL_INTERVAL)
+        events = await runtime.store.read_run(self._log_key, self.id, self._rc())
+        last = events[-1] if events else None
+        if last is None:
+            raise RuntimeError(f"run {self.id!r} has no events recorded at all.")
+        payload = last.payload
+        if isinstance(payload, RunCompleted):
+            return _completed_result(deck, last, payload)
+        if isinstance(payload, RunFailed):
+            raise RuntimeError(f"run {self.id!r} failed: {payload.message}")
+        if isinstance(payload, RunCancelled):
+            raise RuntimeError(f"run {self.id!r} was cancelled: {payload.reason}")
+        if isinstance(payload, RunInterrupted):
+            pending = interrupt_result(payload.payload, payload.thread_id or "", id=self.id)
+            raise RunSuspendedError(self.id, RunStatus.WAITING_ANSWER, pending=pending)
+        if isinstance(payload, RunPaused):
+            raise RunSuspendedError(self.id, RunStatus.PAUSED)
+        raise RuntimeError(f"run {self.id!r} ended on {last.kind!r}, which awaiting it does not recognize.")
+
+
+class Runs:
+    """``deck.runs`` — the collection that finds or starts a :class:`Run`. Three operations,
+    and no per-run operation duplicated here: once a caller holds a :class:`Run`, every op
+    that acts on it lives on the handle itself (docs/design/run-identity.md §3).
+
+    Lives in ``agentdeck/deck.py`` rather than its own module, for the same reason
+    :class:`Run` does: both need ``Deck``'s private machinery, and ``Deck`` needs
+    :class:`Runs` back for :attr:`Deck.runs`, so splitting either across modules would be a
+    circular import for no gain.
     """
 
     __slots__ = ("_deck",)
@@ -1111,50 +1315,95 @@ class RunOps:
     def __init__(self, deck: Deck) -> None:
         self._deck = deck
 
-    async def pause(self, run_id: str, reason: str | None = None) -> bool:
-        """Ask the run to stop at its next safe point, and record why — recorded, not stopped:
-        a run inside a tool call stops at its own next safe point, and its own ``run.paused``
-        event is what reports that it did.
+    async def start(
+        self,
+        name: str,
+        input: Any,
+        *,
+        session_id: str | None = None,
+        namespace: str | None = None,
+        key: str | None = None,
+        context: object = None,
+    ) -> Run:
+        """Begin one run and hand back a live handle to it. Execution continues in a
+        deck-owned task regardless of whether this handle, or any other, is ever read or
+        awaited (docs/design/run-identity.md §9) — conceptually the same admission
+        :meth:`Deck.run` makes, just handed back as a :class:`Run` instead of awaited inline.
+
+        Raises ``SessionBusyError`` naming the run that holds ``session_id`` while it is
+        ``RUNNING``, ``PAUSED`` or ``WAITING_ANSWER`` — the three states that hold a session —
+        and ``DuplicateKeyError`` naming the run that already holds ``(namespace, key)``: a
+        duplicate start never replays the run that holds the key, it refuses.
         """
-        return await self._deck._pause(run_id, reason)
+        deck = self._deck
+        root = deck._root(name)
+        deck._require_open()
+        content = _content_for(root, input)
+        opening, _task = await deck._start(
+            name, content, context=context, session_id=session_id, namespace=namespace, key=key
+        )
+        return Run(
+            deck,
+            id=opening.run_id,
+            key=key,
+            namespace=opening.namespace,
+            session_id=opening.session_id,
+            context=context,
+        )
 
-    async def cancel(self, run_id: str, reason: str | None = None, namespace: str | None = None) -> bool:
-        """Ask the run to stop for good. A live run stops at its next safe point; one already
-        paused or waiting on an answer has none left to reach, so it ends immediately instead —
-        which needs ``namespace`` to find it: a run opened outside the default namespace is
-        invisible to the lookup that claims and terminates it otherwise, same as :meth:`pending`
-        needs it to list one. Cancellation is terminal either way.
+    async def get(self, id: str | None = None, *, namespace: str | None = None, key: str | None = None) -> Run:
+        """Rehydrate a handle to a run that already exists. Never creates, starts, resumes,
+        claims ownership or moves lifecycle state — returns a run in any state, terminal
+        included, and raises ``NotFoundError`` for one this namespace has never heard of. No
+        fuzzy search, no cross-namespace guessing.
+
+        Two forms, exactly one of them: the canonical ``id`` (optionally scoped to a
+        non-default ``namespace``, the same keyword every other op on this collection takes),
+        or ``namespace=``/``key=``, the application identity :meth:`start` adopted it under.
+
+        Takes no ``context``: a run recovered this way has durable identity and durable state,
+        never the ephemeral value a live process held for it — see :meth:`start`.
         """
-        return await self._deck._cancel(run_id, reason, namespace)
+        if (id is None) == (key is None):
+            raise ValueError("deck.runs.get(...) takes exactly one of a positional id, or key=.")
+        runtime = self._deck._require_open()
+        if key is not None:
+            lookup = RunContext(run_id=str(uuid.uuid4()), namespace=namespace)
+            id = await runtime.store.find_by_key(lookup, key)
+            if id is None:
+                raise NotFoundError(f"No run in namespace {namespace!r} has claimed key {key!r}.")
+        assert id is not None  # the branch above always sets it when key was given instead
+        summary = await runtime.find(id, namespace=namespace)
+        if summary is None:
+            raise NotFoundError(f"No run {id!r} in namespace {namespace!r}.")
+        session_id = None if summary.log_key == summary.run_id else summary.log_key
+        return Run(self._deck, id=id, key=key, namespace=namespace, session_id=session_id, context=None)
 
-    async def resume(self, run_id: str, reason: str | None = None, *, context: object = None) -> list[Event]:
-        """Continue a paused run, returning every event the continuation produced. Empty means
-        nothing was resumed — this run is not paused.
-
-        ``context`` is resupplied, not remembered: the run's original value was never written to
-        the log, so a run that needs one and is lifted without it resumes with ``None``."""
-        return await self._deck._resume(run_id, reason, context=context)
-
-    async def answer(self, run_id: str, value: Any, *, context: object = None) -> Any:
-        """Answer the interrupt the run named by ``run_id`` is paused on; returns the final
-        state or the next interrupt. Pairs with :meth:`pending`: list the inbox, answer one run
-        by the ``run_id`` it named there — the lookup this needs (invocable, thread, session)
-        travels with it, so a caller supplies only the id and the value.
-
-        ``context`` mirrors :meth:`Deck.run`'s, and has to be supplied again: the value is never
-        serialized, so the interrupted run's own copy is gone by the time anybody answers it. A
-        node that read ``ctx.data`` before the interrupt re-runs from its start on resume, so
-        omitting the context here is what makes it read ``None`` the second time.
+    # The return type says `builtins.list`, not the bare name: this method is itself named
+    # `list`, and a checker resolving the annotation against this class's own namespace would
+    # find the method before the type.
+    async def list(
+        self, *, namespace: str | None = None, status: RunStatus | None = None, limit: int | None = None
+    ) -> builtins.list[Run]:
+        """Every run in ``namespace``, optionally narrowed to one ``status`` and capped at
+        ``limit``. Stays scoped to one namespace — no cross-namespace listing
+        (docs/design/run-identity.md §15); an operator view spanning several is a caller-side
+        loop over this, not a parameter here.
         """
-        return await self._deck._answer(run_id, value, context=context)
+        runtime = self._deck._require_open()
+        ctx = RunContext(run_id=str(uuid.uuid4()), namespace=namespace)
+        summaries = await runtime.store.list_runs(ctx, status=status, limit=limit)
+        return [
+            Run(
+                self._deck,
+                id=summary.run_id,
+                key=None,
+                namespace=namespace,
+                session_id=None if summary.log_key == summary.run_id else summary.log_key,
+                context=None,
+            )
+            for summary in summaries
+        ]
 
-    async def status(self, run_id: str) -> RunStatus | None:
-        """This run's current status, or ``None`` if the log has never heard of it."""
-        return await self._deck._status(run_id)
 
-    async def pending(self, namespace: str | None = None) -> list[PendingRun]:
-        """Every run currently waiting on a human, across this Deck's whole catalog."""
-        return await self._deck._pending(namespace)
-
-
-__all__ = ["Deck", "TurnResult"]
+__all__ = ["Deck", "Run", "TurnResult"]

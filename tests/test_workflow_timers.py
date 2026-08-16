@@ -43,7 +43,11 @@ def test_past_timer_is_due_and_completes_after_tick(app_project_timers):
     assert paused["type"] == "interrupt"
     assert paused["payload"]["type"] == TIMER_TYPE
     # the memory saver is cached per process (see test_workflow_interrupts.py), so scope to this thread
-    assert [d for d in due if d["thread_id"] == "t-past"] == [paused]
+    # `due` is listed off the checkpointer directly (`_due_resumes`'s own docstring), which
+    # carries no run id at all — unlike `paused`, `deck.run()`'s own return value, which #322
+    # gave one. Compared on the fields the two actually share.
+    [matched] = [d for d in due if d["thread_id"] == "t-past"]
+    assert matched == {"type": "interrupt", "payload": paused["payload"], "thread_id": "t-past"}
     assert any(f.get("woke_at") for f in finished if isinstance(f, dict))  # _tick() resumed it
 
 
@@ -53,7 +57,9 @@ def test_future_timer_is_pending_but_not_due(app_project_timers):
     async def _scenario():
         async with app:
             paused = await app.run("FutureTimerFlow", {}, session_id="t-future")
-            pending = await app.runs.pending()
+            # Not the public surface: this is the same checkpointer-independent inbox `_tick()`
+            # itself reconciles against (`Deck._pending`), not `deck.runs`'s namespaced listing.
+            pending = await app._pending()
             due = await app._due_resumes()
         return paused, pending, due
 
@@ -206,7 +212,10 @@ def test_tick_survives_a_process_restart(tmp_path):
 
     assert paused["type"] == "interrupt"
     assert paused["payload"]["type"] == TIMER_TYPE
-    assert finished["due"] == [paused]
+    # `due` is listed off the checkpointer directly, which carries no run id at all — unlike
+    # `paused`, `deck.run()`'s own return value, which #322 gave one. Compared on what the two
+    # actually share.
+    assert finished["due"] == [{k: v for k, v in paused.items() if k != "id"}]
     resumed_woke_at = datetime.fromisoformat(finished["resumed"][0]["woke_at"])
     assert resumed_woke_at == datetime.fromisoformat(paused["payload"]["wake_at"])
 

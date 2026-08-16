@@ -592,8 +592,8 @@ async def test_a_turn_on_a_session_whose_run_is_waiting_on_a_human_is_refused() 
     with pytest.raises(SessionBusyError, match=opening[0].run_id) as refused:
         async for _ in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
             pass
-    assert "deck.runs.answer" in str(refused.value)
-    assert "deck.runs.cancel" in str(refused.value)
+    assert "run.answer(...)" in str(refused.value)
+    assert "run.cancel(...)" in str(refused.value)
     assert "in flight" not in str(refused.value)
     assert [event.kind for event in await store.read(CTX.log_key, CTX)] == ["run.started", "run.interrupted"]
 
@@ -613,8 +613,8 @@ async def test_a_turn_on_a_session_whose_run_is_paused_is_refused_naming_resume(
     with pytest.raises(SessionBusyError, match=opening[0].run_id) as refused:
         async for _ in runtime.run("Chatty", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
             pass
-    assert "deck.runs.resume" in str(refused.value)
-    assert "deck.runs.cancel" in str(refused.value)
+    assert "run.resume()" in str(refused.value)
+    assert "run.cancel(...)" in str(refused.value)
     assert "in flight" not in str(refused.value)
 
 

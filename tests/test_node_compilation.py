@@ -28,7 +28,7 @@ from agentdeck.authoring import Workflow
 from agentdeck.authoring.graphs import bridge_context_nodes
 from agentdeck.core.context import Context  # noqa: TC001 — the nodes below must resolve it at runtime
 from agentdeck.deck import Deck
-from agentdeck.errors import ConfigError
+from agentdeck.errors import ConfigError, RunSuspendedError
 from agentdeck.runtime.settings import reset_settings_cache
 
 
@@ -258,17 +258,23 @@ def _approval_workflow(seen: list[Any]) -> Workflow:
 async def test_answer_resupplies_the_context_to_the_node_that_re_runs(no_project, memory_checkpointer) -> None:
     """The bug this slice closes. ``answer`` mints a fresh ``RunContext``; before this, it minted
     one with no ``data=`` at all, so the re-running node read ``None`` and a defensive node would
-    have returned a plausible wrong answer with nothing in the log to contradict it."""
+    have returned a plausible wrong answer with nothing in the log to contradict it.
+
+    ``context`` is never resupplied at answer time now (docs/design/run-identity.md §6) — the
+    handle from ``start()`` retains it, so this holds the same ``Run`` throughout rather than
+    recovering one through ``get()``, which would carry no context at all.
+    """
     seen: list[Any] = []
     calendar = Calendar(slot="15:00")
     deck = Deck(workflows=[_approval_workflow(seen)])
     deck.build()
 
     async with deck:
-        paused = await deck.run("Approval", {"request": "tue 9am"}, session_id="t-1", context=calendar)
-        assert paused["type"] == "interrupt"
-        [pending] = await deck.runs.pending()
-        result = await deck.runs.answer(pending.run_id, "yes", context=calendar)
+        run = await deck.runs.start("Approval", {"request": "tue 9am"}, session_id="t-1", context=calendar)
+        with pytest.raises(RunSuspendedError):  # blocks until it parks on the interrupt
+            await run
+        await run.answer("yes")
+        result = await run
 
     assert result["out"] == "yes@15:00"
     # Once before the interrupt and once after: both passes saw the very same object.
@@ -280,17 +286,19 @@ async def test_answer_resupplies_the_context_to_the_node_that_re_runs(no_project
 async def test_answering_without_a_context_resumes_with_none_rather_than_the_old_value(
     no_project, memory_checkpointer
 ) -> None:
-    """Resupplied, never recovered. Omitting it is not "keep what the run had" — the value was
-    never written down, so there is nothing to keep, and this states which of the two it is."""
+    """Resupplied, never recovered — and now never a parameter :meth:`Run.answer` even takes:
+    a handle started with no ``context=`` at all carries ``None`` for its whole life, and
+    ``answer`` resupplies exactly that rather than "keeping what the run had"."""
     seen: list[Any] = []
     deck = Deck(workflows=[_approval_workflow(seen)])
     deck.build()
 
     async with deck:
-        await deck.run("Approval", {"request": "tue 9am"}, session_id="t-1", context=Calendar())
-        [pending] = await deck.runs.pending()
+        run = await deck.runs.start("Approval", {"request": "tue 9am"}, session_id="t-1")
+        with pytest.raises(RunSuspendedError):
+            await run
         with pytest.raises(AttributeError):  # the node reads ``.slot`` off ``None``
-            await deck.runs.answer(pending.run_id, "yes")
+            await run.answer("yes")
 
     assert seen[-1] is None
 

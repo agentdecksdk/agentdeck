@@ -184,15 +184,16 @@ class EventStorePort(ABC):
         """
 
     @abstractmethod
-    async def locate(self, run_id: str, ctx: RunContext) -> str | None:
-        """The ``log_key`` holding ``run_id`` in ``ctx``'s namespace, or ``None``.
+    async def find_by_key(self, ctx: RunContext, key: str) -> str | None:
+        """The run id claimed under ``(ctx.namespace, key)``, or ``None`` if nothing has.
 
-        ``log_key`` is ``session_id or run_id`` (``RunContext.log_key``), so a run under a
-        session is not found by its own id without this: the log it lives in is named by the
-        session, not by the run. A caller that means to read or fold that run — :meth:`read_run`,
-        :meth:`run_status`, a future resume-by-id — needs this first.
+        The read side of the permanent claim :meth:`claim_start` enforces on ``ctx.key`` — what
+        ``deck.runs.get(namespace=, key=)`` resolves against to reach the same run
+        :meth:`claim_start` refused to open twice. ``ctx.run_id`` is not part of this lookup;
+        only ``ctx.namespace`` scopes it, the same throwaway-context shape :meth:`list_runs`
+        already takes for a query that has no one run of its own.
 
-        A run this store never heard of, and a run id that belongs to a different namespace,
+        A namespace that never claimed ``key`` and a claim made under a different namespace
         both answer ``None`` — indistinguishable, as everywhere else in this port.
         """
 

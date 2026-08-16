@@ -174,27 +174,18 @@ async def test_persists_to_a_real_file_across_separate_store_instances(tmp_path)
     assert [event.seq for event in await reopened.read("s-1", ctx)] == [0, 1]
 
 
-async def test_the_run_id_index_migrates_onto_a_database_built_before_it_existed(tmp_path) -> None:
-    """``events_by_run_id`` is new; a database an earlier build already created has the table
-    but not this index. Unlike the ``UNIQUE`` index beside it, a plain one has nothing to
-    conflict with, so opening the file adds it instead of refusing to open — asserted here
-    rather than assumed, against a file this test builds by hand with the pre-``locate`` DDL.
+async def test_the_run_id_index_is_dropped_from_a_database_built_before_it_was_removed(tmp_path) -> None:
+    """``events_by_run_id`` existed only for ``locate``'s "which log holds this run_id" query,
+    which #322 removed with no caller left for it — a database an earlier build already
+    created has the index and drops it on open rather than carrying it for good.
     """
     db_path = tmp_path / "events.sqlite3"
-    conn = sqlite3.connect(db_path)
-    conn.executescript(
-        "CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, namespace TEXT NOT NULL, "
-        "log_key TEXT NOT NULL, run_id TEXT NOT NULL, seq INTEGER NOT NULL, data TEXT NOT NULL);"
-        "CREATE INDEX events_by_log ON events (namespace, log_key, id);"
-        "CREATE UNIQUE INDEX events_by_run ON events (namespace, log_key, run_id, seq);"
-    )
-    conn.commit()
-    conn.close()
+    _pre_324_file(db_path)  # its DDL still includes events_by_run_id, the pre-#322 shape
 
     store = SqliteEventStore(db_path)
     try:
         names = {row[1] for row in store._conn.execute("PRAGMA index_list(events)").fetchall()}
-        assert "events_by_run_id" in names
+        assert "events_by_run_id" not in names
     finally:
         store.close()
 

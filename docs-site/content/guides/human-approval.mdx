@@ -8,9 +8,9 @@ description: Pause a workflow for a person's decision, and answer it from wherev
 Some steps should not happen until a person says yes. A workflow node can pause for exactly
 that — durably, so the process asking does not have to be the process answering, provided the
 answering process can see the run at all. `durable=True` covers the graph's own state (LangGraph's
-checkpointer, file-backed by default); `pending()` and `answer()` go through a different store —
-the Runtime's event log — so a second process only sees a paused run if *that* store is shared
-too, which the default (in-process memory) is not. See [Where the log
+checkpointer, file-backed by default); `Run.pending()` and `Run.answer()` go through a different
+store — the Runtime's event log — so a second process only sees a paused run if *that* store is
+shared too, which the default (in-process memory) is not. See [Where the log
 lives](/concepts/runs-and-the-event-log#where-the-log-lives) for the backends that cross a
 process boundary.
 
@@ -53,53 +53,62 @@ quote_approval = Workflow(name="QuoteApproval", state=QuoteState, durable=True, 
 interrupts — keep it to the question itself, because [it re-runs from its start on
 resume](/concepts/workflows#durability-and-human-approval).
 
-Starting the run returns the question instead of a final state. A second process — the one
-with the person in front of it — finds it in the approval inbox and answers by `run_id`:
+Starting the run returns the question instead of a final state — and the question itself now
+carries the run's own `id`, so whoever gets handed it can answer it with no second lookup:
 
 ```python run
 import asyncio
 
 from agentdeck import Deck
+from agentdeck.core.status import RunStatus
 
 
 async def main() -> None:
     async with Deck.from_project() as deck:
         paused = await deck.run("QuoteApproval", {"request": "Berlin -> Munich"}, session_id="quote-42")
-        print(paused)  # {"type": "interrupt", "payload": {"question": ...}, "thread_id": "quote-42"}
+        print(paused)  # {"type": "interrupt", "payload": {"question": ...}, "thread_id": "quote-42", "id": ...}
 
-        inbox = await deck.runs.pending()
-        print([(p.run_id, p.thread_id, p.payload) for p in inbox])  # what a second process, or a later call in this one, would see
+        # A second process — the one with the person in front of it — finds it in the
+        # approval inbox instead, one Run per waiting workflow across the whole catalog.
+        inbox = await deck.runs.list(status=RunStatus.WAITING_ANSWER)
+        print([(run.id, await run.pending()) for run in inbox])
 
-        [mine] = [p for p in inbox if p.thread_id == "quote-42"]
-        final = await deck.runs.answer(mine.run_id, "yes")
+        mine = await deck.runs.get(paused["id"])
+        await mine.answer("yes")
+        final = await mine
         print(final)  # {"request": ..., "quote": ..., "approved": True}
 
 
 asyncio.run(main())
 ```
 
-`runs.pending()` lists every paused run across the whole catalog — a real caller narrows it by
-`p.invocable == "QuoteApproval"` when more than one durable workflow is in flight. `runs.answer()`
-needs only the `run_id` `runs.pending()` named; it looks up which workflow and which thread that
-run belongs to itself.
+`deck.runs.list(status=RunStatus.WAITING_ANSWER)` lists every paused run across the whole
+catalog — a real caller narrows it further with `await run.pending()`, whose `payload` names the
+question and whose own dict now carries the run's `id` too. `deck.runs.get(id)` rehydrates a
+handle to any run this deck already knows about, so a caller holding just the id off `paused`
+skips the inbox entirely.
 
-### If the workflow takes a context, answer with it too
+### If the workflow takes a context, hold the same handle to answer it
 
 `QuoteApproval` above needs nothing from the caller. A workflow declaring `Context[T]` does, and
-the context is the one thing `runs.answer()` does *not* recover for you:
+the context is not something `answer()` takes as an argument at all — it is retained on the
+`Run` handle from whenever the run started, for that handle's whole life:
 
 ```python illustrative reason="continues the example above, for a workflow that declares Context[T]"
-# The interrupt node re-runs from its start, and the context is never serialized with the run —
-# so whoever answers has to hand it back. Omit it and the node reads `ctx.data` as None on the
-# second pass: no error, no warning, just a quietly wrong value.
-final = await deck.runs.answer(mine.run_id, "yes", context=corpus)
+# start() is the one call that can carry a context; recovering a handle later via get() never
+# does. Keep the handle start() returned if the same process is going to answer it.
+run = await deck.runs.start("QuoteApproval", {"request": "Berlin -> Munich"}, session_id="quote-42", context=corpus)
+...
+await run.answer("yes")  # resupplies `corpus`, because this is the same handle
 ```
 
-Two rules meeting, and the result is silent. [The node re-runs from its
-start](/concepts/workflows#durability-and-human-approval), so its `ctx.data` read happens twice
-— and the second read is against whatever this call passed, because the interrupted run's own
-copy is gone by the time anybody answers it. The process that answers is often not the process
-that started the run, which is exactly when the value is easiest to forget.
+Answering through a *different* handle — `deck.runs.get(run.id)` from a second process, or from
+the inbox above — carries no context at all, because none was ever written to the log. [The node
+re-runs from its start](/concepts/workflows#durability-and-human-approval), so its `ctx.data` read
+happens twice, and the second read sees whatever the answering handle had — `corpus` if it is the
+same one `start()` returned, `None` if it was recovered any other way. That is not a bug to work
+around; it is why an application that needs an answer to carry a context keeps the process that
+started the run alive to answer it, or accepts that a second process answers with `None`.
 
 ## The same thing over HTTP
 
@@ -130,5 +139,5 @@ only way one of these pauses, and answering it is the only way it continues.
 
 Next: [Workflows](/concepts/workflows) covers timers (`sleep_until`) — the other thing
 `interrupt()` is used for — and what `as_tool()` does with the whole graph. The exact
-`Workflow(...)`, `Deck.run(...)`, `Deck.runs.answer(...)` and `Deck.runs.pending(...)` APIs are in
+`Workflow(...)`, `Deck.run(...)`, `Run.answer(...)` and `deck.runs.list(status=...)` APIs are in
 [Definitions](/reference/definitions) and [Deck](/reference/deck).

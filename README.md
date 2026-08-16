@@ -164,7 +164,7 @@ to survive being operated.
 - **Run control** — an agent or workflow run in flight can be paused, resumed or cancelled by
   id, at documented safe points, from another process.
 - **Human approval** — a `durable=True` workflow node calls `interrupt()`, the run parks, and
-  `deck.runs.pending()` / `deck.runs.answer()` finish it later, possibly somewhere else.
+  `deck.runs.list(status=...)` / `Run.answer()` finish it later, possibly somewhere else.
 - **An HTTP surface** — `agentdeck-serve` puts chat, SSE streaming, workflows, and the approval
   inbox behind FastAPI without any code of yours.
 - **Tools, skills and MCP** — SDK tools as plain functions, skills as `SKILL.md` directories,

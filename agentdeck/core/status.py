@@ -139,7 +139,7 @@ _LEGALITY: Mapping[RunStatus, Mapping[Operation, Precondition]] = {
     RunStatus.PAUSED: {
         Operation.RUN: _BUSY,
         Operation.ANSWER: Precondition(
-            Verdict.REFUSED, "the run is paused, not waiting for a value: lift it with deck.runs.resume"
+            Verdict.REFUSED, "the run is paused, not waiting for a value: lift it with run.resume()"
         ),
         Operation.RESUME: _LEGAL,
     },
@@ -148,7 +148,7 @@ _LEGALITY: Mapping[RunStatus, Mapping[Operation, Precondition]] = {
         Operation.ANSWER: _LEGAL,
         Operation.RESUME: Precondition(
             Verdict.REFUSED,
-            "the run is waiting for a value, not for a pause to be lifted: supply it with deck.runs.answer",
+            "the run is waiting for a value, not for a pause to be lifted: supply it with run.answer(...)",
         ),
     },
 } | dict.fromkeys(

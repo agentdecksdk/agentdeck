@@ -27,7 +27,7 @@ def sleep_until(when: datetime) -> Any:
     Wraps ``langgraph.types.interrupt()`` with a payload convention —
     ``{"type": "agentdeck.timer", "wake_at": <ISO-8601 UTC>}`` — so a paused-on-timer thread is
     distinguishable from a paused-on-human thread in a pending-runs listing
-    (``Deck.runs.pending()``).
+    (``deck.runs.list(status=RunStatus.WAITING_ANSWER)``).
     A due-timer sweep resumes with the wake timestamp as the resume value.
     Requires ``durable = True``, same as any other ``interrupt()`` call.
     """

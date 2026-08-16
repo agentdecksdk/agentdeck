@@ -10,6 +10,8 @@ from functools import partial
 
 import pytest
 
+from agentdeck.core.status import RunStatus
+
 pytest.importorskip("fastapi")
 
 APPROVAL_WORKFLOW_PY = """
@@ -98,6 +100,16 @@ def _in_the_servers_loop(client, method, *args, **kwargs):
     return client.portal.call(partial(method, *args, **kwargs))
 
 
+async def _run_waiting_on(deck, thread_id):
+    """The ``Run`` parked on ``thread_id`` — the public surface's own way to the id these tests
+    used to get off ``deck.runs.pending()``'s ``PendingRun`` rows."""
+    for run in await deck.runs.list(status=RunStatus.WAITING_ANSWER):
+        pending = await run.pending()
+        if pending is not None and pending["thread_id"] == thread_id:
+            return run
+    raise AssertionError(f"no run waiting on thread {thread_id!r}")
+
+
 def _inbox(client, thread_id):
     """The pending list scoped to one thread — the memory saver is shared process-wide."""
     return [p for p in client.get("/workflows/ApprovalFlow/pending").json() if p["thread_id"] == thread_id]
@@ -174,16 +186,20 @@ def test_resuming_a_run_that_is_waiting_for_an_answer_is_a_conflict_that_names_t
     """
     deck = client.app.state.deck
     client.post("/workflows/ApprovalFlow?thread_id=t-wrong-verb", json={"request": "tue 9am"})
-    pending = _in_the_servers_loop(client, deck.runs.pending)
-    [mine] = [run for run in pending if run.thread_id == "t-wrong-verb"]
+    mine = _in_the_servers_loop(client, _run_waiting_on, deck, "t-wrong-verb")
 
-    response = client.post(f"/runs/{mine.run_id}/resume")
+    response = client.post(f"/runs/{mine.id}/resume")
 
     assert response.status_code == 409, response.text
-    assert "deck.runs.answer" in response.json()["detail"]
+    assert "run.answer(...)" in response.json()["detail"]
+
+    async def _answer_and_await():
+        await mine.answer("yes")
+        return await mine
+
     # Refused, not consumed: the approval is still answerable, which also keeps the process-wide
     # memory saver clean for the tests after this one.
-    answered = _in_the_servers_loop(client, deck.runs.answer, mine.run_id, "yes")
+    answered = _in_the_servers_loop(client, _answer_and_await)
     assert answered["outcome"] == "booked"
 
 
@@ -227,9 +243,13 @@ def test_resuming_a_thread_already_answered_out_of_band_is_a_404_not_a_dropped_v
     """
     deck = client.app.state.deck
     client.post("/workflows/ApprovalFlow?thread_id=t-ghost", json={"request": "tue 9am"})
-    pending = _in_the_servers_loop(client, deck.runs.pending)
-    [mine] = [run for run in pending if run.thread_id == "t-ghost"]
-    answered = _in_the_servers_loop(client, deck.runs.answer, mine.run_id, "yes")
+    mine = _in_the_servers_loop(client, _run_waiting_on, deck, "t-ghost")
+
+    async def _answer_and_await():
+        await mine.answer("yes")
+        return await mine
+
+    answered = _in_the_servers_loop(client, _answer_and_await)
     assert answered["outcome"] == "booked"
 
     ghost = client.post("/workflows/ApprovalFlow/t-ghost/resume", json={"value": "no"})
