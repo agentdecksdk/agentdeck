@@ -170,7 +170,7 @@
   height: 20px;
   color: var(--hero-accent-muted);
   filter: drop-shadow(0 0 0 var(--hero-accent-2));
-  transition: color 480ms ease, filter 480ms ease;
+  transition: color 340ms ease, filter 340ms ease, transform 340ms cubic-bezier(.2,.8,.2,1);
 }
 
 .ad-mark.is-active {
@@ -266,27 +266,6 @@
   mask-image: radial-gradient(circle at center, #000 0, transparent 72%);
 }
 
-.ad-connections {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0;
-  transition: opacity 400ms ease;
-}
-
-.ad-connections.is-visible {
-  opacity: 1;
-}
-
-.ad-connections path {
-  fill: none;
-  stroke: var(--hero-line-4);
-  stroke-width: 1.2;
-  stroke-dasharray: 5 9;
-  vector-effect: non-scaling-stroke;
-}
-
 .ad-stage__modules {
   position: absolute;
   inset: 0;
@@ -294,6 +273,7 @@
 
 .ad-module {
   position: absolute;
+  animation: module-in 520ms cubic-bezier(.2,.8,.2,1) backwards;
   left: var(--scatter-x);
   top: var(--scatter-y);
   transform: translate(-50%, -50%);
@@ -316,11 +296,36 @@
   letter-spacing: 0.01em;
   opacity: 0.92;
   transition:
-    left 900ms cubic-bezier(.2,.8,.2,1),
-    top 900ms cubic-bezier(.2,.8,.2,1),
-    opacity 500ms ease,
-    transform 900ms cubic-bezier(.2,.8,.2,1),
+    left 1500ms cubic-bezier(.2,.8,.2,1),
+    top 1500ms cubic-bezier(.2,.8,.2,1),
+    opacity 1200ms ease,
+    transform 1500ms cubic-bezier(.2,.8,.2,1),
     filter 500ms ease;
+}
+
+/* The capabilities arrive one after another, and the gaps close as they go, so the opening
+   accelerates into the compose rather than holding a finished pose. */
+.ad-module--agent {
+  animation-delay: 60ms;
+}
+
+.ad-module--tool {
+  animation-delay: 460ms;
+}
+
+.ad-module--workflow {
+  animation-delay: 780ms;
+}
+
+.ad-module--skill {
+  animation-delay: 1000ms;
+}
+
+@keyframes module-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
 }
 
 .ad-module__icon {
@@ -330,15 +335,20 @@
   place-items: center;
   border: 1px solid var(--hero-line-6);
   border-radius: 8px 8px 3px 8px;
-  color: var(--hero-ink-soft);
-  font-size: 11px;
-  font-weight: 780;
+  color: var(--hero-accent);
+}
+
+.ad-module__icon svg {
+  width: 15px;
+  height: 15px;
 }
 
 .ad-module.is-composing {
   left: 50%;
   top: 50%;
-  opacity: 0.15;
+  /* Gone by the time they land: holding them at a low opacity left four cards stacked on the
+     same point, which reads as a pile rather than as a merge. */
+  opacity: 0;
   transform: translate(-50%, -50%) scale(0.82);
   filter: blur(0.3px);
 }
@@ -358,10 +368,12 @@
   height: var(--deck-h);
   transform: translate(-50%, -50%) scale(0.82);
   opacity: 0;
+  /* Half speed: the Deck assembling is the beat the section is about, and it was over before
+     it registered. */
   transition:
-    opacity 450ms ease,
-    transform 700ms cubic-bezier(.2,.8,.2,1),
-    filter 600ms ease;
+    opacity 900ms ease,
+    transform 1400ms cubic-bezier(.2,.8,.2,1),
+    filter 1200ms ease;
 }
 
 .ad-deck.is-visible {
@@ -369,23 +381,66 @@
   transform: translate(-50%, -50%) scale(1);
 }
 
-.ad-deck__layer,
+/* Activation is the mark igniting: it takes the accent, gains its glow, and pulses once.
+   There is no travelling element, so this is the whole of the beat. */
+/* Only the spark pops. The card is the steady thing the spark lands on, and scaling the whole
+   lockup made the outline breathe with it. `fill-box` keeps the pulse about the spark's own
+   centre rather than the SVG's. */
+.ad-deck.is-active .ad-deck__surface .ad-card__spark {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mark-ignite 460ms cubic-bezier(.2,.9,.3,1);
+}
+
+@keyframes mark-ignite {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.16);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* The Deck arrives when the capabilities do, not a phase later. */
+.phase-compose .ad-deck.is-visible {
+  transition-delay: 850ms;
+}
+
 .ad-deck__surface {
   position: absolute;
   inset: 0;
-  clip-path: polygon(0 0, 88% 0, 100% 12%, 100% 100%, 12% 100%, 0 88%);
-  border: 1px solid var(--hero-line-7);
-  border-radius: 18px 18px 7px 18px;
+  display: grid;
+  place-items: center;
 }
 
-.ad-deck__layer--back {
-  transform: translate(-14px, 14px);
-  opacity: 0.22;
+/* The three-colour lockup docs/brand/logo-full.svg defines: Agent Blue card, the A knocked out
+   so the ground shows through it, Ace Red spark. The A is a hole in the card path rather than a
+   shape, so filling the path is all it takes. */
+.ad-card {
+  width: 100%;
+  height: 100%;
+  transition: filter 340ms ease;
 }
 
-.ad-deck__layer--mid {
-  transform: translate(-7px, 7px);
-  opacity: 0.34;
+.ad-card > path:first-of-type {
+  /* Agent Blue in both themes, not the theme accent. This is the mark, and docs/brand/README
+     records why it survives either ground: the A is a hole, so each background shows through
+     its counter instead of the mark needing a light and a dark version. */
+  fill: var(--brand-blue);
+}
+
+/* Ace Red, the one place the palette is not blue, exactly as the lockup sets it. */
+.ad-card__spark {
+  fill: var(--brand-ace);
+  stroke: none;
+  transition: filter 340ms ease;
+}
+
+.ad-deck.is-active .ad-card__spark {
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--brand-ace) 45%, transparent));
 }
 
 .ad-deck__surface {
@@ -394,16 +449,6 @@
   align-items: center;
   justify-content: center;
   gap: 14px;
-  background:
-    radial-gradient(circle at 50% 36%, var(--hero-accent-7), transparent 34%),
-    linear-gradient(180deg, var(--hero-panel-4), var(--hero-panel-5));
-  box-shadow:
-    inset 0 1px 0 var(--hero-grid-3),
-    0 24px 70px var(--hero-shadow-3);
-  transition:
-    border-color 500ms ease,
-    box-shadow 500ms ease,
-    background 500ms ease;
 }
 
 .ad-deck__surface .ad-mark {
@@ -412,67 +457,25 @@
 }
 
 .ad-deck__label {
-  letter-spacing: 0.28em;
-  font-size: 18px;
-  font-weight: 760;
-}
-
-.ad-deck.is-active .ad-deck__surface {
-  border-color: var(--hero-accent-8);
-  background:
-    radial-gradient(circle at 50% 36%, var(--hero-accent-9), transparent 36%),
-    linear-gradient(180deg, var(--hero-panel-6), var(--hero-panel-7));
-  box-shadow:
-    inset 0 1px 0 var(--hero-grid-4),
-    0 0 0 1px var(--hero-accent-10),
-    0 0 54px var(--hero-accent-11);
-}
-
-.ad-spark {
   position: absolute;
-  left: -430px;
-  top: 50%;
-  width: 32px;
-  height: 32px;
-  transform: translateY(-50%);
-  opacity: 0;
-  pointer-events: none;
-}
-
-.ad-spark .ad-mark {
-  width: 32px;
-  height: 32px;
-}
-
-.ad-spark.is-flying {
-  opacity: 1;
-  animation: spark-flight 820ms cubic-bezier(.25,.75,.25,1) forwards;
-}
-
-@keyframes spark-flight {
-  0% {
-    transform: translate(-80px, -50%) scale(0.8);
-    opacity: 0;
-  }
-  18% {
-    opacity: 1;
-  }
-  82% {
-    opacity: 1;
-  }
-  100% {
-    transform: translate(430px, -50%) scale(1.05);
-    opacity: 0;
-  }
+  bottom: -26px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  letter-spacing: 0.28em;
+  font-size: 12px;
+  font-weight: 760;
+  color: var(--hero-ink-soft);
 }
 
 .ad-tree {
   position: absolute;
-  left: 50%;
-  top: 246px;
-  width: 760px;
-  height: 250px;
-  transform: translateX(-50%);
+  /* Flush with the Deck's right edge: the connector leaves the card, it does not float. */
+  left: calc(50% - 214px);
+  top: 50%;
+  width: 660px;
+  height: 300px;
+  transform: translateY(-50%);
   opacity: 0;
   pointer-events: none;
   transition: opacity 300ms ease;
@@ -500,19 +503,31 @@
 }
 
 .ad-tree.is-active .edge {
-  animation: draw-edge 480ms ease forwards;
+  animation: draw-edge 620ms cubic-bezier(.4,0,.2,1) forwards;
 }
 
-.ad-tree.is-active .edge-2,
-.ad-tree.is-active .edge-3,
+.ad-tree.is-active .edge-2 {
+  animation-delay: 520ms;
+}
+
+.ad-tree.is-active .edge-3 {
+  animation-delay: 620ms;
+}
+
 .ad-tree.is-active .edge-4 {
-  animation-delay: 260ms;
+  animation-delay: 720ms;
 }
 
-.ad-tree.is-active .edge-5,
-.ad-tree.is-active .edge-6,
+.ad-tree.is-active .edge-5 {
+  animation-delay: 1340ms;
+}
+
+.ad-tree.is-active .edge-6 {
+  animation-delay: 1440ms;
+}
+
 .ad-tree.is-active .edge-7 {
-  animation-delay: 560ms;
+  animation-delay: 1540ms;
 }
 
 @keyframes draw-edge {
@@ -540,65 +555,81 @@
   font-size: 12px;
   font-weight: 680;
   opacity: 0;
-  transform: translateY(-6px) scale(0.97);
+  transform: translateX(-10px) scale(0.97);
 }
 
 .ad-tree.is-active .tree-node {
-  animation: node-in 360ms ease forwards;
+  animation: node-in 420ms cubic-bezier(.2,.8,.2,1) forwards;
 }
 
 .tree-node--run {
-  left: 324px;
-  top: 26px;
+  left: 80px;
+  top: 129px;
   width: 112px;
 }
 
 .tree-node--agent {
-  left: 89px;
-  top: 122px;
+  left: 310px;
+  top: 25px;
 }
 
 .tree-node--tool {
-  left: 324px;
-  top: 122px;
+  left: 310px;
+  top: 129px;
 }
 
 .tree-node--workflow {
-  left: 559px;
-  top: 122px;
+  left: 310px;
+  top: 233px;
 }
 
 .tree-node--leaf-a {
-  left: 89px;
-  top: 218px;
+  left: 530px;
+  top: 25px;
 }
 
 .tree-node--leaf-b {
-  left: 324px;
-  top: 218px;
+  left: 530px;
+  top: 129px;
 }
 
 .tree-node--leaf-c {
-  left: 559px;
-  top: 218px;
+  left: 530px;
+  top: 233px;
 }
 
-.ad-tree.is-active .tree-node--agent,
-.ad-tree.is-active .tree-node--tool,
+.ad-tree.is-active .tree-node--run {
+  animation-delay: 420ms;
+}
+
+.ad-tree.is-active .tree-node--agent {
+  animation-delay: 1040ms;
+}
+
+.ad-tree.is-active .tree-node--tool {
+  animation-delay: 1140ms;
+}
+
 .ad-tree.is-active .tree-node--workflow {
-  animation-delay: 380ms;
+  animation-delay: 1240ms;
 }
 
-.ad-tree.is-active .tree-node--leaf-a,
-.ad-tree.is-active .tree-node--leaf-b,
+.ad-tree.is-active .tree-node--leaf-a {
+  animation-delay: 1860ms;
+}
+
+.ad-tree.is-active .tree-node--leaf-b {
+  animation-delay: 1960ms;
+}
+
 .ad-tree.is-active .tree-node--leaf-c {
-  animation-delay: 720ms;
+  animation-delay: 2060ms;
 }
 
 @keyframes node-in {
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateX(0) scale(1);
   }
 }
 
@@ -647,8 +678,7 @@
 }
 
 .phase-execute .ad-deck {
-  top: 28%;
-  transform: translate(-50%, -50%) scale(0.72);
+  transform: translate(calc(-50% - 321px), -50%) scale(1);
 }
 
 @media (max-width: 900px) {
@@ -667,10 +697,33 @@
     font-size: 12px;
   }
 
+  .phase-execute .ad-deck {
+    left: 50%;
+    top: 22%;
+    transform: translate(-50%, -50%) scale(0.82);
+  }
+
   .ad-tree {
-    width: 620px;
-    transform: translateX(-50%) scale(0.8);
-    transform-origin: top center;
+    left: 50%;
+    top: 70%;
+    margin-left: -152px;
+    transform: translateY(-50%) scale(0.72);
+    transform-origin: left center;
+  }
+
+  .tree-node--leaf-a,
+  .tree-node--leaf-b,
+  .tree-node--leaf-c,
+  .edge-1,
+  .edge-5,
+  .edge-6,
+  .edge-7 {
+    display: none;
+  }
+
+  .tree-node {
+    font-size: 16px;
+    min-height: 48px;
   }
 }
 
@@ -728,39 +781,21 @@
     transform: translate(-50%, -50%) scale(0.78);
   }
 
-  /* The tree is laid out for the narrow box rather than scaled into it. Its lines are an SVG
-     stretched to the container, so the columns move with the width; the nodes are absolute and
-     do not, which is why the third one used to sit outside. Both are recomputed here for a
-     340px box, and the type stays at a readable size instead of being scaled to nothing. */
+  /* Tighter again on a phone, but the same stacked arrangement as the tablet block above. */
   .ad-tree {
-    top: 192px;
-    width: 340px;
-    transform: translateX(-50%);
+    top: 72%;
+    margin-left: -118px;
+    transform: translateY(-50%) scale(0.56);
   }
 
   .tree-node {
-    min-width: 84px;
-    min-height: 32px;
-    padding: 0 8px;
-    gap: 6px;
-    font-size: 11px;
-    border-radius: 8px 8px 3px 8px;
+    font-size: 19px;
+    min-height: 56px;
   }
 
-  .tree-node--run,
-  .tree-node--tool,
-  .tree-node--leaf-b {
-    left: 128px;
-  }
-
-  .tree-node--agent,
-  .tree-node--leaf-a {
-    left: 23px;
-  }
-
-  .tree-node--workflow,
-  .tree-node--leaf-c {
-    left: 233px;
+  .tree-node .status {
+    width: 11px;
+    height: 11px;
   }
 }
 
