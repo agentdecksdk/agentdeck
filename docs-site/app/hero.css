@@ -728,10 +728,39 @@
     transform: translate(-50%, -50%) scale(0.78);
   }
 
+  /* The tree is laid out for the narrow box rather than scaled into it. Its lines are an SVG
+     stretched to the container, so the columns move with the width; the nodes are absolute and
+     do not, which is why the third one used to sit outside. Both are recomputed here for a
+     340px box, and the type stays at a readable size instead of being scaled to nothing. */
   .ad-tree {
-    top: 222px;
-    width: 560px;
-    transform: translateX(-50%) scale(0.62);
+    top: 192px;
+    width: 340px;
+    transform: translateX(-50%);
+  }
+
+  .tree-node {
+    min-width: 84px;
+    min-height: 32px;
+    padding: 0 8px;
+    gap: 6px;
+    font-size: 11px;
+    border-radius: 8px 8px 3px 8px;
+  }
+
+  .tree-node--run,
+  .tree-node--tool,
+  .tree-node--leaf-b {
+    left: 128px;
+  }
+
+  .tree-node--agent,
+  .tree-node--leaf-a {
+    left: 23px;
+  }
+
+  .tree-node--workflow,
+  .tree-node--leaf-c {
+    left: 233px;
   }
 }
 

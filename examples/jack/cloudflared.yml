@@ -1,4 +1,4 @@
-# Cloudflare Tunnel for Jack — the reproducible, locally-managed form.
+# Cloudflare Tunnel for Jack - the reproducible, locally-managed form.
 #
 #     cloudflared tunnel create ask-agentdeck          # writes ~/.cloudflared/<uuid>.json
 #     # put the printed <uuid> below, then:
@@ -6,11 +6,11 @@
 #
 # This file is here so a reader can reproduce the deployment. AgentDeck's own instance is run
 # from a **dashboard-managed** tunnel instead, whose ingress lives in Cloudflare rather than in
-# this file — see the README. Either form is fine; what matters is that the rules below are the
+# this file - see the README. Either form is fine; what matters is that the rules below are the
 # rules in force, because the README's claims about exposure depend on them.
 #
 # `--config` is not optional. cloudflared defaults to `~/.cloudflared/config.yml`, which on a
-# machine already running another tunnel belongs to that one — merging into it would put this
+# machine already running another tunnel belongs to that one - merging into it would put this
 # service and an unrelated one behind the same process, so a restart for either restarts both.
 #
 # ## What this can reach
@@ -21,7 +21,7 @@
 # stops being an allowlist.
 #
 # The tunnel reaches `localhost:8100` and nothing else on this machine. It is an outbound
-# connection — no inbound port is opened, no firewall rule is needed, and nothing else you run
+# connection - no inbound port is opened, no firewall rule is needed, and nothing else you run
 # locally becomes reachable by adding it.
 #
 # Serve on the loopback interface, which is uvicorn's default:
