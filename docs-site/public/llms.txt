@@ -18,7 +18,7 @@ afterwards, approvals that outlive the process that requested them.
 
 ## Documentation
 
-- [AgentDeck - agentic software should feel like software](https://agentdecksdk.com/): Build agents, tools and workflows as normal software. AgentDeck gives them one execution model you can observe, control and extend.
+- [Agentic software should feel like software](https://agentdecksdk.com/): Build agents, tools and workflows as normal software. AgentDeck gives them one execution model you can observe, control and extend.
 - [CLI](https://agentdecksdk.com/reference/cli): The agentdeck command tree, generated from agentdeck/cli.py's own --help output.
 - [Deck](https://agentdecksdk.com/reference/deck): The composition root  -  builds a catalog from Agent/Workflow objects or a project directory, and runs every turn on it.
 - [events](https://agentdecksdk.com/reference/events)

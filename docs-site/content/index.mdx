@@ -1,5 +1,5 @@
 ---
-title: AgentDeck - agentic software should feel like software
+title: Agentic software should feel like software
 description: Build agents, tools and workflows as normal software. AgentDeck gives them one execution model you can observe, control and extend.
 ---
 
@@ -70,26 +70,35 @@ async def answer(question: str, ctx):
 
 <ExecutionTree />
 
-<SecondAgent>
+<Composition>
+<Movement label="Delegation" title="A second agent is a second node, not a second runtime.">
 <Snippet status="proposed">
 ```python
-@workflow
-async def answer(question: str, ctx):
-    researcher = ctx.agents.create(research_agent)
+researcher = ctx.agents.create(research_agent)
 
-    docs = await ctx.invoke(search_docs, question)
-    research = await ctx.invoke(researcher, question)
-
-    return await ctx.invoke(jack, {
-        "question": question,
-        "docs": docs,
-        "research": research,
-    })
+research = await ctx.invoke(researcher, question)
 ```
 </Snippet>
-</SecondAgent>
+</Movement>
 
-<Interaction>
+<Movement label="State" title="Definitions describe capability. Instances carry execution state.">
+<Snippet status="proposed">
+```python
+researcher = ctx.agents.create(research_agent)
+
+first = await ctx.invoke(
+    researcher, "Investigate this implementation."
+)
+second = await ctx.invoke(
+    researcher, "Now compare it with the public API."
+)
+
+alternative = ctx.agents.fork(researcher)
+```
+</Snippet>
+</Movement>
+
+<Movement label="Interaction" title="Waiting belongs to the branch that waits, not to the run.">
 <Snippet status="proposed">
 ```python
 if needs_source:
@@ -99,18 +108,18 @@ if needs_source:
     research = await ctx.invoke(researcher, source)
 ```
 </Snippet>
-</Interaction>
 
-<Control>
+<WaitModel />
+</Movement>
+
+<Movement label="Control" title="A Run is the root execution. A nested invocation is the same model, one level down.">
 <Snippet status="shipped" label="the root execution">
 ```python
-run = await deck.runs.start("Jack", question)
+run = await deck.runs.start("answer", question)
 
 await run.pause()
 await run.resume()
 await run.cancel()
-
-await run.answer({"approved": True})
 ```
 </Snippet>
 <Snippet status="proposed" label="a nested invocation, same handle">
@@ -123,7 +132,8 @@ await research.resume()
 result = await research
 ```
 </Snippet>
-</Control>
+</Movement>
+</Composition>
 
 <WholeDeck>
 <Snippet status="shipped">
@@ -139,6 +149,10 @@ async with deck:
 ```
 </Snippet>
 </WholeDeck>
+
+<Interop />
+
+<Boundary />
 
 <MeetJack />
 

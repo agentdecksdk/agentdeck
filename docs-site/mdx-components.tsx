@@ -16,10 +16,12 @@ import {
   Capabilities,
   Process,
   ExecutionTree,
-  SecondAgent,
-  Interaction,
-  Control,
+  Composition,
+  Movement,
+  WaitModel,
   WholeDeck,
+  Interop,
+  Boundary,
   MeetJack,
   FinalCTA
 } from './app/landing-components'
@@ -44,11 +46,13 @@ export function useMDXComponents(components = {}) {
     Capabilities,
     Process,
     ExecutionTree,
-    SecondAgent,
-    Interaction,
-    Control,
+    Composition,
+    Movement,
+    WaitModel,
     WholeDeck,
-        MeetJack,
+    Interop,
+    Boundary,
+    MeetJack,
     FinalCTA,
     ...components
   }

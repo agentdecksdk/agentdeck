@@ -194,7 +194,7 @@ const FIRST_TREE: TreeNode = {
       kind: 'workflow',
       children: [
         { name: 'search_docs', kind: 'tool' },
-        { name: 'read_doc', kind: 'tool' },
+        { name: 'search_examples', kind: 'tool' },
         { name: 'Jack', kind: 'agent' }
       ]
     }
@@ -202,10 +202,10 @@ const FIRST_TREE: TreeNode = {
 }
 
 const TREE_BUYS = [
-  ['Observation', 'one ordered event log per run'],
-  ['Lifecycle', 'pause, resume, cancel'],
-  ['Interaction', 'a branch can wait for a person'],
-  ['Durability', 'a run outlives the process that started it']
+  ['Observation', 'One ordered stream of what happened.'],
+  ['Control', 'Execution can be paused, resumed or cancelled.'],
+  ['Interaction', 'Branches can wait for external input.'],
+  ['Durability', 'Execution does not have to live and die with the caller process.']
 ]
 
 export function ExecutionTree() {
@@ -218,8 +218,9 @@ export function ExecutionTree() {
         <p className="chapter-eyebrow">Runtime</p>
         <h2 className="chapter-title">Everything becomes one execution tree.</h2>
         <p className="chapter-lead">
-          You already know every node here, because you just watched us write them. That is the
-          whole idea: one execution model, and nothing in it you did not put there.
+          You already know every node, because you just wrote them. AgentDeck does not replace
+          your application with an opaque runtime model: it turns the execution of those pieces
+          into something you can observe and control.
         </p>
         <div className="chapter-grid">
           <div className="chapter-figure">
@@ -239,91 +240,89 @@ export function ExecutionTree() {
   )
 }
 
-/* ------------------------------------------------------- 6. a second agent */
+/* ------------------------------------------------------- 6. the system grows */
 
-const WITH_RESEARCHER: DeckGroup[] = [
-  { label: 'Agents', rows: [{ name: 'Jack' }, { name: 'Researcher', added: true }] },
-  {
-    label: 'Tools',
-    rows: [{ name: 'search_docs' }, { name: 'read_doc' }, { name: 'read_changelog' }, { name: 'inspect_code', added: true }]
-  },
-  { label: 'Workflows', rows: [{ name: 'answer' }] }
+const GROWN_TREE: TreeNode = {
+  name: 'Run',
+  kind: 'run',
+  children: [
+    {
+      name: 'answer',
+      kind: 'workflow',
+      children: [
+        { name: 'search_docs', kind: 'tool' },
+        {
+          name: 'Researcher',
+          kind: 'agent',
+          children: [{ name: 'inspect_code', kind: 'tool' }]
+        },
+        { name: 'Jack', kind: 'agent' }
+      ]
+    }
+  ]
+}
+
+const WAIT_SEMANTICS: [string, string][] = [
+  ['ask', 'this branch needs external information'],
+  ['approve', 'this branch needs an external decision'],
+  ['wait', 'this branch is waiting for something']
 ]
 
-export function SecondAgent({ children }: { children?: React.ReactNode }) {
+/** The three ways a branch stops, named. Shown once, inside the interaction movement. */
+export function WaitModel() {
   return (
-    <Chapter
-      step="05"
-      eyebrow="Delegation"
-      title="Give Jack a researcher."
-      lead={
-        <>
-          Reading the source is a different job from holding a conversation, and it is the job
-          that fills a context window. So it gets its own agent: Jack keeps talking to you while
-          the Researcher goes digging.
-        </>
-      }
-      figure={<DeckFigure groups={WITH_RESEARCHER} caption="A second agent is a second node, not a second runtime." />}
-    >
-      {children}
-    </Chapter>
+    <dl className="semantics">
+      {WAIT_SEMANTICS.map(([verb, meaning]) => (
+        <div className="semantic" key={verb}>
+          <dt>{verb}</dt>
+          <dd>{meaning}</dd>
+        </div>
+      ))}
+    </dl>
   )
 }
 
-/* ------------------------------------------------------ 7. waiting on a human */
-
-const WAIT_SEMANTICS = [
-  ['ask', 'this branch needs information from a person'],
-  ['approve', 'this branch needs a decision from a person'],
-  ['wait', 'this branch is waiting on something else']
-]
-
-export function Interaction({ children }: { children?: React.ReactNode }) {
+/** One movement of the growing section: a name, a sentence, and the code that shows it. */
+export function Movement({
+  label,
+  title,
+  children
+}: {
+  label: string
+  title: React.ReactNode
+  children?: React.ReactNode
+}) {
   return (
-    <Chapter
-      step="06"
-      eyebrow="Interaction"
-      title="When Jack needs you."
-      lead={
-        <>
-          Sometimes the answer depends on code only you have. Waiting is a property of the branch
-          that waits, not of the whole run: everything else keeps going.
-        </>
-      }
-      figure={
-        <dl className="semantics">
-          {WAIT_SEMANTICS.map(([verb, meaning]) => (
-            <div className="semantic" key={verb}>
-              <dt>{verb}</dt>
-              <dd>{meaning}</dd>
-            </div>
-          ))}
-        </dl>
-      }
-    >
+    <div className="movement">
+      <p className="movement-label">{label}</p>
+      <p className="movement-title">{title}</p>
       {children}
-    </Chapter>
+    </div>
   )
 }
 
-/* ------------------------------------------------------------- 8. control */
-
-export function Control({ children }: { children?: React.ReactNode }) {
+export function Composition({ children }: { children?: React.ReactNode }) {
   return (
-    <Chapter
-      step="07"
-      eyebrow="Control"
-      title="Execution you can steer."
-      lead={
-        <>
-          A Run is the root execution, and control belongs to the handle rather than to a separate
-          lifecycle API. Pause it, resume it, cancel it, answer it. Nested invocations are the same
-          handle one level down.
-        </>
-      }
-    >
-      {children}
-    </Chapter>
+    <section className="chapter is-wide">
+      <div className="chapter-spine" aria-hidden="true">
+        <span className="chapter-step">05</span>
+      </div>
+      <div className="chapter-body">
+        <p className="chapter-eyebrow">Composition</p>
+        <h2 className="chapter-title">The system grows. The execution model doesn&apos;t.</h2>
+        <p className="chapter-lead">
+          Holding a developer conversation and investigating source code are different jobs, so
+          they get different agents. That does not buy a second orchestration model: the
+          researcher is one more node on the same tree, with a tool of its own underneath it.
+        </p>
+        <div className="chapter-grid">
+          <div className="chapter-figure">
+            <TreeFigure root={GROWN_TREE} />
+          </div>
+          <div className="chapter-code">{children}</div>
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -333,7 +332,7 @@ export function WholeDeck({ children }: { children?: React.ReactNode }) {
   return (
     <section className="chapter is-summary">
       <div className="chapter-spine" aria-hidden="true">
-        <span className="chapter-step">08</span>
+        <span className="chapter-step">06</span>
       </div>
       <div className="chapter-body">
         <p className="chapter-eyebrow">Assembled</p>
@@ -371,6 +370,95 @@ export function WholeDeck({ children }: { children?: React.ReactNode }) {
   )
 }
 
+/* ------------------------------------------------------ 7. existing systems */
+
+const SOURCES: [string, string, boolean][] = [
+  ['AgentDeck native', 'agents, workflows and skills you declare here', true],
+  ['LangGraph', 'your existing state graphs, checkpointed', true],
+  ['OpenAI Agents', 'your existing SDK agents', true],
+  ['MCP', 'tool servers, connected through the Deck', true],
+  ['Your Python', 'any function that takes a Context', true],
+  ['PydanticAI', 'designed, not yet built', false]
+]
+
+export function Interop() {
+  return (
+    <section className="chapter is-wide">
+      <div className="chapter-spine" aria-hidden="true">
+        <span className="chapter-step">07</span>
+      </div>
+      <div className="chapter-body">
+        <p className="chapter-eyebrow">Existing systems</p>
+        <h2 className="chapter-title">Bring what you already have.</h2>
+        <p className="chapter-lead">
+          Use AgentDeck&apos;s own primitives where they help, and wrap what already works where
+          they do not. An Agent compiles to an SDK agent and a Workflow to a LangGraph graph, so
+          if you need the engine object underneath, you keep access to it.
+        </p>
+        <div className="interop">
+          <ul className="interop-sources">
+            {SOURCES.map(([name, detail, shipped]) => (
+              <li className={shipped ? 'interop-source' : 'interop-source is-proposed'} key={name}>
+                <span className="interop-marker" aria-hidden="true">
+                  {shipped ? '◆' : '◇'}
+                </span>
+                <span className="interop-name">{name}</span>
+                <span className="interop-detail">{detail}</span>
+              </li>
+            ))}
+          </ul>
+          <div className="interop-sink" aria-hidden="true">
+            <span className="interop-target">Deck</span>
+            <span className="interop-stem" />
+            <span className="interop-target is-run">Execution</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+/* ---------------------------------------------------------- 8. the boundary */
+
+const BOUNDARY: [string, string][] = [
+  ['application logic', 'execution'],
+  ['agents', 'lifecycle'],
+  ['tools', 'control'],
+  ['workflows', 'interruptions'],
+  ['business state', 'durability'],
+  ['integrations', 'recovery']
+]
+
+export function Boundary() {
+  return (
+    <section className="chapter is-wide">
+      <div className="chapter-spine" aria-hidden="true">
+        <span className="chapter-step">08</span>
+      </div>
+      <div className="chapter-body">
+        <p className="chapter-eyebrow">The line</p>
+        <h2 className="chapter-title">You build the behavior. AgentDeck manages the machinery.</h2>
+        <table className="boundary">
+          <thead>
+            <tr>
+              <th scope="col">You</th>
+              <th scope="col">AgentDeck</th>
+            </tr>
+          </thead>
+          <tbody>
+            {BOUNDARY.map(([yours, ours]) => (
+              <tr key={yours}>
+                <td>{yours}</td>
+                <td>{ours}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
 /* ------------------------------------------------------------- 12. real Jack */
 
 export function MeetJack({ children }: { children?: React.ReactNode }) {
@@ -383,9 +471,9 @@ export function MeetJack({ children }: { children?: React.ReactNode }) {
         <p className="chapter-eyebrow">Jack, running</p>
         <h2 className="chapter-title">Anything you want to ask?</h2>
         <p className="chapter-lead">
-          This is the agent we built above, answering from the documentation on this site. The tree
-          on the right is his actual run: every node is an event the runtime emitted, in the order
-          it emitted it.
+          This is the same Jack we built above. Ask about AgentDeck, architecture, integrations,
+          or code you are working with. The tree beside him is his actual run: every node is an
+          event the runtime emitted, in the order it emitted it.
         </p>
         <JackLive />
         <div className="jack-source">
