@@ -262,6 +262,24 @@ article:has(.landing) > .x\:float-end {
   font-weight: 600;
 }
 
+/* A section that is only an argument: no eyebrow, no figure, one paragraph. */
+.chapter.is-plain .chapter-body {
+  padding: 2.5rem 0;
+}
+
+.chapter.is-plain .chapter-title {
+  max-width: 26rem;
+}
+
+/* The line the section lands on. */
+.chapter-close {
+  margin: 2rem 0 0;
+  max-width: 46rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.6;
+}
+
 .chapter-lead {
   margin: 1rem 0 0;
   max-width: 54rem;
@@ -530,7 +548,7 @@ article:has(.landing) > .x\:float-end {
 
 /* What the tree buys you, beside the tree. */
 .tree-buys {
-  margin: 0;
+  margin: 2.25rem 0 0;
   display: grid;
   gap: 0;
   border-top: 1px solid var(--rail);
