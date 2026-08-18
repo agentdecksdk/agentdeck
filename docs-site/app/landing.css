@@ -225,7 +225,7 @@ article:has(.landing) > .x\:float-end {
 
 .chapter-step {
   position: absolute;
-  top: 4.25rem;
+  top: 3.5rem;
   left: calc(var(--gutter) / 2);
   transform: translateX(-50%);
   background: var(--brand-canvas);
@@ -241,7 +241,7 @@ article:has(.landing) > .x\:float-end {
 }
 
 .chapter-body {
-  padding: 4rem 0 4.25rem;
+  padding: 3.25rem 0 4rem;
   min-width: 0;
 }
 

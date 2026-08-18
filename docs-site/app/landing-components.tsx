@@ -384,9 +384,7 @@ const SOURCES: [string, string, boolean][] = [
 export function Interop() {
   return (
     <section className="chapter is-wide">
-      <div className="chapter-spine" aria-hidden="true">
-        <span className="chapter-step">07</span>
-      </div>
+      <div className="chapter-spine" aria-hidden="true" />
       <div className="chapter-body">
         <p className="chapter-eyebrow">Existing systems</p>
         <h2 className="chapter-title">Bring what you already have.</h2>
@@ -432,9 +430,7 @@ const BOUNDARY: [string, string][] = [
 export function Boundary() {
   return (
     <section className="chapter is-wide">
-      <div className="chapter-spine" aria-hidden="true">
-        <span className="chapter-step">08</span>
-      </div>
+      <div className="chapter-spine" aria-hidden="true" />
       <div className="chapter-body">
         <p className="chapter-eyebrow">The line</p>
         <h2 className="chapter-title">You build the behavior. AgentDeck manages the machinery.</h2>
@@ -464,9 +460,7 @@ export function Boundary() {
 export function MeetJack({ children }: { children?: React.ReactNode }) {
   return (
     <section className="chapter is-wide is-live-section">
-      <div className="chapter-spine" aria-hidden="true">
-        <span className="chapter-step">09</span>
-      </div>
+      <div className="chapter-spine" aria-hidden="true" />
       <div className="chapter-body">
         <p className="chapter-eyebrow">Jack, running</p>
         <h2 className="chapter-title">Anything you want to ask?</h2>

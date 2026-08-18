@@ -207,3 +207,37 @@
   opacity: 0.45;
   cursor: default;
 }
+
+/* ------------------------------------------------- the panel on a phone */
+
+/* A popover anchored to a corner is a desktop shape. On a phone it left a strip of the page
+   showing around it and read as something that had come loose; here it is a sheet that owns the
+   bottom of the screen, which is what a phone conversation looks like. */
+@media (max-width: 640px) {
+  .ask-panel {
+    right: 0;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: min(86vh, 100% - 2.5rem);
+    border-radius: 16px 16px 0 0;
+    border-bottom: 0;
+  }
+
+  .ask-head {
+    padding: 0.9rem 1rem;
+  }
+
+  .ask-transcript {
+    padding: 1rem;
+  }
+
+  .ask-form {
+    padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  }
+
+  .ask-launch {
+    right: 1rem;
+    bottom: 1rem;
+  }
+}
