@@ -13,9 +13,7 @@ import { useEffect, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
-// Build-time, not runtime: the bundle is static, so this is baked in when the site is built.
-// Defaults to localhost so `npm run dev` works against a locally running backend with no setup.
-const API = process.env.NEXT_PUBLIC_AGENTDECK_API_URL || 'http://localhost:8100'
+import { JackUnavailable, askJack } from './jack-stream'
 
 type Turn = { question: string; answer: string; reading: string[] }
 
@@ -65,55 +63,34 @@ export function JackPanel() {
       setTurns(previous => previous.map((turn, at) => (at === index ? change(turn) : turn)))
 
     try {
-      const response = await fetch(`${API}/ask`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          question: asked,
-          page: slugOf(pathname),
-          selection: selection.current || null,
-          session_id: session.current
-        })
-      })
-      if (!response.ok || !response.body) throw new Error(`the assistant answered ${response.status}`)
-
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        // SSE frames are blank-line separated; the tail is whatever has not arrived in full yet.
-        const frames = buffer.split('\n\n')
-        buffer = frames.pop() ?? ''
-        for (const frame of frames) {
-          const line = frame.trim()
-          if (!line.startsWith('data: ')) continue
-          const { kind, payload } = JSON.parse(line.slice(6))
-          if (kind === 'text.delta') {
-            update(turn => ({ ...turn, answer: turn.answer + payload.text }))
-          } else if (kind === 'tool.call.started') {
-            const target = payload.args?.slug || payload.args?.query || ''
-            update(turn => ({ ...turn, reading: [...turn.reading, `${payload.tool}: ${target}`] }))
-          } else if (kind === 'run.failed') {
-            throw new Error(payload.message || 'the run failed')
-          }
+      for await (const frame of askJack({
+        question: asked,
+        page: slugOf(pathname),
+        selection: selection.current || null,
+        session_id: session.current
+      })) {
+        const { kind, payload } = frame
+        if (kind === 'text.delta') {
+          update(turn => ({ ...turn, answer: turn.answer + payload.text }))
+        } else if (kind === 'tool.call.started') {
+          const target = payload.args?.slug || payload.args?.query || ''
+          update(turn => ({ ...turn, reading: [...turn.reading, `${payload.tool}: ${target}`] }))
+        } else if (kind === 'run.failed') {
+          throw new JackUnavailable(payload.message || 'the run failed')
         }
       }
       selection.current = ''
     } catch (failure) {
-      // Unreachable is the common case in development, and saying so beats a spinner that
-      // never resolves. The panel stays usable; the transcript keeps what it already had.
-      setError(
-        failure instanceof TypeError
-          ? `Jack is not reachable at ${API}. Start it with \`uvicorn jack.server:app --port 8100\`.`
-          : String(failure)
-      )
+      // The panel stays usable and the transcript keeps what it already had.
+      setError(failure instanceof JackUnavailable ? failure.message : String(failure))
     } finally {
       setBusy(false)
     }
   }
+
+  // The landing page runs Jack itself, in a section built around him, so a launcher floating over
+  // it would be a second way to reach the same agent on the one page that already has him.
+  if (slugOf(pathname) === 'index') return null
 
   if (!open) {
     return (
