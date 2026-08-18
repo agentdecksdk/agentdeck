@@ -472,8 +472,11 @@ export function MeetJack({ children }: { children?: React.ReactNode }) {
         <JackLive />
         <div className="jack-source">
           <p>Jack is built entirely with AgentDeck.</p>
+          <Link href="/jack" className="cta-ghost">
+            See how Jack is built
+          </Link>
           <a href={JACK_SOURCE} target="_blank" rel="noreferrer" className="cta-ghost">
-            View Jack&apos;s source
+            Source on GitHub
           </a>
         </div>
         {children && <div className="jack-wiring">{children}</div>}
@@ -493,8 +496,11 @@ export function FinalCTA() {
         <Link href="/meet-agentdeck/quickstart" className="cta-primary">
           Build your first Deck
         </Link>
+        <Link href="/meet-agentdeck/overview" className="cta-ghost">
+          Documentation
+        </Link>
         <a href={JACK_SOURCE} target="_blank" rel="noreferrer" className="cta-ghost">
-          View Jack&apos;s source
+          GitHub
         </a>
       </div>
     </section>

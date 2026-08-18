@@ -16,6 +16,7 @@ export default {
   'runs-and-control': 'Runs & Control',
   integrations: 'Integrations',
   examples: 'Examples',
+  jack: 'How Jack Is Built',
   reference: 'Reference',
   '-- resources': {
     type: 'separator',
