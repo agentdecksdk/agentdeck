@@ -8,6 +8,8 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [4.0.1] - 2026-08-18
+
 ### Changed
 
 - **The `ask-agentdeck` example is now `jack`.** `examples/ask-agentdeck/` is
@@ -2222,7 +2224,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.0...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.1...HEAD
+[4.0.1]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.0...v4.0.1
 [4.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v3.1.0...v4.0.0
 [3.0.0b1]: https://github.com/agentdecksdk/agentdeck/compare/v2.0.0...v3.0.0b1
 [2.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v2.0.0b4...v2.0.0

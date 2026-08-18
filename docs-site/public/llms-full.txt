@@ -33,7 +33,7 @@ from agentdeck import Agent, Deck
 
 jack = Agent(
     name="Jack",
-    instructions="Help developers.",
+    instructions="Help developers build with AgentDeck.",
 )
 
 deck = Deck(agents=[jack])
@@ -44,33 +44,23 @@ deck = Deck(agents=[jack])
 <Capabilities>
 <Snippet status="shipped">
 ```python
-from agentdeck import Agent, Context
-from agentdeck import Deck
+from agentdeck import Agent, Context, Deck
 
-def search_docs(
-    query: str,
-    docs: Context[DocsCorpus],
-) -> str:
-    """Find pages matching a query."""
+def search_docs(query: str, docs: Context[DocsCorpus]) -> str:
+    """Find AgentDeck documentation pages matching a query."""
     return docs.data.search(query)
 
-def read_doc(
-    slug: str,
-    docs: Context[DocsCorpus],
-) -> str:
-    """Read one page, by slug."""
+def read_doc(slug: str, docs: Context[DocsCorpus]) -> str:
+    """Read one AgentDeck documentation page in full, by its slug."""
     return docs.data.pages[slug]
 
 jack = Agent(
     name="Jack",
-    instructions="Help developers.",
-    tools=[search_docs, read_doc],
+    instructions="Help developers build with AgentDeck.",
+    tools=[search_docs, read_doc, read_changelog],
 )
 
-deck = Deck(
-    agents=[jack],
-    context=DocsCorpus,
-)
+deck = Deck(agents=[jack], context=DocsCorpus)
 ```
 </Snippet>
 </Capabilities>
@@ -86,7 +76,7 @@ async def answer(question: str, ctx):
     )
 
     if not docs and not examples:
-        return "Nothing covers that yet."
+        return "Nothing in the documentation covers that yet."
 
     return await ctx.invoke(jack, {
         "question": question,
@@ -103,16 +93,10 @@ async def answer(question: str, ctx):
 ```python
 @workflow
 async def answer(question: str, ctx):
-    researcher = ctx.agents.create(
-        research_agent,
-    )
+    researcher = ctx.agents.create(research_agent)
 
-    docs = await ctx.invoke(
-        search_docs, question,
-    )
-    research = await ctx.invoke(
-        researcher, question,
-    )
+    docs = await ctx.invoke(search_docs, question)
+    research = await ctx.invoke(researcher, question)
 
     return await ctx.invoke(jack, {
         "question": question,
@@ -128,11 +112,9 @@ async def answer(question: str, ctx):
 ```python
 if needs_source:
     source = await ctx.ask(
-        "Paste the code to inspect.",
+        "Paste the code you want me to inspect."
     )
-    research = await ctx.invoke(
-        researcher, source,
-    )
+    research = await ctx.invoke(researcher, source)
 ```
 </Snippet>
 </Interaction>
@@ -140,9 +122,7 @@ if needs_source:
 <Control>
 <Snippet status="shipped" label="the root execution">
 ```python
-run = await deck.runs.start(
-    "Jack", question,
-)
+run = await deck.runs.start("Jack", question)
 
 await run.pause()
 await run.resume()
@@ -173,9 +153,7 @@ deck = Deck(
 )
 
 async with deck:
-    result = await deck.run(
-        "answer", question, context=app,
-    )
+    result = await deck.run("answer", question, context=app)
 ```
 </Snippet>
 </WholeDeck>
@@ -1324,9 +1302,11 @@ Source: https://agentdecksdk.com/resources/changelog
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v4.0.0**. Earlier releases are listed at the bottom.
+The current release is **v4.0.1**. Earlier releases are listed at the bottom.
 
-## Unreleased
+## v4.0.1
+
+*Released 2026-08-18.*
 
 ### Changed
 
@@ -1339,378 +1319,11 @@ The current release is **v4.0.0**. Earlier releases are listed at the bottom.
   an `Agent` to a live run instead of listing features, and every code block states the release
   it belongs to, so the examples that are not in 4.0.0 yet say so.
 
-## v4.0.0
-
-*Released 2026-08-16.*
-
-**Hardening, and it cost a major version.** Thirty-seven issues, most of them findings
-from people using the SDK rather than reading it. Nothing here adds a user-facing
-capability; what it adds is the right to trust what was already there. Three things
-had to change shape to fix the defect underneath them: a run's identity, the
-run-scoped API, and the control plane. Read **Upgrading** before you bump.
-
-### Upgrading
-
-- **Breaking: `deck.runs` is now `start`/`get`/`list`, and a `Run` handle owns every op that
-  acts on a run already in flight** (#322). `deck.runs.pause/cancel/resume/answer/status/pending`
-  are removed, not deprecated. `await deck.runs.start(name, input, ...)` begins a run and hands
-  back a `Run` (`.id`, `.key`, `.namespace`, `.session_id`) whose own methods replace them:
-  `run.status()`, `run.pause(reason)`, `run.resume()`, `run.cancel(reason)`, `run.pending()`,
-  `run.answer(value)`, `run.events(from_seq=0, follow=False)`, and `await run` for the result  -  a
-  `TurnResult` for an agent, the graph's own state for a workflow. `deck.runs.get(id)` (optionally
-  `namespace=`) or `deck.runs.get(namespace=, key=)` rehydrates a handle to a run that already
-  exists; it never mutates and raises `NotFoundError` for one this namespace has never heard of.
-  `deck.runs.list(namespace=, status=, limit=)` replaces the old `pending()` inbox and stays
-  scoped to one namespace. Two handles on one run always agree  -  the durable store is the only
-  thing either reads from. `deck.run()`/`deck.stream()` are unchanged in behavior (still return
-  an interrupt as a value rather than raising); `await run` on a `Run` that is `PAUSED` or
-  `WAITING_ANSWER` instead raises the new `RunSuspendedError` (a `RunStateError`), carrying
-  `.pending`, since there is no timeout parameter to wait either state out. `context=` is retained
-  on the handle `runs.start()` returns for that handle's whole life  -  `resume()`/`answer()` no
-  longer take one, and a handle from `get()` always resupplies `None`. `PendingRun` is no longer
-  public (`deck.runs.list(status=RunStatus.WAITING_ANSWER)` replaces it); `InterruptResult` gains
-  the canonical `id` alongside its existing fields. `EventStorePort.locate()` is removed (no
-  caller left once `Deck._status` went with it) and replaced by `find_by_key(ctx, key)`, the read
-  side of the `(namespace, key)` claim, across all four stores.
-- **Breaking: a run's `id` is now minted, never derived from a caller-supplied value** (#324).
-  `deck.run(...)`/`deck.stream(...)` no longer accept `run_id=`: the keyword is `key=`, an
-  optional stable application identifier for lookup and idempotency, and it plays no part in
-  the run's own address any more. Every run gets a fresh, globally unique `id` regardless of
-  `key`, so two namespaces reusing one key now get two unrelated runs instead of the collision
-  risk `run_id=` carried. `(namespace, key)` is a permanent claim once a run starts with it  -  a
-  second `deck.run(..., key=...)` reusing one raises `DuplicateKeyError` rather than replaying
-  the run that holds it, and the pairing survives a restart. The `events` table gains a `key`
-  column and its run-scoped uniqueness tightens from `(namespace, log_key, run_id, seq)` to
-  `(namespace, run_id, seq)`, so one logical run can no longer be split across two log keys. An
-  existing SQLite events database is migrated in place on open (`key` column added, the tightened
-  index rebuilt); a database with rows that genuinely violate the tighter constraint raises
-  `StoreError` naming the conflict instead of silently picking a survivor. `list_runs` gains a
-  `limit` parameter across all four stores.
-- **Breaking: `deck.run(...)`/`deck.stream(...)` now raises `SessionBusyError` on a session
-  held by a run parked `PAUSED` or `WAITING_ANSWER`, however long ago it went quiet** (#311).
-  Every store's `claim_start` applied `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` to *any* open
-  run, including one suspended waiting for a human  -  so a parked approval was silently closed
-  `failed` (destroying it) by the very next turn started on its session once the window had
-  passed, contradicting the README's own promise that an approval outlives the process that
-  asked for it. The timer now only ever applies to `RUNNING`; a parked run holds its session
-  until `deck.runs.answer`/`deck.runs.resume` continues it or `deck.runs.cancel` ends it,
-  however long that takes. `SessionBusyError`'s message reflects it too: a parked holder names
-  the call that frees it instead of claiming it is "in flight", which was never true of it.
-  If your deployment relied on a stale approval being cleaned up automatically, call
-  `deck.runs.cancel(run_id)` on it explicitly instead  -  see [Sessions and
-  Memory](https://agentdecksdk.com/concepts/sessions-and-memory#one-turn-at-a-time).
-- **`redis` is no longer installed by `pip install agentdeck-sdk`** (#253). A deployment with
-  `AGENTDECK_SESSION=redis://...` or `AGENTDECK_EVENTS=redis://...` now raises `ImportError` at
-  boot  -  `Deck.__aenter__` resolves both through `SessionFactory.from_settings()` and
-  `resolve_event_store()` before it opens  -  not on first use. It was a base dependency because a
-  Redis-backed session (`agents.extensions.memory.RedisSession`) was imported unconditionally on
-  every agent run, whatever `AGENTDECK_SESSION` was set to. That import is now deferred to the
-  point a `redis://` URL is actually configured, and the client moves to a new `[redis]` extra:
-  `pip install "agentdeck-sdk[redis]"`. Selecting a `redis://` session or event log without it
-  raises a clear `ImportError` naming the install command, the way the durability extras already
-  do.
-
-### Added
-
-- **A fourth example, `examples/existing-langgraph-agent`**  -  a LangGraph graph written
-  without agentdeck, wrapped in four lines and gaining the event log, streaming and run
-  control without a change to the graph module. It documents the two things wrapping asks
-  for: `graph=` takes an uncompiled `StateGraph` factory (so agentdeck can attach a
-  checkpointer when a workflow is `durable`), and a sibling module inside a bundle is
-  imported relatively (`from .pipeline import …`). A `TypedDict` state is fine; a pydantic
-  model is not required.
-- **`AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN`** (#178). agentdeck collapses a handoff's
-  transcript into a single assistant-role message before handing it to the next agent, and some
-  OpenAI-compatible endpoints (Gemini's, for one) reject a request that carries no user role at
-  all. Setting this to `true` appends a closing user turn after the collapsed transcript, via
-  `RunConfig.handoff_history_mapper`. Off by default: it changes what every model sees on every
-  handoff, including against OpenAI, so it stays opt-in rather than becoming everyone's new
-  default behavior. Wired into both places agentdeck sets `nest_handoff_history`  -  a
-  Runtime-driven run and a workflow node driving an agent of its own.
-- **`AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN`** (#178), defaulting to `"Please continue."`  -  the
-  content of the user turn `AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN` appends. Override it for
-  a deployment whose conversations aren't English: the default is otherwise an English sentence
-  injected into every handoff regardless of the conversation's own language. An empty (or
-  whitespace-only) value refuses to start rather than silently producing an empty user turn  -
-  the shape a provider strict enough to need the setting is likely to reject too.
-
-### Changed
-
-- **Breaking: `RunStatus.WAITING_HUMAN` is now `RunStatus.WAITING_ANSWER`**, value
-  `waiting_answer` (#295). The state pairs with the verb that leaves it, and covers a timer, a
-  webhook or another agent as honestly as a person  -  `sleep_until` parks here, so a wall-clock
-  wait was being recorded as a human one. An ordinary API break, not a schema change: status is
-  derived by folding the log and is never serialised into a payload, so no golden file and no
-  snapshot moves. `RunInterrupted.reason`'s `"human"` literal *is* in the schema and is
-  unchanged; renaming it is a separate versioned change.
-- **Breaking: `ControlPort` gains `consume(run_id, expected) -> bool`** (#295), the
-  compare-and-set that takes the intent a caller just ruled on and only that one. A third-party
-  adapter must implement it; both shipped adapters (`memory`, `sqlite`) do. It replaces
-  `resume_run` writing `RESUME` over whatever was pending  -  an unconditional write that could
-  overwrite, and silently destroy, a cancel that arrived while the run was suspended. A gate that
-  honors a signal now takes it too, so the port is empty afterwards rather than holding a
-  sentinel.
-- **A cancel or pause recorded against a *stopped* run is now read where that run is picked up**
-  (#295). A run that has already stopped has no loop polling the gate, so the operation
-  continuing it  -  an answer, or a resume  -  reads the control port at its claim and rules on what
-  it finds. Every such read ends in an event or an explicit no-op, never in silence.
-- **Breaking: `EventStorePort` gains `locate(run_id, ctx) -> log_key | None`** (#316), so finding
-  the log holding a run id is an indexed lookup rather than a scan of every run in the namespace
-   -  `log_key` is the session id for a run under one, so a run id alone never named its own log.
-  A third-party adapter must implement it; all four shipped ones (`memory`, `sqlite`, `redis`,
-  `postgres`) do, adding no data any of them didn't already hold: SQLite and Postgres gain an
-  index over `events`' own `namespace`/`run_id` columns (`CREATE INDEX IF NOT EXISTS`, so it
-  applies cleanly to a database an earlier build already created), and memory/Redis keep a
-  derived `(namespace, run_id) -> log_key` mapping a replay of the log rebuilds. `Deck._status`
-  (behind `deck.runs.status`) uses it now instead of walking `list_runs`.
-- **Breaking: `deck.run(...)`/`deck.stream(...)` no longer stop a run when its caller stops
-  reading it** (#325). Execution used to *be* consuming the event generator, so closing
-  `stream()`'s frame (or having the task reading it cancelled, as a real HTTP disconnect does)
-  closed the run underneath it as `run.cancelled`. A run now advances in a deck-owned task from
-  the moment it starts, independent of whether anyone is still watching  -  the same task any
-  number of readers may observe through the store without stealing its events from one another
-  or advancing it, and without needing to have started it themselves. A client that disconnects
-  mid-stream therefore no longer stops the turn it was reading: the run keeps executing to its
-  own natural end (bounded to one turn, its session freed once it reaches one), and the explicit
-  `deck.runs.cancel(run_id)` is how a caller who wants that back gets it. `deck.stream()`'s wire
-  bytes are unchanged (`tests/golden/` proves it byte-for-byte) and `deck.run()`'s propagated
-  exception on a failed turn is unchanged; only the disconnect-cancels-execution coupling is
-  gone. `Deck.aclose()` now settles or cancels whatever it is still executing before closing the
-  store, and logs which happened per run.
-
-- **`agentdeck.testing.scripted_model_server`'s `tool_name=` now also accepts a sequence of
-  names** (#248), one tool call per request in order, then plain text once the sequence is
-  exhausted  -  the shape a multi-step tool chain or a handoff round trip needs to script.
-  A single name keeps its existing one-shot behavior unchanged.
-- **Error messages a first-time user hits during composition or a first run now name the one
-  docs page that answers them** (#238): the skill frontmatter/discovery `ConfigError`s (missing
-  `description`, a name that doesn't match its directory, a duplicate name across skill roots),
-  `SessionBusyError`, the store/checkpoint `ImportError`s for the `durability` and `redis`
-  extras, the unknown-scheme `ValueError`s for `AGENTDECK_CONTROL`/`AGENTDECK_EVENTS`/
-  `AGENTDECK_CHECKPOINT`, and the durable-workflow missing-`thread_id` `ValueError` (both the
-  direct-call and the langgraph-engine copy). No error type or field changed, only the
-  message text. In passing, the two durability install hints now say `agentdeck-sdk[durability]`
-  (the actual distribution name) instead of the pre-rename `agentdeck[durability]`.
-
-### Deprecated
-
-- **`Usage.usd` is documented as reserved, not populated** (#177). agentdeck does not price
-  model calls  -  no provider returns dollars in a response body, and a price depends on a
-  contract, a tier and a date rather than on the call  -  so the field is `None` unless a caller
-  sets its own cost. No behavior changes; it was always `None` in practice. Slated for removal
-  at the next major.
-
-### Removed
-
-- **Breaking: `RunStatus.PENDING` is deleted, and `status_of([])` returns `None`** (#295). It
-  was the fold's identity element for an empty sequence, never a state a run is in: `run.started`
-  is a run's row 0, so there is no moment between "does not exist" and `RUNNING` for it to name.
-  A store already answered `None` for a run it never saw (#294); `status_of` now agrees, so
-  `status_of` is typed `RunStatus | None` and `can_resume` accepts `None`.
-
-- **Breaking: the six run-scoped verbs move from flat `Deck` methods to `deck.runs.*`, and
-  `tick`/`due_resumes` leave the public surface entirely** (#294). `deck.pause`, `deck.cancel`,
-  `deck.resume`, `deck.answer`, `deck.status` and `deck.pending` are gone; call
-  `deck.runs.pause(...)`, `deck.runs.cancel(...)`, `deck.runs.resume(...)`,
-  `deck.runs.answer(...)`, `deck.runs.status(...)` and `deck.runs.pending(...)` instead  -  same
-  signatures, same behavior, just grouped under the noun they act on rather than sitting flat
-  beside the catalog and the two verbs (`run`/`stream`) that start a turn. `deck.tick()` and
-  `deck.due_resumes()`  -  the timer sweep nothing in agentdeck calls yet  -  are no longer public at
-  all; `sleep_until` keeps working, since the underlying sweep is unchanged, just no longer
-  reachable from outside `Deck`.
-
-### Fixed
-
-- **A worker killed outright held its session for up to an hour** (#244). Liveness was inferred
-  from silence, and a healthy turn can be quiet for a long time  -  so the staleness window had to
-  be generous, and one crashed process locked one user out of one conversation for
-  `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` (3600 by default), with no way to shorten it after
-  the fact. A run now holds a **lease** while it plays and renews it six times per TTL, so the
-  next turn on that session can positively assert that nobody is executing the run it found open,
-  instead of waiting out a timer. With `AGENTDECK_CONTROL=sqlite:///<path>` a killed worker's
-  session is claimable within one lease TTL (**90 seconds** by default, set with
-  `AGENTDECK_RUNTIME_LEASE_TTL_SECONDS`). The new `LeasePort` reports only runs it **held and
-  watched expire**  -  a run it
-  has never seen is never reported dead  -  so with the `memory://` default, which knows nothing
-  about any other process, behavior is exactly as before and the staleness timer remains the only
-  backstop; boot warns when that is the case. Suspended runs are unaffected: `PAUSED` and
-  `WAITING_ANSWER` have no worker to be dead, so they still hold their session until resumed,
-  answered or cancelled. No new public API on `Deck` or `deck.runs`. Redis and Postgres lease
-  backends follow when `AGENTDECK_CONTROL` gains those schemes.
-- **A cancel or pause could land on the wrong tenant's run when two namespaces shared a
-  caller-supplied `run_id`** (#315). Both `ControlPort` adapters (`memory`, `sqlite`) kept one
-  pending signal per bare `run_id`  -  `acme/order-1234` and `globex/order-1234` shared a row, so
-  a cancel meant for one could land on the other, and `consume()`'s compare-and-set made the two
-  fight over the same slot. The control plane now addresses a run by its `id`, an opaque address
-  that `RunContext.id` supplies  -  `Gate`, `Runtime.signal`/`resume`/`resume_run` and both
-  `ControlPort` adapters all key by it, and no path takes a bare caller-supplied `run_id`.
-  **Unnamespaced deployments see no change at all**: an unnamespaced id is byte-identical to
-  today's `run_id`, so stored ids, the unnamespaced CLI (`agentdeck runs signal`) and the frozen
-  v1 HTTP wire are unaffected. A caller-supplied `run_id` starting with `adr:` is now refused  -
-  that prefix marks a namespaced id, and without the reservation an unnamespaced one could be
-  crafted to collide with it. `agentdeck runs signal`
-  now builds a `RunContext` to reach that same refusal, rather than writing straight to the
-  `ControlPort`: a forged `run_id` shaped like a real `encode(namespace, run_id)` could otherwise
-  reach a live namespaced run's `Gate` with no validation at all, from the one caller-facing
-  surface that talks to a `ControlPort` without going through a `Runtime`.
-
-  **Breaking, sqlite only:** the `signals` table's primary key is now `id`, not `run_id`. A
-  file with no pending signal migrates automatically in place. A file with one or more pending
-  signals refuses to open instead: the old schema never recorded a namespace at all, so a
-  pending row cannot be told apart from one that collided under the very bug being fixed here,
-  and carrying it forward under a guessed identity could silently re-address it to an unrelated
-  run. Let every in-flight run settle (or clear the `signals` table) before upgrading.
-
-- **A tool that raises is now recorded on `tool.call.completed.error`** (#250). The field has
-  been in the schema since v3.0.0 and nothing ever set it, so a database call that timed out or
-  an API that 500'd left no machine-readable trace anywhere: the run completed, HTTP answered
-  200, and the only sign of failure was whatever prose the model chose to write about it  -  which
-  a model that paraphrases past the word "error" omits entirely. `compile_tool` now passes its
-  own `failure_error_function` to the Agents SDK, records the exception type and message, and
-  the openai-agents translator moves it onto the paired `tool.call.completed`, capped at
-  `RESULT_PREVIEW_MAX` like `result_preview` beside it.
-
-  **Nothing the model sees changes**, deliberately: the formatter delegates to the SDK's own
-  `default_tool_error_function`, so the failure text and the agent's freedom to retry are
-  byte-identical to before. A tool failure is still not a run failure, the run still ends
-  `completed`, and no event kind was added. One gap, by design: a tool the author decorated with
-  `@function_tool` themselves is passed to the engine untouched and keeps its own failure
-  handling, so its exceptions stay unrecorded  -  that is the existing trade for handing in a
-  pre-built SDK tool, not a new one.
-
-- **`sleep_until` now actually wakes up** (#303). An open `Deck` sweeps for its own lifetime  -
-  started in `__aenter__`, cancelled in `__aexit__`  -  resuming any durable workflow parked past
-  its wake moment with no cron or scheduler wired in by the user. Previously `_tick`/`_due_resumes`
-  (the mechanism behind the sweep) were never called by anything, so a parked timer held
-  `WAITING_ANSWER` forever, keeping its session claim, until something else happened to call the
-  now-private `_tick`. The interval is `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` (default 30s) on
-  `RuntimeSettings`, on by default  -  there is no deployment for which silently never waking a timer
-  is the safer choice. A sweep that raises is logged and retried on the next interval rather than
-  ending the loop; a process that opens the deck, takes a turn and closes within one interval never
-  sweeps at all, and the deadline fires on whoever next holds the deck open past that.
-- **A cancel against a run waiting for an answer is honored instead of vanishing** (#229, #295,
-  #311). `deck.runs.cancel` on a parked run returned `True`, recorded the signal, and the run
-  answered on anyway: only `resume_run` polled the control port, and an approval does not come
-  back that way. `deck.runs.cancel` against a suspended run now claims and terminates it right
-  there, recording `control.requested` then `run.cancelled`  -  no `control.observed`, because the
-  run reached no safe point; it was already stopped when the cancel landed. Ends the same way for
-  a *paused* run. Claiming happens at the cancel itself rather than being deferred to whoever
-  next answers or resumes: once #311 stopped a stale timer from ever reclaiming a parked run's
-  session, a deferred cancel could sit unread forever if nobody happened to touch the run again.
-  `deck.runs.cancel(run_id, reason, namespace=...)` takes the same `namespace` `deck.runs.pending`
-  already does, needed to locate a suspended run opened outside the default namespace at all.
-- **`deck.runs.resume` on a run that is waiting for an answer now refuses, naming
-  `deck.runs.answer`** (#295), and `deck.runs.answer` on a paused run refuses naming
-  `deck.runs.resume`. Both raise the new `agentdeck.errors.RunStateError`, which the HTTP surface
-  answers as `409`. `resume` used to return `[]` for a parked run  -  silence, to a caller holding
-  that run's only answer  -  because the lookup behind it listed `PAUSED` runs only.
-- **A pause recorded against a run waiting for an answer now refuses the answer** (#295) rather
-  than being silently lifted by it, and stays pending. Lifting would let an answer override an
-  operator who said stop; refusing costs the answerer one round trip and keeps both intents
-  intact.
-
-- **`EventStorePort.run_status` no longer returns `PENDING` for a run the store never heard
-  of** (#294). It now returns `None` for that case, distinguishing it from a run that exists but
-  hasn't logged a lifecycle transition yet  -  the two used to fold into the same value. Only the
-  default projection changes (no adapter overrides `run_status`); `RunStatus.PENDING` and
-  `status_of()`'s own contract are unchanged.
-- **The documentation entry path now points readers to skills, sessions, durable stores and the
-  API reference instead of ending at a two-link dead end** (#239). The getting-started page now lists the
-  next concepts to read, the concepts overview names the reference as the source for exact API
-  details, and the how-to guides link onward to the specific reference pages behind the APIs they
-  use.
-- **`pip install agentdeck-sdk` now runs a `durable=True` workflow with no extra** (#232).
-  `langgraph-checkpoint-sqlite`  -  what `AGENTDECK_CHECKPOINT`'s default (`sqlite://...`) needs  -
-  moves from the optional `[durability]` extra into base dependencies, so the default that every
-  human-approval workflow relies on is installable by default. `[durability]` now covers the
-  Postgres checkpointer and event store only.
-- **The non-streamed HTTP surface now answers every server-side failure with the documented
-  500 `{"detail": "internal error"}`, not just `AgentdeckError` ones** (#243). A workflow
-  node's plain exception, an SDK error, or an `httpx` transport failure used to fall through to
-  Starlette's bare-text `Internal Server Error` on the non-streamed chat and workflow endpoints,
-  while the streamed path already reported the identical failure correctly as an in-band SSE
-  `error` event. A catch-all handler beside the existing one closes that gap; a tool's own
-  exception is a separate, still-open gap (#250)  -  the SDK's default `failure_error_function`
-  swallows it into a successful 200 before it ever reaches this handler. 404/409/422 and the
-  existing `AgentdeckError` 500 are unchanged, and no exception message reaches the response
-  body.
-- **The human-approval guide now shows `answer()` re-supplying a context, and says what omitting
-  it does** (#255). Two rules meet on resume  -  the interrupt node re-runs from its start, and the
-  context is never serialized with the run  -  so a node reading `ctx.data` after an approval gets
-  `None` rather than an error, and the run continues with a quietly wrong value. Both rules were
-  already documented separately and correctly; their interaction was stated once in prose and
-  never demonstrated, and two clean-room reviewers missed the consequence anyway.
-- **The openai-agents engine no longer refuses a `DataBlock` on input** (#226). It used to raise
-  `ConfigError` there  -  a `DataBlock` was an output-only block in practice, so the typed way to
-  hand a model structured per-run context did not exist and every embedded application invented
-  its own prose preamble. It now renders as its own part, `json.dumps(data, ensure_ascii=False)`
-  with nothing wrapped around it: each block is already a separate entry in the SDK's content
-  list, so the boundary between it and a neighbouring `TextBlock` is the API's own rather than a
-  delimiter this adapter
-  invents, and there is no open/close token embedded data could spoof to escape early.
-  `ResourceBlock` still raises  -  a `uri` is a pointer the engine never fetches, and the message now
-  says so, rather than reading identically to the data case. Crash reconciliation renders a
-  `DataBlock` the same way on its log-side transcript, so a turn that carries one does not read as
-  a permanent session divergence on every turn after it.
-- **A langgraph workflow run now has a safe point, so `pause` and `cancel` can reach it**
-  (#128). `LangGraphEngine` checkpoints the run's control gate between two `updates` chunks
-  (langgraph's own node boundary), which is what produces `control.observed{safe_point:
-  "node_boundary"}`; a workflow run previously had no safe point at all, so a signal against it
-  sat unread until the graph finished on its own.
-
-  **A resumed pause continues from that boundary: it never replays.** Unlike an interrupted
-  run, which re-enters from its start, a paused workflow's checkpoint already has everything
-  before the pause, so `deck.runs.resume` re-enters langgraph with `None` (its own idiom for
-  continuing a thread) rather than the run's original input, and no already-completed node
-  runs again. That guarantee holds for `durable=True` from any process; a `durable=False`
-  workflow can only be resumed from the process that paused it (its checkpoint lives in that
-  engine's own memory, ADR-D5), and is refused, naming `durable = True`, if resumed from
-  another one instead of being silently replayed from the entry node with empty state.
-- **The docs site is swept against the whole v4.0.0 surface.** Three claims were stale rather than
-  merely thin: `definitions.mdx` named `Deck.runs.answer()`, removed by #322; `run-control.mdx`
-  still called a run's identity `run_id`, renamed by #324; and `choosing-a-store-backend.mdx` said
-  the control port "only has to outlive the seconds between a request and that safe point", which
-  #244 made false by putting each run's liveness lease in the same backend. Two v4 changes had no
-  page at all: a reader no longer drives the run it is reading (#325), now in
-  `runs-and-the-event-log.mdx` and `serve-over-http.mdx`, and a raising tool's exception landing on
-  `tool.call.completed.error` (#250), now in `add-a-tool.mdx` with the `@function_tool` opt-out
-  named. `known-issues.mdx` retitles its fixed table to v4.0.0 and moves #244 and #178 into it,
-  both closed; `roadmap.mdx` is rewritten around the shipped v4.0.0 and the v5.0.0/v5.1.0/v5.2.0
-  milestones that replace v3.3/v3.4/v3.5. `AGENTDECK_CONTROL`'s own description now says it holds
-  the lease port too, so the generated settings reference says it as well.
-- **Docs swept against nine issues closed since the last pass** (#317). `known-issues.mdx` gains
-  a `Fixed in v3.2.0` section (#250, #229, #232, #243, #255, #253, #226); `usage.usd` moves off
-  the page entirely, since #177 ruled it a design position rather than a defect. The one entry
-  that stayed open got reworded rather than removed: a tool's non-serializable return still
-  reaches the model as a `repr()`  -  #251 was closed by folding it into #250, but #250's fix
-  shipped only the raise half, so this half is untracked by any open issue today. `run-control.mdx`
-  and `runs-and-the-event-log.mdx` drop their last `waiting_human`/`pending` references, both
-  renamed away by #295. `README.md`'s extras line now matches `pyproject.toml` (SQLite
-  checkpointer in base, `redis` its own extra) and its run-control bullet says "agent or workflow".
-- **`tests/test_generated_reference.py` now covers all five files `generate_docs_reference.py`
-  writes, not two** (#317). `settings.mdx` and `cli.mdx` stay pinned byte for byte; `llms.txt`
-  joins them. `changelog.mdx` and `llms-full.txt` only assert the generator still produces them,
-  rather than pinning them too: both derive from `CHANGELOG.md`, which is `merge=union` so
-  concurrent PRs can each add an entry, and a byte pin would fail every open PR the moment any
-  other one merged one. The three previously untested pages could drift from `CHANGELOG.md`/the
-  site's own pages for a whole release with `make check` green throughout  -  reported as unrelated
-  churn by two different agents this week when they regenerated one page and were surprised by
-  the other four changing too.
-
-### Added
-
-- **`examples/agent-with-a-skill/`**  -  an agent with two tools and one skill, the first shipped
-  example to include a `SKILL.md`. Skills were the only thing `Deck.from_project()` discovers with
-  no runnable example, so the frontmatter contract could only be learned from a build error
-  ([#242](https://github.com/agentdecksdk/agentdeck/issues/242)).
-- **`docs/delivery/review-v3-outsider.md`**  -  the v3.0.0 clean-room review: three reviewers given
-  only the wheel, the README, the docs site and `examples/`, each building a small app and reporting
-  what broke. Source of the `finding:`-labelled issues opened against v3.0.0.
-
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v4.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.0) | 2026-08-16 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.0) |
 | [v3.1.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.1.0) | 2026-08-13 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.1.0) |
 | [v3.0.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.1) | 2026-08-12 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.1) |
 | [v3.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0) | 2026-08-11 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.0) |
