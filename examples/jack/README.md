@@ -119,7 +119,7 @@ the deliberate trade for not hosting a model-calling service.
 
 ```bash
 uvicorn jack.server:app --port 8100                     # binds 127.0.0.1
-cloudflared tunnel run --token <TOKEN>                           # ask.agentdecksdk.com -> :8100
+cloudflared tunnel run --token <TOKEN>                    # agentdecksdk.com/ask -> :8100
 ```
 
 There are two ways to run the tunnel and they differ in **where the routing rules live**, which
@@ -129,7 +129,7 @@ matters here because this README makes claims about what is exposed.
   → Networks → Tunnels, runs from a token, and its public hostname and service are configured in
   Cloudflare. Convenient, and the rules are not in this repo  -  so nobody reviewing a change here
   can see them. If you run it this way, the dashboard must say exactly one public hostname,
-  `ask.agentdecksdk.com` → `http://localhost:8100`, and nothing else.
+  `agentdecksdk.com` with a `/ask` path route → `http://localhost:8100`, and nothing else.
 - **Locally-managed** (`cloudflared.yml`, committed here). The tunnel is created with
   `cloudflared tunnel create`, and the ingress list  -  one hostname, one port, `http_status:404`
   catch-all  -  is a reviewable file. This is the reproducible form: a reader copying this example
@@ -138,8 +138,9 @@ matters here because this README makes claims about what is exposed.
 Both are fine. What is not fine is the two disagreeing, because everything below describes the
 rules in `cloudflared.yml`.
 
-Set `ASK_AGENTDECK_ORIGINS` to the site's origin, and the `ASK_AGENTDECK_API_URL` repository
-variable to `https://ask.agentdecksdk.com`  -  the Pages build bakes it in as
+Set `JACK_ORIGINS` to the site's origin, and the `JACK_API_URL` repository
+variable to `https://agentdecksdk.com`  -  the panel appends `/ask` itself, and the Pages
+build bakes the origin in as
 `NEXT_PUBLIC_AGENTDECK_API_URL`. **It must be `https`**: Pages is served over TLS and a browser
 hard-blocks an HTTPS page calling `http://`, which is the real reason a tunnel is required rather
 than a port forward.
@@ -166,7 +167,7 @@ without ever sending a long message. **Sessions per day** stop the obvious way a
 which is to finish twenty turns and start again. A caller who omits `session_id` gets one bucket
 rather than a free pass, or the whole quota would be opt-in.
 
-`ASK_AGENTDECK_SESSIONS_PER_DAY` and `ASK_AGENTDECK_TURNS_PER_SESSION` change the numbers. The
+`JACK_SESSIONS_PER_DAY` and `JACK_TURNS_PER_SESSION` change the numbers. The
 counting is in-process and per-IP, which is right for one backend behind one tunnel and wrong
 the moment there are two replicas or a caller with addresses to spare  -  the upgrade for that is
 a Cloudflare rate-limiting rule at the edge, where the traffic never reaches the machine.
