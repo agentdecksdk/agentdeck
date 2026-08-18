@@ -1,15 +1,15 @@
-"""Ask AgentDeck — the assistant that answers questions about AgentDeck, built on AgentDeck.
+"""Jack  -  the assistant that answers questions about AgentDeck, built on AgentDeck.
 
 Three tools over one context. None is wrapped in ``@function_tool``: a tool that declares a
 ``Context`` parameter must stay a plain function, because the decorator would put that parameter
 into the schema the model sees. ``build()`` compiles it instead, and the context argument is
-absent from what the model is offered — it only ever chooses ``query``, ``slug`` or ``subject``.
+absent from what the model is offered  -  it only ever chooses ``query``, ``slug`` or ``subject``.
 """
 
 from __future__ import annotations
 
 from agentdeck import Agent, Context
-from ask_agentdeck.corpus import DocsCorpus  # noqa: TC001 — Context[DocsCorpus] is resolved at runtime
+from jack.corpus import DocsCorpus  # noqa: TC001  -  Context[DocsCorpus] is resolved at runtime
 
 
 def search_docs(query: str, docs: Context[DocsCorpus]) -> str:
@@ -50,8 +50,9 @@ def instructions(docs: Context[DocsCorpus]) -> str:
 
 
 INSTRUCTIONS = """\
-You answer questions about AgentDeck, a declarative harness over the OpenAI Agents SDK and
-LangGraph. You are embedded in AgentDeck's own documentation site.
+You are Jack, the AgentDeck developer agent. You answer questions about AgentDeck, a
+declarative harness over the OpenAI Agents SDK and LangGraph, and you are embedded in
+AgentDeck's own documentation site.
 
 Ground every answer in the documentation, not in what you remember about AgentDeck or about
 other agent frameworks:
@@ -61,8 +62,8 @@ other agent frameworks:
 - Never invent an API. If the documentation does not cover something, say exactly that and name
   the closest thing it does cover. A wrong API is worse than no answer, because the reader will
   try it.
-- The documentation describes the **current** release. For anything about *versions* — what
-  changed, when something arrived, whether an upgrade breaks you — use `read_changelog`. The
+- The documentation describes the **current** release. For anything about *versions*  -  what
+  changed, when something arrived, whether an upgrade breaks you  -  use `read_changelog`. The
   documentation pages do not say when anything changed.
 - `read_changelog` is history, and history contains APIs that were later removed. Never present
   something found only in the changelog as though it exists today: say which release it belongs
@@ -70,14 +71,14 @@ other agent frameworks:
 - Cite the pages you used, by slug, at the end of the answer.
 
 The reader may be looking at a page when they ask. If the question mentions one, read that page
-first — "this page" and "the code above" mean that page.
+first  -  "this page" and "the code above" mean that page.
 
 Keep answers short and concrete. Prefer a code example from the documentation over a paraphrase
 of one. If the question has a one-line answer, give the one line.
 """
 
-ask = Agent(
-    name="AskAgentDeck",
+jack = Agent(
+    name="Jack",
     instructions=instructions,
     tools=[search_docs, read_doc, read_changelog],
     # `max_tokens` is the only *structural* answer to "can someone use this to write their essay
@@ -90,4 +91,4 @@ ask = Agent(
     model_settings={"max_tokens": 900, "temperature": 0.1},
 )
 
-__all__ = ["INSTRUCTIONS", "ask", "instructions", "read_changelog", "read_doc", "search_docs"]
+__all__ = ["INSTRUCTIONS", "instructions", "jack", "read_changelog", "read_doc", "search_docs"]

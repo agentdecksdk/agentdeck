@@ -1,4 +1,4 @@
-# Cloudflare Tunnel for Ask AgentDeck — the reproducible, locally-managed form.
+# Cloudflare Tunnel for Jack — the reproducible, locally-managed form.
 #
 #     cloudflared tunnel create ask-agentdeck          # writes ~/.cloudflared/<uuid>.json
 #     # put the printed <uuid> below, then:
@@ -26,7 +26,7 @@
 #
 # Serve on the loopback interface, which is uvicorn's default:
 #
-#     uvicorn ask_agentdeck.server:app --port 8100          # binds 127.0.0.1
+#     uvicorn jack.server:app --port 8100          # binds 127.0.0.1
 #
 # Not `--host 0.0.0.0`. That would publish the assistant to every machine on your network in
 # addition to the tunnel, which is the one way this setup leaks past what is written here.

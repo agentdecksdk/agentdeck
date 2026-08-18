@@ -1,9 +1,9 @@
 'use client'
 
 /**
- * Ask AgentDeck — the docs-native assistant panel (#219).
+ * Jack  -  the docs-native assistant panel (#219).
  *
- * Talks to `examples/ask-agentdeck`'s own `POST /ask`, which streams the run's canonical events.
+ * Talks to `examples/jack`'s own `POST /ask`, which streams the run's canonical events.
  * There is no translation layer on either side: what this component switches on is the same
  * `event.kind` a Python consumer reading the run back would switch on.
  */
@@ -25,7 +25,7 @@ function slugOf(pathname: string): string {
   return trimmed || 'index'
 }
 
-export function AskAgentDeck() {
+export function JackPanel() {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const [question, setQuestion] = useState('')
@@ -107,7 +107,7 @@ export function AskAgentDeck() {
       // never resolves. The panel stays usable; the transcript keeps what it already had.
       setError(
         failure instanceof TypeError
-          ? `Ask AgentDeck is not reachable at ${API}. Start it with \`uvicorn ask_agentdeck.server:app --port 8100\`.`
+          ? `Jack is not reachable at ${API}. Start it with \`uvicorn jack.server:app --port 8100\`.`
           : String(failure)
       )
     } finally {
@@ -117,16 +117,16 @@ export function AskAgentDeck() {
 
   if (!open) {
     return (
-      <button className="ask-launch" onClick={() => setOpen(true)} aria-label="Ask AgentDeck">
-        Ask AgentDeck
+      <button className="ask-launch" onClick={() => setOpen(true)} aria-label="Ask Jack">
+        Ask Jack
       </button>
     )
   }
 
   return (
-    <aside className="ask-panel" aria-label="Ask AgentDeck">
+    <aside className="ask-panel" aria-label="Ask Jack">
       <header className="ask-head">
-        <strong>Ask AgentDeck</strong>
+        <strong>Ask Jack</strong>
         <span className="ask-page">{slugOf(pathname)}</span>
         <button onClick={() => setOpen(false)} aria-label="Close">×</button>
       </header>
@@ -135,7 +135,7 @@ export function AskAgentDeck() {
         {turns.length === 0 && (
           <p className="ask-hint">
             Ask about this page or anything else in the docs. Answers are read out of the
-            documentation, not recalled — if it is not written down, you will be told so.
+            documentation, not recalled  -  if it is not written down, you will be told so.
           </p>
         )}
         {turns.map((turn, at) => (

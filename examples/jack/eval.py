@@ -2,8 +2,8 @@
 
     make eval-docs-agent
 
-Layer A (`tests/test_ask_agentdeck_server.py`) checks retrieval offline and runs in the gate.
-This layer needs a model, so it does not — a model-graded suite inside a required check is a
+Layer A (`tests/test_jack_server.py`) checks retrieval offline and runs in the gate.
+This layer needs a model, so it does not  -  a model-graded suite inside a required check is a
 flaky gate, and #219 asks for CI "at least at build/integration-test level", which layer A meets.
 
 **There is no judge here.** Grounding is asserted against the run's own event log, which makes it
@@ -12,7 +12,7 @@ exact rather than probabilistic:
 - `tool.call.started` says whether the agent read anything before answering. An answer with no
   tool call came out of the model's memory, whatever it says.
 - Every code-shaped token in the answer is checked against the corpus. A token that appears in
-  **no page at all** is an invented API — that is a fact about two strings, not an opinion, and
+  **no page at all** is an invented API  -  that is a fact about two strings, not an opinion, and
   no LLM judge is better at it than `in` is. A token that is in the corpus but not in the pages
   this run read is reported separately: real, but recalled rather than looked up.
 
@@ -29,8 +29,8 @@ import os
 import re
 import sys
 
-from ask_agentdeck.agent import ask
-from ask_agentdeck.corpus import DocsCorpus
+from jack.agent import jack
+from jack.corpus import DocsCorpus
 
 from agentdeck import Deck
 
@@ -72,11 +72,11 @@ async def main() -> int:
     everything = "\n".join(corpus.pages.values())
     failures = 0
 
-    async with Deck(agents=[ask], context=DocsCorpus) as deck:
+    async with Deck(agents=[jack], context=DocsCorpus) as deck:
         for category, question in QUESTIONS:
             read: list[str] = []
             answer = ""
-            async for event in deck.stream("AskAgentDeck", question, context=corpus):
+            async for event in deck.stream("Jack", question, context=corpus):
                 if event.kind == "tool.call.started" and event.payload.tool == "read_doc":
                     read.append(event.payload.args.get("slug", ""))
                 elif event.kind == "text.delta":
@@ -113,5 +113,5 @@ async def main() -> int:
 
 if __name__ == "__main__":
     if not os.environ.get("OPENAI_API_KEY"):
-        sys.exit("OPENAI_API_KEY is not set — this layer talks to a real model, unlike the gate")
+        sys.exit("OPENAI_API_KEY is not set  -  this layer talks to a real model, unlike the gate")
     sys.exit(asyncio.run(main()))

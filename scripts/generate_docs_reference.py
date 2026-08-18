@@ -3,11 +3,11 @@
 code that defines them.
 
 Per the narrowed DS-D2 decision, `App`, the definition bases and the capability specs stay
-hand-written prose — they describe behavior, not fields, so a generator would either flatten
+hand-written prose  -  they describe behavior, not fields, so a generator would either flatten
 that behavior away or grow into the docstring-mirror API reference the docs plan already
 refused. Settings and the CLI are different: both are already structured data (`LayeredSettings`
 subclasses in `agentdeck/runtime/settings.py`, the argparse tree in `agentdeck/cli.py`), so a
-generator is a template renderer over data that already exists, not new authoring — and it is
+generator is a template renderer over data that already exists, not new authoring  -  and it is
 the one thing that keeps a page this large from drifting out from under the code the way
 hand-maintenance would.
 
@@ -43,7 +43,7 @@ SITE = REPO_ROOT / "docs-site" / "content"
 CONTENT = SITE / "reference"
 SETTINGS_PAGE = CONTENT / "settings.mdx"
 CLI_PAGE = CONTENT / "cli.mdx"
-CHANGELOG_PAGE = SITE / "changelog.mdx"
+CHANGELOG_PAGE = SITE / "resources" / "changelog.mdx"
 CHANGELOG_SOURCE = REPO_ROOT / "CHANGELOG.md"
 PUBLIC = REPO_ROOT / "docs-site" / "public"
 LLMS_PAGE = PUBLIC / "llms.txt"
@@ -55,9 +55,9 @@ _REPO_CLI_URL = "https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/c
 
 
 def _settings_classes() -> list[type[LayeredSettings]]:
-    """Only the subclasses *defined in* ``settings.py`` — not every ``LayeredSettings`` that
+    """Only the subclasses *defined in* ``settings.py``  -  not every ``LayeredSettings`` that
     happens to be loaded in the process. Nothing outside that module subclasses it today (the
-    capability specs that used to did, and are gone), so the filter is currently a no-op — it
+    capability specs that used to did, and are gone), so the filter is currently a no-op  -  it
     stays because this page is the env-var table, and a subclass declared elsewhere for some
     other purpose must not land in it just because something imported it first.
     """
@@ -92,14 +92,14 @@ def _default_str(info: FieldInfo) -> str:
 def _description(field_name: str, info: FieldInfo, cls: type[LayeredSettings]) -> str:
     if not info.description:
         raise ValueError(
-            f"{cls.__name__}.{field_name} has no Field(description=...) — add one before regenerating "
+            f"{cls.__name__}.{field_name} has no Field(description=...)  -  add one before regenerating "
             "the settings reference; a generator over an undescribed field would render a blank cell."
         )
     return info.description.replace("|", "\\|")
 
 
 def _env_var(cls: type[LayeredSettings], field_name: str) -> str:
-    # A field in ``_bare_env_names`` is read from that exact name, ignoring env_prefix — one
+    # A field in ``_bare_env_names`` is read from that exact name, ignoring env_prefix  -  one
     # variable per decision (``AGENTDECK_EVENTS``), not ``<PREFIX>_<FIELD>``.
     if bare := cls._bare_env_names.get(field_name):
         return bare
@@ -118,7 +118,7 @@ def render_settings_mdx() -> str:
         "# Settings",
         "",
         f"Generated from [`agentdeck/runtime/settings.py`]({_REPO_SETTINGS_URL})'s `LayeredSettings` "
-        "subclasses — this page cannot drift from the code because `make check` regenerates it and "
+        "subclasses  -  this page cannot drift from the code because `make check` regenerates it and "
         "fails if the result differs (`scripts/generate_docs_reference.py`). Every variable is also "
         "settable in the shared `config.yaml`, under the section derived from its env-var prefix "
         "(`openai:`, `runner:`, …); an env var wins over the file.",
@@ -128,14 +128,14 @@ def render_settings_mdx() -> str:
         lines.append(f"## `{cls.__name__}`")
         lines.append("")
         # Docstrings across the codebase use RST-style double-backtick ``code`` (project
-        # convention, not Sphinx-processed) — fold to single-backtick Markdown for MDX.
+        # convention, not Sphinx-processed)  -  fold to single-backtick Markdown for MDX.
         summary = (cls.__doc__ or "").strip().splitlines()[0].strip().replace("``", "`") if cls.__doc__ else ""
         if summary:
             lines.append(summary)
             lines.append("")
         fields = cls.model_fields
         if not fields:
-            lines.append(f"No declared fields — `{cls.__name__}` captures arbitrary env vars matching its prefix.")
+            lines.append(f"No declared fields  -  `{cls.__name__}` captures arbitrary env vars matching its prefix.")
             lines.append("")
             continue
         lines.append("| Env var | Type | Default | Description |")
@@ -156,7 +156,7 @@ def render_settings_mdx() -> str:
 @contextmanager
 def _fixed_terminal_width(columns: int = 100) -> Iterator[None]:
     """Argparse's ``HelpFormatter`` wraps text to ``shutil.get_terminal_size()``, which reads
-    ``COLUMNS`` before it ever queries a real tty — pin it so the generated CLI page renders
+    ``COLUMNS`` before it ever queries a real tty  -  pin it so the generated CLI page renders
     identically on a developer's terminal and in CI instead of reflowing with whatever width
     happened to be ambient.
     """
@@ -175,7 +175,7 @@ def _walk_parsers(
     parser: argparse.ArgumentParser, path: tuple[str, ...] = ()
 ) -> Iterator[tuple[tuple[str, ...], argparse.ArgumentParser]]:
     """Depth-first walk of the command tree, root first. Argparse has no public API for
-    listing a parser's subparsers, so this reads ``_SubParsersAction`` — the same private
+    listing a parser's subparsers, so this reads ``_SubParsersAction``  -  the same private
     attribute tools like sphinx-argparse rely on for the same reason.
     """
     yield path, parser
@@ -195,7 +195,7 @@ def render_cli_mdx() -> str:
         "# CLI",
         "",
         f"Generated from [`agentdeck/cli.py`]({_REPO_CLI_URL}) by capturing each subcommand's own "
-        "`--help` output — the same rendering a terminal would show, not a second hand-written copy "
+        "`--help` output  -  the same rendering a terminal would show, not a second hand-written copy "
         "of it. `make check` regenerates this page and fails if the result differs "
         "(`scripts/generate_docs_reference.py`).",
         "",
@@ -220,7 +220,7 @@ def changelog_sections() -> list[tuple[str, str, str]]:
     """``(version, date, body)`` per ``## [x] - date`` heading in ``CHANGELOG.md``, in file order.
 
     Shared with the reference application's changelog tool, which needs the same parse over the
-    same file — one heading regex, not two that drift.
+    same file  -  one heading regex, not two that drift.
     """
     text = CHANGELOG_SOURCE.read_text()
     heads = list(_RELEASE_HEADING.finditer(text))
@@ -234,7 +234,7 @@ def render_changelog_mdx() -> str:
     """The site's release notes, rendered from ``CHANGELOG.md`` so the two cannot disagree.
 
     Only the current release is reproduced in full. Every earlier one is a row linking to its
-    GitHub release, which is where the artifacts are anyway — a page restating 1,700 lines of
+    GitHub release, which is where the artifacts are anyway  -  a page restating 1,700 lines of
     history is not read, and the copy is one more thing to keep true.
     """
     sections = changelog_sections()
@@ -248,7 +248,7 @@ def render_changelog_mdx() -> str:
         "description: What changed in each release of AgentDeck, and what to do about it when upgrading.",
         "---",
         "",
-        "{/* Generated by scripts/generate_docs_reference.py from CHANGELOG.md — do not edit. */}",
+        "{/* Generated by scripts/generate_docs_reference.py from CHANGELOG.md  -  do not edit. */}",
         "",
         "# Changelog",
         "",
@@ -271,7 +271,7 @@ def render_changelog_mdx() -> str:
             "| Version | Date | Notes |",
             "|---|---|---|",
             *(
-                f"| [v{v}]({_RELEASES_URL}/tag/v{v}) | {d or '—'} | [release notes]({_RELEASES_URL}/tag/v{v}) |"
+                f"| [v{v}]({_RELEASES_URL}/tag/v{v}) | {d or ' - '} | [release notes]({_RELEASES_URL}/tag/v{v}) |"
                 for v, d, _b in older
             ),
             "",
@@ -282,13 +282,18 @@ def render_changelog_mdx() -> str:
 _FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.DOTALL)
 _FIELD = re.compile(r"^(title|description):\s*(.+)$", re.MULTILINE)
 
+# A line that is nothing but a JSX component, which a page composed of components is mostly made
+# of. Rendered they are the page; as text they are `<Hero />`, which is worse than nothing to a
+# retrieval system. Stripped rather than escaped, because there is no prose in them to keep.
+_JSX_ONLY = re.compile(r'^[ \t]*<(?:[A-Z][A-Za-z0-9]*|div className="[^"]*")[^>]*/>[ \t]*$\n?', re.MULTILINE)
+
 # What AgentDeck is, in the words a retrieval system should quote. Deliberately names the
 # frameworks it wraps and the problem it solves, because that is what someone searching a
-# *symptom* — "pause an AI agent", "durable approval" — needs to match against.
+# *symptom*  -  "pause an AI agent", "durable approval"  -  needs to match against.
 _DEFINITION = """\
 AgentDeck SDK is a Python harness for agents you have to operate. You write agents, workflows and
 skills as small declarations in a `.agentdeck/` directory; AgentDeck supplies everything around
-them — discovery, layered settings, sessions, streaming, MCP servers, durable human-in-the-loop
+them  -  discovery, layered settings, sessions, streaming, MCP servers, durable human-in-the-loop
 approvals, run control, and one ordered event log per run.
 
 It wraps the OpenAI Agents SDK and LangGraph rather than replacing them: an `Agent` compiles to an
@@ -336,7 +341,7 @@ def _site_pages() -> list[tuple[str, Path]]:
 
 
 def render_llms_txt() -> str:
-    """`/llms.txt` — the llmstxt.org convention: what this is, then every page as a link.
+    """`/llms.txt`  -  the llmstxt.org convention: what this is, then every page as a link.
 
     Small on purpose. A model or crawler reads this to decide *which* page to fetch; the whole
     corpus is `llms-full.txt`, and conflating them makes the cheap file expensive.
@@ -344,7 +349,7 @@ def render_llms_txt() -> str:
     out = [
         "# AgentDeck SDK",
         "",
-        "> The production runtime for agents you already have — "
+        "> The production runtime for agents you already have  -  "
         "composition, durable human-in-the-loop approvals, sessions, streaming, run control "
         "and one ordered event log, wrapping the OpenAI Agents SDK and LangGraph.",
         "",
@@ -369,13 +374,13 @@ def render_llms_txt() -> str:
 
 
 def render_llms_full_txt() -> str:
-    """`/llms-full.txt` — every page's Markdown in one file, in reading order.
+    """`/llms-full.txt`  -  every page's Markdown in one file, in reading order.
 
     Frontmatter becomes a heading and a line of prose so the file reads as a document rather than
     as a concatenation, and each page keeps its URL so a quotation can be traced back.
     """
     out = [
-        "# AgentDeck SDK — full documentation",
+        "# AgentDeck SDK  -  full documentation",
         "",
         _DEFINITION,
         "",
@@ -386,11 +391,11 @@ def render_llms_full_txt() -> str:
     ]
     for slug, path in _site_pages():
         title, description = _page_meta(path)
-        body = _FRONTMATTER.sub("", path.read_text(), count=1).strip()
+        body = _JSX_ONLY.sub("", _FRONTMATTER.sub("", path.read_text(), count=1)).strip()
         url = f"{SITE_URL}/{'' if slug == 'index' else slug}"
         out += [f"# {title}", "", f"*{description}*" if description else "", f"Source: {url}", "", body, "", "---", ""]
     # The loop leaves a separator and a blank line after the last page, which `end-of-file-fixer`
-    # strips on every commit and this generator restores on every run — a hook and a generator
+    # strips on every commit and this generator restores on every run  -  a hook and a generator
     # fighting over one byte. One trailing newline, settled here.
     return "\n".join(out).rstrip("\n") + "\n"
 
@@ -413,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
         drifted = [path for path, content in pages.items() if not path.is_file() or path.read_text() != content]
         if drifted:
             print(
-                "generated reference pages are stale — run `python scripts/generate_docs_reference.py`:",
+                "generated reference pages are stale  -  run `python scripts/generate_docs_reference.py`:",
                 file=sys.stderr,
             )
             for path in drifted:

@@ -37,8 +37,8 @@ docs-reference: ## regenerate the five generated docs-site files from the code
 roadmap-sync:   ## refresh the live-status tables in docs/delivery/ from GitHub (gh required)
 	.venv/bin/python scripts/sync_roadmap.py
 
-eval-docs-agent: ## Ask AgentDeck grounding, against a real model — not in the gate (see examples/ask-agentdeck/eval.py)
-	cd examples/ask-agentdeck && ../../.venv/bin/python eval.py
+eval-docs-agent: ## Jack grounding, against a real model — not in the gate (see examples/jack/eval.py)
+	cd examples/jack && ../../.venv/bin/python eval.py
 
 check: lint typecheck lint-imports test   ## full gate
 
