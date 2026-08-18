@@ -10,6 +10,7 @@ import { SITE } from './site'
 import 'nextra-theme-docs/style.css'
 import './brand.css'
 import './landing.css'
+import './hero.css'
 import './jack.css'
 
 // Self-hosted at build time  -  the static export makes no external font request.

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { DeckFigure, TreeFigure, type DeckGroup, type TreeNode } from './deck-figure'
 import { JackLive } from './jack-live'
 import { InstallLine } from './install-line'
+import { Hero } from './hero'
 
 /**
  * The landing page, as one story rather than a feature list.
@@ -16,6 +17,8 @@ import { InstallLine } from './install-line'
  * chip and runs today; `proposed` is designed and not built yet. A landing page that mixes the
  * two without saying so is a landing page whose examples fail on paste.
  */
+
+export { Hero }
 
 const RELEASE = '4.0.0'
 const REPO = 'https://github.com/agentdecksdk/agentdeck'
@@ -80,71 +83,6 @@ function Chapter({
           {children && <div className="chapter-code">{children}</div>}
           {figure && <div className="chapter-figure">{figure}</div>}
         </div>
-      </div>
-    </section>
-  )
-}
-
-/* ------------------------------------------------------------------ 1. hero */
-
-/** Components converging into one execution structure. Abstract on purpose: the page has not
- *  earned any labels yet, and a diagram that explains nothing should not pretend to. */
-function HeroFigure() {
-  // Every entry arrives from above the join, so nothing crosses the tree it feeds.
-  const entries = [18, 46, 74, 102, 130]
-  return (
-    <svg className="hero-figure" viewBox="0 0 400 262" role="img" aria-label="Components converging into one execution structure">
-      <g className="hero-lines">
-        {entries.map((y, at) => (
-          <path
-            key={y}
-            d={y === 130 ? 'M8 130 H210' : `M8 ${y} H120 C172 ${y} 162 130 210 130`}
-            style={{ animationDelay: `${at * 80}ms` }}
-          />
-        ))}
-      </g>
-      <g className="hero-tree">
-        <path d="M210 130 V168" />
-        <path d="M112 168 H302" />
-        <path d="M112 168 V196" />
-        <path d="M210 168 V196" />
-        <path d="M302 168 V196" />
-        <path d="M302 206 V234 H258" />
-      </g>
-      <g className="hero-nodes">
-        {[[112, 201], [210, 201], [302, 201], [253, 234]].map(([x, y]) => (
-          <rect key={`${x}-${y}`} x={x - 4} y={y - 4} width="8" height="8" transform={`rotate(45 ${x} ${y})`} />
-        ))}
-      </g>
-      <circle className="hero-join" cx="210" cy="130" r="7" />
-    </svg>
-  )
-}
-
-export function Hero() {
-  return (
-    <section className="hero">
-      <div className="hero-copy">
-        <h1 className="hero-heading">
-          Agentic software
-          <br />
-          should feel like <span className="hero-accent">software</span>.
-        </h1>
-        <p className="hero-lead">
-          Build agents, tools and workflows as normal software. AgentDeck gives them one execution
-          model you can observe, control and extend.
-        </p>
-        <div className="hero-actions">
-          <Link href="/meet-agentdeck/quickstart" className="cta-primary">
-            Get started
-          </Link>
-          <a href={REPO} target="_blank" rel="noreferrer" className="cta-ghost">
-            GitHub
-          </a>
-        </div>
-      </div>
-      <div className="hero-visual">
-        <HeroFigure />
       </div>
     </section>
   )

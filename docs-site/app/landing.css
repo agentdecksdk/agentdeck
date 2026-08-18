@@ -8,6 +8,20 @@
    45-degree cut corners, spark markers, thin structural lines.
    ========================================================================== */
 
+/* The theme pads its article for prose; this page is bands and sets its own gutters. */
+article:has(.landing) {
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+/* "Copy page" is a docs affordance, and this page is not docs. It also floats, which a
+   full-bleed hero cannot ignore: `overflow: hidden` makes the hero its own formatting context,
+   so it was shrinking by the button's width to avoid the float rather than filling the page. */
+article:has(.landing) > div:has(> button[title*="Copy" i]),
+article:has(.landing) > .x\:float-end {
+  display: none;
+}
+
 .landing {
   --rail: var(--brand-border-light);
   --surface: var(--brand-ice);
