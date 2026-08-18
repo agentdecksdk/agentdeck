@@ -15,12 +15,110 @@
       to port. It reads as a band the page opens with.
    ========================================================================== */
 
+/* The hero's palette. Dark is the design as delivered, value for value; light is the same
+   roles on a light ground, so the band belongs to whichever theme the reader chose. */
+.ad-hero {
+  --hero-accent-10: rgba(37, 99, 255, 0.09);
+  --hero-accent-11: rgba(37, 99, 255, 0.18);
+  --hero-accent-12: rgba(37, 99, 255, 0.46);
+  --hero-accent-13: rgba(37, 99, 255, 0.7);
+  --hero-accent-1: rgba(37, 99, 255, 0.18);
+  --hero-accent-2: rgba(37, 99, 255, 0.0);
+  --hero-accent-3: rgba(37, 99, 255, 0.42);
+  --hero-accent-4: rgba(37, 99, 255, 0.55);
+  --hero-accent-5: rgba(37, 99, 255, 0.28);
+  --hero-accent-6: rgba(37, 99, 255, 0.15);
+  --hero-accent-7: rgba(37, 99, 255, 0.12);
+  --hero-accent-8: rgba(37, 99, 255, 0.72);
+  --hero-accent-9: rgba(37, 99, 255, 0.16);
+  --hero-accent-muted: color-mix(in srgb, var(--brand-blue) 55%, transparent);
+  --hero-accent-solid: var(--brand-blue);
+  --hero-accent: var(--brand-blue);
+  --hero-grid-1: rgba(11, 18, 32, 0.049);
+  --hero-grid-2: rgba(11, 18, 32, 0.035);
+  --hero-grid-3: rgba(11, 18, 32, 0.063);
+  --hero-grid-4: rgba(11, 18, 32, 0.07);
+  --hero-ground-1: #ffffff;
+  --hero-ground-2: #eef2fb;
+  --hero-ink-soft: #52607a;
+  --hero-ink-strong: var(--brand-night);
+  --hero-ink: var(--brand-night);
+  --hero-line-1: rgba(11, 18, 32, 0.102);
+  --hero-line-2: rgba(11, 18, 32, 0.119);
+  --hero-line-3: rgba(11, 18, 32, 0.289);
+  --hero-line-4: rgba(11, 18, 32, 0.187);
+  --hero-line-5: rgba(11, 18, 32, 0.136);
+  --hero-line-6: rgba(11, 18, 32, 0.153);
+  --hero-line-7: rgba(11, 18, 32, 0.187);
+  --hero-line-8: rgba(11, 18, 32, 0.145);
+  --hero-panel-1: rgba(255, 255, 255, 0.72);
+  --hero-panel-2: rgba(255, 255, 255, 0.78);
+  --hero-panel-3: rgba(255, 255, 255, 0.8);
+  --hero-panel-4: rgba(255, 255, 255, 0.96);
+  --hero-panel-5: rgba(255, 255, 255, 0.98);
+  --hero-panel-6: rgba(255, 255, 255, 0.98);
+  --hero-panel-7: rgba(255, 255, 255, 0.99);
+  --hero-panel-8: rgba(255, 255, 255, 0.95);
+  --hero-shadow-1: rgba(11, 18, 32, 0.098);
+  --hero-shadow-2: rgba(11, 18, 32, 0.077);
+  --hero-shadow-3: rgba(11, 18, 32, 0.122);
+  --hero-shadow-4: rgba(11, 18, 32, 0.063);
+}
+
+.dark .ad-hero {
+  --hero-accent-10: rgba(51, 112, 255, 0.06);
+  --hero-accent-11: rgba(37, 105, 255, 0.18);
+  --hero-accent-12: rgba(76, 141, 255, 0.46);
+  --hero-accent-13: rgba(75, 140, 255, 0.7);
+  --hero-accent-1: rgba(45, 115, 255, 0.12);
+  --hero-accent-2: rgba(56, 132, 255, 0);
+  --hero-accent-3: rgba(76, 141, 255, 0.42);
+  --hero-accent-4: rgba(82, 144, 255, 0.55);
+  --hero-accent-5: rgba(25, 86, 210, 0.28);
+  --hero-accent-6: rgba(46, 99, 216, 0.10);
+  --hero-accent-7: rgba(74, 121, 220, 0.08);
+  --hero-accent-8: rgba(71, 133, 255, 0.72);
+  --hero-accent-9: rgba(72, 132, 255, 0.16);
+  --hero-accent-muted: color-mix(in srgb, var(--brand-frost) 65%, transparent);
+  --hero-accent-solid: var(--brand-blue);
+  --hero-accent: var(--brand-frost);
+  --hero-grid-1: rgba(255,255,255,0.035);
+  --hero-grid-2: rgba(255,255,255,0.025);
+  --hero-grid-3: rgba(255,255,255,0.045);
+  --hero-grid-4: rgba(255,255,255,0.05);
+  --hero-ground-1: var(--brand-slate);
+  --hero-ground-2: var(--brand-night);
+  --hero-ink-soft: var(--brand-cool-gray);
+  --hero-ink-strong: #f8fafc;
+  --hero-ink: #f1f5f9;
+  --hero-line-1: rgba(255,255,255,0.12);
+  --hero-line-2: rgba(132, 157, 205, 0.14);
+  --hero-line-3: rgba(133, 164, 219, 0.34);
+  --hero-line-4: rgba(122, 152, 206, 0.22);
+  --hero-line-5: rgba(154, 180, 229, 0.16);
+  --hero-line-6: rgba(143, 169, 219, 0.18);
+  --hero-line-7: rgba(139, 166, 218, 0.22);
+  --hero-line-8: rgba(137, 166, 218, 0.17);
+  --hero-panel-1: rgba(8, 13, 25, 0.72);
+  --hero-panel-2: rgba(31, 42, 66, 0.78);
+  --hero-panel-3: rgba(18, 27, 45, 0.80);
+  --hero-panel-4: rgba(27, 39, 64, 0.96);
+  --hero-panel-5: rgba(13, 21, 37, 0.98);
+  --hero-panel-6: rgba(29, 44, 78, 0.98);
+  --hero-panel-7: rgba(13, 23, 43, 0.99);
+  --hero-panel-8: rgba(16, 26, 44, 0.95);
+  --hero-shadow-1: rgba(0,0,0,0.28);
+  --hero-shadow-2: rgba(0,0,0,0.22);
+  --hero-shadow-3: rgba(0,0,0,0.35);
+  --hero-shadow-4: rgba(0,0,0,0.18);
+}
+
 .ad-hero {
   position: relative;
   overflow: hidden;
   min-height: min(100vh, 900px);
   padding: clamp(40px, 6vh, 72px) 24px clamp(32px, 5vh, 48px);
-  color: #f1f5f9;
+  color: var(--hero-ink);
   isolation: isolate;
 }
 
@@ -29,8 +127,8 @@
   inset: 0;
   z-index: -2;
   background:
-    radial-gradient(circle at 50% 35%, rgba(45, 115, 255, 0.12), transparent 34%),
-    linear-gradient(180deg, var(--brand-slate) 0%, var(--brand-night) 72%);
+    radial-gradient(circle at 50% 35%, var(--hero-accent-1), transparent 34%),
+    linear-gradient(180deg, var(--hero-ground-1) 0%, var(--hero-ground-2) 72%);
 }
 
 .ad-hero__backdrop::after {
@@ -39,14 +137,14 @@
   inset: 0;
   opacity: 0.18;
   background-image:
-    linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+    linear-gradient(var(--hero-grid-1) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hero-grid-1) 1px, transparent 1px);
   background-size: 44px 44px;
   mask-image: linear-gradient(to bottom, transparent 0, #000 24%, #000 80%, transparent 100%);
 }
 
 .ad-hero h1 {
-  color: #f8fafc;
+  color: var(--hero-ink-strong);
 }
 
 .ad-hero__content {
@@ -60,7 +158,7 @@
   align-items: center;
   gap: 10px;
   margin-bottom: 18px;
-  color: var(--brand-frost);
+  color: var(--hero-accent);
   font-size: 13px;
   font-weight: 650;
   letter-spacing: 0.13em;
@@ -70,14 +168,14 @@
 .ad-mark {
   width: 20px;
   height: 20px;
-  color: color-mix(in srgb, var(--brand-frost) 65%, transparent);
-  filter: drop-shadow(0 0 0 rgba(56, 132, 255, 0));
+  color: var(--hero-accent-muted);
+  filter: drop-shadow(0 0 0 var(--hero-accent-2));
   transition: color 480ms ease, filter 480ms ease;
 }
 
 .ad-mark.is-active {
-  color: var(--brand-frost);
-  filter: drop-shadow(0 0 10px rgba(76, 141, 255, 0.42));
+  color: var(--hero-accent);
+  filter: drop-shadow(0 0 10px var(--hero-accent-3));
 }
 
 .ad-hero h1 {
@@ -93,7 +191,7 @@
 .ad-hero__subtitle {
   max-width: 760px;
   margin: 24px auto 0;
-  color: var(--brand-cool-gray);
+  color: var(--hero-ink-soft);
   font-size: clamp(17px, 2vw, 21px);
   line-height: 1.62;
   text-wrap: balance;
@@ -113,9 +211,9 @@
   align-items: center;
   justify-content: center;
   padding: 0 18px;
-  border: 1px solid rgba(255,255,255,0.12);
+  border: 1px solid var(--hero-line-1);
   border-radius: 10px 10px 4px 10px;
-  color: #f1f5f9;
+  color: var(--hero-ink);
   text-decoration: none;
   font-size: 14px;
   font-weight: 650;
@@ -127,13 +225,16 @@
 }
 
 .ad-btn--primary {
-  border-color: rgba(82, 144, 255, 0.55);
-  background: var(--brand-blue);
-  box-shadow: 0 10px 30px rgba(25, 86, 210, 0.28);
+  border-color: var(--hero-accent-4);
+  /* Filled with the accent in both themes, so its label is white in both rather than
+     inheriting the hero's ink, which flips. */
+  background: var(--hero-accent-solid);
+  color: #ffffff;
+  box-shadow: 0 10px 30px var(--hero-accent-5);
 }
 
 .ad-btn--ghost {
-  background: rgba(255,255,255,0.035);
+  background: var(--hero-grid-1);
 }
 
 .ad-stage {
@@ -145,14 +246,14 @@
   height: clamp(380px, 46vh, 520px);
   margin: 58px auto 0;
   overflow: hidden;
-  border: 1px solid rgba(132, 157, 205, 0.14);
+  border: 1px solid var(--hero-line-2);
   border-radius: 20px 20px 8px 20px;
   background:
-    radial-gradient(circle at 50% 40%, rgba(46, 99, 216, 0.10), transparent 28%),
-    rgba(8, 13, 25, 0.72);
+    radial-gradient(circle at 50% 40%, var(--hero-accent-6), transparent 28%),
+    var(--hero-panel-1);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.025),
-    0 30px 90px rgba(0,0,0,0.28);
+    inset 0 1px 0 var(--hero-grid-2),
+    0 30px 90px var(--hero-shadow-1);
 }
 
 .ad-stage__grid {
@@ -160,7 +261,7 @@
   inset: 0;
   opacity: 0.18;
   background-image:
-    radial-gradient(circle, rgba(133, 164, 219, 0.34) 1px, transparent 1.2px);
+    radial-gradient(circle, var(--hero-line-3) 1px, transparent 1.2px);
   background-size: 28px 28px;
   mask-image: radial-gradient(circle at center, #000 0, transparent 72%);
 }
@@ -180,7 +281,7 @@
 
 .ad-connections path {
   fill: none;
-  stroke: rgba(122, 152, 206, 0.22);
+  stroke: var(--hero-line-4);
   stroke-width: 1.2;
   stroke-dasharray: 5 9;
   vector-effect: non-scaling-stroke;
@@ -202,14 +303,14 @@
   justify-content: flex-start;
   gap: 10px;
   padding: 13px 15px;
-  border: 1px solid rgba(154, 180, 229, 0.16);
+  border: 1px solid var(--hero-line-5);
   border-radius: 12px 12px 5px 12px;
   background:
-    linear-gradient(180deg, rgba(31, 42, 66, 0.78), rgba(18, 27, 45, 0.80));
-  color: #f1f5f9;
+    linear-gradient(180deg, var(--hero-panel-2), var(--hero-panel-3));
+  color: var(--hero-ink);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.035),
-    0 12px 30px rgba(0,0,0,0.22);
+    inset 0 1px 0 var(--hero-grid-1),
+    0 12px 30px var(--hero-shadow-2);
   font-size: 14px;
   font-weight: 650;
   letter-spacing: 0.01em;
@@ -227,9 +328,9 @@
   width: 26px;
   height: 26px;
   place-items: center;
-  border: 1px solid rgba(143, 169, 219, 0.18);
+  border: 1px solid var(--hero-line-6);
   border-radius: 8px 8px 3px 8px;
-  color: var(--brand-cool-gray);
+  color: var(--hero-ink-soft);
   font-size: 11px;
   font-weight: 780;
 }
@@ -273,7 +374,7 @@
   position: absolute;
   inset: 0;
   clip-path: polygon(0 0, 88% 0, 100% 12%, 100% 100%, 12% 100%, 0 88%);
-  border: 1px solid rgba(139, 166, 218, 0.22);
+  border: 1px solid var(--hero-line-7);
   border-radius: 18px 18px 7px 18px;
 }
 
@@ -294,11 +395,11 @@
   justify-content: center;
   gap: 14px;
   background:
-    radial-gradient(circle at 50% 36%, rgba(74, 121, 220, 0.08), transparent 34%),
-    linear-gradient(180deg, rgba(27, 39, 64, 0.96), rgba(13, 21, 37, 0.98));
+    radial-gradient(circle at 50% 36%, var(--hero-accent-7), transparent 34%),
+    linear-gradient(180deg, var(--hero-panel-4), var(--hero-panel-5));
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.045),
-    0 24px 70px rgba(0,0,0,0.35);
+    inset 0 1px 0 var(--hero-grid-3),
+    0 24px 70px var(--hero-shadow-3);
   transition:
     border-color 500ms ease,
     box-shadow 500ms ease,
@@ -317,14 +418,14 @@
 }
 
 .ad-deck.is-active .ad-deck__surface {
-  border-color: rgba(71, 133, 255, 0.72);
+  border-color: var(--hero-accent-8);
   background:
-    radial-gradient(circle at 50% 36%, rgba(72, 132, 255, 0.16), transparent 36%),
-    linear-gradient(180deg, rgba(29, 44, 78, 0.98), rgba(13, 23, 43, 0.99));
+    radial-gradient(circle at 50% 36%, var(--hero-accent-9), transparent 36%),
+    linear-gradient(180deg, var(--hero-panel-6), var(--hero-panel-7));
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.05),
-    0 0 0 1px rgba(51, 112, 255, 0.06),
-    0 0 54px rgba(37, 105, 255, 0.18);
+    inset 0 1px 0 var(--hero-grid-4),
+    0 0 0 1px var(--hero-accent-10),
+    0 0 54px var(--hero-accent-11);
 }
 
 .ad-spark {
@@ -390,7 +491,7 @@
 
 .ad-tree__lines .edge {
   fill: none;
-  stroke: rgba(76, 141, 255, 0.46);
+  stroke: var(--hero-accent-12);
   stroke-width: 1.3;
   stroke-linecap: round;
   stroke-dasharray: 1;
@@ -429,13 +530,13 @@
   min-width: 112px;
   min-height: 42px;
   padding: 0 14px;
-  border: 1px solid rgba(137, 166, 218, 0.17);
+  border: 1px solid var(--hero-line-8);
   border-radius: 10px 10px 4px 10px;
-  background: rgba(16, 26, 44, 0.95);
-  color: #f1f5f9;
+  background: var(--hero-panel-8);
+  color: var(--hero-ink);
   box-shadow:
-    inset 0 1px 0 rgba(255,255,255,0.025),
-    0 8px 25px rgba(0,0,0,0.18);
+    inset 0 1px 0 var(--hero-grid-2),
+    0 8px 25px var(--hero-shadow-4);
   font-size: 12px;
   font-weight: 680;
   opacity: 0;
@@ -509,7 +610,7 @@
 }
 
 .status--running {
-  color: var(--brand-frost);
+  color: var(--hero-accent);
   background: currentColor;
 }
 
@@ -530,7 +631,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--brand-cool-gray);
+  color: var(--hero-ink-soft);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.13em;
@@ -541,8 +642,8 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--brand-frost);
-  box-shadow: 0 0 12px rgba(75, 140, 255, 0.7);
+  background: var(--hero-accent);
+  box-shadow: 0 0 12px var(--hero-accent-13);
 }
 
 .phase-execute .ad-deck {
