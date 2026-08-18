@@ -38,8 +38,9 @@
   --hero-grid-2: rgba(11, 18, 32, 0.035);
   --hero-grid-3: rgba(11, 18, 32, 0.063);
   --hero-grid-4: rgba(11, 18, 32, 0.07);
-  --hero-ground-1: #ffffff;
-  --hero-ground-2: #eef2fb;
+  --hero-ground-1: var(--brand-canvas);
+  --hero-rule: var(--brand-border-light);
+  --hero-ground-2: var(--brand-canvas);
   --hero-ink-soft: #52607a;
   --hero-ink-strong: var(--brand-night);
   --hero-ink: var(--brand-night);
@@ -86,7 +87,8 @@
   --hero-grid-2: rgba(255,255,255,0.025);
   --hero-grid-3: rgba(255,255,255,0.045);
   --hero-grid-4: rgba(255,255,255,0.05);
-  --hero-ground-1: var(--brand-slate);
+  --hero-ground-1: var(--brand-night);
+  --hero-rule: #243147;
   --hero-ground-2: var(--brand-night);
   --hero-ink-soft: var(--brand-cool-gray);
   --hero-ink-strong: #f8fafc;
@@ -126,9 +128,7 @@
   position: absolute;
   inset: 0;
   z-index: -2;
-  background:
-    radial-gradient(circle at 50% 35%, var(--hero-accent-1), transparent 34%),
-    linear-gradient(180deg, var(--hero-ground-1) 0%, var(--hero-ground-2) 72%);
+  background: var(--hero-ground-1);
 }
 
 .ad-hero__backdrop::after {
@@ -156,7 +156,7 @@
 .ad-hero__eyebrow {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 11px;
   margin-bottom: 18px;
   color: var(--hero-accent);
   font-size: 13px;
@@ -238,32 +238,23 @@
 }
 
 .ad-stage {
-  --deck-w: 214px;
-  --deck-h: 280px;
+  --deck-w: 182px;
+  --deck-h: 238px;
 
   position: relative;
   width: min(1320px, 100%);
-  height: clamp(380px, 46vh, 520px);
-  margin: 58px auto 0;
-  overflow: hidden;
-  border: 1px solid var(--hero-line-2);
-  border-radius: 20px 20px 8px 20px;
-  background:
-    radial-gradient(circle at 50% 40%, var(--hero-accent-6), transparent 28%),
-    var(--hero-panel-1);
-  box-shadow:
-    inset 0 1px 0 var(--hero-grid-2),
-    0 30px 90px var(--hero-shadow-1);
+  height: clamp(390px, 42vh, 470px);
+  margin: -16px auto 0;
 }
 
 .ad-stage__grid {
   position: absolute;
   inset: 0;
-  opacity: 0.18;
+  opacity: 0.16;
   background-image:
     radial-gradient(circle, var(--hero-line-3) 1px, transparent 1.2px);
   background-size: 28px 28px;
-  mask-image: radial-gradient(circle at center, #000 0, transparent 72%);
+  mask-image: radial-gradient(ellipse 62% 70% at center, #000 0, transparent 100%);
 }
 
 .ad-stage__modules {
@@ -422,7 +413,16 @@
 .ad-card {
   width: 100%;
   height: 100%;
+  /* The spark sits against the top-right of the mark space, so scaling it on ignite pushed it
+     past the viewBox, which an SVG clips to by default. */
+  overflow: visible;
   transition: filter 340ms ease;
+}
+
+/* What shows through the A. Canvas in both themes, so the counter is part of the mark rather
+   than a hole onto whatever happens to be behind it. */
+.ad-card__counter {
+  fill: var(--brand-canvas);
 }
 
 .ad-card > path:first-of-type {
@@ -456,25 +456,13 @@
   height: 44px;
 }
 
-.ad-deck__label {
-  position: absolute;
-  bottom: -26px;
-  left: 0;
-  right: 0;
-  text-align: center;
-  letter-spacing: 0.28em;
-  font-size: 12px;
-  font-weight: 760;
-  color: var(--hero-ink-soft);
-}
-
 .ad-tree {
   position: absolute;
   /* Flush with the Deck's right edge: the connector leaves the card, it does not float. */
-  left: calc(50% - 214px);
+  left: calc(50% - 384px);
   top: 50%;
-  width: 660px;
-  height: 300px;
+  width: 950px;
+  height: 380px;
   transform: translateY(-50%);
   opacity: 0;
   pointer-events: none;
@@ -494,40 +482,56 @@
 
 .ad-tree__lines .edge {
   fill: none;
-  stroke: var(--hero-accent-12);
-  stroke-width: 1.3;
+  stroke: var(--hero-accent);
+  stroke-width: 1.5;
   stroke-linecap: round;
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
   vector-effect: non-scaling-stroke;
 }
 
+/* Nothing grows until the Deck has finished sliding into place: the tree has to look like it
+   came out of the card, and it cannot do that while the card is still moving.
+
+   The branches are then deliberately uneven. Each takes as long as it is long, and they do not
+   start in top-to-bottom order, so the tree opens the way a real one does rather than fanning
+   out on a metronome. The middle branch is shortest and arrives first. */
 .ad-tree.is-active .edge {
-  animation: draw-edge 620ms cubic-bezier(.4,0,.2,1) forwards;
+  animation: draw-edge 420ms cubic-bezier(.4,0,.2,1) forwards;
+}
+
+.ad-tree.is-active .edge-1 {
+  animation-delay: 1300ms;
 }
 
 .ad-tree.is-active .edge-2 {
-  animation-delay: 520ms;
+  animation-delay: 1780ms;
+  animation-duration: 240ms;
 }
 
 .ad-tree.is-active .edge-3 {
-  animation-delay: 620ms;
+  animation-delay: 2320ms;
+  animation-duration: 200ms;
 }
 
 .ad-tree.is-active .edge-4 {
-  animation-delay: 720ms;
+  animation-delay: 2500ms;
+  animation-duration: 560ms;
 }
 
 .ad-tree.is-active .edge-5 {
-  animation-delay: 1340ms;
+  animation-delay: 2620ms;
+  animation-duration: 300ms;
 }
 
 .ad-tree.is-active .edge-6 {
-  animation-delay: 1440ms;
+  animation-delay: 2560ms;
+  animation-duration: 620ms;
 }
 
 .ad-tree.is-active .edge-7 {
-  animation-delay: 1540ms;
+  animation-delay: 3160ms;
+  animation-duration: 280ms;
 }
 
 @keyframes draw-edge {
@@ -536,152 +540,179 @@
   }
 }
 
+/* The nodes are the capability cards from the opening, in the same surface and the same corner,
+   because they are the same things: what assembled into the Deck is what the Run invokes. Each
+   names the invocation and, under it, the kind it is. Neutral throughout: status colour belongs
+   to the real execution UI further down the page, not to a diagram of the idea. */
 .tree-node {
   position: absolute;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-width: 112px;
-  min-height: 42px;
-  padding: 0 14px;
-  border: 1px solid var(--hero-line-8);
-  border-radius: 10px 10px 4px 10px;
-  background: var(--hero-panel-8);
-  color: var(--hero-ink);
+  gap: 11px;
+  width: 160px;
+  padding: 11px 14px;
+  border: 1px solid var(--hero-line-5);
+  border-radius: 12px 12px 5px 12px;
+  background: linear-gradient(180deg, var(--hero-panel-2), var(--hero-panel-3));
   box-shadow:
-    inset 0 1px 0 var(--hero-grid-2),
-    0 8px 25px var(--hero-shadow-4);
-  font-size: 12px;
-  font-weight: 680;
+    inset 0 1px 0 var(--hero-grid-1),
+    0 12px 30px var(--hero-shadow-2);
+  color: var(--hero-ink);
   opacity: 0;
-  transform: translateX(-10px) scale(0.97);
+  transform: translateX(-16px);
+}
+
+.tree-node__icon {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--hero-line-6);
+  border-radius: 8px 8px 3px 8px;
+  color: var(--hero-accent);
+}
+
+.tree-node__icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.tree-node__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tree-node__name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-node__kind {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--hero-ink-soft);
+}
+
+/* The root is the execution itself, so it carries the accent and names nothing else. */
+.tree-node.is-root {
+  width: 100px;
+  justify-content: center;
+  padding: 14px 15px;
+  border-color: var(--hero-accent);
+  color: var(--hero-accent);
+}
+
+.tree-node.is-root .tree-node__name {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
 }
 
 .ad-tree.is-active .tree-node {
-  animation: node-in 420ms cubic-bezier(.2,.8,.2,1) forwards;
+  animation: node-in 380ms cubic-bezier(.2,.9,.25,1) forwards;
 }
 
 .tree-node--run {
-  left: 80px;
-  top: 129px;
-  width: 112px;
+  left: 150px;
+  top: 164px;
 }
 
-.tree-node--agent {
-  left: 310px;
-  top: 25px;
+.tree-node--answer-wf {
+  left: 360px;
+  top: 164px;
 }
 
-.tree-node--tool {
-  left: 310px;
-  top: 129px;
+.tree-node--docs {
+  left: 590px;
+  top: 44px;
 }
 
-.tree-node--workflow {
-  left: 310px;
-  top: 233px;
+.tree-node--researcher {
+  left: 590px;
+  top: 164px;
 }
 
-.tree-node--leaf-a {
-  left: 530px;
-  top: 25px;
+.tree-node--jack {
+  left: 590px;
+  top: 284px;
 }
 
-.tree-node--leaf-b {
-  left: 530px;
-  top: 129px;
+.tree-node--inspect {
+  left: 790px;
+  top: 164px;
 }
 
-.tree-node--leaf-c {
-  left: 530px;
-  top: 233px;
-}
-
+/* The Run, then the workflow it invokes, then that workflow's three invocations arriving at
+   their own pace, and last the tool the researcher reaches for. */
 .ad-tree.is-active .tree-node--run {
-  animation-delay: 420ms;
+  animation-delay: 1680ms;
 }
 
-.ad-tree.is-active .tree-node--agent {
-  animation-delay: 1040ms;
+.ad-tree.is-active .tree-node--answer-wf {
+  animation-delay: 2100ms;
 }
 
-.ad-tree.is-active .tree-node--tool {
-  animation-delay: 1140ms;
+.ad-tree.is-active .tree-node--researcher {
+  animation-delay: 2940ms;
 }
 
-.ad-tree.is-active .tree-node--workflow {
-  animation-delay: 1240ms;
+.ad-tree.is-active .tree-node--docs {
+  animation-delay: 3080ms;
 }
 
-.ad-tree.is-active .tree-node--leaf-a {
-  animation-delay: 1860ms;
+.ad-tree.is-active .tree-node--jack {
+  animation-delay: 3200ms;
 }
 
-.ad-tree.is-active .tree-node--leaf-b {
-  animation-delay: 1960ms;
+.ad-tree.is-active .tree-node--inspect {
+  animation-delay: 3460ms;
 }
 
-.ad-tree.is-active .tree-node--leaf-c {
-  animation-delay: 2060ms;
+.tree-node--answer-wf {
+  left: 360px;
+  top: 164px;
+}
+
+.tree-node--docs {
+  left: 590px;
+  top: 44px;
+}
+
+.tree-node--researcher {
+  left: 590px;
+  top: 164px;
+}
+
+.tree-node--jack {
+  left: 590px;
+  top: 284px;
+}
+
+.tree-node--inspect {
+  left: 790px;
+  top: 164px;
 }
 
 @keyframes node-in {
   to {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: translateX(0);
   }
 }
 
-.status {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  box-shadow: 0 0 10px currentColor;
-}
-
-.status--running {
-  color: var(--hero-accent);
-  background: currentColor;
-}
-
-.status--done {
-  color: #22c55e;
-  background: currentColor;
-}
-
-.status--queued {
-  color: #f59e0b;
-  background: currentColor;
-}
-
-.ad-stage__caption {
-  position: absolute;
-  left: 18px;
-  bottom: 16px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--hero-ink-soft);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-}
-
-.ad-stage__caption-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--hero-accent);
-  box-shadow: 0 0 12px var(--hero-accent-13);
-}
-
 .phase-execute .ad-deck {
-  transform: translate(calc(-50% - 321px), -50%) scale(1);
+  transform: translate(calc(-50% - 475px), -50%) scale(1);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1150px) {
   .ad-hero {
     padding-top: 54px;
   }
@@ -706,19 +737,9 @@
   .ad-tree {
     left: 50%;
     top: 70%;
-    margin-left: -152px;
+    margin-left: -194px;
     transform: translateY(-50%) scale(0.72);
     transform-origin: left center;
-  }
-
-  .tree-node--leaf-a,
-  .tree-node--leaf-b,
-  .tree-node--leaf-c,
-  .edge-1,
-  .edge-5,
-  .edge-6,
-  .edge-7 {
-    display: none;
   }
 
   .tree-node {
@@ -741,10 +762,9 @@
   }
 
   .ad-stage {
-    --deck-w: 166px;
-    --deck-h: 214px;
+    --deck-w: 142px;
+    --deck-h: 186px;
     height: 460px;
-    border-radius: 16px 16px 6px 16px;
   }
 
   .ad-module {
@@ -784,7 +804,7 @@
   /* Tighter again on a phone, but the same stacked arrangement as the tablet block above. */
   .ad-tree {
     top: 72%;
-    margin-left: -118px;
+    margin-left: -151px;
     transform: translateY(-50%) scale(0.56);
   }
 
@@ -793,10 +813,6 @@
     min-height: 56px;
   }
 
-  .tree-node .status {
-    width: 11px;
-    height: 11px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -813,4 +829,17 @@
   .ad-stage.phase-execute .tree-node {
     opacity: 1;
   }
+}
+
+/* Set from the wordmark's own outlines, so the lockup above the headline is the brand's rather
+   than the body face in capitals. */
+.ad-wordmark {
+  height: 23px;
+  width: auto;
+  color: var(--hero-ink);
+}
+
+.ad-hero__eyebrow .ad-mark {
+  width: 22px;
+  height: 22px;
 }
