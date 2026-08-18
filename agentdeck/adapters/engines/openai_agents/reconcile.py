@@ -2,7 +2,7 @@
 two writes (ADR-D5: the log records the intent, the session is the engine's working memory).
 
 A turn writes the log first and the session second, so a process that dies in between
-leaves the log holding a message the session never got — a question the model would
+leaves the log holding a message the session never got  -  a question the model would
 otherwise never see, or an answer it would think it never gave. On the next turn this
 compares the two message-level transcripts and appends whatever the session is missing.
 
@@ -10,7 +10,7 @@ Message level means content and order, nothing more, and that has a lasting cost
 stores tool results truncated and never stores reasoning items, so a repaired session holds
 plain text where an intact one held paired tool-call/tool-result items and reasoning, and it
 keeps holding it for the rest of that conversation. The model can then see an answer with no
-evidence of the tool call behind it. Accepted deliberately — the alternative is a turn the
+evidence of the tool call behind it. Accepted deliberately  -  the alternative is a turn the
 model cannot see at all.
 
 Two things are never replayed. The input of a run cancelled before it produced anything:
@@ -60,7 +60,7 @@ async def reconcile(session: Session, history: Sequence[Event]) -> Custom | None
     the caller to yield: a log line alone cannot be noticed, and the run is still perfectly
     runnable on the session it has. ``None`` means nothing to do, or a repair that went in.
     """
-    # ponytail: whole log against whole session, every turn — the same ceiling the Runtime's
+    # ponytail: whole log against whole session, every turn  -  the same ceiling the Runtime's
     # own per-turn log read already has, and the SDK reads the whole session anyway. Both want
     # windowing together, once a session's history outgrows one read.
     logged = _log_transcript(history)
@@ -68,7 +68,7 @@ async def reconcile(session: Session, history: Sequence[Event]) -> Custom | None
         return None
     # Read-then-append is atomic only under this lock: two turns racing on one session would
     # otherwise both apply the same repair and double the conversation. One process is as far as
-    # it reaches — two servers on one session are stopped at the door by #83's session claim.
+    # it reaches  -  two servers on one session are stopped at the door by #83's session claim.
     async with _lock_for(session.session_id):
         stored = _session_transcript(await session.get_items())
         shared = min(len(stored), len(logged))
@@ -114,7 +114,7 @@ def _log_transcript(history: Sequence[Event]) -> list[Message]:
 
     A run that was cancelled *before it got anywhere* contributes no input: the consumer walked
     away before the engine read anything, so the session never saw that question and the user's
-    retry would arrive behind a copy of itself. Cancelled after an answer is the opposite case —
+    retry would arrive behind a copy of itself. Cancelled after an answer is the opposite case  -
     the SDK persists a turn's input and its output together, so both are in the session and
     dropping the input would misalign the two transcripts on every later turn. A *failed* run
     also keeps its input, because a session write that died is what a failure looks like here.
@@ -142,7 +142,7 @@ def _session_transcript(items: Sequence[TResponseInputItem]) -> list[Message]:
         if not isinstance(item, dict):
             continue
         role = item.get("role")
-        if role == "user" or role == "assistant":  # noqa: PLR1714 — two comparisons narrow role, `in` does not
+        if role == "user" or role == "assistant":  # noqa: PLR1714  -  two comparisons narrow role, `in` does not
             transcript.append((role, _item_text(item.get("content"))))
     return transcript
 
@@ -160,7 +160,7 @@ def _item_text(content: Any) -> str:
         return content
     if isinstance(content, list):
         # A text part is ``input_text`` on the user side, ``output_text`` on the assistant
-        # side — both have a ``text`` key. An image or audio part has neither type nor key,
+        # side  -  both have a ``text`` key. An image or audio part has neither type nor key,
         # so filtering on the key itself covers both roles without naming either type.
         return _join_texts(
             part["text"] for part in content if isinstance(part, dict) and isinstance(part.get("text"), str)
@@ -173,7 +173,7 @@ def _text_of(input: Input) -> str:
     ``input_text`` part with a ``text`` key indistinguishable from a real one, so
     ``_item_text`` picks it up on the session side whether this function includes it or not.
     Excluding it here would make every turn that carries one look like a permanent
-    divergence — ``render_data_block`` is the one place both sides render it, so they agree."""
+    divergence  -  ``render_data_block`` is the one place both sides render it, so they agree."""
     return _join_texts(
         render_data_block(block) if isinstance(block, DataBlock) else block.text
         for block in input
@@ -182,7 +182,7 @@ def _text_of(input: Input) -> str:
 
 
 def render_data_block(block: DataBlock) -> str:
-    """The one place a ``DataBlock`` becomes text — ``engine._part_of`` (the SDK part a live
+    """The one place a ``DataBlock`` becomes text  -  ``engine._part_of`` (the SDK part a live
     turn sends) and ``_text_of`` above (the log-side transcript reconcile compares it against)
     both call this, so a session repair and a live turn can never render the same block two
     different ways."""

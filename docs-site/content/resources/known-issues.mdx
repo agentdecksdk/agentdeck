@@ -1,0 +1,110 @@
+---
+title: Known Issues
+description: Defects in the current release that will surprise you, what happens, and what to do until each is fixed.
+---
+
+# Known Issues
+
+Everything here is real, reproduced, and open against **v4.0.0**. It is published rather than
+quietly tracked because most of these fail *silently*  -  you get a plausible wrong answer, not an
+error  -  and an hour spent debugging one of them is an hour this page could have saved.
+
+<Callout type="warning">
+  The worst kind left: **a tool returning something unserializable still reaches the model as a
+  raw memory address.** If an agent's answers look subtly corrupted, read that entry first.
+</Callout>
+
+## Silent wrong answers
+
+These produce no error. Nothing in the log says anything went wrong.
+
+### A tool returning something unserializable reaches the model as a memory address
+
+Return a value JSON cannot carry and it is neither rejected nor flagged  -  it is coerced to its
+`repr()`, and that string, typically containing a raw memory address, enters both the event log
+and the prompt. `result_sha256`/`result_size` are computed over that same repr, so two identical
+non-serializable results are recorded as two different ones.
+
+This was filed as #251 and closed by folding its done-when items into #250 (below), on the
+reasoning that both are "a tool result mishandled in the same translation function". #250's fix
+shipped only the raise half; this half  -  the warning and the hashing fix  -  was never
+implemented. The behavior described here is unchanged in the tree, and no open issue currently
+tracks it.
+
+**Until it is fixed:** return JSON-compatible values from tools. If you return an object today,
+check what the model is actually receiving.
+&nbsp;→ [#251](https://github.com/agentdecksdk/agentdeck/issues/251), folded into
+[#250](https://github.com/agentdecksdk/agentdeck/issues/250), which did not implement this half
+
+## Defaults that will trap you
+
+### Approvals disappear on restart, under the shipped defaults
+
+`AGENTDECK_EVENTS` defaults to `memory://` while `AGENTDECK_CHECKPOINT` defaults to durable
+SQLite. `deck.runs.list(status=RunStatus.WAITING_ANSWER)` reads the event log; the timer path
+reads the checkpointer. After a restart the two disagree, and a parked approval can never be
+answered because the listing returns empty.
+
+**Until it is fixed:** set `AGENTDECK_EVENTS` to a durable store  -  `sqlite://`, `postgresql://`
+or `redis://`  -  in anything that outlives one process. See
+[Settings](/reference/settings).
+&nbsp;→ [#212](https://github.com/agentdecksdk/agentdeck/issues/212)
+
+## Rough edges
+
+Not silent, not traps  -  just things that will cost you a few minutes.
+
+| What | Issue |
+|---|---|
+| `run()`'s return type makes the documented interrupt idiom fail a type checker | [#231](https://github.com/agentdecksdk/agentdeck/issues/231) |
+| `answer()` accepts any value with no validation, and the node owns interpreting it | [#235](https://github.com/agentdecksdk/agentdeck/issues/235) |
+| The CLI can send signals but cannot read anything  -  no inbox, no run view | [#256](https://github.com/agentdecksdk/agentdeck/issues/256) |
+| `Deck.asgi()` cannot serve an agent whose tools declare a `Context` | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
+
+## Fixed in v3.1.0
+
+Removed from this page rather than struck through, because a Known Issues page that lists fixed
+things teaches you to distrust the entries that are still true. Recorded here so an upgrade is
+worth it, and in full in the [changelog](/resources/changelog).
+
+| What | Issue |
+|---|---|
+| `Agent(model=...)` was ignored  -  every run used `OPENAI_MODEL` | [#247](https://github.com/agentdecksdk/agentdeck/issues/247) |
+| Checkpointer connection failures surfaced as raw driver exceptions | [#233](https://github.com/agentdecksdk/agentdeck/issues/233) |
+| `agentdeck-serve --help` crashed instead of printing usage | [#245](https://github.com/agentdecksdk/agentdeck/issues/245) |
+
+## Fixed in v4.0.0
+
+| What | Issue |
+|---|---|
+| A worker killed outright held its session for up to an hour; a run now holds a lease, and with `AGENTDECK_CONTROL=sqlite:///<path>` the session is free within one 90s TTL | [#244](https://github.com/agentdecksdk/agentdeck/issues/244) |
+| A handoff against a non-OpenAI endpoint returned a bare 400; set `AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN=true` to append the closing user turn those providers require. Off by default, since it changes what every model sees on every handoff | [#178](https://github.com/agentdecksdk/agentdeck/issues/178) |
+| A pause or cancel could land on the wrong tenant's run when two namespaces shared a caller-supplied `run_id` | [#315](https://github.com/agentdecksdk/agentdeck/issues/315) |
+| A parked approval was destroyed by the staleness timer once its window passed | [#311](https://github.com/agentdecksdk/agentdeck/issues/311) |
+| `sleep_until` never woke up: an open Deck now sweeps for its own lifetime | [#303](https://github.com/agentdecksdk/agentdeck/issues/303) |
+| A tool that raises completed the run with `tool.call.completed.error` never set | [#250](https://github.com/agentdecksdk/agentdeck/issues/250) |
+| Cancelling a run waiting on a human did nothing | [#229](https://github.com/agentdecksdk/agentdeck/issues/229) |
+| A default install could not run a `durable=True` workflow  -  the SQLite checkpointer moved into base dependencies | [#232](https://github.com/agentdecksdk/agentdeck/issues/232) |
+| An engine failure over HTTP returned bare text rather than the documented 500 shape | [#243](https://github.com/agentdecksdk/agentdeck/issues/243) |
+| Omitting `context` on `answer()` silently gave the re-run node `None`  -  now demonstrated in the human-approval guide | [#255](https://github.com/agentdecksdk/agentdeck/issues/255) |
+| `redis` was a base dependency because the default session path imported it unconditionally | [#253](https://github.com/agentdecksdk/agentdeck/issues/253) |
+| A `DataBlock` could not be sent *to* a model, only received from one | [#226](https://github.com/agentdecksdk/agentdeck/issues/226) |
+
+<Callout type="info">
+  `usage.usd` used to be listed on this page. It isn't a defect: agentdeck does not price model
+  calls, on purpose ([#177](https://github.com/agentdecksdk/agentdeck/issues/177))  -  see
+  [`TurnResult`](/reference/deck#turnresult) for the ruling, not a fix.
+</Callout>
+
+## What is being done about all this
+
+The hardening milestone most of this page belonged to shipped as **v4.0.0** and closed. What is
+left above is being re-evaluated against the execution model **v5.0.0** introduces rather than
+carried forward as-is: the surfaces some of these entries describe are the ones it replaces. See
+the [GitHub issues](https://github.com/agentdecksdk/agentdeck/issues).
+
+<Callout type="info">
+  Hit something that is not here?
+  [Open an issue](https://github.com/agentdecksdk/agentdeck/issues/new). A reproduction is worth more
+  than a diagnosis  -  most of this page came from people who sent one.
+</Callout>

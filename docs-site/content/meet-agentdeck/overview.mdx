@@ -1,0 +1,44 @@
+---
+title: Overview
+description: What AgentDeck is, why it exists, and how it works.
+---
+
+# Overview
+
+AgentDeck is a production runtime and harness for AI agents and multi-agent workflows.
+
+## What AgentDeck Does
+
+When building agentic applications, writing model prompts is only the first step. Operating them in production requires runtime infrastructure:
+
+- **State & Sessions:** Managing conversation history and memory across turns.
+- **Run Lifecycle:** Pausing for human approval, resuming safely, and handling cancellation.
+- **Event Logging:** Capturing every token, tool call, and state transition in an immutable stream.
+- **Interoperability:** Running OpenAI Agents and LangGraph without lock-in or forced rewrites.
+
+---
+
+## Architecture at a Glance
+
+<MentalModel />
+
+- **Agents & Workflows:** Declarative Python definitions of your agents and graphs.
+- **Deck:** The single interface holding your catalog of agents, tools, workflows, and skills.
+- **Run:** An active execution instance managing lifecycle, storage, and event dispatch.
+- **Control & Events:** Real-time steering (pause, resume, answer) and typed observability.
+
+---
+
+## Three Key Principles
+
+1. **Compose cleanly:** Assemble components into a `Deck` with simple declarations.
+2. **Bring your stack:** Keep existing framework agents and MCP tools intact.
+3. **Control runtime execution:** Gain full control over running executions with reliable persistence.
+
+---
+
+## Start Building
+
+- [Quickstart](/meet-agentdeck/quickstart) - install the SDK and run your first agent.
+- [Mental Model](/meet-agentdeck/mental-model) - understand user intent versus runtime machinery.
+- [Build Your Deck](/build-your-deck/agents) - explore agents, tools, and workflows.

@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Email **sagi.shabtai@outlook.com** with `agentdeck security` in the subject. Please do not
-open a public issue for a suspected vulnerability — a public issue is the disclosure.
+open a public issue for a suspected vulnerability  -  a public issue is the disclosure.
 
 Include what you need us to reproduce it: the version (`python -c "import agentdeck;
 print(agentdeck.__version__)"`), the configuration that matters (which store backends, which
@@ -13,7 +13,7 @@ What to expect:
 
 - **Acknowledgement within 5 working days.** This is a small project maintained by one person;
   if you have not heard back by then, assume the mail was lost and send it again.
-- **An assessment within 10 working days** — whether it is in scope, how severe, and what the
+- **An assessment within 10 working days**  -  whether it is in scope, how severe, and what the
   fix looks like.
 - A fix released on the supported line, credited to you unless you would rather not be.
 
@@ -24,14 +24,14 @@ there are no long-term support branches and no backports to older lines.
 
 ## Scope
 
-**In scope** — anything where agentdeck itself is the weakness:
+**In scope**  -  anything where agentdeck itself is the weakness:
 
 - Project discovery importing something it should not, or from somewhere it should not.
 - The HTTP/SSE surface (`agentdeck-serve`): a request reaching a run, a session, or an event
   log that belongs to another caller, or crossing a `namespace` boundary.
 - The event log and the stores behind it: an injection into a backend query, or one run's
   events being readable as another's.
-- Secrets escaping where they should not — an API key in a log line, an event payload, or an
+- Secrets escaping where they should not  -  an API key in a log line, an event payload, or an
   error message.
 - Dependency handling in the packaged distribution.
 
@@ -41,10 +41,10 @@ there are no long-term support branches and no backports to older lines.
   Agents SDK and LangGraph own execution. When a model decides to call a tool you declared,
   that tool runs with the full privileges of the host process, with arguments the model chose.
   There is no allowlist, no confirmation step, and no privilege boundary between the model's
-  decision and your function — so a prompt injection that reaches an agent reaches every tool
+  decision and your function  -  so a prompt injection that reaches an agent reaches every tool
   that agent holds. Treat every tool you declare as reachable by untrusted input: keep the
   destructive ones behind a workflow with a human approval, not behind an agent's judgement.
-- **Nothing is sandboxed.** Sandboxing is not part of v3 — it was deferred, and the scaffolding
+- **Nothing is sandboxed.** Sandboxing is not part of v3  -  it was deferred, and the scaffolding
   for it was deleted rather than left half-built. Skills, tools, and workflow nodes are ordinary
   Python running in your process, with your filesystem, your network, and your environment.
   Code you did not write and would not run yourself does not become safe by being loaded as a

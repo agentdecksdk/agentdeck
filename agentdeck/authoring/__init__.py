@@ -1,6 +1,6 @@
 """The v3 authoring surface: declare agents and workflows, compile to ``InvocableSpec``.
 
-``Deck`` (composition) and the Runtime (execution) are elsewhere — this package only turns
+``Deck`` (composition) and the Runtime (execution) are elsewhere  -  this package only turns
 declarations into what an engine runs.
 """
 

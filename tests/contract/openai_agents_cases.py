@@ -1,6 +1,6 @@
 """The openai-agents adapter's cases for the shared contract suite.
 
-Appended onto ``contract_cases.CASES`` — same invariants, a real engine instead of the
+Appended onto ``contract_cases.CASES``  -  same invariants, a real engine instead of the
 stub. ``TailScriptedModel`` decides purely from the *last* input item rather than an
 internal call counter, which is what makes it safe to share one engine (and its cached
 SDK session) across every test function in ``test_event_stream.py``: whatever stale
@@ -57,7 +57,7 @@ def _is_tool_result(item: Any) -> bool:
 
 class TailScriptedModel(Model):
     """No tool configured: always answers. A tool configured: calls it once, then answers
-    once the tail shows its result — regardless of any stale history before that tail."""
+    once the tail shows its result  -  regardless of any stale history before that tail."""
 
     def __init__(self, answer: str, tool_name: str | None = None) -> None:
         self._answer = answer
@@ -92,11 +92,11 @@ class TailScriptedModel(Model):
 
 
 class RaisingModel(Model):
-    """Always raises — the engine's counterpart to the stub's ``raises-midstream`` case."""
+    """Always raises  -  the engine's counterpart to the stub's ``raises-midstream`` case."""
 
     async def stream_response(self, *_args: Any, **_kwargs: Any):
         raise RuntimeError("engine blew up")
-        yield  # pragma: no cover — makes this an async generator, never reached
+        yield  # pragma: no cover  -  makes this an async generator, never reached
 
     async def get_response(self, *_args: Any, **_kwargs: Any) -> Any:
         raise NotImplementedError("contract cases only stream")

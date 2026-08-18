@@ -3,7 +3,7 @@ the graph would have been had it never paused, never replaying a node that alrea
 
 Distinct from ``tests/contract/test_control.py``'s langgraph case, which holds this engine to
 the same cross-engine pause/resume/cancel contract every engine gets. This file is the engine's
-own guarantee: that "continues from the node boundary" is real, not just "produces output" —
+own guarantee: that "continues from the node boundary" is real, not just "produces output"  -
 and the three-way split the ruling on #128 drew between ``durable=True``, ``durable=False`` in
 the process that paused it, and ``durable=False`` from another one.
 """
@@ -44,8 +44,8 @@ def _node(name: str) -> Any:
 
 
 def _graph() -> StateGraph[Any]:
-    """Three nodes in a line: enough for a pause after the first to leave real work — "b" and
-    "c" — for the resume, and for a re-run of "a" to show up in ``calls`` if one happened."""
+    """Three nodes in a line: enough for a pause after the first to leave real work  -  "b" and
+    "c"  -  for the resume, and for a re-run of "a" to show up in ``calls`` if one happened."""
     g: StateGraph[Any] = StateGraph(_State)
     for name in ("a", "b", "c"):
         g.add_node(name, _node(name))
@@ -86,8 +86,8 @@ def _node_updates(events: list[Any]) -> list[str]:
 
 
 async def test_resume_continues_from_the_node_boundary_without_rerunning_a_completed_node() -> None:
-    """The guarantee itself. "a" ran once before the pause; the resume must run "b" and "c" —
-    the work the pause left behind — and must not run "a" again."""
+    """The guarantee itself. "a" ran once before the pause; the resume must run "b" and "c"  -
+    the work the pause left behind  -  and must not run "a" again."""
     spec = _spec()
     engine = LangGraphEngine()
     store = MemoryEventStore()
@@ -196,7 +196,7 @@ async def test_a_pause_at_the_last_node_boundary_resumes_straight_to_completion(
 
 async def test_a_durable_pause_can_be_resumed_from_another_process() -> None:
     """``durable=True``: the checkpoint lives in a backend every process can reach, so a
-    second engine instance — standing in for a worker in another process, per ADR-D5 — can
+    second engine instance  -  standing in for a worker in another process, per ADR-D5  -  can
     lift the pause exactly like the one that recorded it."""
     shared_checkpoint = MemorySaver()  # stands in for a real backend two processes would open
     spec = _spec(durable=True)
@@ -232,7 +232,7 @@ async def test_a_durable_pause_can_be_resumed_from_another_process() -> None:
 
 async def test_resuming_a_non_durable_pause_from_another_process_is_refused() -> None:
     """``durable`` absent (or ``True`` with no backend configured) checkpoints in the engine's
-    own memory (ADR-D5) — a second engine instance has none of it, so lifting the pause there
+    own memory (ADR-D5)  -  a second engine instance has none of it, so lifting the pause there
     must be refused, never quietly replayed from the entry node with empty state."""
     spec = _spec()
     store = MemoryEventStore()

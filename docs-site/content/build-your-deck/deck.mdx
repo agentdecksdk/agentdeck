@@ -1,0 +1,19 @@
+# Deck
+
+`Deck` is the single composition root for your entire application.
+
+## Creating a Deck
+
+```python
+from agentdeck import Deck, Agent
+
+deck = Deck(
+    agents=[Agent(name="bot", instructions="Help user.")],
+)
+```
+
+Or discover components automatically from `./.agentdeck/`:
+
+```python
+deck = Deck.from_project()
+```

@@ -1,11 +1,11 @@
 """The langgraph adapter's cases for the shared contract suite (#53).
 
-Appended onto ``contract_cases.CASES`` — same invariants, a real ``StateGraph`` instead of
+Appended onto ``contract_cases.CASES``  -  same invariants, a real ``StateGraph`` instead of
 the stub or an ``agents.Agent``. Every node here ignores whatever checkpoint history a
 previous test function left behind on the same ``thread_id`` (fresh dict input replaces
-state channels, no accumulation) — the same "safe to share one engine across every test
+state channels, no accumulation)  -  the same "safe to share one engine across every test
 function" property ``openai_agents_cases.TailScriptedModel`` documents, needed here for
-the same reason (``test_event_stream.py`` reuses one ``Case`` — and its engine — across
+the same reason (``test_event_stream.py`` reuses one ``Case``  -  and its engine  -  across
 many test functions with the same ``ctx.run_id``).
 """
 
@@ -23,7 +23,7 @@ from agentdeck.core.invocable import InvocableKind, InvocableSpec
 class _State(TypedDict, total=False):
     """A ``TypedDict`` schema, not a bare ``dict``: langgraph gives each field its own
     channel only then, so a node's return shallow-merges into state instead of replacing
-    it outright — the same contract ``NodeUpdated.state_patch`` documents for consumers."""
+    it outright  -  the same contract ``NodeUpdated.state_patch`` documents for consumers."""
 
     out: str
     decision: str

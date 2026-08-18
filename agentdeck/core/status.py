@@ -1,7 +1,7 @@
-"""Run status, and the lifecycle rules that hang off it — derived from the event log's own
+"""Run status, and the lifecycle rules that hang off it  -  derived from the event log's own
 transitions, never a second store.
 
-There is no status *table* — the run-lifecycle events already are the transitions, so
+There is no status *table*  -  the run-lifecycle events already are the transitions, so
 "persist status" and "persist the log" are the same write. A reader recovers status by
 folding a run's events in order, which is what makes it correct after a restart: whatever
 the log says is whatever status is, with no cache to go stale.
@@ -10,7 +10,7 @@ Four declarations, and nothing else in the tree may write a lifecycle rule of it
 (``docs/design/run-lifecycle.md``): :data:`STATES` says what is true of a state,
 :data:`TRANSITIONS` says which event moves it, :data:`PRECONDITIONS` says which operation is
 legal in it, and :data:`POLICY` says what a signal found in the control port does when it is
-read. This module holds no state of its own — delete its memory between two calls and nothing
+read. This module holds no state of its own  -  delete its memory between two calls and nothing
 is lost.
 """
 
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 class RunStatus(StrEnum):
     """A run's lifecycle. ``PAUSED`` and ``WAITING_ANSWER`` resume differently: the first
-    with nothing, the second with a value — callers must not conflate them.
+    with nothing, the second with a value  -  callers must not conflate them.
 
     There is no member for "no events yet": a run's ``run.started`` is row 0, so there is no
     moment between "does not exist" and ``RUNNING`` for one to name. ``status_of`` returns
@@ -101,7 +101,7 @@ LIFECYCLE_KINDS: frozenset[str] = frozenset(TRANSITIONS)
 TERMINAL_STATUSES = frozenset(TRANSITIONS[kind] for kind in TERMINAL_KINDS)
 
 # Suspended, not finished: a run in one of these has an engine to re-enter and a terminal
-# event still owed. Cancelled is deliberately absent — terminal is terminal.
+# event still owed. Cancelled is deliberately absent  -  terminal is terminal.
 RESUMABLE_STATUSES = frozenset(status for status, facts in STATES.items() if facts.suspended)
 
 # A run ending on one of these is waiting, not finished: its terminal event arrives on resume.
@@ -192,7 +192,7 @@ class Ruling:
 
     ``consume`` is a compare-and-set through ``ControlPort.consume``, never a blind write: an
     unconditional one would overwrite, and silently destroy, a cancel that arrived while the run
-    was suspended — the one signal nothing else will ever notice.
+    was suspended  -  the one signal nothing else will ever notice.
     """
 
     action: Action
@@ -261,7 +261,7 @@ POLICY: Mapping[tuple[RunStatus, str | None], Ruling] = {
     (status, verb): _ROUTING[status][verb] for status in RunStatus for verb in _RUNNING_ROW
 }
 """What a pending signal does when it is read, keyed by the state the run was in and the verb
-found in the port — ``None`` for an empty port.
+found in the port  -  ``None`` for an empty port.
 
 Read at two moments only: a gate checkpoint while the run is live, and the claim that begins the
 operation continuing a stopped one. Four rows of four cells, expanded over the three terminal
@@ -276,7 +276,7 @@ is its own key; ``tests/core/test_vocabularies_agree.py`` pins the two vocabular
 
 def status_of(events: Sequence[Event]) -> RunStatus | None:
     """One run's status: the last transition kind wins, in log order. ``None`` for a run with
-    no transition at all — one the log has never heard of, or one whose events carry no
+    no transition at all  -  one the log has never heard of, or one whose events carry no
     lifecycle kind, which no reader can tell apart."""
     status: RunStatus | None = None
     for event in events:
@@ -288,14 +288,14 @@ def can_resume(status: RunStatus | None) -> bool:
     """A run is resumable while suspended: waiting on an answer, or paused by an operator.
     Both continue under the same ``run_id``; what differs is what the resume carries.
 
-    Any other status — still running, already resumed by a race, terminal, or a run the log has
-    never heard of — makes a resume a no-op rather than an error, which is why callers check
+    Any other status  -  still running, already resumed by a race, terminal, or a run the log has
+    never heard of  -  makes a resume a no-op rather than an error, which is why callers check
     this instead of raising."""
     return status in RESUMABLE_STATUSES
 
 
 def decide(status: RunStatus, pending: str | None) -> Ruling:
     """The one way the runtime reads :data:`POLICY`. Every control-port read in the tree ends
-    here, and every ruling ends in an event or an explicit no-op — silence cannot be tested,
+    here, and every ruling ends in an event or an explicit no-op  -  silence cannot be tested,
     logged or seen by a user, which is how three defects survived a release."""
     return POLICY[status, pending]

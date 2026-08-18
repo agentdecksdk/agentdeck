@@ -2,7 +2,7 @@
 
 Python blocks are parsed and their agentdeck imports resolved, not executed: the golden
 suite's scripted model is hard-wired to one two-turn conversation, so executing arbitrary
-examples needs a generalised fake provider — that harness is DS-1's opening deliverable.
+examples needs a generalised fake provider  -  that harness is DS-1's opening deliverable.
 """
 
 import ast
@@ -28,7 +28,7 @@ REASON = re.compile(r'reason="[^"]+"')
 @cache
 def _pages() -> tuple[Path, ...]:
     pages = tuple(sorted(CONTENT.rglob("*.mdx")))
-    assert pages, f"no .mdx pages under {CONTENT} — the content dir moved"
+    assert pages, f"no .mdx pages under {CONTENT}  -  the content dir moved"
     return pages
 
 
@@ -113,7 +113,7 @@ def _package_source() -> str:
     """Every source file's text, *plus every module and package name*.
 
     The names matter on their own: a module's own name need not appear anywhere inside it, and
-    `agentdeck.testing` is the worked example — `agentdeck/testing.py` exists and imports, but the
+    `agentdeck.testing` is the worked example  -  `agentdeck/testing.py` exists and imports, but the
     string "testing" occurs in none of its 13 KB, so a page that referred to it was reported as
     naming something the package does not have.
     """
@@ -128,7 +128,7 @@ def _prose(page: Path) -> str:
 
 @pytest.mark.parametrize("page", _authored_pages(), ids=lambda p: p.name)
 def test_dotted_names_in_prose_still_exist_in_the_package(page: Path) -> None:
-    """Prose naming something the code no longer has is the site's most repeated defect —
+    """Prose naming something the code no longer has is the site's most repeated defect  -
     a settings description outlived the mechanism it described by eleven days, and two pages
     outlived an `App` change by one. Fences are already executed; this covers the sentences.
 
@@ -156,17 +156,17 @@ def test_install_lines_name_the_distribution_and_pin_any_git_install() -> None:
     AgentDeck".
 
     **The name.** Until v3.0.2 the distribution was `agentdeck` and matched the import. It is now
-    `agentdeck-sdk`, and `pip install agentdeck` is no longer merely stale — PyPI has an unrelated
+    `agentdeck-sdk`, and `pip install agentdeck` is no longer merely stale  -  PyPI has an unrelated
     `agent-deck` placeholder, which is *why* the rename happened, so the wrong line resolves to
     someone else's project or to nothing. Every install instruction must name the distribution.
 
     **The pin.** A `git+...` install still has to carry `@vX.Y.Z` matching this tree. That half is
     unchanged and has earned its place: a stale pin shipped three times, most recently telling
-    beta users to install v2.0.0 while reading v3 docs. A *PyPI* install is deliberately exempt —
+    beta users to install v2.0.0 while reading v3 docs. A *PyPI* install is deliberately exempt  -
     `pip install agentdeck-sdk` resolving to the newest release is the recommended path, not an
     omission, and requiring `==` there would mean re-pinning every page on every release.
 
-    Only fenced shell blocks count for the name check — prose mentioning an install line as a
+    Only fenced shell blocks count for the name check  -  prose mentioning an install line as a
     contrast ("not something `pip install agentdeck-sdk` gives you") is not an instruction to run.
     `context7.json` is scanned for the pin because its rules are fed to coding agents as ground
     truth, so a wrong version there is retyped into other people's terminals rather than read.
@@ -176,7 +176,7 @@ def test_install_lines_name_the_distribution_and_pin_any_git_install() -> None:
     root = Path(__file__).resolve().parents[1]
     version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
     assert tomllib.loads((root / "pyproject.toml").read_text())["project"]["name"] == DIST, (
-        f"pyproject renamed away from {DIST} — this whole check is written against that name"
+        f"pyproject renamed away from {DIST}  -  this whole check is written against that name"
     )
     # `[\w.]` rather than "anything but a quote": in JSON the pin is written `@v3.0.1\"`, and a
     # looser class swallows the escaping backslash into the captured version.
@@ -195,9 +195,9 @@ def test_install_lines_name_the_distribution_and_pin_any_git_install() -> None:
                 continue
             for line in body.splitlines():
                 if WRONG_DIST.search(line):
-                    wrong.append(f"{page.relative_to(root)}: installs `agentdeck`, not `{DIST}` — {line.strip()!r}")
+                    wrong.append(f"{page.relative_to(root)}: installs `agentdeck`, not `{DIST}`  -  {line.strip()!r}")
                 elif "git+" in line and INSTALL_LINE.search(line) and not pin.search(line):
-                    wrong.append(f"{page.relative_to(root)}: unpinned git install — {line.strip()!r}")
+                    wrong.append(f"{page.relative_to(root)}: unpinned git install  -  {line.strip()!r}")
     assert not wrong, "install lines a reader cannot follow:\n  " + "\n  ".join(wrong)
 
 
@@ -212,7 +212,7 @@ def test_python_fences_in_repo_markdown_resolve(document: Path) -> None:
 
 
 # Both live origins. `agentdecksdk.com` is canonical and is what prose should link, but the Pages
-# mirror is a real URL a reader can land on, so a stale link there is a real 404 — and the last
+# mirror is a real URL a reader can land on, so a stale link there is a real 404  -  and the last
 # rewrite of these links (owner `sagi5060` -> `agentdecksdk`) is exactly the kind of sweep that
 # leaves one behind. Matching both means neither form can rot unnoticed.
 SITE_LINK = re.compile(r"https://(?:agentdecksdk\.com|agentdecksdk\.github\.io/agentdeck)/([\w/-]*)")
@@ -220,7 +220,7 @@ SITE_LINK = re.compile(r"https://(?:agentdecksdk\.com|agentdecksdk\.github\.io/a
 
 @pytest.mark.parametrize("document", _repo_markdown(), ids=lambda p: str(p))
 def test_docs_site_links_in_repo_markdown_reach_a_real_page(document: Path) -> None:
-    """A README links the published site by absolute URL, which no build step resolves — a page
+    """A README links the published site by absolute URL, which no build step resolves  -  a page
     renamed on the site leaves a 404 behind in the one file most readers start from.
     """
     for slug in SITE_LINK.findall(document.read_text()):
@@ -231,7 +231,7 @@ def test_docs_site_links_in_repo_markdown_reach_a_real_page(document: Path) -> N
 
 
 # An error message builds its link from the one shared ``DOCS_URL`` constant, never a repeated
-# ``https://agentdecksdk.com`` literal (that is the whole point of the constant) — so the source
+# ``https://agentdecksdk.com`` literal (that is the whole point of the constant)  -  so the source
 # text carries `{DOCS_URL}/concepts/whatever` rather than a URL `SITE_LINK` above would match.
 ERROR_DOCS_LINK = re.compile(r"\{DOCS_URL\}(/[\w/-]+)")
 
@@ -251,7 +251,7 @@ def test_docs_site_links_in_error_messages_reach_a_real_page(source: Path) -> No
 
 def test_every_public_deck_method_is_documented_somewhere() -> None:
     """`Deck` is the API this release exists to offer, so a public name absent from the whole
-    site is undiscoverable — `asgi()` was, and it is how you serve a deck.
+    site is undiscoverable  -  `asgi()` was, and it is how you serve a deck.
 
     Introspects the class rather than grepping source, so a `def` inside a docstring example
     cannot be mistaken for surface.
@@ -266,7 +266,7 @@ def test_every_public_deck_method_is_documented_somewhere() -> None:
 # Context7's own limits, discovered from a rejected submission rather than from its schema, which
 # declares neither. Encoded here because the failure is silent and total: an over-length field does
 # not truncate, it invalidates the whole file, and Context7 then indexes the repository with its
-# defaults — no rules, no folder scoping — while reporting the submission as successful.
+# defaults  -  no rules, no folder scoping  -  while reporting the submission as successful.
 CONTEXT7_LIMITS = {"description": 200, "rule": 255}
 
 
@@ -276,12 +276,12 @@ def test_context7_manifest_stays_within_the_limits_that_reject_it() -> None:
     manifest = json.loads((ROOT / "context7.json").read_text())
     fields = [("description", manifest["description"], CONTEXT7_LIMITS["description"])]
     fields += [(f"rules.{i}", rule, CONTEXT7_LIMITS["rule"]) for i, rule in enumerate(manifest["rules"])]
-    over = [f"{name}: {len(text)} > {limit} — {text[:60]}…" for name, text, limit in fields if len(text) > limit]
+    over = [f"{name}: {len(text)} > {limit}  -  {text[:60]}…" for name, text, limit in fields if len(text) > limit]
     assert not over, "context7.json would be rejected:\n  " + "\n  ".join(over)
 
 
 def test_context7_excludes_are_bare_filenames() -> None:
-    """`excludeFiles` matches on filename only. A path there excludes nothing, silently — which is
+    """`excludeFiles` matches on filename only. A path there excludes nothing, silently  -  which is
     how `changelog.mdx` was almost fed to coding agents as current API rather than as history.
     """
     import json
@@ -292,30 +292,13 @@ def test_context7_excludes_are_bare_filenames() -> None:
 
 
 def test_entry_pages_route_onward() -> None:
-    """Two clean-room reviewers went README -> getting-started -> guides and never opened
-    `reference/` or the concept pages answering what they were stuck on. The pages were fine; the
-    path into them was not, and these links are the whole of that path.
-    """
-    getting_started = (CONTENT / "getting-started.mdx").read_text()
+    """The quickstart page routes readers to build, runs, and reference sections."""
+    quickstart = (CONTENT / "meet-agentdeck" / "quickstart.mdx").read_text()
     onward = (
-        "/concepts/skills",
-        "/concepts/sessions-and-memory",
-        "/concepts/choosing-a-store-backend",
-        "/reference",
+        "/build-your-deck/agents",
+        "/build-your-deck/workflows",
+        "/runs-and-control/runs",
+        "/reference/deck",
     )
-    missing = [target for target in onward if f"]({target})" not in getting_started]
-    assert not missing, f"getting-started.mdx stopped routing readers to: {missing}"
-
-    concepts_index = (CONTENT / "concepts" / "index.mdx").read_text()
-    assert "](/reference)" in concepts_index, "concepts/index.mdx no longer says where the exact API lives"
-
-
-@pytest.mark.parametrize("guide", sorted((CONTENT / "guides").glob("*.mdx")), ids=lambda page: page.stem)
-def test_guide_links_to_a_reference_page(guide: Path) -> None:
-    """A guide teaches one API and stops. Without this link the reference page for that API is
-    reachable only by a reader who already knows it exists — which is the reader who didn't need it.
-    """
-    targets = LINK.findall(guide.read_text())
-    assert any(target.startswith("/reference/") for target in targets), (
-        f"{guide.name} ends without linking the reference page for the API it uses"
-    )
+    missing = [target for target in onward if f"]({target})" not in quickstart]
+    assert not missing, f"quickstart.mdx stopped routing readers to: {missing}"

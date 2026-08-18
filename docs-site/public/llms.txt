@@ -1,10 +1,10 @@
 # AgentDeck SDK
 
-> The production runtime for agents you already have — composition, durable human-in-the-loop approvals, sessions, streaming, run control and one ordered event log, wrapping the OpenAI Agents SDK and LangGraph.
+> The production runtime for agents you already have  -  composition, durable human-in-the-loop approvals, sessions, streaming, run control and one ordered event log, wrapping the OpenAI Agents SDK and LangGraph.
 
 AgentDeck SDK is a Python harness for agents you have to operate. You write agents, workflows and
 skills as small declarations in a `.agentdeck/` directory; AgentDeck supplies everything around
-them — discovery, layered settings, sessions, streaming, MCP servers, durable human-in-the-loop
+them  -  discovery, layered settings, sessions, streaming, MCP servers, durable human-in-the-loop
 approvals, run control, and one ordered event log per run.
 
 It wraps the OpenAI Agents SDK and LangGraph rather than replacing them: an `Agent` compiles to an
@@ -18,31 +18,37 @@ afterwards, approvals that outlive the process that requested them.
 
 ## Documentation
 
-- [AgentDeck](https://agentdecksdk.com/): Write the agent. AgentDeck owns everything around it.
-- [Getting Started](https://agentdecksdk.com/getting-started): Install AgentDeck, point it at a model, and run your first agent.
-- [Core Concepts](https://agentdecksdk.com/concepts): The things you write, and what AgentDeck does around them.
-- [Agents](https://agentdecksdk.com/concepts/agents): Declarative agent definitions — keyword arguments in, SDK Agent out.
-- [Capabilities](https://agentdecksdk.com/concepts/capabilities): Sandbox powers — not part of v3, and no longer in the codebase.
-- [Choosing a Store Backend](https://agentdecksdk.com/concepts/choosing-a-store-backend): Four independent storage decisions, one environment variable each, and what each default costs you.
-- [Protocols and Surfaces](https://agentdecksdk.com/concepts/protocols-and-surfaces): What reads the canonical event stream today, and, plainly, what does not exist yet.
-- [Run Control](https://agentdecksdk.com/concepts/run-control): What a safe point is, why asking a run to stop is not the same fact as it stopping, and what a resume replays.
-- [Runs and the Event Log](https://agentdecksdk.com/concepts/runs-and-the-event-log): The one ordered record every turn appends to, and why a run's status is read from it instead of stored anywhere else.
-- [Sessions and Memory](https://agentdecksdk.com/concepts/sessions-and-memory): What a session is, where its history lives, and why it is not the event log.
-- [Skills](https://agentdecksdk.com/concepts/skills): Progressive knowledge disclosure into an agent's own execution, described by SKILL.md.
-- [Workflows](https://agentdecksdk.com/concepts/workflows): Typed state, a LangGraph graph, and durable pauses for humans.
-- [Add a Tool](https://agentdecksdk.com/guides/add-a-tool): Give an agent a plain Python function it can call.
-- [Human Approval](https://agentdecksdk.com/guides/human-approval): Pause a workflow for a person's decision, and answer it from wherever that person is.
-- [Serve Over HTTP](https://agentdecksdk.com/guides/serve-over-http): Run agentdeck behind FastAPI, and talk to an agent from outside the process.
-- [Pause, Resume, Cancel](https://agentdecksdk.com/operating/pause-resume-cancel): Which endpoint to call to stop a run you did not start, what each response means, and how to tell whether it worked.
-- [Reference](https://agentdecksdk.com/reference): Technical reference for AgentDeck's public APIs and configuration.
-- [Capabilities](https://agentdecksdk.com/reference/capabilities): The sandbox capability specs — removed; sandboxing is not part of v3.
+- [AgentDeck - agentic software should feel like software](https://agentdecksdk.com/): Build agents, tools and workflows as normal software. AgentDeck gives them one execution model you can observe, control and extend.
 - [CLI](https://agentdecksdk.com/reference/cli): The agentdeck command tree, generated from agentdeck/cli.py's own --help output.
-- [Deck](https://agentdecksdk.com/reference/deck): The composition root — builds a catalog from Agent/Workflow objects or a project directory, and runs every turn on it.
-- [Definitions](https://agentdecksdk.com/reference/definitions): Agent, AgentDeclaration, Workflow, and WorkflowDeclaration — the authoring API, field by field.
+- [Deck](https://agentdecksdk.com/reference/deck): The composition root  -  builds a catalog from Agent/Workflow objects or a project directory, and runs every turn on it.
+- [events](https://agentdecksdk.com/reference/events)
+- [python-api](https://agentdecksdk.com/reference/python-api)
+- [run](https://agentdecksdk.com/reference/run)
 - [Settings](https://agentdecksdk.com/reference/settings): Every AGENTDECK_* (and OPENAI_*/TAVILY_*) environment variable, generated from agentdeck/runtime/settings.py.
-- [Roadmap](https://agentdecksdk.com/roadmap): What AgentDeck is working on next, in the order it is being worked on, and what is deliberately not planned.
-- [Known Issues](https://agentdecksdk.com/known-issues): Defects in the current release that will surprise you, what happens, and what to do until each is fixed.
-- [Changelog](https://agentdecksdk.com/changelog): What changed in each release of AgentDeck, and what to do about it when upgrading.
+- [Agents](https://agentdecksdk.com/build-your-deck/agents): Declarative agents with tools, instructions, and model configurations.
+- [context](https://agentdecksdk.com/build-your-deck/context)
+- [deck](https://agentdecksdk.com/build-your-deck/deck)
+- [skills](https://agentdecksdk.com/build-your-deck/skills)
+- [tools](https://agentdecksdk.com/build-your-deck/tools)
+- [workflows](https://agentdecksdk.com/build-your-deck/workflows)
+- [index](https://agentdecksdk.com/examples)
+- [existing-agents](https://agentdecksdk.com/integrations/existing-agents)
+- [langgraph](https://agentdecksdk.com/integrations/langgraph)
+- [mcp](https://agentdecksdk.com/integrations/mcp)
+- [openai-agents-sdk](https://agentdecksdk.com/integrations/openai-agents-sdk)
+- [mental-model](https://agentdecksdk.com/meet-agentdeck/mental-model)
+- [Overview](https://agentdecksdk.com/meet-agentdeck/overview): What AgentDeck is, why it exists, and how it works.
+- [Quickstart](https://agentdecksdk.com/meet-agentdeck/quickstart): Build a Deck, start a Run, and watch its events.
+- [Changelog](https://agentdecksdk.com/resources/changelog): What changed in each release of AgentDeck, and what to do about it when upgrading.
+- [Known Issues](https://agentdecksdk.com/resources/known-issues): Defects in the current release that will surprise you, what happens, and what to do until each is fixed.
+- [migration-guides](https://agentdecksdk.com/resources/migration-guides)
+- [troubleshooting](https://agentdecksdk.com/resources/troubleshooting)
+- [events](https://agentdecksdk.com/runs-and-control/events)
+- [human-input](https://agentdecksdk.com/runs-and-control/human-input)
+- [lifecycle-and-control](https://agentdecksdk.com/runs-and-control/lifecycle-and-control)
+- [pause-resume](https://agentdecksdk.com/runs-and-control/pause-resume)
+- [runs](https://agentdecksdk.com/runs-and-control/runs)
+- [sessions](https://agentdecksdk.com/runs-and-control/sessions)
 
 ## Source
 

@@ -26,14 +26,14 @@ class PluginRegistry(Generic[T]):
     Lazy: discovery runs on the first :meth:`list` call and is cached on
     the instance. Pass ``refresh=True`` to force a re-scan. Two *different* bundles
     that declare an invocable of the same name raise ``ConfigError`` naming both bundle
-    paths — one name is one invocable, never a silent shadow in bundle-sort order.
+    paths  -  one name is one invocable, never a silent shadow in bundle-sort order.
     A single bundle exposing the same instance under two names (e.g. an alias kept
     after a rename) is not a collision: it is the same object claiming its name twice.
 
-    ``base_class`` is matched by ``isinstance`` — a bundle module holds one or more
+    ``base_class`` is matched by ``isinstance``  -  a bundle module holds one or more
     already-constructed ``Agent``/``Workflow`` instances (``authoring``'s ``Agent(...)``,
     ``Workflow(...)``), not subclasses to discover. A bundle that imports cleanly but binds
-    no matching instance raises ``ConfigError`` naming it — shared code that belongs in a
+    no matching instance raises ``ConfigError`` naming it  -  shared code that belongs in a
     ``<type_dir>/`` directory without contributing an invocable of its own opts out with a
     leading ``_``/``.`` (already excluded from the scan by :meth:`_is_bundle`), the same way
     a private helper module does anywhere else in the tree.
@@ -48,7 +48,7 @@ class PluginRegistry(Generic[T]):
     bundle_of: dict[str, str] = field(default_factory=dict, init=False, repr=False)
 
     def list(self, *, refresh: bool = False) -> dict[str, T]:
-        """Return the discovered bundles. The result is the live cache — treat
+        """Return the discovered bundles. The result is the live cache  -  treat
         it as read-only; mutations corrupt subsequent lookups.
         """
         if refresh or self._cache is None:
@@ -98,14 +98,14 @@ class PluginRegistry(Generic[T]):
                 name = attr.name
                 # Identity, not name: ``vars(module)`` yields one entry per *binding*, so a
                 # bundle aliasing its own instance under a second name (kept after a rename)
-                # must not trip this against itself — only a second, different instance
+                # must not trip this against itself  -  only a second, different instance
                 # claiming a name already taken is the collision.
                 claimant = found.get(name)
                 if claimant is not None and claimant is not attr:
                     raise ConfigError(
                         f"two bundles under '{self.type_dir}/' both define the {self.label} "
                         f"{name!r}: '{self.type_dir}/{self.bundle_of[name]}' and "
-                        f"'{self.type_dir}/{child.name}'; one name is one invocable — rename one of them."
+                        f"'{self.type_dir}/{child.name}'; one name is one invocable  -  rename one of them."
                     )
                 found[name] = attr
                 self.bundle_of[name] = child.name
@@ -116,7 +116,7 @@ class PluginRegistry(Generic[T]):
                 bundle_file = f"{self.type_dir}/{child.name}/{self.module_name}.py"
                 var = child.name.replace("-", "_")
                 raise ConfigError(
-                    f"{bundle_file} imported cleanly but defines no {self.label} — a declaration "
+                    f"{bundle_file} imported cleanly but defines no {self.label}  -  a declaration "
                     f"subclass alone contributes nothing; add `{var} = {self.base_class.__name__}(...)` "
                     "at module level."
                 )
@@ -138,12 +138,12 @@ def mount_project_dir(root: str | Path = PROJECT_DIR) -> str:
     """Make a project dir importable as package ``agentdeck_project``; returns that name.
 
     Defaults to ``./.agentdeck`` (``root=PROJECT_DIR``); ``Deck.from_project(path)`` passes an
-    explicit ``path`` instead. One alias slot, so one mounted project per process at a time —
+    explicit ``path`` instead. One alias slot, so one mounted project per process at a time  -
     matching the plan's own ruling that a deck-per-tenant is a process-per-tenant.
 
     A hidden dir can't be imported by name, so we register a synthetic parent
     package whose ``__path__`` points at it; the normal import machinery then
-    resolves ``<alias>.agents.<bundle>.agent`` as namespace packages — no
+    resolves ``<alias>.agents.<bundle>.agent`` as namespace packages  -  no
     ``__init__.py`` needed anywhere under the project dir.
     """
     resolved = Path(root).resolve()

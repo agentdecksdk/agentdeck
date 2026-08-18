@@ -1,0 +1,84 @@
+---
+title: Quickstart
+description: Build a Deck, start a Run, and watch its events.
+---
+
+# Quickstart
+
+Build a Deck, start a Run, and watch its events.
+
+## ◆ 01 : INSTALL
+
+```bash
+pip install agentdeck-sdk
+```
+
+## ◆ 02 : BUILD YOUR DECK
+
+Compose an agent into a Deck:
+
+```python
+from agentdeck import Agent, Deck
+
+agent = Agent(
+    name="assistant",
+    model="gpt-4o-mini",
+    instructions="You are a concise assistant.",
+)
+
+deck = Deck(agents=[agent])
+```
+
+## ◆ 03 : START A RUN
+
+Execute the agent within the Deck's runtime context:
+
+```python
+async def main():
+    async with deck:
+        run = await deck.runs.start("assistant", input="Hello!")
+        async for event in run.events():
+            print(event.kind)
+        result = await run
+        print("Status:", run.status)
+        print("Result:", result)
+```
+
+## ◆ 04 : WATCH WHAT HAPPENED
+
+Running the script emits an ordered sequence of lifecycle and content events:
+
+```text
+run.started
+agent.message
+run.completed
+
+Status: COMPLETED
+Result: Hello! How can I help you today?
+```
+
+## What you just used
+
+- **Agent**: Your executable component.
+- **Deck**: The composition root for your agents, workflows, tools, and skills.
+- **Run**: A first-class execution you can observe and control.
+- **Events**: The ordered record of what happened during that Run.
+
+<BrandCallout type="runtime" title="A RUN IS CONTROLLABLE">
+A Run is not just a return value. It is a living, controllable execution with safe-point pause, resume, and cancellation:
+
+```python
+await run.pause()
+await run.resume()
+await run.cancel()
+```
+</BrandCallout>
+
+## Next
+
+- [Add a Tool](/build-your-deck/tools) -> Give your agents callable capabilities.
+- [Define Agents](/build-your-deck/agents) -> Build decision-making LLM agents.
+- [Workflows](/build-your-deck/workflows) -> Build multi-step deterministic graphs.
+- [Understand Runs & Control](/runs-and-control/runs) -> Learn lifecycle, streaming, and inspection.
+- [Bring an Existing Agent](/integrations/existing-agents) -> Wrap LangGraph or OpenAI SDK workflows into a Deck.
+- [API Reference](/reference/deck) -> Full reference for Deck and Run.

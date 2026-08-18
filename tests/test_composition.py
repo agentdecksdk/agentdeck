@@ -101,7 +101,7 @@ async def test_build_runtime_discovers_the_project_when_given_no_invocables(proj
 
 async def test_build_runtime_takes_explicit_specs_and_a_store_that_holds_time_still(project):
     """A caller with specs in hand skips discovery, and freezes time by handing in a store with a
-    clock — the only seam that decides a ``ts`` now (ADR-D11); ``build_runtime`` has no ``clock``
+    clock  -  the only seam that decides a ``ts`` now (ADR-D11); ``build_runtime`` has no ``clock``
     keyword of its own."""
     frozen = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
     engines = project_engines()
@@ -145,7 +145,7 @@ def test_resolve_event_store_builds_sqlite_from_a_scheme_url(tmp_path):
 
 
 def test_events_url_is_settable_from_config_yaml_not_only_the_env_var(tmp_path, monkeypatch):
-    """``_bare_env_names`` rewired ``EventsSettings``'s source tuple — this proves the YAML
+    """``_bare_env_names`` rewired ``EventsSettings``'s source tuple  -  this proves the YAML
     channel it shares with every other layered settings class still reaches the field, and
     that a real env var still outranks it, the same layering order as everything else."""
     yaml_path = tmp_path / "config.yaml"
@@ -175,7 +175,7 @@ def test_resolve_event_store_rejects_an_unknown_scheme():
     with pytest.raises(ValueError, match="unknown event store scheme") as excinfo:
         resolve_event_store(EventsSettings(url="not-a-backend://nothing"))
 
-    assert f"{DOCS_URL}/concepts/choosing-a-store-backend" in str(excinfo.value)
+    assert f"{DOCS_URL}/reference/settings" in str(excinfo.value)
 
 
 def test_resolve_event_store_builds_redis_from_a_url():
@@ -188,7 +188,7 @@ def test_resolve_event_store_builds_redis_from_a_url():
 
 
 def test_resolve_event_store_builds_redis_from_a_tls_url():
-    """``rediss://`` is TLS Redis — the old code let any string through to ``Redis.from_url``,
+    """``rediss://`` is TLS Redis  -  the old code let any string through to ``Redis.from_url``,
     and scheme dispatch must not narrow that to plain ``redis://`` only."""
     from agentdeck.adapters.stores.redis import RedisEventStore
 
@@ -200,12 +200,12 @@ def test_resolve_event_store_builds_redis_from_a_tls_url():
 def test_resolve_event_store_redis_without_the_extra_names_the_install_command():
     """#274: the redis client moved out of base into its own extra, and ``resolve_event_store``'s
     redis branch previously had no missing-extra guard at all (unlike its postgres sibling below)
-    — selecting a ``redis://`` event log without the extra must fail with an agentdeck error
+     -  selecting a ``redis://`` event log without the extra must fail with an agentdeck error
     naming the install command, not a raw ``ModuleNotFoundError``.
 
     A fresh subprocess with ``sys.modules["redis"] = None`` set before any import, because this
     process already has redis installed and imported (the tests above need it) and `sys.modules`
-    cannot unsee that — same rationale as `test_openai_agents_sessions.py`'s identical probe for
+    cannot unsee that  -  same rationale as `test_openai_agents_sessions.py`'s identical probe for
     the session side of this same fix.
     """
     probe = textwrap.dedent(
@@ -219,7 +219,7 @@ def test_resolve_event_store_redis_without_the_extra_names_the_install_command()
         except ImportError as exc:
             assert "redis" in str(exc)
             assert 'pip install "agentdeck-sdk[redis]"' in str(exc), str(exc)
-            assert "choosing-a-store-backend" in str(exc), str(exc)
+            assert "settings" in str(exc), str(exc)
             print("raised the right error")
         else:
             raise AssertionError("expected an ImportError")
@@ -243,7 +243,7 @@ def test_resolve_event_store_builds_postgres_from_a_dsn():
 def test_a_memory_scheme_cannot_construct_a_different_stores_class(monkeypatch):
     """Issue #155's core claim, made concrete: with one variable, there is no second decision
     left to disagree with it. ``AGENTDECK_EVENTS_BACKEND``/``AGENTDECK_EVENTS_URL`` have no
-    field left to bind to — so setting them alongside ``AGENTDECK_EVENTS`` cannot steer
+    field left to bind to  -  so setting them alongside ``AGENTDECK_EVENTS`` cannot steer
     construction at all, let alone toward a mismatched adapter."""
     monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "postgres")
     monkeypatch.setenv("AGENTDECK_EVENTS_URL", "redis://localhost:6379")
@@ -317,13 +317,13 @@ def test_resolve_control_port_rejects_an_unknown_scheme():
     with pytest.raises(ValueError, match="unknown control backend") as excinfo:
         resolve_control_port(ControlSettings(url="not-a-backend://nothing"))
 
-    assert f"{DOCS_URL}/concepts/choosing-a-store-backend" in str(excinfo.value)
+    assert f"{DOCS_URL}/reference/settings" in str(excinfo.value)
 
 
 @pytest.mark.parametrize(
     ("url", "expected"),
     # ``memory`` ignores whatever comes back as its second element (``_memory_saver`` takes no
-    # args), so it is the original url, unstripped — only ``sqlite`` strips the scheme.
+    # args), so it is the original url, unstripped  -  only ``sqlite`` strips the scheme.
     [("memory://", ("memory", "memory://")), ("sqlite://.agentdeck/x.db", ("sqlite", ".agentdeck/x.db"))],
 )
 def test_resolve_checkpoint_derives_backend_and_path_from_the_scheme(url, expected):
@@ -339,7 +339,7 @@ def test_resolve_checkpoint_derives_backend_and_path_from_the_scheme(url, expect
 
 def test_resolve_checkpoint_normalizes_postgresql_to_the_postgres_backend_name():
     """``resolve_checkpointer`` (the langgraph adapter) speaks ``postgres``, not the URL
-    scheme's own ``postgresql`` — the composition root's job is to make that seam invisible."""
+    scheme's own ``postgresql``  -  the composition root's job is to make that seam invisible."""
     from types import SimpleNamespace
 
     from agentdeck.composition import resolve_checkpoint
@@ -375,7 +375,7 @@ def test_resolve_control_port_warns_when_memory_is_selected(caplog):
 
 def test_a_runtime_constructs_with_no_settings_available(monkeypatch):
     """Issue #155 item 7: ``Runtime`` takes no ambient configuration at all. Settings itself is
-    made to raise, so a bare ``Runtime(...)`` succeeding — with the literal one-hour default —
+    made to raise, so a bare ``Runtime(...)`` succeeding  -  with the literal one-hour default  -
     is proof the constructor never reaches for it, not an inference from reading the source."""
     from datetime import timedelta
 
@@ -388,12 +388,12 @@ def test_a_runtime_constructs_with_no_settings_available(monkeypatch):
 
     runtime = Runtime([], MemoryEventStore(), {})
 
-    assert runtime._stale_run_after == timedelta(hours=1)  # noqa: SLF001 — the literal default
+    assert runtime._stale_run_after == timedelta(hours=1)  # noqa: SLF001  -  the literal default
 
 
 def test_build_runtime_resolves_stale_run_after_from_settings(monkeypatch):
     """``build_runtime`` is the caller that reads ``AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS``
-    and passes it to ``Runtime`` explicitly — the same as its other five arguments."""
+    and passes it to ``Runtime`` explicitly  -  the same as its other five arguments."""
     from datetime import timedelta
 
     monkeypatch.setenv("AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS", "123")
@@ -403,7 +403,7 @@ def test_build_runtime_resolves_stale_run_after_from_settings(monkeypatch):
     finally:
         reset_settings_cache()
 
-    assert runtime._stale_run_after == timedelta(seconds=123)  # noqa: SLF001 — resolved explicitly by build_runtime
+    assert runtime._stale_run_after == timedelta(seconds=123)  # noqa: SLF001  -  resolved explicitly by build_runtime
 
 
 def test_choosing_a_store_does_not_make_the_durability_extra_mandatory():
@@ -442,7 +442,7 @@ async def test_deck_composes_one_runtime_over_the_whole_project(project):
 
 
 def test_v1s_bundle_harness_is_gone_with_no_facade():
-    """``agents/``, ``workflows/`` and ``app.py`` are deleted outright — a re-export shim
+    """``agents/``, ``workflows/`` and ``app.py`` are deleted outright  -  a re-export shim
     would pass this the same way a real deletion does, so it checks the module is gone from
     the package rather than merely absent from any one import."""
     import importlib.util

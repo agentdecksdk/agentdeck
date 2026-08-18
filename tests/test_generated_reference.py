@@ -41,15 +41,15 @@ _REGEN_HINT = "run `python scripts/generate_docs_reference.py` to regenerate it"
 
 
 def test_settings_reference_page_matches_the_generator() -> None:
-    assert SETTINGS_PAGE.read_text() == render_settings_mdx(), f"{SETTINGS_PAGE} is stale — {_REGEN_HINT}"
+    assert SETTINGS_PAGE.read_text() == render_settings_mdx(), f"{SETTINGS_PAGE} is stale  -  {_REGEN_HINT}"
 
 
 def test_cli_reference_page_matches_the_generator() -> None:
-    assert CLI_PAGE.read_text() == render_cli_mdx(), f"{CLI_PAGE} is stale — {_REGEN_HINT}"
+    assert CLI_PAGE.read_text() == render_cli_mdx(), f"{CLI_PAGE} is stale  -  {_REGEN_HINT}"
 
 
 def test_llms_txt_matches_the_generator() -> None:
-    assert LLMS_PAGE.read_text() == render_llms_txt(), f"{LLMS_PAGE} is stale — {_REGEN_HINT}"
+    assert LLMS_PAGE.read_text() == render_llms_txt(), f"{LLMS_PAGE} is stale  -  {_REGEN_HINT}"
 
 
 def test_the_changelog_page_can_be_regenerated() -> None:
@@ -57,10 +57,10 @@ def test_the_changelog_page_can_be_regenerated() -> None:
     would fail every open PR the moment any other one merges an entry."""
     rendered = render_changelog_mdx()
     assert rendered.startswith("---"), "the changelog page lost its frontmatter"
-    assert CHANGELOG_PAGE.exists(), f"{CHANGELOG_PAGE} is missing — {_REGEN_HINT}"
+    assert CHANGELOG_PAGE.exists(), f"{CHANGELOG_PAGE} is missing  -  {_REGEN_HINT}"
 
 
 def test_llms_full_txt_can_be_regenerated() -> None:
     """Not byte-equal, for the same reason: it embeds the changelog."""
     assert render_llms_full_txt().strip(), "llms-full.txt rendered empty"
-    assert LLMS_FULL_PAGE.exists(), f"{LLMS_FULL_PAGE} is missing — {_REGEN_HINT}"
+    assert LLMS_FULL_PAGE.exists(), f"{LLMS_FULL_PAGE} is missing  -  {_REGEN_HINT}"

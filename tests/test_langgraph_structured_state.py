@@ -1,8 +1,8 @@
 """The langgraph adapter's structured channel, both directions: a graph's initial state
 arrives as one ``DataBlock`` and its final state leaves as one on ``run.completed``.
 
-This is what a workflow endpoint needs — v1 posts an arbitrary JSON state and gets the final
-state back — and neither direction fits text: one channel in, a stringified dict out. The
+This is what a workflow endpoint needs  -  v1 posts an arbitrary JSON state and gets the final
+state back  -  and neither direction fits text: one channel in, a stringified dict out. The
 node here reads a field only a state-shaped input can carry, so a mapping that quietly
 dropped it would fail these tests rather than pass them.
 """
@@ -111,7 +111,7 @@ async def test_a_non_finite_float_in_the_state_becomes_its_token_not_null() -> N
 
 async def test_a_state_leaf_that_is_not_json_becomes_its_string() -> None:
     """The declared ceiling: the old ``str(dict(values))`` stringified the whole state, so a
-    graph that completed before still completes — it does not fail at its last event."""
+    graph that completed before still completes  -  it does not fail at its last event."""
 
     class StampState(TypedDict, total=False):
         input: str

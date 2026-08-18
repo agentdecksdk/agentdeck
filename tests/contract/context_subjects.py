@@ -1,8 +1,8 @@
 """One subject per engine for the shared ``Context[T]`` contract: a root whose single injected
 callable is the same function written twice, once as an agent's tool and once as a workflow node.
 
-Everything that differs between the two engines is confined here — the SDK ``Agent`` and its
-scripted model on one side, the ``StateGraph`` and its bridged node on the other — so
+Everything that differs between the two engines is confined here  -  the SDK ``Agent`` and its
+scripted model on one side, the ``StateGraph`` and its bridged node on the other  -  so
 ``test_context_injection.py`` can hold one test body per property and never branch on which
 engine it is running against. A property that only one bridge satisfies fails there for that
 engine, which is the whole reason the subjects are built to be interchangeable.
@@ -23,7 +23,7 @@ from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
 from agentdeck.authoring.graphs import bridge_context_nodes
 from agentdeck.authoring.tools import compile_tool
 from agentdeck.core.content import TextBlock
-from agentdeck.core.context import Context  # noqa: TC001 — the subjects below must resolve it at runtime
+from agentdeck.core.context import Context  # noqa: TC001  -  the subjects below must resolve it at runtime
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 
 if TYPE_CHECKING:
@@ -48,7 +48,7 @@ class Environment:
 
 
 class _State(BaseModel):
-    """The workflow's own mutable data — the other half of the state/context separation."""
+    """The workflow's own mutable data  -  the other half of the state/context separation."""
 
     input: str = ""
     out: str = ""

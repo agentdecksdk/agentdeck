@@ -115,8 +115,8 @@ def _event(payload, seq: int) -> Event:
     )
 
 
-# Every example carries the same ``seq``. These snapshots pin one thing — how each payload kind
-# serializes — and a per-kind position in this tuple was never part of that. Deriving it from the
+# Every example carries the same ``seq``. These snapshots pin one thing  -  how each payload kind
+# serializes  -  and a per-kind position in this tuple was never part of that. Deriving it from the
 # index made adding a kind order-sensitive: appending was safe only if nobody else appended, and
 # two schema PRs that both did (#112, #116) each shipped snapshots claiming the same numbers, so
 # whichever merged second had to regenerate files whose only diff was a seq bump (#121).
@@ -125,7 +125,7 @@ EXAMPLE_SEQ = 0
 
 
 def examples_from(payloads) -> dict[str, Event]:
-    """The rule itself, callable — so ``test_adding_a_payload_kind_rewrites_exactly_its_own_snapshot``
+    """The rule itself, callable  -  so ``test_adding_a_payload_kind_rewrites_exactly_its_own_snapshot``
     can hand it a longer tuple and watch what moves. A test that re-implemented this would pass
     against the very fixture it exists to forbid."""
     return {p.kind: _event(p, EXAMPLE_SEQ) for p in payloads}
@@ -141,5 +141,5 @@ def examples() -> dict[str, Event]:
 
 @pytest.fixture(scope="session")
 def make_event():
-    """Envelope around any payload — for the invariant tests, which need many seqs."""
+    """Envelope around any payload  -  for the invariant tests, which need many seqs."""
     return _event

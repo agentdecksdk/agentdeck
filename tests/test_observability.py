@@ -32,7 +32,7 @@ from agentdeck.authoring import Agent
 greeter = Agent(name="Greeter", instructions="Greet the user.")
 """
 
-# A workflow whose node drives an agent of its own — the shape that used to export two trace
+# A workflow whose node drives an agent of its own  -  the shape that used to export two trace
 # trees, because the node's runner started the Agents-SDK instrumentation on its way past.
 AGENT_FLOW_WORKFLOW_PY = """
 from langgraph.graph import END, StateGraph
@@ -61,14 +61,14 @@ chat_flow = Workflow(name="ChatFlow", state=State, graph=_build_graph)
 
 @dataclass
 class Opened:
-    """One observation the sink opened — what would have become a Langfuse span."""
+    """One observation the sink opened  -  what would have become a Langfuse span."""
 
     name: str
     kind: str
     session_id: str | None = None
     children: list[Opened] = field(default_factory=list)
 
-    def child(self, name: str, *, kind: str, input: Any = None, metadata: Any = None) -> Opened:  # noqa: A002, ARG002 — the Tracer port's own signature
+    def child(self, name: str, *, kind: str, input: Any = None, metadata: Any = None) -> Opened:  # noqa: A002, ARG002  -  the Tracer port's own signature
         opened = Opened(name=name, kind=kind)
         self.children.append(opened)
         return opened
@@ -127,7 +127,7 @@ class Exploding(EventSinkPort):
     def __init__(self) -> None:
         self.attempts = 0
 
-    async def emit(self, event: Any) -> None:  # noqa: ARG002 — it never gets as far as reading one
+    async def emit(self, event: Any) -> None:  # noqa: ARG002  -  it never gets as far as reading one
         self.attempts += 1
         raise RuntimeError("this sink is broken")
 
@@ -201,7 +201,7 @@ def scripted():
 
 
 async def test_build_with_langfuse_configured_builds_no_client_and_opens_no_socket(
-    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
     telemetry,
     langfuse_keys,
     monkeypatch,
@@ -209,7 +209,7 @@ async def test_build_with_langfuse_configured_builds_no_client_and_opens_no_sock
     """``build()`` stays a CI-runnable check with telemetry configured.
 
     Two assertions, because either alone is weak: no client was constructed, and no socket was
-    opened by anything at all — the network ban is what makes ``build()`` safe to run where
+    opened by anything at all  -  the network ban is what makes ``build()`` safe to run where
     Langfuse is unreachable, and a client that quietly resolved DNS would still break that.
     """
     import socket
@@ -230,7 +230,7 @@ async def test_build_with_langfuse_configured_builds_no_client_and_opens_no_sock
     await deck.aclose()
 
 
-async def test_build_refuses_something_that_is_not_an_observer(project):  # noqa: ARG001 — the project dir is what `from_project()` discovers
+async def test_build_refuses_something_that_is_not_an_observer(project):  # noqa: ARG001  -  the project dir is what `from_project()` discovers
     from agentdeck.deck import Deck
 
     deck = Deck.from_project(observers=[object()])
@@ -241,12 +241,12 @@ async def test_build_refuses_something_that_is_not_an_observer(project):  # noqa
 
 
 def test_build_runtime_wires_no_telemetry_of_its_own():
-    """The assembly seam never resolves Langfuse — the root of #162's first defect.
+    """The assembly seam never resolves Langfuse  -  the root of #162's first defect.
 
     It used to: ``sinks=None`` meant "read the keys and build a client", so a client existed
     before any caller had said whether it wanted one, and the *second* construction (the one
     that carried the span filter) was silently discarded by the SDK's per-public-key cache.
-    Keys are deliberately set here — with them set, the old wiring imported the SDK and built a
+    Keys are deliberately set here  -  with them set, the old wiring imported the SDK and built a
     client; the new one must not. A fresh interpreter, because this one has already imported
     half the world.
     """
@@ -274,10 +274,10 @@ def test_build_runtime_wires_no_telemetry_of_its_own():
 
 
 async def test_the_telemetry_client_is_built_once_at_open_and_never_during_a_run(
-    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
     telemetry,
     langfuse_keys,
-    scripted,  # noqa: ARG001 — points the run at a fake model
+    scripted,  # noqa: ARG001  -  points the run at a fake model
 ):
     """One client for the whole life of a deck, built when it opens.
 
@@ -301,10 +301,10 @@ async def test_the_telemetry_client_is_built_once_at_open_and_never_during_a_run
 
 
 async def test_an_open_deck_traces_its_runs_under_their_own_session(
-    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
     telemetry,
     langfuse_keys,
-    scripted,  # noqa: ARG001 — points the run at a fake model
+    scripted,  # noqa: ARG001  -  points the run at a fake model
 ):
     from agentdeck.deck import Deck
 
@@ -319,10 +319,10 @@ async def test_an_open_deck_traces_its_runs_under_their_own_session(
 
 
 async def test_an_unconfigured_deck_runs_untraced_and_says_nothing(
-    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
     telemetry,
     langfuse_keys,
-    scripted,  # noqa: ARG001 — points the run at a fake model
+    scripted,  # noqa: ARG001  -  points the run at a fake model
     caplog,
 ):
     """Tracing off is the quiet default: no client, no trace, and nothing warned about it."""
@@ -340,10 +340,10 @@ async def test_an_unconfigured_deck_runs_untraced_and_says_nothing(
 
 
 async def test_no_observers_at_all_is_sayable_explicitly(
-    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
     telemetry,
     langfuse_keys,
-    scripted,  # noqa: ARG001 — points the run at a fake model
+    scripted,  # noqa: ARG001  -  points the run at a fake model
 ):
     """``observers=()`` opts out even where the environment configures Langfuse."""
     from agentdeck.deck import Deck
@@ -361,8 +361,8 @@ async def test_no_observers_at_all_is_sayable_explicitly(
 
 
 async def test_every_observer_is_started_once_before_any_run(
-    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
-    scripted,  # noqa: ARG001 — points the run at a fake model
+    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
+    scripted,  # noqa: ARG001  -  points the run at a fake model
 ):
     """``start()`` is on the port, so every observer inherits "opened once, at deck open" rather
     than each one inventing its own moment. Ordering matters as much as the count: an observer
@@ -394,8 +394,8 @@ async def test_every_observer_is_started_once_before_any_run(
 
 
 async def test_an_observer_predating_start_still_works(
-    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
-    scripted,  # noqa: ARG001 — points the run at a fake model
+    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
+    scripted,  # noqa: ARG001  -  points the run at a fake model
 ):
     """``start()`` is additive: the port's default is a no-op, so an implementation that only
     defines ``emit`` keeps working rather than failing at open."""
@@ -410,7 +410,7 @@ async def test_an_observer_predating_start_still_works(
 
 
 async def test_an_observer_that_refuses_to_start_refuses_the_open(
-    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
     telemetry,
     langfuse_keys,
 ):
@@ -435,10 +435,10 @@ async def test_an_observer_that_refuses_to_start_refuses_the_open(
 
 
 async def test_the_langfuse_observer_named_explicitly_traces_the_run(
-    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
     telemetry,
     langfuse_keys,
-    scripted,  # noqa: ARG001 — points the run at a fake model
+    scripted,  # noqa: ARG001  -  points the run at a fake model
 ):
     """``observers=[Langfuse()]`` is the same object the settings path resolves to, so naming it
     beside an observer of your own gets you both rather than a choice between them."""
@@ -456,7 +456,7 @@ async def test_the_langfuse_observer_named_explicitly_traces_the_run(
 
 
 def test_constructing_the_langfuse_observer_reads_and_builds_nothing():
-    """It is constructible where Langfuse is neither configured nor installed — which is what
+    """It is constructible where Langfuse is neither configured nor installed  -  which is what
     lets ``resolve_observers()`` and a user's own module-level ``Langfuse()`` stay network-free."""
     probe = (
         "import sys;"
@@ -475,9 +475,9 @@ def test_constructing_the_langfuse_observer_reads_and_builds_nothing():
 
 
 async def test_every_sink_named_sees_the_same_stream(
-    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
     telemetry,
-    scripted,  # noqa: ARG001 — points the run at a fake model
+    scripted,  # noqa: ARG001  -  points the run at a fake model
 ):
     """The log is the hub: the Runtime fans one run out to as many taps as it is given."""
     from agentdeck.deck import Deck
@@ -493,10 +493,10 @@ async def test_every_sink_named_sees_the_same_stream(
 
 
 async def test_naming_observers_suppresses_the_settings_derived_one(
-    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
     telemetry,
     langfuse_keys,
-    scripted,  # noqa: ARG001 — points the run at a fake model
+    scripted,  # noqa: ARG001  -  points the run at a fake model
 ):
     """The ownership rule at construction time: a deck told which taps to open opens those, and
     does not quietly build a Langfuse client beside them because the environment has keys."""
@@ -514,13 +514,13 @@ async def test_naming_observers_suppresses_the_settings_derived_one(
 
 
 async def test_the_deck_flushes_the_sink_it_built_from_settings(
-    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
     telemetry,
     langfuse_keys,
-    scripted,  # noqa: ARG001 — points the run at a fake model
+    scripted,  # noqa: ARG001  -  points the run at a fake model
 ):
     """The Langfuse SDK ships from a background thread, so the buffer only leaves the process
-    if something asks — and the deck that built the client is what asks, as it closes."""
+    if something asks  -  and the deck that built the client is what asks, as it closes."""
     from agentdeck.deck import Deck
 
     langfuse_keys()
@@ -533,11 +533,11 @@ async def test_the_deck_flushes_the_sink_it_built_from_settings(
 
 
 async def test_a_broken_sink_never_breaks_a_run(
-    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
-    scripted,  # noqa: ARG001 — points the run at a fake model
+    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
+    scripted,  # noqa: ARG001  -  points the run at a fake model
 ):
     """An observer is fire-and-forget by the port's contract, and ``observers=`` is where a
-    caller's own code first reaches that contract — so prove it end to end rather than at the
+    caller's own code first reaches that contract  -  so prove it end to end rather than at the
     dispatch's unit boundary: the turn completes, and the log has every event the observer lost."""
     from agentdeck.deck import Deck
 
@@ -557,12 +557,12 @@ async def test_a_broken_sink_never_breaks_a_run(
 
 
 async def test_a_workflow_turn_driving_an_agent_exports_exactly_one_trace_root(
-    project,  # noqa: ARG001 — the project dir is what `from_project()` discovers
+    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
     telemetry,
     langfuse_keys,
-    scripted,  # noqa: ARG001 — points the run at a fake model
+    scripted,  # noqa: ARG001  -  points the run at a fake model
 ):
-    """One run, one trace — the count #162's second defect broke.
+    """One run, one trace  -  the count #162's second defect broke.
 
     A workflow node that drives an agent goes through ``authoring``'s direct-call runner, which
     used to start the Agents-SDK instrumentation and open a root observation of its own. With
@@ -586,13 +586,13 @@ def test_only_the_opt_in_observer_instruments_the_agents_sdk():
 
     ``OpenAIAgentsInstrumentor().instrument()`` is what put OpenInference spans on the global
     tracer provider with no root to hang off. It is reachable again, but only through
-    ``Langfuse(sdk_spans=True)`` — a caller who asked for the raw layer and was told in the
+    ``Langfuse(sdk_spans=True)``  -  a caller who asked for the raw layer and was told in the
     reference that it arrives as a separate trace.
 
     What must not come back is a *second* caller: instrumentation is process-global and
     one-way, so one installed from anywhere else would follow every later Deck, including
     decks that asked for the semantic layer alone. Checked by name, because such a caller would
-    not fail the count test above — that only covers the paths it exercises — and would not
+    not fail the count test above  -  that only covers the paths it exercises  -  and would not
     fail ``test_sdk_spans_are_off_unless_asked_for`` either, which patches this module's own
     hook.
     """
@@ -617,7 +617,7 @@ def test_the_sdk_client_is_constructed_in_exactly_one_place():
 
     The Langfuse SDK caches one resource manager per public key and discards every later
     constructor's arguments, so a second ``Langfuse(...)`` anywhere in the package is not a
-    second client and cannot change how the first one filters or exports — which is exactly how
+    second client and cannot change how the first one filters or exports  -  which is exactly how
     the ``should_export_span`` filter came to never apply. One construction site, checked by
     name so a second one cannot be added quietly.
     """
@@ -662,7 +662,7 @@ def test_build_client_names_the_otel_service_and_bounds_the_exporter(monkeypatch
 async def test_sdk_spans_are_off_unless_asked_for(telemetry, langfuse_keys, monkeypatch):
     """Instrumentation is process-global and one-way: once installed it outlives the Deck that
     installed it and follows every later one. So the default has to be *no*, and a test has to
-    hold it there — a leak here would not fail the run that caused it.
+    hold it there  -  a leak here would not fail the run that caused it.
     """
     langfuse_keys()
     instrumented = []
@@ -678,7 +678,7 @@ async def test_sdk_spans_true_instruments_after_the_client_exists(telemetry, lan
     processor on the global OTel provider, and the instrumentation appends to it. Instrumenting
     first would append to a provider Langfuse has not claimed yet.
 
-    Also stops the flag rotting into a no-op — a `sdk_spans=True` that quietly does nothing is
+    Also stops the flag rotting into a no-op  -  a `sdk_spans=True` that quietly does nothing is
     the ghost declaration this observer refuses everywhere else.
     """
     langfuse_keys()

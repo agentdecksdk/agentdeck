@@ -4,7 +4,7 @@ The three claims worth proving outside the Runtime's own unit tests, because eac
 different reach problem: an openai-agents **function tool** finds the reporter on the SDK's
 context object, a langgraph **node** finds it in langgraph's own ``configurable``, and an SSE
 client sees both kinds arrive in order without the surface knowing they exist. The reference
-CLI renderer reading them closes the loop, including its default case — the promise every
+CLI renderer reading them closes the loop, including its default case  -  the promise every
 consumer makes about a kind it has never heard of.
 
 Scripted fakes only: the SDK boundary is the one thing stubbed, so nothing here calls a model.
@@ -59,7 +59,7 @@ CTX = RunContext(namespace="acme", run_id="r-1", session_id="s-1")
 
 
 def _reports(events: Sequence[Event]) -> list[tuple[str, Any]]:
-    """The reported events, as (kind, what a UI would show) — the shape assertions read on."""
+    """The reported events, as (kind, what a UI would show)  -  the shape assertions read on."""
     out: list[tuple[str, Any]] = []
     for event in events:
         if isinstance(event.payload, StatusReported):
@@ -155,7 +155,7 @@ async def test_a_function_tool_reports_through_the_sdk_context() -> None:
     ]
     # The ceiling, asserted rather than only documented (``core/reporting.py``): the reports are
     # drained at the engine's *next* payload, and this SDK emits both of a tool call's item
-    # events only once the tool has returned — so a report made inside the call surfaces just
+    # events only once the tool has returned  -  so a report made inside the call surfaces just
     # ahead of ``tool.call.started``, not during the call. Ordered and inside the run either
     # way; if this list ever changes, the drain's granularity changed with it.
     assert [event.kind for event in events] == [
@@ -235,7 +235,7 @@ async def test_a_workflow_node_reports_through_the_graph_config() -> None:
 
 
 class _ReportingStub(StubEngine):
-    """A scripted run that reports between its payloads — the surface must not care which
+    """A scripted run that reports between its payloads  -  the surface must not care which
     engine did it, so the cheapest one is the honest choice here."""
 
     async def start(
@@ -285,7 +285,7 @@ async def test_the_reference_renderer_prints_a_status_and_a_counted_stage(capsys
         yield f"data: {_event(ProgressReported(step='Reviewing issues', current=2, total=4)).model_dump_json()}"
         yield f"data: {_event(ProgressReported(step='Wrapping up')).model_dump_json()}"
         yield f"data: {_event(ProgressReported(step='Halfway', current=2)).model_dump_json()}"
-        # A kind this renderer has never heard of must not stop it — the default case is the
+        # A kind this renderer has never heard of must not stop it  -  the default case is the
         # forward-compatibility promise, and a new kind is exactly when it gets tested.
         yield (
             'data: {"v": {"major": 3, "minor": 0}, "kind": "future.thing", "seq": 4, "run_id": "r-1", '

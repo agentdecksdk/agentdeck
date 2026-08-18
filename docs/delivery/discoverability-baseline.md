@@ -1,9 +1,9 @@
-# Discoverability baseline — 2026-08-12
+# Discoverability baseline  -  2026-08-12
 
 **Status:** measured · **Repo:** `agentdecksdk/agentdeck` at `453f06c` · **Release:** v3.0.1
 
 The "before" reading for `plan-adoption.md`, taken on the day the canonical domain, the organisation
-move and the first Context7 submission all landed — so it measures the state *immediately after* the
+move and the first Context7 submission all landed  -  so it measures the state *immediately after* the
 infrastructure work and *before* any of the writing. The question, from the plan:
 
 > Someone who **does not know AgentDeck exists**, but describes a problem it solves, gets
@@ -16,9 +16,9 @@ infrastructure work and *before* any of the writing. The question, from the plan
 | **Context7** | **0 / 30** | all 30 questions, scripted against the search API |
 | **GitHub repository search** | **1 / 30** | all 30 questions, `search/repositories` top 10 |
 | **Web search** | **0 / 8** | the 8 highest-value questions |
-| ChatGPT Search · Perplexity | not measured | no API available here — run by hand, see below |
+| ChatGPT Search · Perplexity | not measured | no API available here  -  run by hand, see below |
 
-**Zero, essentially everywhere** — the correct reading for a project whose domain was one day old and
+**Zero, essentially everywhere**  -  the correct reading for a project whose domain was one day old and
 whose package is not on PyPI. A baseline, not a verdict.
 
 **The one GitHub hit is not a real one.** `one ordered event log per agent run` ranks **#1** because
@@ -34,7 +34,7 @@ change the description and it disappears.
 | `human in the loop` | /worldcoin/human-in-the-loop, /websites/loop, /mrkai77/loop |
 
 The entry is indexed and healthy, reachable by anyone who already knows the name and by nobody else
-— precisely the distinction the plan says not to confuse. The entry measured here is
+ -  precisely the distinction the plan says not to confuse. The entry measured here is
 `/sagi5060/agentdeck`, indexed **before** `context7.json` was valid and therefore with no rules and
 no folder scoping; `upstash/context7#3027` asks for its removal in favour of
 `/agentdecksdk/agentdeck`.
@@ -44,12 +44,12 @@ SDK and Google's ADK, and the engine stated plainly:
 
 > the specific "AgentDeck SDK" doesn't appear in these results
 
-The sharpest number in the document. Not "ranks poorly" — **absent**.
+The sharpest number in the document. Not "ranks poorly"  -  **absent**.
 
 ## What the searches revealed that the numbers do not
 
 **1. "Combine the OpenAI Agents SDK with LangGraph" is an unserved query.** Two independent searches
-reported the gap in their own words — *"The search results don't contain specific guidance on
+reported the gap in their own words  -  *"The search results don't contain specific guidance on
 integrating or using these two frameworks together as a combined system"* and *"The search results
 primarily compare frameworks […] as alternatives rather than wrappers around each other."* Every
 result is a *versus* article. That open lane makes `use-your-existing-langgraph-agent` the
@@ -58,7 +58,7 @@ highest-value page to write, ahead of `/why-agentdeck`.
 **2. The positioning has near-competitors worth knowing.** Two products already wrap rather than
 replace, and neither surfaced in any earlier competitive pass: **NVIDIA NeMo Agent Toolkit**, whose
 `langgraph_wrapper` workflow type *"integrate[s] existing LangGraph agents with minimal changes […]
-adding configuration management, observability, and evaluation"* — close to AgentDeck's sentence —
+adding configuration management, observability, and evaluation"*  -  close to AgentDeck's sentence  -
 and **Agno AgentOS**, whose `LangGraphAgent` *"wraps a compiled LangGraph graph so it can be served
 through AgentOS or used standalone."* Neither wraps the OpenAI Agents SDK *and* LangGraph behind one
 event log, which is the actual differentiator, but a comparison page that ignores them will be
@@ -67,7 +67,7 @@ discounted by a reader who knows them.
 **3. The durable/human-approval space is crowded and well-funded.** Temporal, Restate, DBOS, Pydantic
 AI, Agentspan, AgentScope Runtime and Bedrock AgentCore all rank for it, so competing on "durable
 human approval" alone is competing with Temporal's content budget. The queries where AgentDeck is
-genuinely unusual — combining two specific SDKs, one event log across both — have no incumbent.
+genuinely unusual  -  combining two specific SDKs, one event log across both  -  have no incumbent.
 
 ## The 30 questions
 
@@ -119,27 +119,27 @@ query `AgentDeck SDK python agents workflows skills`.
 Two channels are scripted and take about three minutes:
 
 ```bash
-# Context7 — position in the top 10, or "-"
+# Context7  -  position in the top 10, or "-"
 curl -sS --get --data-urlencode "query=$Q" https://context7.com/api/v1/search
 
-# GitHub repositories — position in the top 10, or "-"
+# GitHub repositories  -  position in the top 10, or "-"
 gh api -X GET search/repositories -f q="$Q" -f per_page=10 -q '[.items[].full_name]|join(" ")'
 ```
 
-Web search is manual, and **ChatGPT Search and Perplexity have no API path from here** — they need a
+Web search is manual, and **ChatGPT Search and Perplexity have no API path from here**  -  they need a
 person with a browser. Record them as "not measured", never "not returned": the two are not the
 same, and a later reading that conflates them would show a fake gain.
 
 ## What would count as movement
 
-Positional, because the plan's goal is positional — not stars, not traffic:
+Positional, because the plan's goal is positional  -  not stars, not traffic:
 
 - **Context7 0 → any** on a problem-shaped query. The manifest now scopes and rules the index; the
   next scan is the first honest test of whether that changes retrieval or only content.
 - **Web search: the branded query returning the project at all.** Until `AgentDeck SDK` finds
   AgentDeck, nothing downstream can work. An indexing question, not a content one, and it should
-  resolve on its own within weeks — if it does not, something is wrong with the site.
-- **`use your existing LangGraph agent`** — the one query where a single good page could plausibly
+  resolve on its own within weeks  -  if it does not, something is wrong with the site.
+- **`use your existing LangGraph agent`**  -  the one query where a single good page could plausibly
   rank, because nothing currently answers it.
 
 Next reading: **2026-09-12.** Re-run before writing anything new, so the pages written between now

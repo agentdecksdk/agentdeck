@@ -1,6 +1,6 @@
 """The engine boundary: start a run, yield payloads until it ends.
 
-An engine yields payloads and nothing else — no envelopes, no ``seq``, no namespace — so
+An engine yields payloads and nothing else  -  no envelopes, no ``seq``, no namespace  -  so
 ordering and isolation stay with the Runtime and an engine cannot get them wrong.
 """
 
@@ -25,12 +25,12 @@ class EnginePort(ABC):
     ``run.failed`` / ``run.cancelled``), a suspending one (``run.interrupted`` / ``run.paused``)
     whose terminal event comes after resume, or a raised exception. Stopping after anything else
     is a contract violation the Runtime records as ``run.failed``. A terminal payload ends the
-    run there and then — anything yielded after one is discarded rather than logged.
+    run there and then  -  anything yielded after one is discarded rather than logged.
 
     ``run.started`` is the Runtime's to emit: it carries context an engine never sees. Engines
     emit existing kinds or namespaced ``custom``; minting a kind is core's job.
 
-    An async generator, not any async iterable — the Runtime closes the stream when it stops
+    An async generator, not any async iterable  -  the Runtime closes the stream when it stops
     reading early, so an engine gets its ``finally`` blocks either way.
     """
 
@@ -45,7 +45,7 @@ class EnginePort(ABC):
         history: Sequence[Event],
         ctx: RunContext,
     ) -> AsyncGenerator[KnownPayload, None]:
-        """Play one run. ``history`` is the log so far, which is the record of the session —
+        """Play one run. ``history`` is the log so far, which is the record of the session  -
         an engine that keeps its own execution state loads that itself (ADR-D5).
         """
 
@@ -60,7 +60,7 @@ class EnginePort(ABC):
         """Continue a run this engine suspended with ``run.interrupted(thread_id=...)``.
 
         ``value`` answers the interrupt; ``thread_id`` is whatever the engine put on that event,
-        opaque to the Runtime. An engine with nothing to suspend on raises rather than yielding —
+        opaque to the Runtime. An engine with nothing to suspend on raises rather than yielding  -
         there is no run to continue. The Runtime calls this only after confirming the run is
         waiting on a human answer, so a well-behaved engine never sees a stray or duplicate one.
         """

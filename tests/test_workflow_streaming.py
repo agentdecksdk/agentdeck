@@ -1,6 +1,6 @@
 """``run_workflow_stream`` (issue #9): ``node_update``/``custom`` events per LangGraph's
 ``astream(stream_mode=["updates", "custom"])``, then one terminal ``done`` event carrying the
-final state — plus ``AgentNode`` forwarding its nested agent's deltas into the custom stream.
+final state  -  plus ``AgentNode`` forwarding its nested agent's deltas into the custom stream.
 
 The two endpoint tests at the bottom drive the whole real path instead of stubbing
 ``Deck.run_workflow_stream``, which the streamed endpoint no longer calls: it renders
@@ -107,7 +107,7 @@ chat_flow = Workflow(name="ChatFlow", state=State, graph=_build_graph)
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
-    """The project directory only — a deck of this suite's own and the server's are two
+    """The project directory only  -  a deck of this suite's own and the server's are two
     different decks, and one Deck holds the process at a time."""
     root = tmp_path / ".agentdeck"
     (root / "agents" / "greeter").mkdir(parents=True)
@@ -123,7 +123,7 @@ def project(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-async def deck(project):  # noqa: ARG001 — the project dir is what `from_project()` discovers
+async def deck(project):  # noqa: ARG001  -  the project dir is what `from_project()` discovers
     from agentdeck.deck import Deck
 
     deck = Deck.from_project()
@@ -207,7 +207,7 @@ async def test_stream_agent_node_forwards_deltas_via_custom_events(deck, monkeyp
 async def test_run_now_drives_the_graph_through_the_runtimes_stream(deck, monkeypatch):
     """``run`` used to call the compiled graph's ``ainvoke`` once; now that it plays
     on the Runtime it drives the same ``astream`` every other invocable does,
-    consumed to its end rather than left for a caller to iterate — ``ainvoke`` is never
+    consumed to its end rather than left for a caller to iterate  -  ``ainvoke`` is never
     touched at all.
     """
     calls = []
@@ -223,12 +223,12 @@ async def test_run_now_drives_the_graph_through_the_runtimes_stream(deck, monkey
         out = await deck.run("TwoStepFlow", {"text": "hi"})
 
     assert out == {"text": "HI", "count": 1}
-    assert calls == []  # astream, not ainvoke — the Runtime's own path for every invocable
+    assert calls == []  # astream, not ainvoke  -  the Runtime's own path for every invocable
 
 
 async def test_agent_node_now_uses_run_streamed_even_via_plain_run(deck, monkeypatch):
-    """The invariant this used to guarantee — a plain ``run_workflow()`` call never touches
-    ``Runner.run_streamed`` — no longer holds once workflows play on the Runtime: v1's compat
+    """The invariant this used to guarantee  -  a plain ``run_workflow()`` call never touches
+    ``Runner.run_streamed``  -  no longer holds once workflows play on the Runtime: v1's compat
     engine turns nested-agent streaming on unconditionally, because one Runtime run produces
     one canonical stream regardless of whether the caller asked to see it. A caller wanting
     the old cancellation/exception-timing semantics of a bare ``Runner.run`` has none of
@@ -297,7 +297,7 @@ def test_workflow_stream_endpoint_emits_updates_then_done(client):
 
 
 def test_workflow_stream_endpoint_reports_mid_stream_failure(client):
-    """The status code is already on the wire, so the failure arrives in-band — as the
+    """The status code is already on the wire, so the failure arrives in-band  -  as the
     exception's type name, never its message."""
     from agentdeck_project.workflows.writer.workflow import SECRET
 

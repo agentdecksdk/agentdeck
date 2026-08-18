@@ -2,13 +2,13 @@
 which ``T`` it requires, what is left for the model to fill in, and whether any of that could be
 established at all.
 
-Engine-independent on purpose. Both engine bridges compile the same declaration — a plain
-callable — into their own native shape, and two copies of "is this parameter a ``Context``" is
+Engine-independent on purpose. Both engine bridges compile the same declaration  -  a plain
+callable  -  into their own native shape, and two copies of "is this parameter a ``Context``" is
 how the OpenAI and LangGraph paths would quietly stop agreeing. This module is the one answer
 both compile against; it builds nothing and calls nothing.
 
 It lives here rather than in ``core/`` because it raises :class:`ConfigError`, and the error
-taxonomy is not core's yet — while every consumer it has (agent compilation, workflow
+taxonomy is not core's yet  -  while every consumer it has (agent compilation, workflow
 compilation, and the graph walk behind ``Deck.build()``) is already in ``authoring``.
 
 A parameter is injected because of its annotation, never its name: exactly one ``Context[...]``
@@ -17,7 +17,7 @@ configuration error rather than a choice AgentDeck makes for the author.
 
 The requirement each analysis reports is also what a deck's own ``context=`` declaration is
 checked against, which is why :func:`check_context_type` lives beside the analysis rather than
-in whichever compiler happens to hold the answer first — four compilers deciding separately
+in whichever compiler happens to hold the answer first  -  four compilers deciding separately
 what "compatible" means is the same drift two copies of the analysis would be.
 
 The fence, since this is the seam where it will be tested: permissions, approvals, retries and
@@ -41,7 +41,7 @@ _VARIADIC = (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
 
 _UNION_FORMS = frozenset({types.UnionType, Union})
 """Both spellings of a union origin. ``A | B`` and ``Union[A, B]`` are one object from 3.14 on
-and two before it, and the older one is *itself a class* — so falling through to ``issubclass``
+and two before it, and the older one is *itself a class*  -  so falling through to ``issubclass``
 would compare a context type against ``UnionType`` and refuse every union that is in fact fine.
 """
 
@@ -58,8 +58,8 @@ class CallableAnalysis:
     out*, and an unanalyzable callable is indistinguishable from a zero-argument one. Such a
     callable is the invocation-time safety net's problem, not a guess to make at build time.
 
-    ``visible_parameters`` is everything the context parameter is not — what a tool schema is
-    built from — with annotations already resolved against the callable's own module, so a
+    ``visible_parameters`` is everything the context parameter is not  -  what a tool schema is
+    built from  -  with annotations already resolved against the callable's own module, so a
     rebuilt signature cannot pick up a different meaning of the same name.
     """
 
@@ -119,7 +119,7 @@ def _required_type(hint: object) -> object:
 
     A bare ``Context`` reads as ``Context[Any]``. Treating it as an ordinary parameter instead
     would put an AgentDeck internal in a model-visible tool schema, which is the one thing the
-    context rule forbids — and the author plainly meant to be injected.
+    context rule forbids  -  and the author plainly meant to be injected.
     """
     if hint is Context:
         return Any
@@ -172,7 +172,7 @@ def check_context_type(analysis: CallableAnalysis, declared: object | None) -> N
     requirement unchecked at build time, exactly as it was before the declaration existed, and a
     callable declaring no ``Context[...]`` has nothing to check.
 
-    Deliberately not a type checker. Only what the runtime can actually answer is answered —
+    Deliberately not a type checker. Only what the runtime can actually answer is answered  -
     an exact type, a subtype, ``Any``, a runtime ABC, a protocol ``issubclass`` will decide on.
     Everything else defers, and stands or falls at invocation instead of on a guess here.
     """
@@ -189,7 +189,7 @@ def check_context_type(analysis: CallableAnalysis, declared: object | None) -> N
 
 
 def _satisfies(declared: object, required: object) -> bool | None:
-    """Whether ``declared`` meets ``required`` — or ``None`` when the runtime cannot say.
+    """Whether ``declared`` meets ``required``  -  or ``None`` when the runtime cannot say.
 
     ``None`` is the whole reason this returns three values rather than two: a structural
     ``Protocol`` that ``issubclass`` refuses to decide on, a ``TypeVar``, an annotation that is
@@ -219,7 +219,7 @@ def _name(annotation: object) -> str:
 
 
 def describe_callable(target: Callable[..., object]) -> str:
-    """How every message about ``target`` names it — the author's own name for the function,
+    """How every message about ``target`` names it  -  the author's own name for the function,
     so an error points at their code rather than at whatever AgentDeck compiled it into."""
     return getattr(target, "__qualname__", None) or repr(target)
 

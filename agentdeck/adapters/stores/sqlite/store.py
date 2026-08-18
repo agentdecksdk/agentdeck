@@ -1,9 +1,9 @@
 """The event log in SQLite: the same contract as ``adapters.stores.memory``, durable.
 
-New code, not a port of ``runtime/sessions.py`` — that module is engine-private execution
+New code, not a port of ``runtime/sessions.py``  -  that module is engine-private execution
 state (ADR-D5), a different store with a different owner. This one is the platform record:
 append-only, one row per event, ``seq`` scoped to one run, unique across the whole namespace
-rather than within one log — a run's id, not its log grouping, is what makes it distinct.
+rather than within one log  -  a run's id, not its log grouping, is what makes it distinct.
 """
 
 from __future__ import annotations
@@ -46,13 +46,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS events_by_key ON events (namespace, key) WHERE
 """
 # events_by_run is the run-scoped identity guard: one seq per run is the promise consumers
 # refetch a gap with, and a duplicate is the one corruption a gap check cannot see. Scoped to
-# `(namespace, run_id, seq)` rather than `(namespace, log_key, run_id, seq)` — the shape this
-# build inherited — because the old index let the same run_id+seq exist under two log keys,
+# `(namespace, run_id, seq)` rather than `(namespace, log_key, run_id, seq)`  -  the shape this
+# build inherited  -  because the old index let the same run_id+seq exist under two log keys,
 # which is exactly "one logical run split across two logs", the defect #324 closes. Dropped and
 # rebuilt by `_migrate_events_schema` below for a database an earlier build already created.
 #
 # events_by_key is `(namespace, key)`'s enforcement, partial so unkeyed rows (the overwhelming
-# majority — every row but a run's own opening one) never compete for the constraint. A run
+# majority  -  every row but a run's own opening one) never compete for the constraint. A run
 # whose key collides with another run's fails the INSERT itself; there is no read-then-write
 # window for two racing claims to both pass through.
 
@@ -62,7 +62,7 @@ _SORTED_LIFECYCLE_KINDS = tuple(sorted(LIFECYCLE_KINDS))
 _KIND_SLOTS = ", ".join("?" * len(_SORTED_LIFECYCLE_KINDS))
 
 # Pinned here rather than inherited from ``sqlite3.connect``'s own default: long enough that a
-# peer's write transaction — milliseconds of one append — is waited out rather than raised
+# peer's write transaction  -  milliseconds of one append  -  is waited out rather than raised
 # over, short enough that a wedged holder surfaces as an error instead of hanging a request.
 _BUSY_TIMEOUT_MS = 5_000
 
@@ -85,16 +85,16 @@ def _connect(db_path: str) -> sqlite3.Connection:
 def _migrate_events_schema(conn: sqlite3.Connection) -> None:
     """Carry an ``events`` table an earlier build created forward to this build's shape.
 
-    A brand-new file has no ``events`` table yet, so there is nothing to carry — ``_SCHEMA``
+    A brand-new file has no ``events`` table yet, so there is nothing to carry  -  ``_SCHEMA``
     below creates the current shape directly and this is a no-op. An existing one is missing
     the ``key`` column outright (``ALTER TABLE ... ADD COLUMN`` is additive, never destructive)
     and its ``events_by_run`` index is still scoped to ``(namespace, log_key, run_id, seq)``,
     the shape #324 tightens to ``(namespace, run_id, seq)``. Same name, different columns, so
     ``CREATE UNIQUE INDEX IF NOT EXISTS`` in ``_SCHEMA`` would find the name taken and leave the
-    old, looser shape in place rather than tightening it — dropped here so the fresh ``CREATE``
+    old, looser shape in place rather than tightening it  -  dropped here so the fresh ``CREATE``
     rebuilds it. If existing rows genuinely violate the tighter constraint (the same run_id and
     seq recorded under two different log keys), that ``CREATE UNIQUE INDEX`` fails and the
-    ``StoreError`` it raises names the underlying conflict — the correct outcome: silently
+    ``StoreError`` it raises names the underlying conflict  -  the correct outcome: silently
     picking a survivor row would hide a real corruption rather than surface it.
     """
     columns = {row[1] for row in conn.execute("PRAGMA table_info(events)")}
@@ -105,13 +105,13 @@ def _migrate_events_schema(conn: sqlite3.Connection) -> None:
     # Only drop and rebuild when the index is genuinely the old shape: on a database already at
     # this build's schema (freshly created, or already migrated), `events_by_run` already reads
     # `(namespace, run_id, seq)`, and dropping it unconditionally on every open would force a
-    # write — and the write lock that comes with it — where opening an up-to-date file used to
+    # write  -  and the write lock that comes with it  -  where opening an up-to-date file used to
     # need none, which a peer mid-transaction would then see as a false contention.
     run_index_columns = [row[2] for row in conn.execute("PRAGMA index_info(events_by_run)")]
     if "log_key" in run_index_columns:
         conn.execute("DROP INDEX events_by_run")
     # `events_by_run_id` existed only for `locate`'s "which log holds this run_id" query, which
-    # #322 removed with no caller left for it — a database built before this drops it too, rather
+    # #322 removed with no caller left for it  -  a database built before this drops it too, rather
     # than carrying an index nothing queries through for good.
     conn.execute("DROP INDEX IF EXISTS events_by_run_id")
 
@@ -120,16 +120,16 @@ def _enable_wal(conn: sqlite3.Connection) -> None:
     """Put the file in WAL, settling for the mode it already has if it cannot be switched now.
 
     Converting *into* WAL needs an exclusive lock, and a peer holding the write lock denies
-    that outright — SQLite refuses immediately there, whatever the busy timeout says. Asking
+    that outright  -  SQLite refuses immediately there, whatever the busy timeout says. Asking
     again on a file that is already WAL is free even mid-write, so the only connection that
     can lose this is the first one to a brand-new file racing another; it then runs in the
     rollback-journal mode every connection used before WAL was asked for at all, which is
     slower under contention and never wrong. An in-memory database reports ``memory`` and
-    stays there — there is no WAL for it to switch to, and nothing to work around.
+    stays there  -  there is no WAL for it to switch to, and nothing to work around.
     """
     if conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal":
         return
-    # ponytail: the degraded mode is invisible — log it if an operator ever has to find out
+    # ponytail: the degraded mode is invisible  -  log it if an operator ever has to find out
     # why one process's store came up slower than its peers'.
     with suppress(sqlite3.OperationalError):
         conn.execute("PRAGMA journal_mode = WAL")
@@ -139,7 +139,7 @@ class SqliteEventStore(EventStorePort):
     """Append-only rows in one SQLite file (or ``:memory:`` for tests).
 
     One connection, serialized by a lock: ``sqlite3`` is stdlib but not coroutine-safe, and
-    a single writer per log is exactly the contract the Runtime already assumes — a lock is
+    a single writer per log is exactly the contract the Runtime already assumes  -  a lock is
     simpler than a pool for that shape. Blocking calls run in a thread so the event loop is
     never stalled by disk I/O, and a failed statement reaches the caller as ``StoreError``:
     a ``sqlite3`` type never crosses the port.
@@ -148,8 +148,8 @@ class SqliteEventStore(EventStorePort):
     because the point of this store is that a second OS process reads and writes the same
     file: WAL lets those readers run while a writer appends, and the timeout makes a peer's
     in-flight write something to wait out rather than raise over. Two consequences for whoever
-    operates it: SQLite keeps ``<db>-wal`` and ``<db>-shm`` files beside the database — copy
-    or delete them with it, never just the one file — and WAL needs working shared memory
+    operates it: SQLite keeps ``<db>-wal`` and ``<db>-shm`` files beside the database  -  copy
+    or delete them with it, never just the one file  -  and WAL needs working shared memory
     across processes, so it is unreliable on network filesystems like NFS or SMB. Keep the
     events file on local disk; a networked deployment wants the Redis or Postgres store.
     """
@@ -159,7 +159,7 @@ class SqliteEventStore(EventStorePort):
         self._lock = asyncio.Lock()
 
     async def _run[T](self, work: Callable[[], T], op: str) -> T:
-        """Every statement this store runs goes through here — one caller at a time, off the
+        """Every statement this store runs goes through here  -  one caller at a time, off the
         event loop, and no library exception escaping the port."""
         async with self._lock:
             try:
@@ -194,7 +194,7 @@ class SqliteEventStore(EventStorePort):
         ``claim_resume`` is one: the file's write lock, not this process, is what two servers
         agree through, so only one of them can open a run on an idle session.
 
-        A refused claim is still a clean answer — the loser waited out the winner's transaction
+        A refused claim is still a clean answer  -  the loser waited out the winner's transaction
         and then read the run the winner opened. Only a lock held past the busy timeout raises,
         because that is a store nobody can write to rather than a session somebody else took.
         """
@@ -206,13 +206,13 @@ class SqliteEventStore(EventStorePort):
         self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
     ) -> Event | None:
         """The port's conditional append as one ``BEGIN IMMEDIATE`` transaction, so the
-        winner is decided by SQLite's own write lock — the file, not this process, is what
+        winner is decided by SQLite's own write lock  -  the file, not this process, is what
         two servers agree through.
 
         A loser still gets its clean ``None``: it waits for the winner's transaction to
         commit, then reads the ``RUNNING`` status the winner published. Only a lock held past
         the busy timeout raises, and that is a store nobody can write to rather than a claim
-        somebody else won — ``StoreError``, never a fabricated ``None``.
+        somebody else won  -  ``StoreError``, never a fabricated ``None``.
         """
         if ctx.run_id != run_id:
             raise ValueError(f"a claim on run {run_id!r} cannot be made in the context of {ctx.run_id!r}")
@@ -227,7 +227,7 @@ class SqliteEventStore(EventStorePort):
             raise ValueError(f"limit must be None or >= 0, got {limit}")
         rows = await self._run(partial(self._select_last_lifecycle, ctx.namespace_key), "list_runs")
         # The filter never drops a row: the query selects lifecycle kinds only, so every row
-        # folds to a status. It is what narrows ``status_of``'s ``None`` — the "no transition at
+        # folds to a status. It is what narrows ``status_of``'s ``None``  -  the "no transition at
         # all" answer, which a run found by this query cannot give.
         summaries = [
             RunSummary(log_key=log_key, run_id=run_id, status=folded)
@@ -242,7 +242,7 @@ class SqliteEventStore(EventStorePort):
 
     def _select_run_by_key(self, namespace: str, key: str) -> str | None:
         # `events_by_key` is a unique index over exactly these two columns, so this is the
-        # index's own lookup rather than a scan — the same query the INSERT it guards runs
+        # index's own lookup rather than a scan  -  the same query the INSERT it guards runs
         # implicitly to decide whether to conflict.
         cursor = self._conn.execute(
             "SELECT run_id FROM events WHERE namespace = ? AND key = ? LIMIT 1", (namespace, key)
@@ -251,11 +251,11 @@ class SqliteEventStore(EventStorePort):
         return row[0] if row is not None else None
 
     def _append(self, log_key: str, payloads: list[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
-        if not payloads:  # as postgres and redis do — no reason to take the write lock for nothing
+        if not payloads:  # as postgres and redis do  -  no reason to take the write lock for nothing
             return []
         # BEGIN IMMEDIATE, which a plain append never used to take. Reading MAX(seq) inside a
         # *deferred* transaction and then inserting upgrades read→write mid-transaction, which
-        # SQLite answers with SQLITE_BUSY_SNAPSHOT — and it does not honour busy_timeout (#84),
+        # SQLite answers with SQLITE_BUSY_SNAPSHOT  -  and it does not honour busy_timeout (#84),
         # so a peer committing in between is an error rather than a wait. Taking the write lock
         # first makes the read and the insert one step, which is the whole decision (ADR-D11).
         self._conn.execute("BEGIN IMMEDIATE")
@@ -265,7 +265,7 @@ class SqliteEventStore(EventStorePort):
     def _stamp_and_insert(
         self, log_key: str, payloads: list[KnownPayload], ctx: RunContext, origin: str, key: str | None = None
     ) -> list[Event]:
-        """Assign, build, insert — callable only with the write lock already held.
+        """Assign, build, insert  -  callable only with the write lock already held.
 
         Every payload in one call shares one ``ts``: the batch is a single indivisible write, so
         it happened at one instant. Read from SQLite rather than this process, so N workers on one
@@ -273,7 +273,7 @@ class SqliteEventStore(EventStorePort):
 
         ``key`` is written on the batch's first row only, never on the rest: a run's key is
         adopted once, by :meth:`claim_start`'s own call for the opening event, and every other
-        write for this run — including every other call this method serves — passes ``None``.
+        write for this run  -  including every other call this method serves  -  passes ``None``.
         Repeating it on every row would collide with itself under ``events_by_key``.
         """
         now = self._backend_now()
@@ -313,7 +313,7 @@ class SqliteEventStore(EventStorePort):
         """SQLite's clock, to millisecond precision.
 
         ``CURRENT_TIMESTAMP`` is whole seconds, which would give every event in a busy second the
-        same ``ts`` — visible coarsening on the wire for no reason. ``%f`` is seconds with three
+        same ``ts``  -  visible coarsening on the wire for no reason. ``%f`` is seconds with three
         decimals, so the format below is the ISO string with an explicit UTC offset.
         """
         cursor = self._conn.execute("SELECT strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')")
@@ -339,7 +339,7 @@ class SqliteEventStore(EventStorePort):
                 if STATES[status].suspended:
                     # No worker to be dead: PAUSED and WAITING_ANSWER have no engine polling a
                     # clock, so silence is not evidence of anything and neither the timer nor an
-                    # expired lease applies — checked before both, for that reason. The log
+                    # expired lease applies  -  checked before both, for that reason. The log
                     # deciding alone is what makes this hold permanent.
                     return SessionClaim(held_by=last.run_id), None
                 if last.run_id not in dead and last.ts > stale_before:
@@ -349,12 +349,12 @@ class SqliteEventStore(EventStorePort):
                 event = self._stamp_and_insert(log_key, [opening], ctx, origin, key=ctx.key)[0]
             except sqlite3.IntegrityError as exc:
                 # `ctx.run_id` is freshly minted for every claim_start call, so the run-scoped
-                # `events_by_run` index (namespace, run_id, seq) cannot fire here — a fresh id
+                # `events_by_run` index (namespace, run_id, seq) cannot fire here  -  a fresh id
                 # and seq 0 have never been seen before. The one constraint left that can is
                 # `events_by_key`, and only when this run actually carries a key.
                 if ctx.key is not None:
                     # The insert already failed, so the row that holds the key is a plain read
-                    # away — naming it here is what a caller refused a duplicate start acts on.
+                    # away  -  naming it here is what a caller refused a duplicate start acts on.
                     holder = self._select_run_by_key(ctx.namespace_key, ctx.key)
                     raise DuplicateKeyError(
                         f"key {ctx.key!r} is already used by run {holder!r} in namespace {ctx.namespace!r}"
@@ -364,7 +364,7 @@ class SqliteEventStore(EventStorePort):
 
     def _select_open_runs(self, namespace: str, log_key: str) -> list[tuple[str, RunStatus, Event]]:
         """Every run in this log that has recorded a transition but not a terminal one, paired
-        with its own status and its own last event — whatever kind — because that event is the
+        with its own status and its own last event  -  whatever kind  -  because that event is the
         run's last sign of life, and silence is all that separates an abandoned run from a
         working one.
         """
@@ -391,7 +391,7 @@ class SqliteEventStore(EventStorePort):
 
     def _claim(self, log_key: str, resumed: RunResumed, ctx: RunContext, origin: str) -> Event | None:
         # BEGIN IMMEDIATE takes the file's write lock before the reads, so a second process
-        # cannot see this run waiting in the gap between our check and our insert — a
+        # cannot see this run waiting in the gap between our check and our insert  -  a
         # deferred transaction would only lock at the insert, which is exactly too late.
         self._conn.execute("BEGIN IMMEDIATE")
         # Commits the insert on the way out, rolls back if anything raised; the losing path
@@ -403,7 +403,7 @@ class SqliteEventStore(EventStorePort):
             return self._stamp_and_insert(log_key, [resumed], ctx, origin)[0]
 
     def _select_log(self, namespace: str, log_key: str, after: int, limit: int | None) -> list[str]:
-        # SQLite treats a negative LIMIT as "no limit" — the one case a plain int can't say.
+        # SQLite treats a negative LIMIT as "no limit"  -  the one case a plain int can't say.
         cursor = self._conn.execute(
             "SELECT data FROM events WHERE namespace = ? AND log_key = ? ORDER BY id ASC LIMIT ? OFFSET ?",
             (namespace, log_key, -1 if limit is None else limit, after),

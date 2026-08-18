@@ -1,0 +1,7 @@
+# Model Context Protocol (MCP)
+
+Connect external tools and resources over standard MCP transports.
+
+## Attaching MCP Servers
+
+Attach MCP clients directly to your `Deck` configuration.

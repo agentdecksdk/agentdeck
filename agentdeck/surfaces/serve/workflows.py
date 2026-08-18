@@ -1,6 +1,6 @@
 """The crude workflow surface: ``GET /pending`` + ``POST /resume``.
 
-A second, additive FastAPI app — ``surfaces/serve/app.py`` (the chat SSE route) is not
+A second, additive FastAPI app  -  ``surfaces/serve/app.py`` (the chat SSE route) is not
 touched by this module at all; a caller mounts both against the same ``Runtime``. Both
 routes call only ``Runtime.pending``/``Runtime.resume``: this module never reads an
 engine's execution state (checkpointer, SDK session) directly, which is what keeps that
@@ -30,8 +30,8 @@ class ResumeBody(BaseModel):
 
 def build_workflow_app(runtime: Runtime) -> FastAPI:
     """``GET /pending`` lists every waiting run; ``POST /resume`` answers one by
-    ``thread_id``. A ``thread_id`` matching no pending run — unknown, or already resolved
-    by a racing caller — is a no-op response, not a 404.
+    ``thread_id``. A ``thread_id`` matching no pending run  -  unknown, or already resolved
+    by a racing caller  -  is a no-op response, not a 404.
     """
     api = FastAPI()
 

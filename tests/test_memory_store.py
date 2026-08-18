@@ -37,7 +37,7 @@ async def test_from_seq_is_inclusive_so_zero_reads_the_whole_run() -> None:
 
 async def test_a_seq_range_covers_one_run_and_never_splices_two() -> None:
     """``seq`` restarts at 0 per run, so a range over the whole log would return the tail of
-    every run in it — which is why a range read has to name the run."""
+    every run in it  -  which is why a range read has to name the run."""
     store, ctx = MemoryEventStore(), _ctx()
     await store.append("s-1", _deltas(2), ctx, ORIGIN)
     await store.append("s-1", _deltas(2), _ctx(run_id="r-2"), ORIGIN)
@@ -77,7 +77,7 @@ async def test_a_read_cannot_be_used_to_mutate_the_log() -> None:
 
 
 async def test_the_stub_completion_payload_round_trips_through_the_log() -> None:
-    """The store holds events, not dicts — a payload comes back as the class it went in as."""
+    """The store holds events, not dicts  -  a payload comes back as the class it went in as."""
     store, ctx = MemoryEventStore(), _ctx()
     payload = RunCompleted(output=[TextBlock(text="done")], usage=Usage(input_tokens=1, output_tokens=1))
     await store.append("s-1", [payload], ctx, ORIGIN)

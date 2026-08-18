@@ -3,10 +3,10 @@
 Two failure shapes these tests exist to keep apart, because they look alike from outside and
 only one of them is a finding:
 
-* **incompatible** — the runtime can say the declared type does not meet the requirement, so
+* **incompatible**  -  the runtime can say the declared type does not meet the requirement, so
   ``build()`` refuses with a ``ContextTypeError`` naming both. This is the whole point of the
   declaration.
-* **undecidable** — no runtime answer exists (a structural ``Protocol`` ``issubclass`` will not
+* **undecidable**  -  no runtime answer exists (a structural ``Protocol`` ``issubclass`` will not
   rule on, a ``TypeVar``, an engine-native tool object nothing introspects). ``build()`` accepts
   and the requirement stands or falls at invocation. Refusing here would reject builds that are
   very likely correct, and ``build()`` is not a partial type checker.
@@ -19,7 +19,7 @@ No live model: every assertion here is about ``build()``, which never calls one.
 
 from __future__ import annotations
 
-from collections.abc import Mapping  # noqa: TC003 — the subjects below must resolve it at runtime
+from collections.abc import Mapping  # noqa: TC003  -  the subjects below must resolve it at runtime
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
 import pytest
@@ -29,7 +29,7 @@ from pydantic import BaseModel
 
 import agentdeck
 from agentdeck.authoring import Agent, Workflow
-from agentdeck.core.context import Context  # noqa: TC001 — the subjects below must resolve it at runtime
+from agentdeck.core.context import Context  # noqa: TC001  -  the subjects below must resolve it at runtime
 from agentdeck.deck import Deck
 from agentdeck.errors import ConfigError, ContextTypeError
 
@@ -39,7 +39,7 @@ class BaseContext:
 
 
 class MiddleContext(BaseContext):
-    """A subtype of it — what a deck declares when its callables want the wider one."""
+    """A subtype of it  -  what a deck declares when its callables want the wider one."""
 
 
 class GitHubContext:
@@ -185,7 +185,7 @@ async def _peek_mapping(environment: Context[Mapping[str, Any]]) -> str:
 
 
 def test_a_runtime_abc_is_satisfied_by_a_subclass_of_its_origin(no_project) -> None:
-    """``Mapping[str, Any]`` is not a class and ``issubclass`` rejects it outright — the origin
+    """``Mapping[str, Any]`` is not a class and ``issubclass`` rejects it outright  -  the origin
     is the part of the annotation the runtime can genuinely check."""
     _build(agents=[_agent_with_tool(_peek_mapping)], context=Environment)
 
@@ -246,7 +246,7 @@ def test_a_protocol_that_is_not_runtime_checkable_defers_rather_than_refusing(no
 
 
 def test_a_protocol_with_data_members_defers_rather_than_refusing(no_project) -> None:
-    """``runtime_checkable`` is not enough — ``issubclass`` still refuses to rule on a protocol
+    """``runtime_checkable`` is not enough  -  ``issubclass`` still refuses to rule on a protocol
     with a non-method member, and a refusal here would be a guess."""
 
     async def peek(environment: Context[HasSlot]) -> str:
@@ -341,7 +341,7 @@ def test_the_refusal_arrives_as_a_context_type_error_not_its_supertype(no_projec
 
 
 def test_the_refusal_survives_the_bundle_wrap_of_a_discovered_project(tmp_path, monkeypatch) -> None:
-    """``from_project`` re-raises a bundle's compile failure as "<file> failed to build" — the
+    """``from_project`` re-raises a bundle's compile failure as "<file> failed to build"  -  the
     one wrap that catches a bare ``Exception``, and so the easiest place to lose the class."""
     project = tmp_path / ".agentdeck" / "agents" / "booker"
     project.mkdir(parents=True)

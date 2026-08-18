@@ -37,7 +37,7 @@ def _compositions() -> tuple[Path, ...]:
     both were still on the pre-refactor coordinates, and nothing was watching either.
     """
     files = tuple(svg for svg in sorted(BRAND.glob("*.svg")) if svg.name not in PROVENANCE)
-    assert files, f"no brand SVGs under {BRAND} — the directory moved"
+    assert files, f"no brand SVGs under {BRAND}  -  the directory moved"
     site = (ROOT / "docs-site" / "app" / "mark.tsx", ROOT / "docs-site" / "app" / "icon.svg")
     assert all(p.is_file() for p in site), f"a docs-site brand file moved: {site}"
     return files + site
@@ -46,7 +46,7 @@ def _compositions() -> tuple[Path, ...]:
 @cache
 def _canonical() -> frozenset[str]:
     paths = frozenset(d for part in COMPONENTS.glob("*.svg") for d in PATH_D.findall(part.read_text()))
-    assert paths, f"no path geometry under {COMPONENTS} — the components moved"
+    assert paths, f"no path geometry under {COMPONENTS}  -  the components moved"
     return paths
 
 
@@ -73,7 +73,7 @@ def test_composition_paints_only_in_palette_colours(svg: Path) -> None:
     nothing to tell you which was the brand's.
     """
     palette = {value.lower() for _, value in PALETTE_TOKEN.findall(PALETTE_CSS.read_text())}
-    assert palette, f"no --brand-* tokens in {PALETTE_CSS} — the palette moved"
+    assert palette, f"no --brand-* tokens in {PALETTE_CSS}  -  the palette moved"
 
     strays = {fill.lower() for fill in FILL.findall(svg.read_text())} - palette
     assert not strays, f"{svg.name} paints in {sorted(strays)}, which is in no --brand-* token"

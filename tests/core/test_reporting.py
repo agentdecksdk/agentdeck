@@ -1,7 +1,7 @@
 """The report channel: what an emitter gets whether or not anything is listening.
 
-The default reporter is the one most code will meet — a ``RunContext`` a caller built, a
-context reused outside a run — and it has to be indistinguishable from a wired one except that
+The default reporter is the one most code will meet  -  a ``RunContext`` a caller built, a
+context reused outside a run  -  and it has to be indistinguishable from a wired one except that
 nobody reads the result. Including for a *bad* call: an emitter that only finds out its numbers
 are nonsense when it happens to run under a Runtime has no way to test itself.
 """

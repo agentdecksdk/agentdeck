@@ -9,7 +9,7 @@ export const dynamic = 'force-static'
  * Allow everyone, and say so explicitly for the AI crawlers.
  *
  * A default-allow `robots.txt` would do the same thing silently, but several of these agents are
- * new enough that a missing rule gets read as an oversight by whoever audits it next — and the
+ * new enough that a missing rule gets read as an oversight by whoever audits it next  -  and the
  * whole point of `llms.txt` is that we *want* these readers. Naming them is the record of that.
  */
 export default function robots(): MetadataRoute.Robots {

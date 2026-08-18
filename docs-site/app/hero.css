@@ -1,0 +1,823 @@
+/* ==========================================================================
+   The hero.
+
+   Ported from `agentdeck-hero-animation/`, the standalone preview of this
+   animation. Three things changed on the way in, and nothing else:
+
+   1. Its reset and `:root` / `html, body, #root` rules are gone. They styled
+      a whole document; here the hero is one section of a docs site.
+   2. Every colour is a brand token or a design-system status colour. Two
+      literals were off-system rather than merely untokenised: a purple for
+      `queued` (an explicit anti-pattern) is now the system's waiting amber,
+      and a green for `done` is now the system's green.
+   3. The hero keeps its dark ground in both themes. It was designed as a dark
+      surface, gradient and grid and glow, and there is no light version of it
+      to port. It reads as a band the page opens with.
+   ========================================================================== */
+
+/* The hero's palette. Dark is the design as delivered, value for value; light is the same
+   roles on a light ground, so the band belongs to whichever theme the reader chose. */
+.ad-hero {
+  --hero-accent-10: rgba(37, 99, 255, 0.09);
+  --hero-accent-11: rgba(37, 99, 255, 0.18);
+  --hero-accent-12: rgba(37, 99, 255, 0.46);
+  --hero-accent-13: rgba(37, 99, 255, 0.7);
+  --hero-accent-1: rgba(37, 99, 255, 0.18);
+  --hero-accent-2: rgba(37, 99, 255, 0.0);
+  --hero-accent-3: rgba(37, 99, 255, 0.42);
+  --hero-accent-4: rgba(37, 99, 255, 0.55);
+  --hero-accent-5: rgba(37, 99, 255, 0.28);
+  --hero-accent-6: rgba(37, 99, 255, 0.15);
+  --hero-accent-7: rgba(37, 99, 255, 0.12);
+  --hero-accent-8: rgba(37, 99, 255, 0.72);
+  --hero-accent-9: rgba(37, 99, 255, 0.16);
+  --hero-accent-muted: color-mix(in srgb, var(--brand-blue) 55%, transparent);
+  --hero-accent-solid: var(--brand-blue);
+  --hero-accent: var(--brand-blue);
+  --hero-grid-1: rgba(11, 18, 32, 0.049);
+  --hero-grid-2: rgba(11, 18, 32, 0.035);
+  --hero-grid-3: rgba(11, 18, 32, 0.063);
+  --hero-grid-4: rgba(11, 18, 32, 0.07);
+  --hero-ground-1: var(--brand-canvas);
+  --hero-rule: var(--brand-border-light);
+  --hero-ground-2: var(--brand-canvas);
+  --hero-ink-soft: #52607a;
+  --hero-ink-strong: var(--brand-night);
+  --hero-ink: var(--brand-night);
+  --hero-line-1: rgba(11, 18, 32, 0.102);
+  --hero-line-2: rgba(11, 18, 32, 0.119);
+  --hero-line-3: rgba(11, 18, 32, 0.289);
+  --hero-line-4: rgba(11, 18, 32, 0.187);
+  --hero-line-5: rgba(11, 18, 32, 0.136);
+  --hero-line-6: rgba(11, 18, 32, 0.153);
+  --hero-line-7: rgba(11, 18, 32, 0.187);
+  --hero-line-8: rgba(11, 18, 32, 0.145);
+  --hero-panel-1: rgba(255, 255, 255, 0.72);
+  --hero-panel-2: rgba(255, 255, 255, 0.78);
+  --hero-panel-3: rgba(255, 255, 255, 0.8);
+  --hero-panel-4: rgba(255, 255, 255, 0.96);
+  --hero-panel-5: rgba(255, 255, 255, 0.98);
+  --hero-panel-6: rgba(255, 255, 255, 0.98);
+  --hero-panel-7: rgba(255, 255, 255, 0.99);
+  --hero-panel-8: rgba(255, 255, 255, 0.95);
+  --hero-shadow-1: rgba(11, 18, 32, 0.098);
+  --hero-shadow-2: rgba(11, 18, 32, 0.077);
+  --hero-shadow-3: rgba(11, 18, 32, 0.122);
+  --hero-shadow-4: rgba(11, 18, 32, 0.063);
+}
+
+.dark .ad-hero {
+  --hero-accent-10: rgba(51, 112, 255, 0.06);
+  --hero-accent-11: rgba(37, 105, 255, 0.18);
+  --hero-accent-12: rgba(76, 141, 255, 0.46);
+  --hero-accent-13: rgba(75, 140, 255, 0.7);
+  --hero-accent-1: rgba(45, 115, 255, 0.12);
+  --hero-accent-2: rgba(56, 132, 255, 0);
+  --hero-accent-3: rgba(76, 141, 255, 0.42);
+  --hero-accent-4: rgba(82, 144, 255, 0.55);
+  --hero-accent-5: rgba(25, 86, 210, 0.28);
+  --hero-accent-6: rgba(46, 99, 216, 0.10);
+  --hero-accent-7: rgba(74, 121, 220, 0.08);
+  --hero-accent-8: rgba(71, 133, 255, 0.72);
+  --hero-accent-9: rgba(72, 132, 255, 0.16);
+  --hero-accent-muted: color-mix(in srgb, var(--brand-frost) 65%, transparent);
+  --hero-accent-solid: var(--brand-blue);
+  --hero-accent: var(--brand-frost);
+  --hero-grid-1: rgba(255,255,255,0.035);
+  --hero-grid-2: rgba(255,255,255,0.025);
+  --hero-grid-3: rgba(255,255,255,0.045);
+  --hero-grid-4: rgba(255,255,255,0.05);
+  --hero-ground-1: var(--brand-night);
+  --hero-rule: #243147;
+  --hero-ground-2: var(--brand-night);
+  --hero-ink-soft: var(--brand-cool-gray);
+  --hero-ink-strong: #f8fafc;
+  --hero-ink: #f1f5f9;
+  --hero-line-1: rgba(255,255,255,0.12);
+  --hero-line-2: rgba(132, 157, 205, 0.14);
+  --hero-line-3: rgba(133, 164, 219, 0.34);
+  --hero-line-4: rgba(122, 152, 206, 0.22);
+  --hero-line-5: rgba(154, 180, 229, 0.16);
+  --hero-line-6: rgba(143, 169, 219, 0.18);
+  --hero-line-7: rgba(139, 166, 218, 0.22);
+  --hero-line-8: rgba(137, 166, 218, 0.17);
+  --hero-panel-1: rgba(8, 13, 25, 0.72);
+  --hero-panel-2: rgba(31, 42, 66, 0.78);
+  --hero-panel-3: rgba(18, 27, 45, 0.80);
+  --hero-panel-4: rgba(27, 39, 64, 0.96);
+  --hero-panel-5: rgba(13, 21, 37, 0.98);
+  --hero-panel-6: rgba(29, 44, 78, 0.98);
+  --hero-panel-7: rgba(13, 23, 43, 0.99);
+  --hero-panel-8: rgba(16, 26, 44, 0.95);
+  --hero-shadow-1: rgba(0,0,0,0.28);
+  --hero-shadow-2: rgba(0,0,0,0.22);
+  --hero-shadow-3: rgba(0,0,0,0.35);
+  --hero-shadow-4: rgba(0,0,0,0.18);
+}
+
+.ad-hero {
+  position: relative;
+  overflow: hidden;
+  min-height: min(100vh, 900px);
+  padding: clamp(40px, 6vh, 72px) 24px clamp(32px, 5vh, 48px);
+  color: var(--hero-ink);
+  isolation: isolate;
+}
+
+.ad-hero__backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background: var(--hero-ground-1);
+}
+
+.ad-hero__backdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.18;
+  background-image:
+    linear-gradient(var(--hero-grid-1) 1px, transparent 1px),
+    linear-gradient(90deg, var(--hero-grid-1) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 24%, #000 80%, transparent 100%);
+}
+
+.ad-hero h1 {
+  color: var(--hero-ink-strong);
+}
+
+.ad-hero__content {
+  width: min(1380px, 100%);
+  margin: 0 auto;
+  text-align: center;
+}
+
+.ad-hero__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 18px;
+  color: var(--hero-accent);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.ad-mark {
+  width: 20px;
+  height: 20px;
+  color: var(--hero-accent-muted);
+  filter: drop-shadow(0 0 0 var(--hero-accent-2));
+  transition: color 340ms ease, filter 340ms ease, transform 340ms cubic-bezier(.2,.8,.2,1);
+}
+
+.ad-mark.is-active {
+  color: var(--hero-accent);
+  filter: drop-shadow(0 0 10px var(--hero-accent-3));
+}
+
+.ad-hero h1 {
+  max-width: 1100px;
+  margin: 0 auto;
+  font-size: clamp(44px, 6.4vw, 92px);
+  line-height: 0.98;
+  letter-spacing: -0.055em;
+  font-weight: 760;
+  text-wrap: balance;
+}
+
+.ad-hero__subtitle {
+  max-width: 760px;
+  margin: 24px auto 0;
+  color: var(--hero-ink-soft);
+  font-size: clamp(17px, 2vw, 21px);
+  line-height: 1.62;
+  text-wrap: balance;
+}
+
+.ad-hero__actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 30px;
+  flex-wrap: wrap;
+}
+
+.ad-btn {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 18px;
+  border: 1px solid var(--hero-line-1);
+  border-radius: 10px 10px 4px 10px;
+  color: var(--hero-ink);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 650;
+  transition: transform 180ms ease, border-color 180ms ease, background 180ms ease;
+}
+
+.ad-btn:hover {
+  transform: translateY(-1px);
+}
+
+.ad-btn--primary {
+  border-color: var(--hero-accent-4);
+  /* Filled with the accent in both themes, so its label is white in both rather than
+     inheriting the hero's ink, which flips. */
+  background: var(--hero-accent-solid);
+  color: #ffffff;
+  box-shadow: 0 10px 30px var(--hero-accent-5);
+}
+
+.ad-btn--ghost {
+  background: var(--hero-grid-1);
+}
+
+.ad-stage {
+  --deck-w: 182px;
+  --deck-h: 238px;
+
+  position: relative;
+  width: min(1320px, 100%);
+  height: clamp(390px, 42vh, 470px);
+  margin: -16px auto 0;
+}
+
+.ad-stage__grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.16;
+  background-image:
+    radial-gradient(circle, var(--hero-line-3) 1px, transparent 1.2px);
+  background-size: 28px 28px;
+  mask-image: radial-gradient(ellipse 62% 70% at center, #000 0, transparent 100%);
+}
+
+.ad-stage__modules {
+  position: absolute;
+  inset: 0;
+}
+
+.ad-module {
+  position: absolute;
+  animation: module-in 520ms cubic-bezier(.2,.8,.2,1) backwards;
+  left: var(--scatter-x);
+  top: var(--scatter-y);
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  min-width: 132px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 13px 15px;
+  border: 1px solid var(--hero-line-5);
+  border-radius: 12px 12px 5px 12px;
+  background:
+    linear-gradient(180deg, var(--hero-panel-2), var(--hero-panel-3));
+  color: var(--hero-ink);
+  box-shadow:
+    inset 0 1px 0 var(--hero-grid-1),
+    0 12px 30px var(--hero-shadow-2);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  opacity: 0.92;
+  transition:
+    left 1500ms cubic-bezier(.2,.8,.2,1),
+    top 1500ms cubic-bezier(.2,.8,.2,1),
+    opacity 1200ms ease,
+    transform 1500ms cubic-bezier(.2,.8,.2,1),
+    filter 500ms ease;
+}
+
+/* The capabilities arrive one after another, and the gaps close as they go, so the opening
+   accelerates into the compose rather than holding a finished pose. */
+.ad-module--agent {
+  animation-delay: 60ms;
+}
+
+.ad-module--tool {
+  animation-delay: 460ms;
+}
+
+.ad-module--workflow {
+  animation-delay: 780ms;
+}
+
+.ad-module--skill {
+  animation-delay: 1000ms;
+}
+
+@keyframes module-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+}
+
+.ad-module__icon {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid var(--hero-line-6);
+  border-radius: 8px 8px 3px 8px;
+  color: var(--hero-accent);
+}
+
+.ad-module__icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.ad-module.is-composing {
+  left: 50%;
+  top: 50%;
+  /* Gone by the time they land: holding them at a low opacity left four cards stacked on the
+     same point, which reads as a pile rather than as a merge. */
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.82);
+  filter: blur(0.3px);
+}
+
+.phase-deck .ad-module,
+.phase-activate .ad-module,
+.phase-execute .ad-module {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.72);
+}
+
+.ad-deck {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--deck-w);
+  height: var(--deck-h);
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 0;
+  /* Half speed: the Deck assembling is the beat the section is about, and it was over before
+     it registered. */
+  transition:
+    opacity 900ms ease,
+    transform 1400ms cubic-bezier(.2,.8,.2,1),
+    filter 1200ms ease;
+}
+
+.ad-deck.is-visible {
+  opacity: 1;
+}
+
+/* Activation is the mark igniting: it takes the accent, gains its glow, and pulses once.
+   There is no travelling element, so this is the whole of the beat. */
+/* Only the spark pops. The card is the steady thing the spark lands on, and scaling the whole
+   lockup made the outline breathe with it. `fill-box` keeps the pulse about the spark's own
+   centre rather than the SVG's. */
+.ad-deck.is-active .ad-deck__surface .ad-card__spark {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mark-ignite 460ms cubic-bezier(.2,.9,.3,1);
+}
+
+@keyframes mark-ignite {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.16);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* The Deck arrives when the capabilities do, not a phase later. */
+.phase-compose .ad-deck.is-visible {
+  transition-delay: 850ms;
+}
+
+.ad-deck__surface {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+/* The three-colour lockup docs/brand/logo-full.svg defines: Agent Blue card, the A knocked out
+   so the ground shows through it, Ace Red spark. The A is a hole in the card path rather than a
+   shape, so filling the path is all it takes. */
+.ad-card {
+  width: 100%;
+  height: 100%;
+  /* The spark sits against the top-right of the mark space, so scaling it on ignite pushed it
+     past the viewBox, which an SVG clips to by default. */
+  overflow: visible;
+  transition: filter 340ms ease;
+}
+
+/* What shows through the A. Canvas in both themes, so the counter is part of the mark rather
+   than a hole onto whatever happens to be behind it. */
+.ad-card__counter {
+  fill: var(--brand-canvas);
+}
+
+.ad-card > path:first-of-type {
+  /* Agent Blue in both themes, not the theme accent. This is the mark, and docs/brand/README
+     records why it survives either ground: the A is a hole, so each background shows through
+     its counter instead of the mark needing a light and a dark version. */
+  fill: var(--brand-blue);
+}
+
+/* Ace Red, the one place the palette is not blue, exactly as the lockup sets it. */
+.ad-card__spark {
+  fill: var(--brand-ace);
+  stroke: none;
+  transition: filter 340ms ease;
+}
+
+.ad-deck.is-active .ad-card__spark {
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--brand-ace) 45%, transparent));
+}
+
+.ad-deck__surface {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.ad-deck__surface .ad-mark {
+  width: 44px;
+  height: 44px;
+}
+
+.ad-tree {
+  position: absolute;
+  /* Flush with the Deck's right edge: the connector leaves the card, it does not float. */
+  left: calc(50% - 384px);
+  top: 50%;
+  width: 950px;
+  height: 380px;
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 300ms ease;
+}
+
+.ad-tree.is-active {
+  opacity: 1;
+}
+
+.ad-tree__lines {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.ad-tree__lines .edge {
+  fill: none;
+  stroke: var(--hero-accent);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+/* Nothing grows until the Deck has finished sliding into place: the tree has to look like it
+   came out of the card, and it cannot do that while the card is still moving.
+
+   The branches are then deliberately uneven. Each takes as long as it is long, and they do not
+   start in top-to-bottom order, so the tree opens the way a real one does rather than fanning
+   out on a metronome. The middle branch is shortest and arrives first. */
+.ad-tree.is-active .edge {
+  animation: draw-edge 420ms cubic-bezier(.4,0,.2,1) forwards;
+}
+
+.ad-tree.is-active .edge-1 {
+  animation-delay: 1300ms;
+}
+
+.ad-tree.is-active .edge-2 {
+  animation-delay: 1780ms;
+  animation-duration: 240ms;
+}
+
+.ad-tree.is-active .edge-3 {
+  animation-delay: 2320ms;
+  animation-duration: 200ms;
+}
+
+.ad-tree.is-active .edge-4 {
+  animation-delay: 2500ms;
+  animation-duration: 560ms;
+}
+
+.ad-tree.is-active .edge-5 {
+  animation-delay: 2620ms;
+  animation-duration: 300ms;
+}
+
+.ad-tree.is-active .edge-6 {
+  animation-delay: 2560ms;
+  animation-duration: 620ms;
+}
+
+.ad-tree.is-active .edge-7 {
+  animation-delay: 3160ms;
+  animation-duration: 280ms;
+}
+
+@keyframes draw-edge {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* The nodes are the capability cards from the opening, in the same surface and the same corner,
+   because they are the same things: what assembled into the Deck is what the Run invokes. Each
+   names the invocation and, under it, the kind it is. Neutral throughout: status colour belongs
+   to the real execution UI further down the page, not to a diagram of the idea. */
+.tree-node {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 160px;
+  padding: 11px 14px;
+  border: 1px solid var(--hero-line-5);
+  border-radius: 12px 12px 5px 12px;
+  background: linear-gradient(180deg, var(--hero-panel-2), var(--hero-panel-3));
+  box-shadow:
+    inset 0 1px 0 var(--hero-grid-1),
+    0 12px 30px var(--hero-shadow-2);
+  color: var(--hero-ink);
+  opacity: 0;
+  transform: translateX(-16px);
+}
+
+.tree-node__icon {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--hero-line-6);
+  border-radius: 8px 8px 3px 8px;
+  color: var(--hero-accent);
+}
+
+.tree-node__icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.tree-node__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tree-node__name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-node__kind {
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--hero-ink-soft);
+}
+
+/* The root is the execution itself, so it carries the accent and names nothing else. */
+.tree-node.is-root {
+  width: 100px;
+  justify-content: center;
+  padding: 14px 15px;
+  border-color: var(--hero-accent);
+  color: var(--hero-accent);
+}
+
+.tree-node.is-root .tree-node__name {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ad-tree.is-active .tree-node {
+  animation: node-in 380ms cubic-bezier(.2,.9,.25,1) forwards;
+}
+
+.tree-node--run {
+  left: 150px;
+  top: 164px;
+}
+
+.tree-node--answer-wf {
+  left: 360px;
+  top: 164px;
+}
+
+.tree-node--docs {
+  left: 590px;
+  top: 44px;
+}
+
+.tree-node--researcher {
+  left: 590px;
+  top: 164px;
+}
+
+.tree-node--jack {
+  left: 590px;
+  top: 284px;
+}
+
+.tree-node--inspect {
+  left: 790px;
+  top: 164px;
+}
+
+/* The Run, then the workflow it invokes, then that workflow's three invocations arriving at
+   their own pace, and last the tool the researcher reaches for. */
+.ad-tree.is-active .tree-node--run {
+  animation-delay: 1680ms;
+}
+
+.ad-tree.is-active .tree-node--answer-wf {
+  animation-delay: 2100ms;
+}
+
+.ad-tree.is-active .tree-node--researcher {
+  animation-delay: 2940ms;
+}
+
+.ad-tree.is-active .tree-node--docs {
+  animation-delay: 3080ms;
+}
+
+.ad-tree.is-active .tree-node--jack {
+  animation-delay: 3200ms;
+}
+
+.ad-tree.is-active .tree-node--inspect {
+  animation-delay: 3460ms;
+}
+
+.tree-node--answer-wf {
+  left: 360px;
+  top: 164px;
+}
+
+.tree-node--docs {
+  left: 590px;
+  top: 44px;
+}
+
+.tree-node--researcher {
+  left: 590px;
+  top: 164px;
+}
+
+.tree-node--jack {
+  left: 590px;
+  top: 284px;
+}
+
+.tree-node--inspect {
+  left: 790px;
+  top: 164px;
+}
+
+@keyframes node-in {
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.phase-execute .ad-deck {
+  transform: translate(calc(-50% - 475px), -50%) scale(1);
+}
+
+@media (max-width: 1150px) {
+  .ad-hero {
+    padding-top: 34px;
+    padding-bottom: 12px;
+  }
+
+  .ad-module {
+    min-width: 104px;
+    padding: 11px 12px;
+    font-size: 12px;
+  }
+
+  /* The tree is dropped here rather than shrunk. It needs width this screen does not have, and
+     the page shows it properly twice further down, the second time live. What the hero keeps is
+     the half a phone can hold: capabilities assembling into the Deck, and the Deck activating. */
+  .ad-tree {
+    display: none;
+  }
+
+  .ad-stage {
+    /* Viewport-relative, so the hero still stands in one screen on a short phone. */
+    height: clamp(184px, 26vh, 246px);
+    margin-top: 0;
+  }
+
+  .phase-execute .ad-deck {
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@media (max-width: 640px) {
+  .ad-hero {
+    padding-inline: 14px;
+  }
+
+  .ad-hero h1 {
+    font-size: clamp(33px, 10.4vw, 52px);
+  }
+
+  .ad-hero__subtitle {
+    margin-top: 14px;
+    font-size: 15px;
+  }
+
+  .ad-stage {
+    --deck-w: 142px;
+    --deck-h: 186px;
+  }
+
+  .ad-module {
+    min-width: 92px;
+  }
+
+  .ad-module--agent {
+    --scatter-x: 22% !important;
+    --scatter-y: 20% !important;
+  }
+
+  .ad-module--tool {
+    --scatter-x: 78% !important;
+    --scatter-y: 25% !important;
+  }
+
+  .ad-module--workflow {
+    --scatter-x: 22% !important;
+    --scatter-y: 72% !important;
+  }
+
+  .ad-module--skill {
+    --scatter-x: 78% !important;
+    --scatter-y: 70% !important;
+  }
+
+  .ad-deck__surface .ad-mark {
+    width: 34px;
+    height: 34px;
+  }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .ad-stage.phase-execute .ad-tree,
+  .ad-stage.phase-execute .tree-node {
+    opacity: 1;
+  }
+}
+
+/* Set from the wordmark's own outlines, so the lockup above the headline is the brand's rather
+   than the body face in capitals. */
+.ad-wordmark {
+  height: 23px;
+  width: auto;
+  color: var(--hero-ink);
+}
+
+.ad-hero__eyebrow .ad-mark {
+  width: 22px;
+  height: 22px;
+}

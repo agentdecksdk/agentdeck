@@ -7,12 +7,12 @@ becomes a ``FunctionTool`` whose declared signature starts with the SDK's own wr
 becomes a callable whose declared signature carries langgraph's ``runtime`` parameter, which is
 the channel langgraph fills from the ``context=`` the engine passes to ``astream``.
 
-Why a rewrite rather than a declaration: langgraph injects **by parameter name** — ``runtime``,
-``config``, ``writer``, ``store`` — so a parameter annotated ``Context[...]`` under any name
+Why a rewrite rather than a declaration: langgraph injects **by parameter name**  -  ``runtime``,
+``config``, ``writer``, ``store``  -  so a parameter annotated ``Context[...]`` under any name
 reaches a node only if something puts it there. Nothing else can: the author builds the
 ``StateGraph`` themselves, so a node's one compilation seam is the graph AgentDeck is handed.
 
-Only AgentDeck-managed nodes are touched — a plain callable passed to ``add_node``. A node that
+Only AgentDeck-managed nodes are touched  -  a plain callable passed to ``add_node``. A node that
 is any other kind of ``Runnable`` (a chain, a nested compiled graph) is engine-native and left
 exactly as it is, and so is a callable whose signature could not be read: unlike a tool, a node
 has no model-visible schema that must exist at build time, so leaving it alone changes nothing
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 RUNTIME_PARAMETER = "runtime"
 """The one parameter name langgraph fills with its ``Runtime``, which carries ``context=``.
 
-Name-based, and langgraph's rule rather than a choice here — which is exactly why the public
+Name-based, and langgraph's rule rather than a choice here  -  which is exactly why the public
 contract cannot be a parameter name and a node declaring ``Context[...]`` has to be rewritten
 into one that declares this.
 """
@@ -53,7 +53,7 @@ def bridge_context_nodes(graph: StateGraph[Any], *, context_type: object | None 
 
     Returns the same graph, so a caller can wrap ``build_graph()`` in one expression. Raises
     :class:`ConfigError` naming the node when a node's callable declares more than one
-    ``Context[...]`` parameter — at ``build()``, the same moment an agent's tool would — and
+    ``Context[...]`` parameter  -  at ``build()``, the same moment an agent's tool would  -  and
     :class:`ContextTypeError`, also naming the node, when ``context_type`` (the owning deck's
     ``Deck(context=...)`` declaration) cannot satisfy what the node requires.
     """
@@ -87,7 +87,7 @@ def _bridge(analysis: CallableAnalysis) -> Callable[..., Any]:
     """A node langgraph sees as ``(state, runtime, *whatever else the author declared)``.
 
     langgraph passes the state positionally and every injected parameter by keyword, so the
-    bridge takes exactly that shape and hands the original its own parameters back — including
+    bridge takes exactly that shape and hands the original its own parameters back  -  including
     a ``config`` or ``writer`` the author also declared, which travel through untouched.
     """
     # The analysis types its subject's return as `object`, which it cannot know anything about;
@@ -111,7 +111,7 @@ def _bridge(analysis: CallableAnalysis) -> Callable[..., Any]:
             # somewhere less legible than here.
             raise ConfigError(
                 f"{describe_callable(target)} declares a Context[...] parameter, but this run carries "
-                f"{type(run).__name__} rather than an AgentDeck run context — a node compiled by "
+                f"{type(run).__name__} rather than an AgentDeck run context  -  a node compiled by "
                 "AgentDeck has to be played by an AgentDeck run."
             )
         supplied = {context_parameter: Context(run), **injected}

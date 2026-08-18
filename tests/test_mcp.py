@@ -1,4 +1,4 @@
-"""``agentdeck.mcp.MCP``: one ``.mcp.json`` file, parsed and validated at ``build()`` —
+"""``agentdeck.mcp.MCP``: one ``.mcp.json`` file, parsed and validated at ``build()``  -
 the replacement for the old ``mcp:`` section of ``config.yaml`` and ``AGENTDECK_MCP_SERVERS``.
 """
 

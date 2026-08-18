@@ -1,13 +1,13 @@
 """``LeasePort`` in SQLite: one row per ``run_id``, in the file ``AGENTDECK_CONTROL`` names.
 
 This is the backend that makes the issue's headline case real. A worker killed outright stops
-renewing, its row expires, and the *next* worker — a different OS process, sharing only this
-file — can positively assert the run is not being executed, instead of inferring it from an
+renewing, its row expires, and the *next* worker  -  a different OS process, sharing only this
+file  -  can positively assert the run is not being executed, instead of inferring it from an
 hour of silence.
 
 Same clock for everyone, taken from SQLite itself rather than each caller's Python: two workers
 comparing their own clocks against a peer's expiry is how skew turns into a takeover of live
-work. Same single-machine caveat as ``control.sqlite`` — WAL rests on shared memory, so one
+work. Same single-machine caveat as ``control.sqlite``  -  WAL rests on shared memory, so one
 file behind more than one machine is unsupported.
 """
 
@@ -27,13 +27,13 @@ if TYPE_CHECKING:
     from datetime import timedelta
     from pathlib import Path
 
-# ponytail: one row per leased run, deleted on release — a killed worker's row is the only
+# ponytail: one row per leased run, deleted on release  -  a killed worker's row is the only
 # kind that lingers, and the takeover that reads it releases it. No sweep needed until a
 # fleet crashes faster than it recovers.
 _SCHEMA = "CREATE TABLE IF NOT EXISTS leases (run_id TEXT PRIMARY KEY, expires_at TEXT NOT NULL);"
 
 # Matches ``stores.sqlite``'s own ``_backend_now`` format: millisecond precision, explicit UTC
-# offset, fixed width — so a plain string comparison in SQL is a chronological one.
+# offset, fixed width  -  so a plain string comparison in SQL is a chronological one.
 _NOW = "strftime('%Y-%m-%dT%H:%M:%f+00:00', 'now')"
 # The bound parameter is a whole SQLite time modifier ("60.0 seconds"), not a bare number: a
 # modifier assembled in SQL from `? || ' seconds'` yields NULL for anything SQLite will not
@@ -65,7 +65,7 @@ def _connect(db_path: str) -> sqlite3.Connection:
 
 
 class SqliteLeasePort(LeasePort):
-    """One connection, serialized by a lock — ``sqlite3`` is stdlib but not coroutine-safe, so
+    """One connection, serialized by a lock  -  ``sqlite3`` is stdlib but not coroutine-safe, so
     the same posture as every other SQLite-backed port here, failures included."""
 
     def __init__(self, db_path: str | Path = ":memory:") -> None:

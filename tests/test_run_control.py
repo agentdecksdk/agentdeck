@@ -20,7 +20,7 @@ from event_log_checks import check_contiguous, check_terminal
 from never_yields import NeverYields
 
 # The contract suite's model, reused on purpose: it decides from the *tail* of its input, so a
-# replayed turn whose tool result never reached the session asks for that tool again — which is
+# replayed turn whose tool result never reached the session asks for that tool again  -  which is
 # what makes the replay cost of a pause observable here.
 from openai_agents_cases import TailScriptedModel
 
@@ -30,7 +30,7 @@ from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.authoring.tools import compile_tool
 from agentdeck.core.content import coerce_input
-from agentdeck.core.context import Context, RunContext  # noqa: TC001 — ``peek`` resolves it at runtime
+from agentdeck.core.context import Context, RunContext  # noqa: TC001  -  ``peek`` resolves it at runtime
 from agentdeck.core.control import CONTROL_POLL_INTERVAL, ControlSignal, Gate, RunPausedError, Signal
 from agentdeck.core.events import RunCompleted, TextDelta, Usage
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
@@ -45,11 +45,11 @@ if TYPE_CHECKING:
 
 
 class Calendar:
-    """An application object a run is handed — the subject of the two resupply tests below."""
+    """An application object a run is handed  -  the subject of the two resupply tests below."""
 
 
 class CountingControlPort(MemoryControlPort):
-    """A control port that says how many times it was read — which is the whole subject of
+    """A control port that says how many times it was read  -  which is the whole subject of
     issue #85, and unmeasurable from the outside otherwise."""
 
     def __init__(self) -> None:
@@ -114,7 +114,7 @@ async def test_control_reads_are_bounded_by_the_interval_not_by_the_number_of_sa
 
 
 async def test_a_signal_recorded_inside_an_interval_is_honored_at_the_first_safe_point_after_it() -> None:
-    """Latency, never correctness: the pause is not lost, it is noticed one interval later — and
+    """Latency, never correctness: the pause is not lost, it is noticed one interval later  -  and
     still at a safe point, which is the guarantee the bound is not allowed to change."""
     control = CountingControlPort()
     clock = FakeClock()
@@ -142,7 +142,7 @@ async def test_the_cooldown_is_a_deadline_and_never_a_wait(monkeypatch: pytest.M
     fails here instead of quietly turning every safe point into a stall. Nothing else catches
     that: the read *counts* are identical either way, and an elapsed-time assertion is exactly
     what ``docs/coding-standards.md`` §8 forbids. The interval is an hour to make the point
-    unmissable — a waiting implementation would park this run for an hour per safe point.
+    unmissable  -  a waiting implementation would park this run for an hour per safe point.
     """
 
     async def never(*args: object, **kwargs: object) -> None:
@@ -155,7 +155,7 @@ async def test_the_cooldown_is_a_deadline_and_never_a_wait(monkeypatch: pytest.M
 
     await gate.checkpoint()  # the branch that reads
     for _ in range(100):
-        await gate.checkpoint()  # the branch that reuses — an hour of them, at no wait
+        await gate.checkpoint()  # the branch that reuses  -  an hour of them, at no wait
     clock.advance(3_600.0)
     await gate.checkpoint()  # the deadline passed, so it asks again
 
@@ -188,8 +188,8 @@ def test_a_negative_poll_interval_is_refused_rather_than_treated_as_zero() -> No
 
 
 async def test_the_shipped_default_bound_is_the_one_the_docs_state() -> None:
-    """The number is user-facing — it is the cancel-latency bound written on the run-control
-    page — so it is pinned here rather than left to drift silently.
+    """The number is user-facing  -  it is the cancel-latency bound written on the run-control
+    page  -  so it is pinned here rather than left to drift silently.
 
     Asserted through a gate built the way a run's gate is built (no ``poll_interval`` passed),
     so this also holds the *default* to the constant: a gate that ignored it would still read
@@ -213,7 +213,7 @@ async def test_the_shipped_default_bound_is_the_one_the_docs_state() -> None:
 async def test_a_long_answer_pays_one_read_per_interval_where_it_used_to_pay_one_per_item() -> None:
     """#85's before and after: a 400-chunk answer arriving at a real model's pace (~30ms a
     chunk, so 12 seconds of streaming) costs 400 control reads at the old rate and 58 at the
-    shipped bound — the same run, the same safe points, one read in seven.
+    shipped bound  -  the same run, the same safe points, one read in seven.
 
     Measured at the gate rather than through a Runtime because the gate is the only thing that
     reads: the count is a function of safe points, elapsed time and the interval, and nothing a
@@ -294,7 +294,7 @@ async def test_a_pause_signalled_mid_stream_lands_after_the_chunk_that_was_in_fl
 
 async def test_a_pause_during_a_tool_call_waits_for_the_call_to_return() -> None:
     """A non-cancellable tool is not interrupted: it runs to completion, and only then does the
-    run stop — before the model step its result would have fed.
+    run stop  -  before the model step its result would have fed.
 
     The pause is signalled from *inside* the tool, which is the one window that cannot be
     arranged from outside: the run is between two safe points, inside code the platform does not
@@ -346,7 +346,7 @@ async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None
     """A paused turn left no stack to return to, so resume plays it again: the model is asked a
     second time and the run reaches ``run.completed`` under its original ``run_id``.
 
-    The replay is visible in the log — the deltas appear on both sides of the pause. That is the
+    The replay is visible in the log  -  the deltas appear on both sides of the pause. That is the
     documented cost of a pause here, and the reason a tool with side effects has to tolerate
     running twice; a test that hid it would be hiding the contract.
     """
@@ -387,7 +387,7 @@ async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None
 
 async def test_lifting_a_pause_resupplies_the_run_s_application_context() -> None:
     """``resume_run`` mints a fresh ``RunContext``, and used to mint it with no ``data=`` at all
-    — so a run paused mid-tool replayed with its application context gone.
+     -  so a run paused mid-tool replayed with its application context gone.
 
     Undetectable from inside: the context is never serialized, so nothing in the log can be
     compared against what should have been there. A tool written defensively as ``if ctx.data:``
@@ -482,7 +482,7 @@ async def test_a_signal_is_honored_with_a_store_that_never_yields() -> None:
     runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
 
     # The real id is read off ``run.started``, then the cancel is recorded before the stream is
-    # asked for anything else — still ahead of the engine's first checkpoint, which is what used
+    # asked for anything else  -  still ahead of the engine's first checkpoint, which is what used
     # to be meant by "before it even opened".
     stream = runtime.run("Chatty", coerce_input("hi"), session_id=ctx.session_id, namespace=ctx.namespace)
     started = await anext(stream)
@@ -502,8 +502,8 @@ async def test_a_signal_without_a_control_port_says_it_was_not_recorded() -> Non
 
 
 async def test_resuming_a_run_that_is_not_paused_is_a_noop() -> None:
-    """Three shapes of the same non-answer — a run still going, a run that finished, and an id
-    nobody has heard of — none of which is an error to raise over."""
+    """Three shapes of the same non-answer  -  a run still going, a run that finished, and an id
+    nobody has heard of  -  none of which is an error to raise over."""
     control = MemoryControlPort()
     spec = stub_spec("Chatty", RunCompleted(output=coerce_input("done"), usage=Usage(input_tokens=0, output_tokens=0)))
     store = MemoryEventStore()

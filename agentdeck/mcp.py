@@ -1,7 +1,7 @@
-"""``MCP`` — the capability object over one ``.mcp.json`` file.
+"""``MCP``  -  the capability object over one ``.mcp.json`` file.
 
 Replaces the old ``mcp:`` section of ``config.yaml`` and ``AGENTDECK_MCP_SERVERS``: one file is
-now the single source of truth for named MCP servers, in the shape Claude Code already uses —
+now the single source of truth for named MCP servers, in the shape Claude Code already uses  -
 an ``mcpServers`` object, keyed by name. ``Agent.mcp`` resolves names against it; this class owns
 *how* to reach each one. Construction reads nothing from disk; :meth:`build` parses and
 validates the file.
@@ -56,7 +56,7 @@ class MCP:
         try:
             data = json.loads(resolved.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
-            raise ConfigError(f"{resolved}: invalid JSON — {exc}") from exc
+            raise ConfigError(f"{resolved}: invalid JSON  -  {exc}") from exc
         servers = data.get("mcpServers") if isinstance(data, dict) else None
         if not isinstance(servers, dict):
             raise ConfigError(f"{resolved}: expected an object with an 'mcpServers' object.")

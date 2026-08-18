@@ -50,15 +50,15 @@ class SessionBusyError(AgentdeckError):
     """A turn was asked for on a session another run already holds.
 
     One session runs one turn at a time: a second turn would hand the engine a conversation
-    the first one is still changing. Not a store failure — the log answered, and the answer
-    was no. The message names the run holding the session, and — when that run is parked
-    waiting for an answer or a resume rather than actually running — the call that frees it,
+    the first one is still changing. Not a store failure  -  the log answered, and the answer
+    was no. The message names the run holding the session, and  -  when that run is parked
+    waiting for an answer or a resume rather than actually running  -  the call that frees it,
     which is what a caller retries behind or reports.
     """
 
 
 class RunStateError(AgentdeckError):
-    """The operation is not one this run's state admits — answering a paused run, resuming one
+    """The operation is not one this run's state admits  -  answering a paused run, resuming one
     that is waiting for a value, or answering one an operator asked to stop.
 
     The state machine answered, and the answer was no; nothing was written. A refusal that came
@@ -70,32 +70,32 @@ class RunStateError(AgentdeckError):
 
 
 class StoreError(AgentdeckError):
-    """A durable store failed — the event log, or the control-signal rows beside it.
+    """A durable store failed  -  the event log, or the control-signal rows beside it.
 
     The one type a store adapter raises outward: whatever library it is built on keeps its
     own exceptions behind the port, chained onto this one as ``__cause__``. Losing a race
-    is not one of these — a refused claim is a ``False``, an unreachable store is an error.
+    is not one of these  -  a refused claim is a ``False``, an unreachable store is an error.
     """
 
 
 class DuplicateKeyError(AgentdeckError):
     """A run started with a ``key`` already claimed by another run in the same namespace.
 
-    ``(namespace, key)`` is consumed permanently once a run opens with it — not merely while
-    that run is active — so this is not a race retried away; it is the store refusing a second
+    ``(namespace, key)`` is consumed permanently once a run opens with it  -  not merely while
+    that run is active  -  so this is not a race retried away; it is the store refusing a second
     start rather than silently handing back the run that already holds the key. The caller's
     recovery path is ``get(namespace=, key=)``, not a retry.
     """
 
 
 class RunSuspendedError(RunStateError):
-    """``await run`` reached a run that stopped suspended — ``PAUSED`` or ``WAITING_ANSWER`` —
+    """``await run`` reached a run that stopped suspended  -  ``PAUSED`` or ``WAITING_ANSWER``  -
     rather than completing, failing or being cancelled.
 
     There is no timeout parameter to wait either state out (``docs/design/run-identity.md``
     §15): a caller who wanted to block would hang forever if nobody ever resumes or answers it,
-    so this raises instead. ``pending`` carries what :meth:`Run.answer` would need — the
-    interrupt's own payload — and is ``None`` for a plain pause, which only ``run.resume()``
+    so this raises instead. ``pending`` carries what :meth:`Run.answer` would need  -  the
+    interrupt's own payload  -  and is ``None`` for a plain pause, which only ``run.resume()``
     lifts.
     """
 

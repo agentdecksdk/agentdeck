@@ -3,14 +3,14 @@ never seen.
 
 Same method as `test_old_reader_compat.py`, aimed at the module that change #109 touches
 instead of the one that one measures. `agentdeck/core/content.py` is loaded as it stood at
-BASELINE — before `UnknownBlock` existed — and handed the wire shape of a block type this
+BASELINE  -  before `UnknownBlock` existed  -  and handed the wire shape of a block type this
 tree's addition introduces. The first bar is the bug #109 exists to fix, run rather than
 argued: that old `ContentBlock` is a strict discriminated union, so it must reject the block
 outright. The second bar is this tree's fix: the same wire shape, inside a real event, must
 parse, keep the raw block, and leave `status_of` and the terminal invariant exactly where they
 were without it.
 
-Skipped, loudly, when the baseline is not fetched — see `test_old_reader_compat.py` for why.
+Skipped, loudly, when the baseline is not fetched  -  see `test_old_reader_compat.py` for why.
 """
 
 from __future__ import annotations
@@ -32,11 +32,11 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 BASELINE = "v2.0.0b4"
-"""The newest released reader — same tag `test_old_reader_compat.py` measures against."""
+"""The newest released reader  -  same tag `test_old_reader_compat.py` measures against."""
 
 # Not one of TextBlock/ImageBlock/AudioBlock/ResourceBlock/DataBlock on either side of #109; that
 # is the whole point of "a type dev has never seen". Audio stopped being an example of this once
-# AudioBlock became real (#159) — "video" is what stays unknown on both sides now.
+# AudioBlock became real (#159)  -  "video" is what stays unknown on both sides now.
 UNFAMILIAR_BLOCK = {"type": "video", "uri": "s3://clips/9.mp4", "duration_s": 12}
 
 TS = "2026-01-01T12:00:00+00:00"
@@ -86,7 +86,7 @@ def old_content(tmp_path_factory) -> ModuleType:
 
 def test_the_baseline_content_module_has_no_unknown_block(old_content) -> None:
     """The measurement only means something if the reader really predates the fallback. If
-    this fails, the baseline moved past #109 — retire the measurement, don't relax it."""
+    this fails, the baseline moved past #109  -  retire the measurement, don't relax it."""
     assert not hasattr(old_content, "UnknownBlock")
 
 
@@ -109,7 +109,7 @@ def test_this_tree_parses_the_same_block_as_unknown_and_keeps_it_raw() -> None:
             "context": {"trace_id": "t"},
         },
     )
-    event = Event.model_validate(wire)  # must not raise — the fix under test
+    event = Event.model_validate(wire)  # must not raise  -  the fix under test
     assert event.payload.input[1] == UnknownBlock(type="video", raw_block=UNFAMILIAR_BLOCK)  # raw block kept
 
 

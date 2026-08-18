@@ -1,4 +1,4 @@
-"""``Deck``: the v3 composition root. One test per "Done when" item in #164's 4d slice —
+"""``Deck``: the v3 composition root. One test per "Done when" item in #164's 4d slice  -
 ``Deck.asgi()`` and the golden-wire invariants are covered in 4e; this file is the Python API.
 """
 
@@ -24,7 +24,7 @@ from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring import Agent, Workflow
 from agentdeck.authoring.timers import sleep_until
 from agentdeck.core.content import coerce_input
-from agentdeck.core.context import Context, RunContext  # noqa: TC001 — the node below resolves it at runtime
+from agentdeck.core.context import Context, RunContext  # noqa: TC001  -  the node below resolves it at runtime
 from agentdeck.core.control import Signal
 from agentdeck.core.status import RunStatus
 from agentdeck.deck import Deck, TurnResult, _new_context, _turn_result
@@ -70,7 +70,7 @@ def mcp_connect(monkeypatch):
 
     async def _connect(self: Any) -> None:
         if self.name in refuse:
-            raise PermissionError(f"{self.name}: no")  # not transient — no retry backoff to wait out
+            raise PermissionError(f"{self.name}: no")  # not transient  -  no retry backoff to wait out
 
     async def _cleanup(self: Any) -> None:
         return None
@@ -150,7 +150,7 @@ def _write_skill(root, dirname: str, *, description: str = "does a thing") -> No
 
 @pytest.fixture(autouse=True)
 def _reset_mcp_lifecycle():
-    """Every test here starts from a clean process-wide registry — it's shared state."""
+    """Every test here starts from a clean process-wide registry  -  it's shared state."""
     MCPLifecycle.reset()
     yield
     MCPLifecycle.reset()
@@ -158,7 +158,7 @@ def _reset_mcp_lifecycle():
 
 @pytest.fixture
 def no_project(tmp_path, monkeypatch):
-    """A cwd with no ``.agentdeck`` at all — proves the code-first constructor needs none."""
+    """A cwd with no ``.agentdeck`` at all  -  proves the code-first constructor needs none."""
     monkeypatch.chdir(tmp_path)
 
 
@@ -297,7 +297,7 @@ async def test_a_refused_second_deck_leaves_the_live_ones_namespace_alone(tmp_pa
     """The refusal must not damage the deck it protects.
 
     ``from_project`` mounts before it constructs, and mounting evicts the alias' cached
-    submodules and repoints it at the new root — so refusing inside ``__init__`` alone would
+    submodules and repoints it at the new root  -  so refusing inside ``__init__`` alone would
     leave the surviving deck's namespace resolving against a project it does not own. Harmless
     while it only reads live objects, and not harmless the moment a durable workflow resumes and
     re-imports a bundle class. Hence the pre-mount refusal, pinned here.
@@ -321,7 +321,7 @@ async def test_a_refused_second_deck_leaves_the_live_ones_namespace_alone(tmp_pa
 @pytest.mark.asyncio
 async def test_a_closed_deck_hands_the_process_to_the_next_one(no_project, build_first):
     """Sequential decks are the supported shape, and `aclose()` is reachable from `NEW` and
-    `BUILT` alike — a deck that was never opened still holds the process until it is closed."""
+    `BUILT` alike  -  a deck that was never opened still holds the process until it is closed."""
     first = Deck(agents=[_greeter()])
     if build_first:
         first.build()
@@ -420,7 +420,7 @@ def test_mcp_coercion_accepts_a_bare_path_and_a_capability_object(tmp_path):
 
     from_path.build()
     from_object.build()
-    # `mcp` is deliberately not a public property (only agents/workflows/skills/settings are —
+    # `mcp` is deliberately not a public property (only agents/workflows/skills/settings are  -
     # see the module docstring); build() succeeding without a "no mcp= configured" ConfigError
     # is itself proof the bare path coerced into a working MCP the same as the object did.
 
@@ -430,7 +430,7 @@ def test_mcp_coercion_accepts_a_bare_path_and_a_capability_object(tmp_path):
 
 def test_two_agents_sharing_a_name_raise_at_construction():
     """`{a.name: a for a in agents}` would collapse a duplicate to whichever came last with
-    no error — the same silent shadow the discovery path already refuses."""
+    no error  -  the same silent shadow the discovery path already refuses."""
     with pytest.raises(ConfigError, match="Dup"):
         Deck(agents=[_greeter(name="Dup"), _greeter(name="Dup")])
 
@@ -443,7 +443,7 @@ def test_two_workflows_sharing_a_name_raise_at_construction():
 def test_agent_and_workflow_sharing_a_name_fails_build_naming_both():
     deck = Deck(agents=[_greeter(name="Twin")], workflows=[_shout_workflow(name="Twin")])
 
-    # a bare `match="Twin"` would still pass a regression to a message naming only one kind —
+    # a bare `match="Twin"` would still pass a regression to a message naming only one kind  -
     # pin that both are named, not just that the shared name appears somewhere in the text.
     with pytest.raises(ConfigError, match=r"agent.*Twin.*workflow|workflow.*Twin.*agent"):
         deck.build()
@@ -497,7 +497,7 @@ def test_agent_workflow_tool_that_is_registered_builds_cleanly():
 
 def test_a_durable_workflow_used_as_a_tool_fails_build_naming_both():
     """`as_tool()` calls `run(args)` with no thread_id, which a durable workflow requires, so
-    the tool raised the moment a model called it — after building clean (#193)."""
+    the tool raised the moment a model called it  -  after building clean (#193)."""
     durable = Workflow(name="Durable", state=_State, graph=_build_shout_graph, durable=True)
     deck = Deck(agents=[_greeter(tools=[durable])], workflows=[durable])
 
@@ -534,7 +534,7 @@ def test_agent_tool_that_is_a_bare_lambda_is_compiled_under_its_own_unhelpful_na
 
 
 def test_agent_tool_whose_signature_cannot_be_read_fails_build_naming_both():
-    """A decorator that dropped ``functools.wraps`` leaves nothing to build a schema from — and
+    """A decorator that dropped ``functools.wraps`` leaves nothing to build a schema from  -  and
     nothing that could rule out a ``Context[...]`` parameter either, so compiling it anyway would
     drop that argument at the first call."""
 
@@ -577,7 +577,7 @@ def test_agent_tool_wrapped_with_function_tool_builds_cleanly():
 
 
 def test_agent_tool_that_is_a_hosted_sdk_tool_builds_cleanly():
-    """A ``FunctionTool``-only check would reject this — pins that the structural check
+    """A ``FunctionTool``-only check would reject this  -  pins that the structural check
     accepts any SDK tool object, not just the one built by ``@function_tool``."""
     deck = Deck(agents=[_greeter(tools=[WebSearchTool()])])
 
@@ -638,7 +638,7 @@ def test_mutating_the_catalog_after_build_raises():
 async def test_reopening_a_closed_deck_raises(no_project, scripted):
     """Silently reopening would build a second runtime/store/engine set and start MCP again,
     while the eventual `aclose()` sees the stale `_closed` guard and skips draining or closing
-    any of it — a leak dressed up as reuse."""
+    any of it  -  a leak dressed up as reuse."""
     deck = Deck(agents=[_greeter()])
 
     async with deck:
@@ -682,7 +682,7 @@ async def test_stream_before_open_raises(no_project):
 
 @pytest.mark.asyncio
 async def test_runs_collection_ops_after_close_raise_not_open(no_project):
-    """``deck.runs.start/get/list`` all forward through ``_require_open()`` — a closed deck
+    """``deck.runs.start/get/list`` all forward through ``_require_open()``  -  a closed deck
     raises the same ``ConfigError`` every other op does."""
     deck = Deck(agents=[_greeter()])
 
@@ -700,7 +700,7 @@ async def test_runs_collection_ops_after_close_raise_not_open(no_project):
 @pytest.mark.asyncio
 async def test_run_handle_ops_after_close_raise_not_open(no_project, scripted):
     """A ``Run`` held from before the deck closed still forwards every op through
-    ``_require_open()`` — a handle outlives the deck it came from, but not what it can do."""
+    ``_require_open()``  -  a handle outlives the deck it came from, but not what it can do."""
     deck = Deck(agents=[_greeter()])
 
     async with deck:
@@ -746,7 +746,7 @@ async def test_opening_a_deck_wires_its_connected_mcp_server_into_the_compiled_a
 ):
     deck = Deck(agents=[_greeter(mcp=["calendar"])], mcp=_write_mcp_json(tmp_path))
     if build_first:
-        deck.build()  # the documented pattern: validate early, open later — must not stick
+        deck.build()  # the documented pattern: validate early, open later  -  must not stick
 
     async with deck:
         compiled = deck._invocables["Greeter"].native
@@ -787,7 +787,7 @@ async def test_mcp_refresh_keeps_a_skills_disclosure_intact(no_project, tmp_path
 
 def test_build_logs_no_false_not_found_warning_for_a_configured_mcp_server(tmp_path, caplog):
     """Before the fix, resolving a genuinely-configured server before any server connects
-    fell back to a bare, un-configured ``MCPLifecycle`` and logged this exact line — the
+    fell back to a bare, un-configured ``MCPLifecycle`` and logged this exact line  -  the
     silent-drop wording #173 flags, even though the server is not, in fact, missing."""
     deck = Deck(agents=[_greeter(mcp=["calendar"])], mcp=_write_mcp_json(tmp_path))
 
@@ -869,7 +869,7 @@ async def test_deck_closes_a_store_it_built_itself(no_project, monkeypatch, scri
 def test_engines_seam_restricts_which_engines_a_catalog_may_use(no_project):
     """A private, test-only override (never in the documented constructor, same as the
     Runtime's own ``tests/contract/`` seam): naming only the stub engine means an ordinary
-    ``Agent`` — which needs "openai-agents" — fails ``build()`` instead of silently compiling."""
+    ``Agent``  -  which needs "openai-agents"  -  fails ``build()`` instead of silently compiling."""
     deck = Deck(agents=[_greeter()], _engines=("stub",))
 
     with pytest.raises(ConfigError, match="openai-agents"):
@@ -878,7 +878,7 @@ def test_engines_seam_restricts_which_engines_a_catalog_may_use(no_project):
 
 def test_engines_seam_accepts_the_matching_default_engines(no_project):
     """The same seam, given the real default engine names, builds exactly like the default
-    constructor — proving the restriction above comes from the *set*, not the seam itself."""
+    constructor  -  proving the restriction above comes from the *set*, not the seam itself."""
     from agentdeck.adapters.engines.langgraph import LangGraphEngine
     from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
 
@@ -925,7 +925,7 @@ def test_asgi_health_reflects_this_decks_catalog(no_project, tmp_path):
 
 
 def _reader_ctx(session_id: str | None) -> RunContext:
-    """A throwaway context of the Deck's own namespace, for reading its log back in a test —
+    """A throwaway context of the Deck's own namespace, for reading its log back in a test  -
     exactly what ``serve.py``'s compat routes build for an HTTP request."""
     return RunContext(run_id="reader", session_id=session_id)
 
@@ -1043,7 +1043,7 @@ async def test_stream_yields_canonical_events_and_is_recorded(no_project):
 
 @pytest.mark.asyncio
 async def test_an_abandoned_stream_leaves_execution_running_to_completion(no_project):
-    """A caller that stops reading ``stream()`` only stops *watching* — the run itself is a
+    """A caller that stops reading ``stream()`` only stops *watching*  -  the run itself is a
     deck-owned task from the moment ``_start`` returns it, and keeps executing to its own
     natural end regardless of whether anybody is still attached to observe it
     (docs/design/run-identity.md §9). This used to be the opposite: closing ``stream()``'s own
@@ -1098,8 +1098,8 @@ async def test_two_observers_of_one_run_both_see_every_event_and_it_executes_onc
 
             watcher_a = asyncio.create_task(_collect(deck._events(opening.run_id, ctx.log_key, ctx)))
             watcher_b = asyncio.create_task(_collect(deck._events(opening.run_id, ctx.log_key, ctx)))
-            # Caught mid-turn, inside its own await for the next event — the same window a
-            # second observer would attach in for real — before letting it finish.
+            # Caught mid-turn, inside its own await for the next event  -  the same window a
+            # second observer would attach in for real  -  before letting it finish.
             await model.holding.wait()
             hold.set()
             events_a, events_b = await asyncio.gather(watcher_a, watcher_b)
@@ -1146,7 +1146,7 @@ async def test_a_second_handle_awaits_the_same_result_as_the_first(no_project, s
 @pytest.mark.asyncio
 async def test_a_run_recovered_by_another_deck_can_be_observed_and_awaited(no_project, scripted):
     """What a second process sees: no locally-owned execution task at all, only the store this
-    Deck shares with whichever one ran the turn — the ``get()``-recovered row of the
+    Deck shares with whichever one ran the turn  -  the ``get()``-recovered row of the
     execution-ownership matrix, modelled here as a second ``Deck`` over the first one's store."""
     store = MemoryEventStore()
     deck_a = Deck(agents=[_greeter()], _store=store)
@@ -1184,7 +1184,7 @@ def _build_ctx_approval_graph() -> StateGraph:
 
 
 def _ctx_approval_workflow() -> Workflow:
-    """Pauses on ``interrupt()`` and reads its environment — the node re-runs from its start on
+    """Pauses on ``interrupt()`` and reads its environment  -  the node re-runs from its start on
     resume, so ``ctx.data`` is what proves whether the context that answered it is the one that
     started it, or ``None`` because none did."""
     return Workflow(name="CtxApproval", state=_CtxApprovalState, durable=True, graph=_build_ctx_approval_graph)
@@ -1192,7 +1192,7 @@ def _ctx_approval_workflow() -> Workflow:
 
 @pytest.mark.asyncio
 async def test_a_restarted_deck_recovers_durable_state_but_not_ephemeral_context(no_project, monkeypatch):
-    """The ``Restart`` row: persist a run, rebuild the deck, ``get(id)`` — durable status,
+    """The ``Restart`` row: persist a run, rebuild the deck, ``get(id)``  -  durable status,
     history and result all survive; the context a live process held for it does not, because it
     was never written down (docs/design/run-identity.md §6, §14).
     """
@@ -1208,7 +1208,7 @@ async def test_a_restarted_deck_recovers_durable_state_but_not_ephemeral_context
             assert paused["type"] == "interrupt"
             run_id = paused["id"]
 
-        # A fresh Deck over the same durable stores — everything deck_a held in memory (its own
+        # A fresh Deck over the same durable stores  -  everything deck_a held in memory (its own
         # process, its own `context="alive"`) is gone; only what was written survives. The
         # checkpointer is the process-wide memory saver both decks share (a real restart would
         # use a durable one instead), which is exactly what lets `resume` below find the paused
@@ -1249,7 +1249,7 @@ async def test_deck_run_and_start_then_await_produce_identical_logs(no_project, 
 
 @pytest.mark.asyncio
 async def test_a_finished_runs_execution_task_is_retired_promptly(no_project, scripted):
-    """No leak: the moment a run settles, its entry is gone — ``aclose()`` never has anything
+    """No leak: the moment a run settles, its entry is gone  -  ``aclose()`` never has anything
     left over from a run nobody is still executing."""
     deck = Deck(agents=[_greeter()])
 
@@ -1261,7 +1261,7 @@ async def test_a_finished_runs_execution_task_is_retired_promptly(no_project, sc
 @pytest.mark.asyncio
 async def test_closing_a_deck_cancels_a_run_still_in_flight_and_says_so(no_project, caplog):
     """``aclose()`` settles or cancels every run it is still executing, and says which
-    (docs/design/run-identity.md §9) — the same discipline the sweeper already uses
+    (docs/design/run-identity.md §9)  -  the same discipline the sweeper already uses
     (``deck.py``'s ``_sweep``). A run genuinely mid-turn when the deck closes has no chance to
     finish on its own, so it is cancelled, and the Runtime's own ``asyncio.CancelledError`` arm
     is what writes ``run.cancelled`` for it."""
@@ -1528,8 +1528,8 @@ async def test_generated_ids_are_unique_across_runs(no_project, scripted):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("session_of", ["s-completed", "s-failed"])
 async def test_a_terminal_session_admits_a_fresh_start_no_session_busy_error(no_project, session_of):
-    """The other half of the Session ownership row: a session whose run ended — however it
-    ended — releases it, and a fresh ``runs.start`` on it succeeds rather than raising."""
+    """The other half of the Session ownership row: a session whose run ended  -  however it
+    ended  -  releases it, and a fresh ``runs.start`` on it succeeds rather than raising."""
     deck = Deck(agents=[_greeter()])
 
     async with deck:
@@ -1559,7 +1559,7 @@ async def test_a_terminal_session_admits_a_fresh_start_no_session_busy_error(no_
 @pytest.mark.asyncio
 async def test_pending_lists_a_paused_run_and_answer_completes_it(no_project, monkeypatch):
     """``run.answer`` pairs with ``deck.runs.list(status=WAITING_ANSWER)``: a caller lists the
-    inbox, gets a handle on one, answers it — no name, thread id, or session id by hand."""
+    inbox, gets a handle on one, answers it  -  no name, thread id, or session id by hand."""
     from agentdeck.runtime.settings import reset_settings_cache
 
     monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
@@ -1596,7 +1596,7 @@ async def test_get_of_an_unknown_id_raises_not_found(no_project):
 
 @pytest.mark.asyncio
 async def test_a_waiter_wakes_on_a_parked_run_rather_than_hanging(no_project, monkeypatch):
-    """#325's wait primitive wakes on suspension, not just on a terminal outcome — its own
+    """#325's wait primitive wakes on suspension, not just on a terminal outcome  -  its own
     review found this pinned only implicitly, by tests that would hang if it broke rather than
     fail. ``asyncio.wait_for`` is the point: a regression here times out and fails loudly
     instead of wedging the whole suite.
@@ -1625,7 +1625,7 @@ async def test_a_waiter_wakes_on_a_parked_run_rather_than_hanging(no_project, mo
 
 @contextlib.asynccontextmanager
 async def _parked_approval(monkeypatch, *, namespace: str | None = None):
-    """A workflow run stopped at its interrupt — ``WAITING_ANSWER``, holding its session, with
+    """A workflow run stopped at its interrupt  -  ``WAITING_ANSWER``, holding its session, with
     nothing left polling the gate. The state every case below signals against.
 
     ``namespace`` defaults to ``None``, the ordinary case every existing caller here exercises;
@@ -1649,13 +1649,13 @@ async def _parked_approval(monkeypatch, *, namespace: str | None = None):
 @pytest.mark.asyncio
 async def test_a_cancel_against_a_parked_run_ends_it_immediately(no_project, monkeypatch):
     """#229, #311. A cancel against a parked run used to be recorded and honored by nothing at
-    all — only ``resume_run`` polled the control port, and an approval does not come back that
+    all  -  only ``resume_run`` polled the control port, and an approval does not come back that
     way. #229 then made it honored, but only once some later ``run.answer`` happened to claim
-    the run — a technicality became a real risk once #311 stopped a stale timer from ever
+    the run  -  a technicality became a real risk once #311 stopped a stale timer from ever
     reclaiming a parked run's session on its own, since a cancel nobody's answer ever noticed
     would now wedge the session forever. The cancel claims and terminates the run itself, so the
-    request becomes the two events that are its whole honest story — no ``control.observed``,
-    because the run reached no safe point; it was already stopped when the cancel landed — and
+    request becomes the two events that are its whole honest story  -  no ``control.observed``,
+    because the run reached no safe point; it was already stopped when the cancel landed  -  and
     the session is free the moment the cancel call returns, not on whichever later call notices.
     """
     async with _parked_approval(monkeypatch) as (deck, run):
@@ -1666,7 +1666,7 @@ async def test_a_cancel_against_a_parked_run_ends_it_immediately(no_project, mon
         assert [event.kind for event in log][-3:] == ["run.resumed", "control.requested", "run.cancelled"]
         assert next(e.payload.reason for e in log if e.kind == "run.cancelled") == "operator said stop"
 
-        # A now-superfluous answer still raises — the run is gone, not merely refused.
+        # A now-superfluous answer still raises  -  the run is gone, not merely refused.
         with pytest.raises(NotFoundError):
             await run.answer("yes")
 
@@ -1681,7 +1681,7 @@ async def test_a_cancel_against_a_parked_run_in_a_real_namespace_still_ends_it(n
     """Review found the eager cancel unreachable from here for any run outside the default
     namespace: ``RunOps.cancel``/``Deck._cancel`` did not accept or pass one, so the lookup
     ``Runtime._cancel_suspended`` needs to find the run always scanned ``namespace=None`` and
-    silently missed it — cancel still returned ``True``, but nothing closed and the session
+    silently missed it  -  cancel still returned ``True``, but nothing closed and the session
     stayed held, forever, now that no timer ever reclaims it either. This is the same case as
     ``test_a_cancel_against_a_parked_run_ends_it_immediately`` above, run through the public
     surface with a real namespace rather than through the Runtime directly, since the Runtime
@@ -1705,11 +1705,11 @@ async def test_a_cancel_against_a_parked_run_in_a_real_namespace_still_ends_it(n
 @pytest.mark.asyncio
 async def test_a_cancel_in_one_namespace_leaves_the_same_key_in_another_untouched(no_project, scripted):
     """#315/#320: both control ports keyed a pending signal by ``run_id`` alone, so ``acme``'s
-    ``order-1234`` and ``globex``'s ``order-1234`` shared one row — a cancel meant for one
+    ``order-1234`` and ``globex``'s ``order-1234`` shared one row  -  a cancel meant for one
     landed on both, and ``consume()``'s compare-and-set made them fight over the same slot.
 
     #324 changes the mechanism, not the intent: ``key`` is no longer the run's address at all,
-    so the two namespaces below sharing one key cannot even name the same id to collide over —
+    so the two namespaces below sharing one key cannot even name the same id to collide over  -
     each gets its own, read straight off its own ``run.started``. The isolation this guards is
     now asserted through that real id rather than a caller-chosen one, the surface a caller
     actually holds (docs/design/run-identity.md).
@@ -1724,7 +1724,7 @@ async def test_a_cancel_in_one_namespace_leaves_the_same_key_in_another_untouche
         assert globex_started.run_id != acme_started.run_id  # same key, two unrelated runs
 
         # Signalled before either stream is asked to produce more, so the first safe point
-        # each hits is the one that observes it — deterministic without a clock or a sleep.
+        # each hits is the one that observes it  -  deterministic without a clock or a sleep.
         acme_run = await deck.runs.get(acme_started.run_id, namespace="acme")
         assert await acme_run.cancel("acme said stop") is True
 
@@ -1754,7 +1754,7 @@ async def test_pause_and_resume_isolate_between_namespaces_sharing_one_key(no_pr
         acme_run = await deck.runs.get(acme_started.run_id, namespace="acme")
         globex_run = await deck.runs.get(globex_started.run_id, namespace="globex")
         # Signalled before either stream is asked to produce more, so the first safe point
-        # each hits is the one that observes it — deterministic without a clock or a sleep.
+        # each hits is the one that observes it  -  deterministic without a clock or a sleep.
         assert await acme_run.pause("acme stepped away") is True
 
         globex = [globex_started, *[event async for event in globex_stream]]
@@ -1772,7 +1772,7 @@ async def test_pause_and_resume_isolate_between_namespaces_sharing_one_key(no_pr
 @pytest.mark.asyncio
 async def test_answer_isolates_between_namespaces_sharing_one_key(no_project, monkeypatch):
     """The mandatory row's other half: acme's and globex's runs, both parked ``WAITING_ANSWER``
-    under the identical caller key, alive at once — answering one never touches the other."""
+    under the identical caller key, alive at once  -  answering one never touches the other."""
     from agentdeck.runtime.settings import reset_settings_cache
 
     monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
@@ -1782,7 +1782,7 @@ async def test_answer_isolates_between_namespaces_sharing_one_key(no_project, mo
         async with deck:
             # Different thread ids: LangGraph's own checkpointer keys a thread by that id alone,
             # with no namespace of its own, so two namespaces reusing one *session* id would
-            # collide on the checkpoint itself — a separate, already-known gap this test is not
+            # collide on the checkpoint itself  -  a separate, already-known gap this test is not
             # about. The event log and the key claim below are namespaced; this only avoids
             # tripping over the checkpoint one while proving that.
             acme_paused = await deck.run(
@@ -1814,7 +1814,7 @@ async def test_answer_isolates_between_namespaces_sharing_one_key(no_project, mo
 @pytest.mark.asyncio
 async def test_a_pause_against_a_parked_run_refuses_the_answer_and_stays_pending(no_project, monkeypatch):
     """The design's deliberate cell. Lifting the pause would let an answer silently override an
-    operator who said stop, so the answer is refused and *both* intents survive — the run is
+    operator who said stop, so the answer is refused and *both* intents survive  -  the run is
     still waiting, and the pause is still pending for whoever reads next. A refusal that ate the
     intent would lose the very stop it cited.
     """
@@ -1832,7 +1832,7 @@ async def test_a_pause_against_a_parked_run_refuses_the_answer_and_stays_pending
 @pytest.mark.asyncio
 async def test_resuming_a_run_that_is_waiting_for_an_answer_names_answer(no_project, monkeypatch):
     """``_paused`` used to narrow its listing to ``PAUSED``, so a parked run came back
-    indistinguishable from one that does not exist and ``resume`` returned ``[]`` — silence, to a
+    indistinguishable from one that does not exist and ``resume`` returned ``[]``  -  silence, to a
     caller who is in fact holding the run's only answer. It refuses now, and names the verb."""
     async with _parked_approval(monkeypatch) as (deck, run):
         with pytest.raises(RunStateError, match=r"run\.answer\(\.\.\.\)"):
@@ -1844,7 +1844,7 @@ async def test_resuming_a_run_that_is_waiting_for_an_answer_names_answer(no_proj
 @pytest.mark.asyncio
 async def test_a_paused_timer_defers_its_wake_without_stopping_the_rest_of_the_sweep(no_project, monkeypatch):
     """A due timer is answered through the very path an approval is, so the routing's refusal
-    reaches it too — and an exception raised there would abort the sweep for every *other* due
+    reaches it too  -  and an exception raised there would abort the sweep for every *other* due
     thread in the catalog. Deferring is also the right answer on its own terms: waking a run an
     operator asked to stop would override them exactly as answering it would.
     """
@@ -1859,7 +1859,7 @@ async def test_a_paused_timer_defers_its_wake_without_stopping_the_rest_of_the_s
         async with deck:
             assert (await deck.run("Timer", {}, session_id="t-stopped"))["type"] == "interrupt"
             assert (await deck.run("Timer", {}, session_id="t-free"))["type"] == "interrupt"
-            # The thread-to-run lookup has no public verb of its own — a caller who does not
+            # The thread-to-run lookup has no public verb of its own  -  a caller who does not
             # already hold the run reaches for the private inbox, the same as the sweep does.
             stopped_id = next(run.run_id for run in await deck._pending() if run.thread_id == "t-stopped")
             stopped = await deck.runs.get(stopped_id)
@@ -1867,7 +1867,7 @@ async def test_a_paused_timer_defers_its_wake_without_stopping_the_rest_of_the_s
 
             woke = await deck._tick()
 
-            # The free thread woke, once — not both, and crucially not none, which is what a
+            # The free thread woke, once  -  not both, and crucially not none, which is what a
             # refusal escaping the loop would have produced.
             assert woke == [{"woke_at": past.isoformat()}]
             # The stopped one is still parked, and still holds the pause it was stopped with.
@@ -1911,10 +1911,10 @@ async def test_answering_a_paused_run_names_resume(no_project, scripted):
 @pytest.mark.asyncio
 async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost(no_project, monkeypatch, caplog):
     """A timer interrupt ``Deck.run()`` parked is the same thread ``Deck._tick()`` finds on the
-    checkpointer — the log and the checkpointer already agree on the *listing* (direction one,
+    checkpointer  -  the log and the checkpointer already agree on the *listing* (direction one,
     already true post-#164). Resuming it by calling the workflow directly, as ``_tick()`` used
     to, never told the event log: the run stayed ``WAITING_ANSWER`` forever and kept holding its
-    session claim (direction two — the still-live half of #120). ``_tick()`` must resume through
+    session claim (direction two  -  the still-live half of #120). ``_tick()`` must resume through
     the Runtime instead, so the log's run closes and a fresh run on the same thread does not
     hit a stale-lock ``SessionBusyError``.
     """
@@ -1946,7 +1946,7 @@ async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost
             assert not other_warnings, [r.message for r in other_warnings]
 
             # direction 2: resuming through _tick() must close the *logged* run too, not just
-            # the checkpoint — a ghost WAITING_ANSWER entry is exactly what this pins against.
+            # the checkpoint  -  a ghost WAITING_ANSWER entry is exactly what this pins against.
             assert await deck.runs.list(status=RunStatus.WAITING_ANSWER) == []
 
             # ...and release the session claim it was holding, not leave it stale-locked.
@@ -2020,7 +2020,7 @@ async def test_injected_session_factory_is_used_and_closed_once(no_project, monk
 
 async def _wait_until(condition, *, timeout: float = 5.0, interval: float = 0.01) -> None:
     """Poll ``condition`` (a zero-arg async callable returning a bool) until it is true, never
-    sleeping a fixed guess at how long the sweep should take — see coding-standards §8, "assert
+    sleeping a fixed guess at how long the sweep should take  -  see coding-standards §8, "assert
     the promise, not the timing"."""
     loop = asyncio.get_event_loop()
     deadline = loop.time() + timeout
@@ -2074,7 +2074,7 @@ async def test_sweep_resumes_a_due_timer_with_the_deck_left_open_and_tick_never_
 
 @pytest.mark.asyncio
 async def test_sweep_with_no_timers_anywhere_does_nothing_and_raises_nothing(no_project, monkeypatch, caplog):
-    """Most decks have no timers at all — the common case, asserted directly: a catalog with
+    """Most decks have no timers at all  -  the common case, asserted directly: a catalog with
     only a plain agent sweeps past several intervals with no error and nothing to do."""
     from agentdeck.runtime.settings import reset_settings_cache
 
@@ -2094,7 +2094,7 @@ async def test_sweep_with_no_timers_anywhere_does_nothing_and_raises_nothing(no_
 
 @pytest.mark.asyncio
 async def test_sweep_survives_a_raising_tick_and_keeps_going_on_the_next_interval(no_project, monkeypatch, caplog):
-    """A transient store error on one sweep must not silently end every future wake — the loop
+    """A transient store error on one sweep must not silently end every future wake  -  the loop
     logs it and tries again next interval instead of dying."""
     from agentdeck.runtime.settings import reset_settings_cache
 

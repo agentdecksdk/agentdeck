@@ -1,18 +1,18 @@
-"""Store contract: the focused queries — ``run_status``, ``list_runs`` and paginated ``read`` —
+"""Store contract: the focused queries  -  ``run_status``, ``list_runs`` and paginated ``read``  -
 plus the two claims and the assignment of ``seq`` itself, behaving identically on every store,
 parametrized the same way the engine cases are. Ordering/tenancy/round-trip invariants for
 ``append``, ``read`` and ``read_run`` already live in ``tests/test_memory_store.py`` and
 ``tests/test_sqlite_store.py``; this file covers only the newer focused ops.
 
-Parametrized over all four stores: memory, SQLite, and — on real servers, skipping with a
-reason when there is none — Redis and Postgres (``live_stores``). Backend-specific evidence
+Parametrized over all four stores: memory, SQLite, and  -  on real servers, skipping with a
+reason when there is none  -  Redis and Postgres (``live_stores``). Backend-specific evidence
 that needs no second store lives beside each one instead: ``tests/test_sqlite_store.py``,
 ``tests/test_redis_store.py``, ``tests/test_postgres_store.py``.
 
 Callers here hand over payloads and never envelopes: the store assigns ``seq`` and ``ts`` in the
 same indivisible step that persists the event, and every other envelope field comes from the
 ``RunContext``. So a case that writes for a second run passes a context built for it, and a case
-about a second namespace passes that namespace's context — there is no field left to mis-stamp.
+about a second namespace passes that namespace's context  -  there is no field left to mis-stamp.
 
 The last case is a boundary invariant rather than a query one, and covers both SQLite-backed
 ports by shape: whatever fails underneath, callers see the harness's own error type.
@@ -62,7 +62,7 @@ ORIGIN = "Greeter"
 
 @pytest.fixture(params=live_stores.BACKENDS)
 async def event_store(request: pytest.FixtureRequest) -> AsyncIterator[EventStorePort]:
-    """Every case against every store — including Redis and Postgres on real servers, which
+    """Every case against every store  -  including Redis and Postgres on real servers, which
     skip with a reason naming the env var when there is none (``live_stores``)."""
     async with live_stores.event_store(request.param) as store:
         yield store
@@ -76,7 +76,7 @@ async def two_event_stores(request: pytest.FixtureRequest) -> AsyncIterator[tupl
 
 
 def _ctx(namespace: str = "acme", run_id: str = "r-1", log_key: str = "s-1", key: str | None = None) -> RunContext:
-    """The context a write is made in — which is now the whole envelope bar ``origin``."""
+    """The context a write is made in  -  which is now the whole envelope bar ``origin``."""
     return RunContext(namespace=namespace, run_id=run_id, session_id=log_key, key=key)
 
 
@@ -98,14 +98,14 @@ def _interrupted(interrupt_id: str = "i-1", thread_id: str | None = "t-1") -> Ru
 
 
 async def _write(store: EventStorePort, payloads: Sequence[KnownPayload], ctx: RunContext) -> list[Event]:
-    """One append into ``ctx``'s own run and log — the shape nearly every case here wants."""
+    """One append into ``ctx``'s own run and log  -  the shape nearly every case here wants."""
     return await store.append(ctx.log_key, payloads, ctx, ORIGIN)
 
 
 async def test_redis_keyspace_prefix_is_disjoint_across_processes(monkeypatch: pytest.MonkeyPatch) -> None:
     """Two processes racing `make check` must never hand out the same prefix.
 
-    Simulates that by swapping ``live_stores._run`` — the per-process seed — between two calls
+    Simulates that by swapping ``live_stores._run``  -  the per-process seed  -  between two calls
     on one live Redis, standing in for two pytest processes without actually spawning them.
     """
     monkeypatch.setattr(live_stores, "_run", "aaaa")
@@ -119,7 +119,7 @@ async def test_redis_keyspace_prefix_is_disjoint_across_processes(monkeypatch: p
     assert first_prefix.startswith("agentdeck:test:aaaa-")
     assert second_prefix.startswith("agentdeck:test:bbbb-")
     # The ordered suffix the comment promises to keep is still shared and still increasing,
-    # not reset per seed — only the seed makes two processes' prefixes disjoint.
+    # not reset per seed  -  only the seed makes two processes' prefixes disjoint.
     assert int(second_prefix.rsplit("-", 1)[1]) > int(first_prefix.rsplit("-", 1)[1])
 
 
@@ -149,7 +149,7 @@ async def test_find_by_key_of_an_unclaimed_key_is_none(event_store: EventStorePo
 
 
 async def test_find_by_key_resolves_to_the_run_that_claimed_it(event_store: EventStorePort) -> None:
-    """The read side of the permanent claim ``claim_start`` makes on ``ctx.key`` — plain
+    """The read side of the permanent claim ``claim_start`` makes on ``ctx.key``  -  plain
     ``append`` never sets it, only the claim that adopts a key does."""
     ctx = _ctx(run_id="r-1", key="order-1234")
     claim, event = await event_store.claim_start(ctx.log_key, _started(), ctx, ORIGIN, timedelta(hours=1))
@@ -159,7 +159,7 @@ async def test_find_by_key_resolves_to_the_run_that_claimed_it(event_store: Even
 
 
 async def test_find_by_key_never_reaches_into_another_namespaces_claim(event_store: EventStorePort) -> None:
-    """The same key claimed in one namespace is not another namespace's to find — the isolation
+    """The same key claimed in one namespace is not another namespace's to find  -  the isolation
     ``(namespace, key)``'s uniqueness only promises within one namespace."""
     ctx = _ctx("acme", run_id="r-1", key="order-1234")
     await event_store.claim_start(ctx.log_key, _started(), ctx, ORIGIN, timedelta(hours=1))
@@ -180,7 +180,7 @@ async def test_find_by_key_tells_two_namespaces_sharing_one_key_apart(event_stor
 
 
 # ``stale_after`` is a duration measured against the store's own clock, so a case decides
-# staleness by asking for a window nothing written in this test can fall outside — or inside.
+# staleness by asking for a window nothing written in this test can fall outside  -  or inside.
 # The two cases that need a run stale *beside* a live one arrange a real age gap instead.
 NOTHING_IS_STALE = timedelta(hours=1)
 EVERYTHING_IS_STALE = timedelta(0)
@@ -196,7 +196,7 @@ def _window_between(older: Event, newer: Event) -> timedelta:
 
     Nine tenths of the measured gap, not half. The window has to stay wider than the delay
     between the last write and the claim's own clock read, and that delay is the one quantity a
-    case here cannot bound — it is where a fixed window flakes. Taking most of the gap buys the
+    case here cannot bound  -  it is where a fixed window flakes. Taking most of the gap buys the
     largest margin the two events allow, and reading the gap back means a stall between the two
     writes widens the window instead of eating into it.
     """
@@ -246,7 +246,7 @@ async def test_claim_start_refuses_a_session_whose_run_is_waiting_on_a_human(eve
 async def test_claim_start_wins_once_the_previous_run_is_closed(
     event_store: EventStorePort, closing: KnownPayload
 ) -> None:
-    """Every terminal event frees the session — a turn after a failed or cancelled one is the
+    """Every terminal event frees the session  -  a turn after a failed or cancelled one is the
     ordinary case, not a special one."""
     ctx = _ctx()
     await _write(event_store, [_started(), closing], ctx)
@@ -258,7 +258,7 @@ async def test_claim_start_wins_once_the_previous_run_is_closed(
 
 async def test_a_run_that_recorded_no_transition_holds_no_session(event_store: EventStorePort) -> None:
     """A run with no transition is indistinguishable from one the store never saw, so it
-    cannot hold anything — the same line ``list_runs`` draws."""
+    cannot hold anything  -  the same line ``list_runs`` draws."""
     ctx = _ctx()
     await _write(event_store, [TextDelta(message_id="m1", text="hi")], _ctx(run_id="r-0"))
 
@@ -290,7 +290,7 @@ async def test_claim_start_never_sees_another_namespaces_open_run(event_store: E
 
 async def test_a_run_silent_past_the_cutoff_stops_holding_its_session(event_store: EventStorePort) -> None:
     """The hard-kill case: a process that died leaves a run nothing will ever close, so an open
-    run that has gone quiet long enough is stepped over — and reported, because closing it means
+    run that has gone quiet long enough is stepped over  -  and reported, because closing it means
     stamping an event, which is the caller's job and not a store's.
 
     What comes back is the abandoned run's *last event*, not its id: the store had to read that
@@ -313,7 +313,7 @@ async def test_staleness_is_measured_from_the_last_event_of_a_run_not_its_last_t
     """A run streaming for hours has an old ``run.started`` and a very recent delta. Judging it
     by the transition would take a working turn's session away from it mid-stream.
 
-    The age gap is arranged by waiting, because the store owns the clock now — nothing here can
+    The age gap is arranged by waiting, because the store owns the clock now  -  nothing here can
     backdate an event. The window then sits between the two writes: a store judging by the
     transition finds this run stale, one judging by its last event finds it live.
     """
@@ -352,12 +352,12 @@ async def test_a_parked_run_is_never_overridden_however_stale(
     event_store: EventStorePort, opening: Sequence[KnownPayload]
 ) -> None:
     """``PAUSED`` and ``WAITING_ANSWER`` have no worker to be dead: unlike a ``RUNNING`` run,
-    silence there is not evidence of anything, so no ``stale_after`` — however small — ever
+    silence there is not evidence of anything, so no ``stale_after``  -  however small  -  ever
     steps over one.
 
     The regression this guards: before this fix, every store applied the timer to *any* open
     run, so a parked human approval was destroyed by the very next turn asked for on its
-    session once the window had passed — this test fails against that code with
+    session once the window had passed  -  this test fails against that code with
     ``EVERYTHING_IS_STALE``, which stales a run the instant it is written.
     """
     ctx = _ctx()
@@ -373,7 +373,7 @@ async def test_a_parked_run_refuses_a_claim_even_beside_a_genuinely_stale_runnin
 ) -> None:
     """The mixed case: one run truly abandoned (``RUNNING``, silent past the cutoff) and one
     parked waiting on a human, in the same log. ``EVERYTHING_IS_STALE`` makes both look old
-    enough to step over by timestamp alone — which is exactly why this has to be the case that
+    enough to step over by timestamp alone  -  which is exactly why this has to be the case that
     proves suspension is checked *before* the timer and not folded into the same comparison:
     the parked run still holds the session, so the claim must refuse and close neither run, the
     same principle as ``test_one_live_run_refuses_a_claim_even_beside_an_abandoned_one``.
@@ -400,7 +400,7 @@ async def test_two_claims_gathered_on_one_session_have_exactly_one_winner(event_
     assert len(await event_store.read("s-1", _ctx())) == 1
 
 
-# --- ctx.key: a second, permanent claim over (namespace, key) — #324 -----------------------
+# --- ctx.key: a second, permanent claim over (namespace, key)  -  #324 -----------------------
 
 
 async def test_claim_start_without_a_key_never_touches_the_key_index(event_store: EventStorePort) -> None:
@@ -428,7 +428,7 @@ async def test_claim_start_refuses_a_key_already_used_by_a_different_run(event_s
         await event_store.claim_start(
             "s-2", _started(), _ctx(run_id="r-2", log_key="s-2", key="order-1234"), ORIGIN, NOTHING_IS_STALE
         )
-    # The refused claim wrote nothing under its own log — a duplicate key is refused before
+    # The refused claim wrote nothing under its own log  -  a duplicate key is refused before
     # anything about the losing run is recorded, the same "fails deterministically" promise a
     # lost session claim already gives.
     assert await event_store.read("s-2", _ctx(log_key="s-2")) == []
@@ -507,8 +507,8 @@ async def test_many_appends_at_once_leave_one_run_contiguous_from_zero(event_sto
     """The promise the whole port change rests on: assignment happens inside the write, so no two
     callers can be handed the same ``seq`` and no number can be handed out and then not persisted.
 
-    A store that read the run's last ``seq`` and then appended — with any suspension point in
-    between — fails this and passes every sequential case in this file. Both halves are asserted:
+    A store that read the run's last ``seq`` and then appended  -  with any suspension point in
+    between  -  fails this and passes every sequential case in this file. Both halves are asserted:
     the seqs the store *handed back* are distinct and cover the range, and the log *reads back*
     dense and in order. Only the first catches a store that returns a number it never wrote.
     """
@@ -527,7 +527,7 @@ async def test_many_appends_at_once_leave_one_run_contiguous_from_zero(event_sto
 
 
 async def test_every_run_in_one_log_counts_its_own_seq_from_zero(event_store: EventStorePort) -> None:
-    """``seq`` is per run, so every run in a session log starts at 0 — a store that counted per
+    """``seq`` is per run, so every run in a session log starts at 0  -  a store that counted per
     log would number the second run's opening event 1 and break its consumers' loss check."""
     await _write(event_store, [_started()], _ctx(run_id="r-1"))
     await _write(event_store, [_started()], _ctx(run_id="r-2"))
@@ -537,7 +537,7 @@ async def test_every_run_in_one_log_counts_its_own_seq_from_zero(event_store: Ev
 
 
 async def test_a_batch_is_numbered_in_the_order_it_was_handed_over(event_store: EventStorePort) -> None:
-    """One append of several payloads is one write, and the caller's order is the log's order —
+    """One append of several payloads is one write, and the caller's order is the log's order  -
     the events come back numbered from the run's next ``seq`` with nothing skipped."""
     ctx = _ctx()
     events = await _write(event_store, [_started(), TextDelta(message_id="m1", text="hi"), _completed()], ctx)
@@ -551,7 +551,7 @@ async def test_a_batch_is_numbered_in_the_order_it_was_handed_over(event_store: 
 
 
 async def test_a_second_batch_carries_on_from_where_the_first_stopped(event_store: EventStorePort) -> None:
-    """The run's counter lives in the log, not in a caller — so a fresh store handle, a restarted
+    """The run's counter lives in the log, not in a caller  -  so a fresh store handle, a restarted
     process or a second worker all continue the same run rather than restarting it at 0."""
     ctx = _ctx()
     await _write(event_store, [_started(), TextDelta(message_id="m1", text="hi")], ctx)
@@ -561,7 +561,7 @@ async def test_a_second_batch_carries_on_from_where_the_first_stopped(event_stor
 
 
 async def _interrupt(event_store: EventStorePort, ctx: RunContext, run_id: str = "r-1") -> None:
-    """Leave one run parked in ``WAITING_ANSWER`` — the only status a resume may claim."""
+    """Leave one run parked in ``WAITING_ANSWER``  -  the only status a resume may claim."""
     parked = ctx if ctx.run_id == run_id else _ctx(ctx.namespace, run_id=run_id, log_key=ctx.log_key)
     await _write(event_store, [_started(), _interrupted()], parked)
 
@@ -578,7 +578,7 @@ async def test_claim_resume_appends_the_event_and_wins_when_the_run_is_waiting(e
 
 async def test_a_second_claim_on_the_same_run_loses_and_writes_nothing(event_store: EventStorePort) -> None:
     """The invariant double-resume protection rests on: the check and the append are one step, so
-    the loser cannot append a second ``run.resumed`` — it reads the ``RUNNING`` the winner's own
+    the loser cannot append a second ``run.resumed``  -  it reads the ``RUNNING`` the winner's own
     append published."""
     ctx = _ctx()
     await _interrupt(event_store, ctx)
@@ -594,7 +594,7 @@ async def test_claim_resume_wins_on_a_paused_run_too(event_store: EventStorePort
     """``PAUSED`` is the other *suspended* status, and one claim serves both: a paused run is
     owed a terminal event just as a parked approval is, and only one caller may continue it.
 
-    This is the positive half of the guard below — without it, a store could refuse every
+    This is the positive half of the guard below  -  without it, a store could refuse every
     status but ``WAITING_ANSWER`` and no test would notice that pause had stopped resuming.
     """
     ctx = _ctx()
@@ -607,14 +607,14 @@ async def test_claim_resume_wins_on_a_paused_run_too(event_store: EventStorePort
 
 @pytest.mark.parametrize("kind", ["pending", "running", "completed", "cancelled"])
 async def test_claim_resume_refuses_a_run_that_is_not_suspended(event_store: EventStorePort, kind: str) -> None:
-    """A resume against any status that is not suspended is a no-op, not an error — including a
+    """A resume against any status that is not suspended is a no-op, not an error  -  including a
     run this store has never heard of, which is indistinguishable from one that never started.
 
     ``cancelled`` is the one that carries a promise rather than just a rule: cancel is terminal,
     so this guard is what makes "a cancelled run cannot be resumed" true across processes, where
     a caller's own status check could always go stale between reading and appending.
 
-    Status is the whole condition now — there is no ``seq`` left for a caller to get wrong, so
+    Status is the whole condition now  -  there is no ``seq`` left for a caller to get wrong, so
     every one of these refusals is the status guard and nothing else.
     """
     ctx = _ctx()
@@ -630,7 +630,7 @@ async def test_claim_resume_refuses_a_run_that_is_not_suspended(event_store: Eve
 
 
 async def test_a_claim_must_be_made_in_the_context_of_the_run_it_names(event_store: EventStorePort) -> None:
-    """The status is checked for ``run_id`` and the event is filed under the context's own — a
+    """The status is checked for ``run_id`` and the event is filed under the context's own  -  a
     caller passing two different runs would have the store answer about one and write the other."""
     ctx = _ctx()
     await _interrupt(event_store, ctx)
@@ -699,7 +699,7 @@ async def test_list_runs_negative_limit_is_refused(event_store: EventStorePort) 
 
 
 async def test_list_runs_enumerates_runs_across_every_log_key_of_the_namespace(event_store: EventStorePort) -> None:
-    """A namespace's waiting runs live in as many logs as it has sessions — a listing that only
+    """A namespace's waiting runs live in as many logs as it has sessions  -  a listing that only
     looked in one log key would silently hide every other session's interrupts."""
     ctx = _ctx()
     await _write(event_store, [_started(), _interrupted(thread_id=None)], ctx)
@@ -711,7 +711,7 @@ async def test_list_runs_enumerates_runs_across_every_log_key_of_the_namespace(e
 
 async def test_list_runs_skips_a_run_whose_log_holds_no_lifecycle_event(event_store: EventStorePort) -> None:
     """Such a run folds to no status at all, which no listing can tell apart from a run the
-    store never saw — both stores leave it out rather than one inventing it."""
+    store never saw  -  both stores leave it out rather than one inventing it."""
     ctx = _ctx()
     await _write(event_store, [TextDelta(message_id="m1", text="hi")], ctx)
     assert await event_store.list_runs(ctx) == []
@@ -751,12 +751,12 @@ async def test_paginated_read_past_the_end_is_empty(event_store: EventStorePort)
 async def test_a_page_already_read_does_not_shift_when_the_log_grows(event_store: EventStorePort) -> None:
     """The promise paging rests on: a log only ever grows at its end, so an offset a reader
     has passed keeps meaning the same event. A store that ordered by anything a later write
-    can slot in front of — or that published its ordering out of the order it assigned it —
+    can slot in front of  -  or that published its ordering out of the order it assigned it  -
     would move an unread event behind the cursor and deliver its neighbour twice.
 
     Sequential here, which is all one store instance can show, and it passes on all four with
-    the concurrent half of the promise broken: that half — a write committing while another
-    writer's batch is still in flight — is the case below, on two handles.
+    the concurrent half of the promise broken: that half  -  a write committing while another
+    writer's batch is still in flight  -  is the case below, on two handles.
     """
     ctx = _ctx()
     await _write(event_store, [_started(), RunResumed(reason=None)], ctx)
@@ -771,7 +771,7 @@ async def test_a_page_already_read_does_not_shift_when_the_log_grows(event_store
 # Wide enough that inserting it takes far longer than the peer's round trip, so the peer writes
 # while it is still open. That margin is what reproduces the hazard, and it is a margin and not
 # a guarantee: nothing here forces the peer's write to be numbered inside the batch. A machine
-# that closes the gap loses the hazard, which is why the report below says whether it happened —
+# that closes the gap loses the hazard, which is why the report below says whether it happened  -
 # a lost hazard must never read as a passing store.
 _INTERLEAVED_BATCH = 200
 
@@ -785,7 +785,7 @@ _PAGING_DEADLINE = 10.0
 
 
 def _keys(events: Iterable[Event]) -> list[tuple[str, int]]:
-    """Each event as its identity — one ``(run, seq)`` per event, ever."""
+    """Each event as its identity  -  one ``(run, seq)`` per event, ever."""
     return [(event.run_id, event.seq) for event in events]
 
 
@@ -796,7 +796,7 @@ async def _append_each(store: EventStorePort, ctx: RunContext, payloads: Iterabl
 
 
 async def _page_the_log(store: EventStorePort, ctx: RunContext, until: int) -> list[list[Event]]:
-    """Page a log the way the port says is safe — a plain counter as the cursor — until
+    """Page a log the way the port says is safe  -  a plain counter as the cursor  -  until
     ``until`` events have come back or the deadline gives up on them.
 
     The cursor being the count delivered so far is the whole point: an event that lands
@@ -825,7 +825,7 @@ async def test_a_page_already_read_does_not_shift_when_a_second_writer_commits(
 
     Every event is delivered exactly once and in one order, or paging is not safe to do with a
     counter. What can break it is a store that orders by a number assigned at insert and
-    published at commit — Postgres's ``BIGSERIAL`` — because the peer's row can be given a
+    published at commit  -  Postgres's ``BIGSERIAL``  -  because the peer's row can be given a
     *later* number and still be published *first*: the reader takes it at an offset it then
     leaves behind, so the batch's first event is never delivered and the peer's arrives twice.
     Serializing a log's writes is what keeps it growing only at its end.
@@ -835,7 +835,7 @@ async def test_a_page_already_read_does_not_shift_when_a_second_writer_commits(
 
     The interleave is arranged with a margin, not forced: the batch takes far longer to insert
     than the peer takes to commit, which is why the peer lands inside it. So the report at the
-    end says how the delivery was split — a machine that closes that margin delivers the whole
+    end says how the delivery was split  -  a machine that closes that margin delivers the whole
     settled log in one page, and this case would then pass without having asked anything.
     """
     batching, peer = two_event_stores
@@ -845,7 +845,7 @@ async def test_a_page_already_read_does_not_shift_when_a_second_writer_commits(
     # rather than by a ``seq`` neither writer chooses any more.
     behind_ctx = _ctx(run_id="r-2")
     trailing = [TextDelta(message_id="m2", text=str(which)) for which in range(_TRAILING_WRITES)]
-    # Both handles connected and set up before the race — a cold one spends its first call
+    # Both handles connected and set up before the race  -  a cold one spends its first call
     # creating a schema, which is a lap the other does not run.
     await batching.read("s-1", ctx)
     await peer.read("s-1", ctx)
@@ -855,7 +855,7 @@ async def test_a_page_already_read_does_not_shift_when_a_second_writer_commits(
     behind = asyncio.create_task(_append_each(peer, behind_ctx, trailing))
 
     # Reads go through the writing peer's own handle, so every page is taken between two of its
-    # commits — the moment a shift would be visible in — and never inside one.
+    # commits  -  the moment a shift would be visible in  -  and never inside one.
     pages = await _page_the_log(peer, ctx, until=len(batch) + len(trailing))
     # Bounded like the reader: a wedged writer must fail this case, not hang the suite in a
     # gather nothing ever returns from.
@@ -868,7 +868,7 @@ async def test_a_page_already_read_does_not_shift_when_a_second_writer_commits(
     # Reported, not asserted, for the same reason the resume race reports its overlap: the split
     # is this machine's timing. A store that keeps the promise holds the peer's writes behind the
     # open batch, so delivering them last *is* the promise being kept, and the broken one shows
-    # the opposite — the peer's writes first, at an offset the batch then takes. What the report
+    # the opposite  -  the peer's writes first, at an offset the batch then takes. What the report
     # is for is neither: one page holding the settled log means the batch was never open long
     # enough to be interleaved with, and the case passed without asking anything. Printed before
     # the assertions, so a failing run carries it too.
@@ -881,7 +881,7 @@ async def test_a_page_already_read_does_not_shift_when_a_second_writer_commits(
     twice = [key for key, times in Counter(seen).items() if times > 1]
     never = [key for key in settled if key not in set(seen)]
     assert not twice and not never, (
-        f"paging a log of {len(settled)} delivered {len(seen)}: {twice} twice, {never} never — "
+        f"paging a log of {len(settled)} delivered {len(seen)}: {twice} twice, {never} never  -  "
         "a write landed behind the reader's cursor"
     )
     assert seen == settled, "the reader's order is not the order the log settled into"
@@ -896,8 +896,8 @@ async def test_paginated_read_zero_limit_is_an_empty_page(event_store: EventStor
 async def test_a_negative_offset_reads_from_the_start_and_a_negative_limit_is_refused(
     event_store: EventStorePort,
 ) -> None:
-    """Left to the underlying store these mean opposite things — a Python slice counts back
-    from the end, SQLite reads a negative LIMIT as "no limit" — so the port pins both."""
+    """Left to the underlying store these mean opposite things  -  a Python slice counts back
+    from the end, SQLite reads a negative LIMIT as "no limit"  -  so the port pins both."""
     ctx = _ctx()
     await _write(event_store, _deltas(3), ctx)
 
@@ -907,7 +907,7 @@ async def test_a_negative_offset_reads_from_the_start_and_a_negative_limit_is_re
 
 
 async def test_the_focused_queries_never_answer_from_another_namespaces_log(event_store: EventStorePort) -> None:
-    """One namespace's populated log must read as untouched emptiness to another — the same
+    """One namespace's populated log must read as untouched emptiness to another  -  the same
     isolation ``read``/``read_run`` already promise, on the queries that skip them."""
     acme = _ctx("acme", key="order-1234")
     await event_store.claim_start(acme.log_key, _started(), acme, ORIGIN, timedelta(hours=1))
@@ -951,7 +951,7 @@ async def test_a_failed_statement_reaches_the_caller_as_a_store_error(
     """A ``sqlite3`` exception is a library type and must not cross a port: callers of either
     SQLite-backed port catch ``StoreError``, with the original kept only as the cause.
 
-    ``claim_resume`` is the case that makes this load-bearing — it promises a loser a clean
+    ``claim_resume`` is the case that makes this load-bearing  -  it promises a loser a clean
     ``None``, so an unreachable store has to be distinguishable from a claim somebody won.
     Forced by closing the connection, which fails whichever statement the method reaches for:
     the shape of a database gone unreadable mid-run, without waiting out a real lock.

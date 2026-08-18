@@ -1,7 +1,7 @@
 """One contract, two bridges: the ``Context[T]`` a user callable receives must be the same
 thing whether the OpenAI Agents SDK or langgraph carried it there.
 
-**One test body per property, parametrized over both engines** — not two similar suites. The
+**One test body per property, parametrized over both engines**  -  not two similar suites. The
 uniformity a user is promised is produced by two adapters that must agree, and two hand-written
 suites drift toward whatever each engine happens to do: one bridge handing back a copy, or a
 projection, or the internal ``RunContext`` instead of the public view, would keep passing its
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from agentdeck.core.events import Event
 
 _READER = RunContext(run_id="reader")
-"""Whatever context the store's read side needs — this suite never plays a run with it."""
+"""Whatever context the store's read side needs  -  this suite never plays a run with it."""
 
 
 @pytest.fixture(params=SUBJECTS, ids=lambda build: build().id)
@@ -74,7 +74,7 @@ async def test_the_callable_receives_the_public_context_and_not_the_internal_car
 async def test_the_context_data_is_the_callers_own_object_by_reference(
     runtime: Runtime, subject: Subject, environment: Environment
 ) -> None:
-    """Not a copy, not a projection, not a re-validated model — the same object, both engines."""
+    """Not a copy, not a projection, not a re-validated model  -  the same object, both engines."""
     await _play(runtime, subject, environment)
 
     assert len(subject.seen) == 1
@@ -90,7 +90,7 @@ async def test_the_run_identity_travels_with_the_context(
 
 
 async def test_a_run_given_no_context_reaches_the_callable_with_none(runtime: Runtime, subject: Subject) -> None:
-    """``context=`` is optional on both engines, and omitting it is not an error — the callable
+    """``context=`` is optional on both engines, and omitting it is not an error  -  the callable
     gets the value the application declined to supply."""
     await _play(runtime, subject, None)
 

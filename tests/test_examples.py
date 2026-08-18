@@ -1,8 +1,8 @@
 """Anti-rot checks for the copyable decks under ``examples/``.
 
-Each example is **built, never run**. ``Deck.build()`` validates the whole catalog — it
+Each example is **built, never run**. ``Deck.build()`` validates the whole catalog  -  it
 discovers every bundle, imports it, checks its skills and MCP names, and compiles each agent
-and workflow to an ``InvocableSpec`` — while opening no connection, starting no MCP server and
+and workflow to an ``InvocableSpec``  -  while opening no connection, starting no MCP server and
 making no model call. That is what makes it the right check here: a broken example fails to
 build, and the suite stays offline and deterministic.
 
@@ -67,7 +67,7 @@ def test_the_skill_example_declares_an_agent_holding_its_skill() -> None:
 
 def test_the_approval_example_declares_a_durable_workflow() -> None:
     """``durable=True`` is what gives the workflow a checkpointer, and without one ``interrupt()``
-    raises instead of parking the run — the example's whole subject.
+    raises instead of parking the run  -  the example's whole subject.
     """
     deck = Deck.from_project(EXAMPLES / "workflow-with-an-approval" / ".agentdeck").build()
     assert sorted(deck.workflows) == ["RefundApproval"]

@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 class ControlCase:
     """One engine's controllable run: streams a few items, then completes.
 
-    ``safe_point`` is what this engine honors a signal at — the platform's contract is that
+    ``safe_point`` is what this engine honors a signal at  -  the platform's contract is that
     every engine has one, not that they all have the *same* one.
     """
 
@@ -88,7 +88,7 @@ class _LangGraphState(TypedDict, total=False):
 def _langgraph_case() -> ControlCase:
     # Every node ignores whatever state it is handed and returns a fixed patch, so a pause
     # honored mid-graph and a later, unrelated test reusing the same ``thread_id`` (this
-    # module's ``ctx`` is the same for every test) can never see each other's leftovers —
+    # module's ``ctx`` is the same for every test) can never see each other's leftovers  -
     # the same "safe to share across every test function" property langgraph_cases.py's
     # nodes are written for.
     graph: StateGraph[Any] = StateGraph(_LangGraphState)
@@ -236,7 +236,7 @@ async def test_the_reason_travels_from_the_request_to_the_effect(harness: Harnes
 
 async def test_a_resumed_run_continues_the_same_run_and_completes_it(harness: Harness) -> None:
     """Same ``run_id``, ``seq`` carrying on from the pause, one terminal event at the end of
-    the whole log — the pause is a seam in one run, not two runs."""
+    the whole log  -  the pause is a seam in one run, not two runs."""
     started = await harness.open()
     await harness.control.signal(harness.run_id, Signal.PAUSE)
     paused = [started, *await harness.drain()]
@@ -272,7 +272,7 @@ async def test_a_cancelled_run_is_terminal_and_cannot_be_resumed(harness: Harnes
 
 async def test_cancelling_a_paused_run_ends_it_immediately(harness: Harness) -> None:
     """The abandoned-pause path: pause, think, give up. A paused run has no loop polling the
-    gate, so nothing turns a merely *recorded* cancel into an effect on its own — deferring it to
+    gate, so nothing turns a merely *recorded* cancel into an effect on its own  -  deferring it to
     whoever next resumes was the earlier design, and it left a cancel with nobody obliged to ever
     read it. ``signal`` claims and terminates a suspended run itself instead, so the operator who
     cancelled and walked away does not have to be the one who eventually resumes it to find out.
@@ -298,7 +298,7 @@ async def test_cancelling_a_paused_run_ends_it_immediately(harness: Harness) -> 
     assert check_contiguous(log) == []
     # No text.delta after the pause: the run was never played on.
     assert _kinds(log).count("run.completed") == 0
-    # And cancel stayed terminal — a resume attempt finds nothing to resume.
+    # And cancel stayed terminal  -  a resume attempt finds nothing to resume.
     assert await harness.resume() == []
 
 
@@ -307,7 +307,7 @@ async def test_a_signal_that_lost_the_race_with_a_terminal_event_records_nothing
     harness: Harness, verb: Signal
 ) -> None:
     """No ``control.rejected`` to write, and nowhere to write it: a terminal event is a run's
-    last event by invariant, so a signal arriving after one is a no-op by construction —
+    last event by invariant, so a signal arriving after one is a no-op by construction  -
     nothing polls the gate once the loop has exited."""
     completed = await harness.play()
     before = await harness.log()
@@ -319,7 +319,7 @@ async def test_a_signal_that_lost_the_race_with_a_terminal_event_records_nothing
 
 async def test_pausing_twice_records_one_request(harness: Harness) -> None:
     """A double-clicked pause is one pending signal, so the run stops once and the log says so
-    once — idempotent because the port keeps one signal per run, not a queue of them."""
+    once  -  idempotent because the port keeps one signal per run, not a queue of them."""
     started = await harness.open()
     await harness.control.signal(harness.run_id, Signal.PAUSE, "first")
     await harness.control.signal(harness.run_id, Signal.PAUSE, "second")

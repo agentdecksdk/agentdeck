@@ -1,6 +1,6 @@
 [project]
 name = "agentdeck-sdk"
-version = "4.0.0"
+version = "4.0.1"
 description = "Declarative harness over the OpenAI Agents SDK and LangGraph: settings, capabilities, skills, runners, graph compilation, plug-in discovery."
 license = "MIT"
 license-files = ["LICENSE"]
@@ -32,7 +32,7 @@ dependencies = [
     "langchain-core>=0.3",
     # the default checkpoint backend (AGENTDECK_CHECKPOINT=sqlite://...) needs this, so a
     # plain install can run `durable=True` out of the box. Pulls in sqlite-vec (a langgraph
-    # vector-store dep unrelated to checkpointing) — ~164 KB on disk, accepted for that.
+    # vector-store dep unrelated to checkpointing)  -  ~164 KB on disk, accepted for that.
     "langgraph-checkpoint-sqlite>=2.0",
 ]
 
@@ -51,7 +51,7 @@ observability = [
     "opentelemetry-sdk>=1.27",
 ]
 durability = [
-    # the sqlite checkpointer is a base dependency now (the default backend needs it) —
+    # the sqlite checkpointer is a base dependency now (the default backend needs it)  -
     # this extra is Postgres only.
     "langgraph-checkpoint-postgres>=2.0",
     # the Postgres event log's driver. `[binary]` explicitly: the postgres checkpointer
@@ -61,7 +61,7 @@ durability = [
 ]
 redis = [
     # backs both the Redis-backed session adapter (sessions.py) and the Redis event-log
-    # adapter (adapters/stores/redis) — neither is a default, so the client isn't in base.
+    # adapter (adapters/stores/redis)  -  neither is a default, so the client isn't in base.
     "redis>=5.0",
 ]
 dev = [
@@ -69,9 +69,9 @@ dev = [
     "pytest-asyncio>=0.23",
     # `make coverage`, not part of `make check`: the deletion waves (#71, #131) need
     # per-module coverage as one evidence stream for "nothing imports and nothing
-    # exercises this". No threshold — it is an audit instrument, not a gate.
+    # exercises this". No threshold  -  it is an audit instrument, not a gate.
     "pytest-cov>=5.0",
-    # not exercised by any default path — installed here so the gate still covers the
+    # not exercised by any default path  -  installed here so the gate still covers the
     # redis session/event-log branches without making `[redis]` a base extra.
     "redis>=5.0",
     "ruff>=0.6",
@@ -96,7 +96,7 @@ known-first-party = ["agentdeck"]
 # package, which its contracts reject outright. Ruff sees the import statement itself,
 # so the ban lands where the SDK is actually named.
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"agents.mcp".msg = "the MCP client is adapters/tools/mcp's alone — take tools off a ToolSet instead"
+"agents.mcp".msg = "the MCP client is adapters/tools/mcp's alone  -  take tools off a ToolSet instead"
 
 [tool.ruff.lint.per-file-ignores]
 "agentdeck/adapters/tools/mcp/*" = ["TID251"]
@@ -126,6 +126,6 @@ build-backend = "hatchling.build"
 packages = ["agentdeck"]
 
 [tool.ty.rules]
-# optional-extra imports carry `ty: ignore[unresolved-import]` — "unused" or not
+# optional-extra imports carry `ty: ignore[unresolved-import]`  -  "unused" or not
 # depends on which extras the local venv has, so don't police it
 unused-ignore-comment = "ignore"

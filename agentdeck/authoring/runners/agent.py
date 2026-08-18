@@ -1,7 +1,7 @@
 """Direct-call agent runner: agent + resolved ``RunConfig``, no sandbox, no event log.
 
 Used by :class:`~agentdeck.authoring.nodes.AgentNode` (a nested agent turn inside a workflow
-node) — a Runtime-driven turn never touches this; it goes through
+node)  -  a Runtime-driven turn never touches this; it goes through
 ``adapters/engines/openai_agents/engine.py`` instead. Sandbox attachment (v1's
 ``BaseRunner.attach_sandbox``) is gone with ``BaseSandboxAgent``: no agent compiled through
 ``authoring`` needs one in v3 (sandboxing is disabled, tracked in #163).
@@ -34,7 +34,7 @@ class StreamDone:
     """Terminal sentinel yielded by :meth:`HeadlessRunner.run_streamed` after the last delta.
 
     Carries what a streamed turn would otherwise lose: the SDK's own ``final_output``
-    (validated model for an ``output_type`` agent, last assistant message otherwise —
+    (validated model for an ``output_type`` agent, last assistant message otherwise  -
     not the re-joined deltas, which disagree for tool-using agents) and the turn's
     token usage.
     """

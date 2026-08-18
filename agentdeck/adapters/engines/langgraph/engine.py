@@ -1,6 +1,6 @@
 """The langgraph engine: ``EnginePort`` over a compiled ``StateGraph``.
 
-``spec.native`` is an *uncompiled* ``StateGraph`` — this adapter compiles it itself, with
+``spec.native`` is an *uncompiled* ``StateGraph``  -  this adapter compiles it itself, with
 its own checkpointer, and caches the result per invocable name (ADR-D5: an engine's
 checkpointer is its own working memory, never shared with or read by an outer ring), so
 nothing outside this directory ever sees a ``StateGraph``, a checkpointer, or a
@@ -13,7 +13,7 @@ nothing looks like, becomes an empty patch), a ``{"__interrupt__": (...)}`` upda
 namespaced ``custom`` event, and the stream simply ending means the graph reached ``END``.
 
 Both ends of a run are the graph's state: a ``DataBlock`` in is the initial state as posted,
-and the final state leaves as a ``DataBlock`` on ``run.completed`` — structured going in,
+and the final state leaves as a ``DataBlock`` on ``run.completed``  -  structured going in,
 structured coming out. Text in keeps the single ``{"input": text}`` channel. That final state
 is the last ``values`` chunk rather than a checkpoint read, so a graph compiled without a
 checkpointer still reports one.
@@ -22,7 +22,7 @@ A gate checkpoint between two ``updates`` chunks (issue #128) is this engine's `
 safe point: nothing is mid-execution there, so a pause lands somewhere well defined. Resuming one
 is not a fresh ``start``: langgraph's own idiom for continuing a thread from its checkpoint is an
 ``astream(None, config)`` call, which is what a *resumed pause* passes instead of the run's
-original input — see ``start``'s use of ``history`` and ``_continue_from_pause``. An ``interrupt()``
+original input  -  see ``start``'s use of ``history`` and ``_continue_from_pause``. An ``interrupt()``
 suspension is unrelated and untouched: it resumes with ``Command(resume=value)``, always through
 ``resume``, never through this path.
 
@@ -70,15 +70,15 @@ if TYPE_CHECKING:
 _INTERRUPT_KEY = "__interrupt__"
 _METADATA_KEY = "__metadata__"
 _KNOWN_REASONS = frozenset({"human", "pause", "approval"})
-_WORKFLOWS_DOCS = f"{DOCS_URL}/concepts/workflows"
+_WORKFLOWS_DOCS = f"{DOCS_URL}/build-your-deck/workflows"
 
 DURABLE_KEY = "durable"
 """``spec.metadata[DURABLE_KEY]``: whether this workflow's state must outlive the process.
 
-Absent — a spec built in code that never said — leaves the engine's own default checkpointer
+Absent  -  a spec built in code that never said  -  leaves the engine's own default checkpointer
 in place, which is what a caller wiring ``LangGraphEngine()`` by hand already gets. ``True``
 is what makes the configured (sqlite/postgres) checkpointer be resolved *at all*, and only at
-the first durable run, so the ``[durability]`` extra — needed only for the Postgres backend —
+the first durable run, so the ``[durability]`` extra  -  needed only for the Postgres backend  -
 stays optional for a project that only chats."""
 
 STREAM_CONFIGURABLE_KEY = "agentdeck_stream"
@@ -100,7 +100,7 @@ graph does not try to serialize it.
 
 Distinct from ``STREAM_WRITE`` below on purpose: a ``get_stream_writer()`` payload is whatever a
 node felt like writing, so it travels as a namespaced ``custom``, while status and progress are
-canonical kinds every consumer already understands — D10's promotion, taken.
+canonical kinds every consumer already understands  -  D10's promotion, taken.
 """
 # A list, not a tuple: langgraph switches to ``(mode, chunk)`` chunks on a list specifically,
 # and a tuple of the same modes streams the bare single-mode shape instead.
@@ -116,14 +116,14 @@ STREAM_WRITE_KEY = "value"
 class LangGraphEngine(EnginePort):
     """Plays ``spec.native`` (an uncompiled ``StateGraph``) through ``astream``.
 
-    ``checkpointer`` is what a non-durable graph compiles around — a fresh in-memory one by
+    ``checkpointer`` is what a non-durable graph compiles around  -  a fresh in-memory one by
     default, never ``resolve_checkpointer("memory")``'s shared instance, because two engines
     must not silently see each other's threads. ``durable_checkpoint`` is the
     ``(backend, url)`` a ``durable`` workflow gets instead, resolved from settings at the
     composition root but built here, lazily, at the first durable run: naming the ``postgres``
     backend must not cost a project that only chats the ``[durability]`` extra.
 
-    ``workspace`` is the scope a run's nodes execute inside — injected, because a sandbox is
+    ``workspace`` is the scope a run's nodes execute inside  -  injected, because a sandbox is
     a capability rather than an engine concern, and unset for a project whose nodes need none.
     """
 
@@ -150,12 +150,12 @@ class LangGraphEngine(EnginePort):
     ) -> AsyncGenerator[KnownPayload, None]:
         thread_id = self._thread_id(ctx)
         # ``resume_run`` re-enters a paused run through this same method (ADR-D5: the engine
-        # loads its own execution state, the Runtime does not carry it) — its own claim is the
+        # loads its own execution state, the Runtime does not carry it)  -  its own claim is the
         # ``run.resumed`` this history now ends on, right after the ``run.paused`` this engine
         # wrote. Filtered to ``ctx.run_id``, not just the kind: ``history`` is
         # ``Runtime.run()``'s whole *session* log (``log_key`` is ``session_id or run_id``),
         # read before this run's own claim closes out whatever the session's previous run left
-        # behind — so an abandoned run's stale ``[..., "run.paused", "run.resumed"]`` tail is
+        # behind  -  so an abandoned run's stale ``[..., "run.paused", "run.resumed"]`` tail is
         # still sitting there when a genuinely new run starts on the same session. Without the
         # ``run_id`` filter that stranger's tail reads as this run continuing a pause, and a
         # fresh run's own input is silently discarded in favor of someone else's checkpoint.
@@ -166,7 +166,7 @@ class LangGraphEngine(EnginePort):
             else _to_graph_input(input)
         )
         # aclosing at every delegation: closing an async generator unwinds its own frame only,
-        # so an inner one iterated with a bare `async for` is abandoned to the GC — which
+        # so an inner one iterated with a bare `async for` is abandoned to the GC  -  which
         # finalizes it in a fresh context, where a ContextVar reset (the workspace scope
         # ``_drive`` opens) raises instead of releasing.
         async with aclosing(self._drive(spec, graph_input, thread_id, ctx)) as stream:
@@ -174,7 +174,7 @@ class LangGraphEngine(EnginePort):
                 yield payload
 
     async def _continue_from_pause(self, spec: InvocableSpec, thread_id: str) -> None:
-        """``None`` is langgraph's own idiom for continuing a thread from its last checkpoint —
+        """``None`` is langgraph's own idiom for continuing a thread from its last checkpoint  -
         what a resumed pause needs, since (unlike an interrupt) there is no value to hand back.
         Returning it here, instead of the run's original input, is what keeps a completed node
         from running twice.
@@ -183,14 +183,14 @@ class LangGraphEngine(EnginePort):
         continue from: ``durable=False`` never compiles with a checkpointer at all (mirrors the
         ``interrupt()`` refusal in ``_drive``, for the same reason), and a non-durable graph's
         in-memory one (``engine.py``'s own default) does not survive a resume landing in another
-        process — ADR-D5 makes an engine's checkpointer its own working memory, never shared with
+        process  -  ADR-D5 makes an engine's checkpointer its own working memory, never shared with
         another engine instance.
         """
         durable = spec.metadata.get(DURABLE_KEY)
         if durable is False:
             raise ConfigError(
                 f"{spec.name} paused at a node boundary but is durable=False: with no checkpointer "
-                f"the paused run cannot be resumed. Set `durable = True` on the workflow — see {_WORKFLOWS_DOCS}",
+                f"the paused run cannot be resumed. Set `durable = True` on the workflow  -  see {_WORKFLOWS_DOCS}",
             )
         checkpointer = self._checkpointer_for(spec)
         config: RunnableConfig = {"configurable": {"thread_id": thread_id}}
@@ -198,7 +198,7 @@ class LangGraphEngine(EnginePort):
             raise ConfigError(
                 f"{spec.name} paused at a node boundary, but this process has no checkpoint for "
                 f"thread {thread_id!r}: a non-durable checkpoint does not survive across processes. "
-                f"Set `durable = True` on the workflow, with a durable checkpoint backend — see {_WORKFLOWS_DOCS}",
+                f"Set `durable = True` on the workflow, with a durable checkpoint backend  -  see {_WORKFLOWS_DOCS}",
             )
         return None
 
@@ -216,7 +216,7 @@ class LangGraphEngine(EnginePort):
     def _thread_id(self, ctx: RunContext) -> str:
         """Which langgraph thread this run plays on: the session's, or its own.
 
-        A caller that names the thread keeps resuming it — ``POST /workflows/X?thread_id=t``
+        A caller that names the thread keeps resuming it  -  ``POST /workflows/X?thread_id=t``
         then ``POST /workflows/X/t/resume`` is two runs on one thread, which ``ctx.run_id``
         could not express. A run with no session falls back to its own id, which a resume
         names back via the ``RunInterrupted`` it got.
@@ -241,7 +241,7 @@ class LangGraphEngine(EnginePort):
             # thread nobody can name back is a lost run.
             raise ValueError(
                 f"{spec.name} is durable=True; a thread_id is required to load/persist checkpointed state "
-                f"— see {_WORKFLOWS_DOCS}",
+                f" -  see {_WORKFLOWS_DOCS}",
             )
         config: RunnableConfig = {
             "configurable": {
@@ -251,7 +251,7 @@ class LangGraphEngine(EnginePort):
             }
         }
         # The workspace is a ContextVar scope, so the stream it wraps has to be closed from
-        # inside it — an abandoned generator releases it from the wrong context.
+        # inside it  -  an abandoned generator releases it from the wrong context.
         scope = self._workspace() if self._workspace is not None else nullcontext(None)
         async with scope, aclosing(self._play(self._graph_for(spec), graph_input, config, ctx)) as stream:
             async for payload in stream:
@@ -276,7 +276,7 @@ class LangGraphEngine(EnginePort):
     def _checkpointer_for(self, spec: InvocableSpec) -> BaseCheckpointSaver | None:
         """This graph's checkpointer. Three answers, because ``durable`` has three states.
 
-        Declared ``False`` means **no checkpointer at all** — not an in-memory one. A saver
+        Declared ``False`` means **no checkpointer at all**  -  not an in-memory one. A saver
         keyed by thread would make a second run on a thread resume the first's state instead
         of starting fresh, which is the opposite of what a workflow declaring itself
         non-durable asked for.
@@ -313,7 +313,7 @@ class LangGraphEngine(EnginePort):
             # The run context travels as langgraph's own runtime context, which is what reaches
             # a node: `authoring.graphs` compiles a node declaring ``Context[...]`` into one
             # declaring ``runtime``, and reads the carrier back off ``runtime.context`` there.
-            # Distinct from ``configurable`` on purpose — langgraph draws the same
+            # Distinct from ``configurable`` on purpose  -  langgraph draws the same
             # state-vs-runtime-context line, and application data does not belong beside a
             # thread id. Resuming goes through the same call, so a resumed run is resupplied.
             graph.astream(graph_input, config=config, context=ctx, stream_mode=_STREAM_MODES),
@@ -333,16 +333,16 @@ class LangGraphEngine(EnginePort):
                     # the interrupt, re-runs the node and interrupts all over again, so a
                     # durable workflow silently never resumes. The in-memory saver hides it,
                     # having nothing to await. Draining first also orders the two records the
-                    # only safe way round — the engine's checkpoint is durable before the
+                    # only safe way round  -  the engine's checkpoint is durable before the
                     # canonical log says the run is waiting on a human.
                     #
                     # A sibling branch in the same superstep that is still running when the
-                    # interrupt is detected finishes somewhere in this drain — langgraph
+                    # interrupt is detected finishes somewhere in this drain  -  langgraph
                     # reports the pause as soon as one branch asks for it, not once the whole
                     # step is done. Forwarding what the drain turns up (#122) means such a
                     # branch's report is not silently thrown away with the rest of the drain:
                     # its checkpoint write already landed (that is what draining guarantees),
-                    # so the canonical log should say so too. The pause itself is still last —
+                    # so the canonical log should say so too. The pause itself is still last  -
                     # every other event report the wire renders is well-defined for a run that
                     # then went on to finish; the pause is the one report a client must be able
                     # to treat as "nothing more is coming this call", so it never precedes
@@ -353,12 +353,12 @@ class LangGraphEngine(EnginePort):
                     return  # the graph suspended; its terminal event arrives on resume
                 if graph_input is None:
                     # Only a resumed *pause* passes ``None`` (an interrupt resumes with
-                    # ``Command(resume=value)``, a fresh start with the converted input) — so
+                    # ``Command(resume=value)``, a fresh start with the converted input)  -  so
                     # this is the one path where langgraph's own re-announcement of the step its
                     # checkpoint was loaded from, marked ``cached``, can turn up. Reporting it
                     # would tell a reader the node that already ran, ran again. An interrupt
                     # resume gets the identical artifact from langgraph today and keeps it
-                    # unfiltered — the same "not part of this issue" call
+                    # unfiltered  -  the same "not part of this issue" call
                     # ``test_langgraph_fanout_interrupt.py`` already made for it (#122).
                     #
                     # Verified against langgraph 1.2.11: ``pregel/_loop.py`` sets ``cached`` at
@@ -394,12 +394,12 @@ class LangGraphEngine(EnginePort):
     ) -> AsyncGenerator[KnownPayload, None]:
         """The rest of ``stream`` once one branch has already asked to pause.
 
-        Reported the same way the main loop would report it — ``NodeUpdated`` per node,
-        ``Custom`` per stream write — except a second interrupt in the same superstep is not
+        Reported the same way the main loop would report it  -  ``NodeUpdated`` per node,
+        ``Custom`` per stream write  -  except a second interrupt in the same superstep is not
         one this engine acts on: ``_play`` already reports only the first (``_interrupted``
         reads ``interrupt[0]``), so two branches interrupting at once is out of scope here
         rather than silently mis-paired with the wrong pause. A trailing ``values`` chunk is
-        the graph's state at drain time, not an event any consumer reads — the run that
+        the graph's state at drain time, not an event any consumer reads  -  the run that
         produced it never reaches ``RunCompleted``, so there is nothing to attach it to.
         """
         async for mode, chunk in stream:
@@ -426,8 +426,8 @@ class LangGraphEngine(EnginePort):
     def _as_patch(self, patch: Any, node: str) -> dict[str, Any]:
         """One node's state update, where *no* update is a legitimate answer.
 
-        langgraph reports a node that changed nothing — the side-effect-only node that logs or
-        notifies and returns ``None``, and equally one returning ``{}`` — as ``{node: None}``.
+        langgraph reports a node that changed nothing  -  the side-effect-only node that logs or
+        notifies and returns ``None``, and equally one returning ``{}``  -  as ``{node: None}``.
         An absent patch is not a malformed one, so it is the empty patch rather than a refusal.
         """
         return {} if patch is None else self._as_data(patch, node)
@@ -460,7 +460,7 @@ class LangGraphEngine(EnginePort):
 
         A pydantic model or a dataclass is a state channel a node legitimately returns, so it
         reaches a consumer as the object it is rather than as its ``repr``; ``__dict__`` covers
-        the plain object a node built by hand. Everything else is ``str()`` — the ceiling.
+        the plain object a node built by hand. Everything else is ``str()``  -  the ceiling.
         """
         if isinstance(value, BaseModel):
             return value.model_dump()
@@ -482,7 +482,7 @@ def _to_graph_input(input: Input) -> dict[str, Any]:
         if not isinstance(state, dict):
             raise ConfigError(f"langgraph engine: a data block input must be a JSON object, got {type(state)}")
         return dict(state)
-    # Images/resources are a follow-up, not a silent drop — better to raise now than feed a
+    # Images/resources are a follow-up, not a silent drop  -  better to raise now than feed a
     # node a blank string.
     texts = [block.text for block in input if isinstance(block, TextBlock)]
     if len(texts) != len(input):

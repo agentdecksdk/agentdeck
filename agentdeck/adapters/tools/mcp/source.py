@@ -2,8 +2,8 @@
 
 An invocable names the servers it wants in ``InvocableSpec.metadata``; this hands back the
 ones that are connected, the names of the ones that are not, and the banner that makes a
-model report the gap. Unknown, unconfigured and unreachable all resolve the same way — a
-:class:`ToolSet` — because MCP being down degrades a run, never fails it.
+model report the gap. Unknown, unconfigured and unreachable all resolve the same way  -  a
+:class:`ToolSet`  -  because MCP being down degrades a run, never fails it.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ class MCPToolSource(ToolSourcePort):
     """The project's MCP servers, as one tool source.
 
     Stateless: the servers themselves live in :class:`MCPLifecycle`, which the composition
-    root connects at startup and closes at shutdown — resolving never connects, so it is
+    root connects at startup and closes at shutdown  -  resolving never connects, so it is
     safe to call while building a prompt. Not free, though: on a cold cache the first call
     materialises process settings, which reads the config files off disk.
     """

@@ -1,0 +1,12 @@
+# Run Reference
+
+API reference for `Run` instances and execution controls.
+
+## Methods
+
+- `await run`: Await completion of the run and return the final output.
+- `run.events()`: Stream events as an async generator.
+- `await run.pause()`: Pause execution.
+- `await run.resume()`: Resume paused execution.
+- `await run.answer(value)`: Supply input to a waiting run.
+- `await run.cancel()`: Cancel execution.

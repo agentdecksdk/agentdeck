@@ -1,0 +1,15 @@
+# Mental Model
+
+AgentDeck separates **user intent** from **runtime machinery**.
+
+## User Intent vs. Machinery
+
+* **You define:** Agents, tools, workflows, skills, and application context.
+* **AgentDeck manages:** Run identity, lifecycle state, persistence, event streams, cancellation, and concurrency.
+
+## Core Primitives
+
+- **Deck:** The composition root holding all registered agents, workflows, and tools.
+- **Agent / Workflow:** The declarative definitions of your autonomous components.
+- **Run:** An executing instance with an isolated session and immutable event stream.
+- **Events:** The typed append-only record of everything that occurred during a run.

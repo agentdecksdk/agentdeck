@@ -3,7 +3,7 @@
 The refusal has to be an answer, not a truncated body. A run is claimed on the first event of
 an async generator, so an SSE route that hands the generator straight to ``StreamingResponse``
 commits ``200`` and ``text/event-stream`` before the claim is even attempted, and the refusal
-then reaches the client as a body that simply stops — which is exactly what a run producing no
+then reaches the client as a body that simply stops  -  which is exactly what a run producing no
 events looks like. These tests pin the status, the message, and that the ordinary streaming
 path did not lose or duplicate its opening event on the way to fixing that.
 """
@@ -50,7 +50,7 @@ def _reader() -> RunContext:
 
 
 def _holder() -> RunContext:
-    """The run that already owns the session — its own context, because that is what files an
+    """The run that already owns the session  -  its own context, because that is what files an
     event under its ``run_id`` now."""
     return RunContext(run_id=HOLDER, session_id=SESSION_ID)
 
@@ -85,7 +85,7 @@ async def test_a_turn_on_a_busy_session_is_a_409_naming_the_run_that_holds_it() 
 
 async def test_an_empty_session_id_is_refused_rather_than_given_a_log_of_its_own() -> None:
     """``RunContext.log_key`` is ``session_id or run_id``, so ``""`` is not an error anywhere
-    downstream — it quietly gives the turn a private log, and the caller's next message finds
+    downstream  -  it quietly gives the turn a private log, and the caller's next message finds
     no history with nothing anywhere saying why. Caught at the boundary, where it is still a 422."""
     runtime, store = _runtime()
     app = build_app(runtime)

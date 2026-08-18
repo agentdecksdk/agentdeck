@@ -4,7 +4,7 @@ Everything the four stores must agree on is asserted once, for all of them, in
 ``tests/contract/test_store.py``. What is left here is what this adapter alone can be wrong
 about: no server at all, two clients racing the same claim through ``WATCH``/``MULTI``/``EXEC``,
 the key escaping that keeps one namespace's ids from forging another's keys, and the prefix the
-log is supposed to keep to. The race cases use two store instances over one server — two
+log is supposed to keep to. The race cases use two store instances over one server  -  two
 clients sharing no lock, no cache and no ``asyncio.Lock``, which is the position two server
 processes are in.
 """
@@ -31,10 +31,10 @@ if TYPE_CHECKING:
 ORIGIN = "Greeter"
 
 # A window nothing these cases write can fall outside of, so no claim here reaches the
-# staleness path — which the contract suite covers for every store.
+# staleness path  -  which the contract suite covers for every store.
 NOTHING_IS_STALE = timedelta(hours=1)
 
-# Nothing listens on port 1, so every call fails at connect — the shape of a server gone
+# Nothing listens on port 1, so every call fails at connect  -  the shape of a server gone
 # unreachable mid-run, without waiting out a real timeout.
 UNREACHABLE_URL = "redis://127.0.0.1:1/0"
 
@@ -151,7 +151,7 @@ async def test_two_clients_settle_a_session_claim_on_one_winner(keyspace: tuple[
 
         refused = [claim.held_by for claim, _ in outcomes if claim.held_by is not None]
         assert len(refused) == 1, f"trial {trial}: {outcomes}"
-        # The log holds exactly the run the refusal named — the two answers cannot disagree.
+        # The log holds exactly the run the refusal named  -  the two answers cannot disagree.
         assert [event.run_id for event in stored] == [refused[0]], f"trial {trial}: {outcomes}"
         # And the winner was handed the event it wrote, while the loser was handed nothing.
         assert [event is not None for _, event in outcomes].count(True) == 1, f"trial {trial}: {outcomes}"
@@ -160,7 +160,7 @@ async def test_two_clients_settle_a_session_claim_on_one_winner(keyspace: tuple[
 async def test_a_colon_in_a_namespace_cannot_reach_into_another_namespaces_log(keyspace: tuple[str, str]) -> None:
     """Keys are built by joining segments with ``:``, so an unescaped id containing one would
     make namespace ``"acme:x"`` + session ``"s"`` and namespace ``"acme"`` + session ``"x:s"`` the
-    same key — two namespaces reading each other's runs through nothing but a chosen name.
+    same key  -  two namespaces reading each other's runs through nothing but a chosen name.
     """
     url, prefix = keyspace
     store = RedisEventStore(url, prefix=prefix)

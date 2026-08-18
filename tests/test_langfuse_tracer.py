@@ -1,7 +1,7 @@
 """The SDK half of the Langfuse sink, against a spy exporter instead of a Langfuse backend.
 
 ``tests/test_langfuse_sink.py`` pins the mapping; this file pins the translation of that
-mapping into real Langfuse spans — the trace id, the nesting, and the attributes the backend
+mapping into real Langfuse spans  -  the trace id, the nesting, and the attributes the backend
 reads. Needs the ``[observability]`` extra, so it skips where the SDK is not installed.
 """
 
@@ -61,18 +61,18 @@ class SpyExporter(SpanExporter):
         self.client: Any = None
         self.provider: Any = None
 
-    def export(self, spans):  # noqa: ANN001, ANN201 — OTel's own signature
+    def export(self, spans):  # noqa: ANN001, ANN201  -  OTel's own signature
         self.spans.extend(spans)
         return SpanExportResult.SUCCESS
 
     def shutdown(self) -> None:
         pass
 
-    def by_name(self, name: str):  # noqa: ANN201 — a ReadableSpan, which OTel exposes only as an internal type
+    def by_name(self, name: str):  # noqa: ANN201  -  a ReadableSpan, which OTel exposes only as an internal type
         return next(span for span in self.spans if span.name == name)
 
     def media_queued(self) -> int:
-        """How many uploads the SDK has queued for its media store — zero, always, here."""
+        """How many uploads the SDK has queued for its media store  -  zero, always, here."""
         return self.client._resources._media_upload_queue.qsize()
 
 
@@ -104,12 +104,12 @@ def spy(monkeypatch: pytest.MonkeyPatch):  # noqa: ANN201
     LangfuseResourceManager.reset()
 
 
-def _attr(span, key: str):  # noqa: ANN001, ANN201 — reads one OTel attribute off a ReadableSpan
+def _attr(span, key: str):  # noqa: ANN001, ANN201  -  reads one OTel attribute off a ReadableSpan
     return span.attributes.get(key)
 
 
 async def _run(spy, name: str = "Pipeline") -> str:  # noqa: ANN001
-    """Plays the run and returns its own minted id, which the sink seeds the trace id from —
+    """Plays the run and returns its own minted id, which the sink seeds the trace id from  -
     the only way a test can predict that seed now that #324 mints it rather than a caller."""
     spec = stub_spec(name, *WORKFLOW, kind=InvocableKind.WORKFLOW)
     runtime = Runtime(
@@ -151,7 +151,7 @@ async def test_a_tool_span_carries_its_preview_and_a_generation_carries_its_usag
 
 async def test_the_trace_belongs_to_the_run_not_to_whatever_span_was_current(spy) -> None:  # noqa: ANN001
     """The sink emits from the dispatch's consumer task, which inherited its context from a
-    run — so a v1-instrumented process must not end up with this trace nested under an
+    run  -  so a v1-instrumented process must not end up with this trace nested under an
     unrelated span, and a run's trace id must stay a function of the run alone.
     """
     with spy.provider.get_tracer("unrelated").start_as_current_span("someone-elses-span") as ambient:
@@ -188,7 +188,7 @@ async def test_an_inline_data_uri_in_tool_args_never_reaches_the_langfuse_media_
     assert spy.media_queued() == 0
     assert payload not in str(_attr(spy.by_name("describe"), "langfuse.observation.input"))
 
-    # The same URI handed over unredacted does queue an upload — which is what makes the two
+    # The same URI handed over unredacted does queue an upload  -  which is what makes the two
     # assertions above mean something rather than merely pass.
     unredacted = LangfuseTracer(spy.client).root("Probe", kind="span", trace_key="r-2", session_id=None)
     unredacted.child("describe", kind="tool", input={"img": data_uri}).finish()
@@ -213,7 +213,7 @@ def test_the_tracer_s_flush_is_the_sdk_client_s_own() -> None:
     assert client.flushes == 1
 
 
-def test_build_client_yields_a_sink_over_the_real_sdk(spy) -> None:  # noqa: ANN001, ARG001 — the spy bounds the exporter and resets the registry
+def test_build_client_yields_a_sink_over_the_real_sdk(spy) -> None:  # noqa: ANN001, ARG001  -  the spy bounds the exporter and resets the registry
     """The one construction point, against the SDK the package will actually run on."""
     client = build_client(
         LangfuseSettings(public_key="pk-lf-configured", secret_key="sk-lf-test", base_url="http://localhost:1")

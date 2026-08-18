@@ -1,8 +1,8 @@
-"""``Skills`` — the capability object a ``Deck`` composes for skill disclosure.
+"""``Skills``  -  the capability object a ``Deck`` composes for skill disclosure.
 
 A skill is progressive knowledge disclosure inside an agent's own execution, not a program to
 run (``docs/delivery/plan-skills.md``). ``Skills`` owns one or more root directories, scans each
-one's direct children for ``<root>/<name>/SKILL.md`` — never recursively — and merges the result
+one's direct children for ``<root>/<name>/SKILL.md``  -  never recursively  -  and merges the result
 into one name-keyed registry at :meth:`Skills.build`. Constructing it reads nothing from disk;
 ``build()`` is the one place a bad skill directory is reported.
 """
@@ -18,7 +18,7 @@ from agentdeck.skills.bundle import SKILL_MD_FILENAME, SkillBundle
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-_SKILLS_DOCS = f"{DOCS_URL}/concepts/skills"
+_SKILLS_DOCS = f"{DOCS_URL}/build-your-deck/skills"
 
 
 class Skills:
@@ -26,7 +26,7 @@ class Skills:
 
     ``validate=True`` (the default) enforces what the Agent Skills contract requires and a
     permissive scan would not catch: a ``SKILL.md``'s frontmatter ``name`` must match its
-    directory name, and it must declare a non-empty ``description`` — the text a model reads to
+    directory name, and it must declare a non-empty ``description``  -  the text a model reads to
     decide whether to use the skill at all. Both fail ``build()`` loudly instead of registering
     a skill nothing can address or nothing can choose.
     """
@@ -45,7 +45,7 @@ class Skills:
     def build(self) -> dict[str, SkillBundle]:
         """Scan every root (direct children only) and merge into one registry.
 
-        A root that does not exist on disk contributes no skills rather than failing — a
+        A root that does not exist on disk contributes no skills rather than failing  -  a
         project need not have created its skills directory yet. Re-scans on every call; nothing
         here holds a resource worth caching across calls.
         """
@@ -66,7 +66,7 @@ class Skills:
                 if bundle.name in merged:
                     raise ConfigError(
                         f"skill {bundle.name!r} found under both {found_under[bundle.name]} and "
-                        f"{child} — a skill name must be unique across roots — see {_SKILLS_DOCS}"
+                        f"{child}  -  a skill name must be unique across roots  -  see {_SKILLS_DOCS}"
                     )
                 merged[bundle.name] = bundle
                 found_under[bundle.name] = child
@@ -90,7 +90,7 @@ class Skills:
 
     def disclosure_text(self, names: Sequence[str]) -> str:
         """The instructions-block for an agent's own ``skills=[...]``: each name and
-        description, never the full body — a model still decides whether to use one instead of
+        description, never the full body  -  a model still decides whether to use one instead of
         finding it pre-loaded into its context."""
         if not names:
             return ""
@@ -107,11 +107,11 @@ def _validate_bundle(bundle: SkillBundle, path: Path) -> None:
     if bundle.name != path.name:
         raise ConfigError(
             f"{path / SKILL_MD_FILENAME}: frontmatter declares name {bundle.name!r}, which must "
-            f"match its directory name {path.name!r} — see {_SKILLS_DOCS}"
+            f"match its directory name {path.name!r}  -  see {_SKILLS_DOCS}"
         )
     if not bundle.description:
         raise ConfigError(
-            f"{path / SKILL_MD_FILENAME}: missing a 'description' in its frontmatter — see {_SKILLS_DOCS}"
+            f"{path / SKILL_MD_FILENAME}: missing a 'description' in its frontmatter  -  see {_SKILLS_DOCS}"
         )
 
 

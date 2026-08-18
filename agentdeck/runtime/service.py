@@ -1,12 +1,12 @@
 """The Runtime: the one place a run is orchestrated.
 
 Per event, in this order: append to the log, fan out to sinks, yield. The order is the
-contract — an event a consumer has seen is already persisted, so a consumer that spots a
+contract  -  an event a consumer has seen is already persisted, so a consumer that spots a
 ``seq`` gap can always refetch it.
 
 Engines only yield payloads, and so does this: the store stamps the envelope, assigning
 ``seq`` and ``ts`` in the same indivisible step that writes the row (ADR-D11). Nothing here
-holds a counter, which is what makes the refetch promise above true — a number that cannot be
+holds a counter, which is what makes the refetch promise above true  -  a number that cannot be
 allocated without being persisted cannot leave a hole behind.
 """
 
@@ -64,7 +64,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Mirrors ``RuntimeSettings.stale_run_after_seconds``'s own default (60.0 * 60.0) — duplicated
+# Mirrors ``RuntimeSettings.stale_run_after_seconds``'s own default (60.0 * 60.0)  -  duplicated
 # rather than imported so a bare ``Runtime()`` needs no settings at all; ``build_runtime`` is
 # the caller that resolves the configured value and passes it in.
 _DEFAULT_STALE_RUN_AFTER = timedelta(hours=1)
@@ -76,12 +76,12 @@ _DEFAULT_LEASE_TTL = timedelta(seconds=90)
 # consecutive misses before a live run is declared dead, which is the margin a GC pause or a
 # briefly slow store gets to not cost a takeover.
 _RENEWALS_PER_TTL = 6
-_SESSIONS_DOCS = f"{DOCS_URL}/concepts/sessions-and-memory"
+_SESSIONS_DOCS = f"{DOCS_URL}/runs-and-control/sessions"
 
 
 @dataclass(frozen=True, slots=True)
 class PendingRun:
-    """One run currently ``WAITING_ANSWER`` — what :meth:`Runtime.pending` lists."""
+    """One run currently ``WAITING_ANSWER``  -  what :meth:`Runtime.pending` lists."""
 
     run_id: str
     session_id: str | None
@@ -93,9 +93,9 @@ class PendingRun:
 class Runtime:
     """Runs invocables and emits one canonical event stream, whatever engine did the work.
 
-    Sinks are optional and buffered — each gets its own bounded queue, so the run is never
+    Sinks are optional and buffered  -  each gets its own bounded queue, so the run is never
     pinned to one. The store stamps every event's ``ts`` in the write that persists it
-    (ADR-D11); a caller that wants to hold time injects a clock into the store instead —
+    (ADR-D11); a caller that wants to hold time injects a clock into the store instead  -
     ``MemoryEventStore(clock=...)``, ``RedisEventStore(clock=...)``.
 
     ``lease`` is how a killed worker is recognised as one instead of waited out. A live run
@@ -106,8 +106,8 @@ class Runtime:
     so this degrades to the timer rather than guessing.
 
     ``stale_run_after`` is how long a **running** run may go silent before it stops holding its
-    session — never a suspended one, which holds until resumed, answered or cancelled.
-    ``Runtime`` takes no ambient configuration at all — it defaults to one hour and never reads
+    session  -  never a suspended one, which holds until resumed, answered or cancelled.
+    ``Runtime`` takes no ambient configuration at all  -  it defaults to one hour and never reads
     settings itself; ``build_runtime`` is the caller that resolves
     ``AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS`` and passes the configured value in, the same
     as its five peer arguments. ``control_poll_interval`` is how long a run may reuse the
@@ -139,7 +139,7 @@ class Runtime:
 
     @property
     def store(self) -> EventStorePort:
-        """The event log this Runtime plays every run against — the read side of what
+        """The event log this Runtime plays every run against  -  the read side of what
         :meth:`run`, :meth:`resume` and :meth:`resume_run` write to, for a caller that wants
         to read a run back directly (e.g. ``App.store``) rather than only watching it live.
         """
@@ -159,10 +159,10 @@ class Runtime:
 
         ``context`` is the application's own value for this run, reaching a callable that declares
         a ``Context[...]`` parameter and nothing else. It is held by reference for the run's whole
-        life and never written to the log — the record says what a run was asked to do, not which
+        life and never written to the log  -  the record says what a run was asked to do, not which
         live objects it held.
 
-        ``key`` is the caller's optional stable application identifier — for lookup and
+        ``key`` is the caller's optional stable application identifier  -  for lookup and
         idempotency, never the run's address. The run's own ``id`` is always minted here, never
         derived from ``key``, so two namespaces reusing one key still get two distinct runs.
         ``(namespace, key)`` is a permanent claim: reusing one whose run already started raises
@@ -172,7 +172,7 @@ class Runtime:
         the session already has one in flight, so a second concurrent turn raises
         ``SessionBusyError`` instead of running against a conversation that is still changing.
 
-        The engine's exception, if any, reaches the caller — but ``run.failed`` is recorded
+        The engine's exception, if any, reaches the caller  -  but ``run.failed`` is recorded
         first, so the log tells the whole story even when nobody was listening. Every exit
         closes the run in the log: a consumer that walks away gets ``run.cancelled``, whether it
         closed this generator or had its own task cancelled under it.
@@ -181,7 +181,7 @@ class Runtime:
         ctx, reports = self._bind(
             self._new_run_context(key=key, session_id=session_id, namespace=namespace, data=context)
         )
-        # ponytail: whole log per run — window it (or hand the engine a summary) once a
+        # ponytail: whole log per run  -  window it (or hand the engine a summary) once a
         # session's history outgrows one read, which a real store will notice long before this does
         history = await self._store.read(ctx.log_key, ctx)
 
@@ -194,7 +194,7 @@ class Runtime:
             claimed = await self._claim_session(opening, spec, ctx, history)
         except asyncio.CancelledError:
             # The claim commits this run before anything is yielded, and it is awaited in the
-            # caller's own coroutine — the one an ASGI server cancels when a client disconnects
+            # caller's own coroutine  -  the one an ASGI server cancels when a client disconnects
             # before the response starts. A cancellation landing between the two would leave the
             # run open in the log and its session held for a whole staleness window.
             # Anything not None is a run the claim opened, and it is owed a terminal event.
@@ -223,20 +223,20 @@ class Runtime:
 
         ``context`` is resupplied, never recovered: the value is held by reference for one run
         and deliberately never written to the log, so a run picked up here starts with whatever
-        this caller hands it. Omitting it is not "keep what the run had" — it is ``None``, and a
+        this caller hands it. Omitting it is not "keep what the run had"  -  it is ``None``, and a
         node that read ``ctx.data`` before the interrupt reads ``None`` after it.
 
         The store's conditional append makes the ``WAITING_ANSWER`` -> ``RUNNING`` transition
         atomic, so exactly one caller wins even when the callers are separate processes; the
         winner opens the run with ``run.resumed``, seq recovered from the log's own
-        ``max(seq)`` so it stays contiguous across a process restart — never reset to 0.
+        ``max(seq)`` so it stays contiguous across a process restart  -  never reset to 0.
         From there the engine plays on exactly like ``run()`` plays an opening: same
         terminal/suspended/exception handling.
 
-        A stray resume — already resumed by a racing caller, or a completed run — is a no-op:
+        A stray resume  -  already resumed by a racing caller, or a completed run  -  is a no-op:
         nothing is read from the engine, nothing is yielded. A run an operator asked to *stop*
         is not stray, and refuses instead: honoring the answer would let it silently override
-        somebody who said stop. Both intents survive the refusal — the run is still waiting, and
+        somebody who said stop. Both intents survive the refusal  -  the run is still waiting, and
         the pause is still pending for whoever reads next.
 
         A **cancel** recorded while the run waited ends it here rather than answering it, for
@@ -250,7 +250,7 @@ class Runtime:
         if status is None:
             return
         # No precondition check here: which states admit an answer is the front door's business
-        # (``Deck._answer``), and this method is also where a *loser* lands — a caller whose run
+        # (``Deck._answer``), and this method is also where a *loser* lands  -  a caller whose run
         # was answered out from under it reads ``RUNNING`` and must still no-op, which is what
         # the claim below does for it. Refusing here would turn every lost race into an error.
         #
@@ -288,25 +288,25 @@ class Runtime:
         """Continue a run that paused at a safe point: same ``run_id``, same log, ``seq``
         counting on from where it stopped.
 
-        ``context`` is resupplied here for the same reason it is on :meth:`resume` — the value
+        ``context`` is resupplied here for the same reason it is on :meth:`resume`  -  the value
         never reached the log, so the caller lifting the pause is the only one who still has it.
 
         The engine is re-entered rather than un-suspended, because a paused turn left no stack
         to return to: the log is the checkpoint, so the run is played again from its own
         ``run.started`` input with the log as history. What that means for a caller is stated
-        where the safe points are — a step the paused turn already took can be taken twice, so
+        where the safe points are  -  a step the paused turn already took can be taken twice, so
         a tool with side effects has to tolerate being called again.
 
         Which states admit a resume is :data:`PRECONDITIONS`' business, not this method's. A
-        run that is already running or already over is a no-op — that covers the ordinary races
-        without a second answer for a caller to branch on — while one waiting for a *value*
+        run that is already running or already over is a no-op  -  that covers the ordinary races
+        without a second answer for a caller to branch on  -  while one waiting for a *value*
         refuses, naming ``run.answer(...)``, because silence there reads as "resumed" to a
         caller who is in fact holding the run's only answer.
 
         A **cancel** recorded while the run was paused is honored here instead of resuming it,
         because this claim is the only thing that will ever look for it: a paused run has no
         loop reaching safe points, so nothing else can turn that request into an effect. The
-        run ends ``cancelled`` and is never played on — cancel stays terminal, and asking to
+        run ends ``cancelled`` and is never played on  -  cancel stays terminal, and asking to
         resume a run somebody cancelled does not quietly override them.
         """
         ctx = self._context(run_id=run_id, namespace=namespace, data=context)
@@ -333,7 +333,7 @@ class Runtime:
         if ruling.action is Action.TERMINATE and pending is not None:
             yield opening
             # No ``control.observed``: that event says the run reached a safe point and acted
-            # there, and this run reached none — it was already stopped when the cancel landed.
+            # there, and this run reached none  -  it was already stopped when the cancel landed.
             # The request and the effect are the whole honest story of a cancel served here.
             yield await self._record(ControlRequested(verb="cancel", reason=pending.reason), spec, run_ctx)
             yield await self._record(RunCancelled(reason=pending.reason), spec, run_ctx)
@@ -347,14 +347,14 @@ class Runtime:
     async def signal(
         self, run_id: str, verb: Signal, reason: str | None = None, *, namespace: str | None = None
     ) -> bool:
-        """Record a control request for ``run_id`` in ``namespace``, wherever it is running —
+        """Record a control request for ``run_id`` in ``namespace``, wherever it is running  -
         except a cancel against a run already suspended, which ends it right here instead.
 
-        ``run_id`` here is a run's own minted, globally unique id — the same value its Gate
-        polls under (bound in :meth:`_bind`) — so two namespaces can never collide over one:
+        ``run_id`` here is a run's own minted, globally unique id  -  the same value its Gate
+        polls under (bound in :meth:`_bind`)  -  so two namespaces can never collide over one:
         each run's id is unrelated to the other's from the moment it was minted.
 
-        ``False`` means this Runtime has no ``ControlPort`` and nothing was recorded — the one
+        ``False`` means this Runtime has no ``ControlPort`` and nothing was recorded  -  the one
         answer a caller has to act on. Everything else is deliberately not an answer here: the
         run may be inside a tool call, in another process, or already over, and which of those
         it is cannot be known at the moment a caller asks. A signal that loses the race with a
@@ -365,7 +365,7 @@ class Runtime:
 
         A **cancel** cannot wait the same way: a suspended run has no loop that will ever poll
         the gate again, so merely recording the signal is betting on somebody else calling
-        :meth:`resume`/:meth:`resume_run` later to notice it — which may never happen, wedging
+        :meth:`resume`/:meth:`resume_run` later to notice it  -  which may never happen, wedging
         the very session the cancel was meant to free. :meth:`_cancel_suspended` claims and
         terminates such a run directly. A **pause**, by contrast, stays merely recorded even
         against a suspended run: it has nothing to do until something next resumes or answers
@@ -384,7 +384,7 @@ class Runtime:
         """Claim ``run_id``'s suspended -> ``RUNNING`` transition and terminate on top of it,
         the same shape :meth:`resume`/:meth:`resume_run` already use when *they* are the ones
         to find a cancel pending. ``False`` for anything not currently suspended (``RUNNING``,
-        terminal, or a run ``namespace`` has never heard of) — ``signal`` falls through to
+        terminal, or a run ``namespace`` has never heard of)  -  ``signal`` falls through to
         recording those the ordinary way.
 
         Losing the claim to a concurrent resume/answer is not an error: that caller is now the
@@ -416,7 +416,7 @@ class Runtime:
         engine: EnginePort,
         reports: deque[KnownPayload],
     ) -> AsyncGenerator[Event, None]:
-        """Yield ``opening``, then everything ``stream`` produces — and close the run in the
+        """Yield ``opening``, then everything ``stream`` produces  -  and close the run in the
         log whichever way it ends.
 
         One body for all three openings (a start, a resumed interrupt, a lifted pause) because
@@ -426,7 +426,7 @@ class Runtime:
 
         The lease is held here, around the whole of it, for exactly that reason: a run is being
         executed precisely while this body is reading its engine, and every one of the four
-        endings leaves through this method. A run that parks at a suspension releases too —
+        endings leaves through this method. A run that parks at a suspension releases too  -
         nothing is executing it then, and #311's rule is that the log alone decides how long
         a suspended run holds its session.
         """
@@ -446,7 +446,7 @@ class Runtime:
                             # discarded.
                             break
         except GeneratorExit:
-            # Nobody is listening any more, so there is no event to yield — but an unclosed
+            # Nobody is listening any more, so there is no event to yield  -  but an unclosed
             # run in the log is indistinguishable from one still in flight.
             logger.info("run %s abandoned by its consumer after %r", ctx.run_id, last)
             await self._record(RunCancelled(reason="consumer stopped reading"), spec, ctx)
@@ -460,7 +460,7 @@ class Runtime:
             await self._close_cancelled(spec, ctx, "consumer cancelled")
             raise
         except Exception as exc:
-            # The exception is the caller's, the event is the record — both, always. The type
+            # The exception is the caller's, the event is the record  -  both, always. The type
             # name only: an exception message can carry content that must not reach a sink.
             logger.exception("run %s failed in engine %r", ctx.run_id, engine.engine)
             yield await self._record(_failed(exc, engine.engine), spec, ctx)
@@ -477,7 +477,7 @@ class Runtime:
 
         The mechanism is the port's; the acquire/renew/release cycle is policy and lives here,
         the same way :class:`~agentdeck.core.control.Gate` sits above ``ControlPort``. Every
-        exit releases, including the ones that end the run badly — and the one exit that cannot
+        exit releases, including the ones that end the run badly  -  and the one exit that cannot
         release, the process being killed, is the whole reason the lease has a TTL.
 
         Nothing here can fail a turn. A lease is an *improvement* on the staleness timer, so a
@@ -526,7 +526,7 @@ class Runtime:
         """Which runs in this log a lease can positively assert nobody is executing.
 
         Empty whenever there is no lease port, whenever the backend never saw these runs, and
-        whenever it cannot be reached — three different kinds of ignorance, all of which must
+        whenever it cannot be reached  -  three different kinds of ignorance, all of which must
         read as "no knowledge" rather than "dead", or a session gets taken from a live worker.
         """
         if self._lease is None or not history:
@@ -541,8 +541,8 @@ class Runtime:
         """Where a run lives and what state it is in. ``None`` means no run of this namespace
         answers to that id.
 
-        Addressed by ``run_id`` within ``ctx``'s namespace — the same value the control plane
-        addresses by ``id``, since the two are one field now — so the store's own status
+        Addressed by ``run_id`` within ``ctx``'s namespace  -  the same value the control plane
+        addresses by ``id``, since the two are one field now  -  so the store's own status
         projection is what locates it: a caller holding a ``run_id`` from a stream it was
         watching has neither the log key nor the invocable's name. Deliberately *unfiltered*:
         narrowing the listing to one status was how a run in every other state came back
@@ -555,7 +555,7 @@ class Runtime:
         return None
 
     async def _opening_of(self, log_key: str, run_id: str, ctx: RunContext) -> tuple[str | None, RunStarted] | None:
-        """Whose session this run holds and what it was asked to do — its own ``run.started``.
+        """Whose session this run holds and what it was asked to do  -  its own ``run.started``.
         Read only once the state machine has admitted the operation, so a refused or no-op call
         never pays for a run's log."""
         for event in await self._store.read_run(log_key, run_id, ctx):
@@ -565,7 +565,7 @@ class Runtime:
 
     async def _peek(self, id: str, status: RunStatus) -> tuple[Ruling, ControlSignal | None]:
         """Read the control port and rule on what is there, taking nothing. For the one decision
-        that has to be made before a claim — whether the operation is refused at all."""
+        that has to be made before a claim  -  whether the operation is refused at all."""
         pending = None if self._control is None else await self._control.poll(id)
         return decide(status, None if pending is None else pending.verb), pending
 
@@ -575,7 +575,7 @@ class Runtime:
 
         Taking it is a compare-and-set rather than a clear, so an intent that changed under this
         caller is not destroyed by it. Losing that set means the ruling was made about somebody
-        else's signal, so the port is read once more and ruled on again — the second ruling acts
+        else's signal, so the port is read once more and ruled on again  -  the second ruling acts
         without taking anything, which leaves whatever is pending now for the gate to meet at the
         run's first safe point.
         """
@@ -592,7 +592,7 @@ class Runtime:
     ) -> Event:
         """Open this run, or refuse the turn: the store decides, in one conditional append.
 
-        A session's engine state is one conversation, and only its engine can lock it — so the
+        A session's engine state is one conversation, and only its engine can lock it  -  so the
         platform admits one turn at a time and the write that opens a run is the write that
         tests whether the session is free. A check followed by an append would let two servers
         both find it idle; here only one ``run.started`` can land, so the loser is told, not
@@ -601,8 +601,8 @@ class Runtime:
 
         An open run nobody is coming back for would otherwise hold its session for good: every
         graceful exit closes its run, so this is the process that was killed outright. Such a
-        run stops holding the session on either of two findings — a lease this worker can see
-        has expired, or, failing that, silence for longer than ``stale_run_after`` — and this
+        run stops holding the session on either of two findings  -  a lease this worker can see
+        has expired, or, failing that, silence for longer than ``stale_run_after``  -  and this
         turn closes it. Loudly, and accepting that a takeover can be premature, because a
         session wedged forever is the worse failure. Failing to close it is not worth failing
         this turn over: the next one meets the same stale run and tries again.
@@ -610,7 +610,7 @@ class Runtime:
         ``history`` is the read this turn already did, reused rather than repeated: it names
         every run in this session, which is the set to ask the lease about. A run that opened
         between that read and this claim is simply not in the set, so it is judged by the timer
-        and holds its session — the safe direction to be wrong in.
+        and holds its session  -  the safe direction to be wrong in.
         """
         claim, event = await self._store.claim_start(
             ctx.log_key, opening, ctx, spec.name, self._stale_run_after, dead=await self._dead_runs(history)
@@ -623,8 +623,8 @@ class Runtime:
             except StoreError:
                 # This run is already open in the log, so letting a failed piece of bookkeeping
                 # out here would leave it with no terminal event and wedge the session for a
-                # whole window. The abandoned run stays open instead, and the next turn — which
-                # finds it just as stale — closes it then.
+                # whole window. The abandoned run stays open instead, and the next turn  -  which
+                # finds it just as stale  -  closes it then.
                 logger.exception("could not close abandoned run %s; leaving it for the next turn", tail.run_id)
         await self._fan_out(event)
         return event
@@ -633,24 +633,24 @@ class Runtime:
         """What ``SessionBusyError`` says, which depends on why the holder is still open.
 
         A ``RUNNING`` holder really is "in flight." One parked at ``PAUSED`` or
-        ``WAITING_ANSWER`` is not — nothing is executing it, and no ``stale_run_after`` will
-        ever free it — so the message names the verb that actually unsticks that run instead
+        ``WAITING_ANSWER`` is not  -  nothing is executing it, and no ``stale_run_after`` will
+        ever free it  -  so the message names the verb that actually unsticks that run instead
         of repeating a claim that is false of it.
         """
         status = None if held_by is None else await self._store.run_status(ctx.log_key, held_by, ctx)
         if status is RunStatus.WAITING_ANSWER:
             return (
-                f"session {ctx.log_key!r} is held by run {held_by!r}, parked waiting for an answer — "
+                f"session {ctx.log_key!r} is held by run {held_by!r}, parked waiting for an answer  -  "
                 f"supply it with run.answer(...) or end it with run.cancel(...), see {_SESSIONS_DOCS}"
             )
         if status is RunStatus.PAUSED:
             return (
-                f"session {ctx.log_key!r} is held by run {held_by!r}, paused — "
+                f"session {ctx.log_key!r} is held by run {held_by!r}, paused  -  "
                 f"lift it with run.resume() or end it with run.cancel(...), see {_SESSIONS_DOCS}"
             )
         return (
             f"session {ctx.log_key!r} already has run {held_by!r} in flight, "
-            f"so run {ctx.run_id!r} cannot start on it — see {_SESSIONS_DOCS}"
+            f"so run {ctx.run_id!r} cannot start on it  -  see {_SESSIONS_DOCS}"
         )
 
     async def _close_abandoned(self, tail: Event, ctx: RunContext) -> None:
@@ -661,7 +661,7 @@ class Runtime:
         abandoned run's own ``run_id``, ``session_id`` and next ``seq``, and it inherits that
         run's ``origin``. The event belongs to its story: a reader must not find this invocable
         blamed for it. ``tail`` is the run's last event, handed over by the claim that stepped
-        over it — the store had already read it to decide the run was stale, so nothing here
+        over it  -  the store had already read it to decide the run was stale, so nothing here
         goes back for it.
         """
         logger.warning(
@@ -680,16 +680,16 @@ class Runtime:
         await self._fan_out(event)
         if self._lease is not None:
             # The dead worker's expired row has done its job and nothing else prunes it. Not
-            # required for correctness — the run is terminal now, so no claim ever consults it
-            # again — but a lease table that only grows is a table nobody trusts.
+            # required for correctness  -  the run is terminal now, so no claim ever consults it
+            # again  -  but a lease table that only grows is a table nobody trusts.
             with suppress(StoreError):
                 await self._lease.release(tail.run_id)
 
     async def _close_cancelled(self, spec: InvocableSpec, ctx: RunContext, reason: str) -> None:
         """Write the closing ``run.cancelled`` while this task is already being cancelled.
 
-        Shielded because the append suspends — a durable store hands it to a thread, and the
-        in-memory one yields a turn — and an unshielded await inside a cancelled task is
+        Shielded because the append suspends  -  a durable store hands it to a thread, and the
+        in-memory one yields a turn  -  and an unshielded await inside a cancelled task is
         re-cancelled before the write can land. Best effort by construction: the write survives
         the cancellation, but not the event loop, so a process dying with the request leaves the
         run open in the log for whatever reconciles it later.
@@ -708,17 +708,17 @@ class Runtime:
 
         The store decides, in one conditional append: whoever's ``run.resumed`` lands is the
         one caller that gets to play the run on. That holds across processes, where a check
-        followed by a separate append never could — two servers sharing a store would both
+        followed by a separate append never could  -  two servers sharing a store would both
         read the suspended status and both write. A loser reads nothing from the engine and
         yields nothing, so a stray resume stays a no-op rather than an error.
 
         The claim carries the answer, not just the fact of it: this one append is what flips
         the status, so a value written anywhere else would leave a window in which the log
-        says the run was answered and no longer holds what the answer was — and the engine,
+        says the run was answered and no longer holds what the answer was  -  and the engine,
         still parked at its interrupt, could never be brought back in line with it.
 
         ``seq`` continues across a process restart rather than resetting, because the store
-        assigns it from the run's own log (ADR-D11) — there is no counter here to recover.
+        assigns it from the run's own log (ADR-D11)  -  there is no counter here to recover.
         """
         resumed = RunResumed(reason=reason, value=_as_content(value, ctx.run_id))
         event = await self._store.claim_resume(ctx.log_key, ctx.run_id, resumed, ctx, spec.name)
@@ -731,7 +731,7 @@ class Runtime:
         """Every run currently ``WAITING_ANSWER`` in this namespace.
 
         Asks the store to project which runs are waiting rather than keeping an in-memory
-        registry — a registry would go stale the moment a process restarted, which is
+        registry  -  a registry would go stale the moment a process restarted, which is
         exactly the bug this avoids. Only the matched runs get a (bounded, per-run) read,
         to pull the interrupt's ``thread_id`` and ``payload``.
 
@@ -739,7 +739,7 @@ class Runtime:
         and come back already answered. That is harmless: the resume claim itself is what
         checks status, so acting on a stale entry is a no-op, not a double resume.
         """
-        # ponytail: every parked run's whole log, per call, and an approval inbox polls this —
+        # ponytail: every parked run's whole log, per call, and an approval inbox polls this  -
         # so the cost is (parked runs x their length) on a path a UI hits on a timer. Fine while
         # a deployment parks tens of runs; the upgrade is a store-side projection of each run's
         # last interrupt, and the trigger is the first inbox that pages or that a poll can't
@@ -764,7 +764,7 @@ class Runtime:
 
     async def find(self, run_id: str, *, namespace: str | None = None) -> RunSummary | None:
         """Public wrapper over :meth:`_find`, for a caller that only needs to know where a run
-        lives and what state it is in — :meth:`status`, and ``deck.runs.get``'s own lookup."""
+        lives and what state it is in  -  :meth:`status`, and ``deck.runs.get``'s own lookup."""
         return await self._find(run_id, self._context(run_id=run_id, namespace=namespace))
 
     async def status(self, run_id: str, *, namespace: str | None = None) -> RunStatus | None:
@@ -784,7 +784,7 @@ class Runtime:
         The composition root calls this at shutdown: without it, queued emits are destroyed
         with the event loop and the last few audit or cost events are silently lost, and a sink
         that buffers internally never gets the one ``EventSinkPort.close`` that tells it to
-        write its buffer out. Never called per event — that would be exactly the join the
+        write its buffer out. Never called per event  -  that would be exactly the join the
         fan-out exists to avoid. It is terminal: closed sinks stay closed, and a run after this
         one reaches none of them.
         """
@@ -798,7 +798,7 @@ class Runtime:
         namespace: str | None = None,
         data: object = None,
     ) -> RunContext:
-        """Build a context for addressing a run whose id is already known — resume, signal,
+        """Build a context for addressing a run whose id is already known  -  resume, signal,
         answer, a lookup-only read. ``run_id`` here is that known id, carried through as-is;
         it is minted only by :meth:`_new_run_context`, never by this one.
         """
@@ -812,12 +812,12 @@ class Runtime:
         namespace: str | None = None,
         data: object = None,
     ) -> RunContext:
-        """Mint a fresh run's context — the one place a new run's ``run_id`` is minted.
+        """Mint a fresh run's context  -  the one place a new run's ``run_id`` is minted.
 
         ``key`` is the caller's optional identifier, carried through unchanged as ``ctx.key``:
         it is never the source of ``run_id``, which is why this is a separate method from
         :meth:`_context` rather than that one falling back to ``uuid4()``. A caller-supplied
-        value reaching ``run_id`` is exactly the derivation this design retired — two namespaces
+        value reaching ``run_id`` is exactly the derivation this design retired  -  two namespaces
         given the same ``key`` must still mint two different, unrelated ids.
         """
         return RunContext(run_id=str(uuid4()), key=key, session_id=session_id, namespace=namespace, data=data)
@@ -826,7 +826,7 @@ class Runtime:
         """Give this run its control gate and its report buffer, and hand back both.
 
         The Runtime, not the caller, decides whether a run is cancellable and where its status
-        and progress reports go — a caller builds a plain ``RunContext`` and never has to know
+        and progress reports go  -  a caller builds a plain ``RunContext`` and never has to know
         that a ``ControlPort`` or a buffer exists. The buffer is per run and returned rather than
         stored, so two concurrent runs on one Runtime can never drain into each other.
         """
@@ -845,7 +845,7 @@ class Runtime:
 
         Called just *before* each engine payload, never after: that payload may be terminal, and
         nothing may follow a terminal event into the log. So a report is always in order and
-        always inside the run, and one emitted after the engine's final payload is dropped — the
+        always inside the run, and one emitted after the engine's final payload is dropped  -  the
         ceiling ``core/reporting.py`` states.
 
         The count is taken once. A report arriving while these are being written belongs to the
@@ -853,7 +853,7 @@ class Runtime:
 
         A store that refuses a report costs the report, never the run: an advisory event is not
         worth a run, and the alternative is a store that dislikes one *kind* turning a run that
-        would have completed into ``run.failed``. It costs the report only — a refused append
+        would have completed into ``run.failed``. It costs the report only  -  a refused append
         never took a number, so the log this leaves behind is dense.
         """
         for _ in range(len(reports)):
@@ -873,7 +873,7 @@ class Runtime:
         return spec, engine
 
     async def _record(self, payload: KnownPayload, spec: InvocableSpec, ctx: RunContext) -> Event:
-        """Persist, fan out, return the event to yield — in that order.
+        """Persist, fan out, return the event to yield  -  in that order.
 
         The store stamps it (ADR-D11): ``seq`` and ``ts`` are assigned in the same indivisible
         step that writes the row, so a refused append cannot leave a number spent. Nothing here
@@ -887,7 +887,7 @@ class Runtime:
         """Sinks get a copy of the stream and no say in it: never called inline, never fatal.
 
         Each sink gets a queue put rather than an ``emit``, and a full queue costs one loop
-        turn before it starts dropping — so the run is never waiting on a sink, only ever on
+        turn before it starts dropping  -  so the run is never waiting on a sink, only ever on
         the loop it already shares with one.
         """
         for dispatch in self._sinks:
@@ -898,7 +898,7 @@ def _as_content(value: Any, run_id: str) -> Input | None:
     """A resume answer as content blocks, so the log holds the input and not merely the fact
     that one arrived.
 
-    Content stays content — the field's own type, so an approval typed at an inbox is the
+    Content stays content  -  the field's own type, so an approval typed at an inbox is the
     ``TextBlock`` it was sent as rather than a data block wrapping one. Everything else is
     JSON data, which is what a caller answering over HTTP or a graph resuming with a state
     object actually sends. A value JSON cannot carry is the one case that records nothing:
@@ -925,7 +925,7 @@ def _as_content(value: Any, run_id: str) -> Input | None:
 
 
 def _failed(exc: Exception, engine: str) -> RunFailed:
-    """The record for an exception the Runtime caught. The type name only — an exception message
+    """The record for an exception the Runtime caught. The type name only  -  an exception message
     can carry content that must not reach a sink.
 
     A log that could not be written is not the engine misbehaving, so the record does not say it

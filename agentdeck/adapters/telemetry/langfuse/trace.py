@@ -3,7 +3,7 @@ writes to: one root observation per run, children under it, each finished exactl
 
 Narrow on purpose. The event-to-observation mapping is the part of this adapter that can be
 wrong, and stating it as two protocols is what lets a recorder stand in for Langfuse in a
-test — no keys, no collector, no network — while the SDK stays behind one module.
+test  -  no keys, no collector, no network  -  while the SDK stays behind one module.
 
 Observations are opened and finished as separate calls rather than through a context
 manager: a sink sees a run as interleaved events, so the span that opens on
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 # Langfuse's observation types, restricted to the ones a canonical event can justify.
 ObservationKind = Literal["agent", "chain", "tool", "span", "generation"]
 
-# Langfuse's observation levels, verbatim — an adapter that renamed them would only make
+# Langfuse's observation levels, verbatim  -  an adapter that renamed them would only make
 # the mapping to the backend's own vocabulary harder to check.
 Level = Literal["DEBUG", "DEFAULT", "WARNING", "ERROR"]
 
@@ -57,7 +57,7 @@ class Observation(Protocol):
 
 
 class Tracer(Protocol):
-    """Opens the root of a trace — the only observation that carries the trace's identity."""
+    """Opens the root of a trace  -  the only observation that carries the trace's identity."""
 
     def root(
         self,
@@ -71,7 +71,7 @@ class Tracer(Protocol):
     ) -> Observation:
         """Open the root observation of the trace ``trace_key`` identifies.
 
-        Equal ``trace_key``s belong to the same trace, whichever process opened them — that
+        Equal ``trace_key``s belong to the same trace, whichever process opened them  -  that
         is what makes a run suspended in one worker and resumed in another one trace rather
         than two.
         """

@@ -1,0 +1,19 @@
+# Tools
+
+Tools allow agents to perform actions and fetch external information.
+
+## Defining a Tool
+
+```python
+from agentdeck import Agent
+
+def lookup_order(order_id: str) -> str:
+    """Fetch status for an order."""
+    return f"Order {order_id} is in transit."
+
+agent = Agent(
+    name="order_bot",
+    instructions="Look up customer orders.",
+    tools=[lookup_order],
+)
+```

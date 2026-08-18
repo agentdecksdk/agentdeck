@@ -16,7 +16,7 @@ def coerce_input(value: Any, schema: type) -> Any:
     if value is None:
         return {}
     if isinstance(value, Command):
-        return value  # resume directive, not state — LangGraph consumes it as-is
+        return value  # resume directive, not state  -  LangGraph consumes it as-is
     if isinstance(value, schema):
         return value.model_dump() if isinstance(value, BaseModel) else value
     if isinstance(value, Mapping):

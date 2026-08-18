@@ -1,6 +1,6 @@
 """The Langfuse SDK boundary: the only module in the package that names ``langfuse``.
 
-Two jobs. :func:`langfuse_sink` builds the client and the sink over it — the one place in the
+Two jobs. :func:`langfuse_sink` builds the client and the sink over it  -  the one place in the
 package a client is constructed, reached only when a ``Deck`` that asked for tracing is
 opening, so nothing is imported and no client exists before then. :class:`LangfuseTracer` is
 the SDK-backed ``Tracer``: it opens observations and hands back handles, and every call it
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 # Graceful degradation when Langfuse is unreachable. The OTLP HTTP exporter retries a failed
 # batch with exponential backoff *up to its timeout*, logging a WARNING each try; against a
 # dead backend that is pure noise that also blocks flush-on-exit. The per-export timeout is
-# bounded (seconds — the exporter reads this env, default 10) so retries give up fast, and the
+# bounded (seconds  -  the exporter reads this env, default 10) so retries give up fast, and the
 # exporter's log level is raised so transient-retry WARNINGs stay silent. A genuine,
 # non-retryable config error (bad keys, 4xx) is logged at ERROR and still surfaces.
 _EXPORT_TIMEOUT_ENV = "OTEL_EXPORTER_OTLP_TRACES_TIMEOUT"
@@ -39,7 +39,7 @@ _OTLP_EXPORTER_LOGGER = "opentelemetry.exporter.otlp.proto.http.trace_exporter"
 def langfuse_sink(settings: LangfuseSettings) -> LangfuseSink:
     """The sink to register with the Runtime, over a client built for ``settings``.
 
-    Called once, by a ``Deck`` that was asked for tracing, as it opens — never from settings by
+    Called once, by a ``Deck`` that was asked for tracing, as it opens  -  never from settings by
     whatever happens to be assembling a Runtime. Takes the settings rather than reading them,
     so "is tracing wanted?" is answered by the caller and this module only answers "how".
     """
@@ -52,14 +52,14 @@ def build_client(settings: LangfuseSettings) -> Any:
 
     One client, built once, is a hard requirement rather than a preference. The SDK caches a
     ``LangfuseResourceManager`` per public key and returns the cached one from every later
-    ``Langfuse(...)`` call, discarding that call's arguments — so a second construction cannot
+    ``Langfuse(...)`` call, discarding that call's arguments  -  so a second construction cannot
     change the environment, the sample rate or the span filter the first one set, and it is not
     a second client either. Shutting one down does not evict it from that cache, which is why
     nothing here shuts one down: see ``Deck.aclose``.
     """
-    from langfuse import Langfuse  # ty: ignore[unresolved-import] — [observability] extra
+    from langfuse import Langfuse  # ty: ignore[unresolved-import]  -  [observability] extra
 
-    # Name the OTel resource before the SDK builds its TracerProvider — ``Resource.create``
+    # Name the OTel resource before the SDK builds its TracerProvider  -  ``Resource.create``
     # reads ``OTEL_SERVICE_NAME``, so this replaces the default ``unknown_service``. Respect an
     # operator-set value.
     os.environ.setdefault("OTEL_SERVICE_NAME", settings.service_name)
@@ -80,7 +80,7 @@ class LangfuseTracer:
     """``Tracer`` over the Langfuse SDK, with one trace id derived from each run's key.
 
     Deriving the trace id instead of letting the SDK mint one does two things. It pins the
-    root to the run rather than to whatever span happens to be current — the sink runs on a
+    root to the run rather than to whatever span happens to be current  -  the sink runs on a
     consumer task that inherited its context from a run, and a trace must not end up nested
     under the tracing v1 already does. And it makes the key the identity: the same run
     resumed in another process reopens the same trace instead of starting a second one.
@@ -99,7 +99,7 @@ class LangfuseTracer:
         input: Any = None,
         metadata: Mapping[str, Any] | None = None,
     ) -> Observation:
-        from langfuse import propagate_attributes  # ty: ignore[unresolved-import] — [observability] extra
+        from langfuse import propagate_attributes  # ty: ignore[unresolved-import]  -  [observability] extra
 
         # Session, user and trace name are trace-level in Langfuse: they reach the backend as
         # attributes stamped on spans opened inside this context, so the root is opened inside it.

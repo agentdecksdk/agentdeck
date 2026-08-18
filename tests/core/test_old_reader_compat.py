@@ -2,13 +2,13 @@
 
 A schema change is called additive by *arguing* that an old reader tolerates it. #107 shipped a
 break of exactly that class because the argument was never run. So this loads the released
-reader — `agentdeck/core/events.py` and `core/status.py` as they stand at :data:`BASELINE`,
-straight out of git — and hands it every kind this tree can write. Two bars: a kind that reader
+reader  -  `agentdeck/core/events.py` and `core/status.py` as they stand at :data:`BASELINE`,
+straight out of git  -  and hands it every kind this tree can write. Two bars: a kind that reader
 has never heard of parses as `UnknownEvent`, keeps its raw payload and moves nothing; every kind
 it *does* know still parses as the payload class it knows.
 
 A **tag**, not a branch. `origin/dev`'s copies of all three schema modules are byte-identical to
-this tag's, so the two are the same reader today — but a test measured against a moving branch
+this tag's, so the two are the same reader today  -  but a test measured against a moving branch
 falsifies itself the moment it merges into that branch, and the honest baseline is "the newest
 reader anybody is running" anyway. Bumping :data:`BASELINE` past a release that *contains* the
 kinds under test will fail the first check below, which is the intended signal: that measurement
@@ -18,7 +18,7 @@ is then history, and the assertions belong to whatever the next schema PR added.
 is the coverage wanted: nothing here changed content, so the only difference between the two
 readers is the schema change under test.
 
-Skipped, loudly, when the baseline is not fetched — a depth-1 clone has no such ref, and a test
+Skipped, loudly, when the baseline is not fetched  -  a depth-1 clone has no such ref, and a test
 that quietly invented one would measure nothing. CI checks out full history for this reason.
 """
 
@@ -37,9 +37,9 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.skip(
     reason="envelope v2 removed the required `tenant` for `namespace` and dropped "
-    "RunContextSnapshot — a v1 reader cannot parse a v2 event by construction, so there is "
+    "RunContextSnapshot  -  a v1 reader cannot parse a v2 event by construction, so there is "
     "nothing here to measure. v3.0.0b1 shipped as the first v3 release, which looked like the "
-    "moment to re-enable — but the schema-versioning PR that replaced the scalar `v` with a "
+    "moment to re-enable  -  but the schema-versioning PR that replaced the scalar `v` with a "
     "{major, minor} object breaks that same released reader for the same reason: it still "
     "expects `v: int`. Re-enable with BASELINE moved to the first release that carries the "
     "object `v`."
@@ -87,7 +87,7 @@ def _wire(event) -> dict[str, Any]:
 
 def test_the_old_reader_does_not_already_know_these_kinds(old_reader) -> None:
     """The measurement only means something if the reader really is older. If this fails, the
-    baseline was moved past the release that carries these kinds — retire the measurement, don't
+    baseline was moved past the release that carries these kinds  -  retire the measurement, don't
     relax it."""
     events, _ = old_reader
     assert {"status.reported", "progress.reported"}.isdisjoint(events.KNOWN_KINDS)
@@ -96,7 +96,7 @@ def test_the_old_reader_does_not_already_know_these_kinds(old_reader) -> None:
 def test_the_old_reader_still_reads_every_kind_it_already_knew(old_reader, examples) -> None:
     """The other half of additive, and the half #107 lost: adding a kind must not disturb the
     wire shape of any kind that shipped before it. Every one of the baseline's own kinds, as this
-    tree writes it, must still arrive as the payload class the baseline knows — not as an
+    tree writes it, must still arrive as the payload class the baseline knows  -  not as an
     ``UnknownEvent`` and not as a ``ValidationError``."""
     events, _ = old_reader
     for kind in sorted(events.KNOWN_KINDS):

@@ -1,7 +1,7 @@
 """The two processes ``test_crash_reconciliation.py`` needs to kill one and restart the other.
 
 Started as ``python -u tests/crash_worker.py <victim|successor> <dir>``. Both open the same
-two files in ``<dir>`` — the SQLite event log and a *durable* engine session — because a gap
+two files in ``<dir>``  -  the SQLite event log and a *durable* engine session  -  because a gap
 between the two writes only exists if the second store survives the process:
 
 - ``victim`` finishes turn 1 into both stores, then blocks on turn 2's opening log write, so
@@ -66,8 +66,8 @@ KILLED_RUN = "victim-turn-2"
 SUCCESSOR_RUN = "successor-turn-3"
 
 # Where the victim dies: the log append of the second turn's own opening event. At that
-# instant the log holds that turn's question and the durable session does not — the window
-# the whole exercise is about — and the SDK has not been called, so nothing can write it.
+# instant the log holds that turn's question and the durable session does not  -  the window
+# the whole exercise is about  -  and the SDK has not been called, so nothing can write it.
 #
 # Identified by position, not by run_id (#324 mints ids, so nothing here can predict one):
 # turn 1 writes the first STALL_KIND, turn 2 the second, and the second is where this stalls.
@@ -75,7 +75,7 @@ STALL_KIND = "run.started"
 STALL_AT_NTH_START = 2
 MARKER = "asked"
 
-# A turn that outlives this is wedged, not slow — raising exits non-zero, which the test
+# A turn that outlives this is wedged, not slow  -  raising exits non-zero, which the test
 # reads as a failure instead of waiting out its own subprocess timeout.
 TURN_TIMEOUT = 60.0
 
@@ -106,7 +106,7 @@ def context(run_id: str) -> RunContext:
 
 
 def transcript_of(items: Sequence[Any]) -> list[list[str]]:
-    """``[role, text]`` for every message in a list of SDK items — the model's input, a
+    """``[role, text]`` for every message in a list of SDK items  -  the model's input, a
     session's contents, either way. Lists, not tuples, so a subprocess can print it as JSON.
     """
     transcript: list[list[str]] = []
@@ -154,7 +154,7 @@ class DurableSessions(ExecutionStore):
     """Execution state in a file instead of memory.
 
     ``ExecutionStore``'s own fallback is an in-process ``SQLiteSession`` on ``:memory:``, which
-    evaporates on any exit at all — with it, a killed process and a cleanly finished one leave
+    evaporates on any exit at all  -  with it, a killed process and a cleanly finished one leave
     an identical (empty) session behind, and there is no gap between the two writes left to
     test. A file keeps what the victim really did write, so what it *didn't* write is the only
     thing missing.
@@ -222,7 +222,7 @@ def spec(model: Model) -> InvocableSpec:
 
 
 def runtime_over(store: SqliteEventStore, sessions: ExecutionStore, model: Model) -> Runtime:
-    """A whole stack over one log and one durable session — a server, as far as a turn cares.
+    """A whole stack over one log and one durable session  -  a server, as far as a turn cares.
 
     ``Runtime`` itself reads no settings, so the staleness window this test relies on
     (``AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS``, set in the subprocess env by
@@ -281,7 +281,7 @@ async def _victim(root: Path) -> None:
 
 
 async def _successor(root: Path) -> None:
-    """The restart: same log, same session file, a new turn — and it prints what its model
+    """The restart: same log, same session file, a new turn  -  and it prints what its model
     was handed, which is the only place the repair is visible from outside."""
     model = ScriptedModel(ANSWER_3)
     runtime = runtime_over(SqliteEventStore(events_db(root)), DurableSessions(root), model)

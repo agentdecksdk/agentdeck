@@ -2,7 +2,7 @@
 
 Moved here from v1's ``workflows/nodes.py`` (plan-phase4-deck.md, 4a): they compile to
 whatever a graph node needs, the same as ``Agent``/``Workflow`` compile to an
-``InvocableSpec``. ``SkillNode`` is not among them — deleted per ``plan-skills.md``: a
+``InvocableSpec``. ``SkillNode`` is not among them  -  deleted per ``plan-skills.md``: a
 workflow that needs a skill uses an agent node whose agent declares ``skills=[...]``,
 one meaning for "skill" everywhere rather than a second, workflow-only executable one.
 """
@@ -79,7 +79,7 @@ class AgentNode:
     ``state[output_key]``. Forwards the nested agent's text deltas into the graph's custom
     stream (``get_stream_writer()``) so ``run_workflow_stream`` surfaces them too.
 
-    Compiles ``agent`` standalone on first call — MCP servers resolve the same way a
+    Compiles ``agent`` standalone on first call  -  MCP servers resolve the same way a
     root agent's do, but ``handoffs=``/``skills=`` that need a ``Deck``'s catalog do not:
     an agent used inside a workflow node is compiled with no catalog in view.
     """
@@ -100,7 +100,7 @@ class AgentNode:
         self.output_key = output_key
         # Reused across every run, not recompiled: an agent that names no model gets
         # `OPENAI_MODEL` baked onto it at this first compile (`authoring.compile.compile_agent`),
-        # so a settings change afterwards — even paired with `reset_settings_cache()` — has
+        # so a settings change afterwards  -  even paired with `reset_settings_cache()`  -  has
         # nothing to reach. A test compiling a node has to account for that staleness rather
         # than assume each run re-resolves it.
         self._built: Any | None = None

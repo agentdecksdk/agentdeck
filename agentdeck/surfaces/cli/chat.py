@@ -1,6 +1,6 @@
-"""~50-line CLI chat renderer — the reference consumer for the event stream.
+"""~50-line CLI chat renderer  -  the reference consumer for the event stream.
 
-Distinguishes bubbles using **only** ``event.origin`` and ``payload.message_id`` — the
+Distinguishes bubbles using **only** ``event.origin`` and ``payload.message_id``  -  the
 label is ``origin``, the bubble boundary is ``message_id``; grep this file for any other
 mechanism and you won't find one. The transcript is rebuilt from
 ``message.completed`` alone: ``text.delta`` is read for nothing, so there is no delta
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 async def render(lines: AsyncIterator[str]) -> None:
     """Print one line per bubble: a user turn, a tool notice, a completed message, a control
     notice, or the run's close. Everything else (deltas, ``custom``, ``node.updated``, ...)
-    is skipped by design, per this module's docstring — the ``case _`` default below."""
+    is skipped by design, per this module's docstring  -  the ``case _`` default below."""
     async for line in lines:
         if not line.startswith("data: "):
             continue  # blank keep-alives and any `event: ...` framing line
@@ -69,7 +69,7 @@ async def render(lines: AsyncIterator[str]) -> None:
 
 
 def _counted(current: int | None, total: int | None) -> str:
-    """``" (2/4)"`` when counted, ``""`` when the stage has no numbers — and never a
+    """``" (2/4)"`` when counted, ``""`` when the stage has no numbers  -  and never a
     percentage, which a missing ``total`` would make up."""
     if current is None and total is None:
         return ""
@@ -78,7 +78,7 @@ def _counted(current: int | None, total: int | None) -> str:
 
 async def stream_chat(client: httpx.AsyncClient, name: str, session_id: str, message: str) -> None:
     """Post one chat turn to the crude SSE route (``surfaces/serve/app.py``) and render it
-    live — the thing this whole module exists to prove works end to end."""
+    live  -  the thing this whole module exists to prove works end to end."""
     async with client.stream(
         "POST", f"/v2/invocables/{name}/chat", json={"session_id": session_id, "message": message}
     ) as response:

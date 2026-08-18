@@ -2,8 +2,8 @@
 
 The rule these tests exist to defend is the design's strongest one: possessing a ``Context[T]``
 gives *code* access to the run's dependencies and never gives the *model* access to them. So the
-central assertion is an absence — the context parameter must not appear anywhere in the schema
-the SDK builds — and a test that only proved the call works would pass while leaking that
+central assertion is an absence  -  the context parameter must not appear anywhere in the schema
+the SDK builds  -  and a test that only proved the call works would pass while leaking that
 parameter into the prompt.
 
 No live model: the SDK boundary is the scripted model, and the tool invocations below drive the
@@ -63,7 +63,7 @@ async def bare(environment: Context) -> str:
 
 
 def _invoke(tool: Any, run: RunContext, arguments: str = "{}") -> Any:
-    """Call ``tool`` the way the SDK's run loop does — through its own dispatch, not around it."""
+    """Call ``tool`` the way the SDK's run loop does  -  through its own dispatch, not around it."""
     context = ToolContext(context=run, tool_name=tool.name, tool_call_id="call_1", tool_arguments=arguments)
     return tool.on_invoke_tool(context, arguments)
 
@@ -73,7 +73,7 @@ def _invoke(tool: Any, run: RunContext, arguments: str = "{}") -> Any:
 
 def test_the_context_parameter_is_absent_from_the_generated_tool_schema() -> None:
     """The whole point. ``environment`` is a parameter of the user's function and must appear
-    nowhere in what is sent to the model — not as a property, not as a required name, not as a
+    nowhere in what is sent to the model  -  not as a property, not as a required name, not as a
     title, not anywhere in the serialized schema."""
     tool = compile_tool(find_slots)
 
@@ -107,7 +107,7 @@ def test_the_tool_is_named_and_described_after_the_users_function_not_the_bridge
 
 
 async def test_the_declared_context_reaches_the_callable_by_reference() -> None:
-    """``ctx.data`` is the very object the caller supplied — not a copy, not a projection."""
+    """``ctx.data`` is the very object the caller supplied  -  not a copy, not a projection."""
     calendar = Calendar()
     received: list[Any] = []
 
@@ -240,7 +240,7 @@ async def test_a_tool_played_by_a_foreign_run_says_so_instead_of_failing_obscure
     it fail somewhere less legible with one argument missing.
 
     The raise surfaces as a tool-failure result because that is what the SDK does with *every*
-    tool exception — the point asserted here is that the body never ran and the reason is named.
+    tool exception  -  the point asserted here is that the body never ran and the reason is named.
     """
     called: list[bool] = []
 
@@ -322,7 +322,7 @@ async def test_deck_stream_carries_the_context_the_same_way(no_project) -> None:
 
 @pytest.mark.asyncio
 async def test_a_run_without_a_context_reaches_a_declaring_tool_with_none(no_project) -> None:
-    """``context=`` is optional, and omitting it is not an error — the tool simply gets ``None``,
+    """``context=`` is optional, and omitting it is not an error  -  the tool simply gets ``None``,
     which is the value the application declined to supply."""
     seen: list[Any] = []
 
@@ -408,7 +408,7 @@ async def test_a_workflow_run_without_a_context_is_unaffected(no_project, monkey
 
 
 def test_context_is_exported_from_the_package_root() -> None:
-    """A tool signature names ``agentdeck.Context`` — importing it from a private module would
+    """A tool signature names ``agentdeck.Context``  -  importing it from a private module would
     make the one portable type look like an internal."""
     assert agentdeck.Context is Context
     assert "Context" in agentdeck.__all__
