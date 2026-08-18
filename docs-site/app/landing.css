@@ -1,0 +1,1058 @@
+/* ==========================================================================
+   The landing page.
+
+   One story told down one spine. Every section is a `.chapter` on the same
+   1px vertical rule, so the page reads as a single execution rather than as
+   a stack of unrelated panels. Colour comes from `brand.css` tokens only,
+   motion comes from runtime state only, and the geometry is the mark's:
+   45-degree cut corners, spark markers, thin structural lines.
+   ========================================================================== */
+
+.landing {
+  --rail: var(--brand-border-light);
+  --surface: var(--brand-ice);
+  --ink-soft: #52607a;
+  --accent: var(--brand-blue);
+  --diagram: color-mix(in srgb, var(--ink-soft) 45%, transparent);
+  --gutter: 4.5rem;
+  --cut: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+}
+
+.dark .landing {
+  --rail: var(--brand-border-dark);
+  --surface: var(--brand-slate);
+  --ink-soft: #94a3b8;
+  --accent: var(--brand-frost);
+}
+
+/* Nextra gives the home page the full width; the page sets its own measure. */
+.landing :is(h1, h2, h3) {
+  font-family: var(--font-display), var(--font-body), sans-serif;
+}
+
+/* ------------------------------------------------------------------ hero */
+
+.hero {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: clamp(3rem, 9vw, 7rem) 1.5rem clamp(3rem, 7vw, 5.5rem);
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: clamp(2rem, 5vw, 4.5rem);
+  align-items: center;
+}
+
+.hero-heading {
+  font-size: clamp(2.4rem, 5.6vw, 4.1rem);
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+  font-weight: 600;
+  margin: 0;
+  color: var(--brand-night);
+}
+
+.dark .hero-heading {
+  color: #f8fafc;
+}
+
+.hero-accent {
+  color: var(--accent);
+}
+
+.hero-lead {
+  margin: 1.6rem 0 0;
+  max-width: 34rem;
+  font-size: 1.075rem;
+  line-height: 1.65;
+  color: var(--ink-soft);
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 2.25rem;
+}
+
+.cta-primary,
+.cta-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.7rem 1.4rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  border: 1px solid transparent;
+  clip-path: var(--cut);
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.cta-primary {
+  background: var(--brand-blue);
+  color: #ffffff;
+}
+
+.cta-primary:hover {
+  background: #1d4fd8;
+}
+
+.dark .cta-primary {
+  background: var(--brand-frost);
+  color: var(--brand-night);
+}
+
+.dark .cta-primary:hover {
+  background: #b9d0ff;
+}
+
+.cta-ghost {
+  border-color: var(--rail);
+  color: inherit;
+}
+
+.cta-ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.hero-visual {
+  display: flex;
+  justify-content: center;
+}
+
+.hero-figure {
+  width: 100%;
+  max-width: 460px;
+  height: auto;
+  overflow: visible;
+}
+
+.hero-figure path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--accent) 30%, transparent);
+  stroke-width: 1.25;
+}
+
+.hero-figure .hero-lines path {
+  stroke-dasharray: 300;
+  stroke-dashoffset: 300;
+  animation: hero-draw 1.5s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+.hero-figure .hero-tree path {
+  stroke: var(--accent);
+  stroke-width: 1.25;
+  opacity: 0;
+  animation: hero-fade 0.8s ease forwards 0.8s;
+}
+
+.hero-figure .hero-nodes rect {
+  fill: var(--accent);
+  opacity: 0;
+  animation: hero-fade 0.6s ease forwards 1.15s;
+}
+
+.hero-join {
+  fill: var(--brand-canvas);
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+.dark .hero-join {
+  fill: var(--brand-night);
+}
+
+@keyframes hero-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes hero-fade {
+  to {
+    opacity: 1;
+  }
+}
+
+/* --------------------------------------------------------------- chapters */
+
+.chapter {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+  display: grid;
+  grid-template-columns: var(--gutter) minmax(0, 1fr);
+  align-items: stretch;
+}
+
+/* The spine: one rule the whole page hangs from. Chapters sit flush, so the
+   segments read as a single continuous line. */
+.chapter-spine {
+  position: relative;
+}
+
+.chapter-spine::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--gutter) / 2);
+  width: 1px;
+  background: var(--rail);
+}
+
+.chapter-step {
+  position: absolute;
+  top: 4.25rem;
+  left: calc(var(--gutter) / 2);
+  transform: translateX(-50%);
+  background: var(--brand-canvas);
+  padding: 0.4rem 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--ink-soft);
+}
+
+.dark .chapter-step {
+  background: var(--brand-night);
+}
+
+.chapter-body {
+  padding: 4rem 0 4.25rem;
+  min-width: 0;
+}
+
+.chapter-eyebrow {
+  margin: 0;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.chapter-title {
+  margin: 0.75rem 0 0;
+  font-size: clamp(1.6rem, 3vw, 2.25rem);
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  font-weight: 600;
+}
+
+.chapter-lead {
+  margin: 1rem 0 0;
+  max-width: 46rem;
+  font-size: 1.0125rem;
+  line-height: 1.68;
+  color: var(--ink-soft);
+}
+
+.chapter-lead code,
+.chapter-note code {
+  font-size: 0.9em;
+  padding: 0.1em 0.35em;
+  background: var(--surface);
+  border: 1px solid var(--rail);
+}
+
+.chapter-note {
+  margin: 0.9rem 0 0;
+  max-width: 46rem;
+  font-size: 0.86rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+  padding-left: 0.9rem;
+  border-left: 2px solid var(--rail);
+}
+
+.chapter-grid {
+  margin-top: 2.25rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  gap: clamp(1.5rem, 3vw, 2.75rem);
+  align-items: start;
+}
+
+.chapter.is-wide .chapter-grid,
+.chapter.is-pivot .chapter-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.chapter-code {
+  min-width: 0;
+  display: grid;
+  gap: 1.25rem;
+}
+
+/* ------------------------------------------------------- code and its tag */
+
+.snippet {
+  min-width: 0;
+}
+
+.snippet-head {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin: 0 0 0.55rem;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--rail);
+  color: var(--ink-soft);
+}
+
+.status-chip.is-shipped {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.snippet-label {
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+}
+
+.landing .snippet pre {
+  margin: 0 !important;
+  clip-path: var(--cut);
+  border: 1px solid var(--rail) !important;
+  border-radius: 0 !important;
+  background: var(--surface) !important;
+  font-size: 0.83rem;
+  line-height: 1.62;
+  overflow-x: auto;
+}
+
+.landing .snippet.is-proposed pre {
+  /* Not yet real, and it should not read as loudly as the code that is. */
+  opacity: 0.92;
+  border-style: dashed !important;
+}
+
+/* --------------------------------------------------------- the deck figure */
+
+.deck-figure,
+.tree-figure {
+  margin: 0;
+  border: 1px solid var(--rail);
+  background: var(--surface);
+  clip-path: var(--cut);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.deck-figure-head {
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--rail);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.deck-figure-body {
+  padding: 1.1rem 1rem 1.25rem;
+  display: grid;
+  gap: 1.1rem;
+}
+
+.deck-group-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  margin-bottom: 0.45rem;
+}
+
+.deck-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.deck-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+  padding-left: 0.35rem;
+}
+
+.deck-row-marker {
+  color: color-mix(in srgb, var(--ink-soft) 55%, transparent);
+  font-size: 0.7rem;
+}
+
+/* The one row this section just added. Everything else stays quiet. */
+.deck-row.is-added {
+  color: inherit;
+  font-weight: 600;
+}
+
+.deck-row.is-added .deck-row-marker {
+  color: var(--accent);
+}
+
+.deck-figure-caption,
+.tree-figure-caption {
+  padding: 0.7rem 1rem 0.85rem;
+  border-top: 1px solid var(--rail);
+  font-family: var(--font-body), sans-serif;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+/* --------------------------------------------------------- the tree figure */
+
+.tree-rows {
+  list-style: none;
+  margin: 0;
+  padding: 1.1rem 1rem;
+  display: grid;
+  gap: 0.32rem;
+}
+
+.tree-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  font-size: 0.84rem;
+  color: var(--ink-soft);
+}
+
+.tree-branch {
+  white-space: pre;
+  color: var(--diagram);
+}
+
+.tree-name {
+  color: inherit;
+}
+
+.tree-name.is-run,
+.tree-name.is-agent {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tree-name.is-workflow {
+  font-weight: 600;
+}
+
+.tree-detail {
+  font-size: 0.78rem;
+  opacity: 0.72;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-state {
+  margin-left: auto;
+  padding-left: 0.6rem;
+  font-size: 0.78rem;
+}
+
+.tree-row.is-done .tree-state {
+  color: #22c55e;
+}
+
+.tree-row.is-waiting .tree-state {
+  color: #f59e0b;
+}
+
+.tree-row.is-failed .tree-state {
+  color: #ef4444;
+}
+
+.tree-row.is-running .tree-state {
+  color: var(--accent);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* What the tree buys you, beside the tree. */
+.tree-buys {
+  margin: 0;
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--rail);
+}
+
+.tree-buy {
+  display: grid;
+  grid-template-columns: minmax(0, 8rem) minmax(0, 1fr);
+  gap: 1rem;
+  padding: 0.85rem 0;
+  border-bottom: 1px solid var(--rail);
+}
+
+.tree-buy dt {
+  font-weight: 600;
+  font-size: 0.88rem;
+}
+
+.tree-buy dd {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+}
+
+/* --------------------------------------------------- ask / approve / wait */
+
+.semantics {
+  margin: 0;
+  border-top: 1px solid var(--rail);
+}
+
+.semantic {
+  display: grid;
+  grid-template-columns: minmax(0, 6rem) minmax(0, 1fr);
+  gap: 1rem;
+  padding: 0.8rem 0;
+  border-bottom: 1px solid var(--rail);
+}
+
+.semantic dt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+.semantic dd {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+}
+
+/* ---------------------------------------------------------- the whole deck */
+
+.assembly {
+  width: 100%;
+  max-width: 22rem;
+  height: auto;
+  padding: 1.5rem;
+  border: 1px solid var(--rail);
+  background: var(--surface);
+  clip-path: var(--cut);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.assembly text {
+  fill: var(--ink-soft);
+  font-size: 13px;
+  text-anchor: middle;
+}
+
+.assembly-lines path {
+  fill: none;
+  stroke: var(--diagram);
+  stroke-width: 1;
+}
+
+.assembly-boxes rect {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1;
+}
+
+.assembly-boxes rect.is-run {
+  fill: var(--accent);
+}
+
+.assembly-name {
+  font-size: 13px;
+  letter-spacing: 0.14em;
+  font-weight: 600;
+}
+
+.assembly-name.is-deck {
+  fill: var(--accent);
+}
+
+.assembly-name.is-run {
+  fill: #ffffff;
+}
+
+.dark .assembly-name.is-run {
+  fill: var(--brand-night);
+}
+
+/* ------------------------------------------------------------- interop */
+
+.interop {
+  margin-top: 2.25rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 15rem);
+  gap: clamp(1.5rem, 4vw, 3rem);
+  align-items: center;
+}
+
+.interop-sources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rail);
+}
+
+.interop-source {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 11rem) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--rail);
+}
+
+.interop-marker {
+  color: var(--accent);
+  font-size: 0.72rem;
+}
+
+.interop-source.is-proposed {
+  color: var(--ink-soft);
+}
+
+.interop-source.is-proposed .interop-marker {
+  color: var(--rail);
+}
+
+.interop-name {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.interop-detail {
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+}
+
+.interop-sink {
+  display: grid;
+  justify-items: center;
+  gap: 0.6rem;
+}
+
+.interop-stem {
+  width: 1px;
+  height: 2.25rem;
+  background: var(--diagram);
+}
+
+.interop-target {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.76rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 0.55rem 1.6rem;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+
+.interop-target.is-run {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.dark .interop-target.is-run {
+  color: var(--brand-night);
+}
+
+/* ------------------------------------------------------------- boundary */
+
+.boundary {
+  margin-top: 2.25rem;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.boundary th {
+  text-align: left;
+  padding: 0 0 0.75rem;
+  border-bottom: 1px solid var(--rail);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  width: 50%;
+}
+
+.boundary th:last-child {
+  color: var(--accent);
+}
+
+.boundary td {
+  padding: 0.7rem 1rem 0.7rem 0;
+  border-bottom: 1px solid var(--rail);
+  color: var(--ink-soft);
+}
+
+.boundary td:last-child {
+  color: inherit;
+  font-weight: 500;
+}
+
+/* ----------------------------------------------------------- live section */
+
+.chapter.is-live-section .chapter-body {
+  padding-bottom: 5rem;
+}
+
+.jack-live {
+  margin-top: 2.25rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 1.25rem;
+  align-items: stretch;
+}
+
+.jack-chat,
+.jack-runtime {
+  border: 1px solid var(--rail);
+  background: var(--surface);
+  clip-path: var(--cut);
+  display: flex;
+  flex-direction: column;
+  min-height: 22rem;
+}
+
+.jack-transcript {
+  flex: 1;
+  padding: 1.1rem 1.2rem;
+  overflow-y: auto;
+  max-height: 24rem;
+}
+
+.jack-examples-label {
+  margin: 0 0 0.7rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.jack-example {
+  display: block;
+  width: 100%;
+  text-align: left;
+  margin-bottom: 0.45rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--rail);
+  background: transparent;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.jack-example:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.jack-question {
+  margin: 0 0 0.9rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--accent);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.jack-answer {
+  font-size: 0.9rem;
+  line-height: 1.65;
+}
+
+.jack-answer :is(p, ul, ol) {
+  margin: 0 0 0.7rem;
+}
+
+.jack-answer pre {
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--rail);
+  overflow-x: auto;
+  font-size: 0.8rem;
+}
+
+.jack-error {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: #ef4444;
+}
+
+.jack-form {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-top: 1px solid var(--rail);
+}
+
+.jack-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--rail);
+  background: var(--brand-canvas);
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.9rem;
+}
+
+.dark .jack-form input {
+  background: var(--brand-night);
+}
+
+.jack-form input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.jack-form button {
+  padding: 0.6rem 1.2rem;
+  border: 0;
+  background: var(--brand-blue);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.dark .jack-form button {
+  background: var(--brand-frost);
+  color: var(--brand-night);
+}
+
+.jack-form button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.jack-runtime {
+  padding: 1.1rem 1.2rem;
+}
+
+.jack-runtime-label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 0.9rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.jack-runtime-state {
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--rail);
+  letter-spacing: 0.08em;
+}
+
+.jack-runtime-state.is-running {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.jack-runtime-state.is-done {
+  color: #22c55e;
+  border-color: color-mix(in srgb, #22c55e 45%, transparent);
+}
+
+.jack-runtime-state.is-failed {
+  color: #ef4444;
+  border-color: color-mix(in srgb, #ef4444 45%, transparent);
+}
+
+.jack-runtime-idle {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+/* The live tree sits inside its panel: no second border, no second surface. */
+.tree-figure.is-live {
+  border: 0;
+  background: transparent;
+  clip-path: none;
+}
+
+.tree-figure.is-live .tree-rows {
+  padding: 0;
+}
+
+.jack-source {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+
+.jack-source p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+/* ------------------------------------------------------------ final CTA */
+
+.final-cta {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: clamp(4rem, 8vw, 6.5rem) 1.5rem clamp(5rem, 9vw, 7rem);
+  border-top: 1px solid var(--rail);
+  text-align: center;
+}
+
+.final-title {
+  margin: 0;
+  font-size: clamp(1.8rem, 4vw, 2.9rem);
+  line-height: 1.1;
+  letter-spacing: -0.035em;
+  font-weight: 600;
+}
+
+.install-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin: 2rem 0 0;
+  padding: 0.7rem 1rem;
+  border: 1px solid var(--rail);
+  background: var(--surface);
+  clip-path: var(--cut);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9rem;
+  color: inherit;
+  cursor: pointer;
+}
+
+.install-line:hover {
+  border-color: var(--accent);
+}
+
+.install-prompt {
+  color: var(--accent);
+}
+
+.install-action {
+  font-size: 0.72rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.final-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 2rem;
+}
+
+/* ------------------------------------------------------------ responsive */
+
+@media (max-width: 900px) {
+  .landing {
+    --gutter: 2.5rem;
+  }
+
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .hero-visual {
+    order: -1;
+  }
+
+  .hero-figure {
+    max-width: 320px;
+  }
+
+  .chapter-grid,
+  .interop,
+  .jack-live {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chapter.is-wide .chapter-grid,
+  .chapter.is-pivot .chapter-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chapter-body {
+    padding: 3rem 0 3.25rem;
+  }
+
+  .chapter-step {
+    top: 3.25rem;
+  }
+
+  .interop-sink {
+    display: none;
+  }
+
+  .interop-source {
+    grid-template-columns: 1.25rem minmax(0, 1fr);
+  }
+
+  .interop-detail {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 560px) {
+  .tree-buy,
+  .semantic {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.2rem;
+  }
+
+  .jack-transcript {
+    max-height: 18rem;
+  }
+}
+
+/* Motion here reports runtime state. With none wanted, the states still read
+   through colour and glyph, so nothing is lost by switching it all off. */
+@media (prefers-reduced-motion: reduce) {
+  .hero-figure .hero-lines path,
+  .hero-figure .hero-tree path,
+  .hero-figure .hero-nodes rect,
+  .tree-row.is-running .tree-state {
+    animation: none;
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+
+/* A visible focus ring everywhere, since most of this page is interactive. */
+.landing :is(a, button, input):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
