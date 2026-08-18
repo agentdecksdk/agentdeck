@@ -1,6 +1,6 @@
 """The ports: small, role-shaped interfaces the outer rings implement.
 
-Each is the narrowest thing its caller needs — an engine depends on nothing but the payloads it
+Each is the narrowest thing its caller needs  -  an engine depends on nothing but the payloads it
 yields, a telemetry sink on ``emit`` and never on the store behind it.
 
 Only interfaces live here. The vocabulary and policy that go with a port are core's, one ring

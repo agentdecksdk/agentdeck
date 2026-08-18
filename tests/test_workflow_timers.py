@@ -44,7 +44,7 @@ def test_past_timer_is_due_and_completes_after_tick(app_project_timers):
     assert paused["payload"]["type"] == TIMER_TYPE
     # the memory saver is cached per process (see test_workflow_interrupts.py), so scope to this thread
     # `due` is listed off the checkpointer directly (`_due_resumes`'s own docstring), which
-    # carries no run id at all — unlike `paused`, `deck.run()`'s own return value, which #322
+    # carries no run id at all  -  unlike `paused`, `deck.run()`'s own return value, which #322
     # gave one. Compared on the fields the two actually share.
     [matched] = [d for d in due if d["thread_id"] == "t-past"]
     assert matched == {"type": "interrupt", "payload": paused["payload"], "thread_id": "t-past"}
@@ -196,7 +196,7 @@ def _run_script(arg: str, cwd: str, env: dict[str, str]) -> str:
 
 def test_tick_survives_a_process_restart(tmp_path):
     """A different process reads the timer inbox off the sqlite file and Deck._tick() resumes
-    it — the acceptance test for #22, in miniature."""
+    it  -  the acceptance test for #22, in miniature."""
     import json
 
     bundle = tmp_path / ".agentdeck" / "workflows" / "timer_flow"
@@ -212,7 +212,7 @@ def test_tick_survives_a_process_restart(tmp_path):
 
     assert paused["type"] == "interrupt"
     assert paused["payload"]["type"] == TIMER_TYPE
-    # `due` is listed off the checkpointer directly, which carries no run id at all — unlike
+    # `due` is listed off the checkpointer directly, which carries no run id at all  -  unlike
     # `paused`, `deck.run()`'s own return value, which #322 gave one. Compared on what the two
     # actually share.
     assert finished["due"] == [{k: v for k, v in paused.items() if k != "id"}]
@@ -222,12 +222,12 @@ def test_tick_survives_a_process_restart(tmp_path):
 
 # --- two decks sweeping the same due thread produce one resumed thread, not two (#303) ------
 #
-# This does NOT exercise the Runtime's conditional-append claim itself — measured (see the PR
+# This does NOT exercise the Runtime's conditional-append claim itself  -  measured (see the PR
 # discussion on #303): by the time the loser's `_tick()` re-lists due threads off the
 # checkpointer, the winner has usually already finished its resume and advanced the checkpoint
 # past the interrupt, so the loser is filtered out of the *listing* before it ever reaches
-# `_claim_resume`. That SQL claim — the thing that arbitrates two callers reaching
-# `_claim_resume` at the same instant — is pinned deterministically by
+# `_claim_resume`. That SQL claim  -  the thing that arbitrates two callers reaching
+# `_claim_resume` at the same instant  -  is pinned deterministically by
 # `tests/test_uc2_claim_pipeline.py::test_two_processes_resuming_one_interrupt_produce_exactly_one_winner`
 # (gated inside `claim_resume` via a `LateStore` subclass) and by `tests/test_sqlite_store.py`.
 # What this test pins instead is the outward, deck-level guarantee #303 asks for: two decks
@@ -259,7 +259,7 @@ print(json.dumps(asyncio.run(main()), default=str))
 
 
 def _run_resumed_count(events_db: str, log_key: str) -> int:
-    """How many ``run.resumed`` events landed in ``log_key``'s log — read through a fresh
+    """How many ``run.resumed`` events landed in ``log_key``'s log  -  read through a fresh
     connection, as a third process would, so nothing either racer held in memory is trusted."""
 
     async def _read() -> int:
@@ -276,7 +276,7 @@ def _run_resumed_count(events_db: str, log_key: str) -> int:
 def test_two_decks_racing_tick_leave_exactly_one_run_resumed_event(tmp_path):
     """Two processes hold the same durable checkpoint and event store, both find the same past-
     due thread, and both call ``_tick()`` at the same instant. The durable record must show
-    exactly one ``run.resumed`` event for that thread afterwards — never two, and never zero
+    exactly one ``run.resumed`` event for that thread afterwards  -  never two, and never zero
     given the thread was already due before either racer started. See the section comment above
     for what this test does and does not cover.
     """
@@ -319,7 +319,7 @@ def test_two_decks_racing_tick_leave_exactly_one_run_resumed_event(tmp_path):
         resumed_by_tag[tag] = json.loads(stdout.strip())
 
     # The per-process return values agree with the durable record (belt), but the durable
-    # record — read fresh, off disk — is the actual claim this test makes (suspenders).
+    # record  -  read fresh, off disk  -  is the actual claim this test makes (suspenders).
     resumed_lengths = [len(resumed) for resumed in resumed_by_tag.values()]
     assert sum(resumed_lengths) == 1, resumed_by_tag
     assert _run_resumed_count(events_db, "restart-timer") == 1

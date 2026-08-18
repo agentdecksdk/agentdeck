@@ -3,7 +3,7 @@
 ``RunContext.data`` is the one field AgentDeck stores without ever interpreting, so the tests
 that matter are about what it is *not*: not copied, not converted, not in the repr. ``Context``
 is the view a user callable will be handed, and its surface is deliberately smaller than the
-carrier's — a property that is only real if something asserts the missing names stay missing.
+carrier's  -  a property that is only real if something asserts the missing names stay missing.
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from agentdeck.core.control import Gate, RunCancelledError, Signal
 
 
 class Environment:
-    """Stand-in for an application's own context object — a live handle, not data."""
+    """Stand-in for an application's own context object  -  a live handle, not data."""
 
     def __init__(self, token: str) -> None:
         self.token = token
@@ -45,7 +45,7 @@ def test_application_data_is_absent_from_the_repr() -> None:
 def test_application_data_cannot_be_swapped_mid_run() -> None:
     ctx = RunContext(run_id="r-1", data=Environment("t-1"))
     with pytest.raises(dataclasses.FrozenInstanceError):
-        ctx.data = Environment("t-2")  # ty: ignore[invalid-assignment] — that is the assertion
+        ctx.data = Environment("t-2")  # ty: ignore[invalid-assignment]  -  that is the assertion
 
 
 def test_the_public_view_exposes_the_application_object_and_the_run_identity() -> None:
@@ -63,7 +63,7 @@ def test_the_public_view_shares_the_run_s_reporter_rather_than_a_second_channel(
 
 
 def test_the_public_view_withholds_the_namespace_and_the_gate() -> None:
-    """Both are deliberately out of the initial surface — an absence a later slice can add to,
+    """Both are deliberately out of the initial surface  -  an absence a later slice can add to,
     where a wrong meaning released once could not be taken back."""
     ctx = Context(RunContext(run_id="r-1", namespace="acme"))
 
@@ -81,7 +81,7 @@ async def test_checkpoint_reaches_the_run_s_gate() -> None:
 
 
 async def test_checkpoint_on_an_unwired_run_is_a_no_op() -> None:
-    """A callable holding a context built by hand still runs — the seam defaults to doing
+    """A callable holding a context built by hand still runs  -  the seam defaults to doing
     nothing rather than to needing a Runtime."""
     await Context(RunContext(run_id="r-1")).checkpoint()
 
@@ -97,7 +97,7 @@ def test_id_is_a_plain_read_of_run_id_not_a_derivation() -> None:
 
 
 def test_id_carries_the_namespaced_run_ids_own_value_unchanged() -> None:
-    """Unlike the derivation it replaces, id does not fold namespace into the value at all —
+    """Unlike the derivation it replaces, id does not fold namespace into the value at all  -
     two namespaces sharing one run_id would collide here, which is exactly why run_id is
     minted rather than caller-supplied once a real run starts (see ``Runtime._new_run_context``)."""
     ctx = RunContext(namespace="acme", run_id="order-1234")

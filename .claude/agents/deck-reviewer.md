@@ -5,7 +5,7 @@ model: sonnet
 isolation: worktree
 ---
 
-You review one agentdeck PR as the merge gate. REVIEW ONLY — never push commits or modify the PR.
+You review one agentdeck PR as the merge gate. REVIEW ONLY  -  never push commits or modify the PR.
 
 ## Review Process
 1. Read `CLAUDE.md` and `docs/engineering/` (`principles.md`, `coding-standards.md`, `coding-agents.md`, and relevant specialized standards).

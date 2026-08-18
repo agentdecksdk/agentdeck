@@ -2,16 +2,16 @@
 
 Agents name the servers they need; this owns how to reach them. The composition root
 (``Deck``/``App``) hands :meth:`MCPLifecycle.configure`/:meth:`startup` the ``{name: spec}``
-config it read from its own source — an ``MCP(...)`` capability object's ``.mcp.json``, today::
+config it read from its own source  -  an ``MCP(...)`` capability object's ``.mcp.json``, today::
 
     {"mcpServers": {"agentdeck": {"type": "http", "url": "http://host.docker.internal:8765/mcp"}}}
 
-Every server connects at startup; connect failures are **soft** — the server is
+Every server connects at startup; connect failures are **soft**  -  the server is
 marked unavailable and the backend still boots. Agents referencing an
 unavailable server boot without its tools rather than crashing.
 
 :meth:`MCPLifecycle.startup` and :meth:`MCPLifecycle.shutdown` are the composition
-root's to call (``App`` does, in its lifespan) — resolving tools never connects.
+root's to call (``App`` does, in its lifespan)  -  resolving tools never connects.
 """
 
 from __future__ import annotations
@@ -87,9 +87,9 @@ class MCPLifecycle:
     def configure(cls, config: dict[str, dict[str, Any]] | None = None) -> None:
         """Load server specs without connecting. Safe to call sync (import-time builds).
 
-        ``config`` is the composition root's own ``{name: spec}`` — an ``MCP(...)``
+        ``config`` is the composition root's own ``{name: spec}``  -  an ``MCP(...)``
         capability object's ``.config()``, typically. No config (or ``None``) means no
-        servers — the same fail-open rule a project with no ``.mcp.json`` has always had.
+        servers  -  the same fail-open rule a project with no ``.mcp.json`` has always had.
         """
         config = config or {}
         if not config:
@@ -100,7 +100,7 @@ class MCPLifecycle:
                 continue
             try:
                 cls._servers[name] = _build_server(name, spec)
-            except Exception as exc:  # config errors are soft — disable this server, keep the rest
+            except Exception as exc:  # config errors are soft  -  disable this server, keep the rest
                 logger.warning("MCP server '%s' disabled (config error): %r", name, exc)
                 cls._failed[name] = exc
 
@@ -117,7 +117,7 @@ class MCPLifecycle:
                     await server.connect()
                 except Exception as exc:  # soft: a down MCP host must never fail the backend's boot
                     logger.error(
-                        "MCPLifecycle: connection to '%s' FAILED — agents referencing it "
+                        "MCPLifecycle: connection to '%s' FAILED  -  agents referencing it "
                         "boot without its tools. Cause: %r",
                         name,
                         exc,
@@ -139,7 +139,7 @@ class MCPLifecycle:
                     continue
                 try:
                     await server.cleanup()
-                except Exception:  # best-effort teardown — keep cleaning up the rest
+                except Exception:  # best-effort teardown  -  keep cleaning up the rest
                     logger.exception("MCPLifecycle: cleanup failed for '%s'", name)
                 cls._connected.discard(name)
 
@@ -148,7 +148,7 @@ class MCPLifecycle:
         """Return the server for ``name`` regardless of connect state, or ``None``.
 
         Lets agents declared at import time wire up the same instance the lifecycle
-        connects later. ``None`` when the name is unknown or its connect failed —
+        connects later. ``None`` when the name is unknown or its connect failed  -
         callers (``authoring.compile.compile_agent``) filter that out to boot with reduced capability.
         """
         if name in cls._failed:
@@ -167,7 +167,7 @@ class MCPLifecycle:
 
     @classmethod
     def reset(cls) -> None:
-        """Tests only — clears state. Does not call cleanup()."""
+        """Tests only  -  clears state. Does not call cleanup()."""
         cls._servers.clear()
         cls._failed.clear()
         cls._connected.clear()

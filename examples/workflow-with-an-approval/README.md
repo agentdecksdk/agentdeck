@@ -1,7 +1,7 @@
 # Workflow with an approval
 
 A refund that does not happen until a person says yes. Three deterministic nodes, one of which
-pauses mid-graph and waits — possibly for another process, on another day.
+pauses mid-graph and waits  -  possibly for another process, on another day.
 
 ```text
 .agentdeck/
@@ -18,7 +18,7 @@ export OPENAI_MODEL=none OPENAI_API_KEY=none
 python run.py
 ```
 
-Run it from *this* directory — the working directory is what picks the project. Nothing here
+Run it from *this* directory  -  the working directory is what picks the project. Nothing here
 calls a model, so the two `OPENAI_*` values are placeholders that only satisfy configuration;
 the whole example is deterministic Python, which is exactly the point of putting the money in a
 workflow rather than in an agent's hands. `[durability]` brings the SQLite checkpointer that
@@ -37,12 +37,12 @@ Expected output:
   checkpointer; `pending()` is the inbox of parked runs and `answer(run_id, value)` is how one
   continues.
 - **The interrupting node re-runs from its start on resume.** `_confirm` therefore does nothing
-  but ask, `_price` does its work before the pause, and `_settle` — the node that would actually
-  move money — runs after the decision. A side effect inside `_confirm` would happen twice.
+  but ask, `_price` does its work before the pause, and `_settle`  -  the node that would actually
+  move money  -  runs after the decision. A side effect inside `_confirm` would happen twice.
 - **Answering from a *second* process needs a shared event log.** `durable=True` covers the
   graph's own state, but `pending()` reads the Runtime's event log, which defaults to in-process
   memory. Set `AGENTDECK_EVENTS` to `sqlite://`, `redis://` or `postgresql://` before expecting
   one process to see another's paused run.
 
-Next: [Human Approval](https://agentdecksdk.com/guides/human-approval) ·
-[Choosing a Store Backend](https://agentdecksdk.com/concepts/choosing-a-store-backend)
+Next: [Human Input](https://agentdecksdk.com/runs-and-control/human-input) ·
+[Settings](https://agentdecksdk.com/reference/settings)

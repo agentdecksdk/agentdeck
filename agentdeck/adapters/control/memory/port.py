@@ -1,5 +1,5 @@
 """In-process ``ControlPort``: a dict keyed by ``id``. Dev and single-process tests
-only — process exit loses every pending signal, same posture as ``stores.memory``.
+only  -  process exit loses every pending signal, same posture as ``stores.memory``.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ class MemoryControlPort(ControlPort):
 
     async def consume(self, id: str, expected: Signal) -> bool:
         # Compare and delete under no await, so no other task can slip a signal in between the
-        # two — the same "atomic for free" the in-memory event store's claims rely on.
+        # two  -  the same "atomic for free" the in-memory event store's claims rely on.
         pending = self._signals.get(id)
         if pending is None or pending.verb is not expected:
             return False

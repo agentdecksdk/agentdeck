@@ -371,102 +371,13 @@ export function WholeDeck({ children }: { children?: React.ReactNode }) {
   )
 }
 
-/* ---------------------------------------------------------- 10. interop */
-
-const SOURCES: [string, string, boolean][] = [
-  ['Native AgentDeck', 'agents, workflows and skills you declare here', true],
-  ['OpenAI Agents SDK', 'your existing SDK agents, with native access kept', true],
-  ['LangGraph', 'your existing state graphs, checkpointed', true],
-  ['MCP', 'tool servers, connected through the Deck', true],
-  ['Your Python', 'any function that takes a Context', true],
-  ['PydanticAI', 'designed, not yet built', false]
-]
-
-export function Interop() {
-  return (
-    <section className="chapter is-wide">
-      <div className="chapter-spine" aria-hidden="true">
-        <span className="chapter-step">09</span>
-      </div>
-      <div className="chapter-body">
-        <p className="chapter-eyebrow">Interoperability</p>
-        <h2 className="chapter-title">Bring what you already have.</h2>
-        <p className="chapter-lead">
-          AgentDeck wraps the engines rather than replacing them. An Agent compiles to an SDK
-          agent, a Workflow compiles to a LangGraph graph, and each is executed by its own engine.
-          You keep native access when you need it.
-        </p>
-        <div className="interop">
-          <ul className="interop-sources">
-            {SOURCES.map(([name, detail, shipped]) => (
-              <li className={shipped ? 'interop-source' : 'interop-source is-proposed'} key={name}>
-                <span className="interop-marker" aria-hidden="true">
-                  {shipped ? '◆' : '◇'}
-                </span>
-                <span className="interop-name">{name}</span>
-                <span className="interop-detail">{detail}</span>
-              </li>
-            ))}
-          </ul>
-          <div className="interop-sink" aria-hidden="true">
-            <span className="interop-target">Deck</span>
-            <span className="interop-stem" />
-            <span className="interop-target is-run">Execution</span>
-          </div>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-/* ---------------------------------------------------------- 11. the boundary */
-
-const BOUNDARY: [string, string][] = [
-  ['application logic', 'execution'],
-  ['agents', 'lifecycle'],
-  ['tools', 'control'],
-  ['workflows', 'interruptions'],
-  ['business state', 'durability'],
-  ['integrations', 'recovery']
-]
-
-export function Boundary() {
-  return (
-    <section className="chapter is-wide">
-      <div className="chapter-spine" aria-hidden="true">
-        <span className="chapter-step">10</span>
-      </div>
-      <div className="chapter-body">
-        <p className="chapter-eyebrow">The line</p>
-        <h2 className="chapter-title">You build the behavior. AgentDeck manages the machinery.</h2>
-        <table className="boundary">
-          <thead>
-            <tr>
-              <th scope="col">You</th>
-              <th scope="col">AgentDeck</th>
-            </tr>
-          </thead>
-          <tbody>
-            {BOUNDARY.map(([yours, ours]) => (
-              <tr key={yours}>
-                <td>{yours}</td>
-                <td>{ours}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  )
-}
-
 /* ------------------------------------------------------------- 12. real Jack */
 
 export function MeetJack({ children }: { children?: React.ReactNode }) {
   return (
     <section className="chapter is-wide is-live-section">
       <div className="chapter-spine" aria-hidden="true">
-        <span className="chapter-step">11</span>
+        <span className="chapter-step">09</span>
       </div>
       <div className="chapter-body">
         <p className="chapter-eyebrow">Jack, running</p>

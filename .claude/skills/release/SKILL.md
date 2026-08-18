@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut an agentdeck release — bump version, update CHANGELOG, merge dev to main, and tag vX.Y.Z.
+description: Cut an agentdeck release  -  bump version, update CHANGELOG, merge dev to main, and tag vX.Y.Z.
 ---
 
 # Release agentdeck

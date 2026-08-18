@@ -65,7 +65,7 @@ Three consequences:
 | a short-lived process never sweeps | a serverless invocation opens the deck, takes a turn and closes before any interval elapses. Deadlines fire on whoever next holds a deck open, and that belongs in the docstring in those words |
 
 **Amended 2026-08-15 (#303):** shipped narrower than the middle row above. The sweep still reads
-each workflow's own checkpointer, exactly as `_tick`/`_due_resumes` already did — #212's
+each workflow's own checkpointer, exactly as `_tick`/`_due_resumes` already did  -  #212's
 single-inbox fix is not a dependency here and stays open, deliberately out of scope. "Opt-in" in
 this file's first paragraph turned out ambiguous: the sweep takes no flag and is on by default,
 since an operator who forgot to opt in would silently reinstate the exact trap this closes. What
@@ -80,7 +80,7 @@ note rather than removed in the same change.
 
 Two exceptions, which are removals: `tick` and `due_resumes`.
 
-**Amended 2026-08-15 (#294):** shipped as a removal in one change instead, for all six — not
+**Amended 2026-08-15 (#294):** shipped as a removal in one change instead, for all six  -  not
 additive-then-deprecate. Twelve names for six verbs is the "two ways to do one thing" this repo
 rejects, and the blast radius (37 call sites, all within this repo) was small enough to take in
 one PR rather than carry a deprecation window for it.

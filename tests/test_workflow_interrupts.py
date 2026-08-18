@@ -1,5 +1,5 @@
 """Human-in-the-loop (issue #10): a durable workflow pauses on ``interrupt()``, is
-listed as pending, and resumes with the human's decision — including in a fresh
+listed as pending, and resumes with the human's decision  -  including in a fresh
 process against the same sqlite file. Non-durable workflows can't do any of it.
 """
 
@@ -99,7 +99,7 @@ def test_rejected_decision_routes_the_other_branch():
 
 def test_nodes_before_the_interrupt_re_execute_on_resume():
     """The documented constraint, asserted: ``prepare`` runs once, but the interrupt
-    node's own body replays — side effects must not live there."""
+    node's own body replays  -  side effects must not live there."""
     wf = _make_approval_workflow(durable=True)
 
     async def _scenario():
@@ -226,7 +226,7 @@ def app_project(tmp_path, monkeypatch):
 
 async def test_stream_ends_with_a_run_interrupted_event(app_project):
     """The streaming surface: a node-updated event, then run-interrupted *instead of*
-    run-completed — and the same pause the Runtime's own inbox lists."""
+    run-completed  -  and the same pause the Runtime's own inbox lists."""
     async with app_project:
         events = [
             event async for event in app_project.stream("ApprovalFlow", {"request": "tue 9am"}, session_id="t-stream")
@@ -268,7 +268,7 @@ def test_deck_surface_runs_lists_and_answers(app_project):
             mine = await deck.runs.get(paused["id"])
             await mine.answer("no")
             resumed = await mine
-            # both run and answer write to the event log now —
+            # both run and answer write to the event log now  -
             # read it back rather than trusting each call's own bookkeeping.
             events = await deck._runtime.store.read("t-app", RunContext(run_id="reader", session_id="t-app"))
             return paused, mine, resumed, [event.kind for event in events]
@@ -340,7 +340,7 @@ def _run_script(arg: str, decision: str, env: dict[str, str]) -> str:
 @pytest.mark.parametrize(("decision", "outcome"), [("yes", "booked:tue 9am"), ("no", "dropped")])
 def test_interrupt_survives_a_process_restart(tmp_path, decision, outcome):
     """The acceptance test: one process pauses, a *different* process reads the inbox
-    off the sqlite file and resumes it to completion — days-later approval, in miniature.
+    off the sqlite file and resumes it to completion  -  days-later approval, in miniature.
     """
     import json
 

@@ -2,10 +2,10 @@
 play on ``OPENAI_MODEL`` exactly as before.
 
 The defect this guards: the SDK's own ``RunConfig.model``, once set, overrides *every*
-agent's model regardless of what it declared — so building every run's config with
+agent's model regardless of what it declared  -  so building every run's config with
 ``model=settings.model`` (``OPENAI_MODEL``, always set) silently discarded any per-agent
 ``model=``. The fix resolves the default at compile time
-(``authoring.compile.compile_agent``) instead, and ``RunConfig.model`` is never set at all —
+(``authoring.compile.compile_agent``) instead, and ``RunConfig.model`` is never set at all  -
 these tests fail against the old shape and pass against the new one.
 
 No live model anywhere here: every model is a scripted fake, and a call count is what
@@ -67,11 +67,11 @@ def test_handoff_target_keeps_its_own_declared_model_over_the_router_default(mon
 
 async def test_a_run_plays_the_declared_model_not_the_configured_one():
     """The issue's own repro: a run configured with one model must not reach it when the
-    agent playing declared a different one — old code forced every agent onto
+    agent playing declared a different one  -  old code forced every agent onto
     ``RunConfig.model`` (a plain string), so the provider below would have answered instead.
     """
     declared = ScriptedModel(deltas=["from the declared model"])
-    provider_model = ScriptedModel(deltas=["from the configured default — wrong"])
+    provider_model = ScriptedModel(deltas=["from the configured default  -  wrong"])
 
     compiled = compile_agent(Agent(name="A", instructions="x", model=declared))
     spec = InvocableSpec(name="A", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=compiled)
@@ -87,7 +87,7 @@ async def test_a_run_plays_the_declared_model_not_the_configured_one():
 
 async def test_a_run_still_plays_the_configured_model_when_the_agent_declares_none(monkeypatch: pytest.MonkeyPatch):
     """The other half of the contract: dropping ``RunConfig.model`` must not strand an agent
-    that names nothing — it still has to reach ``OPENAI_MODEL``, just via the compiled
+    that names nothing  -  it still has to reach ``OPENAI_MODEL``, just via the compiled
     agent's own ``model`` field rather than the run config.
     """
     monkeypatch.setenv("OPENAI_MODEL", "configured-default")
@@ -96,7 +96,7 @@ async def test_a_run_still_plays_the_configured_model_when_the_agent_declares_no
 
     compiled = compile_agent(Agent(name="A", instructions="x"))
     spec = InvocableSpec(name="A", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=compiled)
-    # `RunSettings.model` is what turns the provider on at all (`runconfig._provider`) — in
+    # `RunSettings.model` is what turns the provider on at all (`runconfig._provider`)  -  in
     # the real composition root it is the same `OPENAI_MODEL` value the agent just defaulted
     # to above, so it is named again here rather than left at `RunSettings()`'s bare default.
     engine = OpenAIAgentsEngine(ExecutionStore(), settings=RunSettings(model="configured-default"))

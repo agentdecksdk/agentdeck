@@ -3,7 +3,7 @@
 Knows only what this process told it, which is the whole of its usefulness and the whole of
 its limit: it witnesses a crashed *task* in this worker, never a crashed peer. Two processes
 each get a port that has seen nothing of the other's runs, so neither takes anything over and
-the staleness timer stays the only backstop — exactly today's behaviour, which is what makes
+the staleness timer stays the only backstop  -  exactly today's behaviour, which is what makes
 the default safe.
 """
 

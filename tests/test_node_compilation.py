@@ -6,7 +6,7 @@ that the shared contract suite cannot:
 * **State and context are separate, and neither absorbs the other.** A node holds both, and the
   only way to tell a real separation from an accident is to mutate each and look at the other.
 * **A resume resupplies the context.** The value is never serialized, so nothing in the log can
-  be compared against what should have been there — a node reading ``ctx.data`` after a resume
+  be compared against what should have been there  -  a node reading ``ctx.data`` after a resume
   that lost it degrades in silence. These tests fail against a ``resume`` that mints its
   ``RunContext`` without ``data=``, which is what it did before this slice.
 
@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from agentdeck.adapters.engines.langgraph.engine import REPORTER_KEY
 from agentdeck.authoring import Workflow
 from agentdeck.authoring.graphs import bridge_context_nodes
-from agentdeck.core.context import Context  # noqa: TC001 — the nodes below must resolve it at runtime
+from agentdeck.core.context import Context  # noqa: TC001  -  the nodes below must resolve it at runtime
 from agentdeck.deck import Deck
 from agentdeck.errors import ConfigError, RunSuspendedError
 from agentdeck.runtime.settings import reset_settings_cache
@@ -142,7 +142,7 @@ async def test_a_sync_node_declaring_a_context_runs_off_the_event_loop(no_projec
 @pytest.mark.asyncio
 async def test_a_node_keeps_the_langgraph_parameters_it_also_declared(no_project) -> None:
     """``reporter`` stays on ``configurable``, so a node reaching it through ``config`` must keep
-    working next to an injected context — the bridge forwards every parameter langgraph fills
+    working next to an injected context  -  the bridge forwards every parameter langgraph fills
     rather than swallowing them."""
     reached: list[Any] = []
 
@@ -190,7 +190,7 @@ def test_a_node_whose_signature_cannot_be_read_is_left_alone_rather_than_refused
     """Divergence from a *tool*, on purpose: a tool must publish a model-visible schema at build
     time, so an unreadable one has nothing honest to offer and is refused. A node publishes no
     schema, so leaving it exactly as langgraph would have run it changes nothing that works
-    today — and refusing would break graphs that never wanted a context at all."""
+    today  -  and refusing would break graphs that never wanted a context at all."""
 
     def destroying(fn: Any) -> Any:
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -210,7 +210,7 @@ def test_a_node_whose_signature_cannot_be_read_is_left_alone_rather_than_refused
 
 
 def test_two_context_parameters_on_a_node_fail_at_build_naming_the_node() -> None:
-    """The same failure a tool's gets, at the same moment — ``build()``, not the first run."""
+    """The same failure a tool's gets, at the same moment  -  ``build()``, not the first run."""
 
     def book(state: _State, here: Context[Calendar], also: Context[Calendar]) -> dict[str, Any]:
         return {}
@@ -260,7 +260,7 @@ async def test_answer_resupplies_the_context_to_the_node_that_re_runs(no_project
     one with no ``data=`` at all, so the re-running node read ``None`` and a defensive node would
     have returned a plausible wrong answer with nothing in the log to contradict it.
 
-    ``context`` is never resupplied at answer time now (docs/design/run-identity.md §6) — the
+    ``context`` is never resupplied at answer time now (docs/design/run-identity.md §6)  -  the
     handle from ``start()`` retains it, so this holds the same ``Run`` throughout rather than
     recovering one through ``get()``, which would carry no context at all.
     """
@@ -286,7 +286,7 @@ async def test_answer_resupplies_the_context_to_the_node_that_re_runs(no_project
 async def test_answering_without_a_context_resumes_with_none_rather_than_the_old_value(
     no_project, memory_checkpointer
 ) -> None:
-    """Resupplied, never recovered — and now never a parameter :meth:`Run.answer` even takes:
+    """Resupplied, never recovered  -  and now never a parameter :meth:`Run.answer` even takes:
     a handle started with no ``context=`` at all carries ``None`` for its whole life, and
     ``answer`` resupplies exactly that rather than "keeping what the run had"."""
     seen: list[Any] = []
@@ -303,6 +303,6 @@ async def test_answering_without_a_context_resumes_with_none_rather_than_the_old
     assert seen[-1] is None
 
 
-# ``Runtime.resume_run`` — the *pause* path rather than the interrupt path — mints its context
+# ``Runtime.resume_run``  -  the *pause* path rather than the interrupt path  -  mints its context
 # separately and lost it the same way. It is covered where the pause machinery lives, in
 # ``tests/test_run_control.py``, because only an agent run reaches a safe point today.

@@ -3,7 +3,7 @@
 Separate from :class:`~agentdeck.core.ports.control.ControlPort` because the two answer
 different questions: a signal is a request arriving from outside a run, a lease is an
 assertion made from inside it. Separate from the event store because the log is append-only
-and durable while a lease is mutable and ephemeral — a lease that outlived its holder is
+and durable while a lease is mutable and ephemeral  -  a lease that outlived its holder is
 worthless, which is the opposite of what a log promises.
 
 Addressed by the run's ``id`` alone, for the reason ``ControlPort`` gives: it is minted once
@@ -37,14 +37,14 @@ class LeasePort(ABC):
         """Assert that this worker is executing ``run_id`` for the next ``ttl``.
 
         ``False`` means somebody else's lease is live. A minted ``run_id`` is globally unique,
-        so a genuine collision means two workers believe they are playing one run — worth
+        so a genuine collision means two workers believe they are playing one run  -  worth
         reporting, never worth failing the turn over: the log's own conditional append is what
         actually admits one player.
         """
 
     @abstractmethod
     async def renew(self, run_id: str, ttl: timedelta) -> bool:
-        """Push ``run_id``'s expiry out by ``ttl``. ``False`` when the lease is gone — expired
+        """Push ``run_id``'s expiry out by ``ttl``. ``False`` when the lease is gone  -  expired
         under a stalled renewer, or released by something else."""
 
     @abstractmethod
@@ -54,7 +54,7 @@ class LeasePort(ABC):
 
     @abstractmethod
     async def dead(self, run_ids: Collection[str]) -> frozenset[str]:
-        """Which of ``run_ids`` this port **held and watched expire** — positive knowledge only.
+        """Which of ``run_ids`` this port **held and watched expire**  -  positive knowledge only.
 
         A run this port has never seen is never in the answer. Inverting that (``run_id not in
         table``) is the one-line mistake this port exists to prevent: a second process's memory

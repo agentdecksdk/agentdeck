@@ -17,7 +17,7 @@ INTERRUPT_KEY = "__interrupt__"
 class InterruptResult(TypedDict):
     """A paused run: what the human is asked (``payload``) and which thread answers it.
 
-    ``id`` is the canonical run id (docs/design/run-identity.md §8) — present whenever this
+    ``id`` is the canonical run id (docs/design/run-identity.md §8)  -  present whenever this
     came from a run the Runtime is tracking (``Deck.run``/``Deck.stream``), and absent when a
     :class:`~agentdeck.authoring.workflow.Workflow` is played directly with no Runtime in
     reach to mint or carry one. ``thread_id`` stays internal to the engine and is never the

@@ -27,7 +27,7 @@ class MemoryEventStore(EventStorePort):
     """Append-only lists, one per (namespace, log key). Process exit is data loss, by design.
 
     Keyed by namespace as well as log key so two namespaces that pick the same session id cannot
-    read each other's runs — isolation is not something a store gets to skip.
+    read each other's runs  -  isolation is not something a store gets to skip.
     """
 
     def __init__(self, clock: Callable[[], datetime] = _now) -> None:
@@ -39,7 +39,7 @@ class MemoryEventStore(EventStorePort):
         # anything outside this store reads.
         self._run_logs: dict[tuple[str | None, str], str] = {}
         # `(namespace, key)` is the store's own permanent claim, set once by whichever
-        # `claim_start` first adopts a key and never cleared — this dict *is* the enforcement,
+        # `claim_start` first adopts a key and never cleared  -  this dict *is* the enforcement,
         # not a cache of something re-derivable from `_logs`.
         self._keys: dict[tuple[str | None, str], str] = {}
 
@@ -55,8 +55,8 @@ class MemoryEventStore(EventStorePort):
     def _stamp(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
         """Assign, build and write, with no suspension point anywhere in between.
 
-        That is this store's whole atomicity mechanism, and it is why every caller here — both
-        claims included — goes through this rather than through ``append``: an ``await`` between
+        That is this store's whole atomicity mechanism, and it is why every caller here  -  both
+        claims included  -  goes through this rather than through ``append``: an ``await`` between
         reading the run's last ``seq`` and extending the log is all it would take for two tasks to
         be handed the same number.
         """
@@ -72,7 +72,7 @@ class MemoryEventStore(EventStorePort):
             )
         log = self._logs.setdefault((ctx.namespace, log_key), [])
         if any(payload.kind in LIFECYCLE_KINDS for payload in payloads):
-            # Only on a lifecycle write, so a run with none recorded stays unrecorded here too —
+            # Only on a lifecycle write, so a run with none recorded stays unrecorded here too  -
             # the same "indistinguishable from a run this store never heard of" `list_runs`/
             # `run_status` already give it.
             self._run_logs[(ctx.namespace, ctx.run_id)] = log_key
@@ -133,7 +133,7 @@ class MemoryEventStore(EventStorePort):
             if STATES[status].suspended:
                 # No worker to be dead: PAUSED and WAITING_ANSWER have no engine polling a
                 # clock, so silence is not evidence of anything and neither the timer nor an
-                # expired lease applies — checked before both, for that reason. The log
+                # expired lease applies  -  checked before both, for that reason. The log
                 # deciding alone is what makes this session's hold permanent.
                 return SessionClaim(held_by=events[-1].run_id), None
             if events[-1].run_id in dead:
@@ -183,7 +183,7 @@ class MemoryEventStore(EventStorePort):
         for log_key, run_id in dict.fromkeys(runs):
             found = await self.run_status(log_key, run_id, ctx)
             # Never None here: `runs` above only keeps pairs that already had a LIFECYCLE_KINDS
-            # event, so `run_status` always has at least one event to fold — the `None` case
+            # event, so `run_status` always has at least one event to fold  -  the `None` case
             # (no events at all) cannot occur for a run this loop found in the first place.
             assert found is not None
             summaries.append(RunSummary(log_key=log_key, run_id=run_id, status=found))

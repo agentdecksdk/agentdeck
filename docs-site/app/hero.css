@@ -357,7 +357,7 @@
   top: 50%;
   width: var(--deck-w);
   height: var(--deck-h);
-  transform: translate(-50%, -50%) scale(0.82);
+  transform: translate(-50%, -50%) scale(1);
   opacity: 0;
   /* Half speed: the Deck assembling is the beat the section is about, and it was over before
      it registered. */
@@ -369,7 +369,6 @@
 
 .ad-deck.is-visible {
   opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
 }
 
 /* Activation is the mark igniting: it takes the accent, gains its glow, and pulses once.
@@ -714,12 +713,8 @@
 
 @media (max-width: 1150px) {
   .ad-hero {
-    padding-top: 54px;
-  }
-
-  .ad-stage {
-    height: 500px;
-    margin-top: 42px;
+    padding-top: 34px;
+    padding-bottom: 12px;
   }
 
   .ad-module {
@@ -728,23 +723,23 @@
     font-size: 12px;
   }
 
+  /* The tree is dropped here rather than shrunk. It needs width this screen does not have, and
+     the page shows it properly twice further down, the second time live. What the hero keeps is
+     the half a phone can hold: capabilities assembling into the Deck, and the Deck activating. */
+  .ad-tree {
+    display: none;
+  }
+
+  .ad-stage {
+    /* Viewport-relative, so the hero still stands in one screen on a short phone. */
+    height: clamp(184px, 26vh, 246px);
+    margin-top: 0;
+  }
+
   .phase-execute .ad-deck {
     left: 50%;
-    top: 22%;
-    transform: translate(-50%, -50%) scale(0.82);
-  }
-
-  .ad-tree {
-    left: 50%;
-    top: 70%;
-    margin-left: -194px;
-    transform: translateY(-50%) scale(0.72);
-    transform-origin: left center;
-  }
-
-  .tree-node {
-    font-size: 16px;
-    min-height: 48px;
+    top: 50%;
+    transform: translate(-50%, -50%) scale(1);
   }
 }
 
@@ -754,17 +749,17 @@
   }
 
   .ad-hero h1 {
-    font-size: clamp(42px, 13vw, 64px);
+    font-size: clamp(33px, 10.4vw, 52px);
   }
 
   .ad-hero__subtitle {
-    font-size: 16px;
+    margin-top: 14px;
+    font-size: 15px;
   }
 
   .ad-stage {
     --deck-w: 142px;
     --deck-h: 186px;
-    height: 460px;
   }
 
   .ad-module {
@@ -794,23 +789,6 @@
   .ad-deck__surface .ad-mark {
     width: 34px;
     height: 34px;
-  }
-
-  .phase-execute .ad-deck {
-    top: 25%;
-    transform: translate(-50%, -50%) scale(0.78);
-  }
-
-  /* Tighter again on a phone, but the same stacked arrangement as the tablet block above. */
-  .ad-tree {
-    top: 72%;
-    margin-left: -151px;
-    transform: translateY(-50%) scale(0.56);
-  }
-
-  .tree-node {
-    font-size: 19px;
-    min-height: 56px;
   }
 
 }

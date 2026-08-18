@@ -11,7 +11,7 @@ holds a status field and nothing caches a fold.
 
 **Built.** #295 built the four tables, the routing and the rename; this file describes the tree.
 *Drift* and *Declared, never produced* are dated audit records of the tree at `da46439`, kept with
-their verdicts rather than deleted — they are what the tables were written against, and they still
+their verdicts rather than deleted  -  they are what the tables were written against, and they still
 spell the parked state `WAITING_HUMAN`, which is what it was called then.
 
 ## The machine
@@ -36,15 +36,15 @@ pause, which is how one kind serves both edges.
 
 ## What is true of each state
 
-Held today as three collections in two modules — `RESUMABLE_STATUSES` and `TERMINAL_STATUSES` in
-`core/status.py`, `SUSPENDED_KINDS` in `runtime/service.py` — each carrying a third of this table.
+Held today as three collections in two modules  -  `RESUMABLE_STATUSES` and `TERMINAL_STATUSES` in
+`core/status.py`, `SUSPENDED_KINDS` in `runtime/service.py`  -  each carrying a third of this table.
 
 | state | terminal | suspended | resumes with |
 |---|---|---|---|
-| `RUNNING` | no | no | — |
+| `RUNNING` | no | no |  -  |
 | `PAUSED` | no | yes | nothing |
 | `WAITING_ANSWER` | no | yes | a value |
-| `COMPLETED` · `FAILED` · `CANCELLED` | yes | no | — |
+| `COMPLETED` · `FAILED` · `CANCELLED` | yes | no |  -  |
 
 **Which state a suspension gets is decided by how it resumes, not by who caused it.** With a value
 is `WAITING_ANSWER`; with nothing is `PAUSED`. So code pausing itself would be `PAUSED`, not a
@@ -67,7 +67,7 @@ Preconditions, checked before anything is read from the control port.
 | terminal | opens a **new** run | no-op | no-op | recorded, never read | recorded, never read |
 
 `pause` and `cancel` were one merged column before #311: both were "recorded", read only once
-something next claimed the run. `cancel` against a suspended run no longer waits for that — it
+something next claimed the run. `cancel` against a suspended run no longer waits for that  -  it
 claims the run itself and terminates it in the same call, because nothing else was ever
 guaranteed to (`signal()`'s own docstring). `pause` still only records; lifting or answering a
 suspended run is what acts on it.
@@ -83,7 +83,7 @@ the run is live, or the claim that begins the operation continuing a stopped run
 | `RUNNING`, a gate checkpoint | raise: requested, observed, cancelled · *consume* | raise: requested, observed, paused · *consume* | return; a lifted pause has nothing to do · *leave* | return |
 | `PAUSED`, a resume claims it | terminate: requested, cancelled · *consume* | the resume **is** the answer to it: lift · *consume* | proceed · *consume* | proceed |
 | `WAITING_ANSWER`, an answer claims it | terminate: requested, cancelled · *consume* | **refuse the answer, naming the pause** · *leave* | proceed · *consume* | proceed |
-| terminal | no-op · *consume* | no-op · *consume* | no-op · *consume* | — |
+| terminal | no-op · *consume* | no-op · *consume* | no-op · *consume* |  -  |
 
 Sixteen cells, total, asserted at import. A missing ruling is a missing key, which is a failing
 test rather than a request that is accepted and read by nothing.
@@ -91,7 +91,7 @@ test rather than a request that is accepted and read by nothing.
 Two cells carry the design's opinions:
 
 **A cancel against a stopped run terminates immediately.** `signal()` itself claims the suspended ->
-`RUNNING` transition and appends the two terminating events on top of it (#311) — a suspended run
+`RUNNING` transition and appends the two terminating events on top of it (#311)  -  a suspended run
 has no loop ever going to poll the gate again, so recording the signal and waiting for a resume or
 answer to notice it is waiting for something that may never come. Losing that claim to a
 concurrent resume/answer falls through to the routing below, which is what reads the recorded
@@ -100,7 +100,7 @@ signal when *that* caller is the one to find it pending.
 **A pause against a run waiting for an answer refuses the answer** rather than being lifted by it.
 Lifting would let an answer silently override an operator who said stop. Refusing costs the
 answerer one round trip and keeps both intents intact. The better end state is to accept the
-answer, resume, and stop at the first safe point — which a workflow cannot do until it has one
+answer, resume, and stop at the first safe point  -  which a workflow cannot do until it has one
 (#128), so it is not the first version.
 
 ## Routing
@@ -128,7 +128,7 @@ release.
 
 ## The declaration
 
-One table per axis, in `core/status.py` — not a new module, because 23 import statements across 20
+One table per axis, in `core/status.py`  -  not a new module, because 23 import statements across 20
 files make a rename churn, and that file already is this subject.
 
 | | replaces |
@@ -152,7 +152,7 @@ except where the verdict says otherwise.
 | §4.4: transitions are "guarded in one place (`core/status.py`)" | Guarded in five: `RESUMABLE_STATUSES` and `TERMINAL_STATUSES` (`core/status.py:37,57`), `SUSPENDED_KINDS` (`runtime/service.py:56`), two `if pending.verb is …` branches in `resume_run` (`runtime/service.py:260,268`), and the `status=PAUSED` filter inside `_paused` (`runtime/service.py:362`) | True again: `STATES`, `TRANSITIONS`, `PRECONDITIONS` and `POLICY` are the only places a rule is written |
 | §4.4: `CANCELLED` is "reachable from … `WAITING_HUMAN`" | It is not. `Runtime.resume` never polls the control port, so a `cancel` recorded against a parked run is read by nothing (#229); a `pause` vanishes the same way | Reachable: the answer's claim reads the port and rules on what it finds |
 | `Deck.runs.resume` on a parked run reports something | It returns `[]`: `_paused` lists only `PAUSED` runs, so the state is never seen | It refuses, naming `answer`. The verb moved to `Run.resume()` in #322 |
-| `PAUSED` is reachable for any run | Not for a workflow run — the langgraph adapter never calls `gate.checkpoint()` (#128) | Reachable: `LangGraphEngine._play` checkpoints at the node boundary between `updates` chunks (#312) |
+| `PAUSED` is reachable for any run | Not for a workflow run  -  the langgraph adapter never calls `gate.checkpoint()` (#128) | Reachable: `LangGraphEngine._play` checkpoints at the node boundary between `updates` chunks (#312) |
 
 ## Declared, never produced
 
@@ -168,7 +168,7 @@ Renamed by #295. `WAITING_ANSWER` pairs the state with the verb that leaves it.
 
 `sleep_until` parks here, so a wall-clock wait was recorded as a human one, and
 `RunInterrupted.reason` defaults anything unrecognised to `"human"`
-(`adapters/engines/langgraph/engine.py:331`) — including a timer payload, which carries no `reason`
+(`adapters/engines/langgraph/engine.py:331`)  -  including a timer payload, which carries no `reason`
 at all.
 
 The enum rename is an ordinary API break: the value is in no golden file and no snapshot, because

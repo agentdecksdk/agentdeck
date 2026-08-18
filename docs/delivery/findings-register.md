@@ -3,11 +3,11 @@
 **Date:** 2026-08-11 · **Tree:** `dev` at `5758b14`, v3.0.0 released.
 
 Every finding this project has recorded, and what happened to it. **A finding has exactly one
-disposition — solved, rejected, or scheduled against a named issue.**
+disposition  -  solved, rejected, or scheduled against a named issue.**
 
 | Source | What it holds |
 |---|---|
-| GitHub issues titled `finding:` | the register's main body — 24 open, 9 closed |
+| GitHub issues titled `finding:` | the register's main body  -  24 open, 9 closed |
 | `beta-user-report-v3.md` | B1–B2, N1–N6, from a first-time user on `v3.0.0b1` |
 | `plan-219-delivery.md` §4 | the reference application's friction ledger |
 | conversation | proposals raised and ruled on without ever becoming issues |
@@ -25,25 +25,25 @@ do not change on their own. Regenerate this table with `make roadmap-sync`.
 
 | # | Title | Milestone | Status |
 |---|---|---|---|
-| #177 | finding: usage.usd is always None — a cost field that never carries a cost | v3.1 — hardening | Backlog |
-| #178 | finding: handoffs fail against a non-OpenAI OPENAI_BASE_URL, surfaced as a bare 400 | v3.1 — hardening | Backlog |
-| #229 | finding: a cancel against a WAITING_HUMAN run is accepted, never honored, and leaves no trace | v3.1 — hardening | Backlog |
-| #231 | finding: run()'s 'TurnResult | Any' makes the documented interrupt idiom fail a type checker | v3.1 — hardening | Backlog |
-| #232 | finding: the default checkpoint needs the [durability] extra, so a default install cannot run durable=True | v3.1 — hardening | Backlog |
-| #233 | finding: checkpointer connection failures leak raw driver exceptions instead of StoreError | v3.1 — hardening | Backlog |
-| #235 | finding: answer() takes any value unvalidated, and nothing says the node owns interpreting it | v3.1 — hardening | Backlog |
-| #238 | finding: errors name the problem but never the doc page that answers it | v3.1 — hardening | Backlog |
-| #239 | finding: getting-started dead-ends — skills, sessions and reference are unreachable from the entry path | docs-site | Backlog |
+| #177 | finding: usage.usd is always None  -  a cost field that never carries a cost | v3.1  -  hardening | Backlog |
+| #178 | finding: handoffs fail against a non-OpenAI OPENAI_BASE_URL, surfaced as a bare 400 | v3.1  -  hardening | Backlog |
+| #229 | finding: a cancel against a WAITING_HUMAN run is accepted, never honored, and leaves no trace | v3.1  -  hardening | Backlog |
+| #231 | finding: run()'s 'TurnResult | Any' makes the documented interrupt idiom fail a type checker | v3.1  -  hardening | Backlog |
+| #232 | finding: the default checkpoint needs the [durability] extra, so a default install cannot run durable=True | v3.1  -  hardening | Backlog |
+| #233 | finding: checkpointer connection failures leak raw driver exceptions instead of StoreError | v3.1  -  hardening | Backlog |
+| #235 | finding: answer() takes any value unvalidated, and nothing says the node owns interpreting it | v3.1  -  hardening | Backlog |
+| #238 | finding: errors name the problem but never the doc page that answers it | v3.1  -  hardening | Backlog |
+| #239 | finding: getting-started dead-ends  -  skills, sessions and reference are unreachable from the entry path | docs-site | Backlog |
 | #241 | finding: add-a-tool omits where function_tool comes from and what a raising tool does | docs-site | Backlog |
 | #242 | finding: no shipped example includes a skill, so SKILL.md is learned from an error | docs-site | In progress |
-| #243 | finding: the 500 contract only covers AgentdeckError, so an engine failure returns bare text | v3.1 — hardening | Backlog |
-| #244 | finding: a killed worker holds its session for an hour by default, with no way to release it | v3.1 — hardening | Backlog |
-| #245 | finding: agentdeck-serve --help crashes instead of printing usage | v3.1 — hardening | Backlog |
+| #243 | finding: the 500 contract only covers AgentdeckError, so an engine failure returns bare text | v3.1  -  hardening | Backlog |
+| #244 | finding: a killed worker holds its session for an hour by default, with no way to release it | v3.1  -  hardening | Backlog |
+| #245 | finding: agentdeck-serve --help crashes instead of printing usage | v3.1  -  hardening | Backlog |
 | #246 | finding: serve-over-http never says message is string-only, so block input looks supported | docs-site | Backlog |
-| #250 | finding: a tool that raises completes the run, and tool.call.completed.error is never set | v3.1 — hardening | Backlog |
-| #253 | finding: the Redis client is a base dependency because the default session path imports it | v3.1 — hardening | Backlog |
-| #254 | finding: PendingRun's field is invocable, and every reviewer reached for workflow_name | v3.1 — hardening | Backlog |
-| #255 | finding: omitting context on answer() silently gives the re-run node None | v3.1 — hardening | Backlog |
+| #250 | finding: a tool that raises completes the run, and tool.call.completed.error is never set | v3.1  -  hardening | Backlog |
+| #253 | finding: the Redis client is a base dependency because the default session path imports it | v3.1  -  hardening | Backlog |
+| #254 | finding: PendingRun's field is invocable, and every reviewer reached for workflow_name | v3.1  -  hardening | Backlog |
+| #255 | finding: omitting context on answer() silently gives the re-run node None | v3.1  -  hardening | Backlog |
 <!-- roadmap-sync:open:end -->
 
 ---
@@ -51,7 +51,7 @@ do not change on their own. Regenerate this table with `make roadmap-sync`.
 ## 1. The sweep found a false "solved"
 
 **#221 was closed as completed while its defect was still shipping.**
-`AGENTDECK_RUNNER_WORKFLOW_NAME` still defaults to `local-sandbox-repl` — naming a sandbox v3 does
+`AGENTDECK_RUNNER_WORKFLOW_NAME` still defaults to `local-sandbox-repl`  -  naming a sandbox v3 does
 not have, on every run's tracing label.
 
 ```
@@ -67,15 +67,15 @@ No commit ever changed it. **Reopened.**
 
 ## 2. Open, scheduled
 
-### v3.1 — hardening · 16 findings
+### v3.1  -  hardening · 16 findings
 
 Correctness, error contracts, and things accepted then discarded.
 
 | # | Finding |
 |---|---|
-| #177 | `usage.usd` is always `None` — a cost field that never carries a cost |
+| #177 | `usage.usd` is always `None`  -  a cost field that never carries a cost |
 | #178 | handoffs fail against a non-OpenAI `OPENAI_BASE_URL` (reproduced, exact 400 message attached) |
-| #221 | `AGENTDECK_RUNNER_WORKFLOW_NAME` defaults to a sandbox v3 does not have — **reopened, see §1** |
+| #221 | `AGENTDECK_RUNNER_WORKFLOW_NAME` defaults to a sandbox v3 does not have  -  **reopened, see §1** |
 | #223 | the settings page promises a `config.yaml` surface and documents none of its field names |
 | #226 | `DataBlock` is refused on input, so structured context has no typed form |
 | #229 | a cancel against a `WAITING_HUMAN` run is accepted, never honoured, and leaves no trace |
@@ -87,11 +87,11 @@ Correctness, error contracts, and things accepted then discarded.
 | #243 | the 500 contract only covers `AgentdeckError`, so an engine failure returns bare text |
 | #244 | a killed worker holds its session for an hour by default, with no way to release it |
 | #245 | `agentdeck-serve --help` crashes instead of printing usage |
-| #247 | `Agent(model=...)` is silently ignored — `RunConfig` overrides every agent's model |
+| #247 | `Agent(model=...)` is silently ignored  -  `RunConfig` overrides every agent's model |
 | #250 | a tool that raises completes the run, and `tool.call.completed.error` is never set |
 | #251 | a non-serializable tool return is `repr()`'d into the log and the model's context |
 
-#250 and #251 are *silent wrong answers* rather than errors — the worst category here, and both
+#250 and #251 are *silent wrong answers* rather than errors  -  the worst category here, and both
 were found by a reviewer using the SDK rather than by the 1,257-test suite.
 
 ### docs-site · 6 findings
@@ -99,23 +99,23 @@ were found by a reviewer using the SDK rather than by the 1,257-test suite.
 | # | Finding |
 |---|---|
 | #238 | errors name the problem but never the doc page that answers it |
-| #239 | getting-started dead-ends — skills, sessions and reference are unreachable from the entry path |
+| #239 | getting-started dead-ends  -  skills, sessions and reference are unreachable from the entry path |
 | #240 | human-approval never warns that the default event store empties `pending()` |
 | #241 | add-a-tool omits where `function_tool` comes from and what a raising tool does |
 | #242 | no shipped example includes a skill, so `SKILL.md` is learned from an error |
 | #246 | serve-over-http never says `message` is string-only, so block input looks supported |
 
-### v3.2 — batteries · 1 finding
+### v3.2  -  batteries · 1 finding
 
 | # | Finding |
 |---|---|
-| #234 | the CLI has no read path — no way to see the approval inbox or a run |
+| #234 | the CLI has no read path  -  no way to see the approval inbox or a run |
 
 Dispositioned as a capability: nothing is *wrong*, something is *absent*.
 
 ## 3. Solved
 
-Closed with the defect spot-checked gone, not assumed — after §1.
+Closed with the defect spot-checked gone, not assumed  -  after §1.
 
 | # | Finding | Where it was fixed |
 |---|---|---|
@@ -123,19 +123,19 @@ Closed with the defect spot-checked gone, not assumed — after §1.
 | #172 | `build()` accepts a tool it cannot compile | Wave B |
 | #173 | MCP warns "agent boots without it" during `build()` | Wave B |
 | #174 | a declaration-only bundle yields an empty catalog silently | Wave B |
-| #175 | every streamed event's class is `Event` | Wave B — documented, with a `match` example |
+| #175 | every streamed event's class is `Event` | Wave B  -  documented, with a `match` example |
 | #176 | no `agentdeck.__version__` | Wave B |
 | #200 | `UnknownBlock` preserves an unknown block but does not round-trip it | `2614b80` |
-| #204 | `from_project()` picks up another project's agents | #214 — one deck per process, enforced |
+| #204 | `from_project()` picks up another project's agents | #214  -  one deck per process, enforced |
 
 ## 4. Rejected
 
-Raised, considered, not pursued — recorded so they are not re-litigated from scratch.
+Raised, considered, not pursued  -  recorded so they are not re-litigated from scratch.
 
 | Finding | Why not |
 |---|---|
-| **A coverage percentage gate** (`--cov` in `make check`) | Measured before deciding: coverage is **92%**, `runconfig.py` is **100%** covered, and `compile.py:145` is covered — both lines of the #247 bug execute on nearly every test and the bug shipped anyway. Coverage answers *"was this line executed"*; #247 is *"two executed lines conflict"*. A gate would have been green throughout, and at 92% it would ratchet the status quo while rewarding tests that touch lines. `make coverage` stays as the audit it already is. **User's call, 2026-08-11** |
-| **A "documented claim ↔ behavioural test" gate** | Proposed as the sharper alternative — every row in `concepts/agents.mdx`'s configuration table must be exercised by a test asserting the argument *does something*. `model` would have failed it on day one. Declined. **User's call, 2026-08-11** |
+| **A coverage percentage gate** (`--cov` in `make check`) | Measured before deciding: coverage is **92%**, `runconfig.py` is **100%** covered, and `compile.py:145` is covered  -  both lines of the #247 bug execute on nearly every test and the bug shipped anyway. Coverage answers *"was this line executed"*; #247 is *"two executed lines conflict"*. A gate would have been green throughout, and at 92% it would ratchet the status quo while rewarding tests that touch lines. `make coverage` stays as the audit it already is. **User's call, 2026-08-11** |
+| **A "documented claim ↔ behavioural test" gate** | Proposed as the sharper alternative  -  every row in `concepts/agents.mdx`'s configuration table must be exercised by a test asserting the argument *does something*. `model` would have failed it on day one. Declined. **User's call, 2026-08-11** |
 
 ## 5. Open, unfiled
 
@@ -160,4 +160,4 @@ every one is dispositioned above: N5 → #177, N6 → #178, N3 → #167; the res
 
 A finding is not filed until it has a disposition, and this file is the disposition of record for
 anything that never became an issue. When a `finding:` issue is closed, the closer confirms the
-defect is gone — §1 is what happens when nobody does.
+defect is gone  -  §1 is what happens when nobody does.

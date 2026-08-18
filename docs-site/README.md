@@ -28,13 +28,13 @@ The static export is generated in `docs-site/out/`.
 `4.3.5` via `overrides`: from zod 4.4.0 a required object key that receives
 `undefined` is a hard error, and `nextra-theme-docs@4.6.1`'s `<Layout>` strips
 `children` off its props before validating them against a schema that still
-requires `children` — every page fails to prerender. Drop the override once
+requires `children`  -  every page fails to prerender. Drop the override once
 Nextra ships a fix.
 
 ## Search
 
 Nextra's search box loads `_pagefind/pagefind.js` at runtime, which `next build` does not
-produce — the `postbuild` script indexes `out/` with Pagefind and CI asserts the index
+produce  -  the `postbuild` script indexes `out/` with Pagefind and CI asserts the index
 exists. Without it the box renders and finds nothing.
 
 ## Content
@@ -45,7 +45,7 @@ Python blocks are parsed and their `agentdeck` imports resolved by
 `tests/test_docs_site.py` (part of `make check`), which also checks that every **absolute
 markdown** link resolves to a page and that `_meta.ts` keys match the top-level pages.
 Relative hrefs, reference-style links, MDX `<Cards>`, anchors, and non-Python blocks are
-not covered — see the plan's §6 for the full list of ceilings. A block that cannot be
+not covered  -  see the plan's §6 for the full list of ceilings. A block that cannot be
 checked opts out with a reason:
 
 ````text
@@ -53,7 +53,7 @@ checked opts out with a reason:
 ````
 
 `content/reference/settings.mdx` and `content/reference/cli.mdx` are generated, not
-hand-written — `scripts/generate_docs_reference.py` renders them from
+hand-written  -  `scripts/generate_docs_reference.py` renders them from
 `agentdeck/runtime/settings.py`'s `LayeredSettings` subclasses and `agentdeck/cli.py`'s
 argparse tree. `tests/test_generated_reference.py` (part of `make check`) regenerates both
 in memory and fails if they differ from the committed pages; run `make docs-reference` to

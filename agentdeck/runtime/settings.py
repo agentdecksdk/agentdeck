@@ -6,11 +6,11 @@ packaged default) hosts every settings group keyed by section: ``openai:``,
 env vars (prefix-bound, e.g. ``OPENAI_BASE_URL``) override the file. The
 project's ``.env`` (found from ``Path.cwd()``, never from this module's own
 location) is loaded the first time :func:`get_settings` builds a
-:class:`Settings` — not at import — so a ``chdir`` between ``import agentdeck``
+:class:`Settings`  -  not at import  -  so a ``chdir`` between ``import agentdeck``
 and first use still lands on the right project (process env wins either way).
 
 ``EVENTS``/``CONTROL``/``CHECKPOINT``/``SESSION`` each read one URL-shaped env var
-(``AGENTDECK_EVENTS``, not a ``_BACKEND``/``_URL`` pair) — the scheme names the backend, so
+(``AGENTDECK_EVENTS``, not a ``_BACKEND``/``_URL`` pair)  -  the scheme names the backend, so
 there is no second decision left to disagree with it. See :func:`parse_backend_url`.
 """
 
@@ -40,7 +40,7 @@ _CONFIG_PATH_ENV = "AGENTDECK_CONFIG_PATH"
 
 
 def resolve_env_file() -> Path:
-    """The project's ``.env``: ``Path.cwd() / ".env"`` — no upward directory search
+    """The project's ``.env``: ``Path.cwd() / ".env"``  -  no upward directory search
     (unlike ``dotenv.find_dotenv()``, which would just as silently load an unrelated
     ancestor's ``.env`` instead of the project's own).
 
@@ -48,7 +48,7 @@ def resolve_env_file() -> Path:
     import time: cwd is what "my project" means for `agentdeck serve`, an installed
     package, and Compose alike, matching how ``mount_project_dir`` locates
     ``./.agentdeck`` (never module-relative, which lands in site-packages for an
-    installed package — issue #16); binding it once at import would instead freeze
+    installed package  -  issue #16); binding it once at import would instead freeze
     whatever cwd happened to be current the moment ``agentdeck`` was first imported,
     which a caller is free to ``chdir`` away from before ever building `Settings`.
     """
@@ -58,10 +58,10 @@ def resolve_env_file() -> Path:
 def resolve_config_path(explicit: str | Path | None = None) -> Path:
     """Resolve the shared YAML: explicit arg → ``AGENTDECK_CONFIG_PATH`` → cwd → packaged default.
 
-    Returning a path that doesn't exist is fine — the YAML source treats a
+    Returning a path that doesn't exist is fine  -  the YAML source treats a
     missing file as empty, which lets env vars alone drive a fully-defaulted
     config. Resolved from ``Path.cwd()`` on every call, matching
-    :func:`resolve_env_file` and how ``App`` locates ``./.agentdeck`` — never
+    :func:`resolve_env_file` and how ``App`` locates ``./.agentdeck``  -  never
     module-relative (issue #16).
     """
     chosen = explicit or os.environ.get(_CONFIG_PATH_ENV)
@@ -83,14 +83,14 @@ class SectionedYamlSource(YamlConfigSettingsSource):
         super().__init__(settings_cls, yaml_file=resolve_config_path())
 
     # ``Path | Traversable`` because pydantic-settings widened this parameter and an override
-    # may not narrow one (Liskov) — CI, resolving fresh, reads the widened base and rejected the
+    # may not narrow one (Liskov)  -  CI, resolving fresh, reads the widened base and rejected the
     # old signature. The dependency is unpinned (`>=2.4`), so both are in the field: the wide
     # annotation is the one that satisfies either base, and the body only needs ``is_file()``,
     # which both types provide.
     def _read_file(self, file_path: Path | Traversable) -> dict[str, Any]:
         if not file_path.is_file():
             return {}
-        # ty: ignore[invalid-argument-type] — the same two-version split, seen from the other
+        # ty: ignore[invalid-argument-type]  -  the same two-version split, seen from the other
         # side: against a `Path`-only base this argument is too wide. It is a `Path` at runtime
         # (the caller is pydantic-settings, resolving our own `yaml_file`), and the widened base
         # accepts both. Drop the ignore once `pydantic-settings` is pinned past the widening.
@@ -143,13 +143,13 @@ def settings_config(prefix: str, **overrides: Any) -> SettingsConfigDict:
 
 
 def parse_backend_url(url: str) -> tuple[str, str]:
-    """Split ``scheme://rest`` into ``(scheme, rest)`` — the scheme names the backend
+    """Split ``scheme://rest`` into ``(scheme, rest)``  -  the scheme names the backend
     (``memory``, ``sqlite``, ``redis``, ``postgresql``, …), and ``rest`` is everything after
     it, untouched, so a relative sqlite path round-trips exactly as written (``sqlite://.agentdeck/x.db``
     stays relative; ``sqlite:///var/lib/x.db`` stays absolute).
 
     A value with no ``://`` at all returns the whole string as ``scheme`` and an empty
-    ``rest`` — indistinguishable, on purpose, from any other scheme a caller's own dispatch
+    ``rest``  -  indistinguishable, on purpose, from any other scheme a caller's own dispatch
     does not recognize, so one "unknown backend" branch covers both.
     """
     scheme, _, rest = url.partition("://")
@@ -160,7 +160,7 @@ def _bare_env_source(names: Mapping[str, str]) -> Callable[[], dict[str, str]]:
     """A settings source reading each ``field -> exact env var name`` in ``names`` verbatim,
     ignoring ``env_prefix``.
 
-    For a decision that is one variable, not ``<PREFIX>_<FIELD>`` — ``AGENTDECK_EVENTS``, never
+    For a decision that is one variable, not ``<PREFIX>_<FIELD>``  -  ``AGENTDECK_EVENTS``, never
     ``AGENTDECK_EVENTS_URL`` alongside it. See ``LayeredSettings._bare_env_names``.
     """
 
@@ -173,7 +173,7 @@ def _bare_env_source(names: Mapping[str, str]) -> Callable[[], dict[str, str]]:
 class LayeredSettings(BaseSettings):
     """``BaseSettings`` with two additions: ``with_overrides`` for CLI flag layering
     and a YAML section source keyed off ``env_prefix`` (so one ``config.yaml`` can
-    host every subgroup — ``openai:``, ``runner:``, …).
+    host every subgroup  -  ``openai:``, ``runner:``, …).
 
     Used by both runtime settings (``OpenAISettings`` etc.) and backend settings
     (``PolarionSettings`` etc.). One base class, one resolution algorithm.
@@ -217,13 +217,13 @@ class OpenAISettings(LayeredSettings):
     """
 
     model_config = settings_config("OPENAI_", protected_namespaces=())
-    model: str = Field(description="Model name passed to the host Agents SDK runner. No default — always required.")
+    model: str = Field(description="Model name passed to the host Agents SDK runner. No default  -  always required.")
     api_key: str = Field(
         default="",
         description="API key for the endpoint. What empty does depends on `ca_bundle`: unset (the common "
         "case), the OpenAI client falls through to its own `OPENAI_API_KEY` process-env lookup and errors on "
         "the first model call if that's empty too; with `ca_bundle` set, the empty value is passed straight "
-        "through instead and just sends no Authorization header — the self-hosted/corporate-CA case doesn't "
+        "through instead and just sends no Authorization header  -  the self-hosted/corporate-CA case doesn't "
         "need a placeholder value the way the common path does.",
     )
     base_url: str = Field(
@@ -245,7 +245,7 @@ class OpenAISettings(LayeredSettings):
             "OPENAI_MODEL": self.model,
             "OPENAI_CA_BUNDLE": self.ca_bundle,
         }
-        # Unset values stay unset in the sandbox — an empty OPENAI_BASE_URL would
+        # Unset values stay unset in the sandbox  -  an empty OPENAI_BASE_URL would
         # override the OpenAI client's default endpoint resolution.
         return {k: v for k, v in env.items() if v}
 
@@ -257,7 +257,7 @@ class RunnerSettings(LayeredSettings):
 
     workflow_name: str = Field(
         default="agentdeck",
-        description="Name recorded on the host Agents SDK run (`RunConfig.workflow_name`) — identifies which "
+        description="Name recorded on the host Agents SDK run (`RunConfig.workflow_name`)  -  identifies which "
         "workflow produced a run in tracing/observability.",
     )
     temperature: float = Field(default=1.0, description="Sampling temperature for the host agent loop's model.")
@@ -281,7 +281,7 @@ class RunnerSettings(LayeredSettings):
     handoff_closing_turn: str = Field(
         default="Please continue.",
         description="Content of the synthetic user turn `handoff_ends_on_user_turn` appends. Override for a "
-        "deployment whose conversations aren't English — the default is otherwise an English sentence "
+        "deployment whose conversations aren't English  -  the default is otherwise an English sentence "
         "injected into every handoff regardless of the conversation's own language.",
     )
 
@@ -289,7 +289,7 @@ class RunnerSettings(LayeredSettings):
     @classmethod
     def _handoff_closing_turn_is_not_blank(cls, value: str) -> str:
         # An empty (or whitespace-only) turn is exactly the shape a provider strict enough to
-        # need `handoff_ends_on_user_turn` is likely to reject too — refuse it here rather than
+        # need `handoff_ends_on_user_turn` is likely to reject too  -  refuse it here rather than
         # let it reach one at request time.
         if not value.strip():
             raise ValueError("AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN cannot be blank")
@@ -301,39 +301,39 @@ class RuntimeSettings(LayeredSettings):
 
     ``stale_run_after_seconds`` is how long a **running** open run may write nothing before it
     stops holding its session. One session runs one turn at a time, and a run whose process was
-    killed outright never records its ending — silence is the only thing that separates it
+    killed outright never records its ending  -  silence is the only thing that separates it
     from a turn still working, so the session would otherwise stay claimed for good. **One
     hour** by default: generous next to any real turn, short enough that a crash costs a
-    session an hour rather than forever, and the trade is deliberate — a permanently wedged
+    session an hour rather than forever, and the trade is deliberate  -  a permanently wedged
     session is worse than a rare premature takeover. One consequence worth knowing when tuning
     it: a session a killed process left claimed is refused until it elapses, unless a lease
-    backend shared across processes tells the next worker sooner — see ``lease_ttl_seconds``,
+    backend shared across processes tells the next worker sooner  -  see ``lease_ttl_seconds``,
     which is the mechanism that exists to make this window stop mattering.
 
     It never applies to a run parked ``PAUSED`` or waiting on an answer: both are suspended by
     definition, so silence there is not evidence a worker died, only that nobody has resumed or
-    answered it yet. Such a run holds its session until something acts on it — a resume, an
-    answer, or a cancel — however long that takes, deliberately: destroying a parked approval to
+    answered it yet. Such a run holds its session until something acts on it  -  a resume, an
+    answer, or a cancel  -  however long that takes, deliberately: destroying a parked approval to
     free a lock is the worse failure.
 
     **Set it well above the longest stretch a healthy running turn can go without writing an
-    event** — a slow tool call, a long model call. This is the one setting here that can cost
+    event**  -  a slow tool call, a long model call. This is the one setting here that can cost
     you the guarantee rather than tune it: shortened far enough, an open run looks abandoned
     while it is still working, so the next turn takes the session *from a live turn* and both run
     on one conversation. That is not a premature cleanup, it is one turn per session no longer
-    holding. The lower bound is a property of the deployment, not of the code — how long a turn
-    can be quiet — so it cannot be validated here; positivity is all that is enforced, and at or
+    holding. The lower bound is a property of the deployment, not of the code  -  how long a turn
+    can be quiet  -  so it cannot be validated here; positivity is all that is enforced, and at or
     near zero the failure is immediate, since a run's own opening event is already older than the
     cutoff a caller computes a moment later.
 
     Mind the clock too. Each worker compares *its own* clock against timestamps its peers stamped,
     so across machines the effective window is this value minus the worst skew between them, and a
-    worker running more than a window fast takes over live sessions on sight — the same lost
+    worker running more than a window fast takes over live sessions on sight  -  the same lost
     guarantee, arrived at by skew instead of configuration. Keep the fleet on NTP and treat the
     window as a budget skew eats into.
 
     ``sweep_interval_seconds`` is how often an open Deck wakes a due ``sleep_until`` timer on its
-    own, with no cron or scheduler wired in. **On by default** — the interval only trades off wake
+    own, with no cron or scheduler wired in. **On by default**  -  the interval only trades off wake
     latency against one cheap checkpointer listing per tick; there is no deployment for which
     disabling it is the safer choice. **30 seconds** by default: near-immediate next to any timer a
     workflow would actually set (minutes to days), and light enough that a catalog with no timers
@@ -349,7 +349,7 @@ class RuntimeSettings(LayeredSettings):
         gt=0,
         description="How long, in seconds, a running open run may go without writing an event before it is "
         "treated as abandoned and its session ownership is released for another worker to claim. Never applies "
-        "to a run paused or waiting on an answer — those hold their session until resumed, answered, or "
+        "to a run paused or waiting on an answer  -  those hold their session until resumed, answered, or "
         "cancelled. Must be positive; set it above the longest gap a healthy turn can go quiet.",
     )
 
@@ -425,18 +425,18 @@ class TavilySettings(LayeredSettings):
     api_key: str = Field(
         default="",
         description="Tavily web-search API key. Empty makes the `web_search` tool return an `error:` string "
-        "instead of raising — it degrades the same way an unavailable MCP server does, rather than disappearing.",
+        "instead of raising  -  it degrades the same way an unavailable MCP server does, rather than disappearing.",
     )
 
 
 class CheckpointSettings(LayeredSettings):
     """LangGraph checkpointer backend for ``durable=True`` workflows, as one scheme-shaped URL.
 
-    ``sqlite://<path>`` for dev (relative or absolute — see :func:`parse_backend_url`;
+    ``sqlite://<path>`` for dev (relative or absolute  -  see :func:`parse_backend_url`;
     ``sqlite://.agentdeck/checkpoints.sqlite3`` is the default), ``postgresql://<dsn>`` for
     prod, ``memory://`` for tests (never persists past the process). Resolving the saver
-    classes lives in ``agentdeck.adapters.engines.langgraph.checkpointer`` — sqlite ships in
-    base (the default needs it), postgres in the optional ``[durability]`` extra — but this
+    classes lives in ``agentdeck.adapters.engines.langgraph.checkpointer``  -  sqlite ships in
+    base (the default needs it), postgres in the optional ``[durability]`` extra  -  but this
     settings model stays import-free of either.
     """
 
@@ -455,7 +455,7 @@ class EventsSettings(LayeredSettings):
     """Where the Runtime's canonical event log is written, as one scheme-shaped URL.
 
     ``memory://`` (the default) keeps it in the process and never touches disk, so a plain
-    install needs no configuration and no writable project dir — at the cost of a log that
+    install needs no configuration and no writable project dir  -  at the cost of a log that
     grows for as long as the process lives and is gone when it exits. ``sqlite://<path>`` is a
     log that survives a restart.
 
@@ -464,7 +464,7 @@ class EventsSettings(LayeredSettings):
     rests on cross-process shared memory, so one file behind more than one machine is
     unsupported. Each keeps to its own keyspace, so an instance already holding LangGraph
     checkpoints or agent conversations is fine to reuse. A Redis instance used as the record
-    wants ``appendonly yes`` and ``maxmemory-policy noeviction`` — this is a log, not a cache.
+    wants ``appendonly yes`` and ``maxmemory-policy noeviction``  -  this is a log, not a cache.
     """
 
     _bare_env_names: ClassVar[Mapping[str, str]] = {"url": "AGENTDECK_EVENTS"}
@@ -479,12 +479,12 @@ class EventsSettings(LayeredSettings):
 
 
 class ControlSettings(LayeredSettings):
-    """Where a run's pending control signals live — what pause and cancel are written to.
+    """Where a run's pending control signals live  -  what pause and cancel are written to.
 
     One scheme-shaped URL. ``memory://`` (the default) keeps them in the process, which is all a
     single worker needs and all it can use: a signal written in one process is invisible to
     another, so with the default backend the ``agentdeck runs signal`` CLI and a second web
-    worker cannot reach a run at all. ``sqlite://<path>`` crosses process boundaries — the same
+    worker cannot reach a run at all. ``sqlite://<path>`` crosses process boundaries  -  the same
     file the CLI's ``--control-db`` names. SQLite's cross-process story rests on shared memory,
     so one file behind more than one *machine* is unsupported; that one waits for a Redis
     control port.
@@ -494,7 +494,7 @@ class ControlSettings(LayeredSettings):
     share one setting rather than making an operator configure the same backend twice.
 
     This is a tiny table of pending intent, not a log: nothing here is a record of what
-    happened to a run — that is the event store's job, and the control events in it.
+    happened to a run  -  that is the event store's job, and the control events in it.
     """
 
     _bare_env_names: ClassVar[Mapping[str, str]] = {"url": "AGENTDECK_CONTROL"}
@@ -516,7 +516,7 @@ class SessionSettings(LayeredSettings):
     store to ``Runner.run_streamed`` (currently the ChatKit backend) read
     these settings to mint a per-session
     :class:`agents.extensions.memory.RedisSession`. Plugins decide
-    whether ``url`` is optional or required — the ChatKit backend
+    whether ``url`` is optional or required  -  the ChatKit backend
     treats it as required and raises at boot if unset.
     """
 
@@ -527,7 +527,7 @@ class SessionSettings(LayeredSettings):
         default=None,
         description="Redis URL for `RedisSession`-backed agent conversation memory "
         "(`agentdeck.adapters.engines.openai_agents.sessions.SessionFactory`), needing the `[redis]` extra. "
-        "`None` falls back to one in-process `SQLiteSession` per session key — no persistence across a restart, "
+        "`None` falls back to one in-process `SQLiteSession` per session key  -  no persistence across a restart, "
         "no sharing across workers.",
     )
     redis_key_prefix: str = Field(
@@ -562,7 +562,7 @@ class Settings(BaseModel):
 
 
 # Names v3 stopped reading, mapped to what replaced them. Nothing binds these any more, so a
-# deployment that still exports one would silently fall back to the default — and for the three
+# deployment that still exports one would silently fall back to the default  -  and for the three
 # store variables that default is in-process memory, i.e. a durable log quietly becoming
 # ephemeral on upgrade. Refusing to start says so instead.
 _RETIRED_ENV_NAMES: Mapping[str, str] = {

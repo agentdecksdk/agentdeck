@@ -13,7 +13,7 @@ The public API should express user intent, not the machinery required to execute
 ## 2. Simplicity is earned
 
 > “Simple can be harder than complex: you have to work hard to get your thinking clean to make it simple.”
-> — Steve Jobs, *BusinessWeek*, 1998
+>  -  Steve Jobs, *BusinessWeek*, 1998
 
 Do not stop at the first working abstraction.
 
@@ -24,7 +24,7 @@ The goal is not minimum code. The goal is minimum necessary complexity.
 ## 3. Start from the developer experience
 
 > “You've got to start with the customer experience and work backwards to the technology.”
-> — Steve Jobs, WWDC 1997
+>  -  Steve Jobs, WWDC 1997
 
 For AgentDeck, the customer is the developer.
 

@@ -1,7 +1,7 @@
 """What every core model is built on: one base class, one JSON type.
 
-Both are shared by modules with nothing else in common — content blocks, event payloads,
-invocable specs, tool sets — so neither lives in whichever one needed it first.
+Both are shared by modules with nothing else in common  -  content blocks, event payloads,
+invocable specs, tool sets  -  so neither lives in whichever one needed it first.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, JsonValue
 class CoreModel(BaseModel):
     """Base for the schema models: unknown fields are dropped, and nothing mutates.
 
-    Dropping them is forward compatibility — a field a newer writer added has to land, not
+    Dropping them is forward compatibility  -  a field a newer writer added has to land, not
     raise. A model that is built rather than parsed sets ``extra="forbid"`` instead.
     """
 
@@ -42,6 +42,6 @@ JsonData = Annotated[JsonValue, AfterValidator(_reject_non_finite)]
 
 Two halves of one rule, because neither is native alone: ``JsonValue`` refuses what JSON has no
 shape for (a set, a datetime) but accepts ``NaN``/``±Infinity``, which serialize to ``null``.
-``Field(allow_inf_nan=False)`` does not fix that — on a union it applies to the whole value and
+``Field(allow_inf_nan=False)`` does not fix that  -  on a union it applies to the whole value and
 raises ``TypeError`` on the first dict; hand-writing the recursive alias to constrain its float
 member instead lets a ``set`` coerce to a ``list``, trading one silent divergence for another."""

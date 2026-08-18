@@ -79,7 +79,7 @@ class Recorder(EventSinkPort):
 
 
 class Broken(EventSinkPort):
-    """A sink that always fails — the run must not care."""
+    """A sink that always fails  -  the run must not care."""
 
     async def emit(self, event: Event) -> None:
         raise RuntimeError("sink is down")
@@ -113,7 +113,7 @@ async def test_the_envelope_timestamp_comes_from_the_stores_clock() -> None:
 
 
 def test_runtime_no_longer_accepts_a_clock_keyword() -> None:
-    """``clock`` is gone, not silently swallowed — a caller still passing it must get a
+    """``clock`` is gone, not silently swallowed  -  a caller still passing it must get a
     ``TypeError`` naming the unexpected keyword, never an ignored no-op."""
     spec = stub_spec("Greeter", DONE)
     with pytest.raises(TypeError, match="clock"):
@@ -159,7 +159,7 @@ async def test_sinks_see_every_event_without_the_run_waiting_for_them() -> None:
 
 async def test_sinks_see_the_resume_events_too_not_just_the_opening_run() -> None:
     """``run.resumed`` is written by the store's conditional append, not the ordinary record
-    path, so its fan-out is its own line — and a sink silently missing every resume (audit,
+    path, so its fan-out is its own line  -  and a sink silently missing every resume (audit,
     cost, observability) is exactly what nothing else in the suite would notice.
     """
     recorder = Recorder()
@@ -259,8 +259,8 @@ async def test_a_healthy_sink_sees_a_long_run_whole_even_when_the_store_never_yi
     """Liveness here is the dispatch's own job, not something borrowed from the store (issue
     #87): wrapped in ``NeverYields``, not even the store's ``append`` hands the loop a turn,
     so a whole run can still outrun the queue without the loop turning once except when the
-    dispatch decides to. A sink that is keeping up must not be charged for that — it is the
-    producer that is fast, not the sink that is slow — and this is the profile that proves it
+    dispatch decides to. A sink that is keeping up must not be charged for that  -  it is the
+    producer that is fast, not the sink that is slow  -  and this is the profile that proves it
     without quietly relying on the store's own scheduling to cover for a dispatch regression."""
     spec = stub_spec("Firehose", *[TextDelta(message_id="m1", text=str(n)) for n in range(1000)], DONE)
     recorder = Recorder()
@@ -369,7 +369,7 @@ async def test_the_engine_receives_the_history_the_store_holds() -> None:
 
 
 async def test_nothing_an_engine_yields_after_a_terminal_payload_reaches_the_log() -> None:
-    """Recording it would produce a log that says the run both completed and failed — strictly
+    """Recording it would produce a log that says the run both completed and failed  -  strictly
     worse than the open run the no-terminal guard exists for."""
     spec = stub_spec(
         "Chatterbox",
@@ -406,7 +406,7 @@ async def test_an_abandoned_run_is_closed_in_the_log() -> None:
 
 
 async def test_a_completed_run_is_not_cancelled_when_its_consumer_lets_go() -> None:
-    """The close path must not fire on a run that already ended — that would be two terminals."""
+    """The close path must not fire on a run that already ended  -  that would be two terminals."""
     runtime, store = _runtime()
     async with aclosing(runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)) as run:
         async for _ in run:
@@ -486,7 +486,7 @@ class _Stalling(StubEngine):
 
 class _Ticking:
     """A clock that moves a second every time it is read, so a run's own events are already old
-    when the next turn asks about them — staleness without a test waiting for a wall clock.
+    when the next turn asks about them  -  staleness without a test waiting for a wall clock.
 
     Handed to the *store*, which is what stamps events and what subtracts ``stale_after`` from
     its own now; the Runtime holds no clock any more.
@@ -504,7 +504,7 @@ class _Held:
     """A clock a test moves by hand, for arranging an event's age.
 
     The store stamps ``ts``, so backdating an event means holding this clock in the past while
-    the event is written and then bringing it forward — which is what a run left open ten
+    the event is written and then bringing it forward  -  which is what a run left open ten
     minutes ago and never closed actually looks like to the next turn.
     """
 
@@ -537,7 +537,7 @@ async def test_a_turn_arriving_while_another_is_in_flight_is_refused() -> None:
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
     store = MemoryEventStore()
     runtime = Runtime([engine], store, {spec.name: spec})
-    # The holding turn's own id, captured off its ``run.started`` as soon as it is known — an
+    # The holding turn's own id, captured off its ``run.started`` as soon as it is known  -  an
     # async generator never advances between one ``anext`` and the next, so nothing here can let
     # the engine reach ``entered`` before this is set.
     holder: dict[str, str] = {}
@@ -564,12 +564,12 @@ async def test_a_turn_arriving_while_another_is_in_flight_is_refused() -> None:
     first_run_id = holder["first"]
     assert "'s-1'" in str(refused.value)
     assert f"{first_run_id!r}" in str(refused.value)
-    # Unlike a parked holder, a RUNNING one really is "in flight" — the one branch of
+    # Unlike a parked holder, a RUNNING one really is "in flight"  -  the one branch of
     # ``_session_busy_message`` that keeps that wording rather than naming a verb.
     assert "in flight" in str(refused.value)
     # Same reasoning as the skills case: names the one page (concepts/sessions-and-memory)
     # that documents "one turn at a time," not just that this turn was refused.
-    assert f"{DOCS_URL}/concepts/sessions-and-memory" in str(refused.value)
+    assert f"{DOCS_URL}/runs-and-control/sessions" in str(refused.value)
     assert [event.kind for event in await first][-1] == "run.completed"
     assert {event.run_id for event in await store.read(CTX.log_key, CTX)} == {first_run_id}
 
@@ -579,7 +579,7 @@ async def test_a_turn_on_a_session_whose_run_is_waiting_on_a_human_is_refused() 
     new turn there would run over the state that resume needs.
 
     The refusal names the call that actually frees this session and never claims the holder is
-    "in flight" — that would be false of a run nobody is running, and the regression this guards
+    "in flight"  -  that would be false of a run nobody is running, and the regression this guards
     is exactly that false claim reaching a caller.
     """
     spec = stub_spec("Approver", RunInterrupted(interrupt_id="i1", reason="approval", payload={}))
@@ -601,7 +601,7 @@ async def test_a_turn_on_a_session_whose_run_is_waiting_on_a_human_is_refused() 
 
 async def test_a_turn_on_a_session_whose_run_is_paused_is_refused_naming_resume() -> None:
     """The other suspended status: a paused run is not waiting for a value, so the message
-    names ``resume`` rather than ``answer`` — the operation that would actually work
+    names ``resume`` rather than ``answer``  -  the operation that would actually work
     (`docs/design/run-lifecycle.md`'s own rule for refusals)."""
     spec = stub_spec("Chatty", RunPaused(reason="operator"))
     store = MemoryEventStore()
@@ -652,7 +652,7 @@ async def test_a_turn_takes_over_a_session_whose_run_went_silent_and_closes_it_a
 ) -> None:
     """The hard-kill case: the run holding this session stopped writing long enough ago that
     nothing is coming back for it. The new turn proceeds, the abandoned run is closed under its
-    own name and ``seq``, and the takeover is on the record — it may always be premature."""
+    own name and ``seq``, and the takeover is on the record  -  it may always be premature."""
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
     clock = _Held()
     store = MemoryEventStore(clock=clock)
@@ -694,7 +694,7 @@ async def test_a_lease_frees_a_killed_workers_session_without_waiting_out_the_st
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """#244, in one case. The window is left at the hour it defaults to and the abandoned run is
-    a minute old, so the timer alone would refuse this turn — as the case above it asserts.
+    a minute old, so the timer alone would refuse this turn  -  as the case above it asserts.
 
     A shared lease says what silence cannot: the worker holding ``r-0`` stopped renewing, so it
     is not quiet, it is gone. The session is taken over now instead of in fifty-nine minutes.
@@ -721,7 +721,7 @@ async def test_a_lease_that_knows_nothing_leaves_the_staleness_window_in_charge(
     """The default deployment, and the reason it is safe to ship on by default: two processes,
     each with its own in-memory lease, know nothing of each other's runs.
 
-    The peer's lease here has *expired* — and the runtime's own port, which never saw ``r-0``,
+    The peer's lease here has *expired*  -  and the runtime's own port, which never saw ``r-0``,
     still reports nothing. So the session holds and the turn is refused, which is exactly what
     happens today with no lease at all. Absence of knowledge is never death.
     """
@@ -743,7 +743,7 @@ async def test_a_lease_that_knows_nothing_leaves_the_staleness_window_in_charge(
 
 async def test_a_suspended_run_holds_its_session_even_when_its_lease_has_expired() -> None:
     """A parked run has no worker, so its lease lapsing says nothing about whether anyone is
-    coming back — and #311's ruling is that only the log releases such a run, never a clock.
+    coming back  -  and #311's ruling is that only the log releases such a run, never a clock.
 
     The lease of a run that parked *always* expires, since the run that stopped playing stopped
     renewing. If that counted as evidence, every approval waiting overnight would be destroyed
@@ -792,11 +792,11 @@ async def test_a_run_that_writes_again_after_being_taken_over_lands_behind_its_t
 
     It no longer collides with anything. Nothing outside the store holds a number, so the
     resurrected writer is handed the seq *after* the closing event rather than one it already
-    spent — which is why its writes go through instead of failing on a spent seq (ADR-D11). The
+    spent  -  which is why its writes go through instead of failing on a spent seq (ADR-D11). The
     log stays dense and no seq answers to two events, both of which are now structural.
 
     What detects the resurrection is ``check_terminal``: the run has events past a terminal one,
-    which no healthy run ever does. That is the bound on the damage — a premature takeover leaves
+    which no healthy run ever does. That is the bound on the damage  -  a premature takeover leaves
     a coherently numbered log with an unmistakable shape, rather than two different events at one
     ``seq``, which nothing in the log could reveal.
     """
@@ -830,12 +830,12 @@ async def test_a_run_resurrected_into_an_interrupt_takes_its_session_back() -> N
     """The worse half of the same premature takeover: the resurrected run's next write is not a
     terminal event but ``run.interrupted``, which is a run *waiting*, not a run finished.
 
-    So it does not merely land behind its own ``run.failed`` — it becomes ``WAITING_ANSWER`` and
+    So it does not merely land behind its own ``run.failed``  -  it becomes ``WAITING_ANSWER`` and
     takes the session back, after a turn was told the session was free and used it. The session
     ends up held by the run that was declared dead, and it is listed as pending, meaning a
     resume can be addressed to a run whose log says it was abandoned.
 
-    This is arguably the *right* outcome — the run really is alive and really is waiting — and it
+    This is arguably the *right* outcome  -  the run really is alive and really is waiting  -  and it
     is why the takeover stays advisory rather than fatal. It is pinned because it is the shape a
     reader of ADR-D11 would not predict: the ADR says a spent seq can no longer refuse a write,
     and says nothing about a refused run reclaiming the session it was evicted from.
@@ -878,8 +878,8 @@ async def _collect(runtime: Runtime, name: str = "Greeter") -> list[Event]:
 
 async def test_a_cancellation_during_the_claim_closes_the_run_and_frees_the_session() -> None:
     """The gap between committing a run and having anything to yield. The claim is awaited in the
-    caller's own coroutine — the one an ASGI server cancels when a client disconnects before the
-    response starts — and a cancellation there used to leave the run open, holding its session for
+    caller's own coroutine  -  the one an ASGI server cancels when a client disconnects before the
+    response starts  -  and a cancellation there used to leave the run open, holding its session for
     a whole staleness window with no terminal event to explain why.
     """
 
@@ -925,7 +925,7 @@ async def test_a_cancellation_during_the_claim_closes_the_run_and_frees_the_sess
         assert check_terminal(stored) is None
         assert stored[-1].payload.reason == "cancelled during the claim"
 
-        # And the session is free again — the point of closing it rather than waiting the window out.
+        # And the session is free again  -  the point of closing it rather than waiting the window out.
         next_turn = [
             event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
         ]
@@ -941,7 +941,7 @@ async def test_a_takeover_whose_bookkeeping_fails_still_leaves_this_turn_runnabl
 
     class _CannotClose(MemoryEventStore):
         """Refuses only the closing write, which the takeover makes in the abandoned run's own
-        context — that context is the one thing distinguishing it from this turn's own appends."""
+        context  -  that context is the one thing distinguishing it from this turn's own appends."""
 
         def __init__(self, clock: _Held) -> None:
             super().__init__(clock=clock)
@@ -973,7 +973,7 @@ async def test_a_takeover_whose_bookkeeping_fails_still_leaves_this_turn_runnabl
 
 
 def test_a_staleness_window_of_zero_is_refused() -> None:
-    """Zero does not mean "off", it means "every run is abandoned the moment it opens" — the next
+    """Zero does not mean "off", it means "every run is abandoned the moment it opens"  -  the next
     caller's idea of now is already past the ts on a run.started stamped a moment ago, so one turn
     per session would go back to being a race. Refused at the boundary rather than documented."""
     with pytest.raises(ValidationError):
@@ -983,10 +983,10 @@ def test_a_staleness_window_of_zero_is_refused() -> None:
 async def test_the_staleness_window_comes_from_settings_when_it_is_not_passed_in(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The default lives in settings, resolved by ``build_runtime`` — not in ``Runtime`` itself
+    """The default lives in settings, resolved by ``build_runtime``  -  not in ``Runtime`` itself
     (issue #155: the bare constructor takes no ambient configuration at all, so a caller who
     wants the configured window builds through ``build_runtime``, the same as its other
-    adapters). An operator whose turns are slower — or whose approvals are — changes it without
+    adapters). An operator whose turns are slower  -  or whose approvals are  -  changes it without
     touching a line of code.
 
     A whole minute, against a run left open ten minutes ago: staleness is forced by the timestamp,
@@ -1014,7 +1014,7 @@ async def test_the_staleness_window_comes_from_settings_when_it_is_not_passed_in
 
 
 class _Reporting(StubEngine):
-    """An engine whose run reports on itself between payloads — a stand-in for a tool or a node,
+    """An engine whose run reports on itself between payloads  -  a stand-in for a tool or a node,
     which report from inside an engine and have no way to yield an event of their own."""
 
     def __init__(self, before: int = 1) -> None:
@@ -1060,7 +1060,7 @@ async def test_a_run_that_reports_gets_its_reports_in_the_stream_in_order() -> N
     ]
     assert events[2].payload.message == "Searching GitHub"
     assert (events[3].payload.step, events[3].payload.current, events[3].payload.total) == ("Reviewing issues", 2, 4)
-    # Stamped like every other event — same run, same origin, contiguous seq — and persisted
+    # Stamped like every other event  -  same run, same origin, contiguous seq  -  and persisted
     # before it was yielded, which is what lets a consumer refetch one it missed.
     assert {event.origin for event in events} == {"Greeter"}
     assert check_contiguous(events) == [] and check_terminal(events) is None
@@ -1084,7 +1084,7 @@ async def test_a_report_made_during_the_last_thing_a_run_did_lands_before_the_te
 
 async def test_a_reporting_run_still_folds_to_the_status_its_lifecycle_says() -> None:
     """What the two kinds not being lifecycle kinds buys, on a real run: the store's own status
-    projection — the thing a listing and a resume claim both read — is unmoved by them."""
+    projection  -  the thing a listing and a resume claim both read  -  is unmoved by them."""
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
     store = MemoryEventStore()
     runtime = Runtime([_Reporting()], store, {spec.name: spec})
@@ -1134,7 +1134,7 @@ async def test_two_concurrent_runs_never_drain_each_others_reports() -> None:
 
 
 async def test_a_resumed_run_can_report_too() -> None:
-    """``resume`` binds the same channel ``run`` does — otherwise the second half of an
+    """``resume`` binds the same channel ``run`` does  -  otherwise the second half of an
     interrupted run would go quiet for no reason a caller could see."""
     interrupt = RunInterrupted(interrupt_id="i-1", reason="human", payload={"q": "ok?"}, thread_id="t-1")
     spec = stub_spec("Asker", interrupt, DONE)
@@ -1173,14 +1173,14 @@ async def test_a_caller_built_context_reports_into_nothing() -> None:
 
 async def test_a_store_that_refuses_a_report_costs_the_report_not_the_run(caplog) -> None:
     """An advisory event is not worth a run. Every store today keeps events as opaque JSON, so a
-    store that dislikes one *kind* is a future rather than a bug — but it is the future this
+    store that dislikes one *kind* is a future rather than a bug  -  but it is the future this
     change's own ledger cites (#101), and without this arm it turns a run that would have
     completed into ``run.failed``.
 
     And it costs the report *only*. The refused append never got as far as taking a number, so the
     log the run leaves behind is dense: this is the gap ADR-D11 exists to remove, and the one
     assertion that says the whole port change worked. Before it, the same run left
-    ``check_contiguous == [2]`` — a hole no consumer's refetch could ever fill, indistinguishable
+    ``check_contiguous == [2]``  -  a hole no consumer's refetch could ever fill, indistinguishable
     from an event lost in transit.
     """
 
@@ -1225,7 +1225,7 @@ def _approver() -> tuple[Runtime, MemoryEventStore]:
 
 async def test_the_answer_is_in_the_log_before_the_engine_has_been_asked_for_anything() -> None:
     """The window that used to lose a resume value for good: the claim is committed, the run
-    reads ``RUNNING``, and the engine has not been started yet — which is the instant a process
+    reads ``RUNNING``, and the engine has not been started yet  -  which is the instant a process
     dies. What the log holds here is all a successor gets, so it has to hold the answer.
     """
     runtime, store = _approver()
@@ -1290,7 +1290,7 @@ async def test_an_answer_already_in_blocks_is_recorded_as_those_blocks() -> None
 
 async def test_an_empty_array_answer_is_data_not_content_with_no_blocks() -> None:
     """ "Nothing selected" is an answer. Recorded as content it would read as no blocks at all,
-    which is indistinguishable from a resume that answered nothing — and unreconstructable."""
+    which is indistinguishable from a resume that answered nothing  -  and unreconstructable."""
     runtime, store = _approver()
     opened = [
         event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
@@ -1352,7 +1352,7 @@ async def test_an_answer_the_log_cannot_hold_is_reported_rather_than_failing_the
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The declared ceiling: JSON is what the log can carry, so a value outside it records
-    nothing — and says which run, because a silent skip leaves the log looking exactly like the
+    nothing  -  and says which run, because a silent skip leaves the log looking exactly like the
     bug this field fixed."""
     runtime, store = _approver()
     opened = [

@@ -1,6 +1,6 @@
 """``agentdeck runs signal``: the one caller-facing surface that reaches a ``ControlPort``
-directly, with no ``Runtime`` in the way. Its argument is the canonical id itself — no
-namespace, no resolution step (#324) — so what it writes under is exactly what the caller typed.
+directly, with no ``Runtime`` in the way. Its argument is the canonical id itself  -  no
+namespace, no resolution step (#324)  -  so what it writes under is exactly what the caller typed.
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ async def test_an_unnamespaced_cli_signal_does_not_reach_a_namespaced_run() -> N
     its argument names, with no namespace and no resolution step (it has no ``--namespace``
     flag and, per docs/design/run-identity.md, never will). A run started with ``key=`` in a
     real namespace mints its own id regardless of that key (#324), so signalling the literal
-    a CLI caller might type can no longer land on it even by coincidence — the way a
+    a CLI caller might type can no longer land on it even by coincidence  -  the way a
     caller-chosen ``run_id`` used to be able to before the split."""
     control = MemoryControlPort()
     spec = stub_spec(

@@ -1,12 +1,12 @@
 """The test harness this repo (and any downstream deck) stubs a chat turn with.
 
-The SDK boundary is the only thing ever stubbed here — everything above it (a resolved
+The SDK boundary is the only thing ever stubbed here  -  everything above it (a resolved
 ``RunConfig``, the compat engine, the Runtime, a surface's frame rendering) stays the code
 under test. Two shapes cover it:
 
-- :class:`ScriptedModel` plus :func:`patch_model` — an in-process
+- :class:`ScriptedModel` plus :func:`patch_model`  -  an in-process
   ``agents.models.interface.Model`` for a test that builds a ``Runtime``/``Deck`` directly.
-- :func:`scripted_model_server` — a local Chat-Completions-compatible HTTP endpoint for a
+- :func:`scripted_model_server`  -  a local Chat-Completions-compatible HTTP endpoint for a
   test that must go through a real subprocess or a real HTTP client, so an in-process model
   can't be reached (``OPENAI_BASE_URL`` points at it instead).
 """
@@ -81,7 +81,7 @@ class ScriptedModel(Model):
         output_tokens: int = 4,
     ) -> None:
         self.deltas = tuple(deltas)
-        # The completed message, when it must differ from the joined deltas — which is how a
+        # The completed message, when it must differ from the joined deltas  -  which is how a
         # test tells "the SDK's final_output" apart from "the deltas, re-joined".
         self.final_text = final_text
         self.tool_name = tool_name
@@ -207,7 +207,7 @@ class ScriptedModel(Model):
 def _provider_class(model: Model | Callable[[], Model]) -> type:
     """A drop-in ``OpenAIProvider``: a fixed ``model`` hands every lookup the same object,
     which is what lets a test read ``model.calls``/``model.inputs`` across turns. A zero-arg
-    callable is invoked fresh each time a provider is constructed instead — the shape a
+    callable is invoked fresh each time a provider is constructed instead  -  the shape a
     per-turn reset (a fresh model, starting at turn one, for every ``RunConfig`` built) needs.
     """
 
@@ -249,7 +249,7 @@ class _ScriptedChatHandler(BaseHTTPRequestHandler):
     """One scripted Chat-Completions turn per request: request *n* (0-indexed) calls
     ``tool_names[n]`` for as long as the list reaches that far, and every request past the end
     of it answers with ``reply``. Flat JSON or an SSE stream of chunks, whichever the request's
-    own ``stream`` flag asks for — the minimum a real streaming reply is shaped as (a
+    own ``stream`` flag asks for  -  the minimum a real streaming reply is shaped as (a
     role-opening chunk, one content chunk, one finish chunk), so the SDK's stream parser
     produces a real delta and a real completed message instead of silently seeing nothing.
     """
@@ -338,13 +338,13 @@ def scripted_model_server(
     received: list[dict[str, Any]] | None = None,
 ) -> Iterator[str]:
     """A local Chat-Completions-compatible endpoint, for a test that points
-    ``OPENAI_BASE_URL`` at a real HTTP server rather than patching an in-process model —
+    ``OPENAI_BASE_URL`` at a real HTTP server rather than patching an in-process model  -
     running agentdeck as a real subprocess, or exercising a route that builds its own
     ``RunConfig``, neither of which :func:`patch_model` can reach.
 
     ``tool_name`` a single name: the first request gets that tool call, every one after answers
     in text. A sequence: request *n* gets ``tool_name[n]``'s call for as long as the sequence
-    reaches that far (one call per turn — the shape a multi-step tool chain or a handoff
+    reaches that far (one call per turn  -  the shape a multi-step tool chain or a handoff
     round-trip needs), then every request past the end answers in text. Left ``None``: every
     request answers in text from the start. Pass a list as ``received`` to capture every
     request body handed to the endpoint, in order.

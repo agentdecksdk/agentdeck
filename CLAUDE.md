@@ -2,10 +2,10 @@
 
 AgentDeck is a declarative runtime harness for multi-agent systems and workflows (OpenAI Agents SDK + LangGraph).
 
-**Core standards:** `docs/engineering/` — the linked suite of binding engineering law:
-1. [`docs/engineering/principles.md`](docs/engineering/principles.md) — Product philosophy & North Star.
-2. [`docs/engineering/coding-standards.md`](docs/engineering/coding-standards.md) — Binding front door for every code change.
-3. [`docs/engineering/coding-agents.md`](docs/engineering/coding-agents.md) — Mandatory rules for coding agents.
+**Core standards:** `docs/engineering/`  -  the linked suite of binding engineering law:
+1. [`docs/engineering/principles.md`](docs/engineering/principles.md)  -  Product philosophy & North Star.
+2. [`docs/engineering/coding-standards.md`](docs/engineering/coding-standards.md)  -  Binding front door for every code change.
+3. [`docs/engineering/coding-agents.md`](docs/engineering/coding-agents.md)  -  Mandatory rules for coding agents.
 4. Specialized standards: [`architecture.md`](docs/engineering/architecture.md), [`runtime-contracts.md`](docs/engineering/runtime-contracts.md), [`testing.md`](docs/engineering/testing.md), [`dependencies.md`](docs/engineering/dependencies.md), [`repository-policy.md`](docs/engineering/repository-policy.md), [`import-boundaries.md`](docs/engineering/import-boundaries.md).
 
 ---
@@ -19,6 +19,7 @@ AgentDeck is a declarative runtime harness for multi-agent systems and workflows
 * **Abstractions must delete complexity:** An abstraction is successful only when the caller needs to know *less*. Never leak internal plumbing (stores, resolvers, internal contexts, log keys) into public user APIs.
 * **One obvious path first:** One clean, standard path for common tasks (`await deck.run(...)`). Advanced knobs remain escape hatches, never obstacles.
 * **Conciseness is mandatory:** No fluff, no sprawling prose. If one sentence suffices, write one sentence. Code, comments, docs, PR descriptions, and issue specs must be terse, precise, and dense with signal.
+* **No em dashes:** Never use the ` - ` character in any documentation, code, comments, or agent output. Use a regular hyphen `-`, colon `:`, or separate into distinct sentences.
 
 ---
 

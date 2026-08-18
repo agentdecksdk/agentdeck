@@ -6,7 +6,7 @@
 
 ---
 
-# Part I — How We Build AgentDeck
+# Part I  -  How We Build AgentDeck
 
 ## 1. The Product Philosophy
 
@@ -43,7 +43,7 @@ This philosophy should influence every API, abstraction, runtime behavior, error
 
 
 > “Simple can be harder than complex: you have to work hard to get your thinking clean to make it simple.”
-> — Steve Jobs, BusinessWeek, 1998
+>  -  Steve Jobs, BusinessWeek, 1998
 
 Simple software is rarely produced by avoiding difficult thinking.
 
@@ -501,7 +501,7 @@ The project should become conceptually cleaner as it becomes more capable.
 # 20. The AgentDeck Engineering North Star
 
 > “You've got to start with the customer experience and work backwards to the technology.”
-> — Steve Jobs, WWDC 1997
+>  -  Steve Jobs, WWDC 1997
 
 The engineering north star is:
 
@@ -523,7 +523,7 @@ These principles apply equally to code, architecture, APIs, documentation, integ
 
 ---
 
-# Part II — Documentation
+# Part II  -  Documentation
 
 # 21. Documentation Mission
 
@@ -1744,7 +1744,7 @@ This makes documentation a runtime compatibility surface rather than static pros
 
 ---
 
-# Part III — Homepage & Site Experience
+# Part III  -  Homepage & Site Experience
 
 # 47. Homepage Purpose
 
@@ -1779,7 +1779,7 @@ Suggested positioning direction:
 
 Supporting idea:
 
-> Compose agents, tools, workflows and skills in one runtime — without giving up the frameworks you already use.
+> Compose agents, tools, workflows and skills in one runtime  -  without giving up the frameworks you already use.
 
 This copy may evolve independently from this specification.
 
@@ -1828,7 +1828,7 @@ No roadmap logo wall.
 
 ---
 
-# Part IV — Brand & Visual Design
+# Part IV  -  Brand & Visual Design
 
 # 49. Visual Goal
 
@@ -1875,7 +1875,7 @@ generic SaaS
 
 # 51. Brand Geometry
 
-The AgentDeck geometric cue — including the cut/diamond/card-inspired shape from the approved identity — may influence:
+The AgentDeck geometric cue  -  including the cut/diamond/card-inspired shape from the approved identity  -  may influence:
 
 * selected navigation,
 * callouts,
@@ -2108,7 +2108,7 @@ At minimum:
 
 ---
 
-# Part V — Discoverability & Machine Consumption
+# Part V  -  Discoverability & Machine Consumption
 
 # 63. Search Engine Structure
 
@@ -2162,7 +2162,7 @@ They do not replace it.
 
 ---
 
-# Part VI — What Must Not Appear in Primary Docs
+# Part VI  -  What Must Not Appear in Primary Docs
 
 # 66. Excluded Content
 
@@ -2207,7 +2207,7 @@ Never make a future feature visually indistinguishable from an available feature
 
 ---
 
-# Part VII — Documentation Operations
+# Part VII  -  Documentation Operations
 
 # 69. Ownership
 
@@ -2305,7 +2305,7 @@ If the answer is unclear, the page may not be needed.
 
 ---
 
-# Part VIII — Success Metrics
+# Part VIII  -  Success Metrics
 
 # 73. New Developer Test
 
@@ -2379,7 +2379,7 @@ If it primarily communicates how much machinery AgentDeck contains, it has proba
 
 ---
 
-# Part IX — Docs v2 Migration
+# Part IX  -  Docs v2 Migration
 
 # 78. Do Not Incrementally Polish the Current Information Architecture
 
@@ -2413,7 +2413,7 @@ Most existing prose should not be copied automatically.
 
 # 80. Recommended Implementation Order
 
-## Phase 1 — Foundation
+## Phase 1  -  Foundation
 
 * final IA,
 * navigation,
@@ -2422,7 +2422,7 @@ Most existing prose should not be copied automatically.
 * core components,
 * search architecture.
 
-## Phase 2 — First Experience
+## Phase 2  -  First Experience
 
 * homepage,
 * overview,
@@ -2433,7 +2433,7 @@ Most existing prose should not be copied automatically.
 * Deck,
 * Runs.
 
-## Phase 3 — Core Product
+## Phase 3  -  Core Product
 
 * workflows,
 * skills,
@@ -2443,7 +2443,7 @@ Most existing prose should not be copied automatically.
 * events,
 * sessions.
 
-## Phase 4 — Interoperability
+## Phase 4  -  Interoperability
 
 * existing agents,
 * OpenAI Agents,
@@ -2451,7 +2451,7 @@ Most existing prose should not be copied automatically.
 * MCP,
 * other supported integrations.
 
-## Phase 5 — Production
+## Phase 5  -  Production
 
 * persistence,
 * serving,
@@ -2459,7 +2459,7 @@ Most existing prose should not be copied automatically.
 * deployment,
 * troubleshooting.
 
-## Phase 6 — Reference & Automation
+## Phase 6  -  Reference & Automation
 
 * generated API reference,
 * configuration reference,
@@ -2467,7 +2467,7 @@ Most existing prose should not be copied automatically.
 * docs CI,
 * canonical example testing.
 
-## Phase 7 — Cleanup
+## Phase 7  -  Cleanup
 
 * redirects,
 * remove obsolete pages,
@@ -2478,7 +2478,7 @@ Most existing prose should not be copied automatically.
 
 ---
 
-# Part X — Definition of Done
+# Part X  -  Definition of Done
 
 Docs v2 is ready when:
 

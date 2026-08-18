@@ -1,4 +1,4 @@
-# AgentDeck — Product Requirements Document (PRD)
+# AgentDeck  -  Product Requirements Document (PRD)
 
 **Version:** 1.0 · **Date:** 2026-08-04 · **Owner:** Sagi
 **Companion docs:** `project-brief.md` (why/when), `design/agentdeck-v2-architecture.md` (how),
@@ -10,7 +10,7 @@ design doc.
 ## 1. Vision
 
 AgentDeck is the platform where the durable parts of agent systems live. Users write
-small Python definitions — agents, workflows, skills — and the platform provides
+small Python definitions  -  agents, workflows, skills  -  and the platform provides
 everything around them: memory, streaming, human approvals, run control, protocols,
 cost, audit, and replay. Engines are interchangeable; the user's assets outlive SDK
 churn. One sentence: **build once, run anywhere, speak every protocol.**
@@ -27,32 +27,32 @@ churn. One sentence: **build once, run anywhere, speak every protocol.**
 
 Definitions over configuration (Python conventions, no DSL). Everything composes:
 agents, workflows, skills, and remote agents are one kind of thing and can call each
-other in any direction. Features are readers of one event log — a feature that requires
+other in any direction. Features are readers of one event log  -  a feature that requires
 a new privileged pathway is suspect. Backward compatibility is a feature: existing
 projects keep working through every release. Human control is first-class: any run can
-be paused, cancelled, steered, or gated on approval — durably, across restarts.
+be paused, cancelled, steered, or gated on approval  -  durably, across restarts.
 
 ## 4. Functional requirements
 
 Priorities: **P0** = this initiative (Milestone 0 + core epic) · **P1** = next epics,
 already designed · **P2** = designed at concept level, scheduled later.
 
-> **Amendment 2026-08-11 — what v3.0.0 actually ships against these requirements.** This section
+> **Amendment 2026-08-11  -  what v3.0.0 actually ships against these requirements.** This section
 > is the product's whole arc, not one release, so most P1/P2 items are simply not due yet. Three
 > P0 statements below were overtaken by rulings and would otherwise read as promises v3 broke:
 >
-> - **FR-1** — "existing v1.2.1 projects load unchanged" no longer holds. #164 deleted `App` and
+> - **FR-1**  -  "existing v1.2.1 projects load unchanged" no longer holds. #164 deleted `App` and
 >   the v1 public API outright (`plan-v2-cutover.md` ruling 1); the `.agentdeck/` layout and the
 >   no-registration rule are unchanged, the Python entry point is not.
-> - **FR-3** — "sandbox is the default capability backing" is deferred, not delivered. #163 left
+> - **FR-3**  -  "sandbox is the default capability backing" is deferred, not delivered. #163 left
 >   v3 by ruling and #71 deleted the scaffolding. Tools and MCP servers are declarative as
 >   described; nothing is sandboxed, and `SECURITY.md` says so to users.
-> - **FR-14** — ACP did not land in v3. Protocol surfaces beyond HTTP/SSE are #129, on
->   `v3.1 — batteries`. FR-13's v1.2.1 wire compatibility *is* delivered, frozen byte-for-byte and
+> - **FR-14**  -  ACP did not land in v3. Protocol surfaces beyond HTTP/SSE are #129, on
+>   `v3.1  -  batteries`. FR-13's v1.2.1 wire compatibility *is* delivered, frozen byte-for-byte and
 >   replayed by `tests/golden/` on every run.
 >
 > One requirement gained a mechanism this document did not anticipate: **`Context[T]`** (#166) is
-> how an application's own environment — a database handle, a client — reaches a tool or node,
+> how an application's own environment  -  a database handle, a client  -  reaches a tool or node,
 > which is the need FR-14's "caller-injected capabilities" was reaching for, minus the sandbox.
 
 ### 4.1 Authoring & composition
@@ -104,7 +104,7 @@ already designed · **P2** = designed at concept level, scheduled later.
 ## 5. Non-functional requirements
 
 - **NFR-1 Compatibility:** v1.2.1 public API and SSE wire format preserved (golden-file verified); `.agentdeck/` convention unchanged.
-- **NFR-2 Extensibility proof:** adding engine/protocol/consumer #N+1 touches zero existing components — verified by diff on the ACP story and enforced thereafter.
+- **NFR-2 Extensibility proof:** adding engine/protocol/consumer #N+1 touches zero existing components  -  verified by diff on the ACP story and enforced thereafter.
 - **NFR-3 Substitutability:** one contract-test suite passes identically on every engine.
 - **NFR-4 Determinism & testability:** all platform tests run without network or API keys (scripted fake models).
 - **NFR-5 Schema stability:** event schema versioned (D8), envelope closed (D9), kinds minted only in core (D10); consumers tolerate unknown kinds.
@@ -115,15 +115,15 @@ already designed · **P2** = designed at concept level, scheduled later.
 
 | Release | Contents | Gate |
 |---|---|---|
-| **M0 — Skeleton** | Schema v1, crude runtime + both engines, UC1–3 demos | falsifier review passes |
-| **v2.0 — Core epic** | FR-1/2/3/6–14, 22 · NFR-1–6 | epic demo: one agent, three surfaces, cross-process control · *tagged 2026-08-06* |
-| **v3.0 — One way to work** | No new FRs: v1's authoring surface and `App` are deleted, `authoring/` and `Deck` replace them, every adapter sits behind a port | `make check` green with no import-linter exemption; migration guide published |
-| **v3.1 — Batteries** | FR-24 stdlib + FR-23 eval harness + FR-4/5 | first eval-gated stdlib agents ship |
-| **v3.2 — Rooms & reach** | FR-15/16/17/18 + FR-20 triggers | group-session demo; partner A2A round-trip |
-| **v3.3 — Operate** | FR-25 console + FR-19/21 | console reads only the log (no new pathways) |
+| **M0  -  Skeleton** | Schema v1, crude runtime + both engines, UC1–3 demos | falsifier review passes |
+| **v2.0  -  Core epic** | FR-1/2/3/6–14, 22 · NFR-1–6 | epic demo: one agent, three surfaces, cross-process control · *tagged 2026-08-06* |
+| **v3.0  -  One way to work** | No new FRs: v1's authoring surface and `App` are deleted, `authoring/` and `Deck` replace them, every adapter sits behind a port | `make check` green with no import-linter exemption; migration guide published |
+| **v3.1  -  Batteries** | FR-24 stdlib + FR-23 eval harness + FR-4/5 | first eval-gated stdlib agents ship |
+| **v3.2  -  Rooms & reach** | FR-15/16/17/18 + FR-20 triggers | group-session demo; partner A2A round-trip |
+| **v3.3  -  Operate** | FR-25 console + FR-19/21 | console reads only the log (no new pathways) |
 
 **Amendment 2026-08-08.** A breaking release was inserted between v2.0 and the batteries,
-so the last three rows renumbered from v2.1/v2.2/v2.3 — contents unchanged. v3.0 carries no
+so the last three rows renumbered from v2.1/v2.2/v2.3  -  contents unchanged. v3.0 carries no
 functional requirement of its own: it is the release that spends the breaking-change budget
 once, deliberately, so v3.x can be additive. See `delivery/plan-v2-cutover.md`.
 
@@ -136,7 +136,7 @@ changes experienced by v1.2.1 projects across v2.x.
 
 **Amendment 2026-08-08.** That last metric is retired, not missed: v3.0 deletes v1's public
 API by ruling (`delivery/plan-v2-cutover.md` ruling 1), so a v1.2.1 project migrates rather
-than upgrades. It is replaced by the same promise one major later — **zero breaking changes
+than upgrades. It is replaced by the same promise one major later  -  **zero breaking changes
 across v3.x**, which is what the v3.0 API freeze exists to make payable.
 
 ## 8. Out of scope (standing refusals)
@@ -148,6 +148,6 @@ design doc §12; changes to this list require a design review, not a feature req
 ## 9. Open product questions
 
 Group-session pricing/attribution when a partner's A2A agent participates (whose budget?
-— current answer: session owner's, revisit with real usage). Moderator defaults for
+ -  current answer: session owner's, revisit with real usage). Moderator defaults for
 consumer-facing vs. internal rooms. Which stdlib agents ship first (proposal: Researcher,
-Summarizer, DocParser — validate against real demand before building).
+Summarizer, DocParser  -  validate against real demand before building).

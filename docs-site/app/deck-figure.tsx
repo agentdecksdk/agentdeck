@@ -1,5 +1,7 @@
 import React from 'react'
 
+import { ICONS, type ModuleKey } from './kind-icons'
+
 /**
  * The two figures the landing page reuses instead of drawing a new diagram per section.
  *
@@ -13,6 +15,26 @@ export interface DeckRow {
   name: string
   /** Introduced by the section drawing this figure. Everything else is already familiar. */
   added?: boolean
+}
+
+/** The group's label, mapped to the glyph the hero gave that kind. One vocabulary, two figures. */
+const KIND_OF: Record<string, ModuleKey> = {
+  Agents: 'agent',
+  Tools: 'tool',
+  Workflows: 'workflow',
+  Skills: 'skill'
+}
+
+function KindIcon({ group }: { group: string }) {
+  const kind = KIND_OF[group]
+  if (!kind) return null
+  return (
+    <span className="deck-row-icon" aria-hidden="true">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+        {ICONS[kind]}
+      </svg>
+    </span>
+  )
 }
 
 export interface DeckGroup {
@@ -31,9 +53,7 @@ export function DeckFigure({ groups, caption }: { groups: DeckGroup[]; caption?:
             <ul className="deck-rows">
               {group.rows.map(row => (
                 <li className={row.added ? 'deck-row is-added' : 'deck-row'} key={row.name}>
-                  <span className="deck-row-marker" aria-hidden="true">
-                    {row.added ? '◆' : '◇'}
-                  </span>
+                  <KindIcon group={group.label} />
                   <span className="deck-row-name">{row.name}</span>
                 </li>
               ))}

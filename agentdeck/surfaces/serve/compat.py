@@ -4,13 +4,13 @@ The v1 endpoints predate the event schema: their frames carry ``delta`` / ``done
 ``error`` / ``node_update`` / ``custom`` / ``interrupt`` names, an aggregate ``usage`` dict
 and a bare graph state that no event kind describes. Translating them here rather than in
 core is deliberate (D10: a consumer shapes what it needs, the schema does not grow a
-surface's frame shapes) — this module is the only place that knows what v1 puts on the wire,
+surface's frame shapes)  -  this module is the only place that knows what v1 puts on the wire,
 and it reads nothing but ``Event`` objects to do it.
 
 v1 has no isolation boundary of its own, so every run through this facade is unnamespaced;
 a caller that needs runs kept apart passes a namespace per run. A workflow's
 ``thread_id`` is its session: v1's caller names the thread, resumes it later, and expects one
-turn on it at a time — which is exactly what a session id buys from the Runtime.
+turn on it at a time  -  which is exactly what a session id buys from the Runtime.
 """
 
 from __future__ import annotations
@@ -71,15 +71,15 @@ async def chat_frames(events: AsyncGenerator[Event, None]) -> AsyncIterator[str]
     """v1's chat SSE: one ``delta`` frame per text delta, then one ``done`` frame.
 
     A mid-stream failure ends the run with ``error`` instead of ``done``, carrying the
-    exception's type name and never its message — the same in-band report v1 makes once
+    exception's type name and never its message  -  the same in-band report v1 makes once
     the status code is already on the wire.
 
     ``aclosing`` covers only one of the two shapes a disconnect takes, and not the common one:
     a server that leaves this generator suspended, whose next reader closes it. What the shipped
     stack actually does is **cancel** the task streaming the response, and that ``CancelledError``
-    travels into whatever ``events`` is — fed a live ``runtime.run()`` generator directly (as a
+    travels into whatever ``events`` is  -  fed a live ``runtime.run()`` generator directly (as a
     lower-level caller may), that closes the run there and the Runtime records ``run.cancelled``.
-    Fed ``deck.stream()`` instead — what the shipped server actually calls — the run is a
+    Fed ``deck.stream()`` instead  -  what the shipped server actually calls  -  the run is a
     deck-owned task the disconnect never reaches (docs/design/run-identity.md §9): it keeps
     executing, and this generator only stops watching it. Neither path is this generator's to
     guarantee, so do not read this as one.
@@ -114,7 +114,7 @@ async def chat_result(events: AsyncGenerator[Event, None]) -> dict[str, Any]:
 
 async def workflow_frames(events: AsyncGenerator[Event, None]) -> AsyncIterator[str]:
     """v1's workflow SSE: one ``node_update`` frame per node update and one ``custom`` frame
-    per stream write, then one ``done`` frame carrying the final state — or one ``interrupt``
+    per stream write, then one ``done`` frame carrying the final state  -  or one ``interrupt``
     frame in its place when the graph paused for a human.
 
     A mid-run failure ends the stream with ``error`` and the exception's type name, never its
@@ -144,7 +144,7 @@ async def workflow_result(events: AsyncGenerator[Event, None]) -> Any:
 def interrupt_inbox(pending: Sequence[PendingRun], invocable: str) -> list[dict[str, Any]]:
     """v1's approval inbox for one workflow: every thread of it currently waiting on a human.
 
-    Sorted by thread id, which is the order v1's own listing came back in — it walked the
+    Sorted by thread id, which is the order v1's own listing came back in  -  it walked the
     checkpointer's threads sorted, and a client that renders an inbox should not see it
     reshuffle between polls.
     """
@@ -173,7 +173,7 @@ def _workflow_frame(payload: Any) -> str | None:
     frame the exception itself produces)."""
     if isinstance(payload, NodeUpdated):
         # v1's wire showed ``"delta": null`` for a node that changed nothing, and
-        # ``state_patch`` is a dict that cannot carry null — so an empty patch renders back as
+        # ``state_patch`` is a dict that cannot carry null  -  so an empty patch renders back as
         # null. Nothing else is flattened by that: langgraph reports a node returning ``{}``
         # and one returning ``None`` identically, and v1 showed null for both.
         return _data({"type": "node_update", "node": payload.node, "delta": payload.state_patch or None})

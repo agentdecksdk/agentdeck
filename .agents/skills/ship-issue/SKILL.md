@@ -1,6 +1,6 @@
 ---
 name: ship-issue
-description: Run one agentdeck issue through the full pipeline — brief the user, deck-dev implements it, deck-reviewer gates it, findings get fixed, PR merges to dev, board updated.
+description: Run one agentdeck issue through the full pipeline  -  brief the user, deck-dev implements it, deck-reviewer gates it, findings get fixed, PR merges to dev, board updated.
 ---
 
 # Ship an issue

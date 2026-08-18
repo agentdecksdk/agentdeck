@@ -1,7 +1,7 @@
 """What the Runtime can start.
 
 An agent, a workflow and a skill differ only in ``kind`` and in what their engine makes of
-``native`` — so the Runtime has one code path, not one per shape.
+``native``  -  so the Runtime has one code path, not one per shape.
 """
 
 from __future__ import annotations

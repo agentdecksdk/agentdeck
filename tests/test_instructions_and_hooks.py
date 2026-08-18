@@ -1,13 +1,13 @@
 """The two injection sites that are neither a tool nor a node: dynamic instructions, and an
 agent's lifecycle hooks.
 
-Both go through the same analysis a tool does, which is the point — a second mechanism here
+Both go through the same analysis a tool does, which is the point  -  a second mechanism here
 would be a second set of rules about what ``Context[...]`` means, and the two would drift.
 
 The property these tests are shaped around is the design's strongest rule, at the one site
 where breaking it would be invisible: **only what an instructions callable returns reaches the
 prompt.** ``ctx.data`` is never projected into it, so the central assertion is again an absence
-— the environment's secret must not appear in the system prompt the model was handed.
+ -  the environment's secret must not appear in the system prompt the model was handed.
 
 No live model: the SDK boundary is a scripted model that records the instructions it was given.
 """
@@ -23,7 +23,7 @@ from agents.lifecycle import AgentHooks
 from agentdeck.authoring import Agent
 from agentdeck.authoring.hooks import compile_hooks
 from agentdeck.authoring.instructions import compile_instructions
-from agentdeck.core.context import Context, RunContext  # noqa: TC001 — the subjects resolve it at runtime
+from agentdeck.core.context import Context, RunContext  # noqa: TC001  -  the subjects resolve it at runtime
 from agentdeck.deck import Deck
 from agentdeck.errors import ConfigError
 from agentdeck.testing import ScriptedModel, patch_model
@@ -38,7 +38,7 @@ class Business:
 
 
 class RecordingModel(ScriptedModel):
-    """A scripted model that also keeps the system prompt it was handed — the only place from
+    """A scripted model that also keeps the system prompt it was handed  -  the only place from
     which "what the model actually saw" can be asserted."""
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -119,7 +119,7 @@ async def test_a_wraps_decorated_instructions_callable_is_analyzed_as_what_it_wr
 
 def test_an_instructions_callable_with_a_parameter_nothing_supplies_is_refused() -> None:
     """Unlike a tool, an instructions callable has no model-supplied arguments to leave room
-    for — so a leftover parameter has no reading under which it would ever be filled."""
+    for  -  so a leftover parameter has no reading under which it would ever be filled."""
 
     def instructions(tone: str, environment: Context[Business]) -> str:
         return tone

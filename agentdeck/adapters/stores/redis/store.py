@@ -1,12 +1,12 @@
 """The event log in Redis: the same contract as ``adapters.stores.sqlite``, shared by every
 worker that can reach the instance.
 
-Redis has no query planner to lean on, so the log carries its own indexes — a list per log
+Redis has no query planner to lean on, so the log carries its own indexes  -  a list per log
 for append order, a list per run for a run's own slice, a sorted set of that run's ``seq``
 numbers, the run's latest lifecycle event, and a set of the runs each log and each namespace
 owns. Every write updates all of them inside one ``MULTI``/``EXEC``, so a reader never sees
 an event in the log that is missing from its run's index. Status is still *derived* by
-folding through ``core.status`` (ADR-D5: the log is the sole source of truth) — what the
+folding through ``core.status`` (ADR-D5: the log is the sole source of truth)  -  what the
 indexes store is the last lifecycle **event**, never a status of their own.
 
 Every key sits under one prefix (``agentdeck:events`` by default), which is how the
@@ -20,7 +20,7 @@ as durable as the instance is configured to be. The port promises an event a con
 seen is already in the store, so a deployment that uses this store as its record wants
 ``appendonly yes``; with the default snapshot-only persistence a crash can lose the last
 seconds of a log. It also wants ``maxmemory-policy noeviction``: this is a record, not a
-cache, and an evicted key does not merely disappear — a run whose latest lifecycle event was
+cache, and an evicted key does not merely disappear  -  a run whose latest lifecycle event was
 evicted stops being seen as holding its session, so a live turn can have its session taken
 from under it. Both settings belong to the whole instance, which is another reason to give
 the log its own rather than share a cache's.
@@ -64,7 +64,7 @@ _DEFAULT_PREFIX = "agentdeck:events"
 #
 # The loop is lock-step: one winner per round dirties every other watcher on the key, so N
 # simultaneous contenders need exactly N rounds to drain. This must therefore stay well clear
-# of any test's contender count — at 20 it sat exactly on `_CONCURRENT_APPENDS`, where one more
+# of any test's contender count  -  at 20 it sat exactly on `_CONCURRENT_APPENDS`, where one more
 # contender turns a passing case into a permanently red one rather than a flaky one.
 _CLAIM_ATTEMPTS = 64
 
@@ -73,7 +73,7 @@ def _segment(value: str) -> str:
     """One key segment, escaped so ``:`` inside a namespace or session id cannot forge another.
 
     Without this, namespace ``"a:b"`` + log ``"c"`` and namespace ``"a"`` + log ``"b:c"`` are the
-    same key, and two namespaces read each other's runs — the isolation every store owes.
+    same key, and two namespaces read each other's runs  -  the isolation every store owes.
     """
     return quote(value, safe="")
 
@@ -81,10 +81,10 @@ def _segment(value: str) -> str:
 class RedisEventStore(EventStorePort):
     """Append-only lists and their indexes under one Redis key prefix.
 
-    Every write goes through ``WATCH``/``MULTI``/``EXEC`` — the two claims and the plain
+    Every write goes through ``WATCH``/``MULTI``/``EXEC``  -  the two claims and the plain
     append, which is conditional on one ``seq`` per run: the keys the decision reads are
-    watched, the decision itself runs here in Python — so ``core.status`` stays the one place
-    a status is derived — and ``EXEC`` refuses to apply the write if any of those keys moved
+    watched, the decision itself runs here in Python  -  so ``core.status`` stays the one place
+    a status is derived  -  and ``EXEC`` refuses to apply the write if any of those keys moved
     in between. A peer that got there first therefore never loses to a stale read; the write
     re-reads and answers from what the peer actually wrote. That is what makes this hold
     between two servers and not merely between two tasks.
@@ -99,7 +99,7 @@ class RedisEventStore(EventStorePort):
         self._prefix = prefix
         # An injected callable rather than Redis's own TIME, per ADR-D11 §4: reading the server's
         # clock costs a round trip on the hot path, and unlike the SQL stores this one already
-        # holds a WATCH across the read — the clock is not what its atomicity rests on.
+        # holds a WATCH across the read  -  the clock is not what its atomicity rests on.
         self._clock = clock
 
     def _log_key(self, namespace: str, log_key: str) -> str:
@@ -123,17 +123,17 @@ class RedisEventStore(EventStorePort):
     def _key_claim_key(self, namespace: str, key: str) -> str:
         """``(namespace, key)``'s permanent claim: one string holding the ``run_id`` that
         adopted it, watched and set inside the same ``claim_start`` transaction that opens the
-        run — this is the enforcement, not an index over data written elsewhere."""
+        run  -  this is the enforcement, not an index over data written elsewhere."""
         return f"{self._prefix}:key:{_segment(namespace)}:{_segment(key)}"
 
     def _queue_writes(self, pipe: Pipeline, namespace: str, log_key: str, events: Iterable[Event]) -> None:
-        """Buffer one batch's writes — the log, the run's slice and every index — onto a
+        """Buffer one batch's writes  -  the log, the run's slice and every index  -  onto a
         pipeline already in ``MULTI``, so no concurrent reader sees part of them.
 
         ``MULTI`` is atomic against *other clients*, not against a command of its own
         failing: Redis runs the queued commands back to back and reports per-command errors
-        without rolling the rest back. Nothing here can fail on well-formed input — the keys
-        are this store's own and each command matches the type it created — so the case that
+        without rolling the rest back. Nothing here can fail on well-formed input  -  the keys
+        are this store's own and each command matches the type it created  -  so the case that
         remains is a keyspace somebody else has written incompatible types into, which is
         unrecoverable by any means this store has.
         """
@@ -157,7 +157,7 @@ class RedisEventStore(EventStorePort):
         That watch is the whole atomicity mechanism, and it replaces the explicit spent-``seq``
         check this store used to run: the number is no longer supplied by a caller who might
         reuse one, and a peer racing for it loses the ``EXEC`` rather than being refused. The
-        index is a **ZSET** — ADR-D11 §6 originally prescribed ``INCR`` here, which would have
+        index is a **ZSET**  -  ADR-D11 §6 originally prescribed ``INCR`` here, which would have
         returned ``WRONGTYPE`` on every append; #153 corrected it.
 
         Every payload in one call shares one ``ts``: a batch is one ``MULTI``, so it happened at
@@ -205,7 +205,7 @@ class RedisEventStore(EventStorePort):
         start = max(offset, 0)
         end = -1 if limit is None else start + limit - 1
         # A zero limit computes an end before the start, and LRANGE reads a negative index
-        # from the tail — which for offset 0 would be the whole log rather than no page.
+        # from the tail  -  which for offset 0 would be the whole log rather than no page.
         if limit is not None and end < start:
             return []
         try:
@@ -236,7 +236,7 @@ class RedisEventStore(EventStorePort):
         and every open run's own keys are watched, so a peer opening a run under this
         decision aborts the write rather than doubling it.
 
-        A refusal is data, as the port requires — the losing caller re-reads and names the
+        A refusal is data, as the port requires  -  the losing caller re-reads and names the
         run that actually holds the session. Only an unreachable store or a hopelessly
         contended one raises.
 
@@ -246,7 +246,7 @@ class RedisEventStore(EventStorePort):
         session scan below, so a busy session still wins over a reused key, matching
         sqlite/postgres, where the session check is a read and the key check is a constraint
         the INSERT itself enforces. On retry the key is occupied for good, which is
-        :class:`~agentdeck.errors.DuplicateKeyError`, not a refusal to hand back — the same
+        :class:`~agentdeck.errors.DuplicateKeyError`, not a refusal to hand back  -  the same
         deterministic-failure reading the session claim above gives a lost race.
         """
 
@@ -269,7 +269,7 @@ class RedisEventStore(EventStorePort):
             for run_id in run_ids:
                 life = await pipe.get(self._life_key(ctx.namespace_key, log_key, run_id))
                 # A key the same MULTI filled in coming back empty means the keyspace lost it
-                # — eviction, or an operator's DEL. Read as a run holding nothing rather than
+                #  -  eviction, or an operator's DEL. Read as a run holding nothing rather than
                 # crashing the claim, and note what that costs: a *live* run whose lifecycle
                 # key went missing silently loses its session hold, and is not even reported
                 # in `overridden` for the winner to close. Hence `noeviction` up top; there is
@@ -282,7 +282,7 @@ class RedisEventStore(EventStorePort):
                 if STATES[status].suspended:
                     # No worker to be dead: PAUSED and WAITING_ANSWER have no engine polling a
                     # clock, so silence is not evidence of anything and neither the timer nor an
-                    # expired lease applies — checked before both, for that reason. The log
+                    # expired lease applies  -  checked before both, for that reason. The log
                     # deciding alone is what makes this hold permanent. No need to read the
                     # run's tail at all here.
                     return SessionClaim(held_by=run_id), None
@@ -352,7 +352,7 @@ class RedisEventStore(EventStorePort):
         except RedisError as exc:
             raise StoreError(f"event log list_runs failed: {exc}") from exc
         # The added clause never drops a run: the key it reads holds a lifecycle event, so every
-        # one folds to a status. It is what narrows ``status_of``'s ``None`` — the "no transition
+        # one folds to a status. It is what narrows ``status_of``'s ``None``  -  the "no transition
         # at all" answer, which a run with a life key cannot give.
         summaries = [
             RunSummary(log_key=log_key, run_id=run_id, status=folded)
@@ -372,7 +372,7 @@ class RedisEventStore(EventStorePort):
     async def _watched[T](self, attempt: Callable[[Pipeline], Awaitable[T]], op: str) -> T:
         """Run one optimistic write until ``EXEC`` is not aborted by a concurrent one.
 
-        Every write this store does goes through here — the two claims and the plain append,
+        Every write this store does goes through here  -  the two claims and the plain append,
         which is conditional on one ``seq`` per run. A fresh pipeline per round, so a round
         that lost its watch leaves nothing behind.
         """

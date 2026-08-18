@@ -40,7 +40,7 @@ def _usage_frame(requests: int, input_tokens: int, output_tokens: int) -> dict[s
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
-    """The project directory only — a deck of this suite's own and the server's are two
+    """The project directory only  -  a deck of this suite's own and the server's are two
     different decks, and one Deck holds the process at a time."""
     root = tmp_path / ".agentdeck"
     (root / "agents" / "greeter").mkdir(parents=True)
@@ -50,7 +50,7 @@ def project(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-async def deck(project):  # noqa: ARG001 — the project dir is what `from_project()` discovers
+async def deck(project):  # noqa: ARG001  -  the project dir is what `from_project()` discovers
     from agentdeck.deck import Deck
 
     deck = Deck.from_project()
@@ -60,7 +60,7 @@ async def deck(project):  # noqa: ARG001 — the project dir is what `from_proje
 
 def _delta_event(text: str) -> SimpleNamespace:
     # Duck-types agents.stream_events.RawResponsesStreamEvent wrapping a
-    # ResponseTextDeltaEvent — the only fields run_streamed reads.
+    # ResponseTextDeltaEvent  -  the only fields run_streamed reads.
     return SimpleNamespace(
         type="raw_response_event",
         data=SimpleNamespace(type="response.output_text.delta", delta=text),
@@ -68,7 +68,7 @@ def _delta_event(text: str) -> SimpleNamespace:
 
 
 def _other_event() -> SimpleNamespace:
-    # A non-text-delta event (tool call, handoff, ...) — must be skipped.
+    # A non-text-delta event (tool call, handoff, ...)  -  must be skipped.
     return SimpleNamespace(type="run_item_stream_event", data=SimpleNamespace(type="tool_called"))
 
 
@@ -145,7 +145,7 @@ async def test_run_streamed_cancels_sdk_run_on_abandonment(deck, monkeypatch):
 async def test_run_returns_a_turn_result_not_the_sdks_runresult(deck):
     """``run`` used to hand back the SDK's own ``RunResult``; it now plays on the Runtime
     and returns a :class:`~agentdeck.deck.TurnResult` assembled from the run's
-    own ``run.completed`` — a caller depends on agentdeck's event schema, never on the SDK.
+    own ``run.completed``  -  a caller depends on agentdeck's event schema, never on the SDK.
     """
     with patch_model(ScriptedModel(deltas=("echo:hi",))):
         async with deck:
@@ -156,7 +156,7 @@ async def test_run_returns_a_turn_result_not_the_sdks_runresult(deck):
 
 
 async def test_stream_uses_same_session_as_run(deck):
-    """One ``session_id`` is one conversation whichever Deck method ran the turn — the same
+    """One ``session_id`` is one conversation whichever Deck method ran the turn  -  the same
     guarantee the old ``HeadlessRunner``-backed methods gave, now proven at the SDK boundary
     instead of by stubbing ``HeadlessRunner.from_agent`` directly (which ``run``/``stream``
     no longer call: both play on the Runtime)."""
@@ -171,7 +171,7 @@ async def test_stream_uses_same_session_as_run(deck):
 
     streamed_output = next(e.payload.output[0].text for e in events if isinstance(e.payload, RunCompleted))
     assert streamed_output == "echo:hi" == result.output
-    # two model calls, and the second turn's input carries the first turn's own message —
+    # two model calls, and the second turn's input carries the first turn's own message  -
     # proof the two Deck methods shared one `session_for("s1")` rather than each starting fresh.
     assert model.calls == 2
     assert "first" in str(model.inputs[-1])
@@ -209,7 +209,7 @@ def serve_client(project):
         # context manager runs the lifespan; without it every endpoint is 503.
         # raise_server_exceptions=False: a non-AgentdeckError failure is answered by
         # ServerErrorMiddleware, which re-raises after sending its response so a real server
-        # can still log it — the default client would surface that as a raised exception
+        # can still log it  -  the default client would surface that as a raised exception
         # instead of the response a real caller gets. A no-op for every case here that
         # doesn't fail this way.
         with patch_model(model), TestClient(create_app(), raise_server_exceptions=False) as client:
@@ -234,7 +234,7 @@ def test_stream_endpoint_emits_deltas_then_done(serve_client):
 
 
 def test_stream_endpoint_counts_every_model_call_in_usage(serve_client):
-    """``usage.requests`` is v1's count of model calls — two here, the tool round and the answer."""
+    """``usage.requests`` is v1's count of model calls  -  two here, the tool round and the answer."""
     model = ScriptedModel(deltas=("done",), tool_name="lookup_slot", input_tokens=5, output_tokens=2)
     with serve_client(model) as client:
         response = client.post("/agents/Tooler/chat?stream=true", json={"session_id": "s1", "message": "hi"})
@@ -247,7 +247,7 @@ def test_stream_endpoint_rejects_missing_session_id(serve_client):
     with serve_client(ScriptedModel()) as client:
         response = client.post("/agents/Greeter/chat?stream=true", json={"message": "hi"})
 
-    # 4xx before any header is sent — not a 200 that streams nothing.
+    # 4xx before any header is sent  -  not a 200 that streams nothing.
     assert response.status_code == 422
     assert "session_id" in response.json()["detail"]
 
@@ -266,7 +266,7 @@ def test_stream_endpoint_reports_mid_stream_failure(serve_client):
 def test_non_streamed_chat_answers_the_v1_500_contract_for_a_non_agentdeck_error(serve_client):
     """A raw model exception (an SDK error, a bare ``ValueError``, ...) has no registered
     handler of its own, unlike ``AgentdeckError``. It must still land on v1's fixed 500 body
-    rather than Starlette's bare-text default — the same contract the streamed path already
+    rather than Starlette's bare-text default  -  the same contract the streamed path already
     gives it above, minus the framing.
     """
     model = ScriptedModel(raises=ValueError("secret internal detail"))

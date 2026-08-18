@@ -1,10 +1,10 @@
 """What one sink's bounded queue does when the sink cannot keep up: what it keeps, what it
 drops, and when it gives up on the sink entirely. What it never does is wait for it.
 
-Every assertion is on counts and queue depth rather than on elapsed time — a bound that only
+Every assertion is on counts and queue depth rather than on elapsed time  -  a bound that only
 shows up as "fast enough" is not a bound. The breaker's cooldown and the failure log's window are
 held to the same standard: every dispatch whose behavior turns on time is given a clock the test
-moves, never one it waits for — a deadline appears here only to fail a wait that should not exist.
+moves, never one it waits for  -  a deadline appears here only to fail a wait that should not exist.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def _event(seq: int) -> Event:
 
 
 class Recorder(EventSinkPort):
-    """Takes every event without complaint — the baseline the failure cases are measured against."""
+    """Takes every event without complaint  -  the baseline the failure cases are measured against."""
 
     def __init__(self) -> None:
         self.events: list[Event] = []
@@ -99,7 +99,7 @@ class Flaky(EventSinkPort):
 
 
 class Unyielding(EventSinkPort):
-    """Down until ``healthy`` is set, and never suspends either way — no turn comes from this sink.
+    """Down until ``healthy`` is set, and never suspends either way  -  no turn comes from this sink.
 
     The sink counterpart of the ``NeverYields`` store wrapper (#87): a dispatch's own progress may
     not rest on a scheduling opportunity something else happens to supply, and a sink whose
@@ -122,7 +122,7 @@ class WedgesAfterFailing(EventSinkPort):
     """Refuses its first two events, then stops answering altogether inside ``emit``.
 
     The state the probe path is most exposed in: a breaker that has just opened its gate for one
-    event, and an endpoint that takes it and goes quiet. Nothing releases it — only a cancellation
+    event, and an endpoint that takes it and goes quiet. Nothing releases it  -  only a cancellation
     or the emit deadline ends that emit.
     """
 
@@ -158,7 +158,7 @@ class CancelOnce(Recorder):
 class CancelDeaf(Recorder):
     """Swallows the cancellation ``close`` sends, the way an over-broad ``except`` in ``emit`` does.
 
-    Never takes an event, and never lets go of the consumer that is inside it — the one sink that
+    Never takes an event, and never lets go of the consumer that is inside it  -  the one sink that
     a cancel alone cannot get shutdown past.
     """
 
@@ -196,7 +196,7 @@ class Buffering(EventSinkPort):
     """Holds every event and writes the lot out only when closed.
 
     The shape the emit contract pushes a real sink into: ``emit`` does in-memory work, and the
-    buffer reaches wherever it is going on a schedule of the sink's own — of which shutdown is
+    buffer reaches wherever it is going on a schedule of the sink's own  -  of which shutdown is
     the last one. ``written`` is what actually left; ``buffered`` is what would be lost.
     """
 
@@ -241,7 +241,7 @@ class CloseWedged(Buffering):
 
 
 class CloseBroken(Buffering):
-    """Raises out of ``close`` — a shutdown is not the place to find out about it the hard way."""
+    """Raises out of ``close``  -  a shutdown is not the place to find out about it the hard way."""
 
     async def close(self) -> None:
         self.closes += 1
@@ -251,7 +251,7 @@ class CloseBroken(Buffering):
 class Stubborn(Buffering):
     """Keeps working inside ``emit`` after swallowing a cancellation, instead of dying of one.
 
-    Not malicious and not wedged — a finite emit that outlives the reap's deadline, which is the
+    Not malicious and not wedged  -  a finite emit that outlives the reap's deadline, which is the
     one shape that leaves a consumer alive *inside* ``emit`` when the deadline fires. ``CloseDeaf``
     swallows its first cancel and then returns, so the next one lands in ``queue.get()`` and kills
     it; this one is still in the sink when the reap gives up on it.
@@ -442,7 +442,7 @@ async def test_a_second_outage_reports_what_it_cost_and_not_the_run_s_running_to
 ) -> None:
     """The recovery line is what an operator sizes the gap by, so the count has to be this outage's.
     One that never resets makes the second blip of a long run look like it lost everything since
-    the first — and a sink that comes back twice in a day is the ordinary case, not the odd one."""
+    the first  -  and a sink that comes back twice in a day is the ordinary case, not the odd one."""
     caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
     clock = FakeClock()
     sink = Unyielding()
@@ -519,7 +519,7 @@ async def test_a_probe_that_fails_costs_one_event_per_cooldown_and_no_second_ala
 
 async def test_the_breaker_cooldown_is_never_something_a_submit_waits_on() -> None:
     """Liveness is self-supplied (#87): the cooldown is a deadline compared against a clock, not a
-    timer anything sleeps on. A sink that hands the loop no turn — and is never coming back — must
+    timer anything sleeps on. A sink that hands the loop no turn  -  and is never coming back  -  must
     therefore cost a submit nothing, and every event must still be accounted for exactly once."""
     clock = FakeClock()
     sink = Unyielding()
@@ -548,7 +548,7 @@ async def test_the_breaker_cooldown_is_never_something_a_submit_waits_on() -> No
 
 async def test_a_probe_wedged_inside_emit_does_not_hold_up_the_submit_behind_it() -> None:
     """The probe is an emit like any other, so a run is no more attached to its verdict than to any
-    other — and a sink that goes quiet rather than refusing is how that attachment would show. A
+    other  -  and a sink that goes quiet rather than refusing is how that attachment would show. A
     submit that waited for the answer would park the Runtime's fan-out for a whole ``EMIT_TIMEOUT``.
 
     Needs a sink that hangs, not one that fails: a failing probe answers within the submit that
@@ -606,7 +606,7 @@ async def test_a_sink_failing_on_every_event_logs_one_traceback_not_one_per_even
     """A thousand copies of one stack trace is how a real incident gets missed."""
     caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
     # On a clock the test holds still, so what bounds the tracebacks is the throttle and not the
-    # test finishing inside a window — the latter is a stopwatch wearing an invariant's clothes.
+    # test finishing inside a window  -  the latter is a stopwatch wearing an invariant's clothes.
     dispatch = SinkDispatch(Broken(), failure_limit=LOG_INTERVAL * 2, clock=FakeClock())
     async with asyncio.timeout(10):
         for seq in range(LOG_INTERVAL + 5):
@@ -647,7 +647,7 @@ async def test_the_failures_a_throttled_traceback_stood_in_for_are_counted_in_th
     """A bounded log that hides how much it left out is a bound that misleads: the count is the
     difference between one bad event and a sink that has been failing all along.
 
-    Three windows rather than two, because two cannot tell the count from a running total — the
+    Three windows rather than two, because two cannot tell the count from a running total  -  the
     first traceback reports nothing either way, so only a third proves the count is reset when it
     is reported and means *since the last traceback* rather than *since the run began*.
     """
@@ -695,7 +695,7 @@ async def test_a_consumer_killed_by_a_real_cancellation_is_replaced() -> None:
 
 async def test_close_does_not_hang_when_the_consumer_is_gone(caplog: pytest.LogCaptureFixture) -> None:
     """``Runtime.drain()`` closes every sink at once, so a queue that can never empty would
-    cost every other sink its tail — and the process its shutdown."""
+    cost every other sink its tail  -  and the process its shutdown."""
     caplog.set_level(logging.ERROR, logger="agentdeck.runtime.dispatch")
     sink = SelfCancelOnce()
     dispatch = SinkDispatch(sink, capacity=4)
@@ -750,7 +750,7 @@ async def test_close_finishes_against_a_sink_whose_emit_never_returns() -> None:
 
 
 async def test_an_emit_that_never_returns_is_a_failure_and_trips_the_breaker() -> None:
-    """A wedged sink is as broken as a raising one, and has to reach the breaker the same way —
+    """A wedged sink is as broken as a raising one, and has to reach the breaker the same way  -
     otherwise it is retried, one full timeout at a time, for the rest of the process."""
     sink = Gated()  # never released: every emit hits the timeout
     dispatch = SinkDispatch(sink, capacity=8, failure_limit=2, emit_timeout=0.01)
@@ -881,7 +881,7 @@ async def test_an_event_submitted_after_close_is_counted_and_starts_no_consumer(
 async def test_closing_twice_counts_nothing_twice_and_raises_no_second_alarm(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Shutdown paths overlap in real processes. The second close must be quiet — and must not
+    """Shutdown paths overlap in real processes. The second close must be quiet  -  and must not
     write off the same stranded backlog again, which would inflate the loss it is reporting."""
     caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
     untouched = SinkDispatch(Recorder())
@@ -938,7 +938,7 @@ async def test_a_closed_sink_is_never_handed_another_event(
 ) -> None:
     """What a sink may assume, and the case that makes it worth stating: a consumer that ate the
     cancellation retiring it is still alive, and must reach no sink that has already let go of its
-    buffer — so it takes nothing further, rather than taking events and discarding them."""
+    buffer  -  so it takes nothing further, rather than taking events and discarding them."""
     caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
     monkeypatch.setattr("agentdeck.runtime.dispatch.REAP_TIMEOUT", 0.05)
     sink = CloseDeaf()
@@ -958,7 +958,7 @@ async def test_a_closed_sink_is_never_handed_another_event(
 async def test_a_sink_that_hangs_in_its_close_does_not_hold_shutdown_open(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The hook is a wait on a sink like any other, so it gets a deadline like any other —
+    """The hook is a wait on a sink like any other, so it gets a deadline like any other  -
     a flush to a dead endpoint must cost a shutdown a few seconds, not the process."""
     caplog.set_level(logging.WARNING, logger="agentdeck.runtime.dispatch")
     monkeypatch.setattr("agentdeck.runtime.dispatch.CLOSE_TIMEOUT", 0.05)  # the bound, shrunk
@@ -1000,7 +1000,7 @@ async def test_a_consumer_still_inside_emit_when_the_reap_gives_up_does_not_hold
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """The reap's deadline cannot be a deadline *around* ``await consumer``: one fires by cancelling
-    the waiting task, which forwards it straight into the sink that just swallowed the last one —
+    the waiting task, which forwards it straight into the sink that just swallowed the last one  -
     spending the deadline on the sink instead of ending the wait, with nothing left to fire again.
 
     Then the close hook is never reached at all, which is the shape of hang this asserts against:
@@ -1021,7 +1021,7 @@ async def test_a_consumer_still_inside_emit_when_the_reap_gives_up_does_not_hold
     await dispatch.close(timeout=0.01)
 
     # Closed while that emit was still running: the sink had buffered nothing yet, so an empty
-    # ``written`` is proof the flush did not sit behind the 0.4s of work — and ``closes`` is proof
+    # ``written`` is proof the flush did not sit behind the 0.4s of work  -  and ``closes`` is proof
     # it was reached at all, which is what the unbounded wait prevented outright.
     assert (sink.closes, sink.written) == (1, [])
     assert "sink Stubborn did not release its consumer within 0.01s; abandoning the task" in [
@@ -1035,7 +1035,7 @@ async def test_a_backlog_written_off_by_close_is_not_counted_again_by_a_survivin
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A consumer abandoned mid-``emit`` keeps running, and draining on would count events the
-    close already reported as lost — inflating the only number an operator has for how much a
+    close already reported as lost  -  inflating the only number an operator has for how much a
     shutdown cost. It retires at its next turn instead."""
     monkeypatch.setattr("agentdeck.runtime.dispatch.REAP_TIMEOUT", 0.01)
     sink = Stubborn()
@@ -1099,7 +1099,7 @@ async def test_a_sink_is_closed_once_however_many_times_shutdown_reaches_it() ->
 
 async def test_a_disabled_sink_is_still_closed_so_what_it_buffered_before_survives() -> None:
     """The breaker's verdict is about taking events, not about writing out the ones already
-    taken — a sink disabled halfway through a run is exactly the one holding a buffer nobody
+    taken  -  a sink disabled halfway through a run is exactly the one holding a buffer nobody
     else can flush."""
     sink = FailsAfterOne()
     dispatch = SinkDispatch(sink, failure_limit=2)
@@ -1118,7 +1118,7 @@ def test_a_dispatch_that_could_not_bound_anything_is_rejected() -> None:
     """Every one of these is a bound that would silently stop being one."""
     sink = Recorder()
     with pytest.raises(ValueError, match="capacity"):
-        SinkDispatch(sink, capacity=0)  # asyncio.Queue(0) is unbounded — the opposite of the point
+        SinkDispatch(sink, capacity=0)  # asyncio.Queue(0) is unbounded  -  the opposite of the point
     with pytest.raises(ValueError, match="capacity"):
         SinkDispatch(sink, capacity=-1)
     with pytest.raises(ValueError, match="failure_limit"):

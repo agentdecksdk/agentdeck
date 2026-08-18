@@ -1,7 +1,7 @@
 """Discovery: the ``.agentdeck/`` project dir (or a code-first list) becomes the invocables a
 Runtime can run.
 
-One registry for every shape a project authors — an agent bundle and a workflow bundle
+One registry for every shape a project authors  -  an agent bundle and a workflow bundle
 both come out as an ``InvocableSpec``, so the Runtime is handed one mapping and never
 learns which shape a name was authored in. Skills stay out: no engine plays a ``SKILL.md``
 bundle, so a spec for one could only fail at the moment somebody ran it.
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 # was authored in decides. Written as strings rather than read off the adapters, because an
 # adapter import here would invert the direction the Runtime's wiring depends on; a test
 # pins each literal to its adapter's own ``engine`` so the two can't drift.
-# ponytail: one engine per kind, forever — the day a second engine plays one shape, the
+# ponytail: one engine per kind, forever  -  the day a second engine plays one shape, the
 # engine belongs on the spec (authored per bundle), not in this table.
 ENGINE_FOR_KIND: Final[Mapping[InvocableKind, str]] = {
     InvocableKind.AGENT: "openai-agents",
@@ -53,14 +53,14 @@ def _wrapped(exc: Exception) -> type[ConfigError]:
 
 
 class InvocableRegistry:
-    """The one registry of what a project can run — from ``.agentdeck/`` bundles, or from a
+    """The one registry of what a project can run  -  from ``.agentdeck/`` bundles, or from a
     code-first ``agents=``/``workflows=`` list a :class:`~agentdeck.Deck` already holds.
 
     Construct it with the engines the Runtime was given; :meth:`load` then returns the
     mapping the Runtime takes, and raises instead if the project asks for an engine nobody
-    registered — a wiring mistake belongs at startup, not in the middle of a run.
+    registered  -  a wiring mistake belongs at startup, not in the middle of a run.
 
-    An entry may be a live ``EnginePort`` or its bare ``engine`` name string — ``Deck.build()``
+    An entry may be a live ``EnginePort`` or its bare ``engine`` name string  -  ``Deck.build()``
     validates which engines a catalog needs before it is safe to construct any of them (no
     network I/O), so it names them instead of building disposable instances just to ask.
     """
@@ -82,7 +82,7 @@ class InvocableRegistry:
 
         ``agents``/``workflows`` default to a discovery scan of ``./.agentdeck`` (one
         ``Agent``/``Workflow`` instance per bundle module); pass explicit sequences for a
-        code-first catalog instead — ``Deck.from_project()`` and ``Deck(agents=..., ...)``
+        code-first catalog instead  -  ``Deck.from_project()`` and ``Deck(agents=..., ...)``
         both end up here, so the two build the same way. ``resolve_skills``/
         ``resolve_workflow_tool`` are the catalog-aware hooks ``compile_agent`` needs for
         ``skills=``/a workflow used as a tool; a bare discovery scan passes neither, so an
@@ -90,7 +90,7 @@ class InvocableRegistry:
         names the bundle a discovered ``agents``/``workflows`` entry came from (name -> source
         path); a caller that already ran its own scan (``Deck.from_project``) supplies it since
         the association is otherwise lost the moment ``agents``/``workflows`` are handed in as
-        plain instances — a code-first entry has no bundle, so it is simply absent here.
+        plain instances  -  a code-first entry has no bundle, so it is simply absent here.
         ``context_type`` is the owning deck's ``Deck(context=...)`` declaration, checked against
         every ``Context[...]`` requirement in the catalog as each entry compiles.
 
@@ -127,7 +127,7 @@ class InvocableRegistry:
         for workflow in workflows:
             try:
                 # uncompiled: the langgraph adapter compiles the graph itself, around the
-                # checkpointer — ``durable`` names, which is why that flag travels with the
+                # checkpointer  -  ``durable`` names, which is why that flag travels with the
                 # spec rather than staying on the Workflow only the authoring layer can see.
                 # Bridged here rather than in the adapter so a node declaring two
                 # ``Context[...]`` parameters fails at build(), exactly where a tool's would.
@@ -161,7 +161,7 @@ class InvocableRegistry:
         if name in specs:
             raise ConfigError(
                 f"an agent and a workflow are both named {name!r} (kinds: {specs[name].kind.value} and "
-                f"{kind.value}); one name is one invocable — rename one of them."
+                f"{kind.value}); one name is one invocable  -  rename one of them."
             )
         engine = ENGINE_FOR_KIND[kind]
         if engine not in self._engines:

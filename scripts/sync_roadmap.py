@@ -14,7 +14,7 @@ REPO = "agentdecksdk/agentdeck"
 PROJECT_NUMBER = "5"
 # Deliberately not the repo owner. The board is a *user* project
 # (github.com/users/sagi5060/projects/5), and a user project does not move when its repository is
-# transferred — the repo went to the `agentdecksdk` org and the board stayed. Changing this to
+# transferred  -  the repo went to the `agentdecksdk` org and the board stayed. Changing this to
 # match REPO makes every lookup 404.
 PROJECT_OWNER = "sagi5060"
 GENERATED_NOTE = (
@@ -62,7 +62,9 @@ def project_status_by_issue() -> dict[int, str]:
             "json",
         ]
     )["items"]
-    return {item["content"]["number"]: item.get("status", "—") for item in items if "number" in item.get("content", {})}
+    return {
+        item["content"]["number"]: item.get("status", " - ") for item in items if "number" in item.get("content", {})
+    }
 
 
 def render_table(issues: list[dict], statuses: dict[int, str]) -> str:
@@ -70,8 +72,8 @@ def render_table(issues: list[dict], statuses: dict[int, str]) -> str:
         return "*No open issues.*"
     rows = ["| # | Title | Milestone | Status |", "|---|---|---|---|"]
     for issue in sorted(issues, key=lambda i: i["number"]):
-        milestone = issue["milestone"]["title"] if issue.get("milestone") else "—"
-        status = statuses.get(issue["number"], "—")
+        milestone = issue["milestone"]["title"] if issue.get("milestone") else " - "
+        status = statuses.get(issue["number"], " - ")
         rows.append(f"| #{issue['number']} | {issue['title']} | {milestone} | {status} |")
     return "\n".join(rows)
 
@@ -86,7 +88,7 @@ def replace_block(text: str, name: str, body: str) -> str:
 
 def sync_roadmap(statuses: dict[int, str]) -> Path:
     path = REPO_ROOT / "docs/delivery/roadmap-v3.1.md"
-    milestones = ("v3.1 — hardening", "v3.2 — batteries", "v3.3 — rooms & reach")
+    milestones = ("v3.1  -  hardening", "v3.2  -  batteries", "v3.3  -  rooms & reach")
     issues = [issue for milestone in milestones for issue in open_issues("--milestone", milestone)]
     path.write_text(
         replace_block(path.read_text(encoding="utf-8"), "milestones", render_table(issues, statuses)), encoding="utf-8"

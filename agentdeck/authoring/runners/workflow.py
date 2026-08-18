@@ -1,11 +1,11 @@
 """Direct-call workflow runner: compiled graph + per-invocation configuration, no event log.
 
-Used by :meth:`~agentdeck.authoring.workflow.Workflow.run`/``run_stream`` — a Runtime-driven
+Used by :meth:`~agentdeck.authoring.workflow.Workflow.run`/``run_stream``  -  a Runtime-driven
 workflow run never touches this; it goes through ``adapters/engines/langgraph/engine.py``
 instead. Sandbox scoping (v1's ``open_sandbox`` around every invocation) is gone with
 ``BaseSandboxAgent``: no workflow compiled through ``authoring`` needs one in v3.
 
-Like the agent runner beside it, this opens no spans of its own — tracing is a Deck-level
+Like the agent runner beside it, this opens no spans of its own  -  tracing is a Deck-level
 capability rendered from the canonical event stream, and a direct call bypasses that stream
 entirely, the same way it bypasses the event log.
 """
@@ -63,7 +63,7 @@ class BaseWorkflowRunner:
 
 @dataclass(slots=True)
 class DevWorkflowRunner(BaseWorkflowRunner):
-    """Compile-and-invoke driver — every node sees one shared workspace."""
+    """Compile-and-invoke driver  -  every node sees one shared workspace."""
 
     async def run(self, state: Any = None) -> Any:
         initial = coerce_input(state, self.workflow.state)
@@ -91,7 +91,7 @@ class DevWorkflowRunner(BaseWorkflowRunner):
                     yield {"type": "node_update", "node": node, "delta": delta}
             elif mode == "custom":
                 yield {"type": "custom", "data": chunk}
-            else:  # "values" — tracked for the final state, not surfaced as its own event
+            else:  # "values"  -  tracked for the final state, not surfaced as its own event
                 final_state = chunk
         yield {"type": "done", "state": final_state}
 

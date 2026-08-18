@@ -18,8 +18,8 @@ def _release_the_deck_claim():
     """A Deck holds the process until it is closed, and a sync test has no `await aclose()`.
 
     The net, not the contract: a test that opens a deck still closes it. Reached through
-    ``sys.modules`` so that a test which never imported ``agentdeck.deck`` — every one under
-    ``tests/core/`` — does not pull the SDK stack in through this hook.
+    ``sys.modules`` so that a test which never imported ``agentdeck.deck``  -  every one under
+    ``tests/core/``  -  does not pull the SDK stack in through this hook.
     """
     yield
     deck_module = sys.modules.get("agentdeck.deck")

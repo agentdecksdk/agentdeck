@@ -1,6 +1,6 @@
 """The innermost ring: schema only. No engine, no surface, no I/O.
 
-``agentdeck.core`` may import stdlib and pydantic and nothing else — an
+``agentdeck.core`` may import stdlib and pydantic and nothing else  -  an
 import-linter contract enforces it.
 """
 

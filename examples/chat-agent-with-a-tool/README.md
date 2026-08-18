@@ -9,7 +9,7 @@ up. Six lines of declaration; no JSON schema, no call-parsing, no tool loop.
 run.py                            # deck.run("OrderDesk", "where is order A-1001?")
 ```
 
-The file's location is the registration — nothing imports `agent.py`, and there is no catalog
+The file's location is the registration  -  nothing imports `agent.py`, and there is no catalog
 file to add it to.
 
 ## Run it
@@ -24,7 +24,7 @@ python run.py
 Run it from *this* directory: `Deck.from_project()` discovers `./.agentdeck`, so the working
 directory is what picks the project.
 
-`OPENAI_BASE_URL` points it at any OpenAI-compatible server instead — a gateway, vLLM, Ollama.
+`OPENAI_BASE_URL` points it at any OpenAI-compatible server instead  -  a gateway, vLLM, Ollama.
 Chat-Completions-only servers also want `OPENAI_USE_RESPONSES=false`.
 
 ## What to look at
@@ -33,10 +33,10 @@ Chat-Completions-only servers also want `OPENAI_USE_RESPONSES=false`.
   the type hints and the description off the docstring; `tools=[...]` hands the list straight
   through. agentdeck does not sit between the model and your function.
 - **The instructions tell the model to call the tool rather than guess.** That is the whole
-  contract — there is no rule engine enforcing it.
+  contract  -  there is no rule engine enforcing it.
 - **The tool runs in this process with these privileges**, on arguments the model chose. Keep
   anything destructive behind a human approval instead (the sibling example), not behind an
   agent's judgement.
 
-Next: [Add a Tool](https://agentdecksdk.com/guides/add-a-tool) ·
-[Agents](https://agentdecksdk.com/concepts/agents)
+Next: [Tools](https://agentdecksdk.com/build-your-deck/tools) ·
+[Agents](https://agentdecksdk.com/build-your-deck/agents)

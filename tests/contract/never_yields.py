@@ -3,8 +3,8 @@ tests that must prove a caller's liveness needs no help from the store (issue #8
 
 Every real store suspends somewhere (SQLite's own ``to_thread``); ``MemoryEventStore``
 suspends once per ``append``, for fidelity with that. Wrapping either in ``NeverYields``
-strips even that back out, so a liveness-sensitive caller — a bounded sink dispatch, a
-drain — is tested against the one scheduling profile no real deployment provides but every
+strips even that back out, so a liveness-sensitive caller  -  a bounded sink dispatch, a
+drain  -  is tested against the one scheduling profile no real deployment provides but every
 caller has to survive anyway: a store that never once lets another task run.
 """
 
@@ -28,7 +28,7 @@ def _drive[T](coro: Coroutine[Any, Any, T]) -> T:
     (``await asyncio.sleep(0)``) without ever handing the turn to a real event loop.
 
     A bare yield carries no value and needs nothing external to become resumable, so
-    stepping past it here is faithful to what the delegate actually does — the loop was
+    stepping past it here is faithful to what the delegate actually does  -  the loop was
     never going to do more than immediately resume it either. Anything else yielded (a
     ``Future``, a real suspension on I/O) means the delegate needs the loop itself to make
     progress, which is exactly the dependency this wrapper exists to rule out: that is a
@@ -47,7 +47,7 @@ class NeverYields(EventStorePort):
     """Delegates every call to a real store, but never once suspends doing it.
 
     Not a fake with its own state: the delegate's logic runs in full, including the
-    scheduling yield ``MemoryEventStore.append`` now carries for fidelity — ``_drive`` just
+    scheduling yield ``MemoryEventStore.append`` now carries for fidelity  -  ``_drive`` just
     steps past it by hand. What is not honored is any real suspension: a delegate that
     genuinely needs the loop (SQLite's ``to_thread``) is not a fit for this wrapper and
     raises ``AssertionError`` rather than a silent hang.

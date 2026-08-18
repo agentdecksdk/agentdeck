@@ -81,7 +81,7 @@ def test_each_precondition_cell_says_what_the_design_says_it_says(
 def test_no_ruling_is_silent() -> None:
     """The invariant the table exists for: every read of the control port ends in an event or an
     explicit no-op. ``Action`` has no member meaning "do nothing and say nothing", so this holds
-    by construction — what it guards is somebody adding one."""
+    by construction  -  what it guards is somebody adding one."""
     assert {ruling.action for ruling in POLICY.values()} <= set(Action)
     assert all(ruling.why for ruling in POLICY.values())
 
@@ -97,7 +97,7 @@ def test_a_cancel_against_a_stopped_run_is_terminal_rather_than_deferred() -> No
 def test_a_pause_against_a_waiting_run_refuses_the_answer_and_keeps_both_intents() -> None:
     """The design's second opinion, and the one cell most likely to be "simplified" back into a
     lift. Lifting lets an answer silently override an operator who said stop; refusing costs one
-    round trip. ``consume=False`` is the half that keeps the pause pending — a refusal that ate
+    round trip. ``consume=False`` is the half that keeps the pause pending  -  a refusal that ate
     the intent would lose the stop it just cited."""
     ruling = decide(RunStatus.WAITING_ANSWER, "pause")
 

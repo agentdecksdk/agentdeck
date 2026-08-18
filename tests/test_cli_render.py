@@ -1,4 +1,4 @@
-"""The reference consumer reading the control lifecycle — and its default case, which is the
+"""The reference consumer reading the control lifecycle  -  and its default case, which is the
 forward-compatibility promise every consumer makes.
 
 A chat reader watching a stream go quiet cannot tell "the operator pressed cancel" from "the

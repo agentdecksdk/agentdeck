@@ -20,8 +20,6 @@ import {
   Interaction,
   Control,
   WholeDeck,
-  Interop,
-  Boundary,
   MeetJack,
   FinalCTA
 } from './app/landing-components'
@@ -50,9 +48,7 @@ export function useMDXComponents(components = {}) {
     Interaction,
     Control,
     WholeDeck,
-    Interop,
-    Boundary,
-    MeetJack,
+        MeetJack,
     FinalCTA,
     ...components
   }

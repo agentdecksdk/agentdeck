@@ -1,21 +1,21 @@
 """Event schema v1: one envelope, one payload per kind.
 
-Engines produce payloads, the Runtime fills the envelope — so an engine cannot get
+Engines produce payloads, the Runtime fills the envelope  -  so an engine cannot get
 ``seq`` or ``namespace`` wrong. ``seq`` is per-run and contiguous from 0, which makes it
 both the ordering authority and a loss check; ``ts`` is informational.
 
-Unknown kinds parse instead of raising — ``Event.model_validate`` lands them as
-:class:`UnknownEvent` — and unknown fields inside a known payload are dropped, so an old reader
+Unknown kinds parse instead of raising  -  ``Event.model_validate`` lands them as
+:class:`UnknownEvent`  -  and unknown fields inside a known payload are dropped, so an old reader
 survives a newer writer. Adding a kind or an optional field is a ``minor`` bump, tolerated by
 construction through :class:`UnknownEvent`/``UnknownBlock`` without either side consulting the
 number; renaming, removing, or otherwise changing what a reader must already understand to parse
-at all is a ``major`` bump, and :class:`Event` refuses one it does not carry — see
+at all is a ``major`` bump, and :class:`Event` refuses one it does not carry  -  see
 :class:`SchemaVersion`.
 
 Run control is three phases, not one event: ``control.requested`` (the signal was written),
 ``control.observed`` (the run reached a safe point and acted), and the verb's own kind for the
 effect. One pair of kinds carries every verb, so pause and steering need no vocabulary of their
-own — and a caller can tell "the signal is recorded" from "the run actually stopped", which is
+own  -  and a caller can tell "the signal is recorded" from "the run actually stopped", which is
 the whole difference between cooperative control and control.
 """
 
@@ -36,7 +36,7 @@ from pydantic import (
 )
 
 from agentdeck.core.base import CoreModel, JsonData
-from agentdeck.core.content import Input  # noqa: TC001 — pydantic resolves field annotations at runtime
+from agentdeck.core.content import Input  # noqa: TC001  -  pydantic resolves field annotations at runtime
 
 RESULT_PREVIEW_MAX = 4096
 
@@ -48,14 +48,14 @@ stays reachable (#129).
 
 A shape, deliberately not a set: closing it to :data:`KNOWN_KINDS` would reject every kind a newer
 writer invents, the one thing :class:`UnknownEvent` exists to prevent. This refuses only what no
-writer should emit — ``""``, ``"Run Started"``, ``"run..started"``.
+writer should emit  -  ``""``, ``"Run Started"``, ``"run..started"``.
 """
 
 
 class SchemaVersion(CoreModel):
     """The envelope's version, not a free-form semver: ``major`` is what a reader must already
     understand to parse the envelope at all, ``minor`` is an addition an old reader tolerates by
-    construction — a kind it has never seen lands as ``UnknownEvent``, a block it has never seen
+    construction  -  a kind it has never seen lands as ``UnknownEvent``, a block it has never seen
     lands as ``UnknownBlock``, neither consulting this number to do so. ``minor`` exists to record
     that provenance, not to gate parsing: :class:`Event` checks ``major`` and nothing else.
 
@@ -70,23 +70,23 @@ class SchemaVersion(CoreModel):
 CURRENT_VERSION = SchemaVersion(major=3, minor=1)
 """What this tree writes onto every event. ``major=3`` because this is the change that makes it
 one: replacing the scalar ``v`` with this model is exactly the kind of break a reader must
-recognise to parse at all — the same reason ``v`` went from 1 to 2 when ``namespace`` replaced
+recognise to parse at all  -  the same reason ``v`` went from 1 to 2 when ``namespace`` replaced
 the required ``tenant``. A future additive change (a new kind, a new optional field) bumps
 ``minor`` here and nowhere else; a future breaking one bumps ``major`` and updates the check on
 :class:`Event`.
 
 ``minor=1`` (#159): ``AudioBlock`` is the first real payload change to take this path rather
-than the envelope one — old readers already tolerate it via ``UnknownBlock``, which is what
+than the envelope one  -  old readers already tolerate it via ``UnknownBlock``, which is what
 additive means."""
 
 Money = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 """US dollars, constrained where the token counts already were. ``NaN``/``±Infinity`` serialize
-as ``null``, so a consumer reads *no cost* where the producer wrote nonsense — and money is the
+as ``null``, so a consumer reads *no cost* where the producer wrote nonsense  -  and money is the
 last field that should be exempt from the rule ``JsonData`` applies everywhere else."""
 
 
 class Usage(CoreModel):
-    """Token accounting. agentdeck does not price model calls — no provider returns dollars in a
+    """Token accounting. agentdeck does not price model calls  -  no provider returns dollars in a
     response, and a price depends on a contract, a tier and a date rather than on the call, so
     owning a table for every model on every provider would trade an empty field for a stale one.
     ``usd`` is reserved for a caller that supplies its own cost; agentdeck itself never sets it,
@@ -100,8 +100,8 @@ class Usage(CoreModel):
 class RunStarted(CoreModel):
     """Opens a run: what was asked for, and what it was asked with.
 
-    No context snapshot. Everything the old one carried — a trace id, a budget, who triggered
-    it, a parent run — was recorded and read by nothing, so the log said a run was admitted
+    No context snapshot. Everything the old one carried  -  a trace id, a budget, who triggered
+    it, a parent run  -  was recorded and read by nothing, so the log said a run was admitted
     under constraints that never existed. Where a run was played is on the envelope, where
     every event carries it.
     """
@@ -115,7 +115,7 @@ class RunStarted(CoreModel):
 class RunCompleted(CoreModel):
     """Terminal. ``usage`` is the authoritative total for the run.
 
-    A structured result — a validated ``output_type``, a workflow's final state — is a
+    A structured result  -  a validated ``output_type``, a workflow's final state  -  is a
     ``DataBlock`` in ``output``, not a namespaced ``custom`` event and not a stringified dict.
     """
 
@@ -134,7 +134,7 @@ class RunFailed(CoreModel):
 
 
 class RunPaused(CoreModel):
-    """Cooperative pause — not terminal, and not waiting on an answer."""
+    """Cooperative pause  -  not terminal, and not waiting on an answer."""
 
     kind: Literal["run.paused"] = "run.paused"
     reason: str | None = None
@@ -144,7 +144,7 @@ class RunResumed(CoreModel):
     """The run continues: same ``run_id``, ``seq`` keeps counting.
 
     ``value`` is the answer, stored in full and riding on this event so that the write flipping
-    ``WAITING_ANSWER`` to ``RUNNING`` is the same write that stores it — two writes leave a window
+    ``WAITING_ANSWER`` to ``RUNNING`` is the same write that stores it  -  two writes leave a window
     where the log says a run was answered but no longer holds what the answer was. ``None`` is a
     resume answering nothing, which is what lifting a pause looks like.
 
@@ -165,7 +165,7 @@ class RunCancelled(CoreModel):
 
 
 class RunInterrupted(CoreModel):
-    """Waiting on an answer. Not terminal — ``run_id`` and ``seq`` continue on resume."""
+    """Waiting on an answer. Not terminal  -  ``run_id`` and ``seq`` continue on resume."""
 
     kind: Literal["run.interrupted"] = "run.interrupted"
     interrupt_id: str
@@ -188,10 +188,10 @@ or at a graph node boundary. Closed for the same reason ``ControlVerb`` is."""
 
 
 class ControlRequested(CoreModel):
-    """A control signal was recorded for this run — not that the run has acted on it.
+    """A control signal was recorded for this run  -  not that the run has acted on it.
 
     Only this much is knowable when a caller asks: the run may be inside a tool call that has to
-    return first. So a request is never a status transition — a run stays ``RUNNING`` until
+    return first. So a request is never a status transition  -  a run stays ``RUNNING`` until
     ``run.paused`` or ``run.cancelled`` says otherwise. A signal that lost the race with a
     terminal event records nothing: a terminal event is a run's last by invariant.
     """
@@ -202,7 +202,7 @@ class ControlRequested(CoreModel):
 
 
 class ControlObserved(CoreModel):
-    """The run reached a safe point, found the signal, and is acting on it — noticed, not stopped.
+    """The run reached a safe point, found the signal, and is acting on it  -  noticed, not stopped.
     The verb's own kind records the effect.
 
     ``safe_point`` names where, because "cancel took eight seconds" and "cancel took eight seconds
@@ -223,7 +223,7 @@ class TextDelta(CoreModel):
 
 
 class ThoughtDelta(CoreModel):
-    """Reasoning fragment — same framing as ``text.delta``, separate channel."""
+    """Reasoning fragment  -  same framing as ``text.delta``, separate channel."""
 
     kind: Literal["thought.delta"] = "thought.delta"
     message_id: str
@@ -231,7 +231,7 @@ class ThoughtDelta(CoreModel):
 
 
 class MessageCompleted(CoreModel):
-    """The full final text — deltas are streaming UX. One ``message_id`` never spans two origins."""
+    """The full final text  -  deltas are streaming UX. One ``message_id`` never spans two origins."""
 
     kind: Literal["message.completed"] = "message.completed"
     message_id: str
@@ -279,7 +279,7 @@ class ArtifactCreated(CoreModel):
 
 
 class UsageReported(CoreModel):
-    """One model call, advisory — the total on ``run.completed`` wins."""
+    """One model call, advisory  -  the total on ``run.completed`` wins."""
 
     kind: Literal["usage.reported"] = "usage.reported"
     model: str
@@ -297,7 +297,7 @@ class InputAppended(CoreModel):
 class StatusReported(CoreModel):
     """Advisory: what the run is doing right now, in words a person can read.
 
-    Not a transition — status folds from the lifecycle kinds (``core/status.py``), so a run
+    Not a transition  -  status folds from the lifecycle kinds (``core/status.py``), so a run
     reporting ``"Searching GitHub"`` is still ``RUNNING``.
     """
 
@@ -309,7 +309,7 @@ class ProgressReported(CoreModel):
     """Advisory: which named stage the run is on, optionally counted.
 
     ``step`` is required; the counts are not, because a run that knows its stage often does not
-    know how many there are. Never a percentage — a consumer that wants one divides, and only
+    know how many there are. Never a percentage  -  a consumer that wants one divides, and only
     when ``total`` is present.
     """
 
@@ -330,7 +330,7 @@ class Custom(CoreModel):
 
     kind: Literal["custom"] = "custom"
     # ``<namespace>.<event>``, both non-empty; a further-dotted event name is the namespace's
-    # own business. Pattern rather than a validator — pydantic already says it better than the
+    # own business. Pattern rather than a validator  -  pydantic already says it better than the
     # message a hand-written one would raise.
     name: str = Field(pattern=r"^[^.]+\..+$")
     data: dict[str, JsonData]
@@ -339,7 +339,7 @@ class Custom(CoreModel):
 class UnknownEvent(CoreModel):
     """A kind this version doesn't know: consumers skip it, stores keep it.
 
-    Strict on purpose — it sits in a union with the known payloads, so anything laxer
+    Strict on purpose  -  it sits in a union with the known payloads, so anything laxer
     would let a malformed known payload validate here instead of raising.
     """
 
@@ -352,7 +352,7 @@ class UnknownEvent(CoreModel):
     @classmethod
     def _is_not_a_known_kind(cls, value: str) -> str:
         if value in KNOWN_KINDS:
-            raise ValueError(f"{value!r} is a known kind — use its payload class")
+            raise ValueError(f"{value!r} is a known kind  -  use its payload class")
         return value
 
 
@@ -392,7 +392,7 @@ class Event(CoreModel):
     ``model_validate`` is the only entry point a reader needs: an unfamiliar ``kind`` lands as
     :class:`UnknownEvent` rather than raising. A malformed *known* payload still raises.
 
-    ``kind`` is written twice — here and inside the payload — because each copy answers a
+    ``kind`` is written twice  -  here and inside the payload  -  because each copy answers a
     different question: this one is what a store indexes on without parsing (``json_extract(data,
     '$.kind')``), the payload's is the union's discriminator. Dropping either is a wire change: a
     released reader dispatches on the payload copy and cannot read a row without it.
@@ -416,7 +416,7 @@ class Event(CoreModel):
     @classmethod
     def _a_pre_v3_scalar_version_says_so(cls, value: object) -> object:
         """``v`` was a plain integer up to and including v3.0.0b1, so an event out of a store
-        written then fails here rather than at :class:`SchemaVersion`'s own field parsing — where
+        written then fails here rather than at :class:`SchemaVersion`'s own field parsing  -  where
         it reads as two unrelated missing-field errors and tells the operator nothing about why
         their log stopped loading."""
         if isinstance(value, int) and not isinstance(value, bool):
@@ -443,14 +443,14 @@ class Event(CoreModel):
     @classmethod
     def _an_unknown_kind_degrades(cls, data: Any, handler: ValidatorFunctionWrapHandler) -> Any:
         """An unfamiliar ``kind`` lands as :class:`UnknownEvent` instead of failing the whole read
-        — stores parse every row, so one unrecognised event would take a session's log with it.
+         -  stores parse every row, so one unrecognised event would take a session's log with it.
 
         The payload's own claim is compared before wrapping, never overwritten: wrapping with the
         envelope's ``kind`` would *relabel* a row whose two copies disagree, and that disagreement
         is exactly what says the row is not what it claims to be.
 
         A stored ``UnknownEvent`` (``{kind, raw_payload}``) validates against the union member
-        directly, so ``handler`` succeeds and it is never re-wrapped — which lets it round-trip.
+        directly, so ``handler`` succeeds and it is never re-wrapped  -  which lets it round-trip.
         """
         try:
             return handler(data)

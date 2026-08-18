@@ -1,6 +1,6 @@
 """Typed content blocks.
 
-``Input`` is what every boundary passes instead of a bare string, in both directions —
+``Input`` is what every boundary passes instead of a bare string, in both directions  -
 ``run.completed`` carries one too.
 
 Blocks are stored in full: they are the caller's own input and the run's declared result, and a
@@ -36,13 +36,13 @@ raising the cap later is compatible, lowering it is not."""
 def _capped_inline(value: str) -> str:
     """Reject inline base64 over :data:`INLINE_BYTES_CAP` decoded bytes.
 
-    ``b64decode`` is called exactly once — the decoded length it returns is also the
+    ``b64decode`` is called exactly once  -  the decoded length it returns is also the
     measurement, so nothing here decodes the payload a second time just to size it.
     """
     decoded_size = len(base64.b64decode(value))
     if decoded_size > INLINE_BYTES_CAP:
         raise ValueError(
-            f"inline data is {decoded_size} decoded bytes, over the {INLINE_BYTES_CAP}-byte cap — "
+            f"inline data is {decoded_size} decoded bytes, over the {INLINE_BYTES_CAP}-byte cap  -  "
             "use ResourceBlock for anything larger"
         )
     return value
@@ -100,7 +100,7 @@ class DataBlock(CoreModel):
 class UnknownBlock(CoreModel):
     """A block ``type`` this version doesn't know: consumers skip it, stores keep it.
 
-    Strict on purpose — it sits in a union with the known blocks, so anything laxer would
+    Strict on purpose  -  it sits in a union with the known blocks, so anything laxer would
     let a malformed known block validate here instead of raising.
     """
 
@@ -113,7 +113,7 @@ class UnknownBlock(CoreModel):
     @classmethod
     def _is_not_a_known_type(cls, value: str) -> str:
         if value in KNOWN_BLOCK_TYPES:
-            raise ValueError(f"{value!r} is a known block type — use its block class")
+            raise ValueError(f"{value!r} is a known block type  -  use its block class")
         return value
 
     @model_serializer
@@ -135,7 +135,7 @@ def _fallback_to_unknown_block(value: Any, handler: ValidatorFunctionWrapHandler
     """Reshape an unfamiliar block into :class:`UnknownBlock` instead of failing the union.
 
     ``UnknownBlock`` dumps as its own ``raw_block`` verbatim (its ``model_serializer``), so a
-    second parse meets the original dict again rather than ``{type, raw_block}`` — ``handler``
+    second parse meets the original dict again rather than ``{type, raw_block}``  -  ``handler``
     fails on it exactly as it did the first time, and this re-wraps it into an equal
     ``UnknownBlock``. The serializer is what makes parse-then-dump the identity; this function
     runs on every parse, not only the first.

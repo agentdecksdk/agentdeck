@@ -20,6 +20,7 @@ Additional rules:
 - Do not perform unrelated cleanup.
 - Prefer the smallest coherent implementation.
 - Do not add abstractions speculatively.
+- Never use the ` - ` (em dash) character in code, comments, documentation, or commit messages.
 - Do not weaken tests, lint, typing, goldens, or CI to make the implementation pass.
 - Do not hide a design/reality conflict with a workaround.
 

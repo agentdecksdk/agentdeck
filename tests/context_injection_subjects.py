@@ -1,4 +1,4 @@
-"""Callables annotated **eagerly** — this module deliberately omits ``from __future__ import
+"""Callables annotated **eagerly**  -  this module deliberately omits ``from __future__ import
 annotations``, which every other module here has.
 
 The pair matters: ``tests/test_context_injection.py`` uses postponed annotations, so its own

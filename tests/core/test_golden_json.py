@@ -46,8 +46,8 @@ def test_adding_a_payload_kind_rewrites_exactly_its_own_snapshot(tmp_path):
 
     Two things make this decisive rather than a restatement of the fixture.
 
-    The extra payload is **prepended**, not appended. Under the old rule — ``seq`` taken from the
-    payload's index in ``PAYLOADS`` — appending is the one insertion that happens to be safe, so
+    The extra payload is **prepended**, not appended. Under the old rule  -  ``seq`` taken from the
+    payload's index in ``PAYLOADS``  -  appending is the one insertion that happens to be safe, so
     an appended extra would pass against the very fixture this test exists to forbid. Prepending
     shifts every later index, so the regression rewrites all ~21 files and fails here loudly.
 

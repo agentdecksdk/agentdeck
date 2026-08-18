@@ -1,17 +1,17 @@
-"""UC3 — "the rude interruption": SlowPoke streams 30 text chunks with small sleeps;
+"""UC3  -  "the rude interruption": SlowPoke streams 30 text chunks with small sleeps;
 a signal against its ``run_id`` cancels it cleanly, in-process and across a real OS
 process boundary; replay after cancel is truncated but coherent; a dropped mid-run event
 is detected by its ``seq`` gap and recovered from the store.
 
-Every test below drives ``Runtime`` directly — nothing in the CLI renderer
+Every test below drives ``Runtime`` directly  -  nothing in the CLI renderer
 (``surfaces/cli/chat.py``) changes for this file; it is fed a truncated replay as-is in
 ``test_uc3_replay_is_truncated_but_coherent_and_the_renderer_copes``. The cancel wiring
 lives entirely in ``Runtime._bind``: a ``Runtime`` built with a ``ControlPort``
-rebinds ``ctx.gate`` itself, so a caller building a plain ``RunContext`` — including
-``surfaces/serve/app.py``'s chat route, also untouched — never has to know a control port
+rebinds ``ctx.gate`` itself, so a caller building a plain ``RunContext``  -  including
+``surfaces/serve/app.py``'s chat route, also untouched  -  never has to know a control port
 exists. (The chat route's own cancellability isn't exercised here: ``httpx.ASGITransport``
 runs a request's whole ASGI call before returning anything, so it cannot interleave a
-live signal with an in-flight response — a real ASGI server wouldn't have that limit, but
+live signal with an in-flight response  -  a real ASGI server wouldn't have that limit, but
 proving it needs one, which is out of scope for this unit-test suite.)
 """
 
@@ -85,7 +85,7 @@ def _response(output: list[Any]) -> Response:
 
 
 class SlowPokeModel(Model):
-    """UC3's deliberately slow fake: 30 text chunks, a small sleep before each — enough of
+    """UC3's deliberately slow fake: 30 text chunks, a small sleep before each  -  enough of
     a window for a cross-process signal to land mid-stream without slowing the suite."""
 
     async def stream_response(self, _system_instructions: str | None, _input: Any, *_a: Any, **_k: Any):
@@ -124,7 +124,7 @@ def _spec() -> InvocableSpec:
 def _build(control: ControlPort) -> tuple[Runtime, EventStorePort]:
     """A run that polls control at every safe point, which is not the shipped default.
 
-    SlowPoke's whole answer is 30 chunks of 5ms — shorter than the 200ms a gate may reuse an
+    SlowPoke's whole answer is 30 chunks of 5ms  -  shorter than the 200ms a gate may reuse an
     answer for (``CONTROL_POLL_INTERVAL``), so a signal sent mid-stream here would be noticed
     after the run had already finished. What these tests are about is *where* a cancel lands
     and what the log looks like afterwards, not how soon the gate hears about it; the read
@@ -142,7 +142,7 @@ async def _gap_recovering_consumer(
 ) -> list[Event]:
     """A minimal consumer that trusts the seq invariant: a gap in the live stream is
     detected the moment it arrives and closed by refetching the missing range from the
-    store — proving contiguous seq buys loss detection, not merely ordering."""
+    store  -  proving contiguous seq buys loss detection, not merely ordering."""
     seen: dict[int, Event] = {}
     next_expected = 0
     async for event in source:
@@ -156,7 +156,7 @@ async def _gap_recovering_consumer(
 
 async def test_uc3_cancel_lands_at_next_safe_point_stable_across_20_runs() -> None:
     """Signal CANCEL right as the run opens, 20 times over: every run must still close
-    with exactly one terminal event, last, seq contiguous — flakiness here is a real
+    with exactly one terminal event, last, seq contiguous  -  flakiness here is a real
     ordering bug, not test noise."""
     for trial in range(20):
         control = MemoryControlPort()
@@ -166,7 +166,7 @@ async def test_uc3_cancel_lands_at_next_safe_point_stable_across_20_runs() -> No
         async for event in runtime.run("SlowPoke", coerce_input("go slow"), namespace="demo"):
             events.append(event)
             if event.kind == "run.started":
-                # The run's own minted id, read off the event it was just recorded on — #324
+                # The run's own minted id, read off the event it was just recorded on  -  #324
                 # means nothing upstream of this loop can predict it any more.
                 await control.signal(event.run_id, Signal.CANCEL)
 
@@ -243,7 +243,7 @@ async def test_uc3_replay_is_truncated_but_coherent_and_the_renderer_copes(
 
 async def test_uc3_chaos_gap_detection_recovers_from_store() -> None:
     """Drop one mid-run event before "the consumer" sees it; the gap-detecting consumer
-    above must notice the seq jump and close it by refetching from the store — the thing
+    above must notice the seq jump and close it by refetching from the store  -  the thing
     contiguous seq is for, demonstrated rather than merely argued."""
     control = MemoryControlPort()
     runtime, store = _build(control)
@@ -332,13 +332,13 @@ asyncio.run(main())
 
 
 def test_uc3_cross_process_cancel(tmp_path: Any) -> None:
-    """The literal UC3 script: Terminal A streams SlowPoke; a second, real OS process —
-    the ``agentdeck runs signal`` CLI, not a Python object shared with A — cancels it by
+    """The literal UC3 script: Terminal A streams SlowPoke; a second, real OS process  -
+    the ``agentdeck runs signal`` CLI, not a Python object shared with A  -  cancels it by
     ``run_id`` alone, obtained from the stream A is already printing (addressability
     demonstrated, not assumed). Unnamespaced on both sides: the CLI has no ``--namespace``
     flag and never will (docs/design/run-identity.md).
 
-    ``key`` is what Terminal A is launched with — an application identifier it happens to
+    ``key`` is what Terminal A is launched with  -  an application identifier it happens to
     choose, never the run's own address (#324). The run's real id is minted inside process A
     and is only ever known to Terminal B because it reads it off the stream, never because it
     guessed or was told the key.

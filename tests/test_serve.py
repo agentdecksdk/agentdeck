@@ -93,7 +93,7 @@ def _in_the_servers_loop(client, method, *args, **kwargs):
     """One Python-API call on the loop the server itself runs on.
 
     An async checkpointer's connection binds to the loop that opened it, so a fresh
-    ``asyncio.run`` would fail on that rather than exercise anything — and a second process is
+    ``asyncio.run`` would fail on that rather than exercise anything  -  and a second process is
     not what this models anyway: it is one deployment answering an approval through both of its
     front doors.
     """
@@ -101,7 +101,7 @@ def _in_the_servers_loop(client, method, *args, **kwargs):
 
 
 async def _run_waiting_on(deck, thread_id):
-    """The ``Run`` parked on ``thread_id`` — the public surface's own way to the id these tests
+    """The ``Run`` parked on ``thread_id``  -  the public surface's own way to the id these tests
     used to get off ``deck.runs.pending()``'s ``PendingRun`` rows."""
     for run in await deck.runs.list(status=RunStatus.WAITING_ANSWER):
         pending = await run.pending()
@@ -111,12 +111,12 @@ async def _run_waiting_on(deck, thread_id):
 
 
 def _inbox(client, thread_id):
-    """The pending list scoped to one thread — the memory saver is shared process-wide."""
+    """The pending list scoped to one thread  -  the memory saver is shared process-wide."""
     return [p for p in client.get("/workflows/ApprovalFlow/pending").json() if p["thread_id"] == thread_id]
 
 
 def test_workflow_interrupt_inbox_and_resume(client):
-    """Pause over HTTP, read the inbox, resume with a decision — the Middle approval loop."""
+    """Pause over HTTP, read the inbox, resume with a decision  -  the Middle approval loop."""
     paused = client.post("/workflows/ApprovalFlow?thread_id=t-http", json={"request": "tue 9am"})
     pending = _inbox(client, "t-http")
     resumed = client.post("/workflows/ApprovalFlow/t-http/resume", json={"value": "yes"})
@@ -153,8 +153,8 @@ def test_workflow_stream_endpoint_emits_an_interrupt_event_instead_of_done(clien
 
 
 def test_run_control_endpoints_record_a_request_and_answer_at_once(client):
-    """Pause and cancel answer before the run has done anything about them — that is the whole
-    point of the request/observation split — so the body says ``recorded``, never "stopped".
+    """Pause and cancel answer before the run has done anything about them  -  that is the whole
+    point of the request/observation split  -  so the body says ``recorded``, never "stopped".
 
     An unknown ``run_id`` is accepted for the same reason a signal against a finished run is a
     no-op: from here, a run in another process, a run that just ended and a run that never
@@ -180,7 +180,7 @@ def test_resuming_a_run_that_is_not_paused_is_a_conflict_not_a_success(client):
 def test_resuming_a_run_that_is_waiting_for_an_answer_is_a_conflict_that_names_the_verb(client):
     """The run *does* exist and *is* stopped, so neither 404 nor the generic "not paused" 409
     fits: it is waiting for a value, and the caller reached for the wrong one of the two verbs.
-    A state refusal is not a server fault either — without its own handler ``RunStateError``
+    A state refusal is not a server fault either  -  without its own handler ``RunStateError``
     would fall through to the catch-all and answer 500 with the message swallowed, which is
     exactly the information this endpoint exists to hand back.
     """
@@ -205,7 +205,7 @@ def test_resuming_a_run_that_is_waiting_for_an_answer_is_a_conflict_that_names_t
 
 def test_a_control_reason_that_is_not_a_string_is_refused_at_the_boundary(client):
     """The reason is recorded in the log and read by whoever asks why a run stopped, so it is
-    validated where it arrives — 422 from the edge, not a 500 out of a payload class later."""
+    validated where it arrives  -  422 from the edge, not a 500 out of a payload class later."""
     assert client.post("/runs/r-http/pause", json={"reason": 7}).status_code == 422
 
 
@@ -216,7 +216,7 @@ def test_a_second_run_on_a_thread_parked_on_an_approval_is_a_409(client, query, 
     """The refusal has to be an *answer*, streamed or not. A streamed handler that hands its
     generator straight to ``StreamingResponse`` has committed ``200`` and ``text/event-stream``
     before the session claim is even attempted, so the refusal can only arrive in-band as
-    ``event: error`` — a body that stops, indistinguishable from a run that produced nothing.
+    ``event: error``  -  a body that stops, indistinguishable from a run that produced nothing.
 
     This is the case an approval UI actually hits: the thread is *idle*, waiting on a human, and
     goes on holding its session until somebody answers it.
@@ -237,7 +237,7 @@ def test_a_second_run_on_a_thread_parked_on_an_approval_is_a_409(client, query, 
 
 def test_resuming_a_thread_already_answered_out_of_band_is_a_404_not_a_dropped_value(client):
     """A thread answered once, through either front door, must not be resumable a second time.
-    Resuming an already-answered thread replays it past ``END``, which langgraph does happily —
+    Resuming an already-answered thread replays it past ``END``, which langgraph does happily  -
     returning its stale final state and dropping this caller's value on the floor. Answering
     404 is the only honest report, and it has to hold whichever door answered it first.
     """

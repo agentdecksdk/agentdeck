@@ -1,7 +1,7 @@
 """The event log in Postgres: the same contract as ``adapters.stores.sqlite``, for workers
 that share a database rather than a filesystem.
 
-The SQLite store's own docstring points here for a networked deployment — WAL needs shared
+The SQLite store's own docstring points here for a networked deployment  -  WAL needs shared
 memory across processes, so a log on NFS is unreliable, and that is exactly the shape a
 multi-worker server has. Nothing else changes: append-only, one row per event, ``seq``
 scoped to one run and unique across the whole namespace rather than within one log, and
@@ -10,7 +10,7 @@ source of truth).
 
 Everything this store owns lives in its **own schema** (``agentdeck_events`` by default),
 so a database that also holds the langgraph checkpointer's tables keeps the platform record
-and the engine's private execution state apart — the operational separation ADR-D5 asks
+and the engine's private execution state apart  -  the operational separation ADR-D5 asks
 for, expressed as the one thing Postgres can enforce.
 """
 
@@ -68,7 +68,7 @@ def _advisory_key(name: str) -> int:
 class PostgresEventStore(EventStorePort):
     """Append-only rows in one Postgres schema, reachable by every worker at once.
 
-    One connection per store instance, serialized by a lock — ``psycopg``'s async
+    One connection per store instance, serialized by a lock  -  ``psycopg``'s async
     connection is not safe to drive from two coroutines at once, and a single writer per
     log is the shape the Runtime already assumes. Consequence to know when operating it:
     anything waiting on a peer's transaction holds this process's only connection, so every
@@ -77,12 +77,12 @@ class PostgresEventStore(EventStorePort):
     session-scoped and taken before any transaction exists, so a peer wedged midway through
     creating the schema blocks this instance until it finishes or its connection drops.
 
-    Every write — both conditional appends and the plain one — takes a per-log advisory lock
+    Every write  -  both conditional appends and the plain one  -  takes a per-log advisory lock
     before reading or inserting anything, so two servers agree through Postgres and not
     through Python. ``READ COMMITTED`` is load-bearing for the claims, not incidental: the
     loser has to see the winner's committed rows after the lock is handed over, and a
-    snapshot taken at the transaction's first statement — what ``REPEATABLE READ`` would
-    give it — was taken before the winner committed. Since that first statement is the
+    snapshot taken at the transaction's first statement  -  what ``REPEATABLE READ`` would
+    give it  -  was taken before the winner committed. Since that first statement is the
     ``lock_timeout`` setting rather than the lock itself, the pin is the whole defence and
     not a second layer of one; the connection pins it so a server configured otherwise
     cannot quietly break the claim.
@@ -99,7 +99,7 @@ class PostgresEventStore(EventStorePort):
         self._setup_key = _advisory_key(f"agentdeck:events:setup:{schema}")
         table = sql.Identifier(schema, "events")
         # Composed once: the schema name is an identifier, so it is quoted by psycopg
-        # rather than interpolated — a schema is caller-supplied configuration.
+        # rather than interpolated  -  a schema is caller-supplied configuration.
         events_by_run = sql.Identifier(schema, "events_by_run")
         self._ddl = (
             sql.SQL("CREATE SCHEMA IF NOT EXISTS {schema}").format(schema=sql.Identifier(schema)),
@@ -121,7 +121,7 @@ class PostgresEventStore(EventStorePort):
             # `events_by_run` is dropped and rebuilt on every open rather than guarded with
             # `IF NOT EXISTS`: an earlier build's index of the same name is scoped to
             # `(namespace, log_key, run_id, seq)`, which lets one run_id+seq exist under two log
-            # keys — "one logical run split across two logs", the defect #324 closes. Same name,
+            # keys  -  "one logical run split across two logs", the defect #324 closes. Same name,
             # different columns, so `IF NOT EXISTS` would find the name taken and leave the old,
             # looser shape in place. Harmless to repeat on a database already at this shape. If
             # existing rows genuinely violate the tighter constraint, the CREATE below fails and
@@ -134,12 +134,12 @@ class PostgresEventStore(EventStorePort):
                 table=table
             ),
             # `events_by_run_id` existed only for `locate`'s "which log holds this run_id"
-            # query, which #322 removed with no caller left for it — a schema an earlier build
+            # query, which #322 removed with no caller left for it  -  a schema an earlier build
             # already created drops it too, rather than carrying an index nothing queries
             # through for good.
             sql.SQL("DROP INDEX IF EXISTS {index}").format(index=sql.Identifier(schema, "events_by_run_id")),
-            # `(namespace, key)`'s enforcement, partial so unkeyed rows — every row but a run's
-            # own opening one — never compete for the constraint.
+            # `(namespace, key)`'s enforcement, partial so unkeyed rows  -  every row but a run's
+            # own opening one  -  never compete for the constraint.
             sql.SQL(
                 "CREATE UNIQUE INDEX IF NOT EXISTS events_by_key ON {table} (namespace, key) WHERE key IS NOT NULL"
             ).format(table=table),
@@ -175,14 +175,14 @@ class PostgresEventStore(EventStorePort):
             "WHERE namespace = %s AND log_key = %s AND run_id = ANY(%s) ORDER BY run_id, id DESC"
         ).format(table=table)
         # `events_by_key` is a unique index over exactly these two columns, so this is the
-        # index's own lookup rather than a scan — the same query the INSERT it guards runs
+        # index's own lookup rather than a scan  -  the same query the INSERT it guards runs
         # implicitly to decide whether to conflict.
         self._select_run_by_key = sql.SQL(
             "SELECT run_id FROM {table} WHERE namespace = %s AND key = %s LIMIT 1"
         ).format(table=table)
 
     async def _run[T](self, work: Callable[[Connection], Awaitable[T]], op: str) -> T:
-        """Every statement this store runs goes through here — one caller at a time, and no
+        """Every statement this store runs goes through here  -  one caller at a time, and no
         ``psycopg`` exception escaping the port."""
         async with self._lock:
             try:
@@ -195,7 +195,7 @@ class PostgresEventStore(EventStorePort):
                 raise StoreError(f"event log {op} failed: {exc}") from exc
 
     async def _ready(self) -> Connection:
-        """Connect and create the schema on first use — never at construction, so building
+        """Connect and create the schema on first use  -  never at construction, so building
         this store is not I/O and a composition root can wire one without a live server."""
         if self._conn is None:
             conn: Connection = await psycopg.AsyncConnection.connect(self._dsn, autocommit=True)
@@ -223,7 +223,7 @@ class PostgresEventStore(EventStorePort):
 
         Row order is `BIGSERIAL`, assigned at insert and published at commit, so an
         unlocked append can be given a *later* number than a claim's in-flight insert and
-        still commit *first* — the claim's event then appears at an offset a reader has
+        still commit *first*  -  the claim's event then appears at an offset a reader has
         already gone past, and one of its neighbours is delivered twice. Serializing writes
         per log is what keeps the log growing only at its end. The same lock is what makes
         reading this run's last ``seq`` and inserting the next one indivisible.
@@ -266,19 +266,19 @@ class PostgresEventStore(EventStorePort):
         origin: str,
         key: str | None = None,
     ) -> list[Event]:
-        """Assign, build, insert — callable only with this log's advisory lock already held.
+        """Assign, build, insert  -  callable only with this log's advisory lock already held.
 
         ``ts`` is ``clock_timestamp()``, Postgres's own wall clock, so N workers sharing one
         database compare one clock rather than N (ADR-D11 §4). ``clock_timestamp`` rather than
         ``now()``, which is the transaction's start time and would hand every event in a batch
         the timestamp of the statement that opened it.
 
-        ``key`` is written on the batch's first row only — see the SQLite store's own
+        ``key`` is written on the batch's first row only  -  see the SQLite store's own
         ``_stamp_and_insert`` for why: it is adopted once, by :meth:`claim_start`'s call for the
         opening event, and every other row of every other call passes ``None``.
         """
         cursor = await conn.execute(_SELECT_NOW)
-        now = (await cursor.fetchone())[0]  # ty: ignore[not-subscriptable] — one-row scalar select
+        now = (await cursor.fetchone())[0]  # ty: ignore[not-subscriptable]  -  one-row scalar select
         seq = await self._last_seq(conn, ctx.namespace_key, log_key, ctx.run_id)
         events = []
         for payload in payloads:
@@ -323,8 +323,8 @@ class PostgresEventStore(EventStorePort):
 
         Also adopts ``ctx.key`` when one is given, enforced by ``events_by_key`` rather than a
         read here: the advisory lock above is per ``(namespace, log_key)``, but a key is a
-        namespace-wide claim two different sessions could race on, so the unique index — not
-        this lock — is what two servers actually agree through for it.
+        namespace-wide claim two different sessions could race on, so the unique index  -  not
+        this lock  -  is what two servers actually agree through for it.
         """
 
         async def _work(conn: Connection) -> tuple[SessionClaim, Event | None]:
@@ -337,7 +337,7 @@ class PostgresEventStore(EventStorePort):
                     if STATES[status].suspended:
                         # No worker to be dead: PAUSED and WAITING_ANSWER have no engine polling
                         # a clock, so silence is not evidence of anything and neither the timer
-                        # nor an expired lease applies — checked before both, for that reason.
+                        # nor an expired lease applies  -  checked before both, for that reason.
                         # The log deciding alone is what makes this hold permanent.
                         return SessionClaim(held_by=last.run_id), None
                     if last.run_id not in dead and last.ts > stale_before:
@@ -373,7 +373,7 @@ class PostgresEventStore(EventStorePort):
         lock: the lock is taken before the read, so a peer cannot resume the same run in
         the gap between this caller's check and its insert.
 
-        A loser gets its clean ``None`` — it reads the ``RUNNING`` status the winner
+        A loser gets its clean ``None``  -  it reads the ``RUNNING`` status the winner
         published. Only an unreachable store or a lock held past ``lock_timeout`` raises,
         never a fabricated ``None``.
         """
@@ -403,7 +403,7 @@ class PostgresEventStore(EventStorePort):
             return [(row[0], row[1], row[2]) for row in await cursor.fetchall()]
 
         # The filter never drops a row: the query selects lifecycle kinds only, so every row
-        # folds to a status. It is what narrows ``status_of``'s ``None`` — the "no transition at
+        # folds to a status. It is what narrows ``status_of``'s ``None``  -  the "no transition at
         # all" answer, which a run found by this query cannot give.
         summaries = [
             RunSummary(log_key=log_key, run_id=run_id, status=folded)
@@ -444,7 +444,7 @@ class PostgresEventStore(EventStorePort):
 
     async def _open_runs(self, conn: Connection, namespace: str, log_key: str) -> list[tuple[str, RunStatus, Event]]:
         """Every run in this log that has recorded a transition but not a terminal one,
-        paired with its own status and its own last event — whatever kind — because that
+        paired with its own status and its own last event  -  whatever kind  -  because that
         event is the run's last sign of life, and silence is all that separates an abandoned
         run from a working one.
         """

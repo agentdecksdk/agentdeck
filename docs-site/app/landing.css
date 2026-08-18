@@ -29,7 +29,11 @@ article:has(.landing) > .x\:float-end {
   --accent: var(--brand-blue);
   --diagram: color-mix(in srgb, var(--ink-soft) 45%, transparent);
   --gutter: 4.5rem;
-  --cut: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+  --card-radius: 12px 12px 5px 12px;
+  --card-radius-sm: 8px 8px 3px 8px;
+  --card-bg: linear-gradient(180deg, #ffffff, #f6f8ff);
+  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 12px 30px rgba(11, 18, 32, 0.05);
+  --measure: 1320px;
 }
 
 .dark .landing {
@@ -37,6 +41,8 @@ article:has(.landing) > .x\:float-end {
   --surface: var(--brand-slate);
   --ink-soft: #94a3b8;
   --accent: var(--brand-frost);
+  --card-bg: linear-gradient(180deg, #18233a, #131c30);
+  --card-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 12px 30px rgba(0, 0, 0, 0.3);
 }
 
 /* Nextra gives the home page the full width; the page sets its own measure. */
@@ -47,7 +53,7 @@ article:has(.landing) > .x\:float-end {
 /* ------------------------------------------------------------------ hero */
 
 .hero {
-  max-width: 1180px;
+  max-width: var(--measure);
   margin: 0 auto;
   padding: clamp(3rem, 9vw, 7rem) 1.5rem clamp(3rem, 7vw, 5.5rem);
   display: grid;
@@ -99,7 +105,7 @@ article:has(.landing) > .x\:float-end {
   letter-spacing: -0.01em;
   text-decoration: none;
   border: 1px solid transparent;
-  clip-path: var(--cut);
+  border-radius: var(--card-radius);
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
@@ -193,7 +199,7 @@ article:has(.landing) > .x\:float-end {
 /* --------------------------------------------------------------- chapters */
 
 .chapter {
-  max-width: 1180px;
+  max-width: var(--measure);
   margin: 0 auto;
   padding: 0 1.5rem;
   display: grid;
@@ -258,7 +264,7 @@ article:has(.landing) > .x\:float-end {
 
 .chapter-lead {
   margin: 1rem 0 0;
-  max-width: 46rem;
+  max-width: 54rem;
   font-size: 1.0125rem;
   line-height: 1.68;
   color: var(--ink-soft);
@@ -274,7 +280,7 @@ article:has(.landing) > .x\:float-end {
 
 .chapter-note {
   margin: 0.9rem 0 0;
-  max-width: 46rem;
+  max-width: 54rem;
   font-size: 0.86rem;
   line-height: 1.6;
   color: var(--ink-soft);
@@ -285,8 +291,8 @@ article:has(.landing) > .x\:float-end {
 .chapter-grid {
   margin-top: 2.25rem;
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
-  gap: clamp(1.5rem, 3vw, 2.75rem);
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+  gap: clamp(1.75rem, 4vw, 4rem);
   align-items: start;
 }
 
@@ -338,7 +344,7 @@ article:has(.landing) > .x\:float-end {
 
 .landing .snippet pre {
   margin: 0 !important;
-  clip-path: var(--cut);
+  border-radius: var(--card-radius);
   border: 1px solid var(--rail) !important;
   border-radius: 0 !important;
   background: var(--surface) !important;
@@ -359,8 +365,9 @@ article:has(.landing) > .x\:float-end {
 .tree-figure {
   margin: 0;
   border: 1px solid var(--rail);
-  background: var(--surface);
-  clip-path: var(--cut);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  border-radius: var(--card-radius);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
@@ -405,9 +412,21 @@ article:has(.landing) > .x\:float-end {
   padding-left: 0.35rem;
 }
 
-.deck-row-marker {
-  color: color-mix(in srgb, var(--ink-soft) 55%, transparent);
-  font-size: 0.7rem;
+/* The same chip the hero puts a glyph in, at the size a list row can carry. */
+.deck-row-icon {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--rail);
+  border-radius: var(--card-radius-sm);
+  color: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.deck-row-icon svg {
+  width: 11px;
+  height: 11px;
 }
 
 /* The one row this section just added. Everything else stays quiet. */
@@ -416,7 +435,8 @@ article:has(.landing) > .x\:float-end {
   font-weight: 600;
 }
 
-.deck-row.is-added .deck-row-marker {
+.deck-row.is-added .deck-row-icon {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   color: var(--accent);
 }
 
@@ -566,8 +586,9 @@ article:has(.landing) > .x\:float-end {
   height: auto;
   padding: 1.5rem;
   border: 1px solid var(--rail);
-  background: var(--surface);
-  clip-path: var(--cut);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  border-radius: var(--card-radius);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
@@ -611,122 +632,6 @@ article:has(.landing) > .x\:float-end {
   fill: var(--brand-night);
 }
 
-/* ------------------------------------------------------------- interop */
-
-.interop {
-  margin-top: 2.25rem;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 15rem);
-  gap: clamp(1.5rem, 4vw, 3rem);
-  align-items: center;
-}
-
-.interop-sources {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border-top: 1px solid var(--rail);
-}
-
-.interop-source {
-  display: grid;
-  grid-template-columns: 1.25rem minmax(0, 11rem) minmax(0, 1fr);
-  align-items: baseline;
-  gap: 0.75rem;
-  padding: 0.75rem 0;
-  border-bottom: 1px solid var(--rail);
-}
-
-.interop-marker {
-  color: var(--accent);
-  font-size: 0.72rem;
-}
-
-.interop-source.is-proposed {
-  color: var(--ink-soft);
-}
-
-.interop-source.is-proposed .interop-marker {
-  color: var(--rail);
-}
-
-.interop-name {
-  font-weight: 600;
-  font-size: 0.92rem;
-}
-
-.interop-detail {
-  font-size: 0.86rem;
-  color: var(--ink-soft);
-}
-
-.interop-sink {
-  display: grid;
-  justify-items: center;
-  gap: 0.6rem;
-}
-
-.interop-stem {
-  width: 1px;
-  height: 2.25rem;
-  background: var(--diagram);
-}
-
-.interop-target {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.76rem;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  padding: 0.55rem 1.6rem;
-  border: 1px solid var(--accent);
-  color: var(--accent);
-}
-
-.interop-target.is-run {
-  background: var(--accent);
-  color: #ffffff;
-}
-
-.dark .interop-target.is-run {
-  color: var(--brand-night);
-}
-
-/* ------------------------------------------------------------- boundary */
-
-.boundary {
-  margin-top: 2.25rem;
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.95rem;
-}
-
-.boundary th {
-  text-align: left;
-  padding: 0 0 0.75rem;
-  border-bottom: 1px solid var(--rail);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--ink-soft);
-  width: 50%;
-}
-
-.boundary th:last-child {
-  color: var(--accent);
-}
-
-.boundary td {
-  padding: 0.7rem 1rem 0.7rem 0;
-  border-bottom: 1px solid var(--rail);
-  color: var(--ink-soft);
-}
-
-.boundary td:last-child {
-  color: inherit;
-  font-weight: 500;
-}
-
 /* ----------------------------------------------------------- live section */
 
 .chapter.is-live-section .chapter-body {
@@ -744,8 +649,9 @@ article:has(.landing) > .x\:float-end {
 .jack-chat,
 .jack-runtime {
   border: 1px solid var(--rail);
-  background: var(--surface);
-  clip-path: var(--cut);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  border-radius: var(--card-radius);
   display: flex;
   flex-direction: column;
   min-height: 22rem;
@@ -936,7 +842,7 @@ article:has(.landing) > .x\:float-end {
 /* ------------------------------------------------------------ final CTA */
 
 .final-cta {
-  max-width: 1180px;
+  max-width: var(--measure);
   margin: 0 auto;
   padding: clamp(4rem, 8vw, 6.5rem) 1.5rem clamp(5rem, 9vw, 7rem);
   border-top: 1px solid var(--rail);
@@ -958,8 +864,9 @@ article:has(.landing) > .x\:float-end {
   margin: 2rem 0 0;
   padding: 0.7rem 1rem;
   border: 1px solid var(--rail);
-  background: var(--surface);
-  clip-path: var(--cut);
+  background: var(--card-bg);
+  box-shadow: var(--card-shadow);
+  border-radius: var(--card-radius);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.9rem;
   color: inherit;
@@ -1009,7 +916,6 @@ article:has(.landing) > .x\:float-end {
   }
 
   .chapter-grid,
-  .interop,
   .jack-live {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1027,20 +933,59 @@ article:has(.landing) > .x\:float-end {
     top: 3.25rem;
   }
 
-  .interop-sink {
-    display: none;
-  }
 
-  .interop-source {
-    grid-template-columns: 1.25rem minmax(0, 1fr);
-  }
-
-  .interop-detail {
-    grid-column: 2;
-  }
 }
 
-@media (max-width: 560px) {
+@media (max-width: 640px) {
+  /* The spine is the page's spine on a phone too, but a 40px gutter for a hairline and two
+     digits is a poor trade at this width, so it narrows and the number goes under the rule. */
+  .landing {
+    --gutter: 1.75rem;
+  }
+
+  .chapter {
+    padding: 0 1.1rem;
+  }
+
+  .chapter-step {
+    top: 2.6rem;
+    font-size: 0.62rem;
+  }
+
+  .chapter-body {
+    padding: 2.5rem 0 2.75rem;
+  }
+
+  .chapter-title {
+    font-size: 1.45rem;
+  }
+
+  /* Smaller type means most lines fit; the long ones still scroll in their own box, and the
+     edge fades so a line running past it reads as continuing rather than as broken. Mobile
+     only: the snippets themselves are written for the width a desktop actually has. */
+  .landing .snippet {
+    position: relative;
+  }
+
+  .landing .snippet::after {
+    content: "";
+    position: absolute;
+    top: 2.1rem;
+    right: 0;
+    bottom: 0;
+    width: 2rem;
+    background: linear-gradient(90deg, transparent, var(--surface));
+    border-radius: 0 var(--card-radius-sm) var(--card-radius-sm) 0;
+    pointer-events: none;
+  }
+  /* Smaller type means most lines fit; the long ones still scroll in their own box. */
+  .landing .snippet pre,
+  .landing .snippet pre code,
+  .landing .snippet pre span {
+    font-size: 0.68rem;
+    line-height: 1.6;
+  }
+
   .tree-buy,
   .semantic {
     grid-template-columns: minmax(0, 1fr);
@@ -1049,6 +994,12 @@ article:has(.landing) > .x\:float-end {
 
   .jack-transcript {
     max-height: 18rem;
+  }
+
+  .jack-source,
+  .final-actions,
+  .hero-actions {
+    gap: 0.6rem;
   }
 }
 

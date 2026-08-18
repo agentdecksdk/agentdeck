@@ -1,10 +1,10 @@
 """``Agent``: the one construction API for an SDK agent, plus the declaration it can start from.
 
-v1's ``BaseAgent`` (a class users subclassed) is renamed ``AgentDeclaration`` here — it is a
+v1's ``BaseAgent`` (a class users subclassed) is renamed ``AgentDeclaration`` here  -  it is a
 declarative *input* to ``Agent(...)``, never something invoked on its own (ruling 10,
 plan-phase4-deck.md). ``Agent`` instances are immutable: a ``Deck`` compiles them once at
 ``build()``, and mutating one afterwards must have no effect on what was already compiled
-(ruling 3) — immutability makes that true by construction rather than by convention.
+(ruling 3)  -  immutability makes that true by construction rather than by convention.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ class AgentDeclaration:
 
         booking = Agent(base=BookingBase, name="booking", tools=[...])
 
-    Never constructed or run directly — it exists only to be named as ``Agent(base=...)``.
+    Never constructed or run directly  -  it exists only to be named as ``Agent(base=...)``.
     """
 
     name: ClassVar[str | None] = None
@@ -48,22 +48,22 @@ class AgentDeclaration:
 
 class Agent:
     """A declarative agent: name, instructions, tools, and the names of the skills/MCP
-    servers/workflows it depends on — resolved against the owning :class:`~agentdeck.Deck`'s
+    servers/workflows it depends on  -  resolved against the owning :class:`~agentdeck.Deck`'s
     catalog at ``build()``, never at construction time, so an ``Agent`` built alone (with no
     ``Deck`` yet) never fails for referencing something it cannot see yet.
 
     ``base=`` is keyword-only by construction: every parameter here follows a bare ``*``, so
     ``Agent(SomeDeclaration, name=...)`` is a ``TypeError`` rather than a silently-accepted
     positional base. A value explicitly passed here always wins over ``base``'s, including an
-    explicit empty value — omission, not falsiness, is what defers to the base.
+    explicit empty value  -  omission, not falsiness, is what defers to the base.
 
     ``instructions=`` takes a plain string, or a callable ``build()`` compiles into the SDK's
-    dynamic-instructions shape — one declaring a ``Context[...]`` parameter receives the run's
+    dynamic-instructions shape  -  one declaring a ``Context[...]`` parameter receives the run's
     environment, and **only what it returns** reaches the model. ``hooks=`` stays an Agents SDK
     ``AgentHooks`` object; a hook method that declares ``Context[...]`` first is bridged the
     same way, and one that does not is passed through untouched.
 
-    ``tools=`` takes plain functions — ``build()`` compiles each one, which is what lets a
+    ``tools=`` takes plain functions  -  ``build()`` compiles each one, which is what lets a
     parameter annotated ``Context[...]`` be injected without ever appearing in the schema the
     model sees. An already-built Agents SDK tool object is still accepted and passed straight
     through as engine-native, introspected by nothing here. A callable whose signature cannot be
@@ -84,7 +84,7 @@ class Agent:
         "mcp",
     )
 
-    # Typed alongside `__slots__` so a type checker can see these as real attributes — the
+    # Typed alongside `__slots__` so a type checker can see these as real attributes  -  the
     # values are set via `object.__setattr__` in `__init__`, which a bare `self.x = ...` a
     # checker infers attributes from would not need, but immutability (see `__setattr__`
     # below) does.
@@ -146,7 +146,7 @@ class Agent:
         """Compile to an SDK-native ``agents.Agent``, standalone (no catalog).
 
         Thin wrapper over :func:`agentdeck.authoring.compile.compile_agent` for the common
-        case — an agent with no handoffs, or none needing a catalog to resolve. A ``Deck``
+        case  -  an agent with no handoffs, or none needing a catalog to resolve. A ``Deck``
         calls ``compile_agent``/``link_handoffs`` directly instead, since it has the catalog.
         """
         from agentdeck.authoring.compile import compile_agent

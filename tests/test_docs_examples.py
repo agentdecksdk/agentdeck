@@ -1,19 +1,19 @@
 """Stage 2 of the docs anti-rot suite (docs-site-plan.md §6): *execute* the runnable fences
-stage 1 (``test_docs_site.py``) only parses. Two new fence-meta tokens, both opt-in — a fence
+stage 1 (``test_docs_site.py``) only parses. Two new fence-meta tokens, both opt-in  -  a fence
 with neither keeps today's parse-only behavior:
 
-- ``file=<relative-path>`` — write this fence's source verbatim into the page's shared temp
+- ``file=<relative-path>``  -  write this fence's source verbatim into the page's shared temp
   project, at ``<relative-path>``. Not executed by itself.
-- ``run`` — execute this fence as a real subprocess against that same temp project, once
+- ``run``  -  execute this fence as a real subprocess against that same temp project, once
   per fence.
 
 A third token, ``illustrative reason="..."``, opts a fence *out* of execution on purpose
-(needs a live server, a real DSN) instead of leaving it silently unexecuted — mirrors stage
+(needs a live server, a real DSN) instead of leaving it silently unexecuted  -  mirrors stage
 1's ``no-test reason="..."`` escape hatch exactly.
 
 A ``run`` fence executes as ``python <script>`` in its own process, cwd'd into the
 assembled project, talking to a scripted OpenAI-Chat-Completions-compatible HTTP server
-(``fake_model_server`` below) via ``OPENAI_BASE_URL`` / ``OPENAI_USE_RESPONSES`` — the same
+(``fake_model_server`` below) via ``OPENAI_BASE_URL`` / ``OPENAI_USE_RESPONSES``  -  the same
 knobs getting-started.mdx tells a reader to set for a non-OpenAI endpoint. Nothing in
 ``agentdeck`` is patched: this is the path a reader's own shell actually takes, against the
 repo's own already-installed package, and each fence gets a fresh interpreter, so there is
@@ -78,7 +78,7 @@ def _tokens(meta: str) -> list[str]:
 @cache
 def _fences_of(page: Path) -> tuple[list[tuple[int, str]], list[tuple[str, str]]]:
     """``(run fences, file fences)`` for one page: run as ``(fence-index, source)``, file as
-    ``(relative-path, source)`` — both in the order they appear on the page.
+    ``(relative-path, source)``  -  both in the order they appear on the page.
     """
     runs: list[tuple[int, str]] = []
     files: list[tuple[str, str]] = []
@@ -123,7 +123,7 @@ def test_run_fence_executes(page: Path, index: int, src: str, tmp_path: Path, fa
     _, files = _fences_of(page)
     for relpath, file_src in files:
         _write_file(tmp_path, page, relpath, file_src)
-    # a reader would have a file on disk, not a piped stdin script — same as the file= fences
+    # a reader would have a file on disk, not a piped stdin script  -  same as the file= fences
     script = tmp_path / f"_run_{index}.py"
     script.write_text(src)
     env = dict(os.environ)

@@ -16,7 +16,7 @@ from agentdeck.authoring import Agent
 greeter = Agent(name="Greeter", instructions="Greet the user.")
 """
 
-# Same invocable name as AGENT_PY's, authored under a second bundle — the "copied greeter/,
+# Same invocable name as AGENT_PY's, authored under a second bundle  -  the "copied greeter/,
 # forgot to rename it" repro from #82.
 GREETER_V2_AGENT_PY = """
 from agentdeck.authoring import Agent
@@ -24,7 +24,7 @@ from agentdeck.authoring import Agent
 greeter = Agent(name="Greeter", instructions="Greet the user, v2.")
 """
 
-# One bundle, one instance, bound under a second name — an alias kept after a rename. Not a
+# One bundle, one instance, bound under a second name  -  an alias kept after a rename. Not a
 # collision: it is the same object claiming its own name twice, not two different agents.
 ALIASED_AGENT_PY = """
 from agentdeck.authoring import Agent
@@ -34,7 +34,7 @@ greeter = Agent(name="Greeter", instructions="Greet the user.")
 greeter_agent = greeter
 """
 
-# #174: a bare declaration subclass is exactly what v1 treated as the agent itself — the
+# #174: a bare declaration subclass is exactly what v1 treated as the agent itself  -  the
 # natural port of an existing bundle produces this file and used to vanish silently.
 GHOST_AGENT_DECLARATION_PY = """
 from agentdeck.authoring import AgentDeclaration
@@ -58,12 +58,12 @@ class GhostFlow(WorkflowDeclaration):
 """
 
 # A shared-code module shaped like a bundle (an `agent.py`, no `Agent(...)` instance) but
-# opted out of the scan by its leading underscore — the escape hatch #174's check relies on.
+# opted out of the scan by its leading underscore  -  the escape hatch #174's check relies on.
 SHARED_HELPER_AGENT_PY = """
 COMMON_INSTRUCTIONS = "Be helpful."
 """
 
-# #119: `build()`'s job (ModelSettings validation), not `Deck.build()`'s own pre-checks — the
+# #119: `build()`'s job (ModelSettings validation), not `Deck.build()`'s own pre-checks  -  the
 # failure only happens once ``InvocableRegistry.load()`` compiles this agent.
 BAD_MODEL_SETTINGS_AGENT_PY = """
 from agentdeck.authoring import Agent
@@ -130,7 +130,7 @@ def test_registry_miss_is_agentdeck_error():
 
 
 def test_not_found_error_message_is_plain():
-    # serve.py puts str(exc) in the 404 body — no KeyError-style requoting.
+    # serve.py puts str(exc) in the 404 body  -  no KeyError-style requoting.
     assert str(NotFoundError("no such thing")) == "no such thing"
 
 
@@ -157,7 +157,7 @@ def test_two_same_kind_bundles_sharing_a_class_name_raise_naming_both(duplicate_
     message = str(excinfo.value)
     # Quoted, not bare substrings: "agents/greeter" is itself a substring of
     # "agents/greeter-v2", so a bare-substring check passes even if the message only
-    # ever named the second bundle — pin the exact quoted forms the message emits.
+    # ever named the second bundle  -  pin the exact quoted forms the message emits.
     assert "'agents/greeter'" in message
     assert "'agents/greeter-v2'" in message
     assert message.count("Greeter") >= 1
@@ -166,7 +166,7 @@ def test_two_same_kind_bundles_sharing_a_class_name_raise_naming_both(duplicate_
 def test_one_bundle_aliasing_its_own_class_is_not_a_collision(aliased_class_project):
     """A bundle binding one class under two names (an alias kept after a rename) must still load.
 
-    ``vars(module)`` yields one entry per *binding*, not per class — ``GreeterAgent = Greeter``
+    ``vars(module)`` yields one entry per *binding*, not per class  -  ``GreeterAgent = Greeter``
     must not trip the same-name guard against itself.
     """
     from agentdeck.deck import Deck
@@ -211,7 +211,7 @@ def _drop_project_mount(monkeypatch):
 
 def test_agent_declaration_never_instantiated_raises_naming_the_bundle(tmp_path, monkeypatch):
     """#174: v1 scanned for a subclass, so `class Ghost(AgentDeclaration)` alone *was* the agent.
-    v3 scans for instances — the natural port of an existing bundle imports cleanly and used to
+    v3 scans for instances  -  the natural port of an existing bundle imports cleanly and used to
     contribute nothing, with `from_project().agents` silently `{}`.
     """
     root = tmp_path / ".agentdeck"
@@ -245,7 +245,7 @@ def test_workflow_declaration_never_instantiated_raises_naming_the_bundle(tmp_pa
 
 
 def test_ghost_check_suggests_a_valid_identifier_for_a_hyphenated_bundle(tmp_path, monkeypatch):
-    """The suggested fix must itself be legal Python — a bundle dir name is not required to be."""
+    """The suggested fix must itself be legal Python  -  a bundle dir name is not required to be."""
     root = tmp_path / ".agentdeck"
     (root / "agents" / "ghost-agent").mkdir(parents=True)
     (root / "agents" / "ghost-agent" / "agent.py").write_text(textwrap.dedent(GHOST_AGENT_DECLARATION_PY))
@@ -262,7 +262,7 @@ def test_ghost_check_suggests_a_valid_identifier_for_a_hyphenated_bundle(tmp_pat
 def test_a_leading_underscore_bundle_dir_is_not_scanned_even_with_no_instance(tmp_path, monkeypatch):
     """The escape hatch #174's check relies on: shared code that happens to live under
     ``agents/``/``workflows/`` opts out of bundle scanning the same way it already does for
-    the collision/import checks — a leading ``_``/``.`` on the directory name.
+    the collision/import checks  -  a leading ``_``/``.`` on the directory name.
     """
     root = tmp_path / ".agentdeck"
     (root / "agents" / "_shared").mkdir(parents=True)
@@ -279,7 +279,7 @@ def test_a_leading_underscore_bundle_dir_is_not_scanned_even_with_no_instance(tm
 
 def test_discovered_agent_build_failure_is_wrapped_with_its_bundle_path(tmp_path, monkeypatch):
     """#119: `build()`/`build_graph()` failures used to surface a bare exception with no
-    indication of which bundle caused it — the same problem #82 fixed for import, one step
+    indication of which bundle caused it  -  the same problem #82 fixed for import, one step
     later in the same pipeline. `ModelSettings` validation only runs once `Deck.build()`
     compiles the agent, so this is not caught by any of `Deck.build()`'s own pre-checks.
     """
@@ -318,7 +318,7 @@ def test_discovered_workflow_build_graph_failure_is_wrapped_with_its_bundle_path
 
 
 def test_code_first_agent_build_failure_is_not_wrapped_with_a_bundle_path():
-    """A code-first agent has no bundle to name — #119 only covers discovery, so the raw
+    """A code-first agent has no bundle to name  -  #119 only covers discovery, so the raw
     exception must reach the caller unchanged, exactly as it did before this fix.
     """
     from agentdeck.authoring import Agent
@@ -327,7 +327,7 @@ def test_code_first_agent_build_failure_is_not_wrapped_with_a_bundle_path():
     boom = Agent(name="Boom", instructions="x", model_settings={"temperature": "not-a-number"})
     deck = Deck(agents=[boom])
 
-    with pytest.raises(Exception) as excinfo:  # noqa: PT011 — asserting it's specifically *not* a ConfigError
+    with pytest.raises(Exception) as excinfo:  # noqa: PT011  -  asserting it's specifically *not* a ConfigError
         deck.build()
     assert not isinstance(excinfo.value, ConfigError)
 
@@ -336,8 +336,8 @@ def test_skill_error_returns_500_without_leaking_stderr(project):
     from agentdeck.serve import create_app
 
     secret = "Traceback: AWS_SECRET_ACCESS_KEY=hunter2"
-    # The turn fails at the SDK boundary, so the error travels the whole real path — engine,
-    # Runtime, surface — the way a failing tool or skill inside a turn does.
+    # The turn fails at the SDK boundary, so the error travels the whole real path  -  engine,
+    # Runtime, surface  -  the way a failing tool or skill inside a turn does.
     model = ScriptedModel(raises=SkillError(secret))
     with patch_model(model), TestClient(create_app()) as client:
         response = client.post("/agents/Greeter/chat", json={"session_id": "s", "message": "hi"})

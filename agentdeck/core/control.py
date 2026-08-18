@@ -1,12 +1,12 @@
 """How a run notices it was signaled, and what honoring one records.
 
-The mirror image of :class:`~agentdeck.core.reporting.Reporter` — control flows in on
+The mirror image of :class:`~agentdeck.core.reporting.Reporter`  -  control flows in on
 ``RunContext`` through :class:`Gate`, updates flow out the same way. Neither is a port: an outer
 ring implements :class:`~agentdeck.core.ports.control.ControlPort`, the transport that carries a
 signal between processes, while the vocabulary a caller signals in and the policy that turns one
 honored signal into three events are core's own.
 
-The three verbs — ``cancel``, ``pause``, ``resume`` — match the event schema's ``ControlVerb``
+The three verbs  -  ``cancel``, ``pause``, ``resume``  -  match the event schema's ``ControlVerb``
 one for one (``steer`` is a mailbox rather than a signal, and is not built).
 """
 
@@ -31,7 +31,7 @@ CONTROL_POLL_INTERVAL = 0.2
 
 Bounds control reads by time instead of token count: a 500-chunk answer polled per chunk costs
 500 reads answering "no" 499 times, a round trip each on a network-backed port. The cost is
-latency only — a signal is still honored at a safe point, up to one interval late. 200ms is
+latency only  -  a signal is still honored at a safe point, up to one interval late. 200ms is
 picked against a human's cancel click (still reads as instant) and a ~30ms token stream.
 """
 
@@ -52,10 +52,10 @@ class ControlSignal:
     reason: str | None = None
 
 
-class ControlSignalled(Exception):  # noqa: N818 — not an error: a signal honored exactly as asked
+class ControlSignalled(Exception):  # noqa: N818  -  not an error: a signal honored exactly as asked
     """Raised by :meth:`Gate.checkpoint` when the run must act on a signal at this safe point.
 
-    :attr:`payloads` is the whole record of that act — request, observation, effect — built here
+    :attr:`payloads` is the whole record of that act  -  request, observation, effect  -  built here
     so every engine adapter tells the same story. An adapter yields them in order and stops
     reading its engine; it never mints a kind, and never decides what pausing means.
     """
@@ -99,7 +99,7 @@ class RunPausedError(ControlSignalled):
         return RunPaused(reason=self.reason)
 
 
-# Which exception carries which effect — declared, not branched on, so the only place a verb is
+# Which exception carries which effect  -  declared, not branched on, so the only place a verb is
 # tested against a name is a table. ``POLICY`` says *whether* to halt; this says how.
 _HALTED_BY: Mapping[Signal, type[ControlSignalled]] = {
     Signal.CANCEL: RunCancelledError,
@@ -112,7 +112,7 @@ class Gate:
     caller; with no ``control`` port (the default) ``checkpoint()`` is a no-op.
 
     Nothing here ever parks a run: a checkpoint reads at most one pending signal, then returns or
-    raises. A pause is not a wait *at* the gate — the run unwinds to the Runtime, which records
+    raises. A pause is not a wait *at* the gate  -  the run unwinds to the Runtime, which records
     ``run.paused`` and lets the process go, so the pause outlives the process and any worker can
     lift it.
 
@@ -137,7 +137,7 @@ class Gate:
         self._polled_at: float | None = None
 
     async def checkpoint(self, safe_point: SafePoint = "stream_item") -> None:
-        """Return immediately, unless a signal is pending — then raise :class:`ControlSignalled`.
+        """Return immediately, unless a signal is pending  -  then raise :class:`ControlSignalled`.
 
         The first checkpoint of a run always reads, so a signal that beat the run out of the
         gate is honored at once; after that an answer is reused for ``poll_interval``, which is
@@ -153,7 +153,7 @@ class Gate:
         ruling = decide(RunStatus.RUNNING, None if pending is None else pending.verb)
         if pending is None or ruling.action is not Action.HALT:
             # The two explicit no-ops of the ``RUNNING`` row: an empty port, and a RESUME, which
-            # is a lifted pause rather than an instruction — a run that is already running has
+            # is a lifted pause rather than an instruction  -  a run that is already running has
             # nothing to do about one, and reading it again next interval costs nothing.
             return
         if ruling.consume:

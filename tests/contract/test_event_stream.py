@@ -35,7 +35,7 @@ def test_a_run_opens_with_run_started_at_seq_zero(played: Played) -> None:
 
 
 def test_seq_is_contiguous_from_zero(played: Played) -> None:
-    """No gaps — which is what lets a consumer detect a dropped event instead of guessing."""
+    """No gaps  -  which is what lets a consumer detect a dropped event instead of guessing."""
     assert check_contiguous(played.events) == []
     assert [event.seq for event in played.events] == list(range(len(played.events)))
 
@@ -55,7 +55,7 @@ def test_a_suspended_run_ends_waiting_and_emits_no_terminal_event(case: Case, pl
 
 
 def test_the_envelope_comes_from_the_context_not_the_engine(case: Case, played: Played, ctx: RunContext) -> None:
-    """An engine cannot set the namespace, the ids or the attribution — it never sees the envelope."""
+    """An engine cannot set the namespace, the ids or the attribution  -  it never sees the envelope."""
     run_id = played.events[0].run_id
     for event in played.events:
         assert (event.namespace, event.run_id, event.session_id) == (ctx.namespace, run_id, ctx.session_id)
@@ -88,7 +88,7 @@ async def test_the_stream_and_the_store_tell_the_same_story(
 async def test_an_abandoned_stream_leaves_a_closed_run_behind(
     case: Case, runtime: Runtime, store: MemoryEventStore, ctx: RunContext
 ) -> None:
-    """A consumer that walks away mid-run — closed tab, killed CLI — truncates the log at an
+    """A consumer that walks away mid-run  -  closed tab, killed CLI  -  truncates the log at an
     event boundary, and the run is closed there: a later reader must be able to tell
     "abandoned" from "still in flight", which is the same reason an open run is a bug."""
     async with aclosing(
@@ -107,7 +107,7 @@ async def test_a_gap_can_be_refetched_from_the_store_by_run(
     case: Case, runtime: Runtime, store: MemoryEventStore, ctx: RunContext
 ) -> None:
     """What contiguous ``seq`` buys: a consumer that missed events asks the store for that run
-    from the gap onward — and gets that run's tail only, even with two runs in the log."""
+    from the gap onward  -  and gets that run's tail only, even with two runs in the log."""
     first = await _played_out(case, runtime, ctx)
     first_run_id = first[0].run_id
     second = [
@@ -144,7 +144,7 @@ async def _played_out(case: Case, runtime: Runtime, ctx: RunContext) -> list[Eve
     """One run of the case, resumed if it suspends: every event of a run that is over.
 
     A session admits one open run at a time, so a test that wants a second run in the log has
-    to finish the first — a case that stops to ask a question is still holding the session.
+    to finish the first  -  a case that stops to ask a question is still holding the session.
     """
     events = [
         event
@@ -172,7 +172,7 @@ async def _played_out(case: Case, runtime: Runtime, ctx: RunContext) -> list[Eve
 
 
 async def _tolerant(events: AsyncIterator[Event]) -> AsyncGenerator[Event, None]:
-    """Iterate a run, swallowing the engine's exception — these tests assert on the log, and a
+    """Iterate a run, swallowing the engine's exception  -  these tests assert on the log, and a
     scripted failure is one of the cases."""
     try:
         async for event in events:

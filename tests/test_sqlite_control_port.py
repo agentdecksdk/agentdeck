@@ -45,7 +45,7 @@ async def test_a_file_backed_control_db_opens_in_wal_with_the_busy_timeout_it_as
 
 async def test_an_in_memory_control_db_still_works_where_there_is_no_wal_to_switch_to() -> None:
     """An in-memory database has no WAL mode; the pragma answers "memory" instead of failing, and
-    the port has to work anyway — it is the mode every other test of it uses."""
+    the port has to work anyway  -  it is the mode every other test of it uses."""
     control = SqliteControlPort()
     assert control._conn.execute("PRAGMA journal_mode").fetchone()[0] == "memory"
     await control.signal("r-1", Signal.CANCEL, "user changed their mind")
@@ -54,7 +54,7 @@ async def test_an_in_memory_control_db_still_works_where_there_is_no_wal_to_swit
 
 
 async def test_a_signal_replaces_the_one_pending_for_that_run_reason_included() -> None:
-    """One row per run, latest write wins — which is how ``RESUME`` lifts a pause, and how a
+    """One row per run, latest write wins  -  which is how ``RESUME`` lifts a pause, and how a
     second cancel with a better reason overwrites the first rather than queueing behind it."""
     control = SqliteControlPort()
     await control.signal("r-1", Signal.PAUSE, "checking something")
@@ -89,7 +89,7 @@ async def test_a_control_db_written_before_signals_carried_a_reason_still_opens(
 
 async def test_a_pre_id_control_db_with_no_pending_signal_migrates_silently(tmp_path) -> None:
     """The pre-namespace schema (``run_id`` primary key) never recorded a namespace at all, so
-    an *empty* table carries nothing that could be misattributed — it is safe to carry forward
+    an *empty* table carries nothing that could be misattributed  -  it is safe to carry forward
     as the new ``id``-keyed table, and a signal written afterwards is readable straight away."""
     db_path = tmp_path / "empty-run-id.sqlite3"
     old = sqlite3.connect(db_path)
@@ -110,7 +110,7 @@ async def test_a_pre_id_control_db_with_no_pending_signal_migrates_silently(tmp_
 
 async def test_a_pre_id_control_db_with_a_pending_signal_refuses_to_open(tmp_path) -> None:
     """The pre-namespace schema stored every write under a bare ``run_id``, namespaced caller or
-    not (that omission is exactly the defect #315 fixes) — so a row still pending at migration
+    not (that omission is exactly the defect #315 fixes)  -  so a row still pending at migration
     time cannot be trusted to have been unnamespaced. Re-keying it by identity could silently
     hand it to a different run than the one it was meant for, so opening refuses instead."""
     db_path = tmp_path / "pending-run-id.sqlite3"

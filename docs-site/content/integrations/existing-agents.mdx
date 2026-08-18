@@ -1,0 +1,7 @@
+# Existing Agents
+
+Wrap existing agents without requiring a rewrite.
+
+## Wrapping Agents
+
+Bring your custom agent implementations and wrap them with AgentDeck's runtime.

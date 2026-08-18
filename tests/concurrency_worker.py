@@ -2,7 +2,7 @@
 
 Started as ``python -u tests/concurrency_worker.py <race> <tag> <trials> <dir>``. Each
 worker builds its own store, control port, engine and Runtime over the sqlite files in
-``<dir>``, so the two peers share no Python object at all — the file is the only thing
+``<dir>``, so the two peers share no Python object at all  -  the file is the only thing
 they agree through, which is what makes the races in ``test_multiprocess_concurrency.py``
 races between servers rather than between two tasks.
 
@@ -216,7 +216,7 @@ async def _barrier(sync: Path, name: str, tag: str) -> None:
 
     Two stages on purpose. The first absorbs however long the peer needs to get here, at a
     polling interval that costs nothing; the second is entered only once both are known to
-    be present, so its tight spin is short — and neither side's polling interval gets to
+    be present, so its tight spin is short  -  and neither side's polling interval gets to
     decide who wins the race that follows.
     """
     await _meet(sync, f"{name}.arrive", tag, 0.002)
@@ -259,7 +259,7 @@ class MarkingStub(StubEngine):
     holding.
 
     Also refuses to yield its last (terminal) event until the peer's ``claim_resume`` has been
-    answered — the resume race's version of ``PeerClaimModel``, at the engine boundary rather
+    answered  -  the resume race's version of ``PeerClaimModel``, at the engine boundary rather
     than the model's, so the winner's run cannot finish before the loser has asked.
     """
 
@@ -290,7 +290,7 @@ class ClaimTimingStore(SqliteEventStore):
     The barrier belongs *here* rather than before the ``resume`` call, for the same reason
     ``ClaimStartTimingStore`` puts its own barrier inside ``claim_start``: released earlier, the
     two peers drift apart over whatever runs ahead of the store, and on a loaded box the
-    winner's whole run can be over before the loser asks — a legal pair of sequential resumes
+    winner's whole run can be over before the loser asks  -  a legal pair of sequential resumes
     that proves nothing about the claim. Meeting at the claim itself, the loser always asks
     while the winner's claim is in flight.
 
@@ -316,7 +316,7 @@ class ClaimTimingStore(SqliteEventStore):
         finally:
             with self._windows.open("a") as handle:
                 handle.write(f"{run_id} {started} {time.time_ns()}\n")
-            # Whatever it answered, this peer has now asked — which is what the winner's own
+            # Whatever it answered, this peer has now asked  -  which is what the winner's own
             # run waits for before it is allowed to finish.
             attempted_file(self._sync, run_id, self._tag).touch()
 
@@ -327,7 +327,7 @@ class ClaimStartTimingStore(SqliteEventStore):
 
     The barrier belongs *here* rather than before the turn, because "exactly one turn ran" has to
     be a fact about the claim and not about who was faster. Released earlier, the two peers drift
-    apart over a store read apiece — and on a loaded box the winner's whole run can be over before
+    apart over a store read apiece  -  and on a loaded box the winner's whole run can be over before
     the loser asks, which is a legal pair of sequential turns and proves nothing about the claim.
     Meeting at the claim itself, the loser always asks while the winner's claim is in flight.
 
@@ -363,7 +363,7 @@ class ClaimStartTimingStore(SqliteEventStore):
         finally:
             with self._windows.open("a") as handle:
                 handle.write(f"{log_key} {started} {time.time_ns()}\n")
-            # Whatever it answered, this peer has now asked — which is what the winner's own run
+            # Whatever it answered, this peer has now asked  -  which is what the winner's own run
             # waits for before it is allowed to finish.
             attempted_file(self._sync, log_key, self._tag).touch()
 
@@ -465,7 +465,7 @@ class BarrierModel(Model):
     """Streams a fixed script, stopping at a barrier with ``remaining`` chunks left so the
     cancel signal is released into a run with a known, tiny amount of work still to do.
 
-    ``remaining=None`` streams straight through and never meets the signaller — that is the
+    ``remaining=None`` streams straight through and never meets the signaller  -  that is the
     ordering where completion has already won before a signal is even written. Varying it
     over the racing trials changes how much the run has left when the signal lands: none
     means it is at its last safe point, two means two more events and two more checkpoints.
@@ -504,7 +504,7 @@ def _delta(index: int) -> ResponseTextDeltaEvent:
 
 
 def chunk_text() -> str:
-    """The whole answer ``BarrierModel`` streams — what one finished turn leaves in a session."""
+    """The whole answer ``BarrierModel`` streams  -  what one finished turn leaves in a session."""
     return "".join(f"chunk{index} " for index in range(CHUNK_COUNT))
 
 
@@ -542,7 +542,7 @@ async def _race_resume(tag: str, trials: int, root: Path) -> None:
     """Both peers answer one interrupt at the same instant, meeting inside the claim itself; the
     store picks the winner. The barrier lives in ``ClaimTimingStore`` for the reason its
     docstring gives, and ``MarkingStub`` holds the winner's run open until the loser's claim has
-    been answered — the same shape ``ClaimStartTimingStore``/``PeerClaimModel`` use for the
+    been answered  -  the same shape ``ClaimStartTimingStore``/``PeerClaimModel`` use for the
     session race, moved from the model boundary to the engine's.
     """
     sync = root / "sync"
@@ -590,8 +590,8 @@ async def _race_cancel(tag: str, trials: int, root: Path) -> None:
 
     Alternating trials, because a photo finish only ever lands on one side of itself. Even
     trials release both peers from one barrier and let the timing decide. Odd trials order
-    it the other way round on purpose — the run finishes first and only then is the signal
-    written — which is the one outcome a coin toss cannot be relied on to produce, and the
+    it the other way round on purpose  -  the run finishes first and only then is the signal
+    written  -  which is the one outcome a coin toss cannot be relied on to produce, and the
     half of "whichever wins, nothing follows it" that would otherwise go unexercised.
     """
     sync = root / "sync"
@@ -676,13 +676,13 @@ async def _race_crossrun(tag: str, trials: int, root: Path) -> None:
     Below the Runtime deliberately: one session admits one turn now, so a log with two live runs
     in it is what a takeover leaves behind rather than something a caller can ask for. What the
     store owes both of them is that each run's ``seq`` is its own and every number it assigns is
-    a number it persisted — which is why each peer asserts here, while the other is still writing
+    a number it persisted  -  which is why each peer asserts here, while the other is still writing
     into the same file, that the log gave it back exactly the seqs it expected.
 
     The peers no longer stamp their own events, so there is no spent ``seq`` for one of them to
     offer back: the store reads the run's last number under the file's write lock and hands out
     the next one. That makes the duplicate this trial used to demand a refusal for unconstructible
-    rather than merely refused, and moves the burden onto what the store *returns* — checked here
+    rather than merely refused, and moves the burden onto what the store *returns*  -  checked here
     per write, and again over the settled file by the trial that spawned these peers.
     """
     sync = root / "sync"
@@ -703,7 +703,7 @@ def _assert_assigned(written: list[Event], expected: int, ctx: RunContext) -> No
     """One write, one event, at this run's next number and under this run's own name.
 
     Asserted in the worker rather than only over the settled file, because a store that handed
-    this peer a number belonging to the other run — or one it had already given away — is caught
+    this peer a number belonging to the other run  -  or one it had already given away  -  is caught
     here while both peers are still writing, with the trial that spawned them reporting it as a
     failed worker instead of as a merely odd log.
     """
@@ -733,7 +733,7 @@ async def _takeover_successor(root: Path) -> None:
     """A fresh process asking for the next turn of the session the killed run still holds.
 
     The staleness window is left to the settings on purpose: the test runs this twice, once
-    with the default — which must refuse — and once with the window shortened through the
+    with the default  -  which must refuse  -  and once with the window shortened through the
     environment, the way an operator would set it, which must get through. ``Runtime`` itself
     reads no settings, so this worker resolves the configured window explicitly, the same way
     ``build_runtime`` would.

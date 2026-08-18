@@ -23,7 +23,7 @@ def _confirm(state: RefundState) -> dict:
 
 
 def _settle(state: RefundState) -> dict:
-    # The node that would actually move money — after the decision, never before it, because
+    # The node that would actually move money  -  after the decision, never before it, because
     # `_confirm` re-runs from its start when the answer arrives.
     return {"outcome": "refunded" if state.approved else "declined"}
 

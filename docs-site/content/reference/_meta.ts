@@ -1,8 +1,8 @@
 export default {
-  index: 'Overview',
+  'python-api': 'Python API',
   deck: 'Deck',
-  definitions: 'Definitions',
-  capabilities: 'Capabilities',
-  settings: 'Settings',
-  cli: 'CLI'
+  run: 'Run',
+  events: 'Events',
+  cli: 'CLI',
+  settings: 'Settings'
 }
