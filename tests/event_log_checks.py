@@ -5,7 +5,7 @@ one is read by a production path: ``seq`` contiguity is a property of how the st
 and "exactly one terminal event, last" is enforced by ``Runtime.run``/``resume`` stopping the read
 loop at a terminal payload. Keeping the checks in the schema module read as if they were part of
 the contract a producer or consumer has to satisfy, when they are really the test suite's own way
-of measuring whether the real mechanisms held — so they moved here, next to the tests that use
+of measuring whether the real mechanisms held  -  so they moved here, next to the tests that use
 them.
 """
 
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 def check_contiguous(events: Iterable[Event]) -> list[int]:
-    """Missing ``seq`` numbers for one run — gaps only, duplicates aren't checked."""
+    """Missing ``seq`` numbers for one run  -  gaps only, duplicates aren't checked."""
     run = list(events)
     if len({event.run_id for event in run}) > 1:
         raise ValueError("check_contiguous takes one run's events")

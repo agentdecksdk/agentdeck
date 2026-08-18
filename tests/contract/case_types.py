@@ -1,4 +1,4 @@
-"""The two types the contract-suite harness passes around — split out of ``contract_cases``
+"""The two types the contract-suite harness passes around  -  split out of ``contract_cases``
 so per-engine case modules (e.g. ``openai_agents_cases``) can build ``Case``s without
 importing the aggregate ``CASES`` list back (that would be circular).
 """

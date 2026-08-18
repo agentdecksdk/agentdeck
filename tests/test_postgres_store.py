@@ -4,7 +4,7 @@ Everything the four stores must agree on is asserted once, for all of them, in
 ``tests/contract/test_store.py``. What is left here is what this adapter alone can be wrong
 about: no server at all, a peer holding the log's lock longer than this store will wait, a
 server whose default isolation level would hand the claim a stale snapshot, and the schema
-the log is supposed to keep to. The race cases use two store instances over one database —
+the log is supposed to keep to. The race cases use two store instances over one database  -
 two connections sharing no lock, no cache and no ``asyncio.Lock``, which is the position two
 server processes are in.
 """
@@ -29,8 +29,8 @@ if TYPE_CHECKING:
 
 psycopg = live_stores.require_psycopg(module_level=True)
 
-from agentdeck.adapters.stores.postgres import PostgresEventStore  # noqa: E402 — needs psycopg above
-from agentdeck.adapters.stores.postgres import store as store_module  # noqa: E402 — needs psycopg above
+from agentdeck.adapters.stores.postgres import PostgresEventStore  # noqa: E402  -  needs psycopg above
+from agentdeck.adapters.stores.postgres import store as store_module  # noqa: E402  -  needs psycopg above
 
 ORIGIN = "Greeter"
 
@@ -39,7 +39,7 @@ ORIGIN = "Greeter"
 NOTHING_IS_STALE = timedelta(hours=1)
 EVERYTHING_IS_STALE = timedelta(0)
 
-# Nothing listens on port 1, so every call fails at connect — the shape of a database gone
+# Nothing listens on port 1, so every call fails at connect  -  the shape of a database gone
 # unreachable mid-run, without waiting out a real timeout.
 UNREACHABLE_DSN = "postgresql://postgres:postgres@127.0.0.1:1/nope"
 
@@ -72,7 +72,7 @@ async def _warm(first: PostgresEventStore, second: PostgresEventStore, log_key: 
 
     A cold store's first call connects, waits the schema-setup lock and runs four DDL
     statements. Gathering two cold ones races a lap against three, so the second peer arrives
-    after the first has finished — the contention the test exists to create only sometimes
+    after the first has finished  -  the contention the test exists to create only sometimes
     happens. With both warm it happens every time.
     """
     await first.read(log_key, ctx)
@@ -176,7 +176,7 @@ async def test_two_connections_settle_a_session_claim_on_one_winner(keyspace: tu
 
         refused = [claim.held_by for claim, _ in outcomes if claim.held_by is not None]
         assert len(refused) == 1, f"trial {trial}: {outcomes}"
-        # The log holds exactly the run the refusal named — the two answers cannot disagree.
+        # The log holds exactly the run the refusal named  -  the two answers cannot disagree.
         assert [event.run_id for event in stored] == [refused[0]], f"trial {trial}: {outcomes}"
         # And the winner was handed the event it wrote, while the loser was handed nothing.
         assert [event is not None for _, event in outcomes].count(True) == 1, f"trial {trial}: {outcomes}"
@@ -216,7 +216,7 @@ async def test_a_plain_append_cannot_commit_past_a_held_log_lock(
 ) -> None:
     """The port's paging guarantee, on the one store that could break it.
 
-    Row order is `BIGSERIAL` — assigned at insert, published at commit — so an append outside
+    Row order is `BIGSERIAL`  -  assigned at insert, published at commit  -  so an append outside
     the log's lock can be given a *later* number than a claim's in-flight insert and still
     commit *first*. The claim's event then appears at an offset a reader has already gone
     past, so that event is never delivered and one of its neighbours is delivered twice. The
@@ -251,7 +251,7 @@ async def test_a_claim_still_reads_the_winners_rows_on_a_server_that_defaults_to
 ) -> None:
     """The claim pins ``READ COMMITTED`` rather than inheriting the server's default, and this
     is why: under a snapshot taken at the transaction's first statement, the loser's reads
-    predate the winner's commit even though it waited for the lock — so it decides on a log
+    predate the winner's commit even though it waited for the lock  -  so it decides on a log
     that no longer exists and its insert fails the transaction instead of losing cleanly.
     """
     dsn, schema = keyspace
@@ -329,7 +329,7 @@ async def test_a_session_claim_that_wins_on_a_stale_run_reports_it_for_the_calle
 
 async def test_the_run_id_index_is_dropped_from_a_schema_built_before_it_was_removed(keyspace: tuple[str, str]) -> None:
     """``events_by_run_id`` existed only for ``locate``'s "which log holds this run_id" query,
-    which #322 removed with no caller left for it — a schema an earlier build already created
+    which #322 removed with no caller left for it  -  a schema an earlier build already created
     has the index and drops it on open rather than carrying it for good.
     """
     dsn, schema = keyspace

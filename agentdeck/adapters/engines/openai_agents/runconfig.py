@@ -6,12 +6,12 @@ control port are already resolved there: an adapter that reaches for ``get_setti
 cannot be handed a different endpoint by a caller, and a second front door would have to
 mutate process state to get one.
 
-A bare :class:`RunSettings` therefore configures nothing at all — no provider, the SDK's
-own defaults — which is what a code-first caller wiring ``OpenAIAgentsEngine()`` by hand
+A bare :class:`RunSettings` therefore configures nothing at all  -  no provider, the SDK's
+own defaults  -  which is what a code-first caller wiring ``OpenAIAgentsEngine()`` by hand
 gets. Naming a model is what turns on the provider (see ``_provider``), but it never reaches
 ``RunConfig.model``: the SDK overrides *every* agent's own model with that field once it is
 set, string or ``Model`` alike, so the settings-resolved default is handed to each agent
-instead, at compile time (``authoring.compile.compile_agent``) — the one place an agent's own
+instead, at compile time (``authoring.compile.compile_agent``)  -  the one place an agent's own
 declared model and the run's default both resolve to a single value before either ever
 reaches an SDK ``RunConfig``.
 """
@@ -59,7 +59,7 @@ def build_handoff_ends_on_user_turn_mapper(closing_turn: str) -> HandoffHistoryM
 
     ``nest_handoff_history`` folds everything into one assistant message, and some
     OpenAI-compatible endpoints reject a request that ends on anything but a user role. The
-    collapsed content already carries the real transcript, so ``closing_turn`` (configurable —
+    collapsed content already carries the real transcript, so ``closing_turn`` (configurable  -
     the default is an English sentence, which isn't right for every deployment) is appended
     rather than repeating it.
     """
@@ -91,7 +91,7 @@ def build_run_config(settings: RunSettings, *, sandbox: Any = None) -> RunConfig
         tracing_disabled=not tracing_enabled(),
         model_provider=_provider(settings) or MultiProvider(),
         # ``include_usage`` asks the Chat-Completions API to emit the streaming usage chunk
-        # (prompt/completion tokens) — without it, streamed turns carry no token counts at
+        # (prompt/completion tokens)  -  without it, streamed turns carry no token counts at
         # all, so ``usage.reported`` and ``run.completed`` would both report zero. No-op on
         # the Responses API, where usage is always included.
         model_settings=ModelSettings(
@@ -122,7 +122,7 @@ def _provider(settings: RunSettings) -> OpenAIProvider | None:
     """The provider for the endpoint these settings name, or ``None`` for "no endpoint".
 
     A custom CA bundle needs its own httpx client (``verify=<path>``), so ``base_url`` and
-    ``api_key`` ride on that client rather than on the provider — the provider ignores both
+    ``api_key`` ride on that client rather than on the provider  -  the provider ignores both
     once it is handed a client of its own.
     """
     if not settings.model:

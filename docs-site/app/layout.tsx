@@ -5,18 +5,20 @@ import { Head } from 'nextra/components'
 import { Mark } from './mark'
 import { getPageMap } from 'nextra/page-map'
 import type { ReactNode } from 'react'
-import { AskAgentDeck } from './ask-agentdeck'
+import { JackPanel } from './jack'
 import { SITE } from './site'
 import 'nextra-theme-docs/style.css'
 import './brand.css'
-import './ask-agentdeck.css'
+import './landing.css'
+import './hero.css'
+import './jack.css'
 
-// Self-hosted at build time — the static export makes no external font request.
+// Self-hosted at build time  -  the static export makes no external font request.
 const body = Inter({ subsets: ['latin'], variable: '--font-body', display: 'swap' })
 const display = Poppins({ subsets: ['latin'], weight: ['500', '600'], variable: '--font-display', display: 'swap' })
 
 export const metadata: Metadata = {
-  // Every relative URL in metadata — canonical tags, OG images — resolves against this, so the
+  // Every relative URL in metadata  -  canonical tags, OG images  -  resolves against this, so the
   // whole site moves domain by changing one env var rather than by editing every page.
   metadataBase: new URL(SITE),
   alternates: { canonical: './' },
@@ -24,20 +26,20 @@ export const metadata: Metadata = {
     type: 'website',
     siteName: 'AgentDeck SDK',
     url: './',
-    title: 'AgentDeck SDK — a production runtime for AI agents',
+    title: 'AgentDeck SDK  -  a production runtime for AI agents',
     description:
       'Durable human-in-the-loop approvals, sessions, streaming, run control and one ordered '
-      + 'event log per run — wrapping the OpenAI Agents SDK and LangGraph rather than replacing them.'
+      + 'event log per run  -  wrapping the OpenAI Agents SDK and LangGraph rather than replacing them.'
   },
   twitter: { card: 'summary_large_image', title: 'AgentDeck SDK' },
   title: {
-    default: 'AgentDeck SDK — a production runtime for AI agents',
+    default: 'AgentDeck SDK  -  a production runtime for AI agents',
     template: '%s | AgentDeck SDK'
   },
   description:
-    'AgentDeck SDK adds composition and a production runtime around agents you already have — '
+    'AgentDeck SDK adds composition and a production runtime around agents you already have  -  '
     + 'durable human-in-the-loop approvals, sessions, streaming, run control and one ordered '
-    + 'event log per run — wrapping the OpenAI Agents SDK and LangGraph rather than replacing them.'
+    + 'event log per run  -  wrapping the OpenAI Agents SDK and LangGraph rather than replacing them.'
 }
 
 const navbar = (
@@ -72,7 +74,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         >
           {children}
         </Layout>
-        <AskAgentDeck />
+        <JackPanel />
       </body>
     </html>
   )

@@ -1,4 +1,4 @@
-"""One crude SSE route for v2 runs — separate from v1's ``serve.py``, which stays
+"""One crude SSE route for v2 runs  -  separate from v1's ``serve.py``, which stays
 untouched. No auth, no discovery: the composition root hands in an already-wired
 ``Runtime``. Skeleton component: hardened or discarded at the M0 review, not polished now.
 """
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 
 class ChatBody(BaseModel):
-    """Validated at the trust boundary instead of a bare ``body["session_id"]`` — a
+    """Validated at the trust boundary instead of a bare ``body["session_id"]``  -  a
     missing field is a 422 from FastAPI, not a 500 mid-stream."""
 
     # Non-empty because ``RunContext.log_key`` is ``session_id or run_id``: an empty one is
@@ -36,7 +36,7 @@ class ChatBody(BaseModel):
 def build_app(runtime: Runtime) -> FastAPI:
     """The whole surface: one route, streaming ``Event.model_dump_json()`` lines.
 
-    No ``_jsonable`` reshaping like v1's ``serve.py`` — the wire *is* the canonical event,
+    No ``_jsonable`` reshaping like v1's ``serve.py``  -  the wire *is* the canonical event,
     which is the point of having one. A turn asked for on a session that already has one gets
     **409** with the holding run named, because that answer has to arrive before the stream does.
     """
@@ -49,7 +49,7 @@ def build_app(runtime: Runtime) -> FastAPI:
             # The turn is claimed on the first event, so it has to be pulled here: once a
             # StreamingResponse has committed 200 and `text/event-stream`, a refusal can only
             # reach the client as a body that stops, which is indistinguishable from a run that
-            # produced nothing — the one outcome raising instead of yielding exists to avoid.
+            # produced nothing  -  the one outcome raising instead of yielding exists to avoid.
             opening = await anext(stream)
         except SessionBusyError as busy:
             return JSONResponse(status_code=HTTPStatus.CONFLICT, content={"detail": str(busy)})

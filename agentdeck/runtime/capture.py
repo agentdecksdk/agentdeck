@@ -1,11 +1,11 @@
-"""Provenance capture — who/which session produced an entity, and why.
+"""Provenance capture  -  who/which session produced an entity, and why.
 
 Formerly imported from the (never-extracted) ``agentdecks_core`` package; the
 model is small enough to own here. Two clearly separated owners:
 
-* **Identity** — ``session_id`` / ``author_id`` are built by whoever opens the
+* **Identity**  -  ``session_id`` / ``author_id`` are built by whoever opens the
   run, never supplied by the thing being traced.
-* **Role and why** — ``actor`` / ``rationale`` belong to the flow that minted
+* **Role and why**  -  ``actor`` / ``rationale`` belong to the flow that minted
   the entity.
 """
 

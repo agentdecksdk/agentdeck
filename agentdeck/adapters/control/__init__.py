@@ -1,1 +1,1 @@
-"""Run control — implementations of ``ControlPort``."""
+"""Run control  -  implementations of ``ControlPort``."""

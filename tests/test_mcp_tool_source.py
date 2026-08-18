@@ -23,7 +23,7 @@ from agentdeck.authoring import Agent
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports import ToolSet, ToolSourcePort
 
-# Unreachable on purpose — nothing dials it, and a test that regressed into dialling hangs
+# Unreachable on purpose  -  nothing dials it, and a test that regressed into dialling hangs
 # on connect refusal rather than silently talking to a real server.
 KNOWLEDGE = {"type": "http", "url": "http://127.0.0.1:1/mcp"}
 
@@ -72,7 +72,7 @@ def connect(monkeypatch):
 
     async def _connect(self):
         if self.name in refused:
-            raise PermissionError(f"{self.name}: no")  # not transient — no retry backoff to wait out
+            raise PermissionError(f"{self.name}: no")  # not transient  -  no retry backoff to wait out
 
     async def _cleanup(self):
         return None
@@ -206,7 +206,7 @@ def test_the_mcp_client_is_banned_outside_this_adapter(tmp_path):
     """The import law: only ``adapters/tools/mcp`` may import ``agents.mcp``.
 
     Enforced by ruff's banned-api, not import-linter, which rejects a subpackage of an
-    external package outright — so the guard is worth pinning where it can't rot silently.
+    external package outright  -  so the guard is worth pinning where it can't rot silently.
     """
     repo_root = Path(__file__).resolve().parents[1]
     offender = tmp_path / "another_engine.py"

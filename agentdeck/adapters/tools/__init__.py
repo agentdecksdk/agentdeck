@@ -1,1 +1,1 @@
-"""Tool sources — implementations of ``ToolSourcePort``, one directory per system."""
+"""Tool sources  -  implementations of ``ToolSourcePort``, one directory per system."""

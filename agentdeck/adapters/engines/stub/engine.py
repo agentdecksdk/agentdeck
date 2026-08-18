@@ -1,12 +1,12 @@
-"""The engine that plays a script — the reference implementation of ``EnginePort``.
+"""The engine that plays a script  -  the reference implementation of ``EnginePort``.
 
 An invocable's ``native`` is the script: payloads to yield in order, with any exception in
-the sequence raised where it sits. That covers every way a run can end — completes, fails
-mid-stream, interrupts, or stops without a terminal event — with no model, no network and
+the sequence raised where it sits. That covers every way a run can end  -  completes, fails
+mid-stream, interrupts, or stops without a terminal event  -  with no model, no network and
 no timing, which is why it stays the contract suite's fastest engine rather than a
 placeholder for a real one. A ``RunInterrupted`` step splits the script in two: ``start``
 plays up to and including it, then stops (mirroring a real engine suspending); ``resume``
-plays whatever comes after it — so one script expresses both halves of a suspend/resume
+plays whatever comes after it  -  so one script expresses both halves of a suspend/resume
 case without a second field on ``InvocableSpec``.
 """
 
@@ -57,7 +57,7 @@ class StubEngine(EnginePort):
             try:
                 await ctx.gate.checkpoint()
             except ControlSignalled as signalled:
-                # Between two steps is this engine's stream_item boundary — the same safe
+                # Between two steps is this engine's stream_item boundary  -  the same safe
                 # point a real engine has between two translated items, which is what lets
                 # the contract suite hold both to one control contract.
                 for payload in signalled.payloads:
@@ -82,12 +82,12 @@ class StubEngine(EnginePort):
 
 
 def stub_spec(name: str, *steps: Step, kind: InvocableKind = InvocableKind.AGENT) -> InvocableSpec:
-    """A scripted invocable. Leave ``run.started`` out — the Runtime opens every run itself."""
+    """A scripted invocable. Leave ``run.started`` out  -  the Runtime opens every run itself."""
     return InvocableSpec(name=name, kind=kind, engine=StubEngine.engine, native=steps)
 
 
 def _script_of(spec: InvocableSpec) -> tuple[Step, ...]:
-    """A misconfigured invocable is the caller's mistake, not a run that failed — so this is a
+    """A misconfigured invocable is the caller's mistake, not a run that failed  -  so this is a
     ``ConfigError`` at the adapter's edge rather than a stdlib type leaking into ``run.failed``."""
     script = spec.native
     if isinstance(script, str) or not isinstance(script, Sequence):

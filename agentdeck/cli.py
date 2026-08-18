@@ -1,4 +1,4 @@
-"""``agentdeck runs signal <run_id> <cancel|pause|resume>`` — the second terminal's way to
+"""``agentdeck runs signal <run_id> <cancel|pause|resume>``  -  the second terminal's way to
 reach a run's ``ControlPort`` from a different OS process than the one streaming it.
 
     agentdeck runs signal <run_id> cancel --control-db path/to/control.sqlite3 --reason "typo"
@@ -8,7 +8,7 @@ already stopped means playing it on, which needs the event log and so belongs to
 holding a Runtime (``Deck.runs.resume``, ``POST /runs/{id}/resume``), not to this file.
 
 A top-level composition root, like ``serve.py``: it wires the SQLite ``ControlPort``
-adapter directly, which is why it lives outside ``surfaces/`` — surfaces never import an
+adapter directly, which is why it lives outside ``surfaces/``  -  surfaces never import an
 adapter (they get one handed to them). There is no HTTP control route (out of scope for
 M0) and no registry of which run lives where; the caller already has ``run_id`` from the
 stream it was watching.
@@ -35,7 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     signal_cmd = runs_commands.add_parser("signal")
     signal_cmd.add_argument("run_id", help="the run to signal")
     signal_cmd.add_argument(
-        "signal", choices=[sig.value for sig in Signal], help="the verb — see Run Control for what each does"
+        "signal", choices=[sig.value for sig in Signal], help="the verb  -  see Run Control for what each does"
     )
     signal_cmd.add_argument("--control-db", required=True, help="path to the ControlPort's SQLite file")
     signal_cmd.add_argument("--reason", help="why, recorded in the run's log with the request")
@@ -45,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     control = SqliteControlPort(args.control_db)
-    # A run's id is minted and canonical, so this CLI's argument addresses one directly — no
+    # A run's id is minted and canonical, so this CLI's argument addresses one directly  -  no
     # namespace to combine it with, no resolution step, and nothing to derive.
     asyncio.run(control.signal(args.run_id, Signal(args.signal), args.reason))
     return 0

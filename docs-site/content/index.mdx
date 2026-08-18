@@ -1,58 +1,147 @@
 ---
-title: AgentDeck
-description: Write the agent. AgentDeck owns everything around it.
+title: AgentDeck - agentic software should feel like software
+description: Build agents, tools and workflows as normal software. AgentDeck gives them one execution model you can observe, control and extend.
 ---
 
-# AgentDeck
+<div className="landing">
 
-<p className="brand-tagline">
-  <span>Build the agent.</span>
-  <span>Own the runtime.</span>
-</p>
+<Hero />
 
-You write agents and workflows as small Python definitions, and skills as `SKILL.md`
-directories. AgentDeck owns everything around them: project discovery, settings and provider
-wiring, tools and MCP servers, sessions, streaming, typed workflows with human approval.
-Execution stays in the OpenAI Agents SDK and LangGraph.
-
-## A whole agent
-
+<Compose>
+<Snippet status="shipped">
 ```python
-# .agentdeck/agents/greeter/agent.py
-from agentdeck import Agent
+from agentdeck import Agent, Deck
 
-greeter = Agent(name="Greeter", instructions="You are a friendly scheduling assistant. Keep replies to one short sentence.")
+jack = Agent(
+    name="Jack",
+    instructions="Help developers build with AgentDeck.",
+)
+
+deck = Deck(agents=[jack])
 ```
+</Snippet>
+</Compose>
 
-Nothing registers it — the file's location is the registration. Run it:
-
+<Capabilities>
+<Snippet status="shipped">
 ```python
-import asyncio
+from agentdeck import Agent, Context, Deck
 
-from agentdeck import Deck
+def search_docs(query: str, docs: Context[DocsCorpus]) -> str:
+    """Find AgentDeck documentation pages matching a query."""
+    return docs.data.search(query)
 
+def read_doc(slug: str, docs: Context[DocsCorpus]) -> str:
+    """Read one AgentDeck documentation page in full, by its slug."""
+    return docs.data.pages[slug]
 
-async def main() -> None:
-    async with Deck.from_project() as deck:
-        result = await deck.run("Greeter", "hello")
-        print(result.output)
+jack = Agent(
+    name="Jack",
+    instructions="Help developers build with AgentDeck.",
+    tools=[search_docs, read_doc, read_changelog],
+)
 
-
-asyncio.run(main())
+deck = Deck(agents=[jack], context=DocsCorpus)
 ```
+</Snippet>
+</Capabilities>
 
-## What you did not write
+<Process>
+<Snippet status="proposed">
+```python
+@workflow
+async def answer(question: str, ctx):
+    docs, examples = await ctx.parallel(
+        ctx.invoke(search_docs, question),
+        ctx.invoke(search_examples, question),
+    )
 
-- **Registration** — drop a file into `.agentdeck/`; discovery does the rest.
-- **Provider and runner config** — layered settings from env, `.env`, and `config.yaml`.
-- **Conversation memory** — `deck.run(..., session_id=...)` keeps a session across turns and
-  surfaces; set `AGENTDECK_SESSION` to keep it across a process restart too.
-- **Streaming** — `deck.stream()` and an SSE HTTP surface: same agent, no extra code.
-- **Workflow machinery** — graph compilation, durability, and human interrupts from a typed state class.
+    if not docs and not examples:
+        return "Nothing in the documentation covers that yet."
 
-## What AgentDeck is not
+    return await ctx.invoke(jack, {
+        "question": question,
+        "docs": docs,
+        "examples": examples,
+    })
+```
+</Snippet>
+</Process>
 
-No YAML or JSON agent DSL — definitions are Python. No auth system, no marketplace, no
-hosted control plane. It does not reimplement the engines it runs on.
+<ExecutionTree />
 
-[Install and run one →](/getting-started) · [How the pieces fit →](/concepts)
+<SecondAgent>
+<Snippet status="proposed">
+```python
+@workflow
+async def answer(question: str, ctx):
+    researcher = ctx.agents.create(research_agent)
+
+    docs = await ctx.invoke(search_docs, question)
+    research = await ctx.invoke(researcher, question)
+
+    return await ctx.invoke(jack, {
+        "question": question,
+        "docs": docs,
+        "research": research,
+    })
+```
+</Snippet>
+</SecondAgent>
+
+<Interaction>
+<Snippet status="proposed">
+```python
+if needs_source:
+    source = await ctx.ask(
+        "Paste the code you want me to inspect."
+    )
+    research = await ctx.invoke(researcher, source)
+```
+</Snippet>
+</Interaction>
+
+<Control>
+<Snippet status="shipped" label="the root execution">
+```python
+run = await deck.runs.start("Jack", question)
+
+await run.pause()
+await run.resume()
+await run.cancel()
+
+await run.answer({"approved": True})
+```
+</Snippet>
+<Snippet status="proposed" label="a nested invocation, same handle">
+```python
+research = ctx.invoke(researcher, task)
+
+await research.pause()
+await research.resume()
+
+result = await research
+```
+</Snippet>
+</Control>
+
+<WholeDeck>
+<Snippet status="shipped">
+```python
+deck = Deck(
+    agents=[jack, researcher],
+    workflows=[answer],
+    context=App,
+)
+
+async with deck:
+    result = await deck.run("answer", question, context=app)
+```
+</Snippet>
+</WholeDeck>
+
+<MeetJack />
+
+<FinalCTA />
+
+</div>

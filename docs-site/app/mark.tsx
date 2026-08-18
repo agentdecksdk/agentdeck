@@ -1,7 +1,7 @@
 /** The AgentDeck card mark, inlined so it inherits `currentColor` from the navbar.
  *  Copied from `docs/brand/components/card.svg`, and held to it by `tests/test_brand_assets.py`:
  *  this file is a composition like any other, it just happens to be TSX. The spark is dropped at
- *  this size for the reason `logo-mark.svg` records — three grey pixels, and it breaks the square. */
+ *  this size for the reason `logo-mark.svg` records  -  three grey pixels, and it breaks the square. */
 export function Mark({ size = 22 }: { size?: number }) {
   return (
     <svg className="agentdeck-mark" viewBox="246 202 765 876" height={size} fill="currentColor" aria-hidden="true">

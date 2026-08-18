@@ -2,8 +2,8 @@
 
 The relative branch used to go through the sandbox port. Nothing bound a sandbox, so it
 raised whatever the port raised; sandboxing then left v3 with the port. The node has to keep
-refusing rather than silently resolving against the process cwd — that would widen exactly
-what the sandbox narrowed — so both halves are asserted here.
+refusing rather than silently resolving against the process cwd  -  that would widen exactly
+what the sandbox narrowed  -  so both halves are asserted here.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ async def test_an_absolute_path_is_read_from_the_host_filesystem(tmp_path):
 
 
 async def test_a_relative_path_is_refused_and_reads_nothing(tmp_path, monkeypatch):
-    """Named as the failure it is, and *not* resolved against the cwd — the file sitting
+    """Named as the failure it is, and *not* resolved against the cwd  -  the file sitting
     right there at the relative path must stay unread."""
     (tmp_path / "brief.txt").write_text("cwd contents", encoding="utf-8")
     monkeypatch.chdir(tmp_path)

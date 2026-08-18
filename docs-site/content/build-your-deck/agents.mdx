@@ -1,0 +1,20 @@
+---
+title: Agents
+description: Declarative agents with tools, instructions, and model configurations.
+---
+
+# Agents
+
+Agents are autonomous decision-making entities that use tools to achieve goals.
+
+## Declaring an Agent
+
+```python
+from agentdeck import Agent
+
+support_agent = Agent(
+    name="support_agent",
+    instructions="You help customers troubleshoot issues.",
+    model="gpt-4o",
+)
+```

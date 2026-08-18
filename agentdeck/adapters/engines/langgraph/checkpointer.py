@@ -3,7 +3,7 @@
 Relocated from ``agentdeck.runtime.checkpointer``, which was written for v1's
 ``BaseWorkflow`` durability but holds exactly the state a checkpointer engine must keep
 private to its own adapter (ADR-D5: execution state belongs to the engine that produced
-it, never shared or derived by an outer ring) — the same relationship ``sessions.py`` has
+it, never shared or derived by an outer ring)  -  the same relationship ``sessions.py`` has
 to the openai-agents adapter. ``agentdeck.authoring.compile.compile_workflow`` (a durable
 ``Workflow``'s direct-call path) imports this module directly and translates
 ``CheckpointSettings`` into the plain ``(backend, url)`` this function takes. ``memory``
@@ -35,8 +35,7 @@ if TYPE_CHECKING:
     from langgraph.checkpoint.base import BaseCheckpointSaver
 
 _DURABILITY_HINT = (
-    'install the "durability" extra: pip install "agentdeck-sdk[durability]" — '
-    f"see {DOCS_URL}/concepts/choosing-a-store-backend"
+    f'install the "durability" extra: pip install "agentdeck-sdk[durability]"  -  see {DOCS_URL}/reference/settings'
 )
 
 _T = TypeVar("_T")
@@ -47,23 +46,23 @@ _savers: MutableMapping[AbstractEventLoop, dict[tuple[str, str], BaseCheckpointS
 def _per_loop(backend: str, url: str, build: Callable[[], BaseCheckpointSaver]) -> BaseCheckpointSaver:
     """Cache ``build``'s saver against the running event loop rather than the process.
 
-    The async sqlite and postgres savers hold asyncio primitives — a ``Lock``, and under it a
-    connection — that bind to the first loop to *contend* for them. A process-wide cache
+    The async sqlite and postgres savers hold asyncio primitives  -  a ``Lock``, and under it a
+    connection  -  that bind to the first loop to *contend* for them. A process-wide cache
     therefore hands a second loop a saver the first one owns, and the second loop's first
     concurrent access dies with "bound to a different event loop": fine for a server, which
     is one loop for its lifetime, and broken for anything that runs more than one.
 
     Resolved with no loop running (a script that compiles its graph before ``asyncio.run``),
     nothing is cached: there is no loop to key on, and the saver will bind to whichever one
-    first uses it — so caching it is precisely how the same breakage would come back. That
+    first uses it  -  so caching it is precisely how the same breakage would come back. That
     costs one connection per resolution on a path that resolves once.
 
     What the weak keying does *not* buy: a saver ends up referencing the loop it bound to
     (through that same lock), so each entry keeps its own key alive and nothing is collected
     until ``_savers`` itself is. A process that runs many loops in a row therefore accumulates
-    one connection and one aiosqlite thread per loop — the wrong half of a trade whose right
+    one connection and one aiosqlite thread per loop  -  the wrong half of a trade whose right
     half is a saver that works on the second loop. Zero effect on a server. ponytail: bounding
-    it means closing the savers at loop shutdown, i.e. owning their lifecycle — worth doing
+    it means closing the savers at loop shutdown, i.e. owning their lifecycle  -  worth doing
     when something long-lived actually runs loops in a row.
     """
     try:
@@ -95,7 +94,7 @@ def _run_sync(coro: Coroutine[None, None, _T]) -> _T:
     def _runner() -> None:
         try:
             result.append(asyncio.run(coro))
-        except BaseException as exc:  # noqa: BLE001 — re-raised on the calling thread below
+        except BaseException as exc:  # noqa: BLE001  -  re-raised on the calling thread below
             error.append(exc)
 
     thread = threading.Thread(target=_runner, daemon=True)
@@ -109,13 +108,13 @@ def _run_sync(coro: Coroutine[None, None, _T]) -> _T:
 def resolve_checkpointer(backend: str, url: str = "") -> BaseCheckpointSaver:
     """Build the checkpointer named by ``backend`` (``memory`` / ``sqlite`` / ``postgres``).
 
-    ``url`` is the sqlite file path or the Postgres DSN — primitives, not a settings
+    ``url`` is the sqlite file path or the Postgres DSN  -  primitives, not a settings
     object, so this adapter takes core plus langgraph and nothing else. Raises
     ``ValueError`` for an unknown backend, ``ImportError`` (with an install hint) when
     ``postgres`` is requested but the ``[durability]`` extra isn't installed,
     and ``StoreError`` when the backend cannot open its connection at all, naming
-    ``AGENTDECK_CHECKPOINT`` — and, for sqlite, the resolved file path; a Postgres DSN is
-    not named, since it can carry a password — with the driver exception chained on as
+    ``AGENTDECK_CHECKPOINT``  -  and, for sqlite, the resolved file path; a Postgres DSN is
+    not named, since it can carry a password  -  with the driver exception chained on as
     ``__cause__``. A driver error raised mid-run, after the connection opened, is not a
     configuration answer and is left as it is.
     """
@@ -128,7 +127,7 @@ def resolve_checkpointer(backend: str, url: str = "") -> BaseCheckpointSaver:
         return _postgres_saver(url)
     raise ValueError(
         f"unknown checkpoint backend {backend!r}; expected sqlite, postgres, or memory "
-        f"— see {DOCS_URL}/concepts/choosing-a-store-backend"
+        f" -  see {DOCS_URL}/reference/settings"
     )
 
 
@@ -136,7 +135,7 @@ def resolve_checkpointer(backend: str, url: str = "") -> BaseCheckpointSaver:
 def _memory_saver() -> BaseCheckpointSaver:
     """Process-wide on purpose, unlike the durable two: ``MemorySaver`` is plain dicts with
     no loop-bound primitive, and sharing it is what lets ``durable = True`` on the memory
-    backend resume across two ``asyncio.run`` calls at all — its threads live nowhere else."""
+    backend resume across two ``asyncio.run`` calls at all  -  its threads live nowhere else."""
     from langgraph.checkpoint.memory import MemorySaver
 
     return MemorySaver()
@@ -153,7 +152,7 @@ def _build_sqlite_saver(url: str) -> BaseCheckpointSaver:
     import aiosqlite
     from langgraph.checkpoint.sqlite import aio as sqlite_aio
 
-    # AsyncSqliteSaver.__init__ needs a running loop — build it inside _run_sync, matching postgres.
+    # AsyncSqliteSaver.__init__ needs a running loop  -  build it inside _run_sync, matching postgres.
     path = url or ".agentdeck/checkpoints.sqlite3"
 
     async def _connect_and_build() -> BaseCheckpointSaver:
@@ -161,7 +160,7 @@ def _build_sqlite_saver(url: str) -> BaseCheckpointSaver:
             conn = aiosqlite.connect(path)
             # aiosqlite's per-connection worker thread is non-daemon, and nothing ever closes a
             # cached connection, so a normal exit would hang forever joining it.
-            conn._thread.daemon = True  # noqa: SLF001 — aiosqlite exposes no public way to set this
+            conn._thread.daemon = True  # noqa: SLF001  -  aiosqlite exposes no public way to set this
             await conn
             saver = sqlite_aio.AsyncSqliteSaver(conn)
             await saver.setup()
@@ -182,14 +181,14 @@ def _postgres_saver(url: str) -> BaseCheckpointSaver:
 
 def _build_postgres_saver(url: str) -> BaseCheckpointSaver:
     try:
-        from langgraph.checkpoint.postgres.aio import (  # ty: ignore[unresolved-import] — [durability] extra
+        from langgraph.checkpoint.postgres.aio import (  # ty: ignore[unresolved-import]  -  [durability] extra
             AsyncPostgresSaver,
         )
     except ImportError as exc:
         raise ImportError(
-            f"checkpoint backend 'postgres' needs langgraph-checkpoint-postgres — {_DURABILITY_HINT}",
+            f"checkpoint backend 'postgres' needs langgraph-checkpoint-postgres  -  {_DURABILITY_HINT}",
         ) from exc
-    import psycopg  # ty: ignore[unresolved-import] — [durability] extra
+    import psycopg  # ty: ignore[unresolved-import]  -  [durability] extra
 
     # Async saver, same reason as sqlite: the engine always calls ``ainvoke``/``astream``.
     # ``from_conn_string`` is an async contextmanager owning the connection; we enter it
@@ -200,7 +199,7 @@ def _build_postgres_saver(url: str) -> BaseCheckpointSaver:
     except psycopg.Error as exc:
         # No DSN in the message, unlike the sqlite branch: a DSN can carry a password, and
         # unlike a filesystem path, that is a secret. Matches how the networked event stores
-        # already word this (postgres/store.py, redis/store.py) — neither names its URL either.
+        # already word this (postgres/store.py, redis/store.py)  -  neither names its URL either.
         raise StoreError(f"cannot open the workflow checkpoint (AGENTDECK_CHECKPOINT): {exc}") from exc
     return saver
 

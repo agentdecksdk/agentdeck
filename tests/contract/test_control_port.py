@@ -1,7 +1,7 @@
 """``ControlPort.consume``, held to one contract across both adapters.
 
-The compare-and-set a honored intent needs. It exists because the alternative — clearing the
-port, or writing ``RESUME`` over whatever is there — destroys a signal the writer never read,
+The compare-and-set a honored intent needs. It exists because the alternative  -  clearing the
+port, or writing ``RESUME`` over whatever is there  -  destroys a signal the writer never read,
 and the one signal that reaches nothing else is a cancel recorded against a run that has already
 stopped. So "take the intent I ruled on, and only that one" has to be a single operation the
 store decides, not a poll followed by a write.
@@ -41,7 +41,7 @@ def control(request: pytest.FixtureRequest) -> Iterator[ControlPort]:
 async def test_consuming_the_signal_that_is_pending_takes_it(control: ControlPort) -> None:
     """The ordinary case: a caller read ``cancel``, ruled on it, and takes it so nothing honors
     the same request twice. The port is empty afterwards, which is what a later poll has to see
-    — a sentinel left behind would read as an instruction to somebody."""
+     -  a sentinel left behind would read as an instruction to somebody."""
     await control.signal("r-1", Signal.CANCEL, "operator said stop")
 
     assert await control.consume("r-1", Signal.CANCEL) is True
@@ -50,7 +50,7 @@ async def test_consuming_the_signal_that_is_pending_takes_it(control: ControlPor
 
 async def test_consuming_a_signal_that_is_no_longer_pending_takes_nothing(control: ControlPort) -> None:
     """The case the whole method exists for. A caller read ``pause``, and by the time it went to
-    take it an operator had recorded a ``cancel`` — the one signal nothing else will ever notice.
+    take it an operator had recorded a ``cancel``  -  the one signal nothing else will ever notice.
     An unconditional clear would destroy it silently; the compare-and-set refuses and leaves it,
     so the losing caller re-polls and finds the cancel still there to act on.
     """
@@ -69,7 +69,7 @@ async def test_consuming_an_empty_port_takes_nothing(control: ControlPort) -> No
 
 
 async def test_consuming_one_run_s_signal_leaves_every_other_run_s_alone(control: ControlPort) -> None:
-    """Signals are addressed by ``run_id`` alone, so the taking has to be too — a port that
+    """Signals are addressed by ``run_id`` alone, so the taking has to be too  -  a port that
     cleared more than the run it was asked about would cancel other people's turns."""
     await control.signal("r-1", Signal.CANCEL)
     await control.signal("r-2", Signal.CANCEL)

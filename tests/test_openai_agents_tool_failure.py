@@ -7,7 +7,7 @@ machine-readable said a tool had failed.
 
 Two halves, tested apart because they run at different times: ``compile_tool``'s failure formatter
 writes the exception onto the run's context while the tool call is being handled, and the
-translator reads it back when the paired result item arrives. No live model — the tools below are
+translator reads it back when the paired result item arrives. No live model  -  the tools below are
 driven through the SDK's own ``on_invoke_tool``, the same entry point its run loop uses.
 """
 
@@ -31,7 +31,7 @@ class Calendar:
 
 
 async def explode(reason: str) -> str:
-    """A tool that fails the way a real one does — a plain callable, no context declared."""
+    """A tool that fails the way a real one does  -  a plain callable, no context declared."""
     raise RuntimeError(f"boom: {reason}")
 
 
@@ -46,7 +46,7 @@ async def succeed(reason: str) -> str:
 
 
 def _invoke(tool: Any, run: RunContext, arguments: str = '{"reason": "test"}', call_id: str = "call_1") -> Any:
-    """Call ``tool`` the way the SDK's run loop does — through its own dispatch, not around it."""
+    """Call ``tool`` the way the SDK's run loop does  -  through its own dispatch, not around it."""
     context = ToolContext(context=run, tool_name=tool.name, tool_call_id=call_id, tool_arguments=arguments)
     return tool.on_invoke_tool(context, arguments)
 

@@ -1,4 +1,4 @@
-"""``coerce_input`` — the one place a bare string becomes an ``Input`` — and ``DataBlock``,
+"""``coerce_input``  -  the one place a bare string becomes an ``Input``  -  and ``DataBlock``,
 the one place structured data becomes content."""
 
 from __future__ import annotations
@@ -113,7 +113,7 @@ def test_a_value_that_could_not_survive_the_wire_is_rejected(data):
 )
 def test_a_non_finite_float_is_rejected_rather_than_serialized_as_null(data):
     """The one value JSON has no literal for. Accepting it would write ``null`` while the
-    consumer that was handed the block saw a float — a yielded event diverging from its own
+    consumer that was handed the block saw a float  -  a yielded event diverging from its own
     record, silently."""
     with pytest.raises(ValidationError, match="non-finite float"):
         DataBlock(data=data)
@@ -147,7 +147,7 @@ def test_an_unfamiliar_block_type_parses_as_unknown_block():
     ],
 )
 def test_an_unknown_block_keeps_a_newer_writer_bytes_exactly(value):
-    """``UnknownBlock`` exists so this version survives a newer one's block types — which it
+    """``UnknownBlock`` exists so this version survives a newer one's block types  -  which it
     cannot do while it is free to alter that writer's data on the way through. Its
     ``raw_block`` gets the rule ``DataBlock.data`` already had, for the same reason."""
     with pytest.raises(ValidationError):
@@ -155,7 +155,7 @@ def test_an_unknown_block_keeps_a_newer_writer_bytes_exactly(value):
 
 
 def test_a_malformed_known_block_still_raises():
-    """The union must not swallow a broken known block into UnknownBlock — only a type it
+    """The union must not swallow a broken known block into UnknownBlock  -  only a type it
     genuinely doesn't recognize falls back."""
     with pytest.raises(ValidationError):
         BLOCKS.validate_python([{"type": "text"}])  # text requires `text`
@@ -168,7 +168,7 @@ def test_unknown_block_survives_its_own_round_trip():
 
 def test_unknown_block_dumps_as_the_original_dict_not_nested_under_raw_block():
     """The finding (#200): parse then dump must be the identity, not
-    ``{"type": ..., "raw_block": {...}}`` — a reader that re-emits the block would otherwise see
+    ``{"type": ..., "raw_block": {...}}``  -  a reader that re-emits the block would otherwise see
     the payload nested one level deeper on every hop."""
     raw = {"type": "video", "media_type": "video/mp4", "data_b64": "AAA="}
     block = BLOCKS.validate_python([raw])[0]

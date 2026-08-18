@@ -29,7 +29,7 @@ _LOAD_SKILL_DESCRIPTION = (
 def skills_resolver(skills: Skills) -> Callable[[Sequence[str]], tuple[str, list[FunctionTool]]]:
     """Build the ``resolve_skills`` callable ``compile_agent`` expects, scoped to one
     :class:`Skills` registry. ``compile_agent`` calls it once per agent with that agent's own
-    ``skills=[...]``, so the ``load_skill`` tool it returns is scoped to that agent's names —
+    ``skills=[...]``, so the ``load_skill`` tool it returns is scoped to that agent's names  -
     a skill outside its own allow-list stays unreachable even though the registry knows it.
     """
 

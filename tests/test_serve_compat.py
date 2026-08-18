@@ -1,7 +1,7 @@
 """The compat facade: v1's chat wire, rendered from the canonical events of a real run.
 
-Every case here drives the whole path — v1's resolved run config, the compat engine, the
-Runtime, the surface's renderer — with only the model scripted, so the frames asserted
+Every case here drives the whole path  -  v1's resolved run config, the compat engine, the
+Runtime, the surface's renderer  -  with only the model scripted, so the frames asserted
 below are the ones the endpoint puts on the wire.
 """
 
@@ -116,7 +116,7 @@ def test_the_surface_and_the_langgraph_engine_agree_on_the_stream_write_carrier(
 
 def test_the_interrupt_inbox_comes_back_sorted_by_thread_id():
     """v1 walked the checkpointer's threads sorted, and a client rendering an approval inbox
-    must not see it reshuffle between polls — so the order is asserted, not incidental."""
+    must not see it reshuffle between polls  -  so the order is asserted, not incidental."""
     runs = [
         PendingRun(run_id="r3", session_id="t-c", invocable="Approve", thread_id="t-c", payload={"n": 3}),
         PendingRun(run_id="r1", session_id="t-a", invocable="Approve", thread_id="t-a", payload={"n": 1}),
@@ -149,7 +149,7 @@ async def test_chat_frames_render_deltas_then_done_from_canonical_events(project
         'event: done\ndata: {"output": "Tuesday at 9am", "usage": '
         '{"requests": 1, "input_tokens": 11, "output_tokens": 5, "total_tokens": 16}}\n\n',
     ]
-    # The wire is v1's; the log is canonical — the whole point of translating at the surface.
+    # The wire is v1's; the log is canonical  -  the whole point of translating at the surface.
     logged = [event.kind for event in await store.read("s1", ctx)]
     assert logged == [
         "run.started",
@@ -185,7 +185,7 @@ async def test_a_failed_turn_ends_with_an_error_frame_while_the_log_keeps_the_fa
 
 
 async def test_a_disconnect_closes_its_run_in_the_log(project, scripted):
-    """A real ASGI server does not close the response body on disconnect — it **cancels** the
+    """A real ASGI server does not close the response body on disconnect  -  it **cancels** the
     task streaming it. So the disconnect is modelled as a cancelled consumer task, not as an
     ``aclose()``: the two arrive as different exceptions, and only one of them used to close the
     run. An unterminated run in the log is indistinguishable from one still in flight.
@@ -209,7 +209,7 @@ async def test_a_disconnect_closes_its_run_in_the_log(project, scripted):
 
     consumer = asyncio.create_task(consume())
     # The turn stalls after its first delta, so the consumer is parked inside its own await for
-    # the next event — where a streaming response spends nearly all of its life, and where a
+    # the next event  -  where a streaming response spends nearly all of its life, and where a
     # server's disconnect cancellation lands.
     await model.holding.wait()
     await asyncio.sleep(0)
@@ -243,7 +243,7 @@ async def test_chat_result_returns_v1s_output_body(project, scripted):
 
 async def test_a_structured_output_survives_the_canonical_stream(project, scripted):
     """An ``output_type`` agent's validated result rides ``RunCompleted.output`` as a
-    ``DataBlock``, and the surface renders that directly — no ``custom`` event alongside it."""
+    ``DataBlock``, and the surface renders that directly  -  no ``custom`` event alongside it."""
     runtime, store, _ = scripted(ScriptedModel(deltas=('{"greeting": "Hello"}',)))
     ctx = run_context("s1")
 
@@ -283,7 +283,7 @@ def test_the_endpoint_answers_a_structured_agent_with_its_object(project):
 def test_the_endpoint_logs_its_run_to_the_configured_event_store(project, monkeypatch, tmp_path, query):
     """The wire is v1's, so this is what tells the two apart: a chat served by the Runtime
     leaves its canonical run in the store the composition root resolved from settings. Both
-    endpoints are checked — one of them silently falling back to v1 glue would otherwise pass
+    endpoints are checked  -  one of them silently falling back to v1 glue would otherwise pass
     every other test in the suite, goldens included."""
     db = tmp_path / "events.sqlite3"
     monkeypatch.setenv("AGENTDECK_EVENTS", f"sqlite://{db}")
@@ -311,8 +311,8 @@ def test_the_workflow_endpoint_logs_its_run_to_the_configured_event_store(projec
     the composition root resolved, so a bridge that rendered v1's frames while recording nothing
     fails here and nowhere else.
 
-    The log carries the graph's own shape rather than v1's frame — the node's name and its state
-    patch, and the final state as a data block — which is what makes it replayable.
+    The log carries the graph's own shape rather than v1's frame  -  the node's name and its state
+    patch, and the final state as a data block  -  which is what makes it replayable.
     """
     db = tmp_path / "events.sqlite3"
     monkeypatch.setenv("AGENTDECK_EVENTS", f"sqlite://{db}")
@@ -343,7 +343,7 @@ def test_the_workflow_endpoint_logs_its_run_to_the_configured_event_store(projec
 )
 def test_a_message_that_is_not_a_string_is_a_422(project, message, query):
     """A shape the endpoint cannot run is a client error with a body like every other one it
-    emits — never an unhandled server exception in somebody's 5xx alerting."""
+    emits  -  never an unhandled server exception in somebody's 5xx alerting."""
     with patch_model(ScriptedModel()), TestClient(create_app()) as client:
         response = client.post(f"/agents/Greeter/chat{query}", json={"session_id": "s1", "message": message})
 
@@ -366,7 +366,7 @@ def test_a_session_id_that_is_not_a_string_is_a_422(project, session_id, query):
 def test_the_server_warns_once_when_the_event_log_is_in_memory(project, monkeypatch, caplog):
     """The default store never evicts and dies with the process; an operator should not have to
     read the source to find that out. The warning now comes from the composition root
-    (``resolve_event_store``, run once when ``Deck`` opens), not a server-specific check —
+    (``resolve_event_store``, run once when ``Deck`` opens), not a server-specific check  -
     surfaced here to prove it still reaches an operator watching the server's own logs."""
     monkeypatch.setenv("AGENTDECK_EVENTS", "memory://")
     reset_settings_cache()

@@ -1,4 +1,4 @@
-"""UC2 — "the Friday approval": ClaimPipeline runs node ``validate``, node ``approve``
+"""UC2  -  "the Friday approval": ClaimPipeline runs node ``validate``, node ``approve``
 interrupts, the process dies and restarts, ``/pending`` lists the interrupt, resuming runs
 node ``approve`` to completion. Same SSE route as UC1 (``surfaces/serve/app.py``, untouched
 by this file or anything it imports) starts the run; ``surfaces/serve/workflows.py`` is the
@@ -6,13 +6,13 @@ new, additive ``/pending``/``/resume`` surface.
 
 The "kill -9 and restart" is modeled two ways: the main test drops every Python object from
 the first phase and builds entirely fresh ones reading the same two sqlite files (there is
-no shared state left to cheat with — status has to come from disk); a second, smaller test
+no shared state left to cheat with  -  status has to come from disk); a second, smaller test
 spans a real OS process boundary via ``subprocess``, mirroring
 ``test_workflow_durability.py``'s own restart test for v1.
 
 The last test is the same restart script run twice at once: two OS processes answering one
 interrupt, where only one may play the approval node. That is the store's resume claim being
-the arbiter — nothing in one process can see the other.
+the arbiter  -  nothing in one process can see the other.
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ SESSION_ID = "s1"
 class ClaimState(TypedDict, total=False):
     """A ``TypedDict`` schema, not a bare ``dict``: langgraph gives each field its own
     channel only then, so ``approve``'s return shallow-merges into state instead of
-    replacing it outright — the contract ``NodeUpdated.state_patch`` documents."""
+    replacing it outright  -  the contract ``NodeUpdated.state_patch`` documents."""
 
     input: str
     claim_id: str
@@ -156,7 +156,7 @@ async def test_uc2_claim_pipeline_survives_a_restart(tmp_path: Any) -> None:
 async def test_langgraph_transcript_fidelity() -> None:
     """ADR-D5's contract for this engine: the checkpointer's own final state (execution
     state) must equal the event log's state, reconstructed by shallow-merging every
-    ``node.updated`` patch onto the graph's initial input — nothing that entered or left
+    ``node.updated`` patch onto the graph's initial input  -  nothing that entered or left
     execution state is missing from the log.
     """
     checkpointer = MemorySaver()
@@ -243,7 +243,7 @@ def _spec():
 # check-then-append resume duplicated, made schedule-proof rather than timing-lucky.
 #
 # The wait is inside claim_resume, ahead of the real one, because resume() no longer reads the
-# log before claiming — the store assigns the seq, so there is nothing left to read first. That
+# log before claiming  -  the store assigns the seq, so there is nothing left to read first. That
 # also removes the way this fixture could go wrong: the gate cannot be outrun by a claim it is
 # the first statement of.
 class LateStore(SqliteEventStore):
@@ -321,7 +321,7 @@ def test_uc2_claim_pipeline_survives_a_real_process_restart(tmp_path: Any) -> No
 
 
 def _wait_for(path: Path, timeout: float = 15.0) -> None:
-    """Poll for a file the other process writes — the sync this race uses instead of a sleep
+    """Poll for a file the other process writes  -  the sync this race uses instead of a sleep
     long enough to hope for."""
     deadline = time.monotonic() + timeout
     while not path.exists():
@@ -333,8 +333,8 @@ def _wait_for(path: Path, timeout: float = 15.0) -> None:
 def test_two_processes_resuming_one_interrupt_produce_exactly_one_winner(tmp_path: Any) -> None:
     """Two OS processes, one events file, one interrupted run: the second must lose cleanly
     even though it entered ``resume`` before the first one finished. Ordering is forced with
-    files rather than sleeps — the loser blocks on the doorstep of its own claim until the winner
-    has exited — so this fails on a check-then-append claim every time, not now and then.
+    files rather than sleeps  -  the loser blocks on the doorstep of its own claim until the winner
+    has exited  -  so this fails on a check-then-append claim every time, not now and then.
     """
     db_path = str(tmp_path / "events.sqlite3")
     checkpoint_path = str(tmp_path / "checkpoints.sqlite3")

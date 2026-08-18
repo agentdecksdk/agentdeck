@@ -1,7 +1,7 @@
 """Both places a run gets configured, reduced to one comparable fingerprint.
 
-A field dropped in resolution — the CA bundle, the token cap, the model provider's own
-base URL — is invisible to a fake-model suite: it changes nothing until a real endpoint
+A field dropped in resolution  -  the CA bundle, the token cap, the model provider's own
+base URL  -  is invisible to a fake-model suite: it changes nothing until a real endpoint
 refuses the call. So this fingerprint, not the suite at large, is what stands between the
 move of that resolution into the openai-agents adapter and a regression only production
 sees.
@@ -64,7 +64,7 @@ def _httpx_trust(client: httpx.AsyncClient) -> tuple[str, ...]:
     """Which CAs this client will accept a TLS certificate from.
 
     The ``verify=<path>`` an OpenAI CA bundle becomes cannot be read back off the httpx
-    client, so the trust store it produced is asserted instead — that store is the whole
+    client, so the trust store it produced is asserted instead  -  that store is the whole
     point of the setting. Private attributes the whole way down: the httpx version is
     pinned, and this file outlives it.
     """
@@ -77,14 +77,14 @@ def _trusted_cas(client: AsyncOpenAI) -> tuple[str, ...]:
 
 
 def _default_ca_trust() -> tuple[str, ...]:
-    """httpx's own trust store — what a client configured with no CA bundle must still have."""
+    """httpx's own trust store  -  what a client configured with no CA bundle must still have."""
     return _httpx_trust(httpx.AsyncClient())
 
 
 def _one_certificate_bundle(tmp_path: Path) -> Path:
     """A CA bundle holding exactly one real certificate, so the trust store it produces is
     unmistakably not the default one. Sourced from certifi (httpx's own bundle) because the
-    certificate has to parse — a hand-written placeholder is rejected at load."""
+    certificate has to parse  -  a hand-written placeholder is rejected at load."""
     bundle = tmp_path / "corporate-ca.pem"
     first, _, _ = Path(certifi.where()).read_text().partition("-----END CERTIFICATE-----")
     bundle.write_text(f"{first}-----END CERTIFICATE-----\n")
@@ -99,7 +99,7 @@ def _mapper_output(config: RunConfig) -> list[object] | None:
 
     The mapper is built fresh per call (it closes over the configured closing-turn text), so
     two independently-built closures are never the same object even when they behave
-    identically — comparing their output is what actually proves the two resolvers agree.
+    identically  -  comparing their output is what actually proves the two resolvers agree.
     """
     if config.handoff_history_mapper is None:
         return None
@@ -197,7 +197,7 @@ def test_handoff_ends_on_user_turn_wires_the_same_mapper_into_both_resolvers(
     resolved_run_configs: Callable[..., list[dict[str, object]]],
 ) -> None:
     """Both `nest_handoff_history` call sites hit the same defect, so both are wired to the
-    setting — leaving one out is exactly the inconsistency this fingerprint exists to catch.
+    setting  -  leaving one out is exactly the inconsistency this fingerprint exists to catch.
     Asserts the *default* closing-turn text explicitly, so a later edit to it is a failing test
     here rather than a silent change to what every handoff says.
     """
@@ -212,7 +212,7 @@ def test_handoff_ends_on_user_turn_wires_the_same_mapper_into_both_resolvers(
 def test_a_custom_closing_turn_agrees_between_both_resolvers_too(
     resolved_run_configs: Callable[..., list[dict[str, object]]],
 ) -> None:
-    """Not just the default text — an overridden one has to reach both resolvers identically,
+    """Not just the default text  -  an overridden one has to reach both resolvers identically,
     or a non-English deployment gets a different closing turn depending on which entry point a
     handoff happened to arrive through."""
     fingerprints = resolved_run_configs(

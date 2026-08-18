@@ -1,23 +1,23 @@
-# Roadmap — after v3.0.0
+# Roadmap  -  after v3.0.0
 
 **Status:** rulings taken, milestones set · **Date:** 2026-08-11 · **Baseline:** `dev` at `ca03ae8`, v3.0.0 tagged and
 released, docs site deployed, the reference application answering on `ask.agentdecksdk.com`.
 
-> **Amended 2026-08-13 — every milestone below shifted up one, and this document did not.**
+> **Amended 2026-08-13  -  every milestone below shifted up one, and this document did not.**
 > `v3.1.0` was released early to get onto PyPI (the distribution is `agentdeck-sdk`; PyPI refuses
 > `agentdeck` as too close to a squatted placeholder). It took the first four hardening fixes with
-> it — #247, #233, #245, #221 — because they were already merged and a tag ships the tree.
+> it  -  #247, #233, #245, #221  -  because they were already merged and a tag ships the tree.
 >
-> So the milestone this document calls **v3.1 — hardening** is now **v3.2 — hardening**, and
+> So the milestone this document calls **v3.1  -  hardening** is now **v3.2  -  hardening**, and
 > batteries → v3.3, rooms & reach → v3.4, agents that work together → v3.5. The names in the body
 > below are left as written: they record what the milestones were called when the sequencing was
 > decided, and GitHub Milestones is the authority on what they are called now. Nothing about the
-> *order* or the *contents* changed — only the numbers.
+> *order* or the *contents* changed  -  only the numbers.
 
 Thirty-five open issues assessed against the tree *after* the v3.0.0 tag, and sequenced. Many were
 written against v1 or v2 and name classes that no longer exist; §1 calls those out rather than
 carrying them silently. Thirty-five is a backlog, not a release: §3 rules that **v3.1 is
-hardening** — what exists made more correct, more robust, more trustworthy, and no new capability —
+hardening**  -  what exists made more correct, more robust, more trustworthy, and no new capability  -
 and §4 is the split the GitHub milestones match.
 
 ## Live status
@@ -31,56 +31,56 @@ reasoning and do not change on their own. Regenerate this table with `make roadm
 
 | # | Title | Milestone | Status |
 |---|---|---|---|
-| #24 | pending_interrupts: scalability, parallel interrupts, inbox pagination | v3.3 — rooms & reach | Backlog |
-| #25 | serve.py auth: bearer token for mutating endpoints | v3.1 — hardening | Backlog |
-| #26 | agentdeck.testing: exported stub-runner test harness | v3.1 — hardening | Backlog |
-| #27 | Declarative node retry policy for durable workflows | v3.1 — hardening | Backlog |
-| #34 | mcp: resolve credentials per user and session | v3.3 — rooms & reach | Backlog |
-| #35 | mcp: declarative per-agent tool filters and read-only profiles | v3.2 — batteries | Backlog |
-| #36 | workflows: reusable approval and external-action nodes | v3.2 — batteries | Backlog |
-| #38 | agents: declarative presets for hosted SDK tools | v3.2 — batteries | Backlog |
-| #46 | runtime: inject messages into active agent runs | v3.3 — rooms & reach | Backlog |
-| #128 | control: a workflow run has no safe point, so pause and cancel cannot reach it | v3.1 — hardening | Backlog |
-| #129 | surfaces: serve a deck over standard agent protocols (A2A, MCP server, OpenAI-compatible) as adapters over the event stream | v3.3 — rooms & reach | Backlog |
-| #131 | polish: simplification pass — undo over-engineering across the package | v3.1 — hardening | Backlog |
-| #167 | deck: zero-config Preset for the infrastructure a Deck opens, and an empty catalog is a build() error | v3.2 — batteries | Backlog |
-| #177 | finding: usage.usd is always None — a cost field that never carries a cost | v3.1 — hardening | Backlog |
-| #178 | finding: handoffs fail against a non-OpenAI OPENAI_BASE_URL, surfaced as a bare 400 | v3.1 — hardening | Backlog |
-| #211 | reporter: where a reporter comes from — reach, transport and sink | v3.1 — hardening | Backlog |
-| #212 | runtime: two paused-run inboxes disagree, and tick() reconciles them | v3.1 — hardening | Backlog |
-| #213 | deck: support two decks side by side in one process (deferred past v3) | v3.3 — rooms & reach | Backlog |
-| #217 | tests: two concurrent runs share one Redis prefix and Postgres schema | v3.1 — hardening | Backlog |
-| #218 | observability: the raw SDK layer is a second trace, not nested under the run | v3.1 — hardening | Backlog |
-| #221 | finding: AGENTDECK_RUNNER_WORKFLOW_NAME defaults to 'local-sandbox-repl', naming a sandbox v3 does not have | v3.1 — hardening | In progress |
-| #223 | finding: the settings page promises a config.yaml surface and documents none of its field names | v3.1 — hardening | Backlog |
-| #226 | finding: DataBlock is refused on input, so structured context has no typed form | v3.1 — hardening | Backlog |
-| #227 | deck: asgi() cannot serve an agent that needs a context — is the packaged surface demo-only? | v3.1 — hardening | Backlog |
-| #228 | deck: a .agentdeck/ bundle has no supported way to share a type with the program that composes it | v3.1 — hardening | Backlog |
-| #229 | finding: a cancel against a WAITING_HUMAN run is accepted, never honored, and leaves no trace | v3.1 — hardening | Backlog |
-| #231 | finding: run()'s 'TurnResult | Any' makes the documented interrupt idiom fail a type checker | v3.1 — hardening | Backlog |
-| #232 | finding: the default checkpoint needs the [durability] extra, so a default install cannot run durable=True | v3.1 — hardening | Backlog |
-| #233 | finding: checkpointer connection failures leak raw driver exceptions instead of StoreError | v3.1 — hardening | Backlog |
-| #235 | finding: answer() takes any value unvalidated, and nothing says the node owns interpreting it | v3.1 — hardening | Backlog |
-| #238 | finding: errors name the problem but never the doc page that answers it | v3.1 — hardening | Backlog |
-| #243 | finding: the 500 contract only covers AgentdeckError, so an engine failure returns bare text | v3.1 — hardening | Backlog |
-| #244 | finding: a killed worker holds its session for an hour by default, with no way to release it | v3.1 — hardening | Backlog |
-| #245 | finding: agentdeck-serve --help crashes instead of printing usage | v3.1 — hardening | Backlog |
-| #247 | finding: Agent(model=...) is silently ignored — RunConfig overrides every agent's model | v3.1 — hardening | Backlog |
-| #248 | tests: no test drives a handoff at runtime — bidirectional resolution is covered, the round trip is not | v3.1 — hardening | Backlog |
-| #249 | events: a handoff is a namespaced custom event — D10 says a recurring one is a promotion signal | v3.1 — hardening | Backlog |
-| #250 | finding: a tool that raises completes the run, and tool.call.completed.error is never set | v3.1 — hardening | Backlog |
-| #253 | finding: the Redis client is a base dependency because the default session path imports it | v3.1 — hardening | Backlog |
-| #254 | finding: PendingRun's field is invocable, and every reviewer reached for workflow_name | v3.1 — hardening | Backlog |
-| #255 | finding: omitting context on answer() silently gives the re-run node None | v3.1 — hardening | Backlog |
-| #256 | cli: a read path — list the approval inbox, read a run, answer from the terminal | v3.2 — batteries | Backlog |
+| #24 | pending_interrupts: scalability, parallel interrupts, inbox pagination | v3.3  -  rooms & reach | Backlog |
+| #25 | serve.py auth: bearer token for mutating endpoints | v3.1  -  hardening | Backlog |
+| #26 | agentdeck.testing: exported stub-runner test harness | v3.1  -  hardening | Backlog |
+| #27 | Declarative node retry policy for durable workflows | v3.1  -  hardening | Backlog |
+| #34 | mcp: resolve credentials per user and session | v3.3  -  rooms & reach | Backlog |
+| #35 | mcp: declarative per-agent tool filters and read-only profiles | v3.2  -  batteries | Backlog |
+| #36 | workflows: reusable approval and external-action nodes | v3.2  -  batteries | Backlog |
+| #38 | agents: declarative presets for hosted SDK tools | v3.2  -  batteries | Backlog |
+| #46 | runtime: inject messages into active agent runs | v3.3  -  rooms & reach | Backlog |
+| #128 | control: a workflow run has no safe point, so pause and cancel cannot reach it | v3.1  -  hardening | Backlog |
+| #129 | surfaces: serve a deck over standard agent protocols (A2A, MCP server, OpenAI-compatible) as adapters over the event stream | v3.3  -  rooms & reach | Backlog |
+| #131 | polish: simplification pass  -  undo over-engineering across the package | v3.1  -  hardening | Backlog |
+| #167 | deck: zero-config Preset for the infrastructure a Deck opens, and an empty catalog is a build() error | v3.2  -  batteries | Backlog |
+| #177 | finding: usage.usd is always None  -  a cost field that never carries a cost | v3.1  -  hardening | Backlog |
+| #178 | finding: handoffs fail against a non-OpenAI OPENAI_BASE_URL, surfaced as a bare 400 | v3.1  -  hardening | Backlog |
+| #211 | reporter: where a reporter comes from  -  reach, transport and sink | v3.1  -  hardening | Backlog |
+| #212 | runtime: two paused-run inboxes disagree, and tick() reconciles them | v3.1  -  hardening | Backlog |
+| #213 | deck: support two decks side by side in one process (deferred past v3) | v3.3  -  rooms & reach | Backlog |
+| #217 | tests: two concurrent runs share one Redis prefix and Postgres schema | v3.1  -  hardening | Backlog |
+| #218 | observability: the raw SDK layer is a second trace, not nested under the run | v3.1  -  hardening | Backlog |
+| #221 | finding: AGENTDECK_RUNNER_WORKFLOW_NAME defaults to 'local-sandbox-repl', naming a sandbox v3 does not have | v3.1  -  hardening | In progress |
+| #223 | finding: the settings page promises a config.yaml surface and documents none of its field names | v3.1  -  hardening | Backlog |
+| #226 | finding: DataBlock is refused on input, so structured context has no typed form | v3.1  -  hardening | Backlog |
+| #227 | deck: asgi() cannot serve an agent that needs a context  -  is the packaged surface demo-only? | v3.1  -  hardening | Backlog |
+| #228 | deck: a .agentdeck/ bundle has no supported way to share a type with the program that composes it | v3.1  -  hardening | Backlog |
+| #229 | finding: a cancel against a WAITING_HUMAN run is accepted, never honored, and leaves no trace | v3.1  -  hardening | Backlog |
+| #231 | finding: run()'s 'TurnResult | Any' makes the documented interrupt idiom fail a type checker | v3.1  -  hardening | Backlog |
+| #232 | finding: the default checkpoint needs the [durability] extra, so a default install cannot run durable=True | v3.1  -  hardening | Backlog |
+| #233 | finding: checkpointer connection failures leak raw driver exceptions instead of StoreError | v3.1  -  hardening | Backlog |
+| #235 | finding: answer() takes any value unvalidated, and nothing says the node owns interpreting it | v3.1  -  hardening | Backlog |
+| #238 | finding: errors name the problem but never the doc page that answers it | v3.1  -  hardening | Backlog |
+| #243 | finding: the 500 contract only covers AgentdeckError, so an engine failure returns bare text | v3.1  -  hardening | Backlog |
+| #244 | finding: a killed worker holds its session for an hour by default, with no way to release it | v3.1  -  hardening | Backlog |
+| #245 | finding: agentdeck-serve --help crashes instead of printing usage | v3.1  -  hardening | Backlog |
+| #247 | finding: Agent(model=...) is silently ignored  -  RunConfig overrides every agent's model | v3.1  -  hardening | Backlog |
+| #248 | tests: no test drives a handoff at runtime  -  bidirectional resolution is covered, the round trip is not | v3.1  -  hardening | Backlog |
+| #249 | events: a handoff is a namespaced custom event  -  D10 says a recurring one is a promotion signal | v3.1  -  hardening | Backlog |
+| #250 | finding: a tool that raises completes the run, and tool.call.completed.error is never set | v3.1  -  hardening | Backlog |
+| #253 | finding: the Redis client is a base dependency because the default session path imports it | v3.1  -  hardening | Backlog |
+| #254 | finding: PendingRun's field is invocable, and every reviewer reached for workflow_name | v3.1  -  hardening | Backlog |
+| #255 | finding: omitting context on answer() silently gives the re-run node None | v3.1  -  hardening | Backlog |
+| #256 | cli: a read path  -  list the approval inbox, read a run, answer from the terminal | v3.2  -  batteries | Backlog |
 <!-- roadmap-sync:milestones:end -->
 
 ## 0. Where the inputs came from
 
 The issue tracker, plus the v3 reference application's friction ledger (`plan-219-delivery.md` §4).
 #219 was release-level validation of the frozen surface, and building against it produced three
-findings never filed before — **#226** (`DataBlock` refused on input), **#227** (`asgi()` cannot
-serve a context-using app), **#228** (a bundle cannot share a type with its host) — plus **#223**,
+findings never filed before  -  **#226** (`DataBlock` refused on input), **#227** (`asgi()` cannot
+serve a context-using app), **#228** (a bundle cannot share a type with its host)  -  plus **#223**,
 from the grounding eval rather than from a person. All four are sequenced below, which closes the
 v3 pre-release plan's "extract relevant findings" thread.
 
@@ -88,7 +88,7 @@ v3 pre-release plan's "extract relevant findings" thread.
 
 Verified against `dev` at `ca03ae8` by reading the tree, not the issue text.
 
-### Premise dead — recommend closing
+### Premise dead  -  recommend closing
 
 | # | What it says | What is true now |
 |---|---|---|
@@ -96,15 +96,15 @@ Verified against `dev` at `ca03ae8` by reading the tree, not the issue text.
 | **#43** | agent runs cannot be paused, resumed, cancelled or steered | Three of the four shipped. `Deck.pause/resume/cancel`, `SafePoint = Literal["stream_item", "tool_dispatch", "node_boundary"]`, and the control-event pair are all live. The remainder is steering (#46) and the workflow gap (#128), both of which have their own issues |
 | **#44** | no public active-run lifecycle or control events | **Delivered.** `ControlRequested` and `ControlObserved` are in `core/events.py`, the second carrying `safe_point`. This is the contract the issue asked for |
 
-### Concern valid, premise stale — text needs correcting before pickup
+### Concern valid, premise stale  -  text needs correcting before pickup
 
 | # | Names something deleted | The live question |
 |---|---|---|
-| **#24** | `BaseWorkflow.pending()` draining `alist(None)` | `Deck.pending()` reads the **event log**, not the checkpointer, so the O(all checkpoints) claim is dead. Two remnants survive: parallel interrupts in one superstep, and the checkpointer scan that `due_resumes()`/`tick()` still do — which is #212's territory. Rescope or fold |
+| **#24** | `BaseWorkflow.pending()` draining `alist(None)` | `Deck.pending()` reads the **event log**, not the checkpointer, so the O(all checkpoints) claim is dead. Two remnants survive: parallel interrupts in one superstep, and the checkpointer scan that `due_resumes()`/`tick()` still do  -  which is #212's territory. Rescope or fold |
 | **#35** | `BaseAgent.mcp_server_names` | `mcp=` on `Agent` is the surface now. No `tool_filter` anywhere in the tree, so the gap is real and unchanged |
-| **#37** | `App.load()` | `Deck.from_project()`. The installer question is untouched, and now interacts with **#228** — both are about what may live under `.agentdeck/` |
+| **#37** | `App.load()` | `Deck.from_project()`. The installer question is untouched, and now interacts with **#228**  -  both are about what may live under `.agentdeck/` |
 | **#38** | `BaseAgent.tools` | `Agent(tools=[...])`. Hosted-tool presets still absent |
-| **#20** | skills as pre-wrapped tools | **Half delivered.** `load_skill` gives progressive disclosure exactly as asked. The other half — the agent *executing* the bundle's scripts — is not there, and its scaffolding was deliberately deleted in #71. That half is a sandboxing question (#163), not a skills question |
+| **#20** | skills as pre-wrapped tools | **Half delivered.** `load_skill` gives progressive disclosure exactly as asked. The other half  -  the agent *executing* the bundle's scripts  -  is not there, and its scaffolding was deliberately deleted in #71. That half is a sandboxing question (#163), not a skills question |
 
 ### Valid as written
 
@@ -120,19 +120,19 @@ Three issues re-weighted by building the reference application, on evidence rath
 
 | # | Evidence |
 |---|---|
-| **#26** `agentdeck.testing` | The repo hand-rolls a scripted model **three times** — `tests/scripted_model.py`, `tests/test_docs_examples.py`, `tests/test_ask_agentdeck_server.py` — the third because the second could not script a tool call, exactly the duplication #26 predicted in 2026-06. Strongest early candidate: every issue below that needs a test against a model gets cheaper |
+| **#26** `agentdeck.testing` | The repo hand-rolls a scripted model **three times**  -  `tests/scripted_model.py`, `tests/test_docs_examples.py`, `tests/test_ask_agentdeck_server.py`  -  the third because the second could not script a tool call, exactly the duplication #26 predicted in 2026-06. Strongest early candidate: every issue below that needs a test against a model gets cheaper |
 | **#25** auth on serve | Ask AgentDeck is a public unauthenticated endpoint and hand-rolled an origin check, a per-client quota and length caps because the framework offers none. The reference app is the specification; whether those belong *in* the framework is still a ruling |
-| **#178** non-OpenAI base URL | The deployed reference application runs Gemini through the OpenAI-compatible endpoint — the exact configuration where a handoff returns a bare 400. AgentDeck's own live deployment sits on the bug |
+| **#178** non-OpenAI base URL | The deployed reference application runs Gemini through the OpenAI-compatible endpoint  -  the exact configuration where a handoff returns a bare 400. AgentDeck's own live deployment sits on the bug |
 
 ## 3. Rulings taken (2026-08-11)
 
 | # | Ruling | Consequence |
 |---|---|---|
-| 1 | **v3.1 is hardening, not batteries.** Make what exists more correct, more robust, more trustworthy; ship no new user-facing capability | The milestone is renamed, and presets, approval nodes, MCP filters and `Preset` move to **v3.2 — batteries** — things to reach for, not things to trust. The PRD's phase names shift one slot to make room |
+| 1 | **v3.1 is hardening, not batteries.** Make what exists more correct, more robust, more trustworthy; ship no new user-facing capability | The milestone is renamed, and presets, approval nodes, MCP filters and `Preset` move to **v3.2  -  batteries**  -  things to reach for, not things to trust. The PRD's phase names shift one slot to make room |
 | 2 | **#211 goes early.** Deferred to "after this release", and it is now after | It is a design question, and design questions block implementation rather than the reverse. Same for **#227** |
 | 3 | **#131 stays, rescoped by the ruling above.** | Under a hardening theme, "undo over-engineering" stops being an open-ended sweep and becomes the release's own subject. It is no longer churn ahead of a tag; it is the point |
-| 4 | **#227 — `asgi()`: demo surface or real one — is a v3.1 ruling.** | Both answers are defensible. Shipping neither is what stops |
-| 5 | **#225 is unmilestoned.** Big, and it fights every guard v3.0.0 added | It needs its own design pass, and #219's ledger should be read first. Filed, not scheduled — the same treatment #163 gets |
+| 4 | **#227  -  `asgi()`: demo surface or real one  -  is a v3.1 ruling.** | Both answers are defensible. Shipping neither is what stops |
+| 5 | **#225 is unmilestoned.** Big, and it fights every guard v3.0.0 added | It needs its own design pass, and #219's ledger should be read first. Filed, not scheduled  -  the same treatment #163 gets |
 | 6 | **#129 protocols → v3.3 "rooms & reach".** | A surface expansion, not a battery and not hardening |
 | 7 | **#25 splits from #34.** Auth was going to wait on the multi-user identity answer | Its own issue says *"minimal: a static bearer token… no users/roles/OAuth"*, and an unauthenticated mutating HTTP surface is a hardening defect on its own terms. The shared token lands in v3.1; per-user credentials (#34) stay in v3.3 where the identity question lives |
 
@@ -147,41 +147,41 @@ moves. Same test for every issue in §4.
 
 Milestones updated 2026-08-11 to match.
 
-### v3.1 — hardening · 15 issues
+### v3.1  -  hardening · 15 issues
 
 *Make what exists more correct, more robust, more trustworthy. No new user-facing capability.*
 
-**Foundation — do this first.** #26 `agentdeck.testing`. Three hand-rolled scripted models in the
+**Foundation  -  do this first.** #26 `agentdeck.testing`. Three hand-rolled scripted models in the
 repo say it is overdue, and every other issue here needs a test against a model.
 
-**Defects.** #178 (handoffs 400 against a non-OpenAI base URL — the configuration AgentDeck's own
+**Defects.** #178 (handoffs 400 against a non-OpenAI base URL  -  the configuration AgentDeck's own
 deployment runs on), #177 (`usage.usd` never carries a cost), #212 (two paused-run inboxes
 disagree), #128 (a workflow run has no safe point, so pause and cancel cannot reach it), #218
 (the raw SDK layer is a second trace, not nested), #223 (the settings page names no YAML keys),
 #226 (`DataBlock` refused on input).
 
-**Resilience.** #27 declarative node retries — a durable workflow dies on a transient failure
+**Resilience.** #27 declarative node retries  -  a durable workflow dies on a transient failure
 today and cannot resume.
 
 **Security.** #25 a bearer token on the mutating endpoints. Split from #34 by ruling 7: the
 shared-token case does not need the multi-user answer, and an unauthenticated mutating surface is
 a defect on its own.
 
-**Test infrastructure.** #217 — two concurrent runs share one Redis prefix and Postgres schema.
+**Test infrastructure.** #217  -  two concurrent runs share one Redis prefix and Postgres schema.
 
 **Simplification.** #131, now the release's own subject rather than a sweep bolted onto one.
 
 **Design questions blocking the above.** #211 (where a reporter comes from), #227 (`asgi()`
 demo-or-real), #228 (a bundle cannot share a type with its host).
 
-### v3.2 — batteries · 4 issues
+### v3.2  -  batteries · 4 issues
 
 *Additive on the frozen API, once the surface underneath is trustworthy.*
 
 #35 MCP tool filters · #36 approval and external-action nodes · #38 hosted-tool presets ·
 #167 zero-config `Preset`
 
-### v3.3 — rooms & reach · 5 issues
+### v3.3  -  rooms & reach · 5 issues
 
 *More than one caller.* #129 protocols · #34 per-user MCP credentials · #46 steering ·
 #213 two decks side by side · #24 inbox scale and parallel interrupts
@@ -193,7 +193,7 @@ them separately produces five incompatible answers.
 
 **docs-site**: #224 (health check), #133 (coverage), #135 (design pass), #140 (Docusaurus).
 
-### Unmilestoned — a question before it is a task
+### Unmilestoned  -  a question before it is a task
 
 **#163** sandboxing (by standing ruling) · **#20**'s script half and **#37** skill installation,
 both of which wait on it · **#225** build-me-the-thing, which needs its own design pass and

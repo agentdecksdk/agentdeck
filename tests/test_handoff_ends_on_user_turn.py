@@ -2,11 +2,11 @@
 and what `AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN` puts in the turn it appends.
 
 `nest_handoff_history` (always on, `composition.resolve_run_settings`) collapses a handoff's
-transcript into a single assistant message — the transferred-to agent's request ends on that
+transcript into a single assistant message  -  the transferred-to agent's request ends on that
 role, which some OpenAI-compatible endpoints reject outright. This is the probe that shape:
 what the transferred-to agent's model call actually receives, via `scripted_model_server`
 (the same harness `tests/test_handoff_round_trip.py` drives a handoff cycle through), never
-against a real non-OpenAI endpoint — whether a given provider rejects a shape is that
+against a real non-OpenAI endpoint  -  whether a given provider rejects a shape is that
 provider's documented behavior, not something this suite reproduces.
 """
 
@@ -51,7 +51,7 @@ def _agent(name: str, *handoffs: str) -> Agent:
 
 async def _receiving_agents_messages(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     """Drive one handoff (Concierge -> Booking) and return the *second* model call's
-    ``messages`` — the request the transferred-to agent (Booking) actually received."""
+    ``messages``  -  the request the transferred-to agent (Booking) actually received."""
     received: list[dict[str, Any]] = []
     with scripted_model_server("Friday works.", tool_name=["transfer_to_booking"], received=received) as base_url:
         _wire_openai(monkeypatch, base_url)
@@ -82,14 +82,14 @@ async def test_setting_on_ends_the_transfer_on_a_user_turn(no_project: None, mon
 
     assert messages[-1]["role"] == "user"
     assert messages[-1]["content"] == "Please continue."
-    # The collapsed summary (today's whole shape) is still there, one turn earlier — this only
+    # The collapsed summary (today's whole shape) is still there, one turn earlier  -  this only
     # adds a closing turn, it doesn't replace the SDK's own collapse.
     assert messages[-2]["role"] == "assistant"
     assert "book me Friday" in messages[-2]["content"]
 
 
 async def test_a_custom_closing_turn_reaches_the_wire(no_project: None, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The default is an English sentence — a non-English deployment overrides it, and that
+    """The default is an English sentence  -  a non-English deployment overrides it, and that
     override has to be what the model actually receives, not just what a unit test of the mapper
     produces in isolation."""
     monkeypatch.setenv("AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN", "true")
@@ -101,7 +101,7 @@ async def test_a_custom_closing_turn_reaches_the_wire(no_project: None, monkeypa
 
 def test_a_blank_closing_turn_is_refused_at_settings_load(monkeypatch: pytest.MonkeyPatch) -> None:
     """An empty (or whitespace-only) user turn is exactly the shape a provider strict enough to
-    need `handoff_ends_on_user_turn` is likely to reject too — refused at boot rather than
+    need `handoff_ends_on_user_turn` is likely to reject too  -  refused at boot rather than
     reaching one at request time."""
     monkeypatch.setenv("AGENTDECK_RUNNER_HANDOFF_CLOSING_TURN", "   ")
     get_settings.cache_clear()

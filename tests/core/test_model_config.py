@@ -2,7 +2,7 @@
 
 ``extra="ignore"`` is what forward compatibility costs on a model something *parses*: a payload
 written by a newer version has to land, not raise. A model only ever built in-process gets no
-such payload — there, an unknown keyword is a typo, and ignoring it defaults the field the caller
+such payload  -  there, an unknown keyword is a typo, and ignoring it defaults the field the caller
 thought they were setting.
 """
 
@@ -20,10 +20,10 @@ from agentdeck.core.ports.tools import ToolSet
 
 def test_a_toolset_refuses_a_keyword_it_does_not_have():
     """The failure this prevents is silent: ``tools`` dropped leaves an empty set, and the run
-    then degrades exactly like an unreachable tool source — the one thing ToolSet exists to
+    then degrades exactly like an unreachable tool source  -  the one thing ToolSet exists to
     make visible."""
     with pytest.raises(ValidationError):
-        ToolSet(tolls=(object(),))  # ty: ignore[unknown-argument] — the typo is the test
+        ToolSet(tolls=(object(),))  # ty: ignore[unknown-argument]  -  the typo is the test
 
 
 def test_an_invocable_spec_refuses_a_keyword_it_does_not_have():

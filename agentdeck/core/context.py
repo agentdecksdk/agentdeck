@@ -1,17 +1,17 @@
 """What a run carries with it: who asked, which run, and the limits it was admitted under.
 
-Passed explicitly to every port instead of read from ambient state — that is what makes
+Passed explicitly to every port instead of read from ambient state  -  that is what makes
 isolation and tracing testable, and it is why an engine can never invent a namespace.
 Frozen: a run's identity cannot change mid-flight.
 
 Deliberately holds no application identity. AgentDeck runs agents; it does not model users,
 organizations or permissions, so nothing here says who is acting or what they may do. An
 application that has those concepts keeps them, and may project one of them onto
-``namespace`` — which AgentDeck then treats as an opaque key it never interprets. ``data`` is
+``namespace``  -  which AgentDeck then treats as an opaque key it never interprets. ``data`` is
 not a counter-example: it is application-*owned*, an environment the application hands the run,
 and AgentDeck reads it only to hand it back. Owning a value is not being identified by it.
 
-:class:`Context` is the public half of the same subject — the restricted view application code
+:class:`Context` is the public half of the same subject  -  the restricted view application code
 receives, so a tool signature names one AgentDeck type instead of an engine's.
 """
 
@@ -29,11 +29,11 @@ class RunContext:
     """One run's identity and limits.
 
     ``namespace`` is an opaque isolation boundary and nothing more. AgentDeck never parses it,
-    never compares its parts, and attaches no meaning to it — an application may key it by
+    never compares its parts, and attaches no meaning to it  -  an application may key it by
     workspace, project, business or anything else, and ``None`` is a first-class mode, not a
     placeholder. It says which runs are kept apart, never who is acting or what they may do.
 
-    Empty is rejected rather than accepted, because stores encode ``None`` as the empty key —
+    Empty is rejected rather than accepted, because stores encode ``None`` as the empty key  -
     so an explicit ``""`` would silently share a bucket with unnamespaced runs.
 
     ``run_id`` is minted once per run and never a fifth value alongside it: :attr:`id` is a
@@ -43,7 +43,7 @@ class RunContext:
     is minted rather than caller-chosen, two namespaces never produce the same value in the
     first place, and there is nothing left to derive.
 
-    ``key`` is the caller's optional stable application identifier — for lookup and
+    ``key`` is the caller's optional stable application identifier  -  for lookup and
     idempotency, never for addressing. It plays no part in :attr:`id` or :attr:`log_key`, and
     a store indexes ``(namespace, key)`` as a separate, permanent claim.
 
@@ -54,19 +54,19 @@ class RunContext:
     ``data`` is the fourth value because it arrives with that thing: the engine bridges read it
     on every injected call to build the :class:`Context` a user callable declared.
 
-    ``data`` is opaque by construction — ``object``, never inspected, never copied, never
+    ``data`` is opaque by construction  -  ``object``, never inspected, never copied, never
     serialized into an event, and left out of the repr so a logged context cannot leak a DB
     client or a customer record. It is application-*owned*, which is not the application
     *identity* ``namespace`` carefully is not either: ``namespace`` says which runs are kept
     apart, ``data`` says what this one was handed to work with, and neither says who is acting.
 
-    ``gate`` and ``reporter`` are two of the three fields that are not values — a cooperative seam
+    ``gate`` and ``reporter`` are two of the three fields that are not values  -  a cooperative seam
     has to reach code the Runtime never sees. Both default to doing nothing and only the Runtime
     rebinds them, so a context built by hand is still a plain value object.
 
     ``tool_failures`` is the third: the openai-agents engine's own seam, not the Runtime's. A
     compiled tool that raises is caught deep inside the Agents SDK, where the only way back out
-    is the ``failure_error_function`` the SDK calls to format the model-visible message — so
+    is the ``failure_error_function`` the SDK calls to format the model-visible message  -  so
     ``compile_tool`` records the exception here, keyed by the SDK's own ``call_id``, and the
     engine's translator reads it back onto ``tool.call.completed.error`` once the matching result
     arrives. Left out of the repr for the same reason as ``data``: an exception message can carry
@@ -100,17 +100,17 @@ class RunContext:
 
     @property
     def log_key(self) -> str:
-        """Where this run's events are written — a run without a session is its own log,
+        """Where this run's events are written  -  a run without a session is its own log,
         so persist-before-yield holds for it too."""
         return self.session_id or self.run_id
 
     @property
     def id(self) -> str:
-        """This run's durable address — what the control plane addresses it by, everywhere.
+        """This run's durable address  -  what the control plane addresses it by, everywhere.
 
         A carried value, not a computed one: a plain read of :attr:`run_id`, which the store
         mints once per run and persists. There is no second value this could disagree with,
-        because there is no second source — unlike the ``namespace``-derived address it
+        because there is no second source  -  unlike the ``namespace``-derived address it
         replaces, minting alone is what keeps two namespaces from ever producing the same id.
         """
         return self.run_id
@@ -125,13 +125,13 @@ class Context[T]:
     unwraps its native carrier to the :class:`RunContext` travelling inside and presents this
     view, so a tool signature does not change when the engine does.
 
-    A view, not a copy — ``data`` is the very object the caller supplied, by reference. Access
+    A view, not a copy  -  ``data`` is the very object the caller supplied, by reference. Access
     to it is access for *application* code only: nothing here is ever serialized into a prompt,
     and a dynamic-instructions callable contributes only its return value to what the model sees.
 
     Narrower than the carrier on purpose. ``namespace`` is absent because no injection site has
     needed to read it, and ``gate`` is absent because :meth:`checkpoint` is the whole of what a
-    callable may do with it — adding a property later is cheaper than changing one after release.
+    callable may do with it  -  adding a property later is cheaper than changing one after release.
     """
 
     _run: RunContext

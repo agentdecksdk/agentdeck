@@ -1,4 +1,4 @@
-# Plan — execution context and context injection
+# Plan  -  execution context and context injection
 
 **Delivered** in v3.0.0 · **Date:** 2026-08-09 · The design and rulings of record for `Context[T]`;
 what moved when it met both engines is `plan-166-delivery.md`. Revised against
@@ -14,7 +14,7 @@ public semantics across the whole execution graph.**
 | 2 | Who owns context *propagation*? | **The engines.** Both already carry an arbitrary application object through an execution, hand it to tools, instructions and hooks, and keep it out of the model prompt. AgentDeck bridges them to `Context[T]`; it does not reimplement them |
 | 3 | `Execution` split from `RunContext` | **Yes, deferred.** Add `data` to today's internal carrier; the public `Context[T]` does not change when the split happens, which is what makes deferring it safe |
 | 4 | Injection detection | **Annotation-based.** Exactly one `Context[...]` parameter, name irrelevant; two is a `build()` error |
-| 5 | Deck declares the context type | **Yes** — `Deck(context=MiddleContext)`, enabling build-time compatibility checks |
+| 5 | Deck declares the context type | **Yes**  -  `Deck(context=MiddleContext)`, enabling build-time compatibility checks |
 | 6 | Nested execution | **Same run → same execution context. Child run → same `data` by reference, new execution identity** |
 | 7 | Workflow state vs context | **Strictly separate.** `state` is workflow-owned mutable data; `ctx.data` is the application-owned environment. Neither absorbs the other |
 | 8 | Sandboxing | **A future ability, currently disabled and out of scope (#163).** Nothing is sandboxed in v3, so no context crosses a process boundary and the projection question does not arise |
@@ -42,7 +42,7 @@ ctx.run_id · ctx.session_id · await ctx.checkpoint()
 ```
 
 No `ToolContext`, `SkillContext`, `WorkflowContext`, `AgentContext`; `Gate` stays internal, reached
-only through `checkpoint()`. **`ctx.namespace` is deliberately absent** — load-bearing for storage
+only through `checkpoint()`. **`ctx.namespace` is deliberately absent**  -  load-bearing for storage
 isolation, but no injection site needs to read it, and a property added later is cheaper than one whose
 meaning changes after release. **Nothing from the engines is mirrored automatically:** the public
 context is the stable intersection of AgentDeck concepts, not the union of two runtime APIs, so SDK
@@ -56,9 +56,9 @@ async def find_slots(date: str, environment: Context[MiddleContext]):
     return await environment.data.calendar.find_slots(date=date)
 ```
 
-Injected because it is annotated `Context[...]`, not because of the parameter's name. **Zero** — an
-ordinary callable, nothing injected. **Exactly one** — injected, whatever it is called. **More than
-one** — `build()` error: *`foo` declares multiple `Context[...]` parameters; at most one is allowed.*
+Injected because it is annotated `Context[...]`, not because of the parameter's name. **Zero**  -  an
+ordinary callable, nothing injected. **Exactly one**  -  injected, whatever it is called. **More than
+one**  -  `build()` error: *`foo` declares multiple `Context[...]` parameters; at most one is allowed.*
 
 Introspection uses `inspect.unwrap`, `inspect.signature` and `typing.get_type_hints` rather than raw
 `__annotations__`, so `from __future__ import annotations` and wrapped callables work. A decorator that
@@ -70,12 +70,12 @@ destroys the signature falls to the invocation-time safety net rather than to a 
 handles propagation, dispatch and excluding its own context parameter from the model-visible schema;
 AgentDeck detects `Context[T]`, validates `T`, produces the bridge and calls the original.
 
-**Plain callables are the canonical declaration** — `Agent(tools=[find_slots])` undecorated, compiled
+**Plain callables are the canonical declaration**  -  `Agent(tools=[find_slots])` undecorated, compiled
 for whichever engine is active, and the natural home for permissions, approvals, retries and telemetry
 later (none of them v3). A pre-built engine-native object is still accepted but gets no portability
 guarantee, and `build()` does not pretend to introspect it.
 
-**Engine integration.** OpenAI Agents keeps `Runner.run_streamed(..., context=ctx)` — the earlier plan's
+**Engine integration.** OpenAI Agents keeps `Runner.run_streamed(..., context=ctx)`  -  the earlier plan's
 "free the slot" was backwards; `RunContext` stays what travels and gains `data`. LangGraph moves
 application context off `configurable` onto the native runtime-context channel (`context=` /
 `Runtime[T]`), leaving `configurable` with `thread_id` and nothing else.
@@ -94,8 +94,8 @@ deck provides GitHubContext.*
 | arbitrary structural `Protocol` | best effort, else deferred to invocation |
 
 Build-time guarantees apply to runtime-introspectable types, so validation has two levels stated rather
-than implied: **AgentDeck-managed** — requirement and schema known, checked at `build()`; **opaque or
-engine-native** — best effort at build, invocation-time safety net mandatory. `build()` is not a partial
+than implied: **AgentDeck-managed**  -  requirement and schema known, checked at `build()`; **opaque or
+engine-native**  -  best effort at build, invocation-time safety net mandatory. `build()` is not a partial
 type checker and should not grow into one. Dicts are never auto-converted into typed models:
 `Context[Mapping[str, Any]]` is first-class, and the conversion is the application's to write.
 
@@ -110,7 +110,7 @@ serialized into it. Both engines already treat their runtime context as local, a
 AgentDeck guarantee rather than an inherited accident.
 
 **Lifecycle:** run-scoped and application-owned. The same value for the whole run, never serialized
-into the event log, never cloned, assumed to be nothing in particular — which is also why it is not on
+into the event log, never cloned, assumed to be nothing in particular  -  which is also why it is not on
 `RunContextSnapshot`: the log records what a run was asked to do, not the live objects it held.
 `resume()` resupplies it.
 

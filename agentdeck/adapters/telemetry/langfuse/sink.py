@@ -1,13 +1,13 @@
 """``EventSinkPort`` that renders the canonical event stream as Langfuse traces.
 
 One run is one trace: ``run.started`` opens the root observation, a terminal event closes
-it, and what happens in between becomes children — tool calls as spans, reported model
+it, and what happens in between becomes children  -  tool calls as spans, reported model
 usage as generations, workflow node updates as points on the timeline. Nothing here asks
 whether the run was an agent or a workflow, which is exactly why both are traced by the
 same code: the stream is all there is to read.
 
 Two properties of the sink contract shape the whole module. ``emit`` must return promptly,
-so every call does in-memory work only — the Langfuse SDK buffers observations and ships
+so every call does in-memory work only  -  the Langfuse SDK buffers observations and ships
 them from its own background thread, and nothing here awaits a round trip. And the tap is
 lossy: any event can be missing, so an observation left open by a lost ``completed`` event
 is closed by the next one that implies it rather than waited for, and a run whose terminal
@@ -152,7 +152,7 @@ class LangfuseSink(EventSinkPort):
 
         Both halves matter. An observation nobody finished is never shipped at all, so a run the
         shutdown cut short would otherwise vanish rather than show up as interrupted. And what
-        the SDK has already batched only leaves on a flush — the one it does at interpreter exit
+        the SDK has already batched only leaves on a flush  -  the one it does at interpreter exit
         never happens to a process that is killed, which is precisely when the telemetry of the
         last few seconds is worth having.
         """
@@ -188,7 +188,7 @@ class LangfuseSink(EventSinkPort):
         """Reopen the trace of a run that was suspended, as a second root under the same key.
 
         The kind and the run's constants live in ``run.started``, which a process that only
-        picked up the resume never saw — so a continuation is a plain span and says who it
+        picked up the resume never saw  -  so a continuation is a plain span and says who it
         belongs to in its metadata.
 
         The answer the resume carried is the continuation's input, media-described like any
@@ -213,7 +213,7 @@ class LangfuseSink(EventSinkPort):
         """A control phase as a point on the run's timeline.
 
         Both phases are recorded, because the gap between them is the number an operator
-        actually asks about — "I pressed cancel and it kept going" is answered by when the run
+        actually asks about  -  "I pressed cancel and it kept going" is answered by when the run
         reached a safe point, not by when the signal was written. A signal that arrives while
         no trace is open here (another process opened it, or the tap dropped the opening) is
         left to the process that has one, the same way tool spans are.

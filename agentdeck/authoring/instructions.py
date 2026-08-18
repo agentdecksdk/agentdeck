@@ -7,12 +7,12 @@ portable view before the author's function ever sees it.
 
 The rule this site exists to keep, and the reason it is not simply "return a string": **only
 the return value reaches the prompt.** ``ctx.data`` is never projected into instructions by
-AgentDeck — a callable that wants the model to know something about its environment has to say
+AgentDeck  -  a callable that wants the model to know something about its environment has to say
 so in the string it returns.
 
 An instructions callable takes its context and nothing else. There is no model-supplied
 argument here to leave room for, so a leftover parameter is a mistake with no plausible reading
-— nothing would ever fill it — and it is refused rather than guessed at.
+ -  nothing would ever fill it  -  and it is refused rather than guessed at.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def compile_instructions(
 
     Refused rather than compiled when the signature could not be read: the same reasoning as a
     tool's, since "no ``Context`` parameter was found" is not a finding about an unreadable
-    callable — it is the absence of one, and the argument would go missing at the first turn.
+    callable  -  it is the absence of one, and the argument would go missing at the first turn.
     """
     analysis = analyze_callable(target)
     named = describe_callable(target)
@@ -63,7 +63,7 @@ def compile_instructions(
             if not isinstance(run, RunContext):
                 raise ConfigError(
                     f"{named} declares a Context[...] parameter, but this run carries "
-                    f"{type(run).__name__} rather than an AgentDeck run context — instructions "
+                    f"{type(run).__name__} rather than an AgentDeck run context  -  instructions "
                     "compiled by AgentDeck have to be played by an AgentDeck run."
                 )
             arguments[context_parameter] = Context(run)

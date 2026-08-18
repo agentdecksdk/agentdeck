@@ -1,5 +1,5 @@
 """``ControlPort`` in SQLite: one row per ``id``, durable enough that a second OS
-process — opening the same file, never sharing a connection or any Python state — can
+process  -  opening the same file, never sharing a connection or any Python state  -  can
 signal a run it never held a reference to. This is what makes cross-process cancel real
 instead of theoretical; Redis is the multi-worker upgrade, deferred to Story 3.
 """
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-# ponytail: the signals table grows one row per signaled run, never pruned — add a
+# ponytail: the signals table grows one row per signaled run, never pruned  -  add a
 # prune-on-terminal or TTL sweep when signal volume matters.
 _SCHEMA = "CREATE TABLE IF NOT EXISTS signals (id TEXT PRIMARY KEY, signal TEXT NOT NULL, reason TEXT);"
 
@@ -37,12 +37,12 @@ def _migrate_run_id_to_id(conn: sqlite3.Connection, db_path: str) -> None:
     """Carry a pre-namespace ``signals`` table (keyed by ``run_id``) forward to the ``id``
     schema, or refuse to guess.
 
-    The old column never recorded a namespace at all — every write, namespaced caller or not,
+    The old column never recorded a namespace at all  -  every write, namespaced caller or not,
     landed under the bare ``run_id`` (that omission is the defect #315 fixes). So a row present
     at migration time cannot be attributed to *no* namespace with any confidence: it may equally
     be a namespaced signal that collided with an unnamespaced one under the old scheme, and
     keying it by identity (``id = run_id``) would silently hand it to whichever future caller
-    happens to use that literal ``run_id`` unnamespaced — the exact wrong-run delivery this
+    happens to use that literal ``run_id`` unnamespaced  -  the exact wrong-run delivery this
     issue exists to stop, just moved from "two live runs" to "a stale row and a new one".
 
     An **empty** old-shaped table carries nothing to misattribute, so it is dropped outright and
@@ -70,7 +70,7 @@ def _connect(db_path: str) -> sqlite3.Connection:
     a poll happened to be reading.
 
     The timeout is set first so the mode switch can wait a peer's transaction out, and the
-    switch is skipped when the file is already in WAL — re-asking is free there, but the
+    switch is skipped when the file is already in WAL  -  re-asking is free there, but the
     conversion itself needs an exclusive lock that a peer's open write denies outright. A
     file that cannot be converted right now keeps the mode it has: slower under contention,
     never wrong. ``:memory:`` reports ``memory`` and stays there.
@@ -79,7 +79,7 @@ def _connect(db_path: str) -> sqlite3.Connection:
         conn = sqlite3.connect(db_path, check_same_thread=False)
         conn.execute(f"PRAGMA busy_timeout = {_BUSY_TIMEOUT_MS}")
         if conn.execute("PRAGMA journal_mode").fetchone()[0] != "wal":
-            # ponytail: silent, like the event store's — log it if an operator ever has to
+            # ponytail: silent, like the event store's  -  log it if an operator ever has to
             # find out why one process came up without WAL.
             with suppress(sqlite3.OperationalError):
                 conn.execute("PRAGMA journal_mode = WAL")
@@ -94,7 +94,7 @@ def _connect(db_path: str) -> sqlite3.Connection:
 
 
 class SqliteControlPort(ControlPort):
-    """One connection, serialized by a lock — same posture as ``stores.sqlite`` and for
+    """One connection, serialized by a lock  -  same posture as ``stores.sqlite`` and for
     the same reason: ``sqlite3`` is stdlib but not coroutine-safe. Failures reach the caller
     as ``StoreError`` rather than as a ``sqlite3`` exception, and the same WAL caveats apply:
     ``-wal``/``-shm`` files sit beside this database, and it belongs on local disk because
@@ -106,7 +106,7 @@ class SqliteControlPort(ControlPort):
         self._lock = asyncio.Lock()
 
     async def _run[T](self, work: Callable[[], T], op: str) -> T:
-        """Every statement goes through here — one caller at a time, off the event loop, and
+        """Every statement goes through here  -  one caller at a time, off the event loop, and
         no library exception escaping the port."""
         async with self._lock:
             try:
@@ -126,7 +126,7 @@ class SqliteControlPort(ControlPort):
 
     def _take(self, id: str, sig: str) -> bool:
         # One statement, so the comparison and the delete cannot be separated by a peer process's
-        # write — which is the whole point of the port method being a compare-and-set.
+        # write  -  which is the whole point of the port method being a compare-and-set.
         deleted = self._conn.execute("DELETE FROM signals WHERE id = ? AND signal = ?", (id, sig))
         self._conn.commit()
         return deleted.rowcount > 0

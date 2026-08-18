@@ -4,11 +4,11 @@
 
 Every endpoint below runs on the v2 ``Runtime`` a ``Deck`` composes: the handler builds a
 ``RunContext``, calls ``Runtime.run`` / ``Runtime.resume`` / ``Runtime.pending``, and hands the
-canonical events to ``surfaces/serve/compat.py``, which renders v1's frames. So a turn — chat
-or workflow — leaves one canonical event log behind. The wire below is unchanged by that; that
+canonical events to ``surfaces/serve/compat.py``, which renders v1's frames. So a turn  -  chat
+or workflow  -  leaves one canonical event log behind. The wire below is unchanged by that; that
 is the point, and ``tests/golden/`` is what proves it.
 
-``create_app()`` is ``Deck.from_project().asgi()`` — kept as a module-level function because the
+``create_app()`` is ``Deck.from_project().asgi()``  -  kept as a module-level function because the
 console script and every existing test import it by name; ``build_asgi_app(deck)`` is what
 :meth:`agentdeck.deck.Deck.asgi` actually calls, for a ``Deck`` built any other way.
 
@@ -20,7 +20,7 @@ Endpoints:
                                       -> text/event-stream: "delta" events, then one
                                          "done" event carrying {"output", "usage"};
                                          an "error" event replaces "done" if the turn fails
-    POST /workflows/{name}           -> JSON state in, final state out — or
+    POST /workflows/{name}           -> JSON state in, final state out  -  or
                                         {"type": "interrupt", "payload", "thread_id"} when the
                                         run pauses on a human decision;
                                         409 while that thread's previous turn is unfinished,
@@ -28,7 +28,7 @@ Endpoints:
     POST /workflows/{name}?stream=true
                                       -> text/event-stream: "node_update"/"custom" events per
                                          the LangGraph node updates/custom stream, then one
-                                         "done" event carrying the final state — or one
+                                         "done" event carrying the final state  -  or one
                                          "interrupt" event in its place when the run pauses;
                                          an "error" event replaces either if the run fails
     GET  /workflows/{name}/pending   -> [{"type": "interrupt", "payload", "thread_id"}, ...]
@@ -41,11 +41,11 @@ Endpoints:
                                         point, and its own run.paused / run.cancelled event is
                                         what says it did
     POST /runs/{run_id}/resume       -> {"reason": ...}? -> {"run_id", "status", "events"} for
-                                        the continuation this call played — 409 if the run is
+                                        the continuation this call played  -  409 if the run is
                                         not paused
 
 The workflow inbox above reads the event log, while ``Deck._due_resumes()`` still reads
-the graph's checkpointer — so the two disagree once approvals are driven through both doors
+the graph's checkpointer  -  so the two disagree once approvals are driven through both doors
 (see the CHANGELOG for the plan to join them).
 """
 
@@ -87,7 +87,7 @@ def create_app() -> Any:
 
 def _require_agent(deck: Deck, name: str) -> None:
     """v1's 404 wording, owned here now that ``Deck`` exposes only the public ``agents``
-    mapping — a route that needs "unknown agent" as a client-facing miss checks membership
+    mapping  -  a route that needs "unknown agent" as a client-facing miss checks membership
     itself rather than reaching for a private lookup."""
     if name not in deck.agents:
         raise NotFoundError(f"No agent named {name!r}. Available: {sorted(deck.agents)}.")
@@ -99,7 +99,7 @@ def _require_workflow(deck: Deck, name: str) -> None:
 
 
 def build_asgi_app(deck: Deck) -> Any:
-    """The FastAPI app whose lifespan opens and closes ``deck`` — what
+    """The FastAPI app whose lifespan opens and closes ``deck``  -  what
     :meth:`agentdeck.deck.Deck.asgi` calls. Kept here, not in ``deck.py``: this is the one
     module allowed to import FastAPI and the v1 wire-rendering helpers, the same rule every
     other adapter directory follows for its own external system.
@@ -112,7 +112,7 @@ def build_asgi_app(deck: Deck) -> Any:
         # `async with deck` closes the Redis session client + MCP servers on shutdown
         # (including SIGTERM from `compose stop`), so no connection is leaked. Opening it is
         # also where `resolve_event_store`/`resolve_control_port` run, which is where a
-        # `memory://` backend now logs its own "won't survive a restart" warning — composition
+        # `memory://` backend now logs its own "won't survive a restart" warning  -  composition
         # time, not a server-specific check here.
         async with deck:
             api.state.deck = deck
@@ -152,15 +152,15 @@ def build_asgi_app(deck: Deck) -> Any:
     @api.exception_handler(AgentdeckError)
     async def internal_error(request: Request, exc: AgentdeckError) -> JSONResponse:
         # Every other AgentdeckError is a server-side fault, and its message can
-        # carry secrets (skill stderr, config values) — log it, never ship it.
+        # carry secrets (skill stderr, config values)  -  log it, never ship it.
         logger.exception("%s serving %s", type(exc).__name__, request.url.path, exc_info=exc)
         return JSONResponse(status_code=500, content={"detail": "internal error"})
 
     # FastAPI treats the `Exception` key specially: it does not join the handlers above in
     # Starlette's per-type lookup, it becomes ServerErrorMiddleware's handler, the outermost
-    # layer wrapping the whole app. That still gets this right — NotFoundError/SessionBusyError/
+    # layer wrapping the whole app. That still gets this right  -  NotFoundError/SessionBusyError/
     # AgentdeckError are matched first, by their own registration, before anything unwinds this
-    # far — and it is the only way to answer an exception the engine raised that isn't any of
+    # far  -  and it is the only way to answer an exception the engine raised that isn't any of
     # agentdeck's own types (a workflow node's plain exception, an SDK error, an httpx transport
     # failure): unrecognized exceptions have no handler in that per-type lookup and would
     # otherwise fall through to Starlette's bare-text default.
@@ -242,7 +242,7 @@ def build_asgi_app(deck: Deck) -> Any:
     async def resume_run(run_id: str, body: dict[str, Any] | None = None) -> Any:
         events = await _deck()._resume(run_id, _reason(body))
         if not events:
-            # 409, not 404: the run may well exist and simply not be paused — running,
+            # 409, not 404: the run may well exist and simply not be paused  -  running,
             # finished, cancelled, or already picked up by another worker. All of those are the
             # same answer to this request, and none of them is an error the caller should retry.
             raise HTTPException(status_code=409, detail=f"run {run_id!r} is not paused")
@@ -264,7 +264,7 @@ def build_asgi_app(deck: Deck) -> Any:
     ) -> Any:
         """Pause and cancel are the same request: record intent for a ``run_id``, answer at once.
 
-        ``recorded`` says the request is written down, never that the run has stopped — a run
+        ``recorded`` says the request is written down, never that the run has stopped  -  a run
         inside a tool call stops at its next safe point, and the run's own ``run.paused`` /
         ``run.cancelled`` event is what reports that. Runs that already ended are accepted and
         do nothing, which is what makes a double-clicked cancel harmless.
@@ -285,7 +285,7 @@ def build_asgi_app(deck: Deck) -> Any:
             raise HTTPException(status_code=422, detail="missing field: value")
         deck = _deck()
         _require_workflow(deck, name)
-        # v1's own 404 names the thread, not a run_id the caller never posted — so the lookup
+        # v1's own 404 names the thread, not a run_id the caller never posted  -  so the lookup
         # stays here rather than moving into `Run.answer`, whose own miss talks about the id.
         paused = next(
             (run for run in await deck._pending() if run.invocable == name and run.thread_id == thread_id),
@@ -299,12 +299,12 @@ def build_asgi_app(deck: Deck) -> Any:
 
 
 def _inventory(deck: Deck) -> dict[str, list[str]]:
-    """v1's ``{"agents": [...], "workflows": [...], "skills": [...]}`` — built from ``Deck``'s
+    """v1's ``{"agents": [...], "workflows": [...], "skills": [...]}``  -  built from ``Deck``'s
     own properties rather than a separate cache, since they are already read-only mappings.
 
     ``skills.list()``, not ``.build()``: ``build()`` re-scans disk and overwrites the registry
     every call, which would make a hot probe endpoint re-read every ``SKILL.md`` on each request
-    and let one edited after startup change what ``load_skill`` returns mid-run — the catalog is
+    and let one edited after startup change what ``load_skill`` returns mid-run  -  the catalog is
     supposed to be immutable once ``BUILT``. ``Deck.build()`` already populated the cache
     ``list()`` reads.
     """
@@ -320,7 +320,7 @@ async def _opened(run: AsyncGenerator[Event, None]) -> AsyncGenerator[Event, Non
 
     A run is claimed on its first event, so a generator handed straight to
     ``StreamingResponse`` has committed ``200`` and ``text/event-stream`` before the claim is
-    even attempted — and a ``SessionBusyError`` then reaches the client in-band as a body that
+    even attempted  -  and a ``SessionBusyError`` then reaches the client in-band as a body that
     stops, indistinguishable from a run that produced nothing. Pulling the opening event here
     lets the refusal reach the exception handler that answers it **409**. The wire is unchanged:
     ``run.started`` renders to no v1 frame, streamed or not.
@@ -329,7 +329,7 @@ async def _opened(run: AsyncGenerator[Event, None]) -> AsyncGenerator[Event, Non
 
     async def replayed() -> AsyncGenerator[Event, None]:
         # `aclosing` still cascades a `.aclose()` into `run` (`deck.stream()`'s own generator)
-        # when a consumer walks away — but that no longer stops the run itself. Execution is a
+        # when a consumer walks away  -  but that no longer stops the run itself. Execution is a
         # deck-owned task from the moment `deck.stream()` started it (docs/design/
         # run-identity.md §9), independent of whether anybody is still reading; a disconnected
         # client only stops watching, and the run keeps going to its own natural end.
@@ -345,7 +345,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="agentdeck-serve",
         description="Serves the deck discovered in ./.agentdeck over the v1 HTTP/SSE surface.",
-        epilog="Run it from the directory that holds .agentdeck — there is no --project-dir flag.",
+        epilog="Run it from the directory that holds .agentdeck  -  there is no --project-dir flag.",
     )
     parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"), help="interface to bind (env: HOST)")
     parser.add_argument("--port", type=int, default=int(os.getenv("PORT", "8000")), help="port to bind (env: PORT)")

@@ -2,16 +2,16 @@
 """Milestone-0 demo: discovery -> UC1 -> UC2 -> UC3, one continuous, deterministic run.
 
 This is the "demo artifact" `milestone-0-walking-skeleton.md` §6 asks for, in script
-form instead of a recording — deterministic and replayable beats a video that bit-rots.
-Every Runtime here is assembled by `agentdeck.composition.build_runtime` — the same seam
-`App` calls — so this script demonstrates the real wiring (real engines, real SQLite
+form instead of a recording  -  deterministic and replayable beats a video that bit-rots.
+Every Runtime here is assembled by `agentdeck.composition.build_runtime`  -  the same seam
+`App` calls  -  so this script demonstrates the real wiring (real engines, real SQLite
 stores, the real `surfaces/serve` FastAPI apps) instead of hand-assembling its own. It
 lives under `scripts/`, not inside the `agentdeck` package, so it is not a new product
 surface.
 
 No network, no API keys: every model is a scripted fake, exactly like the automated UC1-3
 tests it mirrors (`tests/test_uc1_handoff.py`, `tests/test_uc2_claim_pipeline.py`,
-`tests/test_uc3_slowpoke.py`) — those tests are the falsifiable claims; this script is
+`tests/test_uc3_slowpoke.py`)  -  those tests are the falsifiable claims; this script is
 their narrated, human-watchable replay. Run it with::
 
     python scripts/m0_demo.py
@@ -23,12 +23,12 @@ of just looking like a nicer chat log.
 
 The opening section is the one that goes through ``InvocableRegistry``: it authors a
 throwaway ``.agentdeck/`` project and lets discovery produce the specs. UC1-UC3 keep
-building their specs by hand, deliberately — each is pinned to a scripted fake model whose
+building their specs by hand, deliberately  -  each is pinned to a scripted fake model whose
 exact turns are what makes the schema and ordering assertions falsifiable, and a bundle on
 disk would only hide those fakes behind a file.
 
 UC2's "kill -9, restart" is modeled by dropping every Python reference and rebuilding a
-fresh `Runtime`/store/engine from the same two SQLite files, in this same process — not a
+fresh `Runtime`/store/engine from the same two SQLite files, in this same process  -  not a
 real OS-level `kill`. The real-subprocess version of that restart (two actual `python`
 processes sharing only the files on disk) is covered by
 `tests/test_uc2_claim_pipeline.py::test_uc2_claim_pipeline_survives_a_real_process_restart`,
@@ -89,10 +89,10 @@ def _banner(title: str) -> None:
 
 
 # `check_contiguous`/`check_terminal` are the test suite's own invariant checks, not part of the
-# package — this script keeps its own copies rather than reach into `tests/` from a standalone
+# package  -  this script keeps its own copies rather than reach into `tests/` from a standalone
 # demo.
 def check_contiguous(events: list[Event]) -> list[int]:
-    """Missing ``seq`` numbers for one run — gaps only, duplicates aren't checked."""
+    """Missing ``seq`` numbers for one run  -  gaps only, duplicates aren't checked."""
     run = list(events)
     if len({event.run_id for event in run}) > 1:
         raise ValueError("check_contiguous takes one run's events")
@@ -139,7 +139,7 @@ def _response(output: list[Any]) -> Response:
 
 
 # --------------------------------------------------------------------------------------
-# Discovery — one `.agentdeck/` project becomes the Runtime's invocables
+# Discovery  -  one `.agentdeck/` project becomes the Runtime's invocables
 # --------------------------------------------------------------------------------------
 
 # Two bundles in exactly the format a user authors, written to a scratch project dir. The
@@ -180,7 +180,7 @@ class Shout(BaseWorkflow):
 
 
 async def run_discovery(tmp: Path) -> None:
-    _banner("Discovery — InvocableRegistry over a `.agentdeck/` project (both engines)")
+    _banner("Discovery  -  InvocableRegistry over a `.agentdeck/` project (both engines)")
     from agentdeck.adapters.engines.langgraph import LangGraphEngine
 
     root = tmp / "project" / ".agentdeck"
@@ -217,7 +217,7 @@ async def run_discovery(tmp: Path) -> None:
 
 
 # --------------------------------------------------------------------------------------
-# UC1 — the handoff chat (stresses the schema + ADR-D5)
+# UC1  -  the handoff chat (stresses the schema + ADR-D5)
 # --------------------------------------------------------------------------------------
 
 
@@ -323,7 +323,7 @@ def lookup_shipment(shipment_id: str) -> str:
 
 
 async def run_uc1(tmp: Path) -> None:
-    _banner("UC1 — the handoff chat (FrontDesk -> ClaimsAgent, SQLite store)")
+    _banner("UC1  -  the handoff chat (FrontDesk -> ClaimsAgent, SQLite store)")
     claims_agent = Agent(name="ClaimsAgent", instructions="handle claims", tools=[lookup_shipment], model=ClaimsModel())
     handoff_tool = Handoff.default_tool_name(claims_agent)
     front_agent = Agent(
@@ -376,12 +376,12 @@ async def run_uc1(tmp: Path) -> None:
 
 
 # --------------------------------------------------------------------------------------
-# UC2 — the Friday approval (stresses durability + engine substitutability)
+# UC2  -  the Friday approval (stresses durability + engine substitutability)
 # --------------------------------------------------------------------------------------
 
 
 async def run_uc2(tmp: Path) -> None:
-    _banner("UC2 — the Friday approval (ClaimPipeline: validate -> approve interrupt)")
+    _banner("UC2  -  the Friday approval (ClaimPipeline: validate -> approve interrupt)")
     from langgraph.graph import END, START, StateGraph
     from langgraph.types import interrupt
 
@@ -486,12 +486,12 @@ async def run_uc2(tmp: Path) -> None:
 
 
 # --------------------------------------------------------------------------------------
-# UC3 — the rude interruption (stresses control + ordering guarantees)
+# UC3  -  the rude interruption (stresses control + ordering guarantees)
 # --------------------------------------------------------------------------------------
 
 
 class SlowPokeModel(Model):
-    """Streams `chunk_count` text deltas with a small sleep before each — enough of a
+    """Streams `chunk_count` text deltas with a small sleep before each  -  enough of a
     window for a signal to land mid-stream without slowing the demo down too much."""
 
     def __init__(self, chunk_count: int, delay: float) -> None:
@@ -539,7 +539,7 @@ async def _gap_recovering_consumer(source: Any, store: Any, log_key: str, ctx: R
     next_expected = 0
     async for event in source:
         if event.seq > next_expected:
-            print(f"  !! gap detected: expected seq={next_expected}, got seq={event.seq} — refetching from store")
+            print(f"  !! gap detected: expected seq={next_expected}, got seq={event.seq}  -  refetching from store")
             for missing in await store.read_run(log_key, event.run_id, ctx, from_seq=next_expected):
                 seen[missing.seq] = missing
         seen[event.seq] = event
@@ -583,7 +583,7 @@ async def run_uc3_cross_process_cancel(tmp: Path) -> None:
     store = SqliteEventStore(events_db)
     # 0.2s/chunk, not the chaos test's 0.0: Terminal B is a real `python -m` subprocess,
     # which costs over a second just importing agentdeck (v1's App included) before it
-    # can write the signal — the delay gives that import time to land mid-stream.
+    # can write the signal  -  the delay gives that import time to land mid-stream.
     runtime = build_runtime(
         engines=[OpenAIAgentsEngine()], invocables={"SlowPoke": _slowpoke_spec(30, 0.2)}, store=store, control=control
     )
@@ -644,7 +644,7 @@ async def run_uc3_replay_and_render(tmp: Path) -> None:
 
 
 async def run_uc3(tmp: Path) -> None:
-    _banner("UC3 — the rude interruption (SlowPoke, cross-process cancel + chaos gap-detection)")
+    _banner("UC3  -  the rude interruption (SlowPoke, cross-process cancel + chaos gap-detection)")
     await run_uc3_replay_and_render(tmp)
     await run_uc3_chaos_gap_detection()
     await run_uc3_cross_process_cancel(tmp)
@@ -657,7 +657,7 @@ async def main() -> None:
         await run_uc1(Path(tmp))
         await run_uc2(Path(tmp))
         await run_uc3(Path(tmp))
-    _banner("ALL PASS — discovery -> UC1 -> UC2 -> UC3 replayed end to end")
+    _banner("ALL PASS  -  discovery -> UC1 -> UC2 -> UC3 replayed end to end")
 
 
 if __name__ == "__main__":

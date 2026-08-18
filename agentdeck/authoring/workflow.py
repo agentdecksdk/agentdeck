@@ -1,10 +1,10 @@
 """``Workflow``: the construction API over a LangGraph state graph, plus the declaration it can
-start from — mirrors :mod:`agentdeck.authoring.agent`'s ``Agent``/``AgentDeclaration`` pair.
+start from  -  mirrors :mod:`agentdeck.authoring.agent`'s ``Agent``/``AgentDeclaration`` pair.
 
 A graph is imperative (nodes, edges) rather than a handful of values, so unlike ``Agent`` there
 is no keyword-argument replacement for it: ``WorkflowDeclaration.build_graph()`` stays an
 overridable classmethod, and ``Workflow(...)`` wraps one (``base=``) or a bare graph factory
-(``graph=``) into the one instance a ``Deck`` can hold as a root — the same override-on-
+(``graph=``) into the one instance a ``Deck`` can hold as a root  -  the same override-on-
 construction shape ``Agent(base=...)`` has, so the two constructors read as one pattern.
 """
 
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 _UNSET: Any = object()
 _CAMEL_RE = re.compile(r"(?<!^)(?=[A-Z])")
-_WORKFLOWS_DOCS = f"{DOCS_URL}/concepts/workflows"
+_WORKFLOWS_DOCS = f"{DOCS_URL}/build-your-deck/workflows"
 
 
 class WorkflowDeclaration:
@@ -50,7 +50,7 @@ class WorkflowDeclaration:
 
 class Workflow:
     """A declarative workflow root: a name, its state model, whether it durably checkpoints,
-    and where its graph comes from — either ``base=`` (a :class:`WorkflowDeclaration` subclass)
+    and where its graph comes from  -  either ``base=`` (a :class:`WorkflowDeclaration` subclass)
     or ``graph=`` (a bare ``() -> StateGraph`` factory), for the same reason ``Agent`` accepts
     both a subclassed and a fully code-first declaration.
 
@@ -97,7 +97,7 @@ class Workflow:
         return self._graph_factory()
 
     def build(self) -> Any:
-        """Compile the graph, with a checkpointer if ``durable`` — see
+        """Compile the graph, with a checkpointer if ``durable``  -  see
         :func:`agentdeck.authoring.compile.compile_workflow`.
         """
         from agentdeck.authoring.compile import compile_workflow
@@ -110,11 +110,11 @@ class Workflow:
         return DevWorkflowRunner.from_workflow(self, **runner_options)
 
     async def run(self, state: Any = None, *, thread_id: str | None = None, **runner_options: Any) -> Any:
-        """Run the graph once, direct-call (no event log) — see the module docstring for why.
+        """Run the graph once, direct-call (no event log)  -  see the module docstring for why.
 
         ``thread_id`` scopes checkpointed state (required if ``durable``). Returns the final
         state, or an :class:`~agentdeck.authoring.interrupts.InterruptResult` if a node called
-        ``langgraph.types.interrupt()`` — hand that payload to a human and resume with
+        ``langgraph.types.interrupt()``  -  hand that payload to a human and resume with
         :meth:`resume`. The interrupted node re-runs from its start on resume, so it must be
         pure: put side effects in earlier nodes.
         """
@@ -151,7 +151,7 @@ class Workflow:
         if self.durable and thread_id is None:
             raise ValueError(
                 f"{self.name} is durable=True; a thread_id is required to load/persist checkpointed state "
-                f"— see {_WORKFLOWS_DOCS}",
+                f" -  see {_WORKFLOWS_DOCS}",
             )
         if thread_id is None:
             return runner_options
@@ -168,7 +168,7 @@ class Workflow:
         return await self.run(Command(resume=value), thread_id=thread_id, **runner_options)
 
     async def pending(self) -> list[InterruptResult]:
-        """Every thread of this workflow currently paused on an interrupt — the approval inbox."""
+        """Every thread of this workflow currently paused on an interrupt  -  the approval inbox."""
         from agentdeck.authoring.compile import compile_workflow
         from agentdeck.authoring.interrupts import interrupt_result
 
@@ -205,7 +205,7 @@ class Workflow:
         defaults: dict[str, Any] | None = None,
         strict_json_schema: bool = False,
     ) -> FunctionTool:
-        """Expose this workflow as a :class:`agents.tool.FunctionTool` — used by
+        """Expose this workflow as a :class:`agents.tool.FunctionTool`  -  used by
         :func:`agentdeck.authoring.compile.compile_agent`'s ``resolve_workflow_tool`` to turn
         an ``Agent(tools=[some_workflow])`` entry into something the SDK can call.
 

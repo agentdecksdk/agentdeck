@@ -1,5 +1,5 @@
 """Regression tests for issue #16: `.env`/`config.yaml` must resolve from the project's
-`Path.cwd()` — matching how `mount_project_dir` locates `./.agentdeck` — never from
+`Path.cwd()`  -  matching how `mount_project_dir` locates `./.agentdeck`  -  never from
 wherever the `agentdeck` package itself is installed. The difference is invisible in a
 repo checkout (package and project share a root) and only bites once `agentdeck` is
 pip-installed into `site-packages`, away from any project directory: exactly the shape
@@ -29,7 +29,7 @@ _PROBE = (
 
 def _fake_site_packages_install(root: Path) -> Path:
     """Copy the `agentdeck` package tree under `root`, mimicking a real (non-editable)
-    pip install into a venv's `site-packages` — deliberately far from any project dir.
+    pip install into a venv's `site-packages`  -  deliberately far from any project dir.
     """
     site_packages = root / "venv" / "lib" / "python3.x" / "site-packages"
     shutil.copytree(AGENTDECK_PKG, site_packages / "agentdeck", ignore=shutil.ignore_patterns("__pycache__"))
@@ -54,10 +54,10 @@ def _run(script: str, cwd: Path, site_packages: Path, extra_env: dict[str, str] 
     file_line, model_line = result.stdout.strip().splitlines()
     # A strict setuptools editable install puts a `__editable___..._finder` on
     # `sys.meta_path`, which resolves `import agentdeck` before PYTHONPATH is ever
-    # consulted — silently defeating the fake install below and passing vacuously.
+    # consulted  -  silently defeating the fake install below and passing vacuously.
     assert file_line.startswith(str(site_packages)), (
         f"agentdeck imported from {file_line!r}, not the fake site-packages install at "
-        f"{site_packages!r} — this test proves nothing about the real bug."
+        f"{site_packages!r}  -  this test proves nothing about the real bug."
     )
     return model_line
 
@@ -70,7 +70,7 @@ def test_dotenv_in_project_cwd_wins_over_a_stray_env_file_inside_site_packages(t
     """The project's own `.env` must load even when `agentdeck` is installed as a package.
 
     A second `.env` sits exactly where the old `REPO_ROOT = Path(__file__).parents[2]`
-    logic would have pointed — inside the fake install's site-packages directory — to
+    logic would have pointed  -  inside the fake install's site-packages directory  -  to
     prove the fix does not merely relocate the bug to a different wrong path.
     """
     site_packages = _fake_site_packages_install(tmp_path)
@@ -99,7 +99,7 @@ def test_config_yaml_in_project_cwd_wins_over_the_packaged_default(tmp_path):
 
 
 def test_real_env_var_still_outranks_the_dotenv_file(tmp_path):
-    """Layered settings means a real environment variable outranks the `.env` file — a
+    """Layered settings means a real environment variable outranks the `.env` file  -  a
     fix that made `.env` start winning over an exported `AGENTDECK_*`/`OPENAI_*` var
     would trade one bug for a worse one.
     """
@@ -116,7 +116,7 @@ def test_real_env_var_still_outranks_the_dotenv_file(tmp_path):
 
 def test_missing_project_dotenv_does_not_fall_back_to_a_file_near_the_package(tmp_path):
     """No second chance: a decoy `.env` sitting exactly where the old `REPO_ROOT` logic
-    would have found one must stay ignored when the project itself has none — the
+    would have found one must stay ignored when the project itself has none  -  the
     packaged default wins, not the site-packages file.
     """
     site_packages = _fake_site_packages_install(tmp_path)
@@ -132,7 +132,7 @@ def test_missing_project_dotenv_does_not_fall_back_to_a_file_near_the_package(tm
 
 def test_settings_resolve_cwd_at_first_use_not_at_import(tmp_path):
     """A `chdir` between `import agentdeck` and the first `get_settings()` call must
-    still land on the project — the same failure mode `mount_project_dir` never has,
+    still land on the project  -  the same failure mode `mount_project_dir` never has,
     since it always runs after any `chdir` a caller does. Binding `.env`'s path once at
     import time (the pre-fix shape) would freeze whatever cwd was current at import,
     a stale "launch directory" the process may since have left behind.
@@ -158,7 +158,7 @@ def test_settings_resolve_cwd_at_first_use_not_at_import(tmp_path):
 
 
 def test_agentdeck_config_path_redirects_the_shared_yaml(tmp_path, monkeypatch):
-    """`AGENTDECK_CONFIG_PATH` is the one name that redirects `config.yaml` — issue #155."""
+    """`AGENTDECK_CONFIG_PATH` is the one name that redirects `config.yaml`  -  issue #155."""
     from agentdeck.runtime.settings import resolve_config_path
 
     redirected = tmp_path / "elsewhere.yaml"
@@ -169,8 +169,8 @@ def test_agentdeck_config_path_redirects_the_shared_yaml(tmp_path, monkeypatch):
 
 
 def test_sandbox_env_and_skills_settings_are_gone():
-    """Issue #155: sandboxing left v3 in #163 and `SkillExecutor` — `sandbox_env()`'s only
-    caller — was deleted in #164, leaving both with zero callers. A deletion, not the
+    """Issue #155: sandboxing left v3 in #163 and `SkillExecutor`  -  `sandbox_env()`'s only
+    caller  -  was deleted in #164, leaving both with zero callers. A deletion, not the
     `AGENTDECK_SKILL_*` rename the issue originally proposed."""
     import agentdeck.runtime.settings as settings_module
 
@@ -180,7 +180,7 @@ def test_sandbox_env_and_skills_settings_are_gone():
 
 
 def test_the_old_app_config_path_name_is_no_longer_read(tmp_path, monkeypatch):
-    """`APP_CONFIG_PATH` was unprefixed and generic; #155 renamed it outright — no shim, no
+    """`APP_CONFIG_PATH` was unprefixed and generic; #155 renamed it outright  -  no shim, no
     fallback. Setting only the old name must resolve as if nothing were set at all."""
     from agentdeck.runtime.settings import PACKAGED_DEFAULT_YAML, resolve_config_path
 
@@ -195,7 +195,7 @@ def test_the_old_app_config_path_name_is_no_longer_read(tmp_path, monkeypatch):
 
 def test_a_retired_v2_env_name_refuses_to_start(monkeypatch):
     """Nothing binds the old names any more, so a deployment that still exports one would fall
-    back to the default — and for the three store variables that default is in-process memory,
+    back to the default  -  and for the three store variables that default is in-process memory,
     i.e. a durable log quietly becoming ephemeral on upgrade."""
     monkeypatch.setenv("AGENTDECK_EVENTS_BACKEND", "postgres")
     reset_settings_cache()

@@ -1,5 +1,5 @@
 """``reconcile``'s two text extractors, log side and session side, must read the same string
-off a multi-block turn (#161) — the log side joins ``TextBlock``s, the session side joins the
+off a multi-block turn (#161)  -  the log side joins ``TextBlock``s, the session side joins the
 canonical parts a live multimodal turn would have written into the SDK session. Before
 ``_to_sdk_input`` could emit a parts list, the two agreed by accident: the session's content
 was always the bare string the log side had already joined. This pins that they still agree
@@ -7,7 +7,7 @@ once the session can hold a list of typed parts instead.
 
 Issue #226: a ``DataBlock`` renders as an ``input_text`` part too, so it joins ``TextBlock`` on
 the log side (via ``render_data_block``) rather than being silently dropped from the
-comparison — dropping it would make any turn that carried one read as a permanent divergence.
+comparison  -  dropping it would make any turn that carried one read as a permanent divergence.
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ def test_data_block_renders_the_same_text_on_both_sides():
 
 async def test_reconcile_sees_no_divergence_for_a_turn_carrying_a_data_block():
     """Without a matching renderer on the log side, this scenario used to report a spurious
-    ``session_diverged`` on every turn after the one that carried a ``DataBlock`` — the session
+    ``session_diverged`` on every turn after the one that carried a ``DataBlock``  -  the session
     stored its rendered JSON as a plain ``input_text`` part, indistinguishable from a
     ``TextBlock``'s, and the log side used to drop the block entirely instead of rendering it."""
     blocks = [TextBlock(text="what page am I on?"), DataBlock(data={"page": "reference/deck"})]

@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS signals (run_id TEXT PRIMARY KEY, signal TEXT, reason
 `consume()`'s compare-and-set makes them fight over a single slot. The memory port has the same
 shape, and `ControlPort`'s docstring states the false premise out loud:
 
-> No `RunContext` on the port methods — `run_id` is globally unique.
+> No `RunContext` on the port methods  -  `run_id` is globally unique.
 
 It is not. `deck.run(..., run_id=…)` accepts a caller-supplied id (`deck.py:749`) and
 `service.py:614` mints a `uuid4()` only when none is given. The event stores key by
@@ -129,8 +129,9 @@ Run
 ### The simple path
 
 ```python
-result = await deck.run("SupportAgent", input, session_id="customer-42",
-                        namespace="acme", key="order-1234", context=ctx)
+result = await deck.run(
+    "SupportAgent", input, session_id="customer-42", namespace="acme", key="order-1234", context=ctx
+)
 ```
 
 Conceptually `start()` then `await run`, over the same machinery. There is one lifecycle
@@ -200,7 +201,7 @@ and raises `NotFoundError` for an unknown one.
 Two forms, no fuzzy search and no cross-namespace guessing:
 
 ```python
-run = await deck.runs.get(run.id)                              # canonical
+run = await deck.runs.get(run.id)  # canonical
 run = await deck.runs.get(namespace="acme", key="order-1234")  # application identity
 ```
 
@@ -228,7 +229,7 @@ written to the log.
 
 ```python
 run = await deck.runs.start("Agent", input, context=ctx)
-await run.resume()          # same handle, same process, same context
+await run.resume()  # same handle, same process, same context
 await run.answer("yes")
 ```
 
@@ -503,10 +504,10 @@ blocking is a surface change and not a rebuild. The first two are storage invari
 Three levels, one progression:
 
 ```python
-result = await deck.run(...)          # I only want the answer
-run    = await deck.runs.start(...)   # I need lifecycle control
-run    = await deck.runs.get(...)     # I already know the run
-runs   = await deck.runs.list(...)    # I need to discover runs
+result = await deck.run(...)  # I only want the answer
+run = await deck.runs.start(...)  # I need lifecycle control
+run = await deck.runs.get(...)  # I already know the run
+runs = await deck.runs.list(...)  # I need to discover runs
 ```
 
 The alternative is what the tree has now: lifecycle scattered across `Deck`, `Runtime`, `Session`

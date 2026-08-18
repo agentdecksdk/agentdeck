@@ -9,7 +9,7 @@ service that is not there skips with the variable's name in the reason rather th
 A silent skip is the failure mode that guard exists to catch: CI's skip-count ceiling turns
 "the services quietly went away" into a red gate instead of a green one that proved nothing.
 
-Every case gets its own keyspace — a fresh Redis prefix, a fresh Postgres schema — so tests
+Every case gets its own keyspace  -  a fresh Redis prefix, a fresh Postgres schema  -  so tests
 never see each other's events and never touch anything else living in a dev's local server.
 ``two_event_stores`` hands one case two handles on one such keyspace, for the promises a
 single instance cannot be asked about; the keyspace context managers are exported too, for
@@ -48,7 +48,7 @@ def require_psycopg(*, module_level: bool = False) -> Any:
     """Skip rather than error when psycopg is installed but its libpq is missing.
 
     Not `importorskip`: that skips a module which is absent and re-raises one which is present
-    and broken — a deliberate distinction on its side, and `pip install psycopg` without the
+    and broken  -  a deliberate distinction on its side, and `pip install psycopg` without the
     binary wheel lands squarely in the second case, where an error would take the whole
     collection down with it. Pass `module_level` when calling this while a module is importing.
     """
@@ -62,7 +62,7 @@ def require_psycopg(*, module_level: bool = False) -> Any:
 # Unique per case, and per process: a bare counter is only unique within the process that
 # holds it, so two `make check` runs on one host (two worktrees, say) would hand out the same
 # `agentdeck:test:0` against the same Redis and Postgres. Seeding the counter with the pid
-# keeps two processes disjoint while keeping a failing case's keyspace greppable in output —
+# keeps two processes disjoint while keeping a failing case's keyspace greppable in output  -
 # `agentdeck:test:3f21-0`, not an unreadable uuid.
 _run = f"{os.getpid():x}"
 _names = count()
@@ -120,7 +120,7 @@ async def two_event_stores(backend: str) -> AsyncIterator[tuple[EventStorePort, 
 
     The position two servers are in: two connections sharing no transaction, no cache and no
     ``asyncio.Lock``, so what they agree on they agree on through the store. Separate from
-    ``event_store`` rather than layered on it because the shape differs per backend — SQLite
+    ``event_store`` rather than layered on it because the shape differs per backend  -  SQLite
     needs a file, since two handles on ``:memory:`` get two unrelated databases.
 
     Memory yields one store twice, which is not a shortcut: its keyspace *is* the instance's
@@ -179,7 +179,7 @@ async def redis_keyspace() -> AsyncIterator[tuple[str, str]]:
         try:
             await admin.ping()
         except RedisError as exc:
-            _record_unavailable(url, f"no Redis at {url} ({exc}) — set {REDIS_URL_ENV} to point at one")
+            _record_unavailable(url, f"no Redis at {url} ({exc})  -  set {REDIS_URL_ENV} to point at one")
         prefix = f"agentdeck:test:{_run}-{next(_names)}"
         try:
             yield url, prefix
@@ -201,7 +201,7 @@ async def postgres_schema() -> AsyncIterator[tuple[str, str]]:
     try:
         admin = await psycopg.AsyncConnection.connect(dsn, autocommit=True)
     except psycopg.Error as exc:
-        _record_unavailable(dsn, f"no Postgres at {dsn} ({exc}) — set {POSTGRES_DSN_ENV} to point at one")
+        _record_unavailable(dsn, f"no Postgres at {dsn} ({exc})  -  set {POSTGRES_DSN_ENV} to point at one")
     schema = f"agentdeck_test_{_run}_{next(_names)}"
     try:
         yield dsn, schema

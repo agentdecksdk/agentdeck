@@ -30,5 +30,5 @@ def test_core_imports_stdlib_and_pydantic_only():
             root = module.split(".")[0]
             assert root in ALLOWED_ROOTS, f"{path.name} imports {module}"
             assert not module.startswith("agentdeck.") or module.startswith("agentdeck.core"), (
-                f"{path.name} imports {module} — core is the innermost ring"
+                f"{path.name} imports {module}  -  core is the innermost ring"
             )

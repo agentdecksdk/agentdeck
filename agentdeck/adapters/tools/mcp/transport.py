@@ -1,7 +1,7 @@
 """``MCPServerStreamableHttp`` hardened for real deployments.
 
-Adds what the SDK leaves out: connect-time retry, and — after an MCP server
-restart drops our session id — detection of the resulting mid-session 404 plus
+Adds what the SDK leaves out: connect-time retry, and  -  after an MCP server
+restart drops our session id  -  detection of the resulting mid-session 404 plus
 a transparent re-``initialize`` + replay, so tool calls self-heal without a
 harness restart.
 """
@@ -30,9 +30,9 @@ class MCPServerStreamableHttpResilient(MCPServerStreamableHttp):
     Recovery splits by whether the connection is still there:
 
     * A live-connection hiccup (read timeout, protocol blip, 5xx) is retried on
-      the **same session** — cheap, no rebuild (SDK ``max_retry_attempts``).
-    * A **gone** connection — a dropped session id (404) or an unreachable server
-      (:meth:`_connection_gone`) — skips that retry and escalates at once to a
+      the **same session**  -  cheap, no rebuild (SDK ``max_retry_attempts``).
+    * A **gone** connection  -  a dropped session id (404) or an unreachable server
+      (:meth:`_connection_gone`)  -  skips that retry and escalates at once to a
       fresh ``connect()`` + replay (:meth:`_with_recovery`), the only thing that
       fixes a new-session-needed restart or a torn-down stream. Connect itself
       retries transient errors; auth / bad-URL 404 stay fatal (:meth:`_is_transient`).
@@ -47,7 +47,7 @@ class MCPServerStreamableHttpResilient(MCPServerStreamableHttp):
         httpx.ReadTimeout,
         httpx.RemoteProtocolError,
     )
-    # The connection itself is unavailable — a same-session retry can't help, only a
+    # The connection itself is unavailable  -  a same-session retry can't help, only a
     # reconnect can. (``ReadTimeout``/``RemoteProtocolError`` are NOT here: the
     # connection is alive, the request just hiccuped, so retrying it is worth it.)
     CONNECTION_GONE_EXCEPTIONS: tuple[type[BaseException], ...] = (
@@ -94,7 +94,7 @@ class MCPServerStreamableHttpResilient(MCPServerStreamableHttp):
                     raise
             backoff = self.connect_backoff_base_seconds * (2 ** (attempt - 1))
             logger.warning(
-                "MCP connect to %s failed (attempt %d/%d) — retrying in %.1fs",
+                "MCP connect to %s failed (attempt %d/%d)  -  retrying in %.1fs",
                 self.name,
                 attempt,
                 self.connect_max_attempts,
@@ -133,7 +133,7 @@ class MCPServerStreamableHttpResilient(MCPServerStreamableHttp):
 
     @classmethod
     def _connection_gone(cls, exc: BaseException) -> bool:
-        """Connection unavailable — dropped session id (404) or unreachable server.
+        """Connection unavailable  -  dropped session id (404) or unreachable server.
 
         These must NOT be retried on the same session (there's nothing live to retry);
         recovery reconnects instead. A live-connection hiccup returns False.
@@ -180,7 +180,7 @@ class MCPServerStreamableHttpResilient(MCPServerStreamableHttp):
         """Run ``call``; only when the connection is *gone* re-initialize and replay.
 
         Bounded + backed off. Fires on :meth:`_connection_gone` (dropped session id or
-        unreachable server) — a server restart or a torn-down stream. A live-connection
+        unreachable server)  -  a server restart or a torn-down stream. A live-connection
         hiccup is NOT recovered here; it already had its same-session retry in
         :meth:`_run_with_retries` and is re-raised.
         """
@@ -192,7 +192,7 @@ class MCPServerStreamableHttpResilient(MCPServerStreamableHttp):
         last: BaseException | None = None
         for attempt in range(1, self.reconnect_max_attempts + 1):
             logger.warning(
-                "MCP %s: connection lost (server restart/outage?) — re-initializing (attempt %d/%d)",
+                "MCP %s: connection lost (server restart/outage?)  -  re-initializing (attempt %d/%d)",
                 self.name,
                 attempt,
                 self.reconnect_max_attempts,

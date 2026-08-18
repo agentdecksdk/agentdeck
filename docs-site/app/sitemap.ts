@@ -11,7 +11,7 @@ export const dynamic = 'force-static'
  * Every page, read off the content directory rather than listed by hand.
  *
  * A hand-kept sitemap is a second index of the site that nobody remembers to update, and a
- * sitemap missing a page is worse than no sitemap — it tells a crawler the page is not part of
+ * sitemap missing a page is worse than no sitemap  -  it tells a crawler the page is not part of
  * the site. `lastModified` comes from the file's own mtime, so a page that changed says so.
  */
 const CONTENT = path.join(process.cwd(), 'content')

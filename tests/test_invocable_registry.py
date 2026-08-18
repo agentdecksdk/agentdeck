@@ -1,7 +1,7 @@
 """The InvocableRegistry: a ``.agentdeck/`` project becomes the specs a Runtime can run.
 
 Discovery is what these tests exercise, so the bundles are real files under a scratch
-project dir rather than inline specs — the whole point is that nobody hand-writes the
+project dir rather than inline specs  -  the whole point is that nobody hand-writes the
 mapping any more. The agent bundle carries its own scripted model, so a discovered spec
 can be played end to end with no key and no network.
 """
@@ -56,7 +56,7 @@ _USAGE = ResponseUsage(
 
 
 class OneLineModel(Model):
-    """Answers once, in one message — enough for a run to reach its terminal event."""
+    """Answers once, in one message  -  enough for a run to reach its terminal event."""
 
     async def stream_response(self, *_args: Any, **_kwargs: Any):
         yield ResponseCompletedEvent(

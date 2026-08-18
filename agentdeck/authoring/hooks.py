@@ -1,14 +1,14 @@
 """Compile an agent's lifecycle hooks so a hook method can declare ``Context[...]`` too.
 
 The fourth injection site, and the last one, through the same analysis as
-:mod:`agentdeck.authoring.tools` and :mod:`agentdeck.authoring.instructions` — a hook that
+:mod:`agentdeck.authoring.tools` and :mod:`agentdeck.authoring.instructions`  -  a hook that
 wanted the run's environment would otherwise have to name ``RunContextWrapper``, and an
 application's own hook class would stop being portable at the one place it is easiest to leak
 an engine type into.
 
 Narrow by construction: only the SDK's own hook methods are considered, only the ones the
 author actually overrode, and only those declaring a ``Context[...]`` parameter are rewritten.
-A hooks object with none is returned exactly as it was given — engine-native, introspected by
+A hooks object with none is returned exactly as it was given  -  engine-native, introspected by
 nothing, so an application already writing SDK hooks keeps every behavior it has.
 
 The context parameter must be the hook's **first** parameter, where the SDK's own wrapper goes:
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 HOOK_METHODS: frozenset[str] = frozenset(
     name for name, _ in inspect.getmembers(AgentHooks, inspect.isfunction) if not name.startswith("_")
 )
-"""Every lifecycle method the installed SDK defines — read off the class rather than listed
+"""Every lifecycle method the installed SDK defines  -  read off the class rather than listed
 here, so a hook the SDK adds is bridged without this module being edited to notice."""
 
 
@@ -41,7 +41,7 @@ def compile_hooks(hooks: Any, *, context_type: object | None = None) -> Any:
     """Return ``hooks`` with each ``Context[...]``-declaring method bridged, or unchanged.
 
     Raises :class:`ConfigError` naming the method when its context parameter is not first, or
-    when it declares more than one (through the shared analysis) — and
+    when it declares more than one (through the shared analysis)  -  and
     :class:`ContextTypeError`, also named after the method, when ``context_type`` cannot satisfy
     what it requires.
     """
@@ -66,7 +66,7 @@ def compile_hooks(hooks: Any, *, context_type: object | None = None) -> Any:
         if first != analysis.context_parameter:
             raise ConfigError(
                 f"{_describe(hooks)}.{name} declares its Context[...] parameter as "
-                f"{analysis.context_parameter!r}, but a hook receives it first — where the SDK passes "
+                f"{analysis.context_parameter!r}, but a hook receives it first  -  where the SDK passes "
                 f"its own context object. Move it ahead of {first!r}."
             )
         bridged[name] = _bridge(method)
@@ -99,7 +99,7 @@ def _bridge(method: Callable[..., Any]) -> Callable[..., Any]:
         if not isinstance(run, RunContext):
             raise ConfigError(
                 f"{named} declares a Context[...] parameter, but this run carries "
-                f"{type(run).__name__} rather than an AgentDeck run context — hooks compiled by "
+                f"{type(run).__name__} rather than an AgentDeck run context  -  hooks compiled by "
                 "AgentDeck have to be played by an AgentDeck run."
             )
         result = method(Context(run), *rest, **kwargs)

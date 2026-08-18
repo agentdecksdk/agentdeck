@@ -2,7 +2,7 @@
 the model, and could any of it be established at all.
 
 This module uses postponed annotations, so every subject defined here carries source strings
-rather than objects — the case that breaks naive ``__annotations__`` reading, and the reason the
+rather than objects  -  the case that breaks naive ``__annotations__`` reading, and the reason the
 eager counterparts live in ``tests/context_injection_subjects.py``.
 
 The failure this suite exists to prevent is a confident wrong answer. A decorator that replaced
@@ -20,7 +20,7 @@ import context_injection_subjects
 import pytest
 
 from agentdeck.authoring.injection import analyze_callable
-from agentdeck.core.context import Context  # noqa: TC001 — the subjects below must resolve it at runtime
+from agentdeck.core.context import Context  # noqa: TC001  -  the subjects below must resolve it at runtime
 from agentdeck.errors import ConfigError
 
 
@@ -44,7 +44,7 @@ def two_contexts(here: Context[Calendar], also_here: Context[Ledger]) -> None: .
 def bare_context(date: str, ctx: Context) -> None: ...  # no type argument, on purpose
 
 
-def unresolvable(value: NeverDefined) -> None: ...  # noqa: F821 — the point is that it never resolves
+def unresolvable(value: NeverDefined) -> None: ...  # noqa: F821  -  the point is that it never resolves
 
 
 def preserving(fn):
@@ -91,7 +91,7 @@ def test_a_callable_declaring_no_context_is_an_ordinary_callable() -> None:
 
 
 def test_the_one_context_parameter_is_found_by_annotation_whatever_it_is_named() -> None:
-    """Not ``ctx``, not first, not keyword-only — the annotation is the whole rule."""
+    """Not ``ctx``, not first, not keyword-only  -  the annotation is the whole rule."""
     analysis = analyze_callable(one_context)
 
     assert analysis.context_parameter == "environment"
@@ -192,7 +192,7 @@ def test_a_bound_method_hides_self_and_still_declares_its_context() -> None:
 
 
 def test_an_unbound_function_off_the_class_keeps_self_as_a_visible_parameter() -> None:
-    """Nothing has bound an instance yet, so ``self`` is genuinely still an argument — the
+    """Nothing has bound an instance yet, so ``self`` is genuinely still an argument  -  the
     analysis reports the signature it was given rather than inferring a receiver."""
     analysis = analyze_callable(Bookings.reserve)
 

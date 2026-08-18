@@ -1,7 +1,7 @@
 """Wiring MCP servers into agents, and the strict-protocol banner.
 
-Turns an agent's declared server names into the SDK instances to attach, and —
-when some are unavailable — a prompt banner that makes the model report the gap
+Turns an agent's declared server names into the SDK instances to attach, and  -
+when some are unavailable  -  a prompt banner that makes the model report the gap
 instead of fabricating an answer.
 """
 
@@ -42,7 +42,7 @@ def resolve_agent_mcp_servers(names: Iterable[str]) -> list[MCPServer]:
 def mcp_status_banner(missing: Sequence[str]) -> str:
     """Strict-protocol banner prepended to an agent's instructions when servers are down.
 
-    Empty when nothing is missing — keeps the happy-path prompt bit-identical so
+    Empty when nothing is missing  -  keeps the happy-path prompt bit-identical so
     prompt-cache hits are unaffected.
     """
     if not missing:

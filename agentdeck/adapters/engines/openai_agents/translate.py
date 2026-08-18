@@ -68,11 +68,11 @@ def _tool_call_started(item: Any, tool_names: dict[str, str]) -> KnownPayload | 
     raw = item.raw_item
     call_id, name = getattr(raw, "call_id", None), getattr(raw, "name", None)
     if call_id is None or name is None:
-        return None  # non-function tool call (e.g. computer use) — out of scope for M0
+        return None  # non-function tool call (e.g. computer use)  -  out of scope for M0
     tool_names[call_id] = name
     args = _parse_args(getattr(raw, "arguments", None))
     if "_raw" in args:
-        # Content-free by design: call_id and tool name only — the raw arguments string
+        # Content-free by design: call_id and tool name only  -  the raw arguments string
         # could carry user content and must never reach a log line.
         logger.warning("tool call %s (%s) had non-dict JSON args, degraded to _raw", call_id, name)
     return ToolCallStarted(call_id=call_id, tool=name, args=args)
@@ -80,7 +80,7 @@ def _tool_call_started(item: Any, tool_names: dict[str, str]) -> KnownPayload | 
 
 def _parse_args(arguments: str | None) -> dict[str, Any]:
     """Malformed model-emitted JSON degrades to a raw string field rather than killing the
-    run over a cosmetic payload attribute — the tool call itself still happened and is
+    run over a cosmetic payload attribute  -  the tool call itself still happened and is
     still logged."""
     if not arguments:
         return {}
@@ -97,12 +97,12 @@ def _tool_call_completed(item: Any, tool_names: dict[str, str], tool_failures: d
     encoded = result.encode()
     # `.pop`, not `.get`: a call_id is read back at most once, so a long run's failures don't
     # sit in this dict for its whole lifetime. Capped the same way result_preview is, for the
-    # same reason — a traceback can carry whatever the failing call's arguments carried.
+    # same reason  -  a traceback can carry whatever the failing call's arguments carried.
     error = tool_failures.pop(call_id, None)
     # TODO(#52): a non-function tool call (computer-use, MCP approval) never populates
     # tool_names via _tool_call_started (that function returns None for it), so its
     # result lands here as an orphan tool.call.completed with tool="unknown" and no
-    # paired .started — out of scope for M0's function-tool-only UC1.
+    # paired .started  -  out of scope for M0's function-tool-only UC1.
     return ToolCallCompleted(
         call_id=call_id,
         tool=tool_names.get(call_id, "unknown"),

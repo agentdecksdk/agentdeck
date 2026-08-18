@@ -1,12 +1,12 @@
-"""UC1 — the handoff chat: FrontDesk hands off to ClaimsAgent, which calls a tool and
+"""UC1  -  the handoff chat: FrontDesk hands off to ClaimsAgent, which calls a tool and
 answers; turn 2 reuses turn-1 context; the transcript reads back from the store alone.
 One asserted behavior documents a ruled contract, not a gap: the Runtime's ``origin`` is
 invocable-scoped, not sub-agent-scoped, so ClaimsAgent's answer prints under the
-"FrontDesk" label too — "speaker" is defined as the invocable, ruled at the M0 checkpoint
+"FrontDesk" label too  -  "speaker" is defined as the invocable, ruled at the M0 checkpoint
 (issue #57); the bubble assertion below documents that contract on purpose.
 
 Scripted fakes only (no network, no API keys): a fresh ``FrontModel``/``ClaimsModel`` pair
-per test, so a call-count counter is safe — this file never shares an engine across tests
+per test, so a call-count counter is safe  -  this file never shares an engine across tests
 the way the generic contract-suite cases must (see ``openai_agents_cases.py``'s docstring).
 """
 
@@ -47,7 +47,7 @@ pytest.importorskip("fastapi")
 
 TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 SESSION_ID = "s1"
-# Longer than RESULT_PREVIEW_MAX (4096) on purpose — the log truncates it, the SDK
+# Longer than RESULT_PREVIEW_MAX (4096) on purpose  -  the log truncates it, the SDK
 # session must not: the session holds full bytes so the model never loses context.
 LONG_RESULT = "Shipment 4412 was received damaged. " * 150
 assert len(LONG_RESULT) > RESULT_PREVIEW_MAX
@@ -78,7 +78,7 @@ def _response(output: list[Any]) -> Response:
 
 
 class FrontModel(Model):
-    """Always speaks one sentence, then hands off — turn 2 gets the same shape rather
+    """Always speaks one sentence, then hands off  -  turn 2 gets the same shape rather
     than special-casing it."""
 
     def __init__(self, handoff_tool: str) -> None:
@@ -123,7 +123,7 @@ class FrontModel(Model):
 
 class ClaimsModel(Model):
     """Turn 1: calls the tool, then answers from its result. Turn 2: answers again, first
-    asserting the exact turn-1 tool result (untruncated) is still in its input — proof
+    asserting the exact turn-1 tool result (untruncated) is still in its input  -  proof
     that execution state, not the log, fed the model."""
 
     def __init__(self) -> None:
@@ -172,7 +172,7 @@ class ClaimsModel(Model):
 
 
 def _assert_turn1_tool_result_present(input: list[Any]) -> None:
-    """Turn 2's model input must contain turn 1's exact tool-result item, untruncated —
+    """Turn 2's model input must contain turn 1's exact tool-result item, untruncated  -
     proving the SDK session, not the truncated log, fed the model (ADR-D5's whole point)."""
     outputs = [
         item.get("output") for item in input if isinstance(item, dict) and item.get("type") == "function_call_output"
@@ -221,7 +221,7 @@ async def test_uc1_handoff_chat_end_to_end(capsys: pytest.CaptureFixture[str]) -
     # message_id still gives each bubble a distinct boundary. origin does not additionally
     # say *who* spoke: the Runtime stamps origin = spec.name (the top-level invocable) for
     # every event of a run, so ClaimsAgent's answer prints under the "FrontDesk" label too
-    # — ruled at the M0 checkpoint (issue #57) as the contract, not a gap: "speaker" means
+    #  -  ruled at the M0 checkpoint (issue #57) as the contract, not a gap: "speaker" means
     # the invocable, not the SDK sub-agent. This assertion documents that contract on
     # purpose, so it fails loudly (not silently) if that ruling is ever revisited.
     message_lines = [line for line in out if ": " in line and line.split(" [", 1)[0] in ("FrontDesk", "ClaimsAgent")]

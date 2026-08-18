@@ -1,7 +1,7 @@
 """Three value sets are written twice in core, on purpose. These pin the correspondence.
 
-Each pair has a reason to stay separate — a StrEnum a caller branches on, a Literal the schema
-validates — but nothing structural makes them agree, so adding a member to one and forgetting
+Each pair has a reason to stay separate  -  a StrEnum a caller branches on, a Literal the schema
+validates  -  but nothing structural makes them agree, so adding a member to one and forgetting
 the other is a silent drift. That is what these tests are for; they are the cheap half of the
 choice not to merge them.
 """
@@ -47,7 +47,7 @@ def test_invocable_kinds_match_what_run_started_accepts():
 
 
 def test_every_kind_the_lifecycle_tables_name_is_a_kind_the_schema_mints():
-    """``TRANSITIONS`` and ``TERMINAL_KINDS`` are hand-written strings — the one place in
+    """``TRANSITIONS`` and ``TERMINAL_KINDS`` are hand-written strings  -  the one place in
     core where a kind is spelled rather than derived from its payload class.
 
     A typo does not raise anywhere: the entry simply never matches, so a run's status quietly
@@ -82,7 +82,7 @@ def test_suspended_kinds_are_derived_from_the_states_that_are_suspended():
 
 def test_the_routing_table_is_total_over_every_state_and_every_signal():
     """Sixteen written cells expanded over six states and four columns. A missing ruling is a
-    missing key — a failing test here rather than a request that is accepted and read by
+    missing key  -  a failing test here rather than a request that is accepted and read by
     nothing, which is the defect class this whole table exists to close."""
     columns: set[str | None] = {signal.value for signal in Signal} | {None}
     assert set(POLICY) == {(status, verb) for status in RunStatus for verb in columns}

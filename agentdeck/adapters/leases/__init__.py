@@ -1,1 +1,1 @@
-"""Worker liveness — implementations of ``LeasePort``."""
+"""Worker liveness  -  implementations of ``LeasePort``."""

@@ -1,7 +1,7 @@
 """A fan-out graph whose one branch interrupts while a sibling completes (#122).
 
 LangGraph reports the pause as soon as the interrupting branch raises, without waiting for a
-slower sibling in the same superstep — so the sibling's ``updates`` chunk lands on the astream
+slower sibling in the same superstep  -  so the sibling's ``updates`` chunk lands on the astream
 *after* the interrupt has already been detected. ``_play`` used to drain and discard everything
 after that point (needed so the checkpoint commits before the pause is reported, see its
 comment) which threw the sibling's report away with it: the engine's own checkpoint already has
@@ -97,7 +97,7 @@ async def test_resuming_still_reaches_the_merged_final_state() -> None:
 
     Not a claim about what LangGraph's own replay reports mid-stream on resume (it replays the
     prior superstep's cached results too, which is its own well-established mechanism, not part
-    of #122) — only that the two branches' writes both land in the state the run finishes with.
+    of #122)  -  only that the two branches' writes both land in the state the run finishes with.
     """
     engine = LangGraphEngine()
     spec = _spec()

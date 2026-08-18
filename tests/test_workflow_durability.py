@@ -27,9 +27,9 @@ class CounterState(BaseModel):
 
 def _build_counter_graph():
     g = StateGraph(CounterState)
-    # Reads ``s.count`` off whatever state the runner hands the node — the
+    # Reads ``s.count`` off whatever state the runner hands the node  -  the
     # resumed checkpoint on a repeat call with the same thread_id, or the
-    # schema default on a fresh thread — so accumulation is observable.
+    # schema default on a fresh thread  -  so accumulation is observable.
     g.add_node("inc", lambda s: {"count": s.count + 1})
     g.set_entry_point("inc")
     g.add_edge("inc", END)
@@ -37,7 +37,7 @@ def _build_counter_graph():
 
 
 def _make_counter_workflow(*, durable: bool) -> Workflow:
-    """A fresh ``Workflow`` per test — nothing is cached across instances."""
+    """A fresh ``Workflow`` per test  -  nothing is cached across instances."""
     return Workflow(name="CounterFlow", state=CounterState, durable=durable, graph=_build_counter_graph)
 
 
@@ -65,7 +65,7 @@ def test_durable_true_without_thread_id_raises():
     with pytest.raises(ValueError, match="thread_id") as excinfo:
         asyncio.run(wf.run(None))
 
-    assert f"{DOCS_URL}/concepts/workflows" in str(excinfo.value)
+    assert f"{DOCS_URL}/build-your-deck/workflows" in str(excinfo.value)
 
 
 def test_durable_memory_backend_resumes_by_thread_id(monkeypatch):
@@ -107,7 +107,7 @@ def test_durable_sqlite_backend_persists_across_invokes(tmp_path, monkeypatch):
 
 def test_durable_sqlite_backend_builds_outside_an_event_loop(tmp_path, monkeypatch):
     """Issue #15: ``App.load()`` calls ``BaseWorkflow.build()`` synchronously, with no
-    event loop running at all — not even nested inside a caller's loop. The sqlite
+    event loop running at all  -  not even nested inside a caller's loop. The sqlite
     saver must not assume one exists.
     """
     db_path = tmp_path / "checkpoints.sqlite3"
@@ -142,7 +142,7 @@ print(result["count"])
 
 def test_durable_sqlite_backend_resumes_after_process_restart(tmp_path, monkeypatch):
     """The issue's actual acceptance test: a fresh process, same sqlite file and
-    thread_id, picks up where the last process left off — no shared Python object,
+    thread_id, picks up where the last process left off  -  no shared Python object,
     no shared event loop, just the file on disk.
     """
     db_path = tmp_path / "checkpoints.sqlite3"
@@ -180,7 +180,7 @@ def test_unknown_backend_raises(monkeypatch):
     with pytest.raises(ValueError, match="unknown checkpoint backend") as excinfo:
         asyncio.run(wf.run(None, thread_id="a"))
 
-    assert f"{DOCS_URL}/concepts/choosing-a-store-backend" in str(excinfo.value)
+    assert f"{DOCS_URL}/reference/settings" in str(excinfo.value)
 
 
 def test_postgres_resolves_the_async_saver(monkeypatch):
@@ -250,7 +250,7 @@ def test_a_sqlite_checkpointer_is_rebuilt_for_each_event_loop_that_asks_for_one(
     """One process, two loops, one checkpoint file: the second loop must not be handed the
     first's saver.
 
-    The async savers hold asyncio primitives — a ``Lock``, and under it a connection — that
+    The async savers hold asyncio primitives  -  a ``Lock``, and under it a connection  -  that
     bind to the first loop to *contend* for them, so an uncontended saver crosses loops by
     luck and a busy one raises "bound to a different event loop". Contention is therefore
     created here on purpose, which is also the only condition under which a server would

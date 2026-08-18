@@ -1,7 +1,7 @@
 """The runs the contract suite plays, and the two types the harness passes around.
 
 One flat list: adding an engine means appending its cases, and every invariant then runs
-against it unchanged — that is what makes them engine contracts rather than stub tests.
+against it unchanged  -  that is what makes them engine contracts rather than stub tests.
 A case declares how its run ends so the suite knows which invariant to hold it to; nothing
 else about the engine is visible to the tests.
 """

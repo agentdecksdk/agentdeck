@@ -1,7 +1,7 @@
 """Six concurrency races run across two real OS processes sharing one SQLite event store.
 
-Every invariant asserted here is the contract suite's own — ``check_contiguous`` and
-``check_terminal`` — applied to logs that two processes wrote together. That is the whole
+Every invariant asserted here is the contract suite's own  -  ``check_contiguous`` and
+``check_terminal``  -  applied to logs that two processes wrote together. That is the whole
 point of the file: each guarantee was proven inside one process, while the shape a
 deployment runs in is N servers agreeing through a file. Nothing in one process here can
 see the other, so a guarantee that only held because of a process-local lock fails.
@@ -44,8 +44,8 @@ WORKER = Path(__file__).parent / "concurrency_worker.py"
 TAGS = ("a", "b")
 
 # The one knob the staleness half of this file drives, by the name an operator would use. A
-# millisecond is sound *there* and nowhere else: that race has no live holder at all — its victim
-# was SIGKILLed before the successor started — so the only thing the window decides is whether the
+# millisecond is sound *there* and nowhere else: that race has no live holder at all  -  its victim
+# was SIGKILLed before the successor started  -  so the only thing the window decides is whether the
 # dead run still blocks. Where a live turn is involved, as in the mutual-exclusion race below, a
 # window this short would let one turn take the session from another, so that race deliberately
 # runs with the real default and this knob stays out of its environment.
@@ -57,12 +57,12 @@ _NO_WAIT = "0.001"
 WORKER_TIMEOUT = 180.0
 
 RESUME_TRIALS = 20
-CANCEL_TRIALS = 22  # half raced, half ordered the other way round — see the worker's own note
+CANCEL_TRIALS = 22  # half raced, half ordered the other way round  -  see the worker's own note
 SESSION_TRIALS = 10
 CROSSRUN_TRIALS = 10
 
 # An event's ``ts`` is SQLite's own clock now, and its `strftime('%f')` truncates to whole
-# milliseconds — measured: a stamp reads up to 0.999 ms *earlier* than the instant it was taken.
+# milliseconds  -  measured: a stamp reads up to 0.999 ms *earlier* than the instant it was taken.
 # So an event stamped `ts` really happened somewhere in `[ts, ts + 1ms)`, and a claim compared
 # against it is owed that millisecond. Without it the comparisons below carry a built-in bias
 # against themselves and fail on a race that genuinely happened, roughly one trial in a hundred.
@@ -70,7 +70,7 @@ STAMP_RESOLUTION_NS = 1_000_000
 
 
 def _dump(events: Sequence[Event]) -> str:
-    """The log, one event per line — pasted into every failure message, because a broken
+    """The log, one event per line  -  pasted into every failure message, because a broken
     race is unreadable from the assertion alone."""
     return "\n".join(f"  {event.run_id} seq={event.seq} {event.kind}" for event in events)
 
@@ -88,8 +88,8 @@ def _run_peers(race: str, trials: int, root: Path) -> dict[str, list[list[str]]]
     """Both peers at once; their per-trial report lines back, keyed by tag.
 
     Collected only after both have exited, which keeps the test out of the race it is
-    watching. Safe against a full pipe because a worker prints one short line per trial —
-    kilobytes against the pipe's own buffer — and a worker that wedges instead of printing
+    watching. Safe against a full pipe because a worker prints one short line per trial  -
+    kilobytes against the pipe's own buffer  -  and a worker that wedges instead of printing
     is killed by ``communicate``'s timeout rather than waited for forever.
     """
     (root / "sync").mkdir(exist_ok=True)
@@ -110,7 +110,7 @@ def _run_peers(race: str, trials: int, root: Path) -> dict[str, list[list[str]]]
 
 def _takeover_successor(root: Path, stale_after: str | None) -> subprocess.CompletedProcess[str]:
     """One restart over the killed process's log, with the staleness window set the way an
-    operator sets it — through the environment — so the setting itself is under test too."""
+    operator sets it  -  through the environment  -  so the setting itself is under test too."""
     env = {**os.environ}
     if stale_after is None:
         env.pop(_STALE_ENV, None)
@@ -129,7 +129,7 @@ def _takeover_successor(root: Path, stale_after: str | None) -> subprocess.Compl
 
 
 def _kinds(reported: dict[str, list[list[str]]], tag: str, trial: int) -> list[str]:
-    """One report line's kinds, after checking it is the line it claims to be — a worker
+    """One report line's kinds, after checking it is the line it claims to be  -  a worker
     that skipped a trial must not shift every later assertion by one."""
     line = reported[tag][trial]
     assert line[:2] == [str(trial), tag], f"expected trial {trial} from peer {tag}, got {line}"
@@ -151,8 +151,8 @@ def _read_logs(root: Path, log_keys: Sequence[str]) -> dict[str, list[Event]]:
 
 
 def _claim_windows(root: Path) -> dict[str, list[tuple[int, int]]]:
-    """Every claim attempt, keyed by whatever it contended for — a run for a resume, a session
-    for a start — as the (start, end) wall-clock nanoseconds the worker recorded around it."""
+    """Every claim attempt, keyed by whatever it contended for  -  a run for a resume, a session
+    for a start  -  as the (start, end) wall-clock nanoseconds the worker recorded around it."""
     windows: dict[str, list[tuple[int, int]]] = {}
     for line in worker.windows_file(root).read_text().splitlines():
         contended, start, end = line.split()
@@ -200,7 +200,7 @@ def test_two_processes_resuming_one_interrupt_leave_one_winner_and_one_node_b_ex
     terminal event may land, and the loser must exit 0 having yielded nothing at all.
 
     The peers meet inside the claim, and the winner's engine cannot finish its run until the
-    other's claim has been answered — so the second claim is always asked for while the first is
+    other's claim has been answered  -  so the second claim is always asked for while the first is
     still in flight, which is checked below against the recorded claim windows rather than
     assumed. Two claims on one run that do *not* overlap are simply sequential, and would say
     nothing about the claim.
@@ -291,19 +291,19 @@ def test_a_cancel_racing_completion_leaves_exactly_one_terminal_event_with_nothi
     ordered = sum(1 for trial in range(CANCEL_TRIALS) if not worker.cancel_is_racing(trial))
     assert winners["run.completed"] >= ordered  # every ordered trial, plus any race completion won
     # Which side wins a genuine race is the coin toss under test, so it is reported rather
-    # than asserted — a run counted here closed exactly once either way.
+    # than asserted  -  a run counted here closed exactly once either way.
     print(f"cancel-vs-completion over {CANCEL_TRIALS} trials ({ordered} ordered): {dict(winners)}")
 
 
 def test_two_processes_starting_a_turn_on_one_session_leave_one_run_and_one_conversation(tmp_path: Path) -> None:
     """Two servers open a turn of one session at the same instant. The store's conditional
     append is the only arbiter, so exactly one turn may run and the other must be refused by
-    name — and the engine's own session must end up holding that one turn's conversation, with
+    name  -  and the engine's own session must end up holding that one turn's conversation, with
     no trace of the refused one. That last assertion is the point of the rule: the log could
     survive two turns, a conversation cannot.
 
     The peers meet inside the claim, and the winner's engine cannot finish its run until the
-    other's claim has been answered — so the second turn is always asked for while the first is
+    other's claim has been answered  -  so the second turn is always asked for while the first is
     still in flight, which is checked below against the recorded claim windows rather than assumed.
     Two turns of one session that do *not* overlap are simply two sequential turns, and would say
     nothing about the claim.
@@ -339,7 +339,7 @@ def test_two_processes_starting_a_turn_on_one_session_leave_one_run_and_one_conv
         winner_id = worker.session_attempt_runid_file(tmp_path / "sync", worker.session_log_key(trial), winner)
         assert {event.run_id for event in log} == {winner_id.read_text()}, _dump(log)
         # Nothing here may reach the staleness path: these peers run with the real window, so a
-        # closed-as-failed run would mean a live turn was taken over rather than merely refused —
+        # closed-as-failed run would mean a live turn was taken over rather than merely refused  -
         # a different defect from two turns racing, and this is where the two are told apart.
         assert "run.failed" not in [event.kind for event in log], f"trial {trial}: a takeover\n{_dump(log)}"
         _assert_run_is_coherent(log, f"trial {trial}")
@@ -357,7 +357,7 @@ def test_two_processes_starting_a_turn_on_one_session_leave_one_run_and_one_conv
 
 
 def test_two_processes_appending_two_runs_into_one_log_keep_each_runs_seq_its_own(tmp_path: Path) -> None:
-    """One log, two runs, two processes writing into it at once — the shape a takeover leaves
+    """One log, two runs, two processes writing into it at once  -  the shape a takeover leaves
     behind, and the only way two live runs share a log now that the claim refuses the rest. Each
     run's ``seq`` must be contiguous from 0 and closed by exactly one terminal event however the
     two interleaved in the file, and no ``seq`` of a run may answer to two events.
@@ -367,7 +367,7 @@ def test_two_processes_appending_two_runs_into_one_log_keep_each_runs_seq_its_ow
     its own run's next one. A store that gave two writers the same number fails in the worker,
     which reads out here as a peer that exited non-zero.
 
-    Below the Runtime, because the store is what owes this — it is the same file-level invariant
+    Below the Runtime, because the store is what owes this  -  it is the same file-level invariant
     the old two-turns-on-one-session race covered before the claim made that unreachable.
     """
     reported = _run_peers("crossrun", CROSSRUN_TRIALS, tmp_path)
@@ -394,7 +394,7 @@ def test_two_processes_appending_two_runs_into_one_log_keep_each_runs_seq_its_ow
         # Reported, not asserted, for the same reason as the two races above: whether two
         # processes' appends alternate in the file is a fact about the machine, not a promise of
         # the store. Peers released from a barrier onto a loaded or single-usable-core runner can
-        # serialise across every trial — which is how this went red on CI from a branch whose diff
+        # serialise across every trial  -  which is how this went red on CI from a branch whose diff
         # could not reach the code under test. What the store owes is asserted per trial above.
         if len(list(groupby(event.run_id for event in log))) > 2:
             interleaved += 1
@@ -403,8 +403,8 @@ def test_two_processes_appending_two_runs_into_one_log_keep_each_runs_seq_its_ow
 
 
 def test_a_session_a_killed_run_left_open_is_refused_until_the_staleness_window_passes(tmp_path: Path) -> None:
-    """A SIGKILL is the one exit that leaves a run open — every other closes its run in the
-    log — so the session that run holds must neither be lost for good nor handed over the
+    """A SIGKILL is the one exit that leaves a run open  -  every other closes its run in the
+    log  -  so the session that run holds must neither be lost for good nor handed over the
     instant somebody asks: a live turn that has been quiet for a moment would then lose its
     session to a double-clicked send.
 
@@ -457,8 +457,8 @@ def test_a_session_a_killed_run_left_open_is_refused_until_the_staleness_window_
 
 def test_a_restart_continues_a_killed_processs_log_without_resetting_seq(tmp_path: Path) -> None:
     """One process suspends a run, opens a second one, and is SIGKILLed with that second run
-    open mid-stream. A fresh process on the same log resumes the suspended run — ``seq``
-    picking up where the dead process left it, never restarting at 0 — while the run that
+    open mid-stream. A fresh process on the same log resumes the suspended run  -  ``seq``
+    picking up where the dead process left it, never restarting at 0  -  while the run that
     died stays exactly as truncated as it really was, with no terminal event invented for it.
     """
     (tmp_path / "sync").mkdir()
@@ -494,7 +494,7 @@ def test_a_restart_continues_a_killed_processs_log_without_resetting_seq(tmp_pat
     killed = logs[killed_id]
 
     # Its seq check is the one that matters here: a resume that restarted the counter would
-    # give 0,1,2,0,1,2,3 — no gaps to find, and still wrong.
+    # give 0,1,2,0,1,2,3  -  no gaps to find, and still wrong.
     _assert_run_is_coherent(resumed, "the resumed run")
     assert [event.kind for event in resumed] == [
         "run.started",

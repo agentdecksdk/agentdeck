@@ -1,4 +1,4 @@
-"""The Langfuse sink, proved against a local collector — no SDK, no keys, no network.
+"""The Langfuse sink, proved against a local collector  -  no SDK, no keys, no network.
 
 The collector keeps the observation tree the sink builds instead of shipping it, which is
 what makes the mapping assertable: a trace is a shape, and these tests state that shape for
@@ -80,7 +80,7 @@ WORKFLOW: tuple[KnownPayload, ...] = (
 
 @dataclass
 class Observed:
-    """One recorded observation — what would have become a Langfuse span."""
+    """One recorded observation  -  what would have become a Langfuse span."""
 
     name: str
     kind: str
@@ -249,7 +249,7 @@ async def test_a_workflow_run_becomes_one_trace_carrying_its_nodes_tools_and_usa
 
 
 async def test_an_agent_run_takes_the_same_path_and_only_changes_the_trace_kind() -> None:
-    """Same code, same shape, whatever engine produced the events — that is the whole claim."""
+    """Same code, same shape, whatever engine produced the events  -  that is the whole claim."""
     workflow = (await _traced(*WORKFLOW)).only()
     agent = (await _traced(*WORKFLOW, kind=InvocableKind.AGENT, name="Greeter")).only()
 
@@ -310,7 +310,7 @@ async def test_image_bytes_are_described_to_the_trace_never_copied_into_it() -> 
 async def test_an_inline_data_uri_in_tool_arguments_is_described_never_handed_over() -> None:
     """The Langfuse SDK decodes a base64 data URI it is handed and queues the bytes for upload
     to its media store, so a run calling an image or document tool with an inline payload would
-    ship that payload to a third party — the one thing this sink promises not to do.
+    ship that payload to a third party  -  the one thing this sink promises not to do.
     """
     collector = await _traced(
         ToolCallStarted(call_id="c1", tool="describe", args={"img": DATA_URI, "seen": [{"again": DATA_URI}]}),
@@ -328,14 +328,14 @@ async def test_an_inline_data_uri_in_tool_arguments_is_described_never_handed_ov
 
 def test_a_block_kind_this_version_cannot_render_is_still_mentioned() -> None:
     """The default case earns its keep: a newer writer's block type must not make a run read
-    as one with no input at all. Real now that ``UnknownBlock`` (#109) exists — this is no
+    as one with no input at all. Real now that ``UnknownBlock`` (#109) exists  -  this is no
     longer a stand-in for a shape ``ContentBlock`` couldn't hold."""
     block = UnknownBlock(type="video", raw_block={"type": "video", "uri": "s3://clip.mp4"})
     assert _render([block]) == ["<video block>"]
 
 
 async def test_structured_data_reaches_the_trace_as_json_on_both_ends() -> None:
-    """A workflow's state is the run's real input and output — a trace that dropped the block
+    """A workflow's state is the run's real input and output  -  a trace that dropped the block
     would read as a run with nothing to say."""
     collector = Collector()
     final = {"claim_id": "7777", "decision": "approved"}
@@ -416,7 +416,7 @@ async def test_a_tool_that_errored_marks_its_own_span_and_not_the_trace() -> Non
 
 async def test_an_interrupted_run_ships_its_half_and_the_resume_continues_the_same_trace() -> None:
     """A run waiting on a human must be visible while it waits: a span held open until the
-    answer arrives — possibly in another process, possibly never — is a trace nobody can see.
+    answer arrives  -  possibly in another process, possibly never  -  is a trace nobody can see.
     """
     collector = Collector()
     runtime = _runtime(
@@ -466,7 +466,7 @@ async def test_a_process_that_only_saw_the_resume_still_traces_it_under_the_run_
 
 async def test_a_continuation_shows_the_answer_the_run_was_resumed_with() -> None:
     """A trace of an approval flow that doesn't say what was approved is a trace of the wrong
-    half of the story — and the answer is content, so it is media-described like any other."""
+    half of the story  -  and the answer is content, so it is media-described like any other."""
     sink = LangfuseSink(collector := Collector())
     await sink.emit(
         _event(RunResumed(reason="approved", value=[TextBlock(text=DATA_URI), DataBlock(data={"approved": True})]))
@@ -497,7 +497,7 @@ async def test_both_control_phases_land_on_the_run_s_timeline() -> None:
 
 
 async def test_a_control_signal_with_no_trace_open_is_left_to_the_process_that_has_one() -> None:
-    """A signal can be written by a process that never saw the run open — the same position a
+    """A signal can be written by a process that never saw the run open  -  the same position a
     tool result whose dispatch this sink missed is in."""
     sink = LangfuseSink(collector := Collector())
     await sink.emit(_event(ControlRequested(verb="pause")))
@@ -628,7 +628,7 @@ async def test_no_arm_of_the_mapping_ever_suspends_so_none_can_spend_the_dispatc
 
 async def test_a_shutdown_ships_the_buffer_instead_of_leaving_it_to_the_sdk_s_atexit() -> None:
     """The SDK batches and ships from its own thread, so a run that finishes seconds before the
-    process dies is only in that buffer — and the exit hook meant to flush it never runs when the
+    process dies is only in that buffer  -  and the exit hook meant to flush it never runs when the
     process is killed outright."""
     collector = await _traced(*WORKFLOW)
 
@@ -667,7 +667,7 @@ def test_langfuse_without_keys_is_not_a_usable_configuration() -> None:
 
 def test_importing_the_telemetry_adapter_never_imports_the_langfuse_sdk() -> None:
     """A subprocess, because in-process ``sys.modules`` cannot unsee an import another test
-    made — and "no overhead when unconfigured" has to mean the SDK was never loaded.
+    made  -  and "no overhead when unconfigured" has to mean the SDK was never loaded.
     """
     probe = (
         "import sys;"
@@ -684,7 +684,7 @@ def test_importing_the_telemetry_adapter_never_imports_the_langfuse_sdk() -> Non
 def test_langfuse_settings_has_no_host_or_endpoint_left() -> None:
     """Issue #155: `base_url` is the only endpoint field now; `host` and the `.endpoint`
     property that used to pick between them are gone, not merely deprecated. `extra="ignore"`
-    means a stray `host=` is silently dropped rather than raising — `base_url` alone decides."""
+    means a stray `host=` is silently dropped rather than raising  -  `base_url` alone decides."""
     settings = LangfuseSettings(public_key="pk", secret_key="sk", host="http://localhost:1")
 
     assert not hasattr(settings, "host")

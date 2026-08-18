@@ -1,21 +1,21 @@
 # Brand assets
 
 The AgentDeck mark: an ace-cut card carrying the A. The notched corner reads as both a playing
-card and a file, so "deck" lands twice without drawing a literal card — it is the best idea in the
+card and a file, so "deck" lands twice without drawing a literal card  -  it is the best idea in the
 system and the reason the mark survives at one colour.
 
 ## What is here
 
 | File | Use it for |
 |---|---|
-| `logo.svg` | the mark with its spark — headers, READMEs, anywhere above ~48px |
-| `logo-mark.svg` | the card alone — small sizes, dense UI, anywhere the spark would be noise |
-| `logo-full.svg` | the three-colour lockup — blue card, Canvas A, Ace Red spark |
+| `logo.svg` | the mark with its spark  -  headers, READMEs, anywhere above ~48px |
+| `logo-mark.svg` | the card alone  -  small sizes, dense UI, anywhere the spark would be noise |
+| `logo-full.svg` | the three-colour lockup  -  blue card, Canvas A, Ace Red spark |
 | `logo-blue.svg` | mono Agent Blue, for anywhere it is a *file* rather than markup |
 | `logo-white.svg` | mono Canvas, same reason, for a dark ground |
 | `logo-black.svg` | mono Night, same reason, for a light ground |
-| `favicon.svg` | square and centred on the card — favicons, app icons, avatars |
-| `logo-traced-original.svg` | provenance only — see below |
+| `favicon.svg` | square and centred on the card  -  favicons, app icons, avatars |
+| `logo-traced-original.svg` | provenance only  -  see below |
 | `contributor-welcome.svg` | the card the bot posts on a first pull request |
 | `contributor-merged.svg` | the card it posts after a first merged one |
 
@@ -40,7 +40,7 @@ browser chrome until 2026-08-15.
 </span>
 ```
 
-## components/ — the parts every composition is copied from
+## components/  -  the parts every composition is copied from
 
 | Part | What it is |
 |---|---|
@@ -102,7 +102,7 @@ from fontTools.pens.svgPathPen import SVGPathPen
 
 font = TTFont(FONT)
 glyphs, cmap = font.getGlyphSet(), font.getBestCmap()
-scale = SIZE / font["head"].unitsPerEm          # font-size over unitsPerEm
+scale = SIZE / font["head"].unitsPerEm  # font-size over unitsPerEm
 for char, x, y in positions:
     pen = SVGPathPen(glyphs)
     glyphs[cmap[ord(char)]].draw(pen)
@@ -135,17 +135,17 @@ a recipe, so treat a PNG next to these files as a build artifact that escaped.
 - **The original vector for the mark.** `logo-traced-original.svg` is what was handed over: a
   **potrace trace of a PNG**, not an export. The tells are the SVG 1.0 DTD, the
   `translate(0,1254) scale(0.1,-0.1)` flip, and a viewBox of exactly the PNG's pixel width. The
-  files here are cleaned from that trace — unitless, `currentColor`, titled, correctly cropped,
+  files here are cleaned from that trace  -  unitless, `currentColor`, titled, correctly cropped,
   each one rendered and measured in a browser rather than eyeballed. Two things a cleanup cannot
   fix: traced outlines are polygon approximations (invisible at UI sizes, visible on a hero or in
   print), and a crop fixes framing rather than drawing.
 - **A 1280×640 social card.** GitHub renders its grey default on every share to X, LinkedIn, Slack
-  and Hacker News until one exists, and the brand sheet is not it — fourteen panels are unreadable
+  and Hacker News until one exists, and the brand sheet is not it  -  fourteen panels are unreadable
   at thumbnail size.
 
 ## Why the favicon drops the spark
 
-At 16px the spark is about three grey pixels — noise rather than signature. Keeping it would also
+At 16px the spark is about three grey pixels  -  noise rather than signature. Keeping it would also
 force a non-square box, because it sits outside the card's top-right corner, and squaring that box
 shrinks the card to roughly two-thirds the width it could otherwise use. The brand sheet's own
 favicon panel shows the same shrinkage.
@@ -160,7 +160,7 @@ is Agent Blue with a Canvas A rather than `currentColor`, since nothing inlines 
 ## The social card
 
 `social-card.svg` is the 1280×640 image GitHub shows under every link to this repository in X,
-LinkedIn, Slack, Discord and Hacker News. Left unset — as it was until 2026-08-12 — GitHub renders
+LinkedIn, Slack, Discord and Hacker News. Left unset  -  as it was until 2026-08-12  -  GitHub renders
 its grey default with the repository name in it.
 
 It is **not** committed as a PNG, for the same reason nothing else here is: `.gitignore:19` keeps
@@ -226,18 +226,18 @@ render an SVG.
 ## Naming
 
 The mark reads `agentdeck`; prose says **AgentDeck SDK** on first mention and **AgentDeck**
-thereafter. The qualifier lives in titles, descriptions and the domain — not in the glyph, where it
+thereafter. The qualifier lives in titles, descriptions and the domain  -  not in the glyph, where it
 would read as a sub-brand of a parent product that does not exist. See
 `docs/delivery/plan-adoption.md` §1.
 
 ## The typeface: Poppins, and the sheet's own label is wrong
 
-This was open — the sheet's §07 names **Space Grotesk** for headings while the wordmark looked
+This was open  -  the sheet's §07 names **Space Grotesk** for headings while the wordmark looked
 like something else. Setting the social card decided it, because a wordmark either matches or it
 does not.
 
 **The wordmark is Poppins Bold.** The `a` is **single-storey**, and Space Grotesk's is
-double-storey — that alone rules it out, and the geometric `e`, the straight-tailed `g`, the
+double-storey  -  that alone rules it out, and the geometric `e`, the straight-tailed `g`, the
 angled cut on the `t` and the straight `k` diagonals all agree. Rendered side by side against
 `wordmark.png`, Poppins 700 matches and Space Grotesk 700 is not close.
 
@@ -256,5 +256,5 @@ the lighter weight unexamined, against the site's `-0.02em`. The outlines are re
 `-1.92`, which is `-0.02em` at font-size 96, so the wordmark now matches the site in family,
 weight and tracking.
 
-The palette is not affected — the sheet's hexes and the site's `brand.css` already match exactly.
+The palette is not affected  -  the sheet's hexes and the site's `brand.css` already match exactly.
 The wider presentation question stays with the docs-site design pass (#140).

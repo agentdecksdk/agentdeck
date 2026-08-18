@@ -1,5 +1,5 @@
 """Lease contract: what every ``LeasePort`` must promise, and the one promise the whole
-design rests on — a run the port has never seen is never reported dead.
+design rests on  -  a run the port has never seen is never reported dead.
 
 Parametrized over both adapters. Redis and Postgres are absent because ``AGENTDECK_CONTROL``
 has no scheme for them yet (``ControlSettings`` records that as deferred), so a lease port for
@@ -7,7 +7,7 @@ either would be unreachable code; they arrive when the control port does.
 
 The expiry cases move a clock rather than sleep through one: memory takes an injected clock,
 and SQLite reads its own, so there a negative TTL is what puts an expiry in the past. Both
-arrive at the same place — a lease this port wrote and then watched pass.
+arrive at the same place  -  a lease this port wrote and then watched pass.
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ async def test_a_run_holding_a_live_lease_is_not_dead(lease: LeasePort) -> None:
 
 async def test_a_released_lease_leaves_no_ghost(lease: LeasePort) -> None:
     """Releasing is forgetting, not recording a death. A run whose lease was released cleanly
-    is back to being one the port knows nothing about — otherwise every completed run would
+    is back to being one the port knows nothing about  -  otherwise every completed run would
     accumulate as a permanent "dead" answer for whatever asks next."""
     await lease.acquire("r-1", EXPIRED)
     await lease.release("r-1")
@@ -113,7 +113,7 @@ async def test_renewing_pushes_the_expiry_out(lease: LeasePort) -> None:
 
 
 async def test_renewing_a_lease_that_is_gone_says_so(lease: LeasePort) -> None:
-    """How a run finds out it lost its lease while it was still playing — the caller logs it
+    """How a run finds out it lost its lease while it was still playing  -  the caller logs it
     rather than guessing from silence."""
     assert await lease.renew("never-held", TTL) is False
 

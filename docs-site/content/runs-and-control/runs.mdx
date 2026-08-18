@@ -1,0 +1,15 @@
+# Runs
+
+A `Run` represents a single execution of an agent or workflow.
+
+## Starting a Run
+
+```python
+from agentdeck import Deck
+
+async def execute(deck: Deck):
+    async with deck:
+        run = await deck.runs.start("bot", input="Task")
+        result = await run
+        print(result)
+```

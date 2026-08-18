@@ -1,4 +1,4 @@
-"""``Skills``: direct-child-only discovery, frontmatter validation, multi-root merge — and the
+"""``Skills``: direct-child-only discovery, frontmatter validation, multi-root merge  -  and the
 ``authoring.skills`` wiring that turns a registry into ``compile_agent``'s ``resolve_skills``
 hook (disclosure text + a ``load_skill`` tool scoped to one agent's own allow-list).
 """
@@ -66,9 +66,9 @@ def test_missing_description_fails_build(tmp_path):
     with pytest.raises(ConfigError, match="description") as excinfo:
         Skills(tmp_path).build()
 
-    # A first-time user hits this before ever opening the docs site — the message names the
+    # A first-time user hits this before ever opening the docs site  -  the message names the
     # one page (concepts/skills) that documents the frontmatter contract, not just the rule.
-    assert f"{DOCS_URL}/concepts/skills" in str(excinfo.value)
+    assert f"{DOCS_URL}/build-your-deck/skills" in str(excinfo.value)
 
 
 def test_validate_false_is_lenient_about_name_and_description(tmp_path):

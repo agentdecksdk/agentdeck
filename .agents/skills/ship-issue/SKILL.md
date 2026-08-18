@@ -1,20 +1,40 @@
 ---
 name: ship-issue
-description: Run one agentdeck issue through the full pipeline — deck-dev implements it, deck-reviewer gates it, findings get fixed, PR merges to dev. Use when the user says "ship issue N", "handle issue N", or wants an issue implemented and merged end-to-end.
+description: Run one agentdeck issue through the full pipeline  -  brief the user, deck-dev implements it, deck-reviewer gates it, findings get fixed, PR merges to dev, board updated.
 ---
 
 # Ship an issue
 
-Orchestrate; don't implement inline. The pipeline:
+Orchestrate the end-to-end delivery of an issue.
 
-1. **Implement.** Spawn `deck-dev` with the issue number (background). If several independent issues were requested, spawn one agent each, in parallel.
-2. **Review.** When the PR opens, spawn `deck-reviewer` on it (background).
-3. **Fix findings.** On "request changes", send the findings back to the same deck-dev agent (SendMessage — it keeps its worktree and branch) to fix and push to the existing PR. Skip findings the reviewer marked non-blocking. Trivial nits (a comment line, a missing timeout) you may fix and push yourself instead.
-4. **Merge.** On approve (or after fixes): verify `gh pr checks` is green and the PR is MERGEABLE. If CONFLICTING, merge origin/dev into the branch — normal merge, never force-push (it's blocked); CHANGELOG conflicts resolve as a union keeping both sides. Then `gh pr merge --squash --delete-branch`.
-5. **Report.** PR URL, what shipped, review verdict, anything deferred.
+## 0. Brief Before Launching
+Read the issue and verify its claims against the tree. Output a concise 5-point brief (1–2 lines each):
+> **The claim:** What the issue asks for.
+> **What's true now:** Current behavior in the codebase (file:line).
+> **The shape:** Implementation plan in 3–4 concise bullets.
+> **The hard gate:** Invariants that must not break (`tests/golden/`, public API, import law).
+> **Skipped:** What is deliberately out of scope.
 
-Ground rules:
-- CI is the gate of record — a machine-local ty/venv failure that CI doesn't reproduce is not a blocker (this machine's shared venv is known-flaky).
-- Never merge a PR whose review found unaddressed blocking findings.
-- Agents idle mid-task ("running X in the background…") get one SendMessage nudge to continue.
-- Relay each stage's outcome to the user as it happens; don't go silent until the end.
+## 1. Board Tracking
+Update GitHub Project (`PVT_kwHOBHijkM4BgHFZ`): Set **Status = In progress**, record Start Date, comment with start timestamp.
+
+## 2. Implement
+Spawn `deck-dev` with the issue number and brief.
+
+## 3. Attach PR
+Verify draft PR targets `dev` and includes `Closes #<n>`. Set **Status = In review** when marked ready.
+
+## 4. Review
+Spawn `deck-reviewer` on the PR.
+
+## 5. Address Findings
+Route blocking findings to `deck-dev` to fix on the branch.
+
+## 6. Merge
+When approved and `make check` is green: `gh pr merge --squash --delete-branch`.
+
+## 7. Complete
+Set **Status = Done**, record Target Date, comment with completion summary and PR link.
+
+## Ground Rules
+- Keep text between tool calls to ≤25 words. Keep final responses to ≤100 words unless more detail is required.

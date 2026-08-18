@@ -1,18 +1,18 @@
 """The openai-agents adapter's private execution state (ADR-D5: the engine's working
 memory is its own, never read by consumers).
 
-``SessionFactory`` is relocated here unchanged from ``runtime/sessions.py`` — kept, not
+``SessionFactory`` is relocated here unchanged from ``runtime/sessions.py``  -  kept, not
 rewritten: it mints per-id :class:`agents.extensions.memory.RedisSession`
 objects sharing one Redis client. ``ExecutionStore`` is the adapter's own seam on top of
 it: Redis-backed when a factory is configured, one in-process
-:class:`agents.SQLiteSession` per key otherwise — the same fallback ``agentdeck.deck.Deck``
+:class:`agents.SQLiteSession` per key otherwise  -  the same fallback ``agentdeck.deck.Deck``
 uses for its chat methods, so both callers of the SDK agree on what "no Redis configured"
 means. Nothing outside this adapter directory may import either class.
 
 This module is on every agent run's import path regardless of ``AGENTDECK_SESSION``
 (``__init__.py`` imports it unconditionally), so both the redis client and
-``agents.extensions.memory`` — whose ``RedisSession`` import is itself gated on redis being
-installed — are resolved lazily in ``from_settings``, only once a ``redis://`` URL is
+``agents.extensions.memory``  -  whose ``RedisSession`` import is itself gated on redis being
+installed  -  are resolved lazily in ``from_settings``, only once a ``redis://`` URL is
 actually configured, the same way the langgraph checkpointers resolve theirs.
 """
 
@@ -53,7 +53,7 @@ class SessionFactory:
             from redis.asyncio import Redis
         except ImportError as exc:
             raise ImportError(
-                'a redis:// AGENTDECK_SESSION needs the redis client — install the "redis" extra: '
+                'a redis:// AGENTDECK_SESSION needs the redis client  -  install the "redis" extra: '
                 'pip install "agentdeck-sdk[redis]"'
             ) from exc
         return cls(
@@ -79,7 +79,7 @@ class SessionFactory:
 
 
 class ExecutionStore:
-    """The engine's execution memory, keyed by ``(namespace, RunContext.log_key)`` — session,
+    """The engine's execution memory, keyed by ``(namespace, RunContext.log_key)``  -  session,
     or the run itself when there is no session.
 
     Not the event log: this is engine-native state (ADR-D5) that only ``OpenAIAgentsEngine``
@@ -87,7 +87,7 @@ class ExecutionStore:
     falls back to one in-process ``SQLiteSession`` per key, so tests and the M0 skeleton
     need no network. The namespace prefix matters even though ``log_key`` is usually a
     server-generated session id: two namespaces are free to pick the same one, and without
-    it their conversations would share one SDK session — exactly the isolation the event
+    it their conversations would share one SDK session  -  exactly the isolation the event
     stores already enforce (``adapters/stores/memory``'s namespace-scoped buckets).
     """
 
@@ -105,7 +105,7 @@ class ExecutionStore:
 
     async def aclose(self) -> None:
         # ponytail: SQLiteSession.close() is sync and cheap for the :memory:/local-file
-        # fallback this is — a pool with async teardown is follow-up work if a real
+        # fallback this is  -  a pool with async teardown is follow-up work if a real
         # deployment ever wants the local path instead of Redis.
         for session in self._local.values():
             session.close()

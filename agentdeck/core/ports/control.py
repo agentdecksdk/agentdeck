@@ -7,8 +7,8 @@ this port never opened (a second terminal, an operator's dashboard) possible wit
 namespace ever reaching the transport. Same reason the port carries ``reason``: the run's own
 loop records the request in the log, so the words travel with the signal or are lost.
 
-The transport only. What a signal means — the verbs, the safe point that notices one, the events
-that record it being honored — is core's, in :mod:`agentdeck.core.control`.
+The transport only. What a signal means  -  the verbs, the safe point that notices one, the events
+that record it being honored  -  is core's, in :mod:`agentdeck.core.control`.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ class ControlPort(ABC):
         """Record ``sig`` for ``id``, replacing whatever was pending. Idempotent.
 
         Signaling an ended run is harmless by construction, not by a check: nothing polls the gate
-        once the run loop exits. ``RESUME`` lifts a pause rather than instructing a live run — it
+        once the run loop exits. ``RESUME`` lifts a pause rather than instructing a live run  -  it
         replaces the pending ``PAUSE`` so a resumed run does not stop at its first safe point.
         """
 
@@ -43,6 +43,6 @@ class ControlPort(ABC):
 
         The compare-and-set a honored signal needs, and the reason it is not a plain clear: an
         unconditional write would overwrite, and silently destroy, a cancel that arrived while
-        the run was suspended — the one signal nothing else will ever notice. A caller that
+        the run was suspended  -  the one signal nothing else will ever notice. A caller that
         loses re-reads rather than acting on the intent it no longer holds.
         """

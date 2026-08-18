@@ -1,7 +1,7 @@
 """Your existing LangGraph agent. Nothing in this file knows agentdeck exists.
 
 Written before AgentDeck was in the picture, and unchanged by adopting it: a `TypedDict` state,
-three nodes, plain `langgraph` imports. That is the point of this example — the wrapping happens
+three nodes, plain `langgraph` imports. That is the point of this example  -  the wrapping happens
 next door, in `workflow.py`, and this file is the one that never had to move.
 """
 
@@ -42,7 +42,7 @@ def draft_reply(state: TicketState) -> dict:
 def build() -> StateGraph:
     """A `() -> StateGraph` factory, uncompiled.
 
-    If your own module already ends in `graph = builder.compile()`, expose the builder as well —
+    If your own module already ends in `graph = builder.compile()`, expose the builder as well  -
     agentdeck compiles it itself so it can attach a checkpointer when a workflow is `durable`,
     and a graph that arrives already compiled has closed that door.
     """

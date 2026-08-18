@@ -30,7 +30,7 @@ def test_an_explicit_value_overrides_the_declarations_value():
 
 
 def test_an_explicit_empty_value_still_wins_over_the_base():
-    """Omission, not falsiness, is what defers to ``base`` — an explicit ``tools=[]`` must
+    """Omission, not falsiness, is what defers to ``base``  -  an explicit ``tools=[]`` must
     not fall back to the base's own tools."""
 
     class WithTools(AgentDeclaration):
@@ -56,7 +56,7 @@ def test_agent_is_immutable_after_construction():
 
 def test_standalone_build_compiles_a_bare_callable_tool():
     """``Agent.build()`` (no ``Deck``) shares ``compile_agent`` with ``Deck.build()``, so a plain
-    callable becomes a real SDK tool on both paths — pinned here so tool compilation can never
+    callable becomes a real SDK tool on both paths  -  pinned here so tool compilation can never
     move to a Deck-only step without a red test."""
     agent = Agent(name="booking", instructions="x", tools=[lambda q: q])
 

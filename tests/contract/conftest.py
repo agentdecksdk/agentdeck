@@ -38,7 +38,7 @@ def store() -> MemoryEventStore:
 
 @pytest.fixture
 def runtime(case: Case, store: MemoryEventStore) -> Runtime:
-    """One engine, one store, a frozen clock — nothing else in the loop."""
+    """One engine, one store, a frozen clock  -  nothing else in the loop."""
     return Runtime([case.engine], store, {case.spec.name: case.spec})
 
 

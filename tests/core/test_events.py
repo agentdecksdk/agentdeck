@@ -197,7 +197,7 @@ def test_envelope_kind_must_match_payload_kind():
 )
 def test_two_kinds_that_disagree_are_refused_rather_than_relabelled(envelope, payload_kind):
     """Wrapping an unknown kind used to stamp the envelope's answer over the payload's, so a row
-    whose copies disagreed was accepted under a name it never claimed — with its real one buried
+    whose copies disagreed was accepted under a name it never claimed  -  with its real one buried
     in ``raw_payload``. The disagreement is the whole signal that the row is not what it says."""
     wire = _wire(envelope, {})
     wire["payload"] = {"kind": payload_kind, "message_id": "m", "text": "hi"}
@@ -214,7 +214,7 @@ def test_a_kind_that_no_writer_could_emit_is_refused(kind):
 
 
 def test_a_namespace_this_version_has_never_seen_still_parses():
-    """The pattern must not become a closed set by accident — digits included, so the A2A and
+    """The pattern must not become a closed set by accident  -  digits included, so the A2A and
     MCP surfaces (#129) have somewhere to land."""
     event = Event.model_validate(_wire("a2a.task.started", {"task": "t-1"}))
     assert isinstance(event.payload, UnknownEvent)
@@ -253,8 +253,8 @@ def test_schema_version_components_reject_negatives(major, minor):
 
 
 def test_a_higher_minor_within_the_current_major_still_parses():
-    """The additive half of the semantics: a writer one minor ahead of this reader — a kind or an
-    optional field this reader has never seen — is still readable, because nothing about parsing
+    """The additive half of the semantics: a writer one minor ahead of this reader  -  a kind or an
+    optional field this reader has never seen  -  is still readable, because nothing about parsing
     consults ``minor`` at all."""
     newer = {**WIRE_VERSION, "minor": WIRE_VERSION["minor"] + 1}
     event = Event.model_validate({**_wire("text.delta", {"message_id": "msg_1", "text": "hi"}), "v": newer})
@@ -279,7 +279,7 @@ def test_an_unsupported_major_is_refused_even_for_a_kind_this_reader_has_never_s
 def test_a_minor_bump_is_how_a_content_block_kind_would_arrive():
     """The rehearsal a payload change gets to run against these semantics before one exists for
     real: a block type this tree has never heard of, riding on an event stamped one minor ahead,
-    still parses — the run's own payload typed, the unfamiliar block preserved rather than
+    still parses  -  the run's own payload typed, the unfamiliar block preserved rather than
     dropped. Proves the minor half of the semantics is usable by a payload change, not only an
     envelope one.
 
@@ -309,7 +309,7 @@ def test_a_minor_bump_is_how_a_content_block_kind_would_arrive():
 def test_an_unknown_block_inside_a_real_event_dumps_without_nesting():
     """The shape a relay would actually forward (#200): an unknown block riding inside
     ``run.started.input`` must dump back to the exact dict it arrived as, not wrapped a level
-    deeper under ``raw_block`` — a relay re-emitting the event would otherwise corrupt the block
+    deeper under ``raw_block``  -  a relay re-emitting the event would otherwise corrupt the block
     on every hop."""
     video_block = {"type": "video", "media_type": "video/mp4", "data_b64": "AAA="}
     newer = {**WIRE_VERSION, "minor": WIRE_VERSION["minor"] + 1}
@@ -383,7 +383,7 @@ def test_custom_name_must_be_namespaced(name):
 
 @pytest.mark.parametrize("digest", ["not-a-hash", "", "A" * 64, "a" * 63, "a" * 65])
 def test_result_sha256_must_look_like_one(digest):
-    """Its neighbour ``result_size`` was ``NonNegativeInt`` while this took any string at all —
+    """Its neighbour ``result_size`` was ``NonNegativeInt`` while this took any string at all  -
     so a truncated or upper-cased digest read as a real one, and the field exists to be
     compared against another."""
     with pytest.raises(ValidationError, match="string_pattern_mismatch"):
@@ -406,7 +406,7 @@ def test_usage_usd_is_optional_but_tokens_are_not():
 def test_a_cost_json_cannot_carry_is_refused_at_construction(usd):
     """The money fields get the rigour the token counts always had. ``NaN``/``±Infinity`` matter
     most: they serialize as ``null``, so without this a consumer reads *no cost* where the
-    producer wrote nonsense — the divergence ``DataBlock`` already refuses for arbitrary data."""
+    producer wrote nonsense  -  the divergence ``DataBlock`` already refuses for arbitrary data."""
     with pytest.raises(ValidationError):
         Usage(input_tokens=1, output_tokens=2, usd=usd)
 
@@ -431,8 +431,8 @@ def test_a_cost_json_cannot_carry_is_refused_at_construction(usd):
 )
 def test_a_free_form_field_holds_only_what_the_store_hands_back_unchanged(build, field, value):
     """The invariant ``DataBlock`` always had, now on the free-form dicts too. Each of these
-    reached the log before and came back as something else — ``nan`` as ``null``, a set as a
-    list, a datetime as a string — because the type said ``Any`` and only the adapters cared.
+    reached the log before and came back as something else  -  ``nan`` as ``null``, a set as a
+    list, a datetime as a string  -  because the type said ``Any`` and only the adapters cared.
 
     ``UnknownEvent`` is the one that had to hold it most: it exists so this reader survives a
     newer writer, which it cannot do while it is free to alter that writer's data on the way
@@ -569,7 +569,7 @@ def test_a_resumed_run_keeps_its_run_id_and_continues_its_seq(examples, make_eve
 @pytest.mark.parametrize("verb", get_args(ControlVerb))
 def test_one_pair_of_kinds_carries_every_control_verb(verb):
     """Designed once rather than per verb: pause and steering reuse these two kinds, so they
-    need no schema PR of their own — and no reader has to learn a new kind to follow them."""
+    need no schema PR of their own  -  and no reader has to learn a new kind to follow them."""
     requested = Event.model_validate(_wire("control.requested", {"verb": verb}))
     observed = Event.model_validate(_wire("control.observed", {"verb": verb, "safe_point": "stream_item"}))
     assert (requested.payload.verb, observed.payload.verb) == (verb, verb)

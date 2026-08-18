@@ -1,8 +1,8 @@
 """The composition root: the one place adapters are built and handed to a ``Runtime``.
 
 Everything above this module takes ports; everything below it is an adapter. ``App`` calls
-:func:`build_runtime` and so does every other entry point that needs a real Runtime — the
-demo script, the compat surface's tests — so a Runtime is assembled the same way
+:func:`build_runtime` and so does every other entry point that needs a real Runtime  -  the
+demo script, the compat surface's tests  -  so a Runtime is assembled the same way
 everywhere instead of hand-wired per caller. A second front door (a code-first ``Deck()``)
 becomes another caller of this function rather than a second assembly.
 
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_STORE_DOCS = f"{DOCS_URL}/concepts/choosing-a-store-backend"
+_STORE_DOCS = f"{DOCS_URL}/reference/settings"
 
 
 def build_runtime(
@@ -60,7 +60,7 @@ def build_runtime(
 ) -> Runtime:
     """Wire ``engines`` into a Runtime over the project's invocables.
 
-    ``invocables`` defaults to discovery over ``./.agentdeck`` — pass a mapping to run
+    ``invocables`` defaults to discovery over ``./.agentdeck``  -  pass a mapping to run
     specs built in code instead. ``store`` defaults to the configured event store,
     ``control`` to the configured control port, and ``stale_run_after`` to
     ``RuntimeSettings.stale_run_after``. The lease port comes from the same setting the
@@ -69,13 +69,13 @@ def build_runtime(
 
     ``sinks`` defaults to none, and telemetry in particular is *not* resolved here. A sink can
     hold a live client with background threads, and resolving one while a Runtime is assembled
-    built that client before anyone had said whether they wanted it — the ordering behind #162.
+    built that client before anyone had said whether they wanted it  -  the ordering behind #162.
     :func:`resolve_observers` is what reads settings, and ``Deck.__aenter__`` is what calls it,
     once, as it opens.
 
     Timestamps are assigned by the store, in the same write that persists the event
-    (ADR-D11), so holding time means building the store with a clock —
-    ``MemoryEventStore(clock=...)``, ``RedisEventStore(clock=...)`` — and the two SQL stores
+    (ADR-D11), so holding time means building the store with a clock  -
+    ``MemoryEventStore(clock=...)``, ``RedisEventStore(clock=...)``  -  and the two SQL stores
     read their backend's clock so that N workers on one database compare one clock rather
     than N.
     """
@@ -100,7 +100,7 @@ def build_runtime(
 def resolve_observers() -> tuple[EventSinkPort, ...]:
     """The observers a Deck opens when its caller named none: Langfuse, if configured.
 
-    Nothing is built here either — :class:`~agentdeck.observers.Langfuse` reads its settings
+    Nothing is built here either  -  :class:`~agentdeck.observers.Langfuse` reads its settings
     and constructs its client in ``start()``, which the Deck calls as it opens. This function
     only answers "did the environment ask for one?", so it stays as free of network and of the
     optional ``[observability]`` extra as the rest of ``build()``'s path.
@@ -118,7 +118,7 @@ def resolve_run_settings(settings: Settings | None = None) -> RunSettings:
     """Everything one agent run is configured with, read out of settings once.
 
     Every field here is invisible to a fake-model test suite and decisive against a real
-    endpoint — the CA bundle, the token cap, the provider's own base URL — which is why
+    endpoint  -  the CA bundle, the token cap, the provider's own base URL  -  which is why
     ``tests/test_run_config_parity.py`` compares the resolved result field by field rather
     than trusting a run that streamed to have been configured correctly.
     """
@@ -144,7 +144,7 @@ def resolve_checkpoint(settings: Settings | None = None) -> tuple[str, str]:
     ``AGENTDECK_CHECKPOINT``'s scheme.
 
     A pair of strings, not a saver: the postgres saver lives in the ``[durability]`` extra, so
-    naming a backend here must not import one — the langgraph adapter builds it at the first
+    naming a backend here must not import one  -  the langgraph adapter builds it at the first
     durable run and not before. ``postgresql`` normalizes to the backend name
     ``resolve_checkpointer`` expects (``postgres``); sqlite's own value is the bare path after
     the scheme, since the saver takes a filesystem path, not a URL.
@@ -161,13 +161,13 @@ def resolve_control_port(settings: ControlSettings | None = None) -> ControlPort
 
     Always built, never left off: a Runtime without one cannot pause or cancel anything, and a
     caller finding that out from an endpoint that silently did nothing is worse than the
-    in-memory port's own limit — which is that only this process can reach the run.
+    in-memory port's own limit  -  which is that only this process can reach the run.
     """
     control = settings if settings is not None else get_settings().control
     scheme, rest = parse_backend_url(control.url)
     if scheme == "memory":
         logger.warning(
-            "AGENTDECK_CONTROL is 'memory://': a signal written in one process is invisible to another — "
+            "AGENTDECK_CONTROL is 'memory://': a signal written in one process is invisible to another  -  "
             "'agentdeck runs signal' and a second worker cannot reach a run. Set AGENTDECK_CONTROL=sqlite:///<path> "
             "to cross process boundaries."
         )
@@ -178,7 +178,7 @@ def resolve_control_port(settings: ControlSettings | None = None) -> ControlPort
         return SqliteControlPort(rest)
     raise ValueError(
         f"unknown control backend {scheme!r} in AGENTDECK_CONTROL={control.url!r}; expected memory or sqlite "
-        f"— see {_STORE_DOCS}"
+        f" -  see {_STORE_DOCS}"
     )
 
 
@@ -209,7 +209,7 @@ def resolve_lease_port(settings: ControlSettings | None = None) -> LeasePort:
         return SqliteLeasePort(rest)
     raise ValueError(
         f"unknown control backend {scheme!r} in AGENTDECK_CONTROL={control.url!r}; expected memory or sqlite "
-        f"— see {_STORE_DOCS}"
+        f" -  see {_STORE_DOCS}"
     )
 
 
@@ -240,8 +240,8 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
             from agentdeck.adapters.stores.redis import RedisEventStore
         except ImportError as exc:
             raise ImportError(
-                'the redis event store needs the redis client — install the "redis" extra: '
-                f'pip install "agentdeck-sdk[redis]" — see {_STORE_DOCS}'
+                'the redis event store needs the redis client  -  install the "redis" extra: '
+                f'pip install "agentdeck-sdk[redis]"  -  see {_STORE_DOCS}'
             ) from exc
         return RedisEventStore(events.url)
     if scheme in ("postgres", "postgresql"):
@@ -249,13 +249,13 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
             from agentdeck.adapters.stores.postgres import PostgresEventStore
         except ImportError as exc:
             raise ImportError(
-                'the postgres event store needs psycopg — install the "durability" extra: '
-                f'pip install "agentdeck-sdk[durability]" — see {_STORE_DOCS}'
+                'the postgres event store needs psycopg  -  install the "durability" extra: '
+                f'pip install "agentdeck-sdk[durability]"  -  see {_STORE_DOCS}'
             ) from exc
         return PostgresEventStore(events.url)
     raise ValueError(
         f"unknown event store scheme {scheme!r} in AGENTDECK_EVENTS={events.url!r}; expected memory, sqlite, "
-        f"redis, rediss, or postgresql — see {_STORE_DOCS}"
+        f"redis, rediss, or postgresql  -  see {_STORE_DOCS}"
     )
 
 

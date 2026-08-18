@@ -24,8 +24,8 @@ def _require_aware(when: datetime) -> datetime:
 def sleep_until(when: datetime) -> Any:
     """Pause the calling node until ``when`` (timezone-aware; naive datetimes are rejected).
 
-    Wraps ``langgraph.types.interrupt()`` with a payload convention —
-    ``{"type": "agentdeck.timer", "wake_at": <ISO-8601 UTC>}`` — so a paused-on-timer thread is
+    Wraps ``langgraph.types.interrupt()`` with a payload convention  -
+    ``{"type": "agentdeck.timer", "wake_at": <ISO-8601 UTC>}``  -  so a paused-on-timer thread is
     distinguishable from a paused-on-human thread in a pending-runs listing
     (``deck.runs.list(status=RunStatus.WAITING_ANSWER)``).
     A due-timer sweep resumes with the wake timestamp as the resume value.

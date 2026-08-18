@@ -1,13 +1,13 @@
 """Which checkpointer a graph is compiled around, and what each answer costs a second run.
 
 ``durable`` has three states and they are not two. Declared ``False`` must mean *no
-checkpointer* — an in-memory one keyed by thread makes a second run on that thread resume
+checkpointer*  -  an in-memory one keyed by thread makes a second run on that thread resume
 the first run's state, which is the opposite of what a workflow declaring itself
 non-durable asked for. v1 compiled such a graph with no saver at all
 (``BaseWorkflow.build``); this pins that the adapter still does.
 
 Absent is the third state and is deliberately not ``False``: a spec built in code never
-said, so it keeps the engine's own default — which is what lets a hand-wired
+said, so it keeps the engine's own default  -  which is what lets a hand-wired
 ``LangGraphEngine()`` interrupt at all, and what the contract suite's interrupt case runs on.
 """
 
@@ -102,14 +102,14 @@ async def test_a_durable_workflow_with_no_session_id_raises_naming_the_docs() ->
         async for _ in engine.start(spec, [DataBlock(data={"input": "a"})], [], ctx):
             pass
 
-    assert f"{DOCS_URL}/concepts/workflows" in str(excinfo.value)
+    assert f"{DOCS_URL}/build-your-deck/workflows" in str(excinfo.value)
 
 
 async def test_a_spec_that_never_declared_durable_keeps_the_engines_own_checkpointer() -> None:
     """Absent metadata is not ``False``: a code-built spec keeps the engine default.
 
     Without it a hand-wired ``LangGraphEngine()`` could not interrupt, which the contract
-    suite's interrupt case depends on — so this pins the distinction the fix rests on.
+    suite's interrupt case depends on  -  so this pins the distinction the fix rests on.
     """
     engine = LangGraphEngine()
     spec = _spec({})
@@ -122,7 +122,7 @@ async def test_a_spec_that_never_declared_durable_keeps_the_engines_own_checkpoi
 
 
 # Nothing listens on port 1, so a connection fails immediately with the shape of a database
-# gone unreachable — the same case ``test_postgres_store.py`` uses, without needing a live
+# gone unreachable  -  the same case ``test_postgres_store.py`` uses, without needing a live
 # Postgres either locally or in CI. The password is a distinct string (not "postgres", which
 # could coincidentally appear elsewhere) so a leak into the raised message is unambiguous.
 _UNREACHABLE_DSN = "postgresql://agentdeck:s3cr3t-pw@127.0.0.1:1/nope"
@@ -130,7 +130,7 @@ _UNREACHABLE_DSN = "postgresql://agentdeck:s3cr3t-pw@127.0.0.1:1/nope"
 
 async def test_an_unwritable_sqlite_checkpoint_path_raises_a_store_error(tmp_path: Path) -> None:
     """A bare ``sqlite3.OperationalError`` names neither the setting nor the path agentdeck
-    resolved it to — the event store already answers this class of failure with
+    resolved it to  -  the event store already answers this class of failure with
     ``StoreError``, and the checkpointer must too."""
     locked_dir = tmp_path / "no-permission"
     locked_dir.mkdir()
@@ -152,7 +152,7 @@ async def test_a_postgres_checkpoint_with_an_unreachable_dsn_raises_a_store_erro
     """Same gap on the other durable backend: a DSN nothing answers must not hand the caller
     a raw ``psycopg.OperationalError``.
 
-    Unlike the sqlite path, the message never names the DSN — a DSN can carry a password,
+    Unlike the sqlite path, the message never names the DSN  -  a DSN can carry a password,
     and a leaked one would land in every log line and traceback that carries this error.
     """
     psycopg = live_stores.require_psycopg()

@@ -2,7 +2,7 @@
 
 A turn writes the log first and the engine's session second, so the window between them is
 real: the log keeps the question (or the answer), the process dies, and the session never
-gets its copy. Left alone, the next turn feeds the model a conversation with a hole in it —
+gets its copy. Left alone, the next turn feeds the model a conversation with a hole in it  -
 it answers a question it can no longer see the setup for, and nothing anywhere reports a
 problem. That silence is why these tests assert on what the scripted model *received*,
 never on an internal flag.
@@ -10,7 +10,7 @@ never on an internal flag.
 The crashes are real rather than stubbed: one fails the session write inside a live turn,
 one SIGKILLs a second OS process with the log a question ahead of a session file that
 outlives it. Neither patches the reconciliation itself. The tests around them pin what must
-*not* be replayed — an abandoned turn's question, a session that went its own way — because
+*not* be replayed  -  an abandoned turn's question, a session that went its own way  -  because
 those are the ways a repair turns into a corruption.
 """
 
@@ -52,7 +52,7 @@ WORKER_TIMEOUT = 120.0
 QUESTION_4 = "and what did I just ask you?"
 QUESTION_5 = "still there?"
 
-# How long a held read waits for its second reader before giving up — loop turns, not seconds.
+# How long a held read waits for its second reader before giving up  -  loop turns, not seconds.
 _HELD_READ_TURNS = 200
 
 FIRST_EXCHANGE = [["user", worker.QUESTION_1], ["assistant", worker.ANSWER_1]]
@@ -63,7 +63,7 @@ class SessionWriteDiedError(RuntimeError):
 
 
 class _DyingSession(SQLiteSession):
-    """A real session whose write can be made never to land — the state a process killed
+    """A real session whose write can be made never to land  -  the state a process killed
     between the log append and the session write leaves behind for the next turn."""
 
     def __init__(self, session_id: str) -> None:
@@ -106,7 +106,7 @@ class _SlowReadSession(_DyingSession):
 
 class _CrashingSessions(ExecutionStore):
     """One session for the whole test, so a turn's failed write is still visible to the turn
-    after it — the same session a restarted process would reattach to."""
+    after it  -  the same session a restarted process would reattach to."""
 
     def __init__(self, session_id: str = "crash-test", *, slow_reads: bool = False) -> None:
         super().__init__()
@@ -203,7 +203,7 @@ async def test_an_input_the_session_write_lost_reaches_the_model_on_the_next_tur
 async def test_a_question_the_consumer_abandoned_is_not_replayed_in_front_of_its_retry() -> None:
     """``run.started`` records that a turn was asked for, not that the engine took it. A
     consumer that walks away before the engine reads anything leaves a question in the log
-    the session never saw — and the user then asks it again. Replaying it would put the
+    the session never saw  -  and the user then asks it again. Replaying it would put the
     question in front of its own retry, which is a duplicate, not a repair."""
     model = worker.ScriptedModel(worker.ANSWER_1)
     sessions = _CrashingSessions()
@@ -233,7 +233,7 @@ async def test_a_turn_cancelled_after_its_answer_keeps_both_of_its_messages() ->
     """The other half of that rule, and the one that is easy to get wrong. A consumer that
     disconnects *after* the answer leaves a turn the SDK has already persisted whole: input and
     output are both in the session. Dropping its input as "never taken" would misalign the two
-    transcripts from that message on — every later turn would report a false divergence and,
+    transcripts from that message on  -  every later turn would report a false divergence and,
     worse, refuse to repair anything, so a real gap after it would never be filled.
     """
     model = worker.ScriptedModel(worker.ANSWER_1)
@@ -281,14 +281,14 @@ async def test_a_turn_cancelled_after_its_answer_keeps_both_of_its_messages() ->
 async def test_a_session_that_diverged_from_the_log_is_left_alone_and_says_so() -> None:
     """Message-level replay only repairs a session the log's prefix still describes. A
     session holding something the log never recorded is the authority on execution, so the
-    next turn runs on it untouched — and the disagreement lands in the log as an event, since
+    next turn runs on it untouched  -  and the disagreement lands in the log as an event, since
     nobody reads warnings."""
     model = worker.ScriptedModel(worker.ANSWER_1)
     sessions = _CrashingSessions()
     runtime, store = _build(model, sessions)
 
     await _play(runtime, worker.QUESTION_1, "turn-1")
-    # Rewound and continued somewhere else — a compaction, a manual repair, an SDK session
+    # Rewound and continued somewhere else  -  a compaction, a manual repair, an SDK session
     # feature this adapter does not know about. What matters is the shape: the log's second
     # message is an answer, the session's is a question, so neither describes the other.
     await sessions.session.pop_item()
@@ -315,8 +315,8 @@ async def test_two_turns_racing_on_one_session_apply_the_repair_once() -> None:
     otherwise append a second copy of everything the first one repaired.
 
     Raced at the engine rather than through two ``Runtime.run`` calls, because the Runtime now
-    refuses the second of those outright. The overlap is still reachable — a turn that takes a
-    silent run's session over runs beside whatever that run is really doing — and this lock is
+    refuses the second of those outright. The overlap is still reachable  -  a turn that takes a
+    silent run's session over runs beside whatever that run is really doing  -  and this lock is
     then the only thing between the two of them, so it keeps its own test.
     """
     model = worker.ScriptedModel(worker.ANSWER_1)
@@ -346,8 +346,8 @@ async def test_two_turns_racing_on_one_session_apply_the_repair_once() -> None:
 
 
 async def test_a_session_lost_entirely_is_refilled_from_the_log() -> None:
-    """Execution state that is simply gone — expired, or a first turn that crashed before its
-    session write — is the same gap seen from further away, so it takes the same repair: the
+    """Execution state that is simply gone  -  expired, or a first turn that crashed before its
+    session write  -  is the same gap seen from further away, so it takes the same repair: the
     next turn's model input is the log's conversation, not a blank one."""
     first_model = worker.ScriptedModel(worker.ANSWER_1)
     runtime, store = _build(first_model, ExecutionStore())
@@ -388,14 +388,14 @@ async def test_a_turn_a_killed_process_never_wrote_to_its_session_survives_the_r
     reader = worker.context("reader")
     log = await store.read(worker.SESSION_ID, reader)
     assert _log_transcript(log) == [*FIRST_EXCHANGE, ["user", worker.QUESTION_2]], _kinds(log)
-    # The killed run's own id is minted (#324), never predictable — it is whichever run_id
+    # The killed run's own id is minted (#324), never predictable  -  it is whichever run_id
     # owns the log's last row, and it must hold nothing beyond its own opening event.
     assert [event.kind for event in log if event.run_id == log[-1].run_id] == ["run.started"], _kinds(log)
     assert worker.transcript_of(await worker.durable_session(tmp_path).get_items()) == FIRST_EXCHANGE
 
     # The killed turn is still open in the log, and an open run holds its session. A restart
     # takes it over by shortening the staleness window to a millisecond instead of waiting an
-    # hour out — which is also the setting itself under test, driven the way an operator sets it.
+    # hour out  -  which is also the setting itself under test, driven the way an operator sets it.
     successor = subprocess.run(
         [sys.executable, "-u", str(WORKER), "successor", str(tmp_path)],
         capture_output=True,

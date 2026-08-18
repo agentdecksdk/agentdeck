@@ -1,0 +1,10 @@
+# Events
+
+Every run produces an ordered, typed stream of events.
+
+## Streaming Events
+
+```python
+async for event in run.events():
+    print(event.kind, event.payload)
+```
