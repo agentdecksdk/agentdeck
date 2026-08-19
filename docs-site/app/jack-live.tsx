@@ -13,26 +13,14 @@
  * the events that are public rather than faked from the ones that are not.
  */
 
-import type { ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { TreeFigure, type TreeNode } from './deck-figure'
+import { AnswerLink } from './jack-answer-link'
 import { jackCitationsPlugin } from './jack-citations'
 import { JackUnavailable, askJack } from './jack-stream'
-
-/** A citation link is always same-site (`jackCitationsPlugin` only ever emits a leading-slash
- * href); anything else is a real external link Jack didn't invent, left as a plain anchor. */
-function AnswerLink({ href, children }: { href?: string; children?: ReactNode }) {
-  if (href?.startsWith('/')) return <Link href={href}>{children}</Link>
-  return (
-    <a href={href} target="_blank" rel="noreferrer">
-      {children}
-    </a>
-  )
-}
 
 const EXAMPLES = [
   'How do I wrap my LangGraph agent?',
