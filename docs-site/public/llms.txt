@@ -18,7 +18,7 @@ afterwards, approvals that outlive the process that requested them.
 
 ## Documentation
 
-- [AgentDeck - agentic software should feel like software](https://agentdecksdk.com/): Build agents, tools and workflows as normal software. AgentDeck gives them one execution model you can observe, control and extend.
+- [Agentic software should feel like software](https://agentdecksdk.com/): Build agents, tools and workflows as normal software. AgentDeck gives them one execution model you can observe, control and extend.
 - [CLI](https://agentdecksdk.com/reference/cli): The agentdeck command tree, generated from agentdeck/cli.py's own --help output.
 - [Deck](https://agentdecksdk.com/reference/deck): The composition root  -  builds a catalog from Agent/Workflow objects or a project directory, and runs every turn on it.
 - [events](https://agentdecksdk.com/reference/events)
@@ -36,6 +36,8 @@ afterwards, approvals that outlive the process that requested them.
 - [langgraph](https://agentdecksdk.com/integrations/langgraph)
 - [mcp](https://agentdecksdk.com/integrations/mcp)
 - [openai-agents-sdk](https://agentdecksdk.com/integrations/openai-agents-sdk)
+- [How Jack is built](https://agentdecksdk.com/jack): What building a real application with AgentDeck looks like, and what AgentDeck provides around your application code.
+- [Implementation notes](https://agentdecksdk.com/jack/notes): The decisions behind Jack, and the alternatives each one beat.
 - [mental-model](https://agentdecksdk.com/meet-agentdeck/mental-model)
 - [Overview](https://agentdecksdk.com/meet-agentdeck/overview): What AgentDeck is, why it exists, and how it works.
 - [Quickstart](https://agentdecksdk.com/meet-agentdeck/quickstart): Build a Deck, start a Run, and watch its events.

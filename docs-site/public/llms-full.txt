@@ -18,7 +18,7 @@ Source: https://agentdecksdk.com · Generated from the same Markdown the site re
 
 ---
 
-# AgentDeck - agentic software should feel like software
+# Agentic software should feel like software
 
 *Build agents, tools and workflows as normal software. AgentDeck gives them one execution model you can observe, control and extend.*
 Source: https://agentdecksdk.com/
@@ -26,34 +26,10 @@ Source: https://agentdecksdk.com/
 <div className="landing">
 
 
-<Compose>
+
+<Model>
 <Snippet status="shipped">
 ```python
-from agentdeck import Agent, Deck
-
-jack = Agent(
-    name="Jack",
-    instructions="Help developers build with AgentDeck.",
-)
-
-deck = Deck(agents=[jack])
-```
-</Snippet>
-</Compose>
-
-<Capabilities>
-<Snippet status="shipped">
-```python
-from agentdeck import Agent, Context, Deck
-
-def search_docs(query: str, docs: Context[DocsCorpus]) -> str:
-    """Find AgentDeck documentation pages matching a query."""
-    return docs.data.search(query)
-
-def read_doc(slug: str, docs: Context[DocsCorpus]) -> str:
-    """Read one AgentDeck documentation page in full, by its slug."""
-    return docs.data.pages[slug]
-
 jack = Agent(
     name="Jack",
     instructions="Help developers build with AgentDeck.",
@@ -63,100 +39,7 @@ jack = Agent(
 deck = Deck(agents=[jack], context=DocsCorpus)
 ```
 </Snippet>
-</Capabilities>
-
-<Process>
-<Snippet status="proposed">
-```python
-@workflow
-async def answer(question: str, ctx):
-    docs, examples = await ctx.parallel(
-        ctx.invoke(search_docs, question),
-        ctx.invoke(search_examples, question),
-    )
-
-    if not docs and not examples:
-        return "Nothing in the documentation covers that yet."
-
-    return await ctx.invoke(jack, {
-        "question": question,
-        "docs": docs,
-        "examples": examples,
-    })
-```
-</Snippet>
-</Process>
-
-
-<SecondAgent>
-<Snippet status="proposed">
-```python
-@workflow
-async def answer(question: str, ctx):
-    researcher = ctx.agents.create(research_agent)
-
-    docs = await ctx.invoke(search_docs, question)
-    research = await ctx.invoke(researcher, question)
-
-    return await ctx.invoke(jack, {
-        "question": question,
-        "docs": docs,
-        "research": research,
-    })
-```
-</Snippet>
-</SecondAgent>
-
-<Interaction>
-<Snippet status="proposed">
-```python
-if needs_source:
-    source = await ctx.ask(
-        "Paste the code you want me to inspect."
-    )
-    research = await ctx.invoke(researcher, source)
-```
-</Snippet>
-</Interaction>
-
-<Control>
-<Snippet status="shipped" label="the root execution">
-```python
-run = await deck.runs.start("Jack", question)
-
-await run.pause()
-await run.resume()
-await run.cancel()
-
-await run.answer({"approved": True})
-```
-</Snippet>
-<Snippet status="proposed" label="a nested invocation, same handle">
-```python
-research = ctx.invoke(researcher, task)
-
-await research.pause()
-await research.resume()
-
-result = await research
-```
-</Snippet>
-</Control>
-
-<WholeDeck>
-<Snippet status="shipped">
-```python
-deck = Deck(
-    agents=[jack, researcher],
-    workflows=[answer],
-    context=App,
-)
-
-async with deck:
-    result = await deck.run("answer", question, context=app)
-```
-</Snippet>
-</WholeDeck>
+</Model>
 
 
 
@@ -1070,7 +953,8 @@ Explore real-world runnable examples built with AgentDeck.
 - **Workflow with Human Approval:** Pausing for approval before high-stakes actions.
 - **Agent with a Skill:** Extending agent capability using domain skills.
 - **Existing LangGraph Agent:** Wrapping a LangGraph graph in AgentDeck.
-- **Jack:** Full reference application.
+The reference application, [Jack](/jack), is documented separately: he is the agent answering
+questions on this site, and his page records the reasoning behind each decision in him.
 
 ---
 
@@ -1131,6 +1015,211 @@ Integrate OpenAI Agents directly into AgentDeck.
 ## Native Execution
 
 AgentDeck runs OpenAI Agents natively while adding sessions, durable runs, and event streaming.
+
+---
+
+# How Jack is built
+
+*What building a real application with AgentDeck looks like, and what AgentDeck provides around your application code.*
+Source: https://agentdecksdk.com/jack
+
+# How Jack is built
+
+Jack is the AgentDeck documentation agent running on this site. The same application powers the
+live experience at the bottom of the home page, and its source is in the repository.
+
+This page shows what building a real application with AgentDeck looks like: what you write, and
+what you get around it.
+
+## The application
+
+Jack answers questions about AgentDeck by reading its documentation.
+
+```text
+Question
+   → Jack
+      → search_docs / read_doc / read_changelog
+   → Answer
+```
+
+That shape is the whole application, and the code says the same thing:
+
+```python
+from agentdeck import Agent, Context, Deck
+
+def search_docs(query: str, docs: Context[DocsCorpus]) -> str:
+    """Find AgentDeck documentation pages matching a query."""
+    return docs.data.search(query)
+
+def read_doc(slug: str, docs: Context[DocsCorpus]) -> str:
+    """Read one AgentDeck documentation page in full, by its slug."""
+    return docs.data.pages[slug]
+
+jack = Agent(
+    name="Jack",
+    instructions=instructions,
+    tools=[search_docs, read_doc, read_changelog],
+)
+
+deck = Deck(agents=[jack], context=DocsCorpus)
+```
+
+Three ordinary functions, one agent, one Deck. `Context[DocsCorpus]` is how a tool reaches the
+application's own data; the model is offered only `query` or `slug`.
+
+## The application code stays application code
+
+Almost everything Jack-specific is about what Jack should do: how to search the corpus, how to
+read a page, what to say when the documentation does not cover something, and how to cite what
+he used. That is the file you would expect to write.
+
+**You write the behavior.** Nothing above reaches for a runtime concern, because it does not
+have to.
+
+## AgentDeck provides the system around it
+
+The same small application runs inside a foundation it did not have to build.
+
+```text
+Run
+├── executions     nested invocations, each addressable
+├── events         one ordered log per run
+├── reports        progress and status from inside the work
+├── state          sessions that outlive a single call
+├── interaction    branches that wait for a person
+└── control        pause, resume, cancel
+```
+
+Around that model, other things connect to the same execution: observers and telemetry, the HTTP
+and SSE surfaces, and the website itself. They read the run rather than a translation of it, so
+none of them needs Jack to expose anything special.
+
+Jack did not assemble these. They are what a `Deck` gives an application the moment it runs.
+
+## From execution to the website
+
+The live experience on this site is that model, exposed.
+
+```text
+Jack executes through AgentDeck
+   → the run emits canonical events
+   → a surface streams them
+   → the site renders the conversation and the tree beside it
+```
+
+The route is a few lines over `deck.stream()`, and the wire is the event log itself:
+
+```python
+async for event in deck.stream(AGENT, question, context=corpus, session_id=session_id):
+    if event.kind in PUBLIC_KINDS:
+        yield f"data: {event.model_dump_json()}\n\n"
+```
+
+There is no translation layer on either side. The browser switches on `event.kind`, and so would
+a Python process reading the same run back tomorrow. The execution tree you see next to Jack is
+built from those events, in the order they arrived.
+
+## See it running
+
+Ask him something on the [home page](/) and watch the tree fill as he works: a tool call appears
+when he makes one, and the run resolves when it completes.
+
+## Source
+
+- [`examples/jack`](https://github.com/agentdecksdk/agentdeck/tree/dev/examples/jack)  -  the agent, its tools, the corpus and the route
+- [Implementation notes](/jack/notes)  -  the decisions behind this build, and the alternatives they beat
+- [Examples](/examples)  -  smaller runnable projects, each exercising a single idea
+
+---
+
+# Implementation notes
+
+*The decisions behind Jack, and the alternatives each one beat.*
+Source: https://agentdecksdk.com/jack/notes
+
+# Implementation notes
+
+The engineering behind [how Jack is built](/jack). Each note is a decision that had a reasonable
+alternative, and the reason that alternative lost.
+
+## The tools are undecorated
+
+A tool that declares a `Context` parameter stays a plain function. `@function_tool` puts every
+parameter into the schema the model sees, and the model has no `DocsCorpus` to pass. `build()`
+compiles the function instead, so the model is offered only `query` or `slug`.
+
+See [Tools](/build-your-deck/tools) and [Context](/build-your-deck/context).
+
+## The context type is declared
+
+```python
+deck = Deck(agents=[jack], context=DocsCorpus)
+```
+
+`context=DocsCorpus` is the *type*; the instance goes in per run. Declaring it makes `build()`
+check every `Context[...]` in the catalog, tools and the instructions callable alike, before a
+question is ever asked. The wrong type raises `ContextTypeError` naming both, at startup rather
+than mid-answer.
+
+## Search is a dict and a scan
+
+The corpus is about thirty pages and 120 KB, so retrieval is TF-IDF over `Path.read_text()`, in
+roughly thirty lines.
+
+A vector store lost on three counts: at this size a scan beats an embedding round-trip, there is
+no index to rebuild when a page changes, and it cannot return a stale chunk. `DocsCorpus.search`
+is where that decision lives, and its signature is what stays fixed if the corpus outgrows it.
+
+## Explicit composition, not `Deck.from_project()`
+
+Every other example discovers its catalog from a `.agentdeck/` directory. Jack cannot, because
+his tools and his Deck share one `DocsCorpus` class and a bundle has no clean way to share a type
+with the program composing it:
+
+- a module beside `.agentdeck/` imports only when the process started in that directory, and a
+  server starts wherever its supervisor puts it;
+- a module inside it resolves through `agentdeck_project`, an internal alias that exists only
+  *after* `from_project()` has run, which is too late for a module-level import.
+
+Explicit composition has neither problem. Both front doors are described in [Deck](/build-your-deck/deck).
+
+## Its own route, not `Deck.asgi()`
+
+AgentDeck packages an HTTP surface and Jack writes his own, for two structural reasons:
+
+| | |
+|---|---|
+| **Context cannot cross HTTP** | A run started through `asgi()` carries `context=None`. There is no wire form for a live Python object, and both tools need the `DocsCorpus`. |
+| **The chat wire is frozen** | Its body is exactly `{"session_id", "message"}`, pinned byte-for-byte by `tests/golden/`. The page a reader is on has nowhere to go in it. |
+
+The result is about forty lines over `deck.stream()`, streaming canonical events with no
+translation layer.
+
+## What a public endpoint needed
+
+Jack is unauthenticated on purpose: a documentation assistant that asks you to log in is not a
+documentation assistant. The limits below are the whole of what stands between a public hostname
+and someone else's bill.
+
+- **An event allowlist.** Five kinds reach the browser. `tool.call.completed` is not among them:
+  its `result_preview` is the tool's output verbatim, so a tool that raised would put its
+  exception text on a public wire.
+- **A quota shaped as conversations.** Three sessions per client per day, twenty turns each.
+  Turns bound a conversation that re-sends its history every turn; sessions stop the way around
+  that, which is to finish twenty turns and start again.
+- **A token ceiling.** The only structural answer to "can this be used to write someone's essay".
+  An instruction is persuadable; a ceiling is not.
+- **An origin check, which is not authentication.** `Origin` is browser-set and forged in one
+  flag. It stops another site embedding the endpoint, and nothing more.
+
+## Prompt injection
+
+The *structure* of the prompt cannot be forged: the page slug is validated against the corpus, so
+only known values survive, and the delimiter is stripped from any reader selection. What the
+model chooses to say with that text is not guarded, and no delimiter makes it so.
+
+The full accounting is in the
+[example's README](https://github.com/agentdecksdk/agentdeck/tree/dev/examples/jack#readme).
 
 ---
 
@@ -1302,27 +1391,41 @@ Source: https://agentdecksdk.com/resources/changelog
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v4.0.1**. Earlier releases are listed at the bottom.
+The current release is **v4.0.2**. Earlier releases are listed at the bottom.
 
-## v4.0.1
+## v4.0.2
 
-*Released 2026-08-18.*
+*Released 2026-08-19.*
 
 ### Changed
 
-- **The `ask-agentdeck` example is now `jack`.** `examples/ask-agentdeck/` is
-  `examples/jack/`, its package is `jack`, and the agent is named `Jack`, so the docs
-  assistant has one name rather than two. Run it with
-  `uvicorn jack.server:app --port 8100`. Its `ASK_AGENTDECK_*` environment variables keep
-  their names.
-- **The documentation landing page is rebuilt around one worked example.** It builds Jack from
-  an `Agent` to a live run instead of listing features, and every code block states the release
-  it belongs to, so the examples that are not in 4.0.0 yet say so.
+- **`examples/jack` reads `JACK_*` environment variables.** `ASK_AGENTDECK_ORIGINS`,
+  `ASK_AGENTDECK_SESSIONS_PER_DAY` and `ASK_AGENTDECK_TURNS_PER_SESSION` are now
+  `JACK_ORIGINS`, `JACK_SESSIONS_PER_DAY` and `JACK_TURNS_PER_SESSION`, correcting 4.0.1,
+  which said they would keep their names. A deployment that sets the old names falls back to
+  the defaults silently, so rename them when you upgrade.
+- **The documentation landing page is one continuous build rather than nine chapters.** It
+  builds Jack once, from an `Agent` to a live run, and the execution tree beside the code is
+  that code's own tree.
+- **[How Jack is built](https://agentdecksdk.com/jack) is its own page**, with the decisions
+  and the alternatives they beat in
+  [Implementation notes](https://agentdecksdk.com/jack/notes). The README follows the same
+  build.
+
+### Fixed
+
+- **Jack could not be reached from the published site.** The docs build baked
+  `http://localhost:8100` as its API origin whenever `NEXT_PUBLIC_AGENTDECK_API_URL` was
+  unset, so the panel called the visitor's own machine. `docs-site/.env.production` now
+  carries the origin, and a real environment variable still wins.
+- **A second question to Jack replaced the first.** The panel keeps the transcript, so a
+  conversation reads as one.
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v4.0.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.1) | 2026-08-18 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.1) |
 | [v4.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.0) | 2026-08-16 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.0) |
 | [v3.1.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.1.0) | 2026-08-13 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.1.0) |
 | [v3.0.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.1) | 2026-08-12 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v3.0.1) |

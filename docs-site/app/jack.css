@@ -1,4 +1,4 @@
-/* Ask AgentDeck panel — brand palette from brand.css, no new tokens. */
+/* The Jack panel — brand palette from brand.css, no new tokens. */
 
 .ask-launch {
   position: fixed;
@@ -6,9 +6,9 @@
   bottom: 1.25rem;
   z-index: 40;
   padding: 0.6rem 1.1rem;
-  border-radius: 999px;
+  border-radius: 10px 10px 4px 10px;
   border: 1px solid transparent;
-  background: var(--brand-navy);
+  background: var(--brand-blue);
   color: #fff;
   font-family: var(--font-display), sans-serif;
   font-size: 0.875rem;
@@ -18,7 +18,16 @@
 }
 
 .ask-launch:hover {
-  background: var(--brand-magenta);
+  background: #1d4fd8;
+}
+
+.dark .ask-launch {
+  background: var(--brand-frost);
+  color: var(--brand-night);
+}
+
+.dark .ask-launch:hover {
+  background: #b9d0ff;
 }
 
 .ask-panel {
@@ -31,14 +40,14 @@
   width: min(30rem, calc(100vw - 2.5rem));
   height: min(34rem, calc(100vh - 6rem));
   border: 1px solid var(--brand-soft-gray);
-  border-radius: 0.75rem;
+  border-radius: 14px 14px 6px 14px;
   background: var(--brand-canvas);
   box-shadow: 0 12px 40px rgb(15 23 42 / 18%);
   overflow: hidden;
 }
 
 .dark .ask-panel {
-  background: var(--brand-ink);
+  background: var(--brand-slate);
   border-color: rgb(148 163 184 / 25%);
 }
 
@@ -104,7 +113,7 @@
 }
 
 .ask-error {
-  color: var(--brand-magenta);
+  color: var(--brand-ace);
   font-size: 0.8rem;
 }
 
@@ -153,12 +162,12 @@
 }
 
 .ask-answer a {
-  color: var(--brand-navy);
+  color: var(--brand-blue);
   text-decoration: underline;
 }
 
 .dark .ask-answer a {
-  color: var(--brand-magenta);
+  color: var(--brand-frost);
 }
 
 .ask-form {
@@ -186,8 +195,8 @@
 .ask-form button {
   padding: 0.45rem 0.9rem;
   border: 0;
-  border-radius: 0.4rem;
-  background: var(--brand-navy);
+  border-radius: 7px 7px 3px 7px;
+  background: var(--brand-blue);
   color: #fff;
   font-size: 0.875rem;
   font-weight: 600;
@@ -197,4 +206,38 @@
 .ask-form button:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* ------------------------------------------------- the panel on a phone */
+
+/* A popover anchored to a corner is a desktop shape. On a phone it left a strip of the page
+   showing around it and read as something that had come loose; here it is a sheet that owns the
+   bottom of the screen, which is what a phone conversation looks like. */
+@media (max-width: 640px) {
+  .ask-panel {
+    right: 0;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    height: min(86vh, 100% - 2.5rem);
+    border-radius: 16px 16px 0 0;
+    border-bottom: 0;
+  }
+
+  .ask-head {
+    padding: 0.9rem 1rem;
+  }
+
+  .ask-transcript {
+    padding: 1rem;
+  }
+
+  .ask-form {
+    padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  }
+
+  .ask-launch {
+    right: 1rem;
+    bottom: 1rem;
+  }
 }

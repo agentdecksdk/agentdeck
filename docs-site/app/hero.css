@@ -118,8 +118,7 @@
 .ad-hero {
   position: relative;
   overflow: hidden;
-  min-height: min(100vh, 900px);
-  padding: clamp(40px, 6vh, 72px) 24px clamp(32px, 5vh, 48px);
+  padding: clamp(40px, 6vh, 72px) 24px clamp(16px, 2.5vh, 26px);
   color: var(--hero-ink);
   isolation: isolate;
 }
@@ -243,7 +242,7 @@
 
   position: relative;
   width: min(1320px, 100%);
-  height: clamp(390px, 42vh, 470px);
+  height: clamp(330px, 35vh, 400px);
   margin: -16px auto 0;
 }
 
@@ -789,6 +788,12 @@
   .ad-deck__surface .ad-mark {
     width: 34px;
     height: 34px;
+  }
+
+  /* No pulse on a phone. At this size the spark sits close enough to the edge that scaling it
+     clipped, and the mark taking its colour already reads as the activation. */
+  .ad-deck.is-active .ad-deck__surface .ad-card__spark {
+    animation: none;
   }
 
 }

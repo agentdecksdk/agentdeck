@@ -12,14 +12,8 @@ import {
 import {
   Hero,
   Snippet,
-  Compose,
-  Capabilities,
-  Process,
-  ExecutionTree,
-  SecondAgent,
-  Interaction,
-  Control,
-  WholeDeck,
+  Foundation,
+  Model,
   MeetJack,
   FinalCTA
 } from './app/landing-components'
@@ -40,15 +34,9 @@ export function useMDXComponents(components = {}) {
     StepRail,
     Hero,
     Snippet,
-    Compose,
-    Capabilities,
-    Process,
-    ExecutionTree,
-    SecondAgent,
-    Interaction,
-    Control,
-    WholeDeck,
-        MeetJack,
+    Foundation,
+    Model,
+    MeetJack,
     FinalCTA,
     ...components
   }

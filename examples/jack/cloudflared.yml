@@ -1,8 +1,8 @@
 # Cloudflare Tunnel for Jack - the reproducible, locally-managed form.
 #
-#     cloudflared tunnel create ask-agentdeck          # writes ~/.cloudflared/<uuid>.json
+#     cloudflared tunnel create jack          # writes ~/.cloudflared/<uuid>.json
 #     # put the printed <uuid> below, then:
-#     cloudflared tunnel --config cloudflared.yml run ask-agentdeck
+#     cloudflared tunnel --config cloudflared.yml run jack
 #
 # This file is here so a reader can reproduce the deployment. AgentDeck's own instance is run
 # from a **dashboard-managed** tunnel instead, whose ingress lives in Cloudflare rather than in
@@ -31,10 +31,10 @@
 # Not `--host 0.0.0.0`. That would publish the assistant to every machine on your network in
 # addition to the tunnel, which is the one way this setup leaks past what is written here.
 
-tunnel: ask-agentdeck
+tunnel: jack
 credentials-file: ~/.cloudflared/REPLACE-WITH-YOUR-TUNNEL-UUID.json
 
 ingress:
-  - hostname: ask.agentdecksdk.com
+  - hostname: agentdecksdk.com
     service: http://localhost:8100
   - service: http_status:404

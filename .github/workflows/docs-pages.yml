@@ -49,7 +49,7 @@ jobs:
           # calling http://, which is the real reason the backend needs a tunnel rather than a
           # port forward. Never put a secret here — NEXT_PUBLIC_* is public by construction, and
           # everything under it is readable in the shipped JavaScript.
-          NEXT_PUBLIC_AGENTDECK_API_URL: ${{ vars.ASK_AGENTDECK_API_URL }}
+          NEXT_PUBLIC_AGENTDECK_API_URL: ${{ vars.JACK_API_URL }}
           # The canonical origin, baked into canonical tags, Open Graph URLs, the sitemap and
           # robots.txt. Unset, it falls back to the Pages URL. Setting this repository variable
           # is what moves the site to agentdecksdk.com — one variable, not a sweep, which is the

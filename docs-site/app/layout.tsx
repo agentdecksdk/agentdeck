@@ -65,6 +65,39 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
     <html lang="en" dir="ltr" className={`${body.variable} ${display.variable}`} suppressHydrationWarning>
       <Head backgroundColor={{ light: '#fafbfe', dark: '#0b1220' }} color={{ hue: { light: 222.9, dark: 221.1 }, saturation: { light: 100, dark: 100 }, lightness: { light: 57.3, dark: 78.8 } }} />
       <body style={{ fontFamily: 'var(--font-body), sans-serif' }}>
+        {/* What the site *is*, in the form a search engine reads. Without it a crawler has to
+            infer the entry point from links alone, and a documentation page that answers a query
+            well can end up standing in for the site itself. */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              '@context': 'https://schema.org',
+              '@graph': [
+                {
+                  '@type': 'WebSite',
+                  '@id': `${SITE}/#website`,
+                  url: `${SITE}/`,
+                  name: 'AgentDeck SDK',
+                  description:
+                    'Build agents, tools and workflows as normal software. AgentDeck gives them '
+                    + 'one execution model you can observe, control and extend.'
+                },
+                {
+                  '@type': 'SoftwareSourceCode',
+                  name: 'AgentDeck SDK',
+                  description:
+                    'A declarative runtime harness for multi-agent systems, wrapping the OpenAI '
+                    + 'Agents SDK and LangGraph rather than replacing them.',
+                  codeRepository: 'https://github.com/agentdecksdk/agentdeck',
+                  programmingLanguage: 'Python',
+                  license: 'https://opensource.org/licenses/MIT',
+                  isPartOf: { '@id': `${SITE}/#website` }
+                }
+              ]
+            })
+          }}
+        />
         <Layout
           navbar={navbar}
           pageMap={await getPageMap()}

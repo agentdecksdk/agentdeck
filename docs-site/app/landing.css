@@ -225,7 +225,7 @@ article:has(.landing) > .x\:float-end {
 
 .chapter-step {
   position: absolute;
-  top: 4.25rem;
+  top: 3.5rem;
   left: calc(var(--gutter) / 2);
   transform: translateX(-50%);
   background: var(--brand-canvas);
@@ -241,7 +241,7 @@ article:has(.landing) > .x\:float-end {
 }
 
 .chapter-body {
-  padding: 4rem 0 4.25rem;
+  padding: 3.25rem 0 4rem;
   min-width: 0;
 }
 
@@ -260,6 +260,24 @@ article:has(.landing) > .x\:float-end {
   line-height: 1.15;
   letter-spacing: -0.03em;
   font-weight: 600;
+}
+
+/* A section that is only an argument: no eyebrow, no figure, one paragraph. */
+.chapter.is-plain .chapter-body {
+  padding: 2.5rem 0;
+}
+
+.chapter.is-plain .chapter-title {
+  max-width: 26rem;
+}
+
+/* The line the section lands on. */
+.chapter-close {
+  margin: 2rem 0 0;
+  max-width: 46rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  line-height: 1.6;
 }
 
 .chapter-lead {
@@ -360,6 +378,10 @@ article:has(.landing) > .x\:float-end {
 }
 
 /* --------------------------------------------------------- the deck figure */
+
+.tree-figure {
+  overflow-x: auto;
+}
 
 .deck-figure,
 .tree-figure {
@@ -526,7 +548,7 @@ article:has(.landing) > .x\:float-end {
 
 /* What the tree buys you, beside the tree. */
 .tree-buys {
-  margin: 0;
+  margin: 2.25rem 0 0;
   display: grid;
   gap: 0;
   border-top: 1px solid var(--rail);
@@ -690,6 +712,12 @@ article:has(.landing) > .x\:float-end {
 .jack-example:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.jack-turn + .jack-turn {
+  margin-top: 1.4rem;
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--rail);
 }
 
 .jack-question {
@@ -1020,4 +1048,184 @@ article:has(.landing) > .x\:float-end {
 .landing :is(a, button, input):focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* ------------------------------------------------ the growing section */
+
+/* Four movements of one section rather than four sections: each names what it adds, says it in
+   a sentence, and shows it. The rule down the left is what makes them read as one passage. */
+.movement {
+  min-width: 0;
+}
+
+.movement .semantics {
+  margin-top: 1rem;
+}
+
+/* The tree stays put while the movements scroll past it, which is the section's whole claim:
+   the system grows and the execution model does not. */
+.chapter.is-wide .chapter-figure:has(.tree-figure) {
+  position: sticky;
+  top: 5.5rem;
+}
+
+.movement + .movement {
+  margin-top: 2rem;
+}
+
+.movement-label {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.movement-title {
+  margin: 0.3rem 0 0.85rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: inherit;
+}
+
+.chapter-grid .movement .snippet + .snippet {
+  margin-top: 1rem;
+}
+
+/* ------------------------------------------------------------- interop */
+
+.interop {
+  margin-top: 2.25rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 14rem);
+  gap: clamp(1.5rem, 4vw, 3rem);
+  align-items: center;
+}
+
+.interop-sources {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rail);
+}
+
+.interop-source {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 11rem) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--rail);
+}
+
+.interop-marker {
+  color: var(--accent);
+  font-size: 0.72rem;
+}
+
+.interop-source.is-proposed {
+  color: var(--ink-soft);
+}
+
+.interop-source.is-proposed .interop-marker {
+  color: var(--rail);
+}
+
+.interop-name {
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.interop-detail {
+  font-size: 0.86rem;
+  color: var(--ink-soft);
+}
+
+/* Everything above arrives at the same two things. */
+.interop-sink {
+  display: grid;
+  justify-items: center;
+  gap: 0;
+}
+
+.interop-stem {
+  width: 1px;
+  height: 2.25rem;
+  background: var(--diagram);
+}
+
+.interop-target {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.76rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 0.6rem 1.6rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--card-radius-sm);
+  color: var(--accent);
+}
+
+.interop-target.is-run {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.dark .interop-target.is-run {
+  color: var(--brand-night);
+}
+
+/* ------------------------------------------------------------- boundary */
+
+.boundary {
+  margin-top: 2.25rem;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.boundary th {
+  text-align: left;
+  padding: 0 0 0.75rem;
+  border-bottom: 1px solid var(--rail);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  width: 50%;
+}
+
+.boundary th:last-child {
+  color: var(--accent);
+}
+
+.boundary td {
+  padding: 0.7rem 1rem 0.7rem 0;
+  border-bottom: 1px solid var(--rail);
+  color: var(--ink-soft);
+}
+
+.boundary td:last-child {
+  color: inherit;
+  font-weight: 500;
+}
+
+@media (max-width: 900px) {
+  .interop {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .interop-sink {
+    display: none;
+  }
+
+  .interop-source {
+    grid-template-columns: 1.25rem minmax(0, 1fr);
+  }
+
+  .interop-detail {
+    grid-column: 2;
+  }
 }

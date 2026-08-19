@@ -52,7 +52,7 @@ AGENT = "Jack"
 #
 # CORS is not a security control: it constrains browsers and nothing else, and a `curl` ignores
 # it entirely. The controls that matter for a publicly reachable endpoint are below.
-ALLOWED_ORIGINS = os.environ.get("ASK_AGENTDECK_ORIGINS", "http://localhost:3030,http://127.0.0.1:3030").split(",")
+ALLOWED_ORIGINS = os.environ.get("JACK_ORIGINS", "http://localhost:3030,http://127.0.0.1:3030").split(",")
 
 # Only these reach the browser. The stream is still canonical events  -  no reshaping, no
 # translation layer  -  but it is an allowlist rather than everything the run emits, because this
@@ -77,8 +77,8 @@ MAX_QUESTION = 2000
 """A docs question is a sentence. The cap is what stops this being a free prompt-relay to
 whatever model the deck is pointed at."""
 
-SESSIONS_PER_DAY = int(os.environ.get("ASK_AGENTDECK_SESSIONS_PER_DAY", "3"))
-TURNS_PER_SESSION = int(os.environ.get("ASK_AGENTDECK_TURNS_PER_SESSION", "20"))
+SESSIONS_PER_DAY = int(os.environ.get("JACK_SESSIONS_PER_DAY", "3"))
+TURNS_PER_SESSION = int(os.environ.get("JACK_TURNS_PER_SESSION", "20"))
 DAY = 86_400.0
 """The whole quota: three conversations a client may start in a day, twenty turns in each.
 

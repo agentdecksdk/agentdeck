@@ -4,9 +4,10 @@
 
 # AgentDeck SDK
 
-**Compose. Observe. Ship.**
+**Agentic software should feel like software.**
 
-The production runtime for agents you already have.
+Build agents, tools and workflows as normal software.
+AgentDeck gives them one execution model you can observe, control and extend.
 
 <!-- The blue variant, not logo.svg: that one is fill="currentColor" for inlining, and an SVG
      loaded through <img> has nothing to inherit from, so it renders black  -  invisible on
@@ -20,66 +21,143 @@ The production runtime for agents you already have.
 
 </div>
 
-**A harness for agents you have to operate.** You write agents, workflows and skills as small
-Python declarations in a `.agentdeck/` directory; AgentDeck supplies the runtime around them and
-leaves the running of a turn to the engines underneath.
-
 ```bash
 pip install agentdeck-sdk
 ```
 
-```python
-# .agentdeck/agents/greeter/agent.py
-from agentdeck import Agent
+The rest of this page builds one real application, a step at a time. Its name is Jack, he
+answers questions about AgentDeck, and he is the assistant running on
+[agentdecksdk.com](https://agentdecksdk.com/) right now. Everything below is his actual source.
 
-greeter = Agent(name="Greeter", instructions="You are a friendly scheduling assistant.")
+## Let's build Jack
+
+An agent is a declaration. A Deck is where an agentic application comes together.
+
+```python
+from agentdeck import Agent, Deck
+
+jack = Agent(
+    name="Jack",
+    instructions="Help developers build with AgentDeck.",
+)
+
+deck = Deck(agents=[jack])
+```
+
+## Jack needs to know things
+
+Tools do work; agents make decisions. A tool that takes a `Context` stays an ordinary function,
+because the model is offered only the arguments it can actually choose: it never sees `docs`.
+
+```python
+from agentdeck import Agent, Context, Deck
+
+def search_docs(query: str, docs: Context[DocsCorpus]) -> str:
+    """Find AgentDeck documentation pages matching a query."""
+    return docs.data.search(query)
+
+def read_doc(slug: str, docs: Context[DocsCorpus]) -> str:
+    """Read one AgentDeck documentation page in full, by its slug."""
+    return docs.data.pages[slug]
+
+jack = Agent(
+    name="Jack",
+    instructions="Help developers build with AgentDeck.",
+    tools=[search_docs, read_doc],
+)
+
+deck = Deck(agents=[jack], context=DocsCorpus)
+```
+
+`context=DocsCorpus` is the *type*; the instance goes in per run. Declaring it makes `build()`
+check every `Context[...]` in the catalog before a question is ever asked, so the wrong type
+raises at startup rather than mid-answer.
+
+## Everything becomes one execution tree
+
+Run him, and the run is a first-class thing with an ordered event log:
+
+```python
+async with deck:
+    async for event in deck.stream("Jack", "how do I pause a run?", context=corpus):
+        print(event.kind)  # run.started, tool.call.started, text.delta, run.completed
+```
+
+Every managed invocation appends to that one log, whatever started it. Status is folded from
+the log rather than stored beside it, so there is no second source to disagree with.
+
+## Execution you can steer
+
+A Run is the root execution, and control belongs to the handle rather than to a separate
+lifecycle API:
+
+```python
+run = await deck.runs.start("Jack", question, context=corpus)
+
+await run.pause()
+await run.resume()
+await run.cancel()
+
+await run.answer({"approved": True})   # finish a run parked at an interrupt
+```
+
+`deck.runs.get(id)` rehydrates that handle in another process, so a run paused by a web request
+can be resumed by a worker. Two handles on one run always agree: the durable store is the only
+thing either reads.
+
+## Jack is real, and you can use him now
+
+The panel on **[agentdecksdk.com](https://agentdecksdk.com/)** is that agent. Ask it something
+about AgentDeck and it searches these docs, reads the pages it finds, and cites them.
+
+Its whole source is [`examples/jack`](examples/jack/): three tools over one
+`Context[DocsCorpus]`, streaming the run's own canonical events to the browser over SSE with no
+translation layer on either side. Not a demo written to look good in a README. It is the thing
+serving the site, including the parts a public endpoint needs and a demo skips: an origin check,
+a per-day quota, a token ceiling, and an allowlist deciding which event kinds a browser may see.
+
+It is also the honest test of the pitch. If *"agents you have to operate"* meant anything, it
+had to survive being operated.
+
+## Where your definitions live
+
+Everything you define lives in a `.agentdeck/` directory next to where you run. The path *is*
+the registration: no catalog file, no `__init__.py`, no decorator to remember.
+
+```text
+.agentdeck/
+├── agents/greeter/agent.py            # an Agent(...)
+├── workflows/new_booking/workflow.py  # a Workflow(...)
+└── skills/parse-request/              # SKILL.md + optional scripts
 ```
 
 ```python
-# main.py  -  the directory is the registration: no catalog file, no decorator
-import asyncio
-
-from agentdeck import Deck
-
-
-async def main() -> None:
-    async with Deck.from_project() as deck:  # discovers ./.agentdeck, fails fast
-        result = await deck.run("Greeter", "hello")
-        print(result.output)
-
-        await deck.run("Greeter", "and my name is Ada", session_id="wa-123")
-        async for event in deck.stream("Greeter", "what's my name?", session_id="wa-123"):
-            print(event.kind)  # text.delta … run.completed
-
-
-asyncio.run(main())
+async with Deck.from_project() as deck:   # discovers ./.agentdeck, fails fast
+    result = await deck.run("Greeter", "hello")
 ```
 
-**OpenAI Agents SDK × LangGraph × MCP**  -  sessions · streaming · one event log · human approval ·
-run control.
+`Deck` discovers, compiles and validates all of it before the first turn: a missing skill, an
+unknown MCP name or a workflow that cannot compile fails at `build()`, not in production.
 
-If AgentDeck is useful to you, [a star](https://github.com/agentdecksdk/agentdeck) helps other
-developers find it.
+Runnable projects are in [`examples/`](examples/): a chat agent with a tool, a workflow that
+pauses for human approval, an existing LangGraph agent wrapped without rewriting it, and Jack.
+All are built by the test suite, so none can quietly stop working.
 
-## Build, operate, connect
+## You build the behavior. AgentDeck manages the machinery.
 
-| Build | Operate | Connect |
-| --- | --- | --- |
-| `Agent` | Sessions | OpenAI Agents SDK |
-| `Workflow` | Streaming | LangGraph |
-| Tools | One event log per run | MCP servers |
-| Skills (`SKILL.md`) | Human approval (HITL) | HTTP + SSE (`agentdeck-serve`) |
-| `Context[T]` | Run control  -  pause / resume / cancel | Memory, Redis, SQLite, Postgres stores |
-
-## Why it splits that way
+| You | AgentDeck |
+| --- | --- |
+| application logic | execution |
+| agents, tools, workflows | sessions, streaming, one event log per run |
+| business state | pause, resume, cancel at documented safe points |
+| integrations | durable human approval that outlives the process |
 
 **AgentDeck owns configuration; the
 [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) and
 [LangGraph](https://langchain-ai.github.io/langgraph/) own execution.** There is no agent loop
-here, no graph engine, and no reimplementation of either  -  an `Agent` compiles to an SDK agent, a
-`Workflow` compiles to a LangGraph graph, and both are run by their own engine. What AgentDeck
-adds is the part those libraries deliberately leave to you: where definitions live, how they are
-configured, and what you can see and do while a run is in flight.
+here, no graph engine, and no reimplementation of either: an `Agent` compiles to an SDK agent, a
+`Workflow` compiles to a LangGraph graph, and each is run by its own engine. You keep native
+access when you need it.
 
 ## Who it is for
 
@@ -87,7 +165,7 @@ You want this if you are putting agents somewhere they have to keep working: sev
 workflows in one project, a chat surface and a batch path over the same definitions, runs you
 need to inspect afterwards, approvals that outlive the process that asked for them.
 
-You do not want this if you are writing one script that calls one model  -  use the Agents SDK
+You do not want this if you are writing one script that calls one model. Use the Agents SDK
 directly, and come back when the wiring around it has become the work. You also do not want it
 if you have already built your own harness: AgentDeck is opinionated about project layout and
 configuration, and those opinions are the product.
@@ -112,63 +190,13 @@ pip install agentdeck-sdk              # or, with the HTTP surface: agentdeck-sd
 export OPENAI_MODEL=gpt-4.1-mini OPENAI_API_KEY=sk-...
 ```
 
-The distribution is **`agentdeck-sdk`**; the import stays `agentdeck`. `OPENAI_BASE_URL` points it at any
-OpenAI-compatible endpoint instead (a gateway, vLLM, Ollama). Extras: `serve` for the HTTP
-surface, `durability` for the Postgres checkpointer and event store (SQLite ships in base  -
-`durable=True` works out of the box), `redis` for Redis-backed sessions or event log,
+The distribution is **`agentdeck-sdk`**; the import stays `agentdeck`. `OPENAI_BASE_URL` points
+it at any OpenAI-compatible endpoint instead (a gateway, vLLM, Ollama). Extras: `serve` for the
+HTTP surface, `durability` for the Postgres checkpointer and event store (SQLite ships in base,
+so `durable=True` works out of the box), `redis` for Redis-backed sessions or event log,
 `observability` for Langfuse tracing.
 
-Contributing to agentdeck itself is a different setup  -  see
-[CONTRIBUTING.md](CONTRIBUTING.md).
-
-## The project layout
-
-Everything you define lives in a `.agentdeck/` directory next to where you run. The path *is*
-the registration: no catalog file, no `__init__.py`, no decorator to remember.
-
-```text
-.agentdeck/
-├── agents/greeter/agent.py            # an Agent(...)
-├── workflows/new_booking/workflow.py  # a Workflow(...)
-└── skills/parse-request/              # SKILL.md + optional scripts
-```
-
-`Deck` discovers, compiles and validates all of it before the first turn  -  a missing skill, an
-unknown MCP name or a workflow that cannot compile fails at `build()`, not in production.
-
-Runnable projects are in [`examples/`](examples/)  -  a chat agent with a tool, a workflow that
-pauses for a human approval, an existing LangGraph agent wrapped without rewriting it, and the
-one below. All are built by the test suite, so none can quietly stop working.
-
-## Something built with it, that you can use right now
-
-The assistant on **[agentdecksdk.com](https://agentdecksdk.com/)**  -  the panel in the corner of
-every documentation page  -  is an AgentDeck agent. Ask it something about AgentDeck and it will
-search these docs, read the pages it finds, and cite them.
-
-Its entire source is [`examples/jack`](examples/jack/): 617 lines of Python for
-three tools over one `Context[DocsCorpus]`, streaming the run's own events to the browser over
-SSE. Not a demo written to look good in a README  -  it is the thing actually serving the site,
-including the parts a public endpoint needs and a demo skips: an origin check, a per-day quota, a
-token ceiling, and an allowlist deciding which event kinds a browser is allowed to see.
-
-It is also the honest test of the pitch. If *"agents you have to operate"* meant anything, it had
-to survive being operated.
-
-## What you get around your definitions
-
-- **Sessions**  -  `session_id=` keeps a conversation across calls and across surfaces, in memory
-  or in Redis.
-- **One event log per run**  -  every turn, however it was started, appends to the same ordered
-  log: text deltas, tool calls, token usage, the result. Status is folded from it, not stored.
-- **Run control**  -  an agent or workflow run in flight can be paused, resumed or cancelled by
-  id, at documented safe points, from another process.
-- **Human approval**  -  a `durable=True` workflow node calls `interrupt()`, the run parks, and
-  `deck.runs.list(status=...)` / `Run.answer()` finish it later, possibly somewhere else.
-- **An HTTP surface**  -  `agentdeck-serve` puts chat, SSE streaming, workflows, and the approval
-  inbox behind FastAPI without any code of yours.
-- **Tools, skills and MCP**  -  SDK tools as plain functions, skills as `SKILL.md` directories,
-  and named MCP servers from a `.mcp.json` beside your project.
+Contributing to agentdeck itself is a different setup: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Documentation
 
@@ -182,6 +210,9 @@ The full docs are at **[agentdecksdk.com](https://agentdecksdk.com/)**:
   lifecycle control
 - [Reference](https://agentdecksdk.com/reference/deck)  -  every setting and every `Deck`
   method, generated from the code
+
+If AgentDeck is useful to you, [a star](https://github.com/agentdecksdk/agentdeck) helps other
+developers find it.
 
 ## Project
 

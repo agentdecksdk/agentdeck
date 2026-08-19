@@ -1,5 +1,5 @@
 ---
-title: AgentDeck - agentic software should feel like software
+title: Agentic software should feel like software
 description: Build agents, tools and workflows as normal software. AgentDeck gives them one execution model you can observe, control and extend.
 ---
 
@@ -7,34 +7,11 @@ description: Build agents, tools and workflows as normal software. AgentDeck giv
 
 <Hero />
 
-<Compose>
+<Foundation />
+
+<Model>
 <Snippet status="shipped">
 ```python
-from agentdeck import Agent, Deck
-
-jack = Agent(
-    name="Jack",
-    instructions="Help developers build with AgentDeck.",
-)
-
-deck = Deck(agents=[jack])
-```
-</Snippet>
-</Compose>
-
-<Capabilities>
-<Snippet status="shipped">
-```python
-from agentdeck import Agent, Context, Deck
-
-def search_docs(query: str, docs: Context[DocsCorpus]) -> str:
-    """Find AgentDeck documentation pages matching a query."""
-    return docs.data.search(query)
-
-def read_doc(slug: str, docs: Context[DocsCorpus]) -> str:
-    """Read one AgentDeck documentation page in full, by its slug."""
-    return docs.data.pages[slug]
-
 jack = Agent(
     name="Jack",
     instructions="Help developers build with AgentDeck.",
@@ -44,101 +21,7 @@ jack = Agent(
 deck = Deck(agents=[jack], context=DocsCorpus)
 ```
 </Snippet>
-</Capabilities>
-
-<Process>
-<Snippet status="proposed">
-```python
-@workflow
-async def answer(question: str, ctx):
-    docs, examples = await ctx.parallel(
-        ctx.invoke(search_docs, question),
-        ctx.invoke(search_examples, question),
-    )
-
-    if not docs and not examples:
-        return "Nothing in the documentation covers that yet."
-
-    return await ctx.invoke(jack, {
-        "question": question,
-        "docs": docs,
-        "examples": examples,
-    })
-```
-</Snippet>
-</Process>
-
-<ExecutionTree />
-
-<SecondAgent>
-<Snippet status="proposed">
-```python
-@workflow
-async def answer(question: str, ctx):
-    researcher = ctx.agents.create(research_agent)
-
-    docs = await ctx.invoke(search_docs, question)
-    research = await ctx.invoke(researcher, question)
-
-    return await ctx.invoke(jack, {
-        "question": question,
-        "docs": docs,
-        "research": research,
-    })
-```
-</Snippet>
-</SecondAgent>
-
-<Interaction>
-<Snippet status="proposed">
-```python
-if needs_source:
-    source = await ctx.ask(
-        "Paste the code you want me to inspect."
-    )
-    research = await ctx.invoke(researcher, source)
-```
-</Snippet>
-</Interaction>
-
-<Control>
-<Snippet status="shipped" label="the root execution">
-```python
-run = await deck.runs.start("Jack", question)
-
-await run.pause()
-await run.resume()
-await run.cancel()
-
-await run.answer({"approved": True})
-```
-</Snippet>
-<Snippet status="proposed" label="a nested invocation, same handle">
-```python
-research = ctx.invoke(researcher, task)
-
-await research.pause()
-await research.resume()
-
-result = await research
-```
-</Snippet>
-</Control>
-
-<WholeDeck>
-<Snippet status="shipped">
-```python
-deck = Deck(
-    agents=[jack, researcher],
-    workflows=[answer],
-    context=App,
-)
-
-async with deck:
-    result = await deck.run("answer", question, context=app)
-```
-</Snippet>
-</WholeDeck>
+</Model>
 
 <MeetJack />
 
