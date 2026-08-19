@@ -17,7 +17,7 @@ import { Hero } from './hero'
 
 export { Hero }
 
-const RELEASE = '4.0.1'
+const RELEASE = '4.0.2'
 const REPO = 'https://github.com/agentdecksdk/agentdeck'
 const JACK_SOURCE = `${REPO}/tree/dev/examples/jack`
 

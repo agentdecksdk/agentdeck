@@ -60,10 +60,14 @@ def read_doc(slug: str, docs: Context[DocsCorpus]) -> str:
     """Read one AgentDeck documentation page in full, by its slug."""
     return docs.data.pages[slug]
 
+def read_changelog(subject: str, docs: Context[DocsCorpus]) -> str:
+    """Read AgentDeck's release history, by version or by topic."""
+    return docs.data.changelog(subject)
+
 jack = Agent(
     name="Jack",
     instructions="Help developers build with AgentDeck.",
-    tools=[search_docs, read_doc],
+    tools=[search_docs, read_doc, read_changelog],
 )
 
 deck = Deck(agents=[jack], context=DocsCorpus)
@@ -110,13 +114,16 @@ thing either reads.
 The panel on **[agentdecksdk.com](https://agentdecksdk.com/)** is that agent. Ask it something
 about AgentDeck and it searches these docs, reads the pages it finds, and cites them.
 
-Its whole source is [`examples/jack`](examples/jack/): three tools over one
-`Context[DocsCorpus]`, streaming the run's own canonical events to the browser over SSE with no
-translation layer on either side. Not a demo written to look good in a README. It is the thing
-serving the site, including the parts a public endpoint needs and a demo skips: an origin check,
-a per-day quota, a token ceiling, and an allowlist deciding which event kinds a browser may see.
+He is three tools over one `Context[DocsCorpus]`, streaming the run's own canonical events to
+the browser over SSE with no translation layer on either side, and he is the thing serving the
+site: an origin check, a per-day quota, a token ceiling, and an allowlist deciding which event
+kinds a browser may see are all parts a public endpoint needs and a demo skips.
 
-It is also the honest test of the pitch. If *"agents you have to operate"* meant anything, it
+**[How Jack is built](https://agentdecksdk.com/jack)** walks the whole application, and
+**[Implementation notes](https://agentdecksdk.com/jack/notes)** records each decision and the
+alternative it beat. The source is [`examples/jack`](examples/jack/).
+
+He is also the honest test of the pitch. If *"agents you have to operate"* meant anything, it
 had to survive being operated.
 
 ## Where your definitions live
@@ -140,17 +147,26 @@ async with Deck.from_project() as deck:   # discovers ./.agentdeck, fails fast
 unknown MCP name or a workflow that cannot compile fails at `build()`, not in production.
 
 Runnable projects are in [`examples/`](examples/): a chat agent with a tool, a workflow that
-pauses for human approval, an existing LangGraph agent wrapped without rewriting it, and Jack.
-All are built by the test suite, so none can quietly stop working.
+pauses for human approval, an existing LangGraph agent wrapped without rewriting it, and
+[Jack](https://agentdecksdk.com/jack). All are built by the test suite, so none can quietly stop
+working.
 
 ## You build the behavior. AgentDeck manages the machinery.
 
-| You | AgentDeck |
+Your code stays about the behavior and the structure of your application. Everything a run
+needs around it already has a place, and they were designed to work together: less machinery to
+build today, and nothing to retrofit when you need the next one.
+
+| You own | AgentDeck owns |
 | --- | --- |
-| application logic | execution |
-| agents, tools, workflows | sessions, streaming, one event log per run |
-| business state | pause, resume, cancel at documented safe points |
-| integrations | durable human approval that outlives the process |
+| agents, tools, workflows | **Events.** One ordered stream of what happened. |
+| what progress means | **Reporting.** Progress and status, sent from inside the work. |
+| when work should stop | **Control.** Execution paused, resumed or cancelled at safe points. |
+| when a person decides | **Interaction.** Branches that wait for external input. |
+| business state | **State.** Sessions that outlive a single call. |
+| your UI and integrations | **Surfaces.** Observers, HTTP and your UI read the same run. |
+
+The complexity is still there. It just lives in the layer built for it.
 
 **AgentDeck owns configuration; the
 [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) and
