@@ -29,37 +29,24 @@ import os
 import re
 import sys
 
+from evalset import GOLDEN, Case
 from jack.agent import jack
 from jack.corpus import DocsCorpus
+from jack.session import BoundedSessions
 
 from agentdeck import Deck
 
-# One per category #219 names, so a gap in coverage is visible as a missing row.
-QUESTIONS = [
-    ("agent creation", "how do I create an agent?"),
-    ("deck composition", "what is Deck responsible for?"),
-    ("tools", "how do I give an agent a tool?"),
-    ("skills", "show me an example using skills"),
-    ("workflows", "how do I define a workflow?"),
-    ("runtime context", "how does runtime context work?"),
-    ("events", "what is in the event log and how do I read a run back?"),
-    ("observability", "how do I send traces to Langfuse?"),
-    ("version-specific", "what is the default value of AGENTDECK_EVENTS?"),
-    ("multimodal", "can I send an image to an agent?"),
-    ("run control", "how do I pause and resume a run?"),
-    ("refusal", "how do I add rate limiting to my deck?"),
-]
-
-REFUSAL_EXPECTED = {"refusal"}
-"""Categories where the *right* answer is "the documentation does not cover this". Scored
-inverted: naming an API here is the failure, because nothing in the corpus supports one."""
+GOLDEN_IDS = {case.id for case in GOLDEN}
 
 _BACKTICKED = re.compile(r"`([^`\n]{2,60})`")
 # Code-shaped: an env var, a dotted name, a call, a snake_case or CamelCase identifier. Prose in
 # backticks ("the `name` argument") is not worth checking and would drown the signal.
 _CODEISH = re.compile(r"^(?:[A-Z][A-Z0-9_]{3,}|[\w.]+\(\)?|[a-z]+_[a-z_]+|[A-Z][a-z]+[A-Z]\w*)$")
 _REFUSAL = re.compile(
-    r"do(?:es)? not (?:cover|mention|indicate|appear)|no(?:t| ) (?:documented|covered)|could not find", re.I
+    r"do(?:es)? not (?:cover|mention|indicate|appear|contain|include|support|currently)"
+    r"|no(?:t| ) (?:documented|covered|directly supported|currently (?:offer|support))"
+    r"|could not find|couldn't find|no built-in|does not (?:offer|provide)",
+    re.I,
 )
 
 
@@ -67,47 +54,76 @@ def code_tokens(answer: str) -> set[str]:
     return {token.strip("()") for token in _BACKTICKED.findall(answer) if _CODEISH.match(token)}
 
 
+async def ask(deck, corpus, case: Case, session: str | None) -> tuple[str, list[str], list[str]]:
+    """One turn. Returns the answer, the slugs read, and every tool called."""
+    answer, read, tools = "", [], []
+    async for event in deck.stream("Jack", case.question, context=corpus, session_id=session):
+        if event.kind == "tool.call.started":
+            tools.append(event.payload.tool)
+            if event.payload.tool == "read_doc":
+                read.append(event.payload.args.get("slug", ""))
+        elif event.kind == "text.delta":
+            answer += event.payload.text
+    return answer, read, tools
+
+
+def judge(case: Case, answer: str, read: list[str], tools: list[str], everything: str) -> list[str]:
+    """Why this case failed, or an empty list. Every check is exact; none is a score."""
+    problems: list[str] = []
+    tokens = code_tokens(answer)
+    invented = sorted(token for token in tokens if token not in everything)
+    if invented:
+        problems.append(f"invented: {invented}")
+
+    refused = bool(_REFUSAL.search(answer))
+    lowered = answer.lower()
+    missing = [phrase for phrase in case.must_mention if phrase.lower() not in lowered]
+
+    if case.expect == "refuse":
+        if not refused:
+            problems.append("answered a question the corpus does not cover")
+    elif case.expect == "changelog":
+        if "read_changelog" not in tools:
+            problems.append("a version question answered without reading the changelog")
+        if refused:
+            problems.append("refused a version question the changelog answers")
+    else:
+        if refused:
+            problems.append("refused a question the corpus does answer")
+        elif not read and not case.follows:
+            problems.append("answered without reading a page")
+    if missing:
+        problems.append(f"missing: {missing}")
+    return problems
+
+
 async def main() -> int:
     corpus = DocsCorpus()
-    everything = "\n".join(corpus.pages.values())
-    failures = 0
+    # The changelog counts as grounding: the instructions send version questions to it, and a
+    # name that appears only there is history, not invention.
+    everything = "\n".join([*corpus.pages.values(), *(body for _v, _d, body in corpus.releases)])
+    failures: list[str] = []
+    chain = 0
 
-    async with Deck(agents=[jack], context=DocsCorpus) as deck:
-        for category, question in QUESTIONS:
-            read: list[str] = []
-            answer = ""
-            async for event in deck.stream("Jack", question, context=corpus):
-                if event.kind == "tool.call.started" and event.payload.tool == "read_doc":
-                    read.append(event.payload.args.get("slug", ""))
-                elif event.kind == "text.delta":
-                    answer += event.payload.text
+    async with Deck(agents=[jack], context=DocsCorpus, session_factory=BoundedSessions()) as deck:
+        for case in GOLDEN:
+            if case.follows is None:
+                chain += 1
+            session = f"eval-{chain}" if case.category == "multi-turn" else None
 
-            tokens = code_tokens(answer)
-            invented = sorted(token for token in tokens if token not in everything)
-            grounded_text = "\n".join(corpus.pages[slug] for slug in read if slug in corpus.pages)
-            recalled = sorted(token for token in tokens - set(invented) if token not in grounded_text)
-            refused = bool(_REFUSAL.search(answer))
+            answer, read, tools = await ask(deck, corpus, case, session)
+            problems = judge(case, answer, read, tools, everything)
 
-            problems = []
-            if invented:
-                problems.append(f"invented: {invented}")
-            if category in REFUSAL_EXPECTED:
-                if not refused:
-                    problems.append("answered a question the docs do not cover")
-            elif not read:
-                problems.append("answered without reading a page")
-            elif refused:
-                problems.append("refused a question the docs do answer")
-
-            failures += bool(problems)
-            mark = "FAIL" if problems else "ok  "
-            print(f"{mark} {category:18} read={read or '-'}")
+            if problems:
+                failures.append(case.id)
+            print(f"{'FAIL' if problems else 'ok  '} {case.id:16} {case.category:15} tools={tools or '-'}")
             for problem in problems:
                 print(f"       ! {problem}")
-            if recalled:
-                print(f"       ~ in the corpus but not in the pages read: {recalled}")
 
-    print(f"\n{len(QUESTIONS) - failures}/{len(QUESTIONS)} grounded")
+    passed = len(GOLDEN) - len(failures)
+    print(f"\n{passed}/{len(GOLDEN)} valid")
+    if failures:
+        print(f"failed: {', '.join(failures)}")
     return 1 if failures else 0
 
 
