@@ -80,12 +80,16 @@ Jack did not assemble these. They are what a `Deck` gives an application the mom
 
 The live experience on this site is that model, exposed.
 
-```text
-Jack executes through AgentDeck
-   → the run emits canonical events
-   → a surface streams them
-   → the site renders the conversation and the tree beside it
+```mermaid
+flowchart TD
+    stream["Deck.stream()<br/>canonical Event"] --> filter["PUBLIC_KINDS filter<br/>run.started<br/>text.delta<br/>tool.call.started<br/>run.completed<br/>run.failed"]
+    filter -->|"canonical Event unchanged"| sse["SSE response<br/>data: event.model_dump_json()"]
+    sse --> browser{"Browser<br/>switch (event.kind)"}
+    browser -->|"text.delta"| transcript["Transcript"]
+    browser -->|"run.started<br/>tool.call.started<br/>run.completed<br/>run.failed"| tree["Execution tree"]
 ```
+
+The allowlist drops other event kinds without reshaping the canonical events it permits.
 
 The route is a few lines over `deck.stream()`, and the wire is the event log itself:
 
