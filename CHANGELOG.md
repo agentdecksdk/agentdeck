@@ -8,6 +8,8 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [4.0.5] - 2026-08-19
+
 ### Added
 
 - **Jack's citations are links.** He names the pages he used at the end of an answer in several

@@ -22,7 +22,7 @@ const DOC_SLUGS = docsSlugs()
 
 export { Hero }
 
-const RELEASE = '4.0.4'
+const RELEASE = '4.0.5'
 const REPO = 'https://github.com/agentdecksdk/agentdeck'
 const JACK_SOURCE = `${REPO}/tree/dev/examples/jack`
 
