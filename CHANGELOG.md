@@ -8,6 +8,8 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [4.0.4] - 2026-08-19
+
 ### Added
 
 - **`examples/jack` bounds its conversation memory.** A session re-sends its whole history every
