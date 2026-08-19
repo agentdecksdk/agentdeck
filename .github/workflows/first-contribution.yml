@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
-      pull-requests: read
+      pull-requests: write
     env:
       GH_TOKEN: ${{ github.token }}
       AUTHOR: ${{ github.event.pull_request.user.login }}
@@ -96,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       issues: write
-      pull-requests: read
+      pull-requests: write
     env:
       GH_TOKEN: ${{ github.token }}
       AUTHOR: ${{ github.event.pull_request.user.login }}
