@@ -67,10 +67,9 @@ class BoundedSession:
     def __init__(self, inner: Session, budget: int = DEFAULT_BUDGET) -> None:
         self._inner = inner
         self._budget = budget
-
-    @property
-    def session_id(self) -> str:
-        return self._inner.session_id
+        # Plain attributes, not properties: the `Session` protocol declares both writable.
+        self.session_id = inner.session_id
+        self.session_settings = getattr(inner, "session_settings", None)
 
     async def get_items(self, limit: int | None = None) -> list[Any]:
         return within_budget(await self._inner.get_items(limit), self._budget)
@@ -100,7 +99,7 @@ class BoundedSessions:
     def session_for(self, session_id: str) -> Session:
         if session_id not in self._sessions:
             self._sessions[session_id] = BoundedSession(SQLiteSession(session_id), self._budget)
-        return self._sessions[session_id]  # ty: ignore[invalid-return-type]
+        return self._sessions[session_id]
 
     async def aclose(self) -> None:
         self._sessions.clear()
