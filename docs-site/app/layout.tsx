@@ -5,6 +5,7 @@ import { Head } from 'nextra/components'
 import { Mark } from './mark'
 import { getPageMap } from 'nextra/page-map'
 import type { ReactNode } from 'react'
+import { docsSlugs } from './docs-slugs'
 import { JackPanel } from './jack'
 import { SITE } from './site'
 import 'nextra-theme-docs/style.css'
@@ -107,7 +108,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         >
           {children}
         </Layout>
-        <JackPanel />
+        <JackPanel validSlugs={docsSlugs()} />
       </body>
     </html>
   )

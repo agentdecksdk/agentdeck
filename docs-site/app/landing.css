@@ -744,6 +744,18 @@ article:has(.landing) > .x\:float-end {
   font-size: 0.8rem;
 }
 
+/* A citation, same accent as the rest of the panel in both themes (--accent already flips
+   between --brand-blue and --brand-frost inside .dark .landing). */
+.jack-answer a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.jack-answer a:hover {
+  text-decoration-thickness: 2px;
+}
+
 .jack-error {
   margin: 0.5rem 0 0;
   font-size: 0.85rem;

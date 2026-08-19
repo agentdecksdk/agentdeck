@@ -13,11 +13,13 @@
  * the events that are public rather than faked from the ones that are not.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { TreeFigure, type TreeNode } from './deck-figure'
+import { AnswerLink } from './jack-answer-link'
+import { jackCitationsPlugin } from './jack-citations'
 import { JackUnavailable, askJack } from './jack-stream'
 
 const EXAMPLES = [
@@ -66,7 +68,8 @@ function asTree(run: RunView): TreeNode {
   }
 }
 
-export function JackLive() {
+export function JackLive({ validSlugs }: { validSlugs: string[] }) {
+  const slugs = useMemo(() => new Set(validSlugs), [validSlugs])
   const [question, setQuestion] = useState('')
   // A transcript, not one exchange: asking a second question used to replace the first, which
   // reads as the chat having failed rather than as having moved on.
@@ -154,7 +157,12 @@ export function JackLive() {
               <p className="jack-question">{turn.question}</p>
               {turn.answer && (
                 <div className="jack-answer">
-                  <Markdown remarkPlugins={[remarkGfm]}>{turn.answer}</Markdown>
+                  <Markdown
+                    remarkPlugins={[remarkGfm, [jackCitationsPlugin, slugs]]}
+                    components={{ a: AnswerLink }}
+                  >
+                    {turn.answer}
+                  </Markdown>
                 </div>
               )}
             </div>
