@@ -114,6 +114,24 @@ GOLDEN: tuple[Case, ...] = (
     Case("neg-pricing", "refusal", "What does AgentDeck Cloud cost per million tokens?", "refuse"),
     Case("neg-ratelimit", "refusal", "How do I add rate limiting to my deck?", "refuse"),
     Case("neg-auth", "refusal", "How do I enable multi-tenant authentication?", "refuse"),
+    Case("neg-sandbox", "refusal", "How do I sandbox tool execution so a tool cannot touch the filesystem?", "refuse"),
+    Case("neg-evalfw", "refusal", "Which built-in evaluation framework does AgentDeck ship?", "refuse"),
+    Case("neg-market", "refusal", "How do I publish an agent to the AgentDeck marketplace?", "refuse"),
+    # -- documented, but phrased the way a doubtful reader phrases it ----------------------------
+    # The other direction of the same failure, and the direction that shipped: refusing these is
+    # the bug. Each is answered in full by a page, and each is worded to invite a hedge.
+    Case("hedge-prod", "hedged", "Can I actually run this in production, or is it a toy?", "answer"),
+    Case("hedge-cancel", "hedged", "Is there any way to cancel a run that has already started?", "answer", ("cancel",)),
+    Case("hedge-after", "hedged", "Once a run has finished, can I still get its events back?", "answer", ("events",)),
+    Case("hedge-restart", "hedged", "Does anything at all survive if my process restarts?", "answer"),
+    Case("hedge-human", "hedged", "Is it even possible to make a workflow wait for a person?", "answer"),
+    Case(
+        "hedge-isolate",
+        "hedged",
+        "Can I keep one tenant's runs from showing up in another's?",
+        "answer",
+        ("namespace",),
+    ),
 )
 
 assert len({case.id for case in GOLDEN}) == len(GOLDEN), "case ids must be unique"

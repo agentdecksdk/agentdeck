@@ -19,3 +19,7 @@ __pycache__/
 docs/brand/*.png
 docs/brand/*.webp
 docs/brand/*.jpg
+
+# deepeval writes a cache and a telemetry marker beside the suite
+.deepeval/
+.deepeval-cache.json

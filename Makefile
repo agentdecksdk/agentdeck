@@ -37,8 +37,13 @@ docs-reference: ## regenerate the five generated docs-site files from the code
 roadmap-sync:   ## refresh the live-status tables in docs/delivery/ from GitHub (gh required)
 	.venv/bin/python scripts/sync_roadmap.py
 
-eval-docs-agent: ## Jack grounding, against a real model — not in the gate (see examples/jack/eval.py)
+eval-docs-agent: ## Jack grounding, exact checks only, no extra dependency (examples/jack/eval.py)
 	cd examples/jack && ../../.venv/bin/python eval.py
+
+eval-jack:      ## Jack, judged: relevancy and faithfulness beside the exact checks, one report
+	# deepeval downgrades click and rich and ships posthog, so it never enters .venv.
+	cd examples/jack && DEEPEVAL_TELEMETRY_OPT_OUT=YES \
+	  uv run --quiet --with deepeval --python 3.12 python -m evals.run $(ARGS)
 
 check: lint typecheck lint-imports test   ## full gate
 
