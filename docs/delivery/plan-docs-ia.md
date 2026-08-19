@@ -7,10 +7,10 @@
 
 The site is not mis-organised. It is unwritten.
 
-23 of 33 pages are two-sentence placeholders. The whole site is 1,476 lines, of which 759 are the
-four generated reference pages. Six hand-written pages carry real content: `known-issues`, `quickstart`, `jack`, `jack/notes`,
-`overview` and the landing page. Three more reach a single code block. Every remaining page states
-a definition and stops.
+33 pages, 1,476 lines. Four generated reference pages carry 759 of them. Six hand-written pages
+carry real content: `known-issues`, `quickstart`, `jack`, `jack/notes`, `overview` and the landing
+page. The remaining 23 are two-sentence placeholders, three of which reach a single code block.
+Every one of the 23 states a definition and stops.
 
 An IA already exists and is binding: `docs/spec.md` §28. The shipped nav does not implement it, and
 §78 forbids incrementally polishing what shipped. So deliverable 2 below is that IA, pruned by the
@@ -101,13 +101,13 @@ page is complete enough to say which owns it.
 
 | # | Finding | Evidence |
 |---|---|---|
-| S1 | Every category root serves a raw directory listing | `/meet-agentdeck/`, `/reference/`, `/resources/` return 200 with `<title>Files within out/meet-agentdeck/</title>` |
-| S2 | No group has an index page | no `index.mdx` outside `content/` and `content/examples/` |
+| S1 | Six category roots serve a raw directory listing | `/meet-agentdeck/`, `/build-your-deck/`, `/runs-and-control/`, `/integrations/`, `/reference/`, `/resources/` return 200 with `<title>Files within out/...</title>`; `/examples/` and `/jack/` render because they have a page |
+| S2 | Only two groups have an index page | `index.mdx` exists in `content/` and `content/examples/` only; `jack` resolves through `jack.mdx` |
 | S3 | Reference is half generated, half hand-written, with no marker | `deck`/`cli`/`settings`/`changelog` generated; `python-api`/`run`/`events` hand-written and already wrong |
 | S4 | Conceptual material sits in Reference | `/reference/run` explains what a Run is; `/run/runs` should |
 | S5 | Reference material sits in concept pages | `/runs-and-control/lifecycle-and-control` is a state table |
 | S6 | Nav groups are branded, routes are not stable | "Meet AgentDeck", "Build Your Deck", "Runs & Control" read as marketing; spec §27 names them Start Here / Build / Compose / Run |
-| S7 | Four open docs GFIs target routes that do not exist | #241 `add-a-tool`, #246 `serve-over-http`, #235, #254 |
+| S7 | All four open docs GFIs are stale | #241 names `add-a-tool` and #246 names `serve-over-http`, neither of which is a route; #235 and #254 quote the removed v3 API (`deck.answer(run_id, value)`) |
 | S8 | `Reporter` has no page anywhere | `agentdeck/core/reporting.py`, 3 of 21 event kinds (`progress.reported`, `status.reported`, `usage.reported`) |
 | S9 | Observers have no page anywhere | `agentdeck/observers.py`, `core/ports/sink.py` |
 | S10 | Durability and recovery have no page | `AGENTDECK_EVENTS` vs `AGENTDECK_CHECKPOINT` split is a documented trap in Known Issues and nowhere else |
@@ -317,7 +317,7 @@ authoritative part. No page is `Comm` on its own.
 | `/resources/migration-guides` | Reference | no | The exact edits each major release requires. |
 | `/resources/known-issues` | Core | no | Defects in the current release that will surprise you. |
 
-Totals: 24 Core, 8 Reference, 6 Guide, 2 Example families, 25 Comm-eligible.
+Totals across 42 rows: 25 Core, 9 Reference, 6 Guide, 2 Example families, 21 Comm-eligible.
 No Core page is delegated. Every `Comm` page is the project's own text plus a scoped invitation.
 
 ---
@@ -519,8 +519,8 @@ three-value axis does not earn three labels.
 | Medium | One runnable guide or one integration example | yes |
 | Advanced | A full application example or a protocol integration | no |
 
-Before any of these are filed, #235, #241, #246 and #254 need retargeting: all four name routes
-that this plan retires.
+Before any of these are filed, #235, #241, #246 and #254 need retargeting: two name routes that do
+not exist, and two quote the v3 `deck.answer(run_id, value)` that v4 removed.
 
 ---
 
@@ -563,7 +563,7 @@ lifecycle, the Deck build sequence, the error taxonomy. Those are P1 and ours.
 | 0.3 | Land the nav and route layout in §2 with redirects for all 20 moved routes | Content written against the old tree has to move twice otherwise |
 | 0.4 | Generate `/reference/events`, `/reference/run`, `/reference/python-api` | Hand-written reference beside generated reference drifts by construction (S3) |
 | 0.5 | Fix the one-run lag in `scripts/generate_docs_reference.py` | S13; every release ships a stale `llms-full.txt` |
-| 0.6 | Retarget #235, #241, #246, #254 | They point at routes this plan retires |
+| 0.6 | Retarget #235, #241, #246, #254 | Two name routes that never existed, two quote a removed API |
 | 0.7 | Version-stamp Known Issues against the current release | It claims v4.0.0 at v4.0.2 |
 
 ### P1: Core docs we own
