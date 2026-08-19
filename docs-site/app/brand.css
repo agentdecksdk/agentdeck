@@ -714,3 +714,89 @@ code {
     padding: 0.85rem 1rem;
   }
 }
+
+/* Contribution invitation  -  a footer on a finished page, never a warning.
+   The 5px cut corner is the site's card idiom; a Callout would read as a defect notice. */
+.ad-contribute {
+  margin: 3rem 0 0;
+  padding: 1.1rem 1.25rem;
+  border: 1px solid var(--brand-border-light);
+  border-left: 3px solid var(--brand-blue);
+  border-radius: 12px 12px 5px 12px;
+  background: var(--brand-ice);
+}
+
+.dark .ad-contribute {
+  border-color: var(--brand-border-dark);
+  border-left-color: var(--brand-frost);
+  background: var(--brand-slate);
+}
+
+.ad-contribute__head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.55rem;
+}
+
+.ad-contribute__spark {
+  color: var(--brand-blue);
+  flex: none;
+}
+
+.dark .ad-contribute__spark {
+  color: var(--brand-frost);
+}
+
+.ad-contribute__label {
+  font-family: var(--font-display), system-ui, sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--brand-night);
+}
+
+.dark .ad-contribute__label {
+  color: #f8fafc;
+}
+
+.ad-contribute__meta {
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brand-cool-gray);
+}
+
+.ad-contribute__body {
+  margin: 0 0 0.75rem;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: #475569;
+}
+
+.dark .ad-contribute__body {
+  color: #cbd5e1;
+}
+
+.ad-contribute__link {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--brand-blue);
+  text-decoration: none;
+}
+
+.dark .ad-contribute__link {
+  color: var(--brand-frost);
+}
+
+.ad-contribute__link:hover {
+  text-decoration: underline;
+}
+
+.ad-contribute__issue {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-weight: 500;
+  opacity: 0.75;
+}

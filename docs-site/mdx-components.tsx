@@ -2,6 +2,7 @@ import { Callout, Cards, Steps, Tabs } from 'nextra/components'
 import { useMDXComponents as getThemeComponents } from 'nextra-theme-docs'
 import { MentalModel } from './app/diagram'
 import { BrandCallout } from './app/callout'
+import { Contribute } from './app/contribute'
 import {
   SparkMarker,
   DeckSurface,
@@ -27,6 +28,7 @@ export function useMDXComponents(components = {}) {
     Tabs,
     MentalModel,
     BrandCallout,
+    Contribute,
     SparkMarker,
     DeckSurface,
     AgentDeckCodeBlock,
