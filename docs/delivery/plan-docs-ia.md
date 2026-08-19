@@ -1,7 +1,18 @@
 # Plan: documentation information architecture
 
 **Baseline:** site as deployed at v4.0.2 (2026-08-19) · **Authority:** `docs/spec.md` §27-36, §69-80
-**Status:** audit and proposal. No page rewritten, no route moved, no issue filed.
+**Status:** audit and proposal, partly implemented on this branch.
+
+| Part | State |
+|---|---|
+| Audit, sitemap, migration plan, ownership matrix (§1-4) | Proposal only |
+| `<Contribute />` component (§5) | Built: `docs-site/app/contribute.tsx` |
+| Issue template (§6) | Built: `.github/ISSUE_TEMPLATE/docs_contribution.yml` |
+| Backlog (§7) | Proposal, except the four issues below |
+| First placements | #350 `/jack`, #351 `/meet-agentdeck/quickstart`, #352 `/resources/known-issues`, #353 `/jack/notes` |
+
+No route moved. No stub page rewritten. The four pages carrying `<Contribute />` are the four that
+were already substantive, which is the §5 rule applied rather than an exception to it.
 
 ## The headline
 
@@ -334,7 +345,8 @@ already written. It never appears on a page that is not yet useful.
   issue={412}
   difficulty="medium"
   scope="example"
-  need="a runnable example of an Observer forwarding Run events into a logging backend"
+  need="This page documents the Observer contract and shows a minimal sink, and nothing here shows one consuming a real run."
+  because="A reader needs to see what a production observer actually does with the events."
 />
 ```
 
@@ -342,8 +354,9 @@ already written. It never appears on a page that is not yet useful.
 |---|---|---|
 | `issue` | number | The one issue this invites; renders as `#412` and the link target |
 | `difficulty` | `small \| medium \| advanced` | Sets the badge and tells the reader the size before they click |
-| `scope` | `example \| guide \| diagram \| troubleshooting \| integration` | Sets the heading verb |
-| `need` | string | One sentence naming what is missing, written per page |
+| `scope` | `example \| guide \| diagram \| troubleshooting \| integration` | Sets the second half of the badge |
+| `need` | string | What is missing, in one sentence, written per page |
+| `because` | string | Why it helps, in one sentence, written per page |
 
 No fetch, no build-time GitHub call, no backend. Issue state is not shown, because a stale "open"
 badge is worse than none and the lifecycle below removes the component instead.
@@ -366,8 +379,9 @@ reader can see what a production observer actually does with them.
 Take this contribution  #412 →
 ```
 
-Three sentences, fixed shape: what is here, what is missing, why it helps. The reader who never
-clicks still learns the page's boundary.
+Two sentences, fixed shape: what is missing, why it helps. `need` carries enough of what the page
+already covers to make the gap legible, so the reader who never clicks still learns the page's
+boundary.
 
 ### Rules
 
@@ -465,7 +479,6 @@ body:
         - [ ] Uses only public APIs from `agentdeck`
         - [ ] Any code shown runs against the current release
         - [ ] Does not duplicate the Quickstart
-        - [ ] Explains the concept in fewer than N paragraphs
         - [ ] Includes the expected output
         - [ ] Links the related reference page
         - [ ] `make check` passes
