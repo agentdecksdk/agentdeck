@@ -8,6 +8,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+
+- **`examples/jack` can trace itself.** Setting `AGENTDECK_LANGFUSE_PUBLIC_KEY` attaches the
+  packaged `Langfuse` observer, and setting `AGENTDECK_EVENTS` to a `sqlite://` URL makes the run
+  log durable. Both are off by default, so a clone still runs with no backend. Both store what
+  callers typed; the example's README says what that means for a public endpoint.
+
 ## [4.0.3] - 2026-08-19
 
 ### Added

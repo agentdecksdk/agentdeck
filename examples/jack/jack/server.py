@@ -38,11 +38,14 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from agentdeck import Deck
+from agentdeck.runtime.settings import get_settings
 from jack.agent import jack
 from jack.corpus import DocsCorpus
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+    from agentdeck.core.ports import EventSinkPort
 
 AGENT = "Jack"
 
@@ -162,6 +165,23 @@ def page_context_input(asked: Question, corpus: DocsCorpus | None = None) -> str
     return "\n".join(lines)
 
 
+def observers() -> list[EventSinkPort]:
+    """Langfuse when it is configured, nothing when it is not.
+
+    A public endpoint that keeps no record of itself cannot be debugged after a complaint and
+    cannot be audited at all, and this one is unauthenticated. But a reader who clones the example
+    should not need a tracing backend to run it, so the keys decide: set
+    ``AGENTDECK_LANGFUSE_PUBLIC_KEY`` and runs are traced, leave it unset and nothing is sent.
+
+    Traces carry what visitors typed. Point this at an instance you control.
+    """
+    if not get_settings().langfuse.public_key:
+        return []
+    from agentdeck.observers import Langfuse
+
+    return [Langfuse()]
+
+
 def build_app(corpus: DocsCorpus | None = None) -> FastAPI:
     """The whole surface. Takes the corpus so a test can point it at a fixture directory."""
 
@@ -173,7 +193,7 @@ def build_app(corpus: DocsCorpus | None = None) -> FastAPI:
         against the declared type, and that should fail at startup, not on someone's question.
         """
         resolved = corpus or DocsCorpus()
-        async with Deck(agents=[jack], context=DocsCorpus) as deck:
+        async with Deck(agents=[jack], context=DocsCorpus, observers=observers()) as deck:
             app.state.deck, app.state.corpus = deck, resolved
             app.state.quota = Quota(SESSIONS_PER_DAY, TURNS_PER_SESSION)
             yield
