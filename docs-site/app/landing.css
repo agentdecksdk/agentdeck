@@ -714,6 +714,12 @@ article:has(.landing) > .x\:float-end {
   color: var(--accent);
 }
 
+.jack-turn + .jack-turn {
+  margin-top: 1.4rem;
+  padding-top: 1.4rem;
+  border-top: 1px solid var(--rail);
+}
+
 .jack-question {
   margin: 0 0 0.9rem;
   padding-left: 0.75rem;

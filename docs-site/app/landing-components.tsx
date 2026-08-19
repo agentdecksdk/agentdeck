@@ -138,9 +138,6 @@ export function MeetJack({ children }: { children?: React.ReactNode }) {
           <Link href="/jack" className="cta-ghost">
             See how Jack is built
           </Link>
-          <a href={JACK_SOURCE} target="_blank" rel="noreferrer" className="cta-ghost">
-            Source on GitHub
-          </a>
         </div>
         {children && <div className="jack-wiring">{children}</div>}
       </div>

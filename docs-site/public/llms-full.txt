@@ -1020,52 +1020,32 @@ AgentDeck runs OpenAI Agents natively while adding sessions, durable runs, and e
 
 # How Jack is built
 
-*The reference application, step by step, with the decision behind each step and the alternative it beat.*
+*What building a real application with AgentDeck looks like, and what AgentDeck provides around your application code.*
 Source: https://agentdecksdk.com/jack
 
 # How Jack is built
 
-Jack is the developer agent answering questions on this site. He is not a demo written to look
-good in a walkthrough: he is the application actually serving the documentation, quota and origin
-checks included, and his whole source is
-[`examples/jack`](https://github.com/agentdecksdk/agentdeck/tree/dev/examples/jack).
+Jack is the AgentDeck documentation agent running on this site. The same application powers the
+live experience at the bottom of the home page, and its source is in the repository.
 
-This page builds him in the order he was built, and says why each step went the way it did.
-Where a reasonable alternative exists, it is named along with the reason it lost.
+This page shows what building a real application with AgentDeck looks like: what you write, and
+what you get around it.
 
-## 1. An agent, and a Deck to hold it
+## The application
 
-The smallest useful system is one declaration and one composition root.
+Jack answers questions about AgentDeck by reading its documentation.
 
-```python
-from agentdeck import Agent, Deck
-
-jack = Agent(
-    name="Jack",
-    instructions="Help developers build with AgentDeck.",
-)
-
-deck = Deck(agents=[jack])
+```text
+Question
+   → Jack
+      → search_docs / read_doc / read_changelog
+   → Answer
 ```
 
-A `Deck` is where an agentic application comes together. Everything that follows is added to this
-same object rather than wired to a new one.
-
-<BrandCallout kind="model" title="Why not Deck.from_project()">
-Every other example here discovers its catalog from a `.agentdeck/` directory, and Jack cannot.
-His tools and his Deck share one `DocsCorpus` class, and a bundle has no clean way to share a
-type with the program composing it: a module beside `.agentdeck/` only imports when the process
-started in that directory, and a module inside it resolves through `agentdeck_project`, an
-internal alias that exists only *after* `from_project()` has run. Explicit composition has
-neither problem. See [Deck](/build-your-deck/deck) for both front doors.
-</BrandCallout>
-
-## 2. Capabilities, as ordinary functions
-
-Jack answers from the documentation, so he needs to search it and read it.
+That shape is the whole application, and the code says the same thing:
 
 ```python
-from agentdeck import Context
+from agentdeck import Agent, Context, Deck
 
 def search_docs(query: str, docs: Context[DocsCorpus]) -> str:
     """Find AgentDeck documentation pages matching a query."""
@@ -1074,21 +1054,7 @@ def search_docs(query: str, docs: Context[DocsCorpus]) -> str:
 def read_doc(slug: str, docs: Context[DocsCorpus]) -> str:
     """Read one AgentDeck documentation page in full, by its slug."""
     return docs.data.pages[slug]
-```
 
-**Tools do work. Agents make decisions.** These are plain functions, and deliberately not
-decorated.
-
-<BrandCallout kind="model" title="Why no @function_tool">
-A tool that declares a `Context` parameter must stay undecorated. The decorator puts every
-parameter into the schema the model sees, and the model has no `DocsCorpus` to pass. `build()`
-compiles the function instead, and the model is offered only `query` or `slug`. More in
-[Tools](/build-your-deck/tools) and [Context](/build-your-deck/context).
-</BrandCallout>
-
-## 3. Declaring the context type
-
-```python
 jack = Agent(
     name="Jack",
     instructions=instructions,
@@ -1098,38 +1064,50 @@ jack = Agent(
 deck = Deck(agents=[jack], context=DocsCorpus)
 ```
 
-`context=DocsCorpus` is the *type*; the instance goes in per run. Declaring it makes `build()`
-check every `Context[...]` in the catalog, tools and the instructions callable alike, before a
-question is ever asked. Declare the wrong type and it raises `ContextTypeError` naming both,
-at startup rather than mid-answer.
+Three ordinary functions, one agent, one Deck. `Context[DocsCorpus]` is how a tool reaches the
+application's own data; the model is offered only `query` or `slug`.
 
-## 4. Search that is a dict and a scan
+## The application code stays application code
 
-The corpus is about thirty pages and 120 KB, so retrieval is TF-IDF over `Path.read_text()`, in
-roughly thirty lines.
+Almost everything Jack-specific is about what Jack should do: how to search the corpus, how to
+read a page, what to say when the documentation does not cover something, and how to cite what
+he used. That is the file you would expect to write.
 
-**The alternative was a vector store, and it lost on all three counts.** At this size a scan is
-faster than an embedding round-trip, there is no index to rebuild when a page changes, and it
-cannot return a stale chunk. `DocsCorpus.search` is where that decision lives, and its signature
-is what stays fixed if the corpus ever outgrows it.
+**You write the behavior.** Nothing above reaches for a runtime concern, because it does not
+have to.
 
-This is the part of Jack most worth copying: reach for the boring thing until the boring thing
-stops working.
+## AgentDeck provides the system around it
 
-## 5. Serving it, and why not `Deck.asgi()`
+The same small application runs inside a foundation it did not have to build.
 
-AgentDeck packages an HTTP surface, and Jack writes his own route instead. Two reasons, both
-structural rather than stylistic:
+```text
+Run
+├── executions     nested invocations, each addressable
+├── events         one ordered log per run
+├── reports        progress and status from inside the work
+├── state          sessions that outlive a single call
+├── interaction    branches that wait for a person
+└── control        pause, resume, cancel
+```
 
-| | |
-|---|---|
-| **Context cannot cross HTTP** | A run started through `asgi()` carries `context=None`. There is no wire form for a live Python object, and both of Jack's tools need the `DocsCorpus`. |
-| **The chat wire is frozen** | Its body is exactly `{"session_id", "message"}`, pinned byte-for-byte by `tests/golden/`. The page a reader is on has nowhere to go in it. |
+Around that model, other things connect to the same execution: observers and telemetry, the HTTP
+and SSE surfaces, and the website itself. They read the run rather than a translation of it, so
+none of them needs Jack to expose anything special.
 
-So the route is about forty lines over `deck.stream()`, and the wire is the canonical event log
-with no translation layer: a browser switching on `event.kind` reads exactly what a later Python
-process reading the run back would read. See [Serve over HTTP](/runs-and-control/events) for the
-packaged surface, and [Events](/reference/events) for the kinds.
+Jack did not assemble these. They are what a `Deck` gives an application the moment it runs.
+
+## From execution to the website
+
+The live experience on this site is that model, exposed.
+
+```text
+Jack executes through AgentDeck
+   → the run emits canonical events
+   → a surface streams them
+   → the site renders the conversation and the tree beside it
+```
+
+The route is a few lines over `deck.stream()`, and the wire is the event log itself:
 
 ```python
 async for event in deck.stream(AGENT, question, context=corpus, session_id=session_id):
@@ -1137,34 +1115,111 @@ async for event in deck.stream(AGENT, question, context=corpus, session_id=sessi
         yield f"data: {event.model_dump_json()}\n\n"
 ```
 
-## 6. What a public endpoint needed
+There is no translation layer on either side. The browser switches on `event.kind`, and so would
+a Python process reading the same run back tomorrow. The execution tree you see next to Jack is
+built from those events, in the order they arrived.
 
-Jack is unauthenticated on purpose, because a documentation assistant that asks you to log in is
-not a documentation assistant. That makes the limits below the whole of what stands between a
-public hostname and someone else's bill.
+## See it running
+
+Ask him something on the [home page](/) and watch the tree fill as he works: a tool call appears
+when he makes one, and the run resolves when it completes.
+
+## Source
+
+- [`examples/jack`](https://github.com/agentdecksdk/agentdeck/tree/dev/examples/jack)  -  the agent, its tools, the corpus and the route
+- [Implementation notes](/jack/notes)  -  the decisions behind this build, and the alternatives they beat
+- [Examples](/examples)  -  smaller runnable projects, each exercising a single idea
+
+---
+
+# Implementation notes
+
+*The decisions behind Jack, and the alternatives each one beat.*
+Source: https://agentdecksdk.com/jack/notes
+
+# Implementation notes
+
+The engineering behind [how Jack is built](/jack). Each note is a decision that had a reasonable
+alternative, and the reason that alternative lost.
+
+## The tools are undecorated
+
+A tool that declares a `Context` parameter stays a plain function. `@function_tool` puts every
+parameter into the schema the model sees, and the model has no `DocsCorpus` to pass. `build()`
+compiles the function instead, so the model is offered only `query` or `slug`.
+
+See [Tools](/build-your-deck/tools) and [Context](/build-your-deck/context).
+
+## The context type is declared
+
+```python
+deck = Deck(agents=[jack], context=DocsCorpus)
+```
+
+`context=DocsCorpus` is the *type*; the instance goes in per run. Declaring it makes `build()`
+check every `Context[...]` in the catalog, tools and the instructions callable alike, before a
+question is ever asked. The wrong type raises `ContextTypeError` naming both, at startup rather
+than mid-answer.
+
+## Search is a dict and a scan
+
+The corpus is about thirty pages and 120 KB, so retrieval is TF-IDF over `Path.read_text()`, in
+roughly thirty lines.
+
+A vector store lost on three counts: at this size a scan beats an embedding round-trip, there is
+no index to rebuild when a page changes, and it cannot return a stale chunk. `DocsCorpus.search`
+is where that decision lives, and its signature is what stays fixed if the corpus outgrows it.
+
+## Explicit composition, not `Deck.from_project()`
+
+Every other example discovers its catalog from a `.agentdeck/` directory. Jack cannot, because
+his tools and his Deck share one `DocsCorpus` class and a bundle has no clean way to share a type
+with the program composing it:
+
+- a module beside `.agentdeck/` imports only when the process started in that directory, and a
+  server starts wherever its supervisor puts it;
+- a module inside it resolves through `agentdeck_project`, an internal alias that exists only
+  *after* `from_project()` has run, which is too late for a module-level import.
+
+Explicit composition has neither problem. Both front doors are described in [Deck](/build-your-deck/deck).
+
+## Its own route, not `Deck.asgi()`
+
+AgentDeck packages an HTTP surface and Jack writes his own, for two structural reasons:
+
+| | |
+|---|---|
+| **Context cannot cross HTTP** | A run started through `asgi()` carries `context=None`. There is no wire form for a live Python object, and both tools need the `DocsCorpus`. |
+| **The chat wire is frozen** | Its body is exactly `{"session_id", "message"}`, pinned byte-for-byte by `tests/golden/`. The page a reader is on has nowhere to go in it. |
+
+The result is about forty lines over `deck.stream()`, streaming canonical events with no
+translation layer.
+
+## What a public endpoint needed
+
+Jack is unauthenticated on purpose: a documentation assistant that asks you to log in is not a
+documentation assistant. The limits below are the whole of what stands between a public hostname
+and someone else's bill.
 
 - **An event allowlist.** Five kinds reach the browser. `tool.call.completed` is not among them:
   its `result_preview` is the tool's output verbatim, so a tool that raised would put its
   exception text on a public wire.
-- **A quota shaped as conversations.** Three sessions per client per day, twenty turns each. Turns
-  bound a conversation that re-sends its history every turn; sessions stop the obvious way around
+- **A quota shaped as conversations.** Three sessions per client per day, twenty turns each.
+  Turns bound a conversation that re-sends its history every turn; sessions stop the way around
   that, which is to finish twenty turns and start again.
-- **A token ceiling.** `max_tokens` is the only structural answer to "can this be used to write
-  someone's essay". An instruction is persuadable; a ceiling is not.
+- **A token ceiling.** The only structural answer to "can this be used to write someone's essay".
+  An instruction is persuadable; a ceiling is not.
 - **An origin check, which is not authentication.** `Origin` is browser-set and forged in one
-  flag. It stops another site embedding the endpoint, and nothing else.
+  flag. It stops another site embedding the endpoint, and nothing more.
 
-On prompt injection, the honest line is that the *structure* of the prompt cannot be forged: the
-page slug is validated against the corpus and the delimiter is stripped from any selection. What
-the model chooses to say with that text is not guarded. The full accounting is in the
+## Prompt injection
+
+The *structure* of the prompt cannot be forged: the page slug is validated against the corpus, so
+only known values survive, and the delimiter is stripped from any reader selection. What the
+model chooses to say with that text is not guarded, and no delimiter makes it so.
+
+The full accounting is in the
 [example's README](https://github.com/agentdecksdk/agentdeck/tree/dev/examples/jack#readme).
-
-## Read next
-
-- [Agents](/build-your-deck/agents), [Tools](/build-your-deck/tools), [Context](/build-your-deck/context)  -  the three pieces Jack is made of
-- [Deck](/build-your-deck/deck)  -  composition, and the two front doors
-- [Runs](/runs-and-control/runs) and [Events](/reference/events)  -  what `deck.stream()` yields
-- [Examples](/examples)  -  the smaller runnable projects, each one exercising a single idea
 
 ---
 

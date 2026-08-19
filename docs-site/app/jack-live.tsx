@@ -13,7 +13,7 @@
  * the events that are public rather than faked from the ones that are not.
  */
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -28,6 +28,8 @@ const EXAMPLES = [
 ]
 
 type ToolNode = { name: string; detail: string; state: 'running' | 'done' }
+
+type Turn = { question: string; answer: string }
 
 interface RunView {
   runId: string
@@ -66,24 +68,35 @@ function asTree(run: RunView): TreeNode {
 
 export function JackLive() {
   const [question, setQuestion] = useState('')
-  const [answer, setAnswer] = useState('')
-  const [asked, setAsked] = useState<string | null>(null)
+  // A transcript, not one exchange: asking a second question used to replace the first, which
+  // reads as the chat having failed rather than as having moved on.
+  const [turns, setTurns] = useState<Turn[]>([])
   const [run, setRun] = useState<RunView | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const transcript = useRef<HTMLDivElement>(null)
   // One conversation per visitor. The backend's quota counts sessions per client per day, so a
   // fresh id on every question would spend the whole allowance in three turns.
   const session = useRef(`landing-${Math.random().toString(36).slice(2)}`)
+
+  useEffect(() => {
+    transcript.current?.scrollTo({ top: transcript.current.scrollHeight })
+  }, [turns])
 
   async function ask(text: string) {
     const trimmed = text.trim()
     if (!trimmed || busy) return
     setQuestion('')
-    setAsked(trimmed)
-    setAnswer('')
     setError(null)
     setRun(null)
     setBusy(true)
+    const index = turns.length
+    setTurns(previous => [...previous, { question: trimmed, answer: '' }])
+
+    const append = (text: string) =>
+      setTurns(previous =>
+        previous.map((turn, at) => (at === index ? { ...turn, answer: turn.answer + text } : turn))
+      )
 
     // Every outstanding tool has returned by the time the run produces prose or terminates.
     const settle = () =>
@@ -106,7 +119,7 @@ export function JackLive() {
           )
         } else if (event.kind === 'text.delta') {
           settle()
-          setAnswer(previous => previous + event.payload.text)
+          append(event.payload.text)
         } else if (event.kind === 'run.completed') {
           settle()
           setRun(current => (current ? { ...current, state: 'done' } : current))
@@ -125,8 +138,8 @@ export function JackLive() {
   return (
     <div className="jack-live">
       <div className="jack-chat">
-        <div className="jack-transcript">
-          {asked === null && !error && (
+        <div className="jack-transcript" ref={transcript}>
+          {turns.length === 0 && !error && (
             <div className="jack-examples">
               <p className="jack-examples-label">Try one</p>
               {EXAMPLES.map(example => (
@@ -136,12 +149,16 @@ export function JackLive() {
               ))}
             </div>
           )}
-          {asked !== null && <p className="jack-question">{asked}</p>}
-          {answer && (
-            <div className="jack-answer">
-              <Markdown remarkPlugins={[remarkGfm]}>{answer}</Markdown>
+          {turns.map((turn, at) => (
+            <div className="jack-turn" key={at}>
+              <p className="jack-question">{turn.question}</p>
+              {turn.answer && (
+                <div className="jack-answer">
+                  <Markdown remarkPlugins={[remarkGfm]}>{turn.answer}</Markdown>
+                </div>
+              )}
             </div>
-          )}
+          ))}
           {error && <p className="jack-error">{error}</p>}
         </div>
         <form
