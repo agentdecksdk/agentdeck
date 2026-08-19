@@ -1483,39 +1483,24 @@ Source: https://agentdecksdk.com/resources/changelog
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v4.0.4**. Earlier releases are listed at the bottom.
+The current release is **v4.0.5**. Earlier releases are listed at the bottom.
 
-## v4.0.4
+## v4.0.5
 
 *Released 2026-08-19.*
 
 ### Added
 
-- **`examples/jack` bounds its conversation memory.** A session re-sends its whole history every
-  turn, and tool results here are documentation pages, one of which is 30 KB. Fifteen turns
-  reached a 320 KB request and the endpoint then rejected every later turn in that session
-  permanently. `jack.session.BoundedSessions` is a `Deck(session_factory=...)` that keeps only the
-  most recent whole exchanges, cutting at user-message boundaries so a tool call is never
-  separated from its result.
-- **`examples/jack` can trace itself.** Setting `AGENTDECK_LANGFUSE_PUBLIC_KEY` attaches the
-  packaged `Langfuse` observer, and setting `AGENTDECK_EVENTS` to a `sqlite://` URL makes the run
-  log durable. Both are off by default, so a clone still runs with no backend. Both store what
-  callers typed; the example's README says what that means for a public endpoint.
-
-### Fixed
-
-- **Three documentation pages stated things the code does not do.** `runs-and-control/lifecycle-and-control`
-  listed a `QUEUED` state and uppercase names; the six real values are `running`, `paused`,
-  `waiting_answer`, `completed`, `failed` and `cancelled`. `reference/events` listed
-  `message.delta`, `tool.call` and `tool.result`, none of which exist, and omitted 14 kinds that
-  do; it now covers all 21 with their payloads. The Quickstart printed an invented transcript,
-  read `run.status` as a property when it is a coroutine, and iterated `run.events()` without
-  `follow=True`, which returns only what the log already holds.
+- **Jack's citations are links.** He names the pages he used at the end of an answer in several
+  shapes (bare slug, backticked, `[slug]`, a markdown link, sometimes on the wrong host); every
+  shape that names a real documentation page now links to it. An invented or misspelled slug
+  still renders as plain text.
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v4.0.4](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.4) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.4) |
 | [v4.0.3](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.3) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.3) |
 | [v4.0.2](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.2) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.2) |
 | [v4.0.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.1) | 2026-08-18 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.1) |
@@ -1683,21 +1668,83 @@ Common operational errors and how to resolve them.
 
 ---
 
-# events
+# Events
 
-
+*One ordered log per run, how to stream it live, and how to read it back afterwards.*
 Source: https://agentdecksdk.com/runs-and-control/events
 
 # Events
 
-Every run produces an ordered, typed stream of events.
+Every run produces one ordered, typed log. Every managed invocation appends to it, whatever
+started the run, and a run's status is folded from it rather than stored beside it, so there is no
+second source that can disagree.
 
-## Streaming Events
+## Streaming a run as it happens
 
 ```python
-async for event in run.events():
-    print(event.kind, event.payload)
+async for event in run.events(follow=True):
+    print(event.kind)
 ```
+
+```text
+run.started
+tool.call.started
+text.delta
+message.completed
+run.completed
+```
+
+**`follow=True` is what makes this live.** Without it, `events()` returns only what the log already
+holds and stops, which for a run that has just started is a single event. That is the right default
+for reading a finished run back and the wrong one for watching a live one.
+
+The loop ends on a terminal event: `run.completed`, `run.failed` or `run.cancelled`.
+
+## Reading one back afterwards
+
+```python
+run = await deck.runs.get(run_id)
+
+async for event in run.events():           # everything, no waiting
+    ...
+
+async for event in run.events(from_seq=120):   # only what is new to you
+    ...
+```
+
+`from_seq` resumes from a position you already have, so a consumer that crashed does not replay
+what it already processed. `seq` is assigned by the store, not the producer, and counts from 1
+within a run.
+
+## Streaming without a handle
+
+When you want the events and the result in one pass and do not need the handle:
+
+```python
+async for event in deck.stream("Jack", question):
+    if event.kind == "text.delta":
+        print(event.payload.text, end="")
+```
+
+## Switching on kind
+
+The payload is typed per kind, so a consumer branches on `event.kind` and gets the right fields:
+
+```python
+if event.kind == "tool.call.started":
+    print(event.payload.tool, event.payload.args)
+elif event.kind == "text.delta":
+    print(event.payload.text, end="")
+```
+
+An unknown kind is carried rather than rejected, so a reader written today keeps working against a
+log written by a newer release.
+
+## Related
+
+- [Event types](/reference/events) - all 21 kinds, their payloads, and the envelope
+- [Runs](/runs-and-control/runs) - starting a run and rehydrating its handle
+- [Lifecycle & Control](/runs-and-control/lifecycle-and-control) - which events set which status
 
 ---
 
@@ -1814,26 +1861,86 @@ await run.resume()
 
 ---
 
-# runs
+# Runs
 
-
+*A run is a first-class execution with a durable identity you can pick up again, in this process or another one.*
 Source: https://agentdecksdk.com/runs-and-control/runs
 
 # Runs
 
-A `Run` represents a single execution of an agent or workflow.
+A `Run` is one execution of an agent or workflow. It is not a return value you either catch or
+lose: it has an identity, a log, and a handle you can get back later.
 
-## Starting a Run
+## Starting one
 
 ```python
-from agentdeck import Deck
-
-async def execute(deck: Deck):
-    async with deck:
-        run = await deck.runs.start("bot", input="Task")
-        result = await run
-        print(result)
+async with deck:
+    run = await deck.runs.start("Jack", "how do I pause a run?")
+    result = await run
 ```
+
+`start` returns the handle immediately; `await run` waits for the result. A `TurnResult` for an
+agent, the graph's own state for a workflow.
+
+## Its identity
+
+| Attribute | What it is |
+|---|---|
+| `run.id` | Minted by AgentDeck, globally unique |
+| `run.key` | The application identity you chose, if you passed one |
+| `run.namespace` | The label this run was started under |
+| `run.session_id` | The conversation it belongs to, if any |
+
+`key` is yours to pick and is how you find a run again without storing its `id`:
+
+```python
+run = await deck.runs.start("Jack", question, key=f"ticket-{ticket_id}")
+```
+
+## Picking it up again
+
+`deck.runs.get()` rehydrates a handle to a run that already exists. It never creates, starts or
+resumes anything, and it returns a run in any state, terminal included.
+
+```python
+run = await deck.runs.get(run_id)                       # by canonical id
+run = await deck.runs.get(key="ticket-42")              # by your own key
+runs = await deck.runs.list(status=RunStatus.PAUSED)    # everything parked
+```
+
+**This works from another process.** A run paused by a web request can be resumed by a worker,
+because the handle carries durable identity and reads durable state rather than anything the
+original process held in memory. Two handles on one run always agree: the store is the only thing
+either of them reads.
+
+<Callout type="warning">
+Rehydration is only as durable as the stores behind it. `AGENTDECK_EVENTS` defaults to `memory://`,
+which is per-process, so a second process will not find the run. Set it to a `sqlite://`,
+`postgresql://` or `redis://` URL before relying on this. See [Settings](/reference/settings).
+</Callout>
+
+A rehydrated run takes no `context`: the ephemeral Python object the first process held is gone,
+and the run recovers its durable state instead.
+
+One thing rehydration is **not**: running two `Deck` objects side by side in a single process.
+That is a separate constraint and it is deliberate, unrelated to whether a run can be picked up
+elsewhere.
+
+## Watching it happen
+
+```python
+async for event in run.events(follow=True):
+    print(event.kind)
+```
+
+Without `follow=True` you get only what the log already holds, which for a run that just started
+is one event. See [Events](/runs-and-control/events).
+
+## Related
+
+- [Sessions](/runs-and-control/sessions) - conversation history across runs
+- [Lifecycle & Control](/runs-and-control/lifecycle-and-control) - the six states, and pausing
+- [Run API](/reference/run) - every method on the handle
 
 ---
 

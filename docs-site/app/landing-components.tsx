@@ -2,9 +2,14 @@ import React from 'react'
 import Link from 'next/link'
 
 import { TreeFigure, type TreeNode } from './deck-figure'
+import { docsSlugs } from './docs-slugs'
 import { JackLive } from './jack-live'
 import { InstallLine } from './install-line'
 import { Hero } from './hero'
+
+// Read once at build time (this module never crosses into the client bundle); JackLive uses it
+// to decide which of Jack's citations are real pages worth linking.
+const DOC_SLUGS = docsSlugs()
 
 /**
  * The landing page.
@@ -17,7 +22,7 @@ import { Hero } from './hero'
 
 export { Hero }
 
-const RELEASE = '4.0.4'
+const RELEASE = '4.0.5'
 const REPO = 'https://github.com/agentdecksdk/agentdeck'
 const JACK_SOURCE = `${REPO}/tree/dev/examples/jack`
 
@@ -135,7 +140,7 @@ export function MeetJack({ children }: { children?: React.ReactNode }) {
           architecture, integration, or paste code you are working with. The tree beside him is
           his actual run: every node is an event the runtime emitted, in the order it emitted it.
         </p>
-        <JackLive />
+        <JackLive validSlugs={DOC_SLUGS} />
         <div className="jack-source">
           <p>Jack is built entirely with AgentDeck.</p>
           <Link href="/jack" className="cta-ghost">

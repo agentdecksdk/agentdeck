@@ -8,6 +8,15 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [4.0.5] - 2026-08-19
+
+### Added
+
+- **Jack's citations are links.** He names the pages he used at the end of an answer in several
+  shapes (bare slug, backticked, `[slug]`, a markdown link, sometimes on the wrong host); every
+  shape that names a real documentation page now links to it. An invented or misspelled slug
+  still renders as plain text.
+
 ## [4.0.4] - 2026-08-19
 
 ### Added

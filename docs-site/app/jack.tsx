@@ -9,10 +9,12 @@
  */
 
 import { usePathname } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
+import { AnswerLink } from './jack-answer-link'
+import { jackCitationsPlugin } from './jack-citations'
 import { JackUnavailable, askJack } from './jack-stream'
 
 type Turn = { question: string; answer: string; reading: string[] }
@@ -23,7 +25,8 @@ function slugOf(pathname: string): string {
   return trimmed || 'index'
 }
 
-export function JackPanel() {
+export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
+  const slugs = useMemo(() => new Set(validSlugs), [validSlugs])
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const [question, setQuestion] = useState('')
@@ -120,7 +123,12 @@ export function JackPanel() {
             <p className="ask-question">{turn.question}</p>
             {turn.reading.length > 0 && <p className="ask-reading">{turn.reading.join(' · ')}</p>}
             <div className="ask-answer">
-              <Markdown remarkPlugins={[remarkGfm]}>{turn.answer}</Markdown>
+              <Markdown
+                remarkPlugins={[remarkGfm, [jackCitationsPlugin, slugs]]}
+                components={{ a: AnswerLink }}
+              >
+                {turn.answer}
+              </Markdown>
             </div>
           </div>
         ))}

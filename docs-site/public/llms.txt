@@ -45,11 +45,11 @@ afterwards, approvals that outlive the process that requested them.
 - [Known Issues](https://agentdecksdk.com/resources/known-issues): Defects in the current release that will surprise you, what happens, and what to do until each is fixed.
 - [migration-guides](https://agentdecksdk.com/resources/migration-guides)
 - [troubleshooting](https://agentdecksdk.com/resources/troubleshooting)
-- [events](https://agentdecksdk.com/runs-and-control/events)
+- [Events](https://agentdecksdk.com/runs-and-control/events): One ordered log per run, how to stream it live, and how to read it back afterwards.
 - [human-input](https://agentdecksdk.com/runs-and-control/human-input)
 - [Lifecycle & Control](https://agentdecksdk.com/runs-and-control/lifecycle-and-control): The six states a run can be in, what moves it between them, and which ones you can act on.
 - [pause-resume](https://agentdecksdk.com/runs-and-control/pause-resume)
-- [runs](https://agentdecksdk.com/runs-and-control/runs)
+- [Runs](https://agentdecksdk.com/runs-and-control/runs): A run is a first-class execution with a durable identity you can pick up again, in this process or another one.
 - [sessions](https://agentdecksdk.com/runs-and-control/sessions)
 
 ## Source

@@ -81,7 +81,7 @@ jobs:
       - name: Upload distributions
         # Handed to the `pypi` job rather than rebuilt there: publishing an artifact a second
         # build produced is publishing something the gate above never ran against.
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -144,7 +144,7 @@ jobs:
       url: https://pypi.org/project/agentdeck/
     steps:
       - name: Download distributions
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
