@@ -37,12 +37,16 @@ Execute the agent within the Deck's runtime context:
 async def main():
     async with deck:
         run = await deck.runs.start("assistant", input="Hello!")
-        async for event in run.events():
+        async for event in run.events(follow=True):
             print(event.kind)
         result = await run
-        print("Status:", run.status)
-        print("Result:", result)
+        print("Status:", await run.status())
+        print("Result:", result.output)
 ```
+
+`follow=True` streams until the run reaches a terminal event. Without it you get only what the
+log already holds, which for a run this young is one event. `run.status()` is a coroutine, not a
+property.
 
 ## ◆ 04 : WATCH WHAT HAPPENED
 
@@ -50,12 +54,18 @@ Running the script emits an ordered sequence of lifecycle and content events:
 
 ```text
 run.started
-agent.message
+text.delta
+usage.reported
+message.completed
 run.completed
 
-Status: COMPLETED
-Result: Hello! How can I help you today?
+Status: completed
+Result: Hello!
 ```
+
+`text.delta` is one streamed fragment and there is usually more than one; `message.completed`
+carries the finished text. Every kind a run can emit is listed in the
+[events reference](/reference/events).
 
 ## What you just used
 

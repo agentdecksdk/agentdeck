@@ -41,6 +41,7 @@ from agentdeck import Deck
 from agentdeck.runtime.settings import get_settings
 from jack.agent import jack
 from jack.corpus import DocsCorpus
+from jack.session import BoundedSessions
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -193,7 +194,12 @@ def build_app(corpus: DocsCorpus | None = None) -> FastAPI:
         against the declared type, and that should fail at startup, not on someone's question.
         """
         resolved = corpus or DocsCorpus()
-        async with Deck(agents=[jack], context=DocsCorpus, observers=observers()) as deck:
+        async with Deck(
+            agents=[jack],
+            context=DocsCorpus,
+            observers=observers(),
+            session_factory=BoundedSessions(),
+        ) as deck:
             app.state.deck, app.state.corpus = deck, resolved
             app.state.quota = Quota(SESSIONS_PER_DAY, TURNS_PER_SESSION)
             yield

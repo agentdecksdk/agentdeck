@@ -1,7 +1,73 @@
+---
+title: Lifecycle & Control
+description: The six states a run can be in, what moves it between them, and which ones you can act on.
+---
+
 # Lifecycle & Control
 
-AgentDeck provides a deterministic state machine for controlling runs.
+A run is in exactly one of six states. Status is folded from the event log rather than stored
+beside it, so there is no second source that can disagree with what happened.
 
-## States
+## The states
 
-Runs transition through clear lifecycle states: `QUEUED`, `RUNNING`, `PAUSED`, `WAITING`, `COMPLETED`, `FAILED`, and `CANCELLED`.
+| Status | Meaning | Terminal |
+|---|---|---|
+| `running` | Executing now | no |
+| `paused` | Stopped cooperatively at a safe point | no |
+| `waiting_answer` | Parked on an interrupt, waiting for input | no |
+| `completed` | Finished, with a result | yes |
+| `failed` | Finished, with an error | yes |
+| `cancelled` | Stopped and will not continue | yes |
+
+There is no queued state. A run is `running` from the moment it starts.
+
+```python
+from agentdeck.core.status import RunStatus
+
+RunStatus.RUNNING, RunStatus.PAUSED, RunStatus.WAITING_ANSWER
+RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED
+```
+
+## What moves a run between them
+
+Each lifecycle event sets exactly one status, which is why the log and the status can never
+disagree.
+
+| Event | Resulting status |
+|---|---|
+| `run.started` | `running` |
+| `run.paused` | `paused` |
+| `run.interrupted` | `waiting_answer` |
+| `run.resumed` | `running` |
+| `run.completed` | `completed` |
+| `run.failed` | `failed` |
+| `run.cancelled` | `cancelled` |
+
+## What you can act on
+
+`paused` and `waiting_answer` are the two resumable states. The three terminal states accept
+nothing: a completed run cannot be paused, and a cancelled run cannot be resumed.
+
+```python
+run = await deck.runs.start("Jack", question)
+
+await run.pause()          # running -> paused, at the next safe point
+await run.resume()         # paused -> running
+await run.cancel()         # -> cancelled
+await run.answer(value)    # waiting_answer -> running
+
+status = await run.status()   # a coroutine, not a property
+```
+
+`pause` and `cancel` are requests, not interrupts. The run records the signal, then acts on it
+when it next reaches a safe point: between stream items, before dispatching a tool, or at a node
+boundary. Two events make that visible, `control.requested` when the signal is recorded and
+`control.observed` when the run picks it up, so a control that has not taken effect yet is
+distinguishable from one that was never seen.
+
+## Related
+
+- [Runs](/runs-and-control/runs) - starting a run and getting the handle back
+- [Pause / Resume](/runs-and-control/pause-resume) - safe points in more detail
+- [Human Input](/runs-and-control/human-input) - answering a run parked at an interrupt
+- [Events](/reference/events) - every event kind and its payload
