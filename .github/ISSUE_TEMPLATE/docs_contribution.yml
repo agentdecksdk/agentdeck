@@ -1,0 +1,119 @@
+name: Documentation contribution
+description: A scoped documentation task, specified well enough to be someone's first contribution.
+title: "docs: "
+labels: ["documentation", "area:docs"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Questions are welcome on this issue. Ask before you write if anything about
+        AgentDeck's intent is unclear: a maintainer will answer, and asking is not a
+        sign the task was too hard for you.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: >
+        The AgentDeck concept this documents, and why the page exists. A contributor
+        should not have to reverse-engineer the architecture before starting.
+    validations:
+      required: true
+
+  - type: textarea
+    id: current-state
+    attributes:
+      label: Current state
+      description: What is implemented, and what the page already says. Link both the page and the source.
+    validations:
+      required: true
+
+  - type: textarea
+    id: missing
+    attributes:
+      label: What is missing
+      description: >
+        Precise. Not "improve this page". Name the artifact: a runnable example of X,
+        a diagram of Y, a troubleshooting entry for Z.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected contribution
+      description: What to add, with a suggested structure or heading list.
+    validations:
+      required: true
+
+  - type: textarea
+    id: apis
+    attributes:
+      label: Relevant APIs and source files
+      description: The classes, functions and protocols to read, with links.
+    validations:
+      required: true
+
+  - type: input
+    id: files
+    attributes:
+      label: Files to change
+      description: The exact MDX or example paths.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      value: |
+        - [ ] Uses only public APIs from `agentdeck`
+        - [ ] Any code shown runs against the current release
+        - [ ] Does not duplicate the Quickstart
+        - [ ] Includes the expected output
+        - [ ] Links the related reference page
+        - [ ] `make check` passes
+        - [ ] `docs-site` builds
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      value: |
+        - No API redesign
+        - No new runtime behavior
+        - No change to Run semantics
+        - No navigation restructuring
+        - No new abstraction unless agreed on this issue first
+    validations:
+      required: true
+
+  - type: textarea
+    id: verify
+    attributes:
+      label: How to verify locally
+      value: |
+        ```bash
+        make install                 # editable install with every extra
+        make check                   # ruff, ty, import-linter, pytest
+
+        cd docs-site
+        npm install
+        npm run dev                  # http://localhost:3040
+        ```
+    validations:
+      required: true
+
+  - type: dropdown
+    id: difficulty
+    attributes:
+      label: Difficulty
+      description: Small and medium are eligible for `good first issue`. Advanced is not.
+      options:
+        - small
+        - medium
+        - advanced
+    validations:
+      required: true
