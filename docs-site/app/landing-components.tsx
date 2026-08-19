@@ -49,9 +49,10 @@ export function Foundation() {
         <h2 className="chapter-title">Built to stay out of your way.</h2>
         <p className="chapter-lead">
           Agent systems accumulate infrastructure quickly, and the decisions that look small early
-          are the hardest to change later. AgentDeck gives those concerns a place from the start:
-          less machinery to build today, fewer dead ends tomorrow, and the capabilities already
-          there when the application needs them.
+          are the hardest to change later. Execution, control, state, observability, reporting,
+          interaction and integration already have their place in AgentDeck, and they were
+          designed to work together: less machinery to build today, and nothing to retrofit
+          around your application when you need the next one.
         </p>
       </div>
     </section>
@@ -65,22 +66,24 @@ const TREE: TreeNode = {
   kind: 'run',
   children: [
     {
-      name: 'answer',
-      kind: 'workflow',
+      name: 'Jack',
+      kind: 'agent',
       children: [
         { name: 'search_docs', kind: 'tool' },
         { name: 'read_doc', kind: 'tool' },
-        { name: 'Jack', kind: 'agent' }
+        { name: 'read_changelog', kind: 'tool' }
       ]
     }
   ]
 }
 
 const BUYS: [string, string][] = [
-  ['Observation', 'One ordered stream of what happened.'],
+  ['Events', 'One ordered stream of what happened.'],
+  ['Reporting', 'Progress and status, sent from inside the work.'],
   ['Control', 'Execution can be paused, resumed or cancelled.'],
   ['Interaction', 'Branches can wait for external input.'],
-  ['Durability', 'Execution does not have to live and die with the caller process.']
+  ['State', 'Sessions that outlive a single call.'],
+  ['Surfaces', 'Observers, HTTP and your UI read the same run.']
 ]
 
 export function Model({ children }: { children?: React.ReactNode }) {
@@ -99,7 +102,7 @@ export function Model({ children }: { children?: React.ReactNode }) {
           <div className="chapter-figure">
             <TreeFigure
               root={TREE}
-              caption="Underneath is one execution model the rest of your system can rely on."
+              caption="That code, running. Everything else attaches to this same model."
             />
           </div>
         </div>
