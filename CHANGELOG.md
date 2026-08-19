@@ -8,6 +8,32 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [4.0.2] - 2026-08-19
+
+### Changed
+
+- **`examples/jack` reads `JACK_*` environment variables.** `ASK_AGENTDECK_ORIGINS`,
+  `ASK_AGENTDECK_SESSIONS_PER_DAY` and `ASK_AGENTDECK_TURNS_PER_SESSION` are now
+  `JACK_ORIGINS`, `JACK_SESSIONS_PER_DAY` and `JACK_TURNS_PER_SESSION`, correcting 4.0.1,
+  which said they would keep their names. A deployment that sets the old names falls back to
+  the defaults silently, so rename them when you upgrade.
+- **The documentation landing page is one continuous build rather than nine chapters.** It
+  builds Jack once, from an `Agent` to a live run, and the execution tree beside the code is
+  that code's own tree.
+- **[How Jack is built](https://agentdecksdk.com/jack) is its own page**, with the decisions
+  and the alternatives they beat in
+  [Implementation notes](https://agentdecksdk.com/jack/notes). The README follows the same
+  build.
+
+### Fixed
+
+- **Jack could not be reached from the published site.** The docs build baked
+  `http://localhost:8100` as its API origin whenever `NEXT_PUBLIC_AGENTDECK_API_URL` was
+  unset, so the panel called the visitor's own machine. `docs-site/.env.production` now
+  carries the origin, and a real environment variable still wins.
+- **A second question to Jack replaced the first.** The panel keeps the transcript, so a
+  conversation reads as one.
+
 ## [4.0.1] - 2026-08-18
 
 ### Changed
