@@ -8,6 +8,31 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [4.0.3] - 2026-08-19
+
+### Added
+
+- **Documentation pages that are finished can ask for their next piece.** A `Contribute`
+  component marks one specific, scoped improvement at the end of a page and links the issue that
+  specifies it. It appears only on pages whose authoritative part is already written, so it
+  invites an addition rather than standing in for missing documentation. Live on
+  [How Jack is built](https://agentdecksdk.com/jack),
+  [Quickstart](https://agentdecksdk.com/meet-agentdeck/quickstart),
+  [Known Issues](https://agentdecksdk.com/resources/known-issues) and
+  [Implementation notes](https://agentdecksdk.com/jack/notes).
+
+### Changed
+
+- **The README follows the landing page again.** Jack is built with the three tools he actually
+  has, the division of labour lists the six concerns AgentDeck owns rather than four, and his
+  section links [How Jack is built](https://agentdecksdk.com/jack) and
+  [Implementation notes](https://agentdecksdk.com/jack/notes) ahead of the source directory.
+
+### Fixed
+
+- **The landing page's release chip said 4.0.1 on a 4.0.2 site.** It now tracks the release it
+  ships in.
+
 ## [4.0.2] - 2026-08-19
 
 ### Changed
