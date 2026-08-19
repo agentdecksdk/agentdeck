@@ -21,7 +21,7 @@ afterwards, approvals that outlive the process that requested them.
 - [Agentic software should feel like software](https://agentdecksdk.com/): Build agents, tools and workflows as normal software. AgentDeck gives them one execution model you can observe, control and extend.
 - [CLI](https://agentdecksdk.com/reference/cli): The agentdeck command tree, generated from agentdeck/cli.py's own --help output.
 - [Deck](https://agentdecksdk.com/reference/deck): The composition root  -  builds a catalog from Agent/Workflow objects or a project directory, and runs every turn on it.
-- [events](https://agentdecksdk.com/reference/events)
+- [Events](https://agentdecksdk.com/reference/events): Every event kind a run can emit, with its payload fields.
 - [python-api](https://agentdecksdk.com/reference/python-api)
 - [run](https://agentdecksdk.com/reference/run)
 - [Settings](https://agentdecksdk.com/reference/settings): Every AGENTDECK_* (and OPENAI_*/TAVILY_*) environment variable, generated from agentdeck/runtime/settings.py.
@@ -47,7 +47,7 @@ afterwards, approvals that outlive the process that requested them.
 - [troubleshooting](https://agentdecksdk.com/resources/troubleshooting)
 - [events](https://agentdecksdk.com/runs-and-control/events)
 - [human-input](https://agentdecksdk.com/runs-and-control/human-input)
-- [lifecycle-and-control](https://agentdecksdk.com/runs-and-control/lifecycle-and-control)
+- [Lifecycle & Control](https://agentdecksdk.com/runs-and-control/lifecycle-and-control): The six states a run can be in, what moves it between them, and which ones you can act on.
 - [pause-resume](https://agentdecksdk.com/runs-and-control/pause-resume)
 - [runs](https://agentdecksdk.com/runs-and-control/runs)
 - [sessions](https://agentdecksdk.com/runs-and-control/sessions)

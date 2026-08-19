@@ -10,39 +10,40 @@ description: What changed in each release of AgentDeck, and what to do about it 
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v4.0.3**. Earlier releases are listed at the bottom.
+The current release is **v4.0.4**. Earlier releases are listed at the bottom.
 
-## v4.0.3
+## v4.0.4
 
 *Released 2026-08-19.*
 
 ### Added
 
-- **Documentation pages that are finished can ask for their next piece.** A `Contribute`
-  component marks one specific, scoped improvement at the end of a page and links the issue that
-  specifies it. It appears only on pages whose authoritative part is already written, so it
-  invites an addition rather than standing in for missing documentation. Live on
-  [How Jack is built](https://agentdecksdk.com/jack),
-  [Quickstart](https://agentdecksdk.com/meet-agentdeck/quickstart),
-  [Known Issues](https://agentdecksdk.com/resources/known-issues) and
-  [Implementation notes](https://agentdecksdk.com/jack/notes).
-
-### Changed
-
-- **The README follows the landing page again.** Jack is built with the three tools he actually
-  has, the division of labour lists the six concerns AgentDeck owns rather than four, and his
-  section links [How Jack is built](https://agentdecksdk.com/jack) and
-  [Implementation notes](https://agentdecksdk.com/jack/notes) ahead of the source directory.
+- **`examples/jack` bounds its conversation memory.** A session re-sends its whole history every
+  turn, and tool results here are documentation pages, one of which is 30 KB. Fifteen turns
+  reached a 320 KB request and the endpoint then rejected every later turn in that session
+  permanently. `jack.session.BoundedSessions` is a `Deck(session_factory=...)` that keeps only the
+  most recent whole exchanges, cutting at user-message boundaries so a tool call is never
+  separated from its result.
+- **`examples/jack` can trace itself.** Setting `AGENTDECK_LANGFUSE_PUBLIC_KEY` attaches the
+  packaged `Langfuse` observer, and setting `AGENTDECK_EVENTS` to a `sqlite://` URL makes the run
+  log durable. Both are off by default, so a clone still runs with no backend. Both store what
+  callers typed; the example's README says what that means for a public endpoint.
 
 ### Fixed
 
-- **The landing page's release chip said 4.0.1 on a 4.0.2 site.** It now tracks the release it
-  ships in.
+- **Three documentation pages stated things the code does not do.** `runs-and-control/lifecycle-and-control`
+  listed a `QUEUED` state and uppercase names; the six real values are `running`, `paused`,
+  `waiting_answer`, `completed`, `failed` and `cancelled`. `reference/events` listed
+  `message.delta`, `tool.call` and `tool.result`, none of which exist, and omitted 14 kinds that
+  do; it now covers all 21 with their payloads. The Quickstart printed an invented transcript,
+  read `run.status` as a property when it is a coroutine, and iterated `run.events()` without
+  `follow=True`, which returns only what the log already holds.
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v4.0.3](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.3) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.3) |
 | [v4.0.2](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.2) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.2) |
 | [v4.0.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.1) | 2026-08-18 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.1) |
 | [v4.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.0) | 2026-08-16 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.0) |

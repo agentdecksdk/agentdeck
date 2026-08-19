@@ -651,24 +651,106 @@ run has no safe point yet, so `pause`/`cancel` record the request but nothing ac
 
 ---
 
-# events
+# Events
 
-
+*Every event kind a run can emit, with its payload fields.*
 Source: https://agentdecksdk.com/reference/events
 
 # Events Reference
 
-Specification for AgentDeck event schemas and kinds.
+One ordered log per run. Every managed invocation appends to it, whatever started the run, and
+status is folded from it rather than stored beside it.
 
-## Standard Kinds
+## The envelope
 
-- `run.started`: Run begins.
-- `message.delta`: Streaming message chunk.
-- `message.completed`: Full message complete.
-- `tool.call`: Tool invocation initiated.
-- `tool.result`: Tool execution completed.
-- `run.completed`: Run ended successfully.
-- `run.failed`: Run failed with error details.
+Every event carries the same envelope, whatever its kind:
+
+| Field | Meaning |
+|---|---|
+| `v` | Schema version |
+| `kind` | One of the kinds below |
+| `seq` | Position in this run's log, monotonic from 1 |
+| `run_id` | The run this belongs to |
+| `session_id` | The session, when the run has one |
+| `namespace` | The run's namespace label |
+| `origin` | Which invocable emitted it |
+| `ts` | When the store recorded it |
+| `payload` | The kind-specific body, below |
+
+`seq` and `ts` are assigned by the store, not the producer, so ordering is the store's to
+guarantee rather than a caller's to get right.
+
+## Lifecycle
+
+Each of these sets the run's status. See [Lifecycle & Control](/runs-and-control/lifecycle-and-control).
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `run.started` | `invocable`, `kind_of_invocable`, `input` | Opens the run |
+| `run.completed` | `output`, `usage` | Terminal. `usage` is the authoritative total |
+| `run.failed` | `error_code`, `message`, `retryable` | Terminal. `error_code` is closed, so branch on it rather than parsing the message |
+| `run.paused` | `reason` | Not terminal, and not waiting on an answer |
+| `run.resumed` | `reason`, `value` | Same `run_id`, `seq` keeps counting |
+| `run.cancelled` | `reason` | Terminal |
+| `run.interrupted` | `interrupt_id`, `reason`, `payload`, `thread_id`, `expected_resume` | Waiting on an answer. Not terminal |
+
+## Control
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `control.requested` | `verb`, `reason` | The signal was recorded, not that the run has acted on it |
+| `control.observed` | `verb`, `safe_point` | The run reached a safe point and is acting on it |
+
+## Content
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `text.delta` | `message_id`, `text` | One streamed fragment |
+| `thought.delta` | `message_id`, `text` | Reasoning fragment, a separate channel |
+| `message.completed` | `message_id`, `text` | The record. Deltas are streaming UX |
+| `artifact.created` | `artifact_id`, `media_type`, `uri`, `size` | A reference to bytes stored elsewhere |
+
+## Tools and nodes
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `tool.call.started` | `call_id`, `tool`, `args` | Paired with the completion by `call_id` |
+| `tool.call.completed` | `call_id`, `tool`, `result_preview`, `result_size`, `result_sha256`, `artifacts` | A capped preview plus size and hash, never the result itself |
+| `node.updated` | `node`, `state_patch` | `state_patch` shallow-merges: top-level keys replace |
+
+## Reporting
+
+Advisory. These describe progress; they never change status.
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `status.reported` | `message` | What the run is doing now, in words a person can read |
+| `progress.reported` | `step`, `current`, `total` | Which named stage, optionally counted |
+| `usage.reported` | `model`, `usage` | One model call. The total on `run.completed` wins |
+
+## Other
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `input.appended` | `input`, `source` | Mid-turn steering |
+| `custom` | `name`, `data` | Engine-specific. `name` must be namespaced |
+
+## Reading them
+
+```python
+async for event in run.events(from_seq=0, follow=True):
+    print(event.seq, event.kind)
+```
+
+An unknown kind is carried rather than rejected, so a reader written today does not break against
+a log written by a newer release.
+
+```python
+from agentdeck.core.events import KNOWN_KINDS, TERMINAL_KINDS
+```
+
+`KNOWN_KINDS` is the set above. `TERMINAL_KINDS` is `run.completed`, `run.failed` and
+`run.cancelled`: seeing one of those means no further events will arrive for that run.
 
 ---
 
@@ -1331,12 +1413,16 @@ Execute the agent within the Deck's runtime context:
 async def main():
     async with deck:
         run = await deck.runs.start("assistant", input="Hello!")
-        async for event in run.events():
+        async for event in run.events(follow=True):
             print(event.kind)
         result = await run
-        print("Status:", run.status)
-        print("Result:", result)
+        print("Status:", await run.status())
+        print("Result:", result.output)
 ```
+
+`follow=True` streams until the run reaches a terminal event. Without it you get only what the
+log already holds, which for a run this young is one event. `run.status()` is a coroutine, not a
+property.
 
 ## ◆ 04 : WATCH WHAT HAPPENED
 
@@ -1344,12 +1430,18 @@ Running the script emits an ordered sequence of lifecycle and content events:
 
 ```text
 run.started
-agent.message
+text.delta
+usage.reported
+message.completed
 run.completed
 
-Status: COMPLETED
-Result: Hello! How can I help you today?
+Status: completed
+Result: Hello!
 ```
+
+`text.delta` is one streamed fragment and there is usually more than one; `message.completed`
+carries the finished text. Every kind a run can emit is listed in the
+[events reference](/reference/events).
 
 ## What you just used
 
@@ -1391,39 +1483,40 @@ Source: https://agentdecksdk.com/resources/changelog
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v4.0.3**. Earlier releases are listed at the bottom.
+The current release is **v4.0.4**. Earlier releases are listed at the bottom.
 
-## v4.0.3
+## v4.0.4
 
 *Released 2026-08-19.*
 
 ### Added
 
-- **Documentation pages that are finished can ask for their next piece.** A `Contribute`
-  component marks one specific, scoped improvement at the end of a page and links the issue that
-  specifies it. It appears only on pages whose authoritative part is already written, so it
-  invites an addition rather than standing in for missing documentation. Live on
-  [How Jack is built](https://agentdecksdk.com/jack),
-  [Quickstart](https://agentdecksdk.com/meet-agentdeck/quickstart),
-  [Known Issues](https://agentdecksdk.com/resources/known-issues) and
-  [Implementation notes](https://agentdecksdk.com/jack/notes).
-
-### Changed
-
-- **The README follows the landing page again.** Jack is built with the three tools he actually
-  has, the division of labour lists the six concerns AgentDeck owns rather than four, and his
-  section links [How Jack is built](https://agentdecksdk.com/jack) and
-  [Implementation notes](https://agentdecksdk.com/jack/notes) ahead of the source directory.
+- **`examples/jack` bounds its conversation memory.** A session re-sends its whole history every
+  turn, and tool results here are documentation pages, one of which is 30 KB. Fifteen turns
+  reached a 320 KB request and the endpoint then rejected every later turn in that session
+  permanently. `jack.session.BoundedSessions` is a `Deck(session_factory=...)` that keeps only the
+  most recent whole exchanges, cutting at user-message boundaries so a tool call is never
+  separated from its result.
+- **`examples/jack` can trace itself.** Setting `AGENTDECK_LANGFUSE_PUBLIC_KEY` attaches the
+  packaged `Langfuse` observer, and setting `AGENTDECK_EVENTS` to a `sqlite://` URL makes the run
+  log durable. Both are off by default, so a clone still runs with no backend. Both store what
+  callers typed; the example's README says what that means for a public endpoint.
 
 ### Fixed
 
-- **The landing page's release chip said 4.0.1 on a 4.0.2 site.** It now tracks the release it
-  ships in.
+- **Three documentation pages stated things the code does not do.** `runs-and-control/lifecycle-and-control`
+  listed a `QUEUED` state and uppercase names; the six real values are `running`, `paused`,
+  `waiting_answer`, `completed`, `failed` and `cancelled`. `reference/events` listed
+  `message.delta`, `tool.call` and `tool.result`, none of which exist, and omitted 14 kinds that
+  do; it now covers all 21 with their payloads. The Quickstart printed an invented transcript,
+  read `run.status` as a property when it is a coroutine, and iterated `run.events()` without
+  `follow=True`, which returns only what the log already holds.
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v4.0.3](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.3) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.3) |
 | [v4.0.2](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.2) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.2) |
 | [v4.0.1](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.1) | 2026-08-18 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.1) |
 | [v4.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.0) | 2026-08-16 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.0) |
@@ -1627,18 +1720,79 @@ await run.answer({"approved": True})
 
 ---
 
-# lifecycle-and-control
+# Lifecycle & Control
 
-
+*The six states a run can be in, what moves it between them, and which ones you can act on.*
 Source: https://agentdecksdk.com/runs-and-control/lifecycle-and-control
 
 # Lifecycle & Control
 
-AgentDeck provides a deterministic state machine for controlling runs.
+A run is in exactly one of six states. Status is folded from the event log rather than stored
+beside it, so there is no second source that can disagree with what happened.
 
-## States
+## The states
 
-Runs transition through clear lifecycle states: `QUEUED`, `RUNNING`, `PAUSED`, `WAITING`, `COMPLETED`, `FAILED`, and `CANCELLED`.
+| Status | Meaning | Terminal |
+|---|---|---|
+| `running` | Executing now | no |
+| `paused` | Stopped cooperatively at a safe point | no |
+| `waiting_answer` | Parked on an interrupt, waiting for input | no |
+| `completed` | Finished, with a result | yes |
+| `failed` | Finished, with an error | yes |
+| `cancelled` | Stopped and will not continue | yes |
+
+There is no queued state. A run is `running` from the moment it starts.
+
+```python
+from agentdeck.core.status import RunStatus
+
+RunStatus.RUNNING, RunStatus.PAUSED, RunStatus.WAITING_ANSWER
+RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED
+```
+
+## What moves a run between them
+
+Each lifecycle event sets exactly one status, which is why the log and the status can never
+disagree.
+
+| Event | Resulting status |
+|---|---|
+| `run.started` | `running` |
+| `run.paused` | `paused` |
+| `run.interrupted` | `waiting_answer` |
+| `run.resumed` | `running` |
+| `run.completed` | `completed` |
+| `run.failed` | `failed` |
+| `run.cancelled` | `cancelled` |
+
+## What you can act on
+
+`paused` and `waiting_answer` are the two resumable states. The three terminal states accept
+nothing: a completed run cannot be paused, and a cancelled run cannot be resumed.
+
+```python
+run = await deck.runs.start("Jack", question)
+
+await run.pause()          # running -> paused, at the next safe point
+await run.resume()         # paused -> running
+await run.cancel()         # -> cancelled
+await run.answer(value)    # waiting_answer -> running
+
+status = await run.status()   # a coroutine, not a property
+```
+
+`pause` and `cancel` are requests, not interrupts. The run records the signal, then acts on it
+when it next reaches a safe point: between stream items, before dispatching a tool, or at a node
+boundary. Two events make that visible, `control.requested` when the signal is recorded and
+`control.observed` when the run picks it up, so a control that has not taken effect yet is
+distinguishable from one that was never seen.
+
+## Related
+
+- [Runs](/runs-and-control/runs) - starting a run and getting the handle back
+- [Pause / Resume](/runs-and-control/pause-resume) - safe points in more detail
+- [Human Input](/runs-and-control/human-input) - answering a run parked at an interrupt
+- [Events](/reference/events) - every event kind and its payload
 
 ---
 

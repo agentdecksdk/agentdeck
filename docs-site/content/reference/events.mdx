@@ -1,13 +1,100 @@
+---
+title: Events
+description: Every event kind a run can emit, with its payload fields.
+---
+
 # Events Reference
 
-Specification for AgentDeck event schemas and kinds.
+One ordered log per run. Every managed invocation appends to it, whatever started the run, and
+status is folded from it rather than stored beside it.
 
-## Standard Kinds
+## The envelope
 
-- `run.started`: Run begins.
-- `message.delta`: Streaming message chunk.
-- `message.completed`: Full message complete.
-- `tool.call`: Tool invocation initiated.
-- `tool.result`: Tool execution completed.
-- `run.completed`: Run ended successfully.
-- `run.failed`: Run failed with error details.
+Every event carries the same envelope, whatever its kind:
+
+| Field | Meaning |
+|---|---|
+| `v` | Schema version |
+| `kind` | One of the kinds below |
+| `seq` | Position in this run's log, monotonic from 1 |
+| `run_id` | The run this belongs to |
+| `session_id` | The session, when the run has one |
+| `namespace` | The run's namespace label |
+| `origin` | Which invocable emitted it |
+| `ts` | When the store recorded it |
+| `payload` | The kind-specific body, below |
+
+`seq` and `ts` are assigned by the store, not the producer, so ordering is the store's to
+guarantee rather than a caller's to get right.
+
+## Lifecycle
+
+Each of these sets the run's status. See [Lifecycle & Control](/runs-and-control/lifecycle-and-control).
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `run.started` | `invocable`, `kind_of_invocable`, `input` | Opens the run |
+| `run.completed` | `output`, `usage` | Terminal. `usage` is the authoritative total |
+| `run.failed` | `error_code`, `message`, `retryable` | Terminal. `error_code` is closed, so branch on it rather than parsing the message |
+| `run.paused` | `reason` | Not terminal, and not waiting on an answer |
+| `run.resumed` | `reason`, `value` | Same `run_id`, `seq` keeps counting |
+| `run.cancelled` | `reason` | Terminal |
+| `run.interrupted` | `interrupt_id`, `reason`, `payload`, `thread_id`, `expected_resume` | Waiting on an answer. Not terminal |
+
+## Control
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `control.requested` | `verb`, `reason` | The signal was recorded, not that the run has acted on it |
+| `control.observed` | `verb`, `safe_point` | The run reached a safe point and is acting on it |
+
+## Content
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `text.delta` | `message_id`, `text` | One streamed fragment |
+| `thought.delta` | `message_id`, `text` | Reasoning fragment, a separate channel |
+| `message.completed` | `message_id`, `text` | The record. Deltas are streaming UX |
+| `artifact.created` | `artifact_id`, `media_type`, `uri`, `size` | A reference to bytes stored elsewhere |
+
+## Tools and nodes
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `tool.call.started` | `call_id`, `tool`, `args` | Paired with the completion by `call_id` |
+| `tool.call.completed` | `call_id`, `tool`, `result_preview`, `result_size`, `result_sha256`, `artifacts` | A capped preview plus size and hash, never the result itself |
+| `node.updated` | `node`, `state_patch` | `state_patch` shallow-merges: top-level keys replace |
+
+## Reporting
+
+Advisory. These describe progress; they never change status.
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `status.reported` | `message` | What the run is doing now, in words a person can read |
+| `progress.reported` | `step`, `current`, `total` | Which named stage, optionally counted |
+| `usage.reported` | `model`, `usage` | One model call. The total on `run.completed` wins |
+
+## Other
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `input.appended` | `input`, `source` | Mid-turn steering |
+| `custom` | `name`, `data` | Engine-specific. `name` must be namespaced |
+
+## Reading them
+
+```python
+async for event in run.events(from_seq=0, follow=True):
+    print(event.seq, event.kind)
+```
+
+An unknown kind is carried rather than rejected, so a reader written today does not break against
+a log written by a newer release.
+
+```python
+from agentdeck.core.events import KNOWN_KINDS, TERMINAL_KINDS
+```
+
+`KNOWN_KINDS` is the set above. `TERMINAL_KINDS` is `run.completed`, `run.failed` and
+`run.cancelled`: seeing one of those means no further events will arrive for that run.

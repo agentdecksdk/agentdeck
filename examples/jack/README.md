@@ -10,6 +10,24 @@ python run.py "how do I create an agent?"                    # one question, hea
 uvicorn jack.server:app --port 8100                          # the route the docs panel calls
 ```
 
+## Tracing and the event log
+
+Jack keeps no record of himself unless he is configured to. Both switches are environment
+variables, and both are off by default so a clone runs without a backend.
+
+| Variable | Off (default) | On |
+|---|---|---|
+| `AGENTDECK_EVENTS` | `memory://`, so the log dies with the process | `sqlite:///path/events.sqlite3` writes every run to disk |
+| `AGENTDECK_LANGFUSE_PUBLIC_KEY` | no observer is attached | each run becomes a Langfuse trace, built from the canonical event log |
+
+With Langfuse configured, also set `AGENTDECK_LANGFUSE_SECRET_KEY`, `AGENTDECK_LANGFUSE_BASE_URL`
+and `AGENTDECK_LANGFUSE_ENVIRONMENT`. `observers()` in `server.py` reads the public key and
+decides; nothing else in the application changes.
+
+Both switches store what visitors typed. This endpoint is unauthenticated, so treat the store and
+the tracing project as holding third-party text: keep the credentials out of the repository, keep
+the database unreadable to other users, and decide a retention period before turning either on.
+
 ## What it is
 
 One agent, two tools, one context.
