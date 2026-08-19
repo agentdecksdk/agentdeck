@@ -391,6 +391,11 @@ run-scoped API, and the control plane. Read **Upgrading** before you bump.
 
 ### Fixed
 
+- **The add-a-tool guide now states the SDK boundary and the tool-failure contract** (#241).
+  The first `from agents import ...` examples now say that `agents` is the OpenAI Agents SDK,
+  and the tool guide shows a recoverable failure returned as data before spelling out the actual
+  raising path: SDK-handled tool errors are logged as `tool.call.completed`, while only an
+  exception that escapes the SDK reaches `run.failed`, `Deck.run()`, and the HTTP error surfaces.
 - **A worker killed outright held its session for up to an hour** (#244). Liveness was inferred
   from silence, and a healthy turn can be quiet for a long time  -  so the staleness window had to
   be generous, and one crashed process locked one user out of one conversation for

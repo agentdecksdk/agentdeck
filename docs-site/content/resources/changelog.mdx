@@ -24,6 +24,104 @@ The current release is **v4.0.5**. Earlier releases are listed at the bottom.
   provider reads its own environment credential, and `Deck.build()` reports every missing
   requirement before execution. Runtime settings now come only from environment variables or
   the project `.env`; the undocumented `config.yaml` source is removed.
+- **`run.can` says which lifecycle controls are available before you call one.** `run.can.pause`,
+  `run.can.resume` and `run.can.cancel` combine the engine's own capability with the run's current
+  state, so a UI can enable its buttons and a workflow can branch without guessing. Informational
+  by design: it reads the status the handle last saw, and the lifecycle methods stay the
+  authoritative answer.
+- **`@tool` and `@workflow` declare AgentDeck-native code: ordinary Python, no engine.** A
+  `@workflow` body takes `WorkflowCtx` and runs as a coroutine that suspends in place  -  at
+  `ctx.safepoint()`, or at `ctx.ask(question, options=...)`  -  and continues on the next line
+  rather than replaying, because its own locals are the checkpoint. A `@tool` takes `ToolCtx` and
+  is a leaf capability: it can report and safepoint, but not `ask` or start other runs. Both are
+  played by a new native executor that parks a suspended body's coroutine in memory and cancels
+  it on `Deck.aclose()`.
+
+### Changed
+
+- **`EventSinkPort` is renamed `Observer`, and it gains `agentdeck.views`.** `views.all`,
+  `views.chat`, `views.tools`, `views.reports`, `views.lifecycle`, `views.errors` and
+  `views.usage` are composable predicates over the event stream (`|`, `&`, `~`); pass
+  `view=` to any observer to filter what it receives. `agentdeck.observers.Langfuse` is
+  renamed `LangfuseObserver`, and `ConsoleObserver` / `FileObserver` join it: one prints a
+  line per event, the other appends one JSONL line per event, both with no configuration.
+- **The event schema is `major=4`, and v5.0.0 does not read a log 4.x wrote.** The payload
+  vocabulary moved (see the reporter entry below), so the major bumps, and this release does not
+  carry a compatibility window: `Event` refuses any major but its own, by name, saying that the log
+  has to be replayed into a new store or read with the version that wrote it. Every store behaves
+  the same way, so there is one rule to know rather than one per backend.
+- **The event schema is `major=4`, and a v5 reader still reads a v4 log.** The payload vocabulary
+  moved (see the reporter entry below, and `RunStarted.kind_of_invocable` gaining `"tool"`), which
+  an older reader cannot always take: an unknown *kind* degrades to `UnknownEvent`, but a known
+  kind carrying a field value it has never seen raises, and stores parse every row. So the major
+  bumps. What does **not** happen is the usual cost of one: `Event` now checks `v.major` against
+  `SUPPORTED_MAJORS` (`{3, 4}`) rather than against its own version alone, because the envelope is
+  identical between the two and only payload kinds moved. Upgrading to v5 reads every log v4
+  wrote; rolling back to v4 refuses a v5 log by name. No store migration, no replay.
+- **One executor method: `execute`.** `start` and `resume` are one call. `resume` was never the
+  pause's resume  -  lifting a pause already re-entered `start` with the log as history  -  so it
+  existed only to answer an interrupt, which the log already records: the answer rides on
+  `run.resumed` and the thread on `run.interrupted`. An executor now reads which of the three
+  plays it is (fresh, a replayed pause, an answered interrupt) off `history`, and
+  `Runtime.resume(...)` no longer takes a `thread_id`. A custom executor implements one method,
+  and a target that never suspends implements nothing extra.
+- **An answer the log cannot hold is refused.** `run.answer(...)` with a value JSON cannot carry
+  used to log a warning, record nothing, and hand the value to the engine in memory anyway  -  a
+  run resumed on an answer no replay and no other process could reproduce. It raises `ValueError`
+  now, before anything is claimed, and the run stays answerable.
+- **The engine port is `Executor`.** `agentdeck.core.ports.EnginePort` becomes `Executor`,
+  `adapters/engines/` becomes `adapters/executors/`, `LangGraphEngine`/`OpenAIAgentsEngine`/
+  `StubEngine` become `LangGraphExecutor`/`OpenAIAgentsExecutor`/`StubExecutor`, and
+  `InvocableSpec.engine` becomes `InvocableSpec.executor`. One word for the thing that executes a
+  target, in the type, the module path and the spec. Wire values are untouched: an executor is
+  still named `"langgraph"`, `"openai-agents"` or `"stub"`, and `run.failed` still carries
+  `error_code="engine_error"`.
+
+- **The reporter has four methods and one event kind.** `ctx.reporter.status(...)` and
+  `ctx.reporter.progress(...)` are replaced by `info`, `warning`, `error` and `report`, each taking
+  arbitrary keyword fields: `ctx.reporter.warning("Primary source unavailable", source="drive")`,
+  `ctx.reporter.report("candidate_found", score=0.91)`. The `status.reported` and
+  `progress.reported` events become one `report` event carrying `level`, `message` and `fields`.
+  A stage count is now `report("reviewing", current=2, total=4)`, and nothing validates the pair.
+- **`Context[T]` is `ToolCtx[T]`, and `ctx.checkpoint()` is `ctx.safepoint()`.** A tool declares
+  `ToolCtx[T]`; the orchestration surface an imperative workflow gets is `WorkflowCtx[T]`, so one
+  type no longer has to mean both. The method rename follows the concept the docstrings already
+  used: a safe point is where a run can be stopped.
+- **`run.pause()` and `run.cancel()` refuse loudly instead of returning `False`.** Both used to
+  answer `bool`, where `False` meant "this deck has no control backend" and was indistinguishable
+  from "the run had already ended". They now return `None`, raise `RunStateError` when the run's
+  state refuses the operation, and raise the new `UnsupportedControlError` when the control can
+  never be applied. An operation with nothing to do (pausing a paused run, cancelling a finished
+  one) still returns quietly. `run.resume()` is strict on the same terms and no longer ignores a
+  run that is waiting for an answer.
+- **A run that belongs to no conversation now belongs to no session.** `RunContext.log_key`
+  (`session_id or run_id`) is gone. It answered "which stream do these events go in" by encoding
+  two different things as one string, and a store handed it could not tell a session named after a
+  run from that run itself. Event stores hold a nullable `session_id` instead, and every
+  `EventStorePort` method takes `ctx` plus only what is genuinely not identity: `read(log_key, ctx)`
+  is `read_session(ctx)`, `read_run(log_key, run_id, ctx)` is `read_run(ctx)`,
+  `claim_resume(log_key, run_id, resumed, ctx, origin)` is `claim_resume(resumed, ctx, origin)`, and
+  `RunSummary.log_key` is `RunSummary.session_id`. A caller reading another run builds the context
+  for it (`replace(ctx, run_id=...)`). **No migration**: 5.0 does not read a log 4.x wrote, on any
+  store. Opening a SQLite or Postgres log 4.x wrote raises a clear `StoreError`; a Redis log
+  written by 4.x reads as empty, since its keys were shaped by the old encoding. Drain or discard
+  a 4.x log, or replay it into a new store, before upgrading.
+  for it (`replace(ctx, run_id=...)`). SQLite and Postgres migrate in place when the store opens.
+  **Redis does not**: its keys were shaped by the old encoding, so a Redis event log written by 4.x
+  is not read by 5.0. Drain or discard a Redis log before upgrading.
+- **A completed handoff is the core event `agent.changed`, not a namespaced `custom` one.** The
+  OpenAI Agents executor stopped emitting `custom` named `openai_agents.handoff`; a handoff between
+  agents in the same run and conversation now lands as `agent.changed`, carrying `previous_agent`
+  and `next_agent`, and only once the handoff has actually happened. A handoff that was requested
+  but failed or was refused still emits nothing. The schema is `major=4, minor=1`.
+
+### Fixed
+
+- **`deck.runs.get` no longer corrupts a session id that happens to equal a run id.** It recovered
+  the session by comparing the stored key against the run id, so a caller-chosen `session_id` that
+  matched came back as `None`.
+- **A busy standalone run no longer names a session that does not exist.** The refusal read
+  `session '<the run's own id>' is held by run '<the same id>'`; a run in no session now says so.
 
 ## v4.0.5
 
