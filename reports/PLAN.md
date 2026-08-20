@@ -32,13 +32,13 @@ Each analyst reads its area (excerpts, not whole-file dumps) plus the relevant s
 
 | Done | Report | Scope | Evidence (report file) |
 |------|--------|-------|------------------------|
-| [ ] | 01-architecture.md | layering (core/runtime/adapters/authoring/surfaces), import boundaries, composition root, `deck.py` at 72KB | reports/01-architecture.md |
-| [ ] | 02-api-design.md | public API ergonomics: `Deck`, `run`, authoring declarations, error taxonomy, typing discipline | reports/02-api-design.md |
-| [ ] | 03-runtime.md | lifecycle state machine, event dispatch, cancellation, concurrency, persistence contracts | reports/03-runtime.md |
-| [ ] | 04-adapters.md | engines (openai_agents, langgraph), stores (sqlite/postgres/redis), mcp, telemetry: isolation, parity, quality | reports/04-adapters.md |
-| [ ] | 05-testing.md | test quality (not just count): doubles, goldens, flakiness risk, what a regression would slip past | reports/05-testing.md |
-| [ ] | 06-docs-dx.md | onboarding path, docs-site, examples, error-message quality, time-to-first-agent | reports/06-docs-dx.md |
-| [ ] | 07-security-deps.md | trust boundaries, secrets handling, serve surface (HTTP/SSE), dependency risk | reports/07-security-deps.md |
+| [x] | 01-architecture.md | layering (core/runtime/adapters/authoring/surfaces), import boundaries, composition root, `deck.py` at 72KB | reports/01-architecture.md (7 GOOD / 18 BAD, 2 high) |
+| [x] | 02-api-design.md | public API ergonomics: `Deck`, `run`, authoring declarations, error taxonomy, typing discipline | reports/02-api-design.md (12 GOOD / 20 BAD; headline: dict-typed outputs, bare RuntimeError vs AgentdeckError contract) |
+| [x] | 03-runtime.md | lifecycle state machine, event dispatch, cancellation, concurrency, persistence contracts | reports/03-runtime.md (26 GOOD / 18 BAD) |
+| [x] | 04-adapters.md | engines (openai_agents, langgraph), stores (sqlite/postgres/redis), mcp, telemetry: isolation, parity, quality | reports/04-adapters.md (14 GOOD / 25 BAD, 3 high: control/lease backend parity gap, unescaped session key, langgraph zero token usage) |
+| [x] | 05-testing.md | test quality (not just count): doubles, goldens, flakiness risk, what a regression would slip past | reports/05-testing.md (12 GOOD / 13 BAD) |
+| [x] | 06-docs-dx.md | onboarding path, docs-site, examples, error-message quality, time-to-first-agent | reports/06-docs-dx.md (12 GOOD / 16 BAD; headline: 15/33 docs-site stub pages contradict code, Quickstart cannot run as written; contradicts drift scout's zero-drift claim, resolve in Phase 3) |
+| [x] | 07-security-deps.md | trust boundaries, secrets handling, serve surface (HTTP/SSE), dependency risk | reports/07-security-deps.md (12 GOOD / 16 BAD) |
 
 ## Phase 3: Synthesis (main agent)
 
