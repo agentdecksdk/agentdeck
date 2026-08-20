@@ -1,4 +1,4 @@
-"""Regression tests for issue #16: `.env`/`config.yaml` must resolve from the project's
+"""Regression tests for issue #16: `.env` must resolve from the project's
 `Path.cwd()`  -  matching how `mount_project_dir` locates `./.agentdeck`  -  never from
 wherever the `agentdeck` package itself is installed. The difference is invisible in a
 repo checkout (package and project share a root) and only bites once `agentdeck` is
@@ -85,8 +85,7 @@ def test_dotenv_in_project_cwd_wins_over_a_stray_env_file_inside_site_packages(t
     assert model == "from-project-dotenv"
 
 
-def test_config_yaml_in_project_cwd_wins_over_the_packaged_default(tmp_path):
-    """Same bug, same fix, for `config.yaml` (`resolve_config_path` shared the `REPO_ROOT` logic)."""
+def test_config_yaml_is_not_a_runtime_settings_source(tmp_path):
     site_packages = _fake_site_packages_install(tmp_path)
 
     project_dir = tmp_path / "project"
@@ -95,7 +94,7 @@ def test_config_yaml_in_project_cwd_wins_over_the_packaged_default(tmp_path):
 
     model = _run_probe(project_dir, site_packages)
 
-    assert model == "from-project-config-yaml"
+    assert model == "gpt-4.1-mini"
 
 
 def test_real_env_var_still_outranks_the_dotenv_file(tmp_path):
@@ -157,15 +156,8 @@ def test_settings_resolve_cwd_at_first_use_not_at_import(tmp_path):
     assert model == "from-project"
 
 
-def test_agentdeck_config_path_redirects_the_shared_yaml(tmp_path, monkeypatch):
-    """`AGENTDECK_CONFIG_PATH` is the one name that redirects `config.yaml`  -  issue #155."""
-    from agentdeck.runtime.settings import resolve_config_path
-
-    redirected = tmp_path / "elsewhere.yaml"
-    redirected.write_text("openai:\n  model: from-redirected-path\n")
-    monkeypatch.setenv("AGENTDECK_CONFIG_PATH", str(redirected))
-
-    assert resolve_config_path() == redirected
+def test_packaged_default_yaml_is_removed():
+    assert not (AGENTDECK_PKG / "runtime" / "config.default.yaml").exists()
 
 
 def test_sandbox_env_and_skills_settings_are_gone():
@@ -177,20 +169,6 @@ def test_sandbox_env_and_skills_settings_are_gone():
     assert not hasattr(settings_module.Settings, "sandbox_env")
     assert not hasattr(settings_module, "SkillsSettings")
     assert "skills" not in settings_module.Settings.model_fields
-
-
-def test_the_old_app_config_path_name_is_no_longer_read(tmp_path, monkeypatch):
-    """`APP_CONFIG_PATH` was unprefixed and generic; #155 renamed it outright  -  no shim, no
-    fallback. Setting only the old name must resolve as if nothing were set at all."""
-    from agentdeck.runtime.settings import PACKAGED_DEFAULT_YAML, resolve_config_path
-
-    decoy = tmp_path / "decoy.yaml"
-    decoy.write_text("openai:\n  model: from-old-name-that-must-not-be-read\n")
-    monkeypatch.setenv("APP_CONFIG_PATH", str(decoy))
-    monkeypatch.delenv("AGENTDECK_CONFIG_PATH", raising=False)
-    monkeypatch.chdir(tmp_path)
-
-    assert resolve_config_path() == PACKAGED_DEFAULT_YAML
 
 
 def test_a_retired_v2_env_name_refuses_to_start(monkeypatch):
