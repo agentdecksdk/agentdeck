@@ -29,7 +29,7 @@ without asking you first.
 
 1. Bump `version` in `pyproject.toml` on `dev` and move the **Unreleased**
    CHANGELOG entries under the new version heading.
-2. Merge `dev` → `main`.
+2. Open a `dev` to `main` pull request and merge it after every required check passes.
 3. Tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 4. The release workflow verifies the tag matches `pyproject.toml`, runs the full
    gate, builds sdist + wheel, and publishes a GitHub Release.
@@ -38,7 +38,7 @@ without asking you first.
 
 ```bash
 git clone https://github.com/agentdecksdk/agentdeck.git && cd agentdeck
-uv venv && uv pip install -e ".[dev,serve]"
+uv venv --python 3.12 && make install
 pre-commit install          # ruff + ty + hygiene hooks on every commit
 ```
 
@@ -52,8 +52,11 @@ uninstall strips packages the other checkout still needs.
 ## Before you push
 
 ```bash
-make check                  # lint + typecheck + lint-imports + tests  -  CI runs exactly this
+make check                  # local core gate: lint + typecheck + import contracts + tests
 ```
+
+CI runs this core gate and adds repository, documentation, packaging, and
+skip-detection checks.
 
 ## Docs are part of the change, not a follow-up
 

@@ -16,7 +16,7 @@ Follow the release process strictly. All work starts on `dev`; `main` is release
    - Run `python scripts/generate_docs_reference.py` twice.
    - Commit: `chore(release): vX.Y.Z`.
 4. **Push `dev`:** Wait for CI green.
-5. **Merge to `main`:** Merge `dev` into `main` and push.
+5. **Merge to `main`:** Open a `dev` to `main` PR, wait for every required check, and merge it.
 6. **Tag:** `git tag vX.Y.Z && git push origin vX.Y.Z`.
 7. **Redeploy Docs:** If release worktree exists (`~/prjs/agentdeck-docs-release`), run `./redeploy.sh vX.Y.Z` and verify served output.
 8. **Report:** Return the GitHub release URL.
