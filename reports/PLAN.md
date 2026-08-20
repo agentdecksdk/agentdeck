@@ -44,8 +44,8 @@ Each analyst reads its area (excerpts, not whole-file dumps) plus the relevant s
 
 | Done | Step | Evidence |
 |------|------|----------|
-| [ ] | Read all reports, cross-check contested claims against code | listed spot-checks below |
-| [ ] | VERDICT.md: exec summary, the best, the worst, one-liners linking into area files | reports/VERDICT.md |
+| [x] | Read all reports, cross-check contested claims against code | Spot-checked 7 headline claims, all verified: sessions.py:101 unescaped key, engine.py:389 zero usage, deck.py:1295 bare RuntimeError, deck.py:878 `TurnResult \| Any`, serve.py:350 `0.0.0.0`, quickstart.mdx has zero `asyncio.run`, deck.py:48 eager engine imports. Drift-scout vs docs-DX contradiction resolved: different scopes, both correct (README/engineering clean; docs-site stubs were outside the drift verification set). |
+| [x] | VERDICT.md: exec summary, the best, the worst, one-liners linking into area files | reports/VERDICT.md (221 findings total: 95 GOOD / 126 BAD) |
 | [ ] | Commit + push branch | commit SHA |
 
 ## Token discipline
