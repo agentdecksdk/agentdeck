@@ -107,17 +107,26 @@ different things is what 4.x had.
 
 ## Executor
 
-The executor is `EnginePort`, unchanged in shape. There is no second execution contract.
+`EnginePort` becomes `Executor`. There is no second execution contract: the port that already
+answers "how is this target executed" takes the name, rather than a new type arriving beside it.
 
-`EnginePort` already answers "how is this target executed", and
-`InvocableSpec{name, kind, engine, native}` is already the engine-neutral description of a target.
-Two things change.
+It already answers that question, and `InvocableSpec{name, kind, executor, native}` is already the
+neutral description of a target. Two things change, and the adapters move with the name:
+`adapters/engines/` becomes `adapters/executors/`, and `LangGraphEngine` becomes
+`LangGraphExecutor`.
 
-**One method, not two.** `start` and `resume` are collapsed into a single `play`:
+**One method, not two.** `start` and `resume` are collapsed into a single `execute`:
 
 ```python
-def play(self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext) -> ...
+class Executor(ABC):
+    name: ClassVar[str]
+    suspendable: ClassVar[bool]
+
+    def execute(self, spec, input, history, ctx) -> AsyncGenerator[KnownPayload, None]: ...
 ```
+
+`input` is always what the run was opened with. `history` is the log so far, and it is what says
+which play this is.
 
 `resume` was never the pause's resume. Lifting a pause already re-enters `start` with the log as
 history, because a paused turn left no stack to return to; `resume` existed only for the answer to
@@ -131,28 +140,33 @@ three plays this is.
 | `run.paused`, `run.resumed` | a lifted pause, replayed |
 | `run.interrupted`, `run.resumed` | an answered interrupt |
 
-The `thread_id` parameter goes with it: it is a LangGraph concept on a neutral port, and the
-adapter already derives its own (`session_id or run_id`). What this buys is the wrapping adapters:
-a plain callable and an Agents SDK object have one way in, and neither has to implement a second
-method it cannot mean.
+The `thread_id` parameter goes with it: it is a LangGraph concept on a neutral port, and history's
+last `run.interrupted` carries the thread the executor itself wrote there. What this buys is the
+wrapping adapters: a plain callable and an Agents SDK object have one way in, and neither has to
+implement a second method it cannot mean.
+
+One consequence, and it is a break: the answer is whatever the log says it is. Today a value JSON
+cannot carry is dropped from the log with a warning and still handed to the engine in memory, so a
+run resumes on an answer no replay could ever reproduce. `run.answer(...)` refuses such a value
+instead.
 
 **The front half is missing.**
 
 ```text
-target object -> InvocationResolver -> InvocableSpec -> EnginePort -> Run
+target object -> InvocationResolver -> InvocableSpec -> Executor -> Run
 ```
 
 | piece | job |
 |---|---|
-| `InvocationResolver` | what is this object, and which engine runs it |
-| `EnginePort` | play it, yield payloads |
+| `InvocationResolver` | what is this object, and which executor runs it |
+| `Executor` | play it, yield payloads |
 | `Runtime` | identity, ordering, persistence, control |
 
 Capability is a declaration, not a pair of methods:
 
 ```python
-class EnginePort(ABC):
-    engine: ClassVar[str]
+class Executor(ABC):
+    name: ClassVar[str]
     suspendable: ClassVar[bool]
 ```
 
@@ -245,8 +259,7 @@ The design this file was written from is adopted whole except:
 
 | proposed | here | why |
 |---|---|---|
-| `Executor` protocol with `execute()` | `EnginePort`, reduced to one `play` | a parallel contract for what already exists, but the draft was right that one method is enough |
-| `Suspendable` / `Cancelable` protocols | `EnginePort.suspendable` ClassVar | see Executor above |
+| `Suspendable` / `Cancelable` protocols | `Executor.suspendable` ClassVar | see Executor above |
 | silent on durable replay | deferred, stated below | #336 requires it and the draft does not say how |
 | pause raises at every safepoint | a native workflow parks | a raise through an imperative body destroys the state that is the workflow |
 
@@ -270,22 +283,28 @@ exists and is proven by AgentDeck's own targets.
 |---|---|---|
 | 1 | this file | - |
 | 2 | `run.can`, strict lifecycle ops, `ToolCtx`, `safepoint()`, `Reporter` | - |
-| 3 | native `@tool` / `@workflow`, `WorkflowCtx`, the native engine, `ctx.invoke` / `parallel` / `ask` / `approve`, child runs | #336 |
-| 4 | `AgentInstance`, `ctx.agent`, `ctx.agents.create()` / `fork()` | #236 |
-| 5 | `InvocationResolver` and the wrapping adapters: a LangGraph graph, an Agents SDK object, a plain callable, `deck.runs.start(target)` | #337 |
-| 6 | migration: delete `Workflow`, `WorkflowDeclaration`, `graph=`, `durable=` and what hangs off them | - |
+| 3 | `EnginePort` becomes `Executor`, `start` + `resume` become `execute` | - |
+| 4 | native `@tool` / `@workflow`, `WorkflowCtx`, the native executor, `ctx.invoke` / `parallel` / `ask` / `approve`, child runs | #336 |
+| 5 | `AgentInstance`, `ctx.agent`, `ctx.agents.create()` / `fork()` | #236 |
+| 6 | `InvocationResolver` and the wrapping adapters: a LangGraph graph, an Agents SDK object, a plain callable, `deck.runs.start(target)` | #337 |
+| 7 | migration: delete `Workflow`, `WorkflowDeclaration`, `graph=`, `durable=` and what hangs off them | - |
 
-Two lines PR3 does not cross:
+The executor contract is its own PR rather than the native one's first commit: the rename touches
+every adapter and the collapse changes what an answer *is*, and a reviewer should not have to read
+both against a new engine at the same time. It still lands before anything is wrapped, which was
+the ruling.
+
+Two lines PR4 does not cross:
 
 | | |
 |---|---|
-| what `ctx.invoke()` accepts | a catalog name and a native definition, nothing else. Every bare object, a plain callable included, waits for PR5's resolver, so there is one rule and no special case |
-| the parent edge | no parent field on `run.started`, where the parent holds the child handle in memory. `RunStarted` dropped `parent_run_id` once already for being written and never read; it comes back in PR5 with the invocation tree that reads it |
+| what `ctx.invoke()` accepts | a catalog name and a native definition, nothing else. Every bare object, a plain callable included, waits for PR6's resolver, so there is one rule and no special case |
+| the parent edge | no parent field on `run.started`, where the parent holds the child handle in memory. `RunStarted` dropped `parent_run_id` once already for being written and never read; it comes back in PR6 with the invocation tree that reads it |
 
 ## Open
 
 | | |
 |---|---|
 | what the parent edge is called | the field PR3 puts on `run.started` for cancel cascade, usage roll-up and trace nesting. `parent_run_id` is the obvious name and the one that was already removed once |
-| `run.started` for a foreign target | `kind_of_invocable` is a closed literal and a resolved foreign object matches none of its members. PR3 either widens it or records the engine instead |
+| `run.started` for a foreign target | `kind_of_invocable` is a closed literal and a resolved foreign object matches none of its members. PR6 either widens it or records the executor instead |
 | `ctx.parallel` failure policy | all-or-nothing, or gather-with-exceptions. Undecided |
