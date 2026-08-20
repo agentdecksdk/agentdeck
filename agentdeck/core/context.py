@@ -18,13 +18,15 @@ receives, so a tool signature names one AgentDeck type instead of an engine's.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 from uuid import uuid4
 
-from agentdeck.core.content import as_decision
 from agentdeck.core.control import Gate, RunPausedError
 from agentdeck.core.events import KnownPayload, RunInterrupted
 from agentdeck.core.reporting import Reporter
+
+if TYPE_CHECKING:
+    from agentdeck.core.base import JsonData
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,26 +226,31 @@ class WorkflowCtx[T](ToolCtx[T]):
     ``invoke`` and ``parallel`` join this in the PR that adds child runs; what is here is the
     half that suspends the current branch. Both need somewhere to park, so a workflow is only
     ever built by an executor that can provide one.
+
+    There is no ``approve()``: an approval is a question with two options, and one mechanism that
+    takes any option set beats two that overlap. It also keeps AgentDeck out of the business of
+    deciding what counts as a yes  -  an answer equals one of the options the asker wrote, or it
+    is refused.
     """
 
-    async def ask(self, question: str, **fields: Any) -> Any:
+    async def ask(self, question: str, *, options: list[JsonData] | None = None, **fields: JsonData) -> Any:
         """Suspend this branch until somebody answers ``question``, and return their answer.
 
         The run becomes ``WAITING_ANSWER`` and shows up in ``deck.runs.list(status=...)`` and the
         approval inbox; ``run.answer(value)`` is what continues it. The body is not unwound  -  it
         waits where it stands, locals intact  -  which is why an answer resumes the next line
         rather than replaying the workflow.
-        """
-        return await self._waiting.suspend(_asked(question, "human", fields))
 
-    async def approve(self, question: str, **fields: Any) -> bool:
-        """:meth:`ask` for a yes or a no, and refuse anything that is neither.
+            approved = await ctx.ask("deploy to prod?", options=[True, False])
+            env = await ctx.ask("which environment?", options=["dev", "prod"])
 
-        An approval is a decision about doing something, so a value that only *looks* like an
-        answer must not read as consent: a bare truthiness test would take the string ``"no"``
-        for a yes.
+        ``options`` is what turns a question into a choice. They travel on the interrupt, so
+        every surface that lists pending runs can render them, and an answer that is not one of
+        them is refused before it is recorded  -  the answerer is told, and the run stays waiting.
+        Without them any value is an answer, and the body is the only thing that can judge it.
         """
-        return as_decision(await self._waiting.suspend(_asked(question, "approval", fields)))
+        asked = _asked(question, fields if options is None else {"options": options, **fields})
+        return await self._waiting.suspend(asked)
 
     @property
     def _waiting(self) -> Suspender:
@@ -258,7 +265,7 @@ class WorkflowCtx[T](ToolCtx[T]):
         return self._channel
 
 
-def _asked(question: str, reason: Literal["human", "approval"], fields: dict[str, Any]) -> RunInterrupted:
+def _asked(question: str, fields: dict[str, JsonData]) -> RunInterrupted:
     if not question:
-        raise ValueError("ask()/approve() need a question; an empty one has no answer to wait for.")
-    return RunInterrupted(interrupt_id=uuid4().hex, reason=reason, payload={"question": question, **fields})
+        raise ValueError("ask() needs a question; an empty one has no answer to wait for.")
+    return RunInterrupted(interrupt_id=uuid4().hex, reason="human", payload={"question": question, **fields})

@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 import pytest
 
 from agentdeck.core import (
+    AnswerRefused,
     ArtifactCreated,
     AudioBlock,
     ControlObserved,
@@ -96,6 +97,7 @@ PAYLOADS = (
     ControlRequested(verb="cancel", reason="operator pressed cancel"),
     ControlObserved(verb="cancel", safe_point="tool_dispatch"),
     Reported(level="info", message="Searching GitHub", fields={"source": "github"}),
+    AnswerRefused(reason="this run is waiting for one of [True, False] and got a str"),
 )
 
 

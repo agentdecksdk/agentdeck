@@ -294,6 +294,22 @@ class InputAppended(CoreModel):
     source: str
 
 
+class AnswerRefused(CoreModel):
+    """An answer that never landed: it was not one of the options the run asked for.
+
+    Not a lifecycle kind. The run is still ``WAITING_ANSWER`` after this, and the next answer can
+    still land  -  which is the whole point of refusing before the claim rather than letting a
+    mistyped reply resume the run and fail it.
+
+    ``reason`` names the type that arrived and what was expected, never the value itself: the
+    options are already on this run's ``run.interrupted``, and a refused answer can carry whatever
+    the answerer typed  -  which must not reach a sink for the sake of an audit line.
+    """
+
+    kind: Literal["answer.refused"] = "answer.refused"
+    reason: str
+
+
 class Reported(CoreModel):
     """Advisory: what the running code chose to say about itself.
 
@@ -364,6 +380,7 @@ KnownPayload = Annotated[
     | UsageReported
     | InputAppended
     | Reported
+    | AnswerRefused
     | Custom,
     Field(discriminator="kind"),
 ]

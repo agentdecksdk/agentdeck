@@ -149,35 +149,56 @@ async def test_a_pause_parks_the_body_and_a_resume_carries_on() -> None:
         assert await run == [0, 1, 2, 3, 4]
 
 
-async def test_an_approval_takes_a_yes_a_no_and_nothing_else() -> None:
-    """An approval is consent, so a value that merely looks like an answer must not read as one:
-    a truthiness test would take the string "no" for a yes."""
+async def test_an_answer_outside_the_options_is_refused_and_the_run_stays_answerable() -> None:
+    """A question with options is the only kind AgentDeck can judge, and judging it before the
+    claim is what keeps a mistyped reply from ending the run: the answerer is told, the run is
+    still waiting, and the next answer lands."""
     decided: list[Any] = []
 
     @workflow
     async def gated(ctx: WorkflowCtx) -> str:
-        decided.append(await ctx.approve("ship it?"))
+        decided.append(await ctx.ask("ship it?", options=[True, False]))
         return "done"
 
     async with Deck(workflows=[gated]) as deck:
-        for answer in ("yes", False):
-            run = await deck.runs.start("gated", None)
-            await _settles(run, RunStatus.WAITING_ANSWER)
-            await run.answer(answer)
-            assert await run == "done"
-        assert decided == [True, False]
+        run = await deck.runs.start("gated", None)
+        await _settles(run, RunStatus.WAITING_ANSWER)
 
-        refused = await deck.runs.start("gated", None)
-        await _settles(refused, RunStatus.WAITING_ANSWER)
-        with pytest.raises(ValueError, match="neither a yes nor a no"):
-            await refused.answer("maybe")
+        # The options travel on the interrupt, so a surface listing pending runs can render them.
+        pending = await run.pending()
+        assert pending is not None
+        assert pending["payload"]["options"] == [True, False]
 
-        # Refused, not consumed: the reply was checked before anything was claimed, so the run is
-        # still waiting and whoever mistyped can answer it properly.
-        assert await refused.status() is RunStatus.WAITING_ANSWER
-        await refused.answer("no")
-        assert await refused == "done"
-        assert decided == [True, False, False]
+        with pytest.raises(ValueError, match="waiting for one of"):
+            await run.answer("maybe")
+
+        assert await run.status() is RunStatus.WAITING_ANSWER
+        assert decided == []
+        # Recorded, so an audit sees the attempt. Not a lifecycle event: the run did not move.
+        assert [event.kind async for event in run.events()][-1] == "answer.refused"
+
+        await run.answer(False)
+        assert await run == "done"
+        assert decided == [False]
+
+
+async def test_a_question_with_no_options_takes_whatever_it_is_given() -> None:
+    """The other half of the rule: nothing here can judge a free-form answer better than the body
+    can, so nothing tries."""
+    seen: list[Any] = []
+
+    @workflow
+    async def freeform(ctx: WorkflowCtx) -> str:
+        seen.append(await ctx.ask("what is the plan?"))
+        return "noted"
+
+    async with Deck(workflows=[freeform]) as deck:
+        run = await deck.runs.start("freeform", None)
+        await _settles(run, RunStatus.WAITING_ANSWER)
+        await run.answer({"plan": "go left", "confidence": 0.4})
+
+        assert await run == "noted"
+        assert seen == [{"plan": "go left", "confidence": 0.4}]
 
 
 async def test_a_cancel_ends_the_run_rather_than_parking_it() -> None:

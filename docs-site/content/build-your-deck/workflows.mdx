@@ -15,7 +15,7 @@ from agentdeck import Deck, WorkflowCtx, workflow
 @workflow
 async def resolve(ctx: WorkflowCtx, ticket: dict) -> str:
     """Refund a ticket, once a person says so."""
-    if not await ctx.approve(f"refund {ticket['id']}?"):
+    if not await ctx.ask(f"refund {ticket['id']}?", options=[True, False]):
         return "declined"
     return "refunded"
 
@@ -24,9 +24,8 @@ deck = Deck(workflows=[resolve])
 
 ## It suspends where it stands
 
-`ctx.ask(...)` and `ctx.approve(...)` stop the run and wait. The body is not unwound: its local
-variables are still there, so the answer continues on the next line rather than replaying the
-workflow from the top.
+`ctx.ask(...)` stops the run and waits. The body is not unwound: its local variables are still
+there, so the answer continues on the next line rather than replaying the workflow from the top.
 
 ```python
 run = await deck.runs.start("resolve", {"id": "T-1"})
@@ -34,6 +33,30 @@ run = await deck.runs.start("resolve", {"id": "T-1"})
 await run.answer(True)
 print(await run)   # "refunded"
 ```
+
+### Options make it a choice
+
+```python
+env = await ctx.ask("which environment?", options=["dev", "prod"])
+```
+
+The options travel with the question, so anything listing pending runs can render them:
+
+```python
+pending = await run.pending()
+pending["payload"]["options"]   # ["dev", "prod"]
+```
+
+An answer that is not one of them is refused before it is recorded. The answerer gets the error,
+an `answer.refused` event lands in the log, and the run is still waiting for a real answer.
+
+```python
+await run.answer("staging")   # ValueError, nothing resumed
+await run.answer("prod")      # lands
+```
+
+A question with no options takes whatever it is given: nothing outside the body can judge a
+free-form answer better than the body can.
 
 An operator's pause behaves the same way at a safepoint, and a cancel ends the run instead.
 

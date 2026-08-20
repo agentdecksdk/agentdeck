@@ -1,0 +1,17 @@
+{
+  "v": {
+    "major": 3,
+    "minor": 1
+  },
+  "kind": "answer.refused",
+  "seq": 0,
+  "run_id": "run_1",
+  "session_id": "sess_1",
+  "namespace": "acme",
+  "origin": "Greeter",
+  "ts": "2026-01-01T12:00:00Z",
+  "payload": {
+    "kind": "answer.refused",
+    "reason": "this run is waiting for one of [True, False] and got a str"
+  }
+}
