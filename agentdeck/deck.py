@@ -876,9 +876,7 @@ class Deck:
         with suppress(asyncio.CancelledError):
             task.exception()
 
-    async def _events(
-        self, run_id: str, log_key: str, ctx: RunContext, *, from_seq: int = 0
-    ) -> AsyncGenerator[Event, None]:
+    async def _events(self, ctx: RunContext, *, from_seq: int = 0) -> AsyncGenerator[Event, None]:
         """One execution segment's own events, replayed from ``from_seq`` and tailed until the
         segment stops advancing  -  a terminal outcome or a suspension, whichever it reaches
         first. Reads only the store, never the Runtime (docs/design/run-identity.md §9): any
@@ -893,13 +891,13 @@ class Deck:
         store = self._require_open().store
         seq = from_seq
         while True:
-            batch = await store.read_run(log_key, run_id, ctx, from_seq=seq)
+            batch = await store.read_run(ctx, from_seq=seq)
             for event in batch:
                 yield event
                 seq = event.seq + 1
                 if event.kind in TERMINAL_KINDS or event.kind in SUSPENDED_KINDS:
                     return
-            task = self._executions.get(run_id)
+            task = self._executions.get(ctx.run_id)
             if task is not None and not task.done():
                 await asyncio.wait({task}, timeout=_FOLLOW_POLL_INTERVAL)
             else:
@@ -941,7 +939,7 @@ class Deck:
         # be all a caller ever saw of a run that in fact raised.
         await task
         ctx = RunContext(run_id=opening.run_id, session_id=opening.session_id, namespace=opening.namespace)
-        events = self._events(opening.run_id, ctx.log_key, ctx)
+        events = self._events(ctx)
         if isinstance(root, Agent):
             return await _turn_result(events)
         result, _ = await _workflow_result(events)
@@ -972,7 +970,7 @@ class Deck:
             name, content, context=context, session_id=session_id, namespace=namespace, key=key
         )
         ctx = RunContext(run_id=opening.run_id, session_id=opening.session_id, namespace=opening.namespace)
-        async with aclosing(self._events(opening.run_id, ctx.log_key, ctx)) as events:
+        async with aclosing(self._events(ctx)) as events:
             async for event in events:
                 yield event
         # Read only once the segment's own events are all yielded, so a mid-stream failure's
@@ -1239,10 +1237,6 @@ class Run:
         """
         return can_of(self._seen, suspendable=self._suspendable)
 
-    @property
-    def _log_key(self) -> str:
-        return self.session_id or self.id
-
     def _rc(self) -> RunContext:
         return RunContext(run_id=self.id, session_id=self.session_id, namespace=self.namespace)
 
@@ -1346,12 +1340,12 @@ class Run:
         came after.
         """
         if follow:
-            return self._deck._events(self.id, self._log_key, self._rc(), from_seq=from_seq)
+            return self._deck._events(self._rc(), from_seq=from_seq)
         return self._snapshot(from_seq)
 
     async def _snapshot(self, from_seq: int) -> AsyncIterator[Event]:
         store = self._deck._require_open().store
-        for event in await store.read_run(self._log_key, self.id, self._rc(), from_seq=from_seq):
+        for event in await store.read_run(self._rc(), from_seq=from_seq):
             yield event
 
     def __await__(self) -> Generator[Any, None, Any]:
@@ -1397,7 +1391,7 @@ class Run:
                 await task
             else:
                 await asyncio.sleep(_FOLLOW_POLL_INTERVAL)
-        events = await runtime.store.read_run(self._log_key, self.id, self._rc())
+        events = await runtime.store.read_run(self._rc())
         last = events[-1] if events else None
         if last is None:
             raise RuntimeError(f"run {self.id!r} has no events recorded at all.")
@@ -1495,13 +1489,12 @@ class Runs:
         summary = await runtime.find(id, namespace=namespace)
         if summary is None:
             raise NotFoundError(f"No run {id!r} in namespace {namespace!r}.")
-        session_id = None if summary.log_key == summary.run_id else summary.log_key
         return Run(
             self._deck,
             id=id,
             key=key,
             namespace=namespace,
-            session_id=session_id,
+            session_id=summary.session_id,
             context=None,
             seen=summary.status,
             suspendable=_RECOVERED_SUSPENDABLE,
@@ -1527,7 +1520,7 @@ class Runs:
                 id=summary.run_id,
                 key=None,
                 namespace=namespace,
-                session_id=None if summary.log_key == summary.run_id else summary.log_key,
+                session_id=summary.session_id,
                 context=None,
                 seen=summary.status,
                 suspendable=_RECOVERED_SUSPENDABLE,

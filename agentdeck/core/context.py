@@ -49,10 +49,15 @@ class RunContext:
     first place, and there is nothing left to derive.
 
     ``key`` is the caller's optional stable application identifier  -  for lookup and
-    idempotency, never for addressing. It plays no part in :attr:`id` or :attr:`log_key`, and
+    idempotency, never for addressing. It plays no part in :attr:`id`, and
     a store indexes ``(namespace, key)`` as a separate, permanent claim.
 
-    Four values and three seams, and nothing else: a field AgentDeck's own machinery never
+    Four values and three seams, and nothing else. The four are the whole of a run's identity:
+    :attr:`run_id` is which run, :attr:`key` is what the application calls it, :attr:`namespace`
+    is what it is kept apart from, and :attr:`session_id` is the conversation it belongs to. There
+    was a fifth, derived one (``log_key``, ``session_id or run_id``): it answered "which stream do
+    these events go in", and a store handed it could no longer tell a session named after a run
+    from that run itself. a field AgentDeck's own machinery never
     reads is not infrastructure, it is a guess about a mechanism that does not exist yet.
     ``trace_id``, ``budget``, ``triggered_by``, ``parent_run_id``, ``deadline`` and
     ``idempotency_key`` were all of that, and each comes back with the thing that enforces it.
@@ -102,12 +107,6 @@ class RunContext:
         "no namespace" looks like would be four chances to put one run in two buckets.
         """
         return self.namespace or ""
-
-    @property
-    def log_key(self) -> str:
-        """Where this run's events are written  -  a run without a session is its own log,
-        so persist-before-yield holds for it too."""
-        return self.session_id or self.run_id
 
     @property
     def id(self) -> str:

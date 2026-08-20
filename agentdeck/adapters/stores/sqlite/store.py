@@ -34,29 +34,32 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     namespace TEXT NOT NULL,
-    log_key TEXT NOT NULL,
+    session_id TEXT,
     run_id TEXT NOT NULL,
     key TEXT,
     seq INTEGER NOT NULL,
     data TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS events_by_log ON events (namespace, log_key, id);
+CREATE INDEX IF NOT EXISTS events_by_session ON events (namespace, session_id, id);
 CREATE UNIQUE INDEX IF NOT EXISTS events_by_run ON events (namespace, run_id, seq);
 CREATE UNIQUE INDEX IF NOT EXISTS events_by_key ON events (namespace, key) WHERE key IS NOT NULL;
 """
-# events_by_run is the run-scoped identity guard: one seq per run is the promise consumers
-# refetch a gap with, and a duplicate is the one corruption a gap check cannot see. Scoped to
-# `(namespace, run_id, seq)` rather than `(namespace, log_key, run_id, seq)`  -  the shape this
-# build inherited  -  because the old index let the same run_id+seq exist under two log keys,
-# which is exactly "one logical run split across two logs", the defect #324 closes. Dropped and
-# rebuilt by `_migrate_events_schema` below for a database an earlier build already created.
+# `session_id` is nullable because a run that is part of no conversation belongs to no session,
+# which is a fact rather than a missing value. The column it replaces (`log_key`) held the run's
+# own id in that case, so a session named after some run and that run itself were one key.
+#
+# events_by_session answers "this conversation, in append order"; events_by_run answers "this
+# run's events". Two questions, two indexes, and neither has to know about the other.
+#
+# events_by_run is also the run-scoped identity guard: one seq per run is the promise consumers
+# refetch a gap with, and a duplicate is the one corruption a gap check cannot see.
 #
 # events_by_key is `(namespace, key)`'s enforcement, partial so unkeyed rows (the overwhelming
 # majority  -  every row but a run's own opening one) never compete for the constraint. A run
 # whose key collides with another run's fails the INSERT itself; there is no read-then-write
 # window for two racing claims to both pass through.
 
-_INSERT = "INSERT INTO events (namespace, log_key, run_id, key, seq, data) VALUES (?, ?, ?, ?, ?, ?)"
+_INSERT = "INSERT INTO events (namespace, session_id, run_id, key, seq, data) VALUES (?, ?, ?, ?, ?, ?)"
 
 _SORTED_LIFECYCLE_KINDS = tuple(sorted(LIFECYCLE_KINDS))
 _KIND_SLOTS = ", ".join("?" * len(_SORTED_LIFECYCLE_KINDS))
@@ -86,22 +89,36 @@ def _migrate_events_schema(conn: sqlite3.Connection) -> None:
     """Carry an ``events`` table an earlier build created forward to this build's shape.
 
     A brand-new file has no ``events`` table yet, so there is nothing to carry  -  ``_SCHEMA``
-    below creates the current shape directly and this is a no-op. An existing one is missing
-    the ``key`` column outright (``ALTER TABLE ... ADD COLUMN`` is additive, never destructive)
-    and its ``events_by_run`` index is still scoped to ``(namespace, log_key, run_id, seq)``,
-    the shape #324 tightens to ``(namespace, run_id, seq)``. Same name, different columns, so
+    below creates the current shape directly and this is a no-op. An existing one may be missing
+    the ``key`` column outright (``ALTER TABLE ... ADD COLUMN`` is additive, never destructive),
+    may still carry ``log_key`` where this build wants ``session_id``, and its ``events_by_run``
+    index may still be scoped to ``(namespace, log_key, run_id, seq)``, the shape #324 tightens
+    to ``(namespace, run_id, seq)``. Same name, different columns, so
     ``CREATE UNIQUE INDEX IF NOT EXISTS`` in ``_SCHEMA`` would find the name taken and leave the
     old, looser shape in place rather than tightening it  -  dropped here so the fresh ``CREATE``
     rebuilds it. If existing rows genuinely violate the tighter constraint (the same run_id and
     seq recorded under two different log keys), that ``CREATE UNIQUE INDEX`` fails and the
     ``StoreError`` it raises names the underlying conflict  -  the correct outcome: silently
     picking a survivor row would hide a real corruption rather than surface it.
+
+    The ``log_key`` -> ``session_id`` step is the one that reads rows rather than only reshaping
+    the table: the old column held the session *or* the run's own id, and only comparing the two
+    can say which. A row where they match was a run in no session, so its ``session_id`` is NULL.
     """
     columns = {row[1] for row in conn.execute("PRAGMA table_info(events)")}
     if not columns:
         return
     if "key" not in columns:
         conn.execute("ALTER TABLE events ADD COLUMN key TEXT")
+    if "log_key" in columns:
+        if "session_id" not in columns:
+            conn.execute("ALTER TABLE events ADD COLUMN session_id TEXT")
+        conn.execute("UPDATE events SET session_id = CASE WHEN log_key = run_id THEN NULL ELSE log_key END")
+        # Both before the drop, not only the one being replaced: SQLite refuses to drop a column
+        # any index still names, and the inherited `events_by_run` names this one too.
+        conn.execute("DROP INDEX IF EXISTS events_by_log")
+        conn.execute("DROP INDEX IF EXISTS events_by_run")
+        conn.execute("ALTER TABLE events DROP COLUMN log_key")
     # Only drop and rebuild when the index is genuinely the old shape: on a database already at
     # this build's schema (freshly created, or already migrated), `events_by_run` already reads
     # `(namespace, run_id, seq)`, and dropping it unconditionally on every open would force a
@@ -167,22 +184,25 @@ class SqliteEventStore(EventStorePort):
             except sqlite3.Error as exc:
                 raise StoreError(f"event log {op} failed: {exc}") from exc
 
-    async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
-        return await self._run(partial(self._append, log_key, list(payloads), ctx, origin), "append")
+    async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        return await self._run(partial(self._append, list(payloads), ctx, origin), "append")
 
-    async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
+    async def read_session(self, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
         if limit is not None and limit < 0:
             raise ValueError(f"limit must be None or >= 0, got {limit}")
-        rows = await self._run(partial(self._select_log, ctx.namespace_key, log_key, max(offset, 0), limit), "read")
+        if ctx.session_id is None:
+            return []
+        rows = await self._run(
+            partial(self._select_session, ctx.namespace_key, ctx.session_id, max(offset, 0), limit), "read_session"
+        )
         return [Event.model_validate(json.loads(row)) for row in rows]
 
-    async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
-        rows = await self._run(partial(self._select_run, ctx.namespace_key, log_key, run_id, from_seq), "read_run")
+    async def read_run(self, ctx: RunContext, from_seq: int = 0) -> list[Event]:
+        rows = await self._run(partial(self._select_run, ctx.namespace_key, ctx.run_id, from_seq), "read_run")
         return [Event.model_validate(json.loads(row)) for row in rows]
 
     async def claim_start(
         self,
-        log_key: str,
         opening: RunStarted,
         ctx: RunContext,
         origin: str,
@@ -198,13 +218,9 @@ class SqliteEventStore(EventStorePort):
         and then read the run the winner opened. Only a lock held past the busy timeout raises,
         because that is a store nobody can write to rather than a session somebody else took.
         """
-        return await self._run(
-            partial(self._claim_start, log_key, opening, ctx, origin, stale_after, dead), "claim_start"
-        )
+        return await self._run(partial(self._claim_start, opening, ctx, origin, stale_after, dead), "claim_start")
 
-    async def claim_resume(
-        self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
-    ) -> Event | None:
+    async def claim_resume(self, resumed: RunResumed, ctx: RunContext, origin: str) -> Event | None:
         """The port's conditional append as one ``BEGIN IMMEDIATE`` transaction, so the
         winner is decided by SQLite's own write lock  -  the file, not this process, is what
         two servers agree through.
@@ -214,9 +230,7 @@ class SqliteEventStore(EventStorePort):
         the busy timeout raises, and that is a store nobody can write to rather than a claim
         somebody else won  -  ``StoreError``, never a fabricated ``None``.
         """
-        if ctx.run_id != run_id:
-            raise ValueError(f"a claim on run {run_id!r} cannot be made in the context of {ctx.run_id!r}")
-        return await self._run(partial(self._claim, log_key, resumed, ctx, origin), "claim_resume")
+        return await self._run(partial(self._claim, resumed, ctx, origin), "claim_resume")
 
     async def list_runs(
         self, ctx: RunContext, status: RunStatus | None = None, limit: int | None = None
@@ -230,8 +244,8 @@ class SqliteEventStore(EventStorePort):
         # folds to a status. It is what narrows ``status_of``'s ``None``  -  the "no transition at
         # all" answer, which a run found by this query cannot give.
         summaries = [
-            RunSummary(log_key=log_key, run_id=run_id, status=folded)
-            for log_key, run_id, data in rows
+            RunSummary(run_id=run_id, session_id=session_id, status=folded)
+            for session_id, run_id, data in rows
             if (folded := status_of([Event.model_validate(json.loads(data))])) is not None
         ]
         filtered = [summary for summary in summaries if status is None or summary.status is status]
@@ -250,7 +264,7 @@ class SqliteEventStore(EventStorePort):
         row = cursor.fetchone()
         return row[0] if row is not None else None
 
-    def _append(self, log_key: str, payloads: list[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+    def _append(self, payloads: list[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
         if not payloads:  # as postgres and redis do  -  no reason to take the write lock for nothing
             return []
         # BEGIN IMMEDIATE, which a plain append never used to take. Reading MAX(seq) inside a
@@ -260,10 +274,10 @@ class SqliteEventStore(EventStorePort):
         # first makes the read and the insert one step, which is the whole decision (ADR-D11).
         self._conn.execute("BEGIN IMMEDIATE")
         with self._conn:
-            return self._stamp_and_insert(log_key, payloads, ctx, origin)
+            return self._stamp_and_insert(payloads, ctx, origin)
 
     def _stamp_and_insert(
-        self, log_key: str, payloads: list[KnownPayload], ctx: RunContext, origin: str, key: str | None = None
+        self, payloads: list[KnownPayload], ctx: RunContext, origin: str, key: str | None = None
     ) -> list[Event]:
         """Assign, build, insert  -  callable only with the write lock already held.
 
@@ -277,7 +291,7 @@ class SqliteEventStore(EventStorePort):
         Repeating it on every row would collide with itself under ``events_by_key``.
         """
         now = self._backend_now()
-        seq = self._select_last_seq(ctx.namespace_key, log_key, ctx.run_id)
+        seq = self._select_last_seq(ctx.namespace_key, ctx.run_id)
         events = []
         for payload in payloads:
             seq += 1
@@ -298,7 +312,7 @@ class SqliteEventStore(EventStorePort):
             [
                 (
                     ctx.namespace_key,
-                    log_key,
+                    ctx.session_id,
                     event.run_id,
                     key if index == 0 else None,
                     event.seq,
@@ -321,7 +335,6 @@ class SqliteEventStore(EventStorePort):
 
     def _claim_start(
         self,
-        log_key: str,
         opening: RunStarted,
         ctx: RunContext,
         origin: str,
@@ -335,7 +348,7 @@ class SqliteEventStore(EventStorePort):
         with self._conn:
             stale_before = self._backend_now() - stale_after
             overridden: list[Event] = []
-            for _run_id, status, last in self._select_open_runs(ctx.namespace_key, log_key):
+            for _run_id, status, last in self._select_open_runs(ctx.namespace_key, ctx.session_id):
                 if STATES[status].suspended:
                     # No worker to be dead: PAUSED and WAITING_ANSWER have no engine polling a
                     # clock, so silence is not evidence of anything and neither the timer nor an
@@ -346,7 +359,7 @@ class SqliteEventStore(EventStorePort):
                     return SessionClaim(held_by=last.run_id), None
                 overridden.append(last)
             try:
-                event = self._stamp_and_insert(log_key, [opening], ctx, origin, key=ctx.key)[0]
+                event = self._stamp_and_insert([opening], ctx, origin, key=ctx.key)[0]
             except sqlite3.IntegrityError as exc:
                 # `ctx.run_id` is freshly minted for every claim_start call, so the run-scoped
                 # `events_by_run` index (namespace, run_id, seq) cannot fire here  -  a fresh id
@@ -362,17 +375,20 @@ class SqliteEventStore(EventStorePort):
                 raise
         return SessionClaim(overridden=tuple(overridden)), event
 
-    def _select_open_runs(self, namespace: str, log_key: str) -> list[tuple[str, RunStatus, Event]]:
-        """Every run in this log that has recorded a transition but not a terminal one, paired
+    def _select_open_runs(self, namespace: str, session_id: str | None) -> list[tuple[str, RunStatus, Event]]:
+        """Every run in this session that has recorded a transition but not a terminal one, paired
         with its own status and its own last event  -  whatever kind  -  because that event is the
         run's last sign of life, and silence is all that separates an abandoned run from a
         working one.
         """
+        if session_id is None:
+            # No conversation, nothing to hold: a run with no session claims against nobody.
+            return []
         cursor = self._conn.execute(
             "SELECT run_id, data, MAX(id) FROM events "
-            f"WHERE namespace = ? AND log_key = ? AND json_extract(data, '$.kind') IN ({_KIND_SLOTS}) "
+            f"WHERE namespace = ? AND session_id = ? AND json_extract(data, '$.kind') IN ({_KIND_SLOTS}) "
             "GROUP BY run_id",
-            (namespace, log_key, *_SORTED_LIFECYCLE_KINDS),
+            (namespace, session_id, *_SORTED_LIFECYCLE_KINDS),
         )
         open_runs = [
             (row[0], status)
@@ -380,16 +396,16 @@ class SqliteEventStore(EventStorePort):
             if (status := status_of([Event.model_validate(json.loads(row[1]))])) is not None
             and not STATES[status].terminal
         ]
-        return [(run_id, status, self._select_last_event(namespace, log_key, run_id)) for run_id, status in open_runs]
+        return [(run_id, status, self._select_last_event(namespace, run_id)) for run_id, status in open_runs]
 
-    def _select_last_event(self, namespace: str, log_key: str, run_id: str) -> Event:
+    def _select_last_event(self, namespace: str, run_id: str) -> Event:
         cursor = self._conn.execute(
-            "SELECT data, MAX(id) FROM events WHERE namespace = ? AND log_key = ? AND run_id = ?",
-            (namespace, log_key, run_id),
+            "SELECT data, MAX(id) FROM events WHERE namespace = ? AND run_id = ?",
+            (namespace, run_id),
         )
         return Event.model_validate(json.loads(cursor.fetchone()[0]))
 
-    def _claim(self, log_key: str, resumed: RunResumed, ctx: RunContext, origin: str) -> Event | None:
+    def _claim(self, resumed: RunResumed, ctx: RunContext, origin: str) -> Event | None:
         # BEGIN IMMEDIATE takes the file's write lock before the reads, so a second process
         # cannot see this run waiting in the gap between our check and our insert  -  a
         # deferred transaction would only lock at the insert, which is exactly too late.
@@ -397,51 +413,51 @@ class SqliteEventStore(EventStorePort):
         # Commits the insert on the way out, rolls back if anything raised; the losing path
         # wrote nothing, so its commit is only the write lock being handed back.
         with self._conn:
-            last = self._select_last_lifecycle_of_run(ctx.namespace_key, log_key, ctx.run_id)
+            last = self._select_last_lifecycle_of_run(ctx.namespace_key, ctx.run_id)
             if not can_resume(status_of([Event.model_validate(json.loads(last))] if last is not None else [])):
                 return None
-            return self._stamp_and_insert(log_key, [resumed], ctx, origin)[0]
+            return self._stamp_and_insert([resumed], ctx, origin)[0]
 
-    def _select_log(self, namespace: str, log_key: str, after: int, limit: int | None) -> list[str]:
+    def _select_session(self, namespace: str, session_id: str, after: int, limit: int | None) -> list[str]:
         # SQLite treats a negative LIMIT as "no limit"  -  the one case a plain int can't say.
         cursor = self._conn.execute(
-            "SELECT data FROM events WHERE namespace = ? AND log_key = ? ORDER BY id ASC LIMIT ? OFFSET ?",
-            (namespace, log_key, -1 if limit is None else limit, after),
+            "SELECT data FROM events WHERE namespace = ? AND session_id = ? ORDER BY id ASC LIMIT ? OFFSET ?",
+            (namespace, session_id, -1 if limit is None else limit, after),
         )
         return [row[0] for row in cursor.fetchall()]
 
-    def _select_run(self, namespace: str, log_key: str, run_id: str, from_seq: int) -> list[str]:
+    def _select_run(self, namespace: str, run_id: str, from_seq: int) -> list[str]:
         cursor = self._conn.execute(
-            "SELECT data FROM events WHERE namespace = ? AND log_key = ? AND run_id = ? AND seq >= ? ORDER BY id ASC",
-            (namespace, log_key, run_id, from_seq),
+            "SELECT data FROM events WHERE namespace = ? AND run_id = ? AND seq >= ? ORDER BY id ASC",
+            (namespace, run_id, from_seq),
         )
         return [row[0] for row in cursor.fetchall()]
 
-    def _select_last_seq(self, namespace: str, log_key: str, run_id: str) -> int:
+    def _select_last_seq(self, namespace: str, run_id: str) -> int:
         cursor = self._conn.execute(
-            "SELECT MAX(seq) FROM events WHERE namespace = ? AND log_key = ? AND run_id = ?",
-            (namespace, log_key, run_id),
+            "SELECT MAX(seq) FROM events WHERE namespace = ? AND run_id = ?",
+            (namespace, run_id),
         )
         row = cursor.fetchone()
         return row[0] if row is not None and row[0] is not None else -1
 
-    def _select_last_lifecycle_of_run(self, namespace: str, log_key: str, run_id: str) -> str | None:
+    def _select_last_lifecycle_of_run(self, namespace: str, run_id: str) -> str | None:
         cursor = self._conn.execute(
             "SELECT data FROM events "
-            f"WHERE namespace = ? AND log_key = ? AND run_id = ? AND json_extract(data, '$.kind') IN ({_KIND_SLOTS}) "
+            f"WHERE namespace = ? AND run_id = ? AND json_extract(data, '$.kind') IN ({_KIND_SLOTS}) "
             "ORDER BY id DESC LIMIT 1",
-            (namespace, log_key, run_id, *_SORTED_LIFECYCLE_KINDS),
+            (namespace, run_id, *_SORTED_LIFECYCLE_KINDS),
         )
         row = cursor.fetchone()
         return row[0] if row is not None else None
 
-    def _select_last_lifecycle(self, namespace: str) -> list[tuple[str, str, str]]:
+    def _select_last_lifecycle(self, namespace: str) -> list[tuple[str | None, str, str]]:
         # SQLite guarantees the bare columns of a MAX() group come from the row that held the
         # maximum, so this is the newest lifecycle event of each run in a single group-by.
         cursor = self._conn.execute(
-            "SELECT log_key, run_id, data, MAX(id) FROM events "
+            "SELECT session_id, run_id, data, MAX(id) FROM events "
             f"WHERE namespace = ? AND json_extract(data, '$.kind') IN ({_KIND_SLOTS}) "
-            "GROUP BY log_key, run_id",
+            "GROUP BY run_id",
             (namespace, *_SORTED_LIFECYCLE_KINDS),
         )
         return [(row[0], row[1], row[2]) for row in cursor.fetchall()]

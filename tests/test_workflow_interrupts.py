@@ -270,7 +270,7 @@ def test_deck_surface_runs_lists_and_answers(app_project):
             resumed = await mine
             # both run and answer write to the event log now  -
             # read it back rather than trusting each call's own bookkeeping.
-            events = await deck._runtime.store.read("t-app", RunContext(run_id="reader", session_id="t-app"))
+            events = await deck._runtime.store.read_session(RunContext(run_id="reader", session_id="t-app"))
             return paused, mine, resumed, [event.kind for event in events]
 
     paused, mine, resumed, kinds = asyncio.run(_scenario())

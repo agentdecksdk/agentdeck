@@ -7,6 +7,7 @@ anywhere belongs here, not as a one-off next to whatever found it.
 from __future__ import annotations
 
 from contextlib import aclosing
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -74,7 +75,7 @@ async def test_every_event_is_in_the_store_before_a_consumer_sees_it(
         runtime.run(case.spec.name, case.input, session_id=ctx.session_id, namespace=ctx.namespace)
     ):
         seen += 1
-        stored = await store.read(ctx.log_key, ctx)
+        stored = await store.read_session(ctx)
         assert stored[-1] == event
         assert len(stored) == seen
 
@@ -82,7 +83,7 @@ async def test_every_event_is_in_the_store_before_a_consumer_sees_it(
 async def test_the_stream_and_the_store_tell_the_same_story(
     played: Played, store: MemoryEventStore, ctx: RunContext
 ) -> None:
-    assert await store.read(ctx.log_key, ctx) == played.events
+    assert await store.read_session(ctx) == played.events
 
 
 async def test_an_abandoned_stream_leaves_a_closed_run_behind(
@@ -96,7 +97,7 @@ async def test_an_abandoned_stream_leaves_a_closed_run_behind(
     ) as run:
         async for _ in run:
             break
-    stored = await store.read(ctx.log_key, ctx)
+    stored = await store.read_session(ctx)
     assert [event.seq for event in stored] == list(range(len(stored)))
     assert stored[0].kind == "run.started"
     assert check_terminal(stored) is None
@@ -118,9 +119,9 @@ async def test_a_gap_can_be_refetched_from_the_store_by_run(
     ]
     second_run_id = second[0].run_id
 
-    assert await store.read_run(ctx.log_key, first_run_id, ctx) == first
-    assert await store.read_run(ctx.log_key, second_run_id, ctx) == second
-    assert await store.read_run(ctx.log_key, second_run_id, ctx, from_seq=1) == second[1:]
+    assert await store.read_run(replace(ctx, run_id=first_run_id)) == first
+    assert await store.read_run(replace(ctx, run_id=second_run_id)) == second
+    assert await store.read_run(replace(ctx, run_id=second_run_id), from_seq=1) == second[1:]
 
 
 async def test_a_second_run_in_the_session_counts_its_seq_from_zero_again(
@@ -137,7 +138,7 @@ async def test_a_second_run_in_the_session_counts_its_seq_from_zero_again(
     ]
 
     assert [event.seq for event in second] == list(range(len(second)))
-    assert await store.read(ctx.log_key, ctx) == first + second
+    assert await store.read_session(ctx) == first + second
 
 
 async def _played_out(case: Case, runtime: Runtime, ctx: RunContext) -> list[Event]:

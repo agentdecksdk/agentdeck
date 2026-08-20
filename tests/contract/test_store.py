@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 from collections import Counter
+from dataclasses import replace
 from datetime import timedelta
 from time import monotonic
 from typing import TYPE_CHECKING, Any
@@ -75,9 +76,9 @@ async def two_event_stores(request: pytest.FixtureRequest) -> AsyncIterator[tupl
         yield pair
 
 
-def _ctx(namespace: str = "acme", run_id: str = "r-1", log_key: str = "s-1", key: str | None = None) -> RunContext:
+def _ctx(namespace: str = "acme", run_id: str = "r-1", session_id: str = "s-1", key: str | None = None) -> RunContext:
     """The context a write is made in  -  which is now the whole envelope bar ``origin``."""
-    return RunContext(namespace=namespace, run_id=run_id, session_id=log_key, key=key)
+    return RunContext(namespace=namespace, run_id=run_id, session_id=session_id, key=key)
 
 
 def _started() -> RunStarted:
@@ -99,7 +100,7 @@ def _interrupted(interrupt_id: str = "i-1", thread_id: str | None = "t-1") -> Ru
 
 async def _write(store: EventStorePort, payloads: Sequence[KnownPayload], ctx: RunContext) -> list[Event]:
     """One append into ``ctx``'s own run and log  -  the shape nearly every case here wants."""
-    return await store.append(ctx.log_key, payloads, ctx, ORIGIN)
+    return await store.append(payloads, ctx, ORIGIN)
 
 
 async def test_redis_keyspace_prefix_is_disjoint_across_processes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -127,21 +128,21 @@ async def test_run_status_with_no_events_is_none(event_store: EventStorePort) ->
     """A run this store never heard of has no status at all. There is deliberately no member
     naming that case: it would be indistinguishable from a run that exists but has logged no
     lifecycle transition yet, and ``run.started`` is a run's row 0 so neither ever happens."""
-    assert await event_store.run_status("s-1", "r-1", _ctx()) is None
+    assert await event_store.run_status(replace(_ctx(), run_id="r-1")) is None
 
 
 async def test_run_status_follows_the_last_lifecycle_transition(event_store: EventStorePort) -> None:
     ctx = _ctx()
     await _write(event_store, [_started(), _interrupted()], ctx)
-    assert await event_store.run_status("s-1", "r-1", ctx) is RunStatus.WAITING_ANSWER
+    assert await event_store.run_status(replace(ctx, run_id="r-1")) is RunStatus.WAITING_ANSWER
 
 
 async def test_run_status_is_scoped_to_one_run_not_the_whole_log(event_store: EventStorePort) -> None:
     ctx = _ctx()
     await _write(event_store, [_started()], ctx)
     await _write(event_store, [_started(), _completed()], _ctx(run_id="r-2"))
-    assert await event_store.run_status("s-1", "r-1", ctx) is RunStatus.RUNNING
-    assert await event_store.run_status("s-1", "r-2", ctx) is RunStatus.COMPLETED
+    assert await event_store.run_status(replace(ctx, run_id="r-1")) is RunStatus.RUNNING
+    assert await event_store.run_status(replace(ctx, run_id="r-2")) is RunStatus.COMPLETED
 
 
 async def test_find_by_key_of_an_unclaimed_key_is_none(event_store: EventStorePort) -> None:
@@ -152,7 +153,7 @@ async def test_find_by_key_resolves_to_the_run_that_claimed_it(event_store: Even
     """The read side of the permanent claim ``claim_start`` makes on ``ctx.key``  -  plain
     ``append`` never sets it, only the claim that adopts a key does."""
     ctx = _ctx(run_id="r-1", key="order-1234")
-    claim, event = await event_store.claim_start(ctx.log_key, _started(), ctx, ORIGIN, timedelta(hours=1))
+    claim, event = await event_store.claim_start(_started(), ctx, ORIGIN, timedelta(hours=1))
     assert claim.held_by is None and event is not None
 
     assert await event_store.find_by_key(ctx, "order-1234") == "r-1"
@@ -162,7 +163,7 @@ async def test_find_by_key_never_reaches_into_another_namespaces_claim(event_sto
     """The same key claimed in one namespace is not another namespace's to find  -  the isolation
     ``(namespace, key)``'s uniqueness only promises within one namespace."""
     ctx = _ctx("acme", run_id="r-1", key="order-1234")
-    await event_store.claim_start(ctx.log_key, _started(), ctx, ORIGIN, timedelta(hours=1))
+    await event_store.claim_start(_started(), ctx, ORIGIN, timedelta(hours=1))
 
     assert await event_store.find_by_key(_ctx("globex"), "order-1234") is None
 
@@ -172,8 +173,8 @@ async def test_find_by_key_tells_two_namespaces_sharing_one_key_apart(event_stor
     namespace's own lookup resolves to its own run, never the other's."""
     acme = _ctx("acme", run_id="r-acme", key="order-1234")
     globex = _ctx("globex", run_id="r-globex", key="order-1234")
-    await event_store.claim_start(acme.log_key, _started(), acme, ORIGIN, timedelta(hours=1))
-    await event_store.claim_start(globex.log_key, _started(), globex, ORIGIN, timedelta(hours=1))
+    await event_store.claim_start(_started(), acme, ORIGIN, timedelta(hours=1))
+    await event_store.claim_start(_started(), globex, ORIGIN, timedelta(hours=1))
 
     assert await event_store.find_by_key(acme, "order-1234") == "r-acme"
     assert await event_store.find_by_key(globex, "order-1234") == "r-globex"
@@ -205,12 +206,12 @@ def _window_between(older: Event, newer: Event) -> timedelta:
 
 async def test_claim_start_opens_a_run_on_an_idle_session(event_store: EventStorePort) -> None:
     ctx = _ctx()
-    claim, event = await event_store.claim_start("s-1", _started(), ctx, ORIGIN, NOTHING_IS_STALE)
+    claim, event = await event_store.claim_start(_started(), ctx, ORIGIN, NOTHING_IS_STALE)
 
     assert claim == SessionClaim()
     assert event is not None and (event.run_id, event.seq, event.kind) == ("r-1", 0, "run.started")
-    assert [event.kind for event in await event_store.read("s-1", ctx)] == ["run.started"]
-    assert await event_store.run_status("s-1", "r-1", ctx) is RunStatus.RUNNING
+    assert [event.kind for event in await event_store.read_session(ctx)] == ["run.started"]
+    assert await event_store.run_status(replace(ctx, run_id="r-1")) is RunStatus.RUNNING
 
 
 async def test_claim_start_refuses_a_session_that_already_has_a_run_going(event_store: EventStorePort) -> None:
@@ -219,9 +220,9 @@ async def test_claim_start_refuses_a_session_that_already_has_a_run_going(event_
     ctx = _ctx()
     await _write(event_store, [_started()], ctx)
 
-    claim, event = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-2"), ORIGIN, NOTHING_IS_STALE)
+    claim, event = await event_store.claim_start(_started(), _ctx(run_id="r-2"), ORIGIN, NOTHING_IS_STALE)
     assert (claim, event) == (SessionClaim(held_by="r-1"), None)
-    assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-1"]
+    assert [event.run_id for event in await event_store.read_session(ctx)] == ["r-1"]
 
 
 async def test_claim_start_refuses_a_session_whose_run_is_waiting_on_a_human(event_store: EventStorePort) -> None:
@@ -230,9 +231,9 @@ async def test_claim_start_refuses_a_session_whose_run_is_waiting_on_a_human(eve
     ctx = _ctx()
     await _interrupt(event_store, ctx)
 
-    claim, event = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-2"), ORIGIN, NOTHING_IS_STALE)
+    claim, event = await event_store.claim_start(_started(), _ctx(run_id="r-2"), ORIGIN, NOTHING_IS_STALE)
     assert (claim, event) == (SessionClaim(held_by="r-1"), None)
-    assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-1", "r-1"]
+    assert [event.run_id for event in await event_store.read_session(ctx)] == ["r-1", "r-1"]
 
 
 @pytest.mark.parametrize(
@@ -251,9 +252,9 @@ async def test_claim_start_wins_once_the_previous_run_is_closed(
     ctx = _ctx()
     await _write(event_store, [_started(), closing], ctx)
 
-    claim, event = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-2"), ORIGIN, NOTHING_IS_STALE)
+    claim, event = await event_store.claim_start(_started(), _ctx(run_id="r-2"), ORIGIN, NOTHING_IS_STALE)
     assert (claim, event is not None) == (SessionClaim(), True)
-    assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-1", "r-1", "r-2"]
+    assert [event.run_id for event in await event_store.read_session(ctx)] == ["r-1", "r-1", "r-2"]
 
 
 async def test_a_run_that_recorded_no_transition_holds_no_session(event_store: EventStorePort) -> None:
@@ -262,7 +263,7 @@ async def test_a_run_that_recorded_no_transition_holds_no_session(event_store: E
     ctx = _ctx()
     await _write(event_store, [TextDelta(message_id="m1", text="hi")], _ctx(run_id="r-0"))
 
-    claim, event = await event_store.claim_start("s-1", _started(), ctx, ORIGIN, NOTHING_IS_STALE)
+    claim, event = await event_store.claim_start(_started(), ctx, ORIGIN, NOTHING_IS_STALE)
     assert (claim, event is not None) == (SessionClaim(), True)
 
 
@@ -271,8 +272,8 @@ async def test_claim_start_is_scoped_to_one_log_not_the_whole_store(event_store:
     one turn at a time."""
     await _write(event_store, [_started()], _ctx())
 
-    elsewhere = _ctx(run_id="r-2", log_key="s-2")
-    claim, event = await event_store.claim_start("s-2", _started(), elsewhere, ORIGIN, NOTHING_IS_STALE)
+    elsewhere = _ctx(run_id="r-2", session_id="s-2")
+    claim, event = await event_store.claim_start(_started(), elsewhere, ORIGIN, NOTHING_IS_STALE)
     assert (claim, event is not None) == (SessionClaim(), True)
 
 
@@ -282,10 +283,10 @@ async def test_claim_start_never_sees_another_namespaces_open_run(event_store: E
     await _write(event_store, [_started()], _ctx("acme"))
     intruder = _ctx("globex", run_id="r-9")
 
-    claim, event = await event_store.claim_start("s-1", _started(), intruder, ORIGIN, NOTHING_IS_STALE)
+    claim, event = await event_store.claim_start(_started(), intruder, ORIGIN, NOTHING_IS_STALE)
     assert (claim, event is not None) == (SessionClaim(), True)
-    assert [event.namespace for event in await event_store.read("s-1", intruder)] == ["globex"]
-    assert [event.namespace for event in await event_store.read("s-1", _ctx("acme"))] == ["acme"]
+    assert [event.namespace for event in await event_store.read_session(intruder)] == ["globex"]
+    assert [event.namespace for event in await event_store.read_session(_ctx("acme"))] == ["acme"]
 
 
 async def test_a_run_silent_past_the_cutoff_stops_holding_its_session(event_store: EventStorePort) -> None:
@@ -300,11 +301,11 @@ async def test_a_run_silent_past_the_cutoff_stops_holding_its_session(event_stor
     ctx = _ctx()
     (opening,) = await _write(event_store, [_started()], ctx)
 
-    claim, event = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-2"), ORIGIN, EVERYTHING_IS_STALE)
+    claim, event = await event_store.claim_start(_started(), _ctx(run_id="r-2"), ORIGIN, EVERYTHING_IS_STALE)
     assert claim.held_by is None and event is not None
     assert claim.overridden == (opening,)
-    assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-1", "r-2"]
-    assert [event.kind for event in await event_store.read_run("s-1", "r-1", ctx)] == ["run.started"]
+    assert [event.run_id for event in await event_store.read_session(ctx)] == ["r-1", "r-2"]
+    assert [event.kind for event in await event_store.read_run(replace(ctx, run_id="r-1"))] == ["run.started"]
 
 
 async def test_staleness_is_measured_from_the_last_event_of_a_run_not_its_last_transition(
@@ -323,9 +324,9 @@ async def test_staleness_is_measured_from_the_last_event_of_a_run_not_its_last_t
     [delta] = await _write(event_store, [TextDelta(message_id="m1", text="still here")], ctx)
 
     window = _window_between(opening, delta)
-    claim, event = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-2"), ORIGIN, window)
+    claim, event = await event_store.claim_start(_started(), _ctx(run_id="r-2"), ORIGIN, window)
     assert (claim, event) == (SessionClaim(held_by="r-1"), None)
-    assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-1", "r-1"]
+    assert [event.run_id for event in await event_store.read_session(ctx)] == ["r-1", "r-1"]
 
 
 async def test_one_live_run_refuses_a_claim_even_beside_an_abandoned_one(event_store: EventStorePort) -> None:
@@ -336,9 +337,9 @@ async def test_one_live_run_refuses_a_claim_even_beside_an_abandoned_one(event_s
     [live] = await _write(event_store, [_started()], _ctx(run_id="r-live"))
 
     window = _window_between(dead, live)
-    claim, event = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-2"), ORIGIN, window)
+    claim, event = await event_store.claim_start(_started(), _ctx(run_id="r-2"), ORIGIN, window)
     assert (claim, event) == (SessionClaim(held_by="r-live"), None)
-    assert [event.run_id for event in await event_store.read("s-1", _ctx())] == ["r-dead", "r-live"]
+    assert [event.run_id for event in await event_store.read_session(_ctx())] == ["r-dead", "r-live"]
 
 
 @pytest.mark.parametrize(
@@ -363,9 +364,9 @@ async def test_a_parked_run_is_never_overridden_however_stale(
     ctx = _ctx()
     await _write(event_store, opening, ctx)
 
-    claim, event = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-2"), ORIGIN, EVERYTHING_IS_STALE)
+    claim, event = await event_store.claim_start(_started(), _ctx(run_id="r-2"), ORIGIN, EVERYTHING_IS_STALE)
     assert (claim, event) == (SessionClaim(held_by="r-1"), None)
-    assert [event.run_id for event in await event_store.read("s-1", ctx)] == ["r-1"] * len(opening)
+    assert [event.run_id for event in await event_store.read_session(ctx)] == ["r-1"] * len(opening)
 
 
 async def test_a_parked_run_refuses_a_claim_even_beside_a_genuinely_stale_running_one(
@@ -381,9 +382,9 @@ async def test_a_parked_run_refuses_a_claim_even_beside_a_genuinely_stale_runnin
     await _write(event_store, [_started()], _ctx(run_id="r-dead"))
     await _write(event_store, [_started(), _interrupted()], _ctx(run_id="r-parked"))
 
-    claim, event = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-new"), ORIGIN, EVERYTHING_IS_STALE)
+    claim, event = await event_store.claim_start(_started(), _ctx(run_id="r-new"), ORIGIN, EVERYTHING_IS_STALE)
     assert (claim, event) == (SessionClaim(held_by="r-parked"), None)
-    assert [event.run_id for event in await event_store.read("s-1", _ctx())] == ["r-dead", "r-parked", "r-parked"]
+    assert [event.run_id for event in await event_store.read_session(_ctx())] == ["r-dead", "r-parked", "r-parked"]
 
 
 async def test_two_claims_gathered_on_one_session_have_exactly_one_winner(event_store: EventStorePort) -> None:
@@ -391,13 +392,13 @@ async def test_two_claims_gathered_on_one_session_have_exactly_one_winner(event_
     scan and the append would let both of these find the session idle, and every other test here
     would still pass."""
     outcomes = await asyncio.gather(
-        event_store.claim_start("s-1", _started(), _ctx(run_id="r-1"), ORIGIN, NOTHING_IS_STALE),
-        event_store.claim_start("s-1", _started(), _ctx(run_id="r-2"), ORIGIN, NOTHING_IS_STALE),
+        event_store.claim_start(_started(), _ctx(run_id="r-1"), ORIGIN, NOTHING_IS_STALE),
+        event_store.claim_start(_started(), _ctx(run_id="r-2"), ORIGIN, NOTHING_IS_STALE),
     )
 
     assert [claim.held_by is None for claim, _ in outcomes].count(True) == 1, outcomes
     assert [event is not None for _, event in outcomes].count(True) == 1, outcomes
-    assert len(await event_store.read("s-1", _ctx())) == 1
+    assert len(await event_store.read_session(_ctx())) == 1
 
 
 # --- ctx.key: a second, permanent claim over (namespace, key)  -  #324 -----------------------
@@ -406,9 +407,9 @@ async def test_two_claims_gathered_on_one_session_have_exactly_one_winner(event_
 async def test_claim_start_without_a_key_never_touches_the_key_index(event_store: EventStorePort) -> None:
     """The ordinary case, and the one every test above already exercises implicitly: a run
     started with no key must never collide with another run started with no key either."""
-    first, event1 = await event_store.claim_start("s-1", _started(), _ctx(run_id="r-1"), ORIGIN, NOTHING_IS_STALE)
+    first, event1 = await event_store.claim_start(_started(), _ctx(run_id="r-1"), ORIGIN, NOTHING_IS_STALE)
     second, event2 = await event_store.claim_start(
-        "s-2", _started(), _ctx(run_id="r-2", log_key="s-2"), ORIGIN, NOTHING_IS_STALE
+        _started(), _ctx(run_id="r-2", session_id="s-2"), ORIGIN, NOTHING_IS_STALE
     )
 
     assert first == SessionClaim() and event1 is not None
@@ -420,31 +421,30 @@ async def test_claim_start_refuses_a_key_already_used_by_a_different_run(event_s
     opens with it, and a second start reusing it raises rather than handing back the run that
     holds it or silently refusing the session claim instead."""
     claim, event = await event_store.claim_start(
-        "s-1", _started(), _ctx(run_id="r-1", key="order-1234"), ORIGIN, NOTHING_IS_STALE
+        _started(), _ctx(run_id="r-1", key="order-1234"), ORIGIN, NOTHING_IS_STALE
     )
     assert claim == SessionClaim() and event is not None
 
     with pytest.raises(DuplicateKeyError, match="order-1234.*r-1"):
         await event_store.claim_start(
-            "s-2", _started(), _ctx(run_id="r-2", log_key="s-2", key="order-1234"), ORIGIN, NOTHING_IS_STALE
+            _started(), _ctx(run_id="r-2", session_id="s-2", key="order-1234"), ORIGIN, NOTHING_IS_STALE
         )
     # The refused claim wrote nothing under its own log  -  a duplicate key is refused before
     # anything about the losing run is recorded, the same "fails deterministically" promise a
     # lost session claim already gives.
-    assert await event_store.read("s-2", _ctx(log_key="s-2")) == []
+    assert await event_store.read_session(_ctx(session_id="s-2")) == []
 
 
 async def test_claim_start_refuses_a_reused_key_even_under_a_fresh_session(event_store: EventStorePort) -> None:
     """`(namespace, key)` is a namespace-wide claim, not a per-log one: reusing a key is refused
     even when the second attempt targets a session the first one never touched, which is what
     tells this apart from the ordinary per-log session-busy refusal above."""
-    await event_store.claim_start("s-1", _started(), _ctx(run_id="r-1", key="order-1234"), ORIGIN, NOTHING_IS_STALE)
+    await event_store.claim_start(_started(), _ctx(run_id="r-1", key="order-1234"), ORIGIN, NOTHING_IS_STALE)
 
     with pytest.raises(DuplicateKeyError):
         await event_store.claim_start(
-            "s-brand-new",
             _started(),
-            _ctx(run_id="r-2", log_key="s-brand-new", key="order-1234"),
+            _ctx(run_id="r-2", session_id="s-brand-new", key="order-1234"),
             ORIGIN,
             NOTHING_IS_STALE,
         )
@@ -454,10 +454,10 @@ async def test_two_namespaces_sharing_one_key_get_two_unrelated_runs(event_store
     """The whole point of splitting `id` from `key`: two tenants using the same application
     identifier never collide, because the key plays no part in either run's own address."""
     acme_claim, acme_event = await event_store.claim_start(
-        "s-1", _started(), _ctx("acme", run_id="r-1", key="order-1234"), ORIGIN, NOTHING_IS_STALE
+        _started(), _ctx("acme", run_id="r-1", key="order-1234"), ORIGIN, NOTHING_IS_STALE
     )
     globex_claim, globex_event = await event_store.claim_start(
-        "s-1", _started(), _ctx("globex", run_id="r-2", key="order-1234"), ORIGIN, NOTHING_IS_STALE
+        _started(), _ctx("globex", run_id="r-2", key="order-1234"), ORIGIN, NOTHING_IS_STALE
     )
 
     assert acme_claim == SessionClaim() and acme_event is not None
@@ -470,12 +470,12 @@ async def test_a_busy_session_refuses_before_a_reused_key_ever_raises(event_stor
     still holding its session wins over the key check, so the caller sees the ordinary
     `held_by` refusal rather than `DuplicateKeyError`, on every backend alike."""
     first_claim, first_event = await event_store.claim_start(
-        "s-1", _started(), _ctx(run_id="r-1", key="order-1234"), ORIGIN, NOTHING_IS_STALE
+        _started(), _ctx(run_id="r-1", key="order-1234"), ORIGIN, NOTHING_IS_STALE
     )
     assert first_claim == SessionClaim() and first_event is not None
 
     claim, event = await event_store.claim_start(
-        "s-1", _started(), _ctx(run_id="r-2", key="order-1234"), ORIGIN, NOTHING_IS_STALE
+        _started(), _ctx(run_id="r-2", key="order-1234"), ORIGIN, NOTHING_IS_STALE
     )
     assert (claim, event) == (SessionClaim(held_by="r-1"), None)
 
@@ -484,9 +484,9 @@ async def test_two_concurrent_claim_starts_on_one_key_yield_exactly_one_winner(e
     """The enforcement's own atomicity, not a caller's discipline: an ``await`` slipped between
     reading whether the key is free and writing it down would let both of these through."""
     outcomes = await asyncio.gather(
-        event_store.claim_start("s-1", _started(), _ctx(run_id="r-1", key="order-1234"), ORIGIN, NOTHING_IS_STALE),
+        event_store.claim_start(_started(), _ctx(run_id="r-1", key="order-1234"), ORIGIN, NOTHING_IS_STALE),
         event_store.claim_start(
-            "s-2", _started(), _ctx(run_id="r-2", log_key="s-2", key="order-1234"), ORIGIN, NOTHING_IS_STALE
+            _started(), _ctx(run_id="r-2", session_id="s-2", key="order-1234"), ORIGIN, NOTHING_IS_STALE
         ),
         return_exceptions=True,
     )
@@ -522,7 +522,7 @@ async def test_many_appends_at_once_leave_one_run_contiguous_from_zero(event_sto
 
     handed_back = sorted(event.seq for batch in batches for event in batch)
     assert handed_back == list(range(_CONCURRENT_APPENDS)), handed_back
-    stored = await event_store.read_run("s-1", "r-1", ctx)
+    stored = await event_store.read_run(replace(ctx, run_id="r-1"))
     assert [event.seq for event in stored] == list(range(_CONCURRENT_APPENDS)), [event.seq for event in stored]
 
 
@@ -532,7 +532,7 @@ async def test_every_run_in_one_log_counts_its_own_seq_from_zero(event_store: Ev
     await _write(event_store, [_started()], _ctx(run_id="r-1"))
     await _write(event_store, [_started()], _ctx(run_id="r-2"))
 
-    stored = await event_store.read("s-1", _ctx())
+    stored = await event_store.read_session(_ctx())
     assert [(event.run_id, event.seq) for event in stored] == [("r-1", 0), ("r-2", 0)]
 
 
@@ -547,7 +547,7 @@ async def test_a_batch_is_numbered_in_the_order_it_was_handed_over(event_store: 
         (1, "text.delta"),
         (2, "run.completed"),
     ]
-    assert [event.seq for event in await event_store.read_run("s-1", "r-1", ctx)] == [0, 1, 2]
+    assert [event.seq for event in await event_store.read_run(replace(ctx, run_id="r-1"))] == [0, 1, 2]
 
 
 async def test_a_second_batch_carries_on_from_where_the_first_stopped(event_store: EventStorePort) -> None:
@@ -562,7 +562,7 @@ async def test_a_second_batch_carries_on_from_where_the_first_stopped(event_stor
 
 async def _interrupt(event_store: EventStorePort, ctx: RunContext, run_id: str = "r-1") -> None:
     """Leave one run parked in ``WAITING_ANSWER``  -  the only status a resume may claim."""
-    parked = ctx if ctx.run_id == run_id else _ctx(ctx.namespace, run_id=run_id, log_key=ctx.log_key)
+    parked = ctx if ctx.run_id == run_id else _ctx(ctx.namespace, run_id=run_id, session_id=ctx.session_id)
     await _write(event_store, [_started(), _interrupted()], parked)
 
 
@@ -570,10 +570,10 @@ async def test_claim_resume_appends_the_event_and_wins_when_the_run_is_waiting(e
     ctx = _ctx()
     await _interrupt(event_store, ctx)
 
-    event = await event_store.claim_resume("s-1", "r-1", RunResumed(reason=None), ctx, ORIGIN)
+    event = await event_store.claim_resume(RunResumed(reason=None), ctx, ORIGIN)
     assert event is not None and (event.seq, event.kind) == (2, "run.resumed")
-    assert [event.kind for event in await event_store.read_run("s-1", "r-1", ctx)][-1] == "run.resumed"
-    assert await event_store.run_status("s-1", "r-1", ctx) is RunStatus.RUNNING
+    assert [event.kind for event in await event_store.read_run(replace(ctx, run_id="r-1"))][-1] == "run.resumed"
+    assert await event_store.run_status(replace(ctx, run_id="r-1")) is RunStatus.RUNNING
 
 
 async def test_a_second_claim_on_the_same_run_loses_and_writes_nothing(event_store: EventStorePort) -> None:
@@ -582,10 +582,10 @@ async def test_a_second_claim_on_the_same_run_loses_and_writes_nothing(event_sto
     append published."""
     ctx = _ctx()
     await _interrupt(event_store, ctx)
-    assert await event_store.claim_resume("s-1", "r-1", RunResumed(reason=None), ctx, ORIGIN) is not None
+    assert await event_store.claim_resume(RunResumed(reason=None), ctx, ORIGIN) is not None
 
-    assert await event_store.claim_resume("s-1", "r-1", RunResumed(reason=None), ctx, ORIGIN) is None
-    stored = await event_store.read_run("s-1", "r-1", ctx)
+    assert await event_store.claim_resume(RunResumed(reason=None), ctx, ORIGIN) is None
+    stored = await event_store.read_run(replace(ctx, run_id="r-1"))
     assert [event.kind for event in stored].count("run.resumed") == 1
     assert [event.seq for event in stored] == [0, 1, 2]
 
@@ -599,10 +599,10 @@ async def test_claim_resume_wins_on_a_paused_run_too(event_store: EventStorePort
     """
     ctx = _ctx()
     await _write(event_store, [_started(), RunPaused(reason="operator")], ctx)
-    assert await event_store.run_status("s-1", "r-1", ctx) is RunStatus.PAUSED
+    assert await event_store.run_status(replace(ctx, run_id="r-1")) is RunStatus.PAUSED
 
-    assert await event_store.claim_resume("s-1", "r-1", RunResumed(reason=None), ctx, ORIGIN) is not None
-    assert await event_store.run_status("s-1", "r-1", ctx) is RunStatus.RUNNING
+    assert await event_store.claim_resume(RunResumed(reason=None), ctx, ORIGIN) is not None
+    assert await event_store.run_status(replace(ctx, run_id="r-1")) is RunStatus.RUNNING
 
 
 @pytest.mark.parametrize("kind", ["pending", "running", "completed", "cancelled"])
@@ -625,17 +625,22 @@ async def test_claim_resume_refuses_a_run_that_is_not_suspended(event_store: Eve
     elif kind == "cancelled":
         await _write(event_store, [_started(), RunCancelled(reason="user closed the tab")], ctx)
 
-    assert await event_store.claim_resume("s-1", "r-1", RunResumed(reason=None), ctx, ORIGIN) is None
-    assert [event.kind for event in await event_store.read_run("s-1", "r-1", ctx)].count("run.resumed") == 0
+    assert await event_store.claim_resume(RunResumed(reason=None), ctx, ORIGIN) is None
+    assert [event.kind for event in await event_store.read_run(replace(ctx, run_id="r-1"))].count("run.resumed") == 0
 
 
-async def test_a_claim_must_be_made_in_the_context_of_the_run_it_names(event_store: EventStorePort) -> None:
-    """The status is checked for ``run_id`` and the event is filed under the context's own  -  a
-    caller passing two different runs would have the store answer about one and write the other."""
+async def test_a_claim_names_its_run_once(event_store: EventStorePort) -> None:
+    """The guarantee that used to need a guard. ``claim_resume`` took a ``run_id`` beside the
+    context and raised when the two disagreed  -  the store answering about one run and writing
+    the other. The parameter is gone, so the context is the only thing that says which run, and
+    the disagreement is unrepresentable rather than refused."""
     ctx = _ctx()
     await _interrupt(event_store, ctx)
-    with pytest.raises(ValueError, match="r-2"):
-        await event_store.claim_resume("s-1", "r-2", RunResumed(reason=None), ctx, ORIGIN)
+
+    event = await event_store.claim_resume(RunResumed(reason=None), ctx, ORIGIN)
+
+    assert event is not None
+    assert event.run_id == ctx.run_id
 
 
 async def test_claim_resume_is_scoped_to_one_run_not_the_whole_log(event_store: EventStorePort) -> None:
@@ -645,8 +650,8 @@ async def test_claim_resume_is_scoped_to_one_run_not_the_whole_log(event_store: 
     other = _ctx(run_id="r-2")
     await _write(event_store, [_started()], other)
 
-    assert await event_store.claim_resume("s-1", "r-2", RunResumed(reason=None), other, ORIGIN) is None
-    assert await event_store.claim_resume("s-1", "r-1", RunResumed(reason=None), ctx, ORIGIN) is not None
+    assert await event_store.claim_resume(RunResumed(reason=None), other, ORIGIN) is None
+    assert await event_store.claim_resume(RunResumed(reason=None), ctx, ORIGIN) is not None
 
 
 async def test_claim_resume_never_reaches_into_another_namespaces_waiting_run(event_store: EventStorePort) -> None:
@@ -655,8 +660,10 @@ async def test_claim_resume_never_reaches_into_another_namespaces_waiting_run(ev
     await _interrupt(event_store, _ctx("acme"))
     intruder = _ctx("globex")
 
-    assert await event_store.claim_resume("s-1", "r-1", RunResumed(reason=None), intruder, ORIGIN) is None
-    assert [event.kind for event in await event_store.read_run("s-1", "r-1", _ctx("acme"))].count("run.resumed") == 0
+    assert await event_store.claim_resume(RunResumed(reason=None), intruder, ORIGIN) is None
+    assert [event.kind for event in await event_store.read_run(replace(_ctx("acme"), run_id="r-1"))].count(
+        "run.resumed"
+    ) == 0
 
 
 async def test_list_runs_scopes_to_one_namespace(event_store: EventStorePort) -> None:
@@ -685,8 +692,8 @@ async def test_list_runs_of_an_empty_store_is_empty(event_store: EventStorePort)
 
 async def test_list_runs_limit_caps_the_listing(event_store: EventStorePort) -> None:
     await _write(event_store, [_started()], _ctx(run_id="r-1"))
-    await _write(event_store, [_started()], _ctx(run_id="r-2", log_key="s-2"))
-    await _write(event_store, [_started()], _ctx(run_id="r-3", log_key="s-3"))
+    await _write(event_store, [_started()], _ctx(run_id="r-2", session_id="s-2"))
+    await _write(event_store, [_started()], _ctx(run_id="r-3", session_id="s-3"))
 
     assert len(await event_store.list_runs(_ctx())) == 3
     assert len(await event_store.list_runs(_ctx(), limit=2)) == 2
@@ -703,10 +710,10 @@ async def test_list_runs_enumerates_runs_across_every_log_key_of_the_namespace(e
     looked in one log key would silently hide every other session's interrupts."""
     ctx = _ctx()
     await _write(event_store, [_started(), _interrupted(thread_id=None)], ctx)
-    await _write(event_store, [_started(), _interrupted(thread_id=None)], _ctx(run_id="r-2", log_key="s-2"))
+    await _write(event_store, [_started(), _interrupted(thread_id=None)], _ctx(run_id="r-2", session_id="s-2"))
 
     waiting = await event_store.list_runs(ctx, status=RunStatus.WAITING_ANSWER)
-    assert {(summary.log_key, summary.run_id) for summary in waiting} == {("s-1", "r-1"), ("s-2", "r-2")}
+    assert {(summary.session_id, summary.run_id) for summary in waiting} == {("s-1", "r-1"), ("s-2", "r-2")}
 
 
 async def test_list_runs_skips_a_run_whose_log_holds_no_lifecycle_event(event_store: EventStorePort) -> None:
@@ -724,28 +731,28 @@ def _deltas(count: int) -> list[KnownPayload]:
 async def test_paginated_read_offset_skips_the_first_n_events(event_store: EventStorePort) -> None:
     ctx = _ctx()
     await _write(event_store, _deltas(5), ctx)
-    page = await event_store.read("s-1", ctx, offset=2)
+    page = await event_store.read_session(ctx, offset=2)
     assert [event.seq for event in page] == [2, 3, 4]
 
 
 async def test_paginated_read_limit_caps_the_page(event_store: EventStorePort) -> None:
     ctx = _ctx()
     await _write(event_store, _deltas(5), ctx)
-    page = await event_store.read("s-1", ctx, limit=2)
+    page = await event_store.read_session(ctx, limit=2)
     assert [event.seq for event in page] == [0, 1]
 
 
 async def test_paginated_read_offset_and_limit_compose_into_the_next_page(event_store: EventStorePort) -> None:
     ctx = _ctx()
     await _write(event_store, _deltas(5), ctx)
-    page = await event_store.read("s-1", ctx, offset=2, limit=2)
+    page = await event_store.read_session(ctx, offset=2, limit=2)
     assert [event.seq for event in page] == [2, 3]
 
 
 async def test_paginated_read_past_the_end_is_empty(event_store: EventStorePort) -> None:
     ctx = _ctx()
     await _write(event_store, [_started()], ctx)
-    assert await event_store.read("s-1", ctx, offset=10) == []
+    assert await event_store.read_session(ctx, offset=10) == []
 
 
 async def test_a_page_already_read_does_not_shift_when_the_log_grows(event_store: EventStorePort) -> None:
@@ -760,12 +767,12 @@ async def test_a_page_already_read_does_not_shift_when_the_log_grows(event_store
     """
     ctx = _ctx()
     await _write(event_store, [_started(), RunResumed(reason=None)], ctx)
-    first_page = await event_store.read("s-1", ctx, offset=0, limit=2)
+    first_page = await event_store.read_session(ctx, offset=0, limit=2)
 
     await _write(event_store, [TextDelta(message_id="m1", text="later")], ctx)
 
-    assert await event_store.read("s-1", ctx, offset=0, limit=2) == first_page
-    assert [event.seq for event in await event_store.read("s-1", ctx, offset=2)] == [2]
+    assert await event_store.read_session(ctx, offset=0, limit=2) == first_page
+    assert [event.seq for event in await event_store.read_session(ctx, offset=2)] == [2]
 
 
 # Wide enough that inserting it takes far longer than the peer's round trip, so the peer writes
@@ -792,7 +799,7 @@ def _keys(events: Iterable[Event]) -> list[tuple[str, int]]:
 async def _append_each(store: EventStorePort, ctx: RunContext, payloads: Iterable[KnownPayload]) -> None:
     """One committed write per payload, so a run of them straddles whatever a peer has open."""
     for payload in payloads:
-        await store.append("s-1", [payload], ctx, ORIGIN)
+        await store.append([payload], ctx, ORIGIN)
 
 
 async def _page_the_log(store: EventStorePort, ctx: RunContext, until: int) -> list[list[Event]]:
@@ -808,7 +815,7 @@ async def _page_the_log(store: EventStorePort, ctx: RunContext, until: int) -> l
     delivered = 0
     deadline = monotonic() + _PAGING_DEADLINE
     while delivered < until and monotonic() < deadline:
-        page = await store.read("s-1", ctx, offset=delivered)
+        page = await store.read_session(ctx, offset=delivered)
         if not page:
             await asyncio.sleep(0.001)  # nothing new committed yet, so let the writer get on with it
             continue
@@ -847,10 +854,10 @@ async def test_a_page_already_read_does_not_shift_when_a_second_writer_commits(
     trailing = [TextDelta(message_id="m2", text=str(which)) for which in range(_TRAILING_WRITES)]
     # Both handles connected and set up before the race  -  a cold one spends its first call
     # creating a schema, which is a lap the other does not run.
-    await batching.read("s-1", ctx)
-    await peer.read("s-1", ctx)
+    await batching.read_session(ctx)
+    await peer.read_session(ctx)
 
-    writing = asyncio.create_task(batching.append("s-1", batch, ctx, ORIGIN))
+    writing = asyncio.create_task(batching.append(batch, ctx, ORIGIN))
     await asyncio.sleep(0)  # into its write before the peer opens one, so the peer's rows are numbered behind it
     behind = asyncio.create_task(_append_each(peer, behind_ctx, trailing))
 
@@ -861,7 +868,7 @@ async def test_a_page_already_read_does_not_shift_when_a_second_writer_commits(
     # gather nothing ever returns from.
     async with asyncio.timeout(_PAGING_DEADLINE):
         await asyncio.gather(writing, behind)
-    settled = _keys(await peer.read("s-1", ctx))
+    settled = _keys(await peer.read_session(ctx))
 
     seen = _keys(event for page in pages for event in page)
 
@@ -890,7 +897,7 @@ async def test_a_page_already_read_does_not_shift_when_a_second_writer_commits(
 async def test_paginated_read_zero_limit_is_an_empty_page(event_store: EventStorePort) -> None:
     ctx = _ctx()
     await _write(event_store, [_started()], ctx)
-    assert await event_store.read("s-1", ctx, limit=0) == []
+    assert await event_store.read_session(ctx, limit=0) == []
 
 
 async def test_a_negative_offset_reads_from_the_start_and_a_negative_limit_is_refused(
@@ -901,40 +908,40 @@ async def test_a_negative_offset_reads_from_the_start_and_a_negative_limit_is_re
     ctx = _ctx()
     await _write(event_store, _deltas(3), ctx)
 
-    assert [event.seq for event in await event_store.read("s-1", ctx, offset=-2)] == [0, 1, 2]
+    assert [event.seq for event in await event_store.read_session(ctx, offset=-2)] == [0, 1, 2]
     with pytest.raises(ValueError, match="limit"):
-        await event_store.read("s-1", ctx, limit=-1)
+        await event_store.read_session(ctx, limit=-1)
 
 
 async def test_the_focused_queries_never_answer_from_another_namespaces_log(event_store: EventStorePort) -> None:
     """One namespace's populated log must read as untouched emptiness to another  -  the same
     isolation ``read``/``read_run`` already promise, on the queries that skip them."""
     acme = _ctx("acme", key="order-1234")
-    await event_store.claim_start(acme.log_key, _started(), acme, ORIGIN, timedelta(hours=1))
+    await event_store.claim_start(_started(), acme, ORIGIN, timedelta(hours=1))
     intruder = _ctx("globex")
 
-    assert await event_store.run_status("s-1", "r-1", intruder) is None
+    assert await event_store.run_status(replace(intruder, run_id="r-1")) is None
     assert await event_store.list_runs(intruder) == []
-    assert await event_store.read("s-1", intruder, offset=0) == []
-    assert await event_store.read_run("s-1", "r-1", intruder) == []
+    assert await event_store.read_session(intruder, offset=0) == []
+    assert await event_store.read_run(replace(intruder, run_id="r-1")) == []
     assert await event_store.find_by_key(intruder, "order-1234") is None
 
 
 # Every public method of both SQLite-backed ports, so a method added later without the
 # boundary wrapper is a missing case here rather than a silent leak.
 _SQLITE_CALLS = [
-    pytest.param(SqliteEventStore, lambda port: port.append("s-1", [_started()], _ctx(), ORIGIN), id="append"),
-    pytest.param(SqliteEventStore, lambda port: port.read("s-1", _ctx()), id="read"),
-    pytest.param(SqliteEventStore, lambda port: port.read_run("s-1", "r-1", _ctx()), id="read_run"),
-    pytest.param(SqliteEventStore, lambda port: port.run_status("s-1", "r-1", _ctx()), id="run_status"),
+    pytest.param(SqliteEventStore, lambda port: port.append([_started()], _ctx(), ORIGIN), id="append"),
+    pytest.param(SqliteEventStore, lambda port: port.read_session(_ctx()), id="read"),
+    pytest.param(SqliteEventStore, lambda port: port.read_run(replace(_ctx(), run_id="r-1")), id="read_run"),
+    pytest.param(SqliteEventStore, lambda port: port.run_status(replace(_ctx(), run_id="r-1")), id="run_status"),
     pytest.param(
         SqliteEventStore,
-        lambda port: port.claim_resume("s-1", "r-1", RunResumed(reason=None), _ctx(), ORIGIN),
+        lambda port: port.claim_resume(RunResumed(reason=None), _ctx(), ORIGIN),
         id="claim",
     ),
     pytest.param(
         SqliteEventStore,
-        lambda port: port.claim_start("s-1", _started(), _ctx(), ORIGIN, NOTHING_IS_STALE),
+        lambda port: port.claim_start(_started(), _ctx(), ORIGIN, NOTHING_IS_STALE),
         id="claim_start",
     ),
     pytest.param(SqliteEventStore, lambda port: port.list_runs(_ctx()), id="list_runs"),
@@ -982,10 +989,10 @@ async def test_a_write_lock_held_past_the_busy_timeout_is_a_store_error_not_a_lo
 
     peer = sqlite3.connect(tmp_path / "events.sqlite3")
     peer.execute("BEGIN IMMEDIATE")
-    peer.execute("INSERT INTO events (namespace, log_key, run_id, seq, data) VALUES ('acme', 's-1', 'r-9', 0, '{}')")
+    peer.execute("INSERT INTO events (namespace, session_id, run_id, seq, data) VALUES ('acme', 's-1', 'r-9', 0, '{}')")
     try:
         with pytest.raises(StoreError) as raised:
-            await store.claim_resume("s-1", "r-1", RunResumed(reason=None), ctx, ORIGIN)
+            await store.claim_resume(RunResumed(reason=None), ctx, ORIGIN)
         assert isinstance(raised.value.__cause__, sqlite3.OperationalError)
         assert "locked" in str(raised.value.__cause__)
     finally:

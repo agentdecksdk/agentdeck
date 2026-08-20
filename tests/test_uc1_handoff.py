@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -233,7 +234,7 @@ async def test_uc1_handoff_chat_end_to_end(capsys: pytest.CaptureFixture[str]) -
 
     # --- step 3: read the transcript back from the store only, no live stream --------
     ctx = _read_ctx()
-    log = await store.read(SESSION_ID, ctx)
+    log = await store.read_session(replace(ctx, session_id=SESSION_ID))
     completed_texts = [event.payload.text for event in log if event.kind == "message.completed"]
     assert completed_texts == [
         "Connecting you to a claims specialist.",

@@ -79,13 +79,13 @@ class SessionFactory:
 
 
 class ExecutionStore:
-    """The engine's execution memory, keyed by ``(namespace, RunContext.log_key)``  -  session,
+    """The engine's execution memory, keyed by ``(namespace, session or run)``  -  session,
     or the run itself when there is no session.
 
     Not the event log: this is engine-native state (ADR-D5) that only ``OpenAIAgentsExecutor``
     reads. ``session_factory`` set means Redis-backed and shared across processes; unset
     falls back to one in-process ``SQLiteSession`` per key, so tests and the M0 skeleton
-    need no network. The namespace prefix matters even though ``log_key`` is usually a
+    need no network. The namespace prefix matters even though that key is usually a
     server-generated session id: two namespaces are free to pick the same one, and without
     it their conversations would share one SDK session  -  exactly the isolation the event
     stores already enforce (``adapters/stores/memory``'s namespace-scoped buckets).
@@ -98,7 +98,10 @@ class ExecutionStore:
         self._local: dict[str, SQLiteSession] = {}
 
     def session_for(self, ctx: RunContext) -> Session:
-        key = f"{ctx.namespace_key}:{ctx.log_key}"
+        # The conversation this turn continues: the session when there is one, the run
+        # itself when there is not. Derived here rather than carried on the context,
+        # because it names *this engine's* memory and nothing else reads it.
+        key = f"{ctx.namespace_key}:{ctx.session_id or ctx.run_id}"
         if self._session_factory is not None:
             return self._session_factory.session_for(key)
         return self._local.setdefault(key, SQLiteSession(key))

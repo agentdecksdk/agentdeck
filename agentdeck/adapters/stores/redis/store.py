@@ -31,7 +31,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
-from urllib.parse import quote, unquote
+from urllib.parse import quote
 
 from redis.asyncio import Redis
 from redis.exceptions import RedisError, WatchError
@@ -102,20 +102,20 @@ class RedisEventStore(EventStorePort):
         # holds a WATCH across the read  -  the clock is not what its atomicity rests on.
         self._clock = clock
 
-    def _log_key(self, namespace: str, log_key: str) -> str:
-        return f"{self._prefix}:log:{_segment(namespace)}:{_segment(log_key)}"
+    def _session_key(self, namespace: str, session_id: str) -> str:
+        return f"{self._prefix}:session:{_segment(namespace)}:{_segment(session_id)}"
 
-    def _run_key(self, namespace: str, log_key: str, run_id: str) -> str:
-        return f"{self._prefix}:run:{_segment(namespace)}:{_segment(log_key)}:{_segment(run_id)}"
+    def _run_key(self, namespace: str, run_id: str) -> str:
+        return f"{self._prefix}:run:{_segment(namespace)}:{_segment(run_id)}"
 
-    def _seq_key(self, namespace: str, log_key: str, run_id: str) -> str:
-        return f"{self._prefix}:seq:{_segment(namespace)}:{_segment(log_key)}:{_segment(run_id)}"
+    def _seq_key(self, namespace: str, run_id: str) -> str:
+        return f"{self._prefix}:seq:{_segment(namespace)}:{_segment(run_id)}"
 
-    def _life_key(self, namespace: str, log_key: str, run_id: str) -> str:
-        return f"{self._prefix}:life:{_segment(namespace)}:{_segment(log_key)}:{_segment(run_id)}"
+    def _life_key(self, namespace: str, run_id: str) -> str:
+        return f"{self._prefix}:life:{_segment(namespace)}:{_segment(run_id)}"
 
-    def _log_runs_key(self, namespace: str, log_key: str) -> str:
-        return f"{self._prefix}:logruns:{_segment(namespace)}:{_segment(log_key)}"
+    def _session_runs_key(self, namespace: str, session_id: str) -> str:
+        return f"{self._prefix}:sessionruns:{_segment(namespace)}:{_segment(session_id)}"
 
     def _namespace_runs_key(self, namespace: str) -> str:
         return f"{self._prefix}:runs:{_segment(namespace)}"
@@ -126,7 +126,7 @@ class RedisEventStore(EventStorePort):
         run  -  this is the enforcement, not an index over data written elsewhere."""
         return f"{self._prefix}:key:{_segment(namespace)}:{_segment(key)}"
 
-    def _queue_writes(self, pipe: Pipeline, namespace: str, log_key: str, events: Iterable[Event]) -> None:
+    def _queue_writes(self, pipe: Pipeline, namespace: str, events: Iterable[Event]) -> None:
         """Buffer one batch's writes  -  the log, the run's slice and every index  -  onto a
         pipeline already in ``MULTI``, so no concurrent reader sees part of them.
 
@@ -139,16 +139,20 @@ class RedisEventStore(EventStorePort):
         """
         for event in events:
             data = event.model_dump_json()
-            pipe.rpush(self._log_key(namespace, log_key), data)
-            pipe.rpush(self._run_key(namespace, log_key, event.run_id), data)
-            pipe.zadd(self._seq_key(namespace, log_key, event.run_id), {str(event.seq): event.seq})
+            pipe.rpush(self._run_key(namespace, event.run_id), data)
+            pipe.zadd(self._seq_key(namespace, event.run_id), {str(event.seq): event.seq})
+            if event.session_id is not None:
+                # Only a run in a conversation extends one. A standalone run's own list is the
+                # whole of its story, and there is no second stream for it to be part of.
+                pipe.rpush(self._session_key(namespace, event.session_id), data)
             if event.kind in LIFECYCLE_KINDS:
-                pipe.set(self._life_key(namespace, log_key, event.run_id), data)
-                pipe.sadd(self._log_runs_key(namespace, log_key), event.run_id)
-                pipe.sadd(self._namespace_runs_key(namespace), _member(log_key, event.run_id))
+                pipe.set(self._life_key(namespace, event.run_id), data)
+                if event.session_id is not None:
+                    pipe.sadd(self._session_runs_key(namespace, event.session_id), event.run_id)
+                pipe.sadd(self._namespace_runs_key(namespace), event.run_id)
 
     async def _stamp(
-        self, pipe: Pipeline, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str
+        self, pipe: Pipeline, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str
     ) -> list[Event]:
         """Read this run's next ``seq`` off its index and build the events, **watching** that
         index so a peer spending the same number between here and ``EXEC`` aborts this write
@@ -163,7 +167,7 @@ class RedisEventStore(EventStorePort):
         Every payload in one call shares one ``ts``: a batch is one ``MULTI``, so it happened at
         one instant.
         """
-        seq_key = self._seq_key(ctx.namespace_key, log_key, ctx.run_id)
+        seq_key = self._seq_key(ctx.namespace_key, ctx.run_id)
         await pipe.watch(seq_key)
         scored = await pipe.zrange(seq_key, 0, 0, desc=True, withscores=True)
         seq = (int(scored[0][1]) if scored else -1) + 1
@@ -184,24 +188,27 @@ class RedisEventStore(EventStorePort):
             )
         return events
 
-    async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+    async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
         """A plain append is a conditional one too: the run's ``seq`` index is watched, read and
         extended over one ``WATCH``/``MULTI``/``EXEC``, exactly as the claims do."""
         if not payloads:
             return []
 
         async def _attempt(pipe: Pipeline) -> list[Event]:
-            events = await self._stamp(pipe, log_key, payloads, ctx, origin)
+            events = await self._stamp(pipe, payloads, ctx, origin)
             pipe.multi()
-            self._queue_writes(pipe, ctx.namespace_key, log_key, events)
+            self._queue_writes(pipe, ctx.namespace_key, events)
             await pipe.execute()
             return events
 
         return await self._watched(_attempt, "append")
 
-    async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
+    async def read_session(self, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
         if limit is not None and limit < 0:
             raise ValueError(f"limit must be None or >= 0, got {limit}")
+        if ctx.session_id is None:
+            return []
+        session_id = ctx.session_id
         start = max(offset, 0)
         end = -1 if limit is None else start + limit - 1
         # A zero limit computes an end before the start, and LRANGE reads a negative index
@@ -209,14 +216,14 @@ class RedisEventStore(EventStorePort):
         if limit is not None and end < start:
             return []
         try:
-            rows = await self._client.lrange(self._log_key(ctx.namespace_key, log_key), start, end)
+            rows = await self._client.lrange(self._session_key(ctx.namespace_key, session_id), start, end)
         except RedisError as exc:
             raise StoreError(f"event log read failed: {exc}") from exc
         return [Event.model_validate(json.loads(row)) for row in rows]
 
-    async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
+    async def read_run(self, ctx: RunContext, from_seq: int = 0) -> list[Event]:
         try:
-            rows = await self._client.lrange(self._run_key(ctx.namespace_key, log_key, run_id), 0, -1)
+            rows = await self._client.lrange(self._run_key(ctx.namespace_key, ctx.run_id), 0, -1)
         except RedisError as exc:
             raise StoreError(f"event log read_run failed: {exc}") from exc
         events = [Event.model_validate(json.loads(row)) for row in rows]
@@ -224,7 +231,6 @@ class RedisEventStore(EventStorePort):
 
     async def claim_start(
         self,
-        log_key: str,
         opening: RunStarted,
         ctx: RunContext,
         origin: str,
@@ -257,17 +263,19 @@ class RedisEventStore(EventStorePort):
                 key_addr = self._key_claim_key(ctx.namespace_key, ctx.key)
                 await pipe.watch(key_addr)
                 duplicate_key_holder = await pipe.get(key_addr)
-            await pipe.watch(self._log_runs_key(ctx.namespace_key, log_key))
-            run_ids = _sorted_text(await pipe.smembers(self._log_runs_key(ctx.namespace_key, log_key)))
+            session_runs = None if ctx.session_id is None else self._session_runs_key(ctx.namespace_key, ctx.session_id)
+            if session_runs is not None:
+                await pipe.watch(session_runs)
+            run_ids = [] if session_runs is None else _sorted_text(await pipe.smembers(session_runs))
             if run_ids:
                 await pipe.watch(
-                    *(self._life_key(ctx.namespace_key, log_key, run_id) for run_id in run_ids),
-                    *(self._run_key(ctx.namespace_key, log_key, run_id) for run_id in run_ids),
+                    *(self._life_key(ctx.namespace_key, run_id) for run_id in run_ids),
+                    *(self._run_key(ctx.namespace_key, run_id) for run_id in run_ids),
                 )
             stale_before = self._clock() - stale_after
             overridden: list[Event] = []
             for run_id in run_ids:
-                life = await pipe.get(self._life_key(ctx.namespace_key, log_key, run_id))
+                life = await pipe.get(self._life_key(ctx.namespace_key, run_id))
                 # A key the same MULTI filled in coming back empty means the keyspace lost it
                 #  -  eviction, or an operator's DEL. Read as a run holding nothing rather than
                 # crashing the claim, and note what that costs: a *live* run whose lifecycle
@@ -286,7 +294,7 @@ class RedisEventStore(EventStorePort):
                     # deciding alone is what makes this hold permanent. No need to read the
                     # run's tail at all here.
                     return SessionClaim(held_by=run_id), None
-                last = await pipe.lindex(self._run_key(ctx.namespace_key, log_key, run_id), -1)
+                last = await pipe.lindex(self._run_key(ctx.namespace_key, run_id), -1)
                 if last is None:
                     continue
                 tail = Event.model_validate(json.loads(last))
@@ -297,9 +305,9 @@ class RedisEventStore(EventStorePort):
                 raise DuplicateKeyError(
                     f"key {ctx.key!r} is already used by run {duplicate_key_holder!r} in namespace {ctx.namespace!r}"
                 )
-            events = await self._stamp(pipe, log_key, [opening], ctx, origin)
+            events = await self._stamp(pipe, [opening], ctx, origin)
             pipe.multi()
-            self._queue_writes(pipe, ctx.namespace_key, log_key, events)
+            self._queue_writes(pipe, ctx.namespace_key, events)
             if key_addr is not None:
                 pipe.set(key_addr, ctx.run_id)
             await pipe.execute()
@@ -307,9 +315,7 @@ class RedisEventStore(EventStorePort):
 
         return await self._watched(_attempt, "claim_start")
 
-    async def claim_resume(
-        self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
-    ) -> Event | None:
+    async def claim_resume(self, resumed: RunResumed, ctx: RunContext, origin: str) -> Event | None:
         """The port's conditional append over ``WATCH``/``MULTI``/``EXEC``: the run's status
         and its ``seq`` index are watched, so the write that publishes the
         ``WAITING_ANSWER`` -> ``RUNNING`` transition is the write that tested for it.
@@ -317,18 +323,16 @@ class RedisEventStore(EventStorePort):
         A loser gets its clean ``None`` from what the winner wrote, never from a guess. An
         unreachable store raises instead, because it cannot know whether anybody resumed.
         """
-        if ctx.run_id != run_id:
-            raise ValueError(f"a claim on run {run_id!r} cannot be made in the context of {ctx.run_id!r}")
 
         async def _attempt(pipe: Pipeline) -> Event | None:
-            life_key = self._life_key(ctx.namespace_key, log_key, run_id)
+            life_key = self._life_key(ctx.namespace_key, ctx.run_id)
             await pipe.watch(life_key)
             life = await pipe.get(life_key)
             if not can_resume(status_of([Event.model_validate(json.loads(life))] if life is not None else [])):
                 return None
-            events = await self._stamp(pipe, log_key, [resumed], ctx, origin)
+            events = await self._stamp(pipe, [resumed], ctx, origin)
             pipe.multi()
-            self._queue_writes(pipe, ctx.namespace_key, log_key, events)
+            self._queue_writes(pipe, ctx.namespace_key, events)
             await pipe.execute()
             return events[0]
 
@@ -344,20 +348,25 @@ class RedisEventStore(EventStorePort):
             raise ValueError(f"limit must be None or >= 0, got {limit}")
         try:
             members = _sorted_text(await self._client.smembers(self._namespace_runs_key(ctx.namespace_key)))
-            runs = [_split(member) for member in members]
+            run_ids = list(members)
             async with self._client.pipeline(transaction=False) as pipe:
-                for log_key, run_id in runs:
-                    pipe.get(self._life_key(ctx.namespace_key, log_key, run_id))
+                for run_id in run_ids:
+                    pipe.get(self._life_key(ctx.namespace_key, run_id))
                 lifecycles = await pipe.execute()
         except RedisError as exc:
             raise StoreError(f"event log list_runs failed: {exc}") from exc
         # The added clause never drops a run: the key it reads holds a lifecycle event, so every
         # one folds to a status. It is what narrows ``status_of``'s ``None``  -  the "no transition
         # at all" answer, which a run with a life key cannot give.
+        stored = [
+            (run_id, Event.model_validate(json.loads(life)))
+            for run_id, life in zip(run_ids, lifecycles, strict=True)
+            if life is not None
+        ]
         summaries = [
-            RunSummary(log_key=log_key, run_id=run_id, status=folded)
-            for (log_key, run_id), life in zip(runs, lifecycles, strict=True)
-            if life is not None and (folded := status_of([Event.model_validate(json.loads(life))])) is not None
+            RunSummary(run_id=run_id, session_id=event.session_id, status=folded)
+            for run_id, event in stored
+            if (folded := status_of([event])) is not None
         ]
         filtered = [summary for summary in summaries if status is None or summary.status is status]
         return filtered if limit is None else filtered[:limit]
@@ -404,15 +413,6 @@ def _sorted_text(members: Iterable[bytes | str]) -> list[str]:
     happened to yield first.
     """
     return sorted(member.decode() if isinstance(member, bytes) else member for member in members)
-
-
-def _member(log_key: str, run_id: str) -> str:
-    return f"{_segment(log_key)}:{_segment(run_id)}"
-
-
-def _split(member: str) -> tuple[str, str]:
-    log_key, _, run_id = member.partition(":")
-    return unquote(log_key), unquote(run_id)
 
 
 __all__ = ["RedisEventStore"]

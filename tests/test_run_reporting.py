@@ -170,7 +170,7 @@ async def test_a_function_tool_reports_through_the_sdk_context() -> None:
         "run.completed",
     ]
     assert check_contiguous(events) == [] and check_terminal(events) is None
-    assert await store.read(CTX.log_key, CTX) == events
+    assert await store.read_session(CTX) == events
     assert status_of(events) is RunStatus.COMPLETED
 
 

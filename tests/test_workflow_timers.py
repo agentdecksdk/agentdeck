@@ -258,14 +258,14 @@ print(json.dumps(asyncio.run(main()), default=str))
 """
 
 
-def _run_resumed_count(events_db: str, log_key: str) -> int:
-    """How many ``run.resumed`` events landed in ``log_key``'s log  -  read through a fresh
+def _run_resumed_count(events_db: str, session_id: str) -> int:
+    """How many ``run.resumed`` events landed in the session's log  -  read through a fresh
     connection, as a third process would, so nothing either racer held in memory is trusted."""
 
     async def _read() -> int:
         store = SqliteEventStore(events_db)
         try:
-            events = await store.read(log_key, RunContext(run_id="reader", session_id=log_key))
+            events = await store.read_session(RunContext(run_id="reader", session_id=session_id))
             return sum(1 for event in events if event.kind == "run.resumed")
         finally:
             store.close()

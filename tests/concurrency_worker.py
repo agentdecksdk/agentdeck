@@ -111,7 +111,7 @@ def windows_file(root: Path) -> Path:
     return root / "claim-windows"
 
 
-def resume_log_key(trial: int) -> str:
+def resume_session(trial: int) -> str:
     return f"resume-log-{trial}"
 
 
@@ -129,7 +129,7 @@ def cancel_is_racing(trial: int) -> bool:
     return trial % 2 == 0
 
 
-def crossrun_log_key(trial: int) -> str:
+def crossrun_session(trial: int) -> str:
     return f"crossrun-{trial}"
 
 
@@ -152,7 +152,7 @@ def crossrun_script(tag: str) -> list[KnownPayload]:
     ]
 
 
-def session_log_key(trial: int) -> str:
+def session_name(trial: int) -> str:
     return f"session-{trial}"
 
 
@@ -173,16 +173,16 @@ def runid_file(sync: Path, name: str) -> Path:
     return sync / f"runid.{name}"
 
 
-def session_attempt_runid_file(sync: Path, log_key: str, tag: str) -> Path:
-    """One peer's real id for its own attempt at ``log_key``'s claim, written the instant both
+def session_attempt_runid_file(sync: Path, session_id: str, tag: str) -> Path:
+    """One peer's real id for its own attempt at ``session_id``'s claim, written the instant both
     peers leave the claim barrier, so whichever loses the claim, or the test once the trial has
     settled, can learn the winner's id without having been able to predict it."""
-    return runid_file(sync, f"{log_key}.{tag}")
+    return runid_file(sync, f"{session_id}.{tag}")
 
 
 def session_key(trial: int) -> str:
     """The SDK session key the engine keeps this session's execution state under."""
-    return f"{TENANT}:{session_log_key(trial)}"
+    return f"{TENANT}:{session_name(trial)}"
 
 
 def turn_input(tag: str) -> str:
@@ -313,13 +313,12 @@ class ClaimTimingStore(SqliteEventStore):
         self._sync = sync
         self._tag = tag
 
-    async def claim_resume(
-        self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
-    ) -> Event | None:
+    async def claim_resume(self, resumed: RunResumed, ctx: RunContext, origin: str) -> Event | None:
+        run_id = ctx.run_id
         await _barrier(self._sync, f"resumeclaim.{run_id}", self._tag)
         started = time.time_ns()
         try:
-            return await super().claim_resume(log_key, run_id, resumed, ctx, origin)
+            return await super().claim_resume(resumed, ctx, origin)
         finally:
             with self._windows.open("a") as handle:
                 handle.write(f"{run_id} {started} {time.time_ns()}\n")
@@ -351,7 +350,6 @@ class ClaimStartTimingStore(SqliteEventStore):
 
     async def claim_start(
         self,
-        log_key: str,
         opening: RunStarted,
         ctx: RunContext,
         origin: str,
@@ -359,20 +357,21 @@ class ClaimStartTimingStore(SqliteEventStore):
         *,
         dead: frozenset[str] = frozenset(),
     ) -> tuple[SessionClaim, Event | None]:
-        await _barrier(self._sync, f"claim.{log_key}", self._tag)
+        session_id = ctx.session_id or ctx.run_id
+        await _barrier(self._sync, f"claim.{session_id}", self._tag)
         # This peer's own real id, regardless of whether its claim goes on to win or lose: the
         # loser needs the winner's id to check what the refusal named, and neither peer can
         # predict the other's minted id ahead of time.
-        session_attempt_runid_file(self._sync, log_key, self._tag).write_text(ctx.run_id)
+        session_attempt_runid_file(self._sync, session_id, self._tag).write_text(ctx.run_id)
         started = time.time_ns()
         try:
-            return await super().claim_start(log_key, opening, ctx, origin, stale_after, dead=dead)
+            return await super().claim_start(opening, ctx, origin, stale_after, dead=dead)
         finally:
             with self._windows.open("a") as handle:
-                handle.write(f"{log_key} {started} {time.time_ns()}\n")
+                handle.write(f"{session_id} {started} {time.time_ns()}\n")
             # Whatever it answered, this peer has now asked  -  which is what the winner's own run
             # waits for before it is allowed to finish.
-            attempted_file(self._sync, log_key, self._tag).touch()
+            attempted_file(self._sync, session_id, self._tag).touch()
 
 
 class FileSessions(ExecutionStore):
@@ -385,7 +384,7 @@ class FileSessions(ExecutionStore):
         self._open: dict[str, SQLiteSession] = {}
 
     def session_for(self, ctx: RunContext) -> SQLiteSession:
-        key = f"{ctx.namespace}:{ctx.log_key}"
+        key = f"{ctx.namespace}:{ctx.session_id}"
         session = self._open.get(key)
         if session is None:
             session = self._open[key] = SQLiteSession(key, self._path)
@@ -415,14 +414,13 @@ class StallingStore(SqliteEventStore):
         self._ignored.add(run_id)
         self._written = 0
 
-    async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
-        written = await super().append(log_key, payloads, ctx, origin)
+    async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        written = await super().append(payloads, ctx, origin)
         await self._stall_once_deep_enough(written)
         return written
 
     async def claim_start(
         self,
-        log_key: str,
         opening: RunStarted,
         ctx: RunContext,
         origin: str,
@@ -432,7 +430,7 @@ class StallingStore(SqliteEventStore):
     ) -> tuple[SessionClaim, Event | None]:
         # A run's opening event is written by the session claim, not by append, so counting a
         # run's durable events means counting at both doors.
-        claim, event = await super().claim_start(log_key, opening, ctx, origin, stale_after, dead=dead)
+        claim, event = await super().claim_start(opening, ctx, origin, stale_after, dead=dead)
         if event is not None:
             await self._stall_once_deep_enough([event])
         return claim, event
@@ -557,7 +555,7 @@ async def _race_resume(tag: str, trials: int, root: Path) -> None:
     runtime = Runtime([MarkingStub(marks_file(root), sync, tag)], store, {APPROVER: approver_spec()})
     for trial in range(trials):
         async with asyncio.timeout(TRIAL_TIMEOUT):
-            log_key = resume_log_key(trial)
+            session_id = resume_session(trial)
             opened = sync / f"opened.{trial}"
             runid = runid_file(sync, resume_run_id(trial))
             if tag == "a":
@@ -566,7 +564,7 @@ async def _race_resume(tag: str, trials: int, root: Path) -> None:
                     async for event in runtime.run(
                         APPROVER,
                         coerce_input("go"),
-                        session_id=log_key,
+                        session_id=session_id,
                         namespace=TENANT,
                     )
                 ]
@@ -584,7 +582,7 @@ async def _race_resume(tag: str, trials: int, root: Path) -> None:
                     APPROVER,
                     "approved",
                     run_id=real_id,
-                    session_id=log_key,
+                    session_id=session_id,
                     namespace=TENANT,
                 )
             ]
@@ -649,8 +647,8 @@ async def _race_session(tag: str, trials: int, root: Path) -> None:
     engine = OpenAIAgentsExecutor(FileSessions(session_db(root)))
     for trial in range(trials):
         async with asyncio.timeout(TRIAL_TIMEOUT):
-            log_key = session_log_key(trial)
-            model = PeerClaimModel(attempted_file(sync, log_key, PEER[tag]))
+            session_id = session_name(trial)
+            model = PeerClaimModel(attempted_file(sync, session_id, PEER[tag]))
             agent = Agent(name=CHATTY, instructions="stream", model=model)
             spec = InvocableSpec(
                 name=CHATTY, kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=agent
@@ -662,7 +660,7 @@ async def _race_session(tag: str, trials: int, root: Path) -> None:
                     async for event in runtime.run(
                         CHATTY,
                         coerce_input(turn_input(tag)),
-                        session_id=log_key,
+                        session_id=session_id,
                         namespace=TENANT,
                     )
                 ]
@@ -671,9 +669,9 @@ async def _race_session(tag: str, trials: int, root: Path) -> None:
                 # session and the run holding it, and a wrong message must fail the trial. The
                 # winner's real id was never predictable, so it is read from the file
                 # ``ClaimStartTimingStore`` wrote for it the instant both peers left the barrier.
-                winner_runid = session_attempt_runid_file(sync, log_key, PEER[tag])
+                winner_runid = session_attempt_runid_file(sync, session_id, PEER[tag])
                 await _await_file(winner_runid)
-                assert session_log_key(trial) in str(refusal), str(refusal)
+                assert session_name(trial) in str(refusal), str(refusal)
                 assert winner_runid.read_text() in str(refusal), str(refusal)
                 _report(trial, tag, [REFUSED])
                 continue
@@ -699,12 +697,12 @@ async def _race_crossrun(tag: str, trials: int, root: Path) -> None:
     store = SqliteEventStore(events_db(root))
     for trial in range(trials):
         async with asyncio.timeout(TRIAL_TIMEOUT):
-            log_key = crossrun_log_key(trial)
-            ctx = context(crossrun_run_id(trial, tag), log_key)
+            session_id = crossrun_session(trial)
+            ctx = context(crossrun_run_id(trial, tag), session_id)
             script = crossrun_script(tag)
             await _barrier(sync, f"crossrun-{trial}", tag)
             for expected, payload in enumerate(script):
-                written = await store.append(log_key, [payload], ctx, CHATTY)
+                written = await store.append([payload], ctx, CHATTY)
                 _assert_assigned(written, expected, ctx)
             _report(trial, tag, [payload.kind for payload in script])
 
@@ -719,7 +717,7 @@ def _assert_assigned(written: list[Event], expected: int, ctx: RunContext) -> No
     """
     if [(event.run_id, event.seq) for event in written] != [(ctx.run_id, expected)]:
         raise AssertionError(
-            f"log {ctx.log_key!r} gave run {ctx.run_id!r} {[(e.run_id, e.seq) for e in written]}, "
+            f"log {ctx.session_id!r} gave run {ctx.run_id!r} {[(e.run_id, e.seq) for e in written]}, "
             f"expected [({ctx.run_id!r}, {expected})]"
         )
 

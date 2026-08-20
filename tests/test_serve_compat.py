@@ -150,7 +150,7 @@ async def test_chat_frames_render_deltas_then_done_from_canonical_events(project
         '{"requests": 1, "input_tokens": 11, "output_tokens": 5, "total_tokens": 16}}\n\n',
     ]
     # The wire is v1's; the log is canonical  -  the whole point of translating at the surface.
-    logged = [event.kind for event in await store.read("s1", ctx)]
+    logged = [event.kind for event in await store.read_session(ctx)]
     assert logged == [
         "run.started",
         "text.delta",
@@ -181,7 +181,7 @@ async def test_a_failed_turn_ends_with_an_error_frame_while_the_log_keeps_the_fa
     assert frames[-1] == 'event: error\ndata: {"error": "RuntimeError"}\n\n'
     assert "secret detail" not in "".join(frames)
     # v1's wire has no frame for a recorded failure, but the log must still hold one.
-    assert [event.kind for event in await store.read("s1", ctx)][-1] == "run.failed"
+    assert [event.kind for event in await store.read_session(ctx)][-1] == "run.failed"
 
 
 async def test_a_disconnect_closes_its_run_in_the_log(project, scripted):
@@ -218,7 +218,7 @@ async def test_a_disconnect_closes_its_run_in_the_log(project, scripted):
         await consumer
 
     assert frames == ['data: {"delta": "one"}\n\n']
-    logged = await store.read("s1", ctx)
+    logged = await store.read_session(ctx)
     assert [event.kind for event in logged][-1] == "run.cancelled", [event.kind for event in logged]
     assert check_terminal(logged) is None
 
@@ -257,7 +257,7 @@ async def test_a_structured_output_survives_the_canonical_stream(project, script
     )
 
     assert body == {"output": {"greeting": "Hello"}}
-    assert "custom" not in [event.kind for event in await store.read("s1", ctx)]
+    assert "custom" not in [event.kind for event in await store.read_session(ctx)]
 
 
 async def test_a_structured_output_reaches_the_streamed_done_frame(project, scripted):
@@ -298,7 +298,7 @@ def test_the_endpoint_logs_its_run_to_the_configured_event_store(project, monkey
 
     store = SqliteEventStore(str(db))
     ctx = run_context("s1")
-    kinds = [event.kind for event in asyncio.run(store.read("s1", ctx))]
+    kinds = [event.kind for event in asyncio.run(store.read_session(ctx))]
     store.close()
     assert kinds[0] == "run.started"
     assert kinds[-1] == "run.completed"
@@ -328,7 +328,7 @@ def test_the_workflow_endpoint_logs_its_run_to_the_configured_event_store(projec
         reset_settings_cache()
 
     store = SqliteEventStore(str(db))
-    logged = asyncio.run(store.read("t1", run_context("t1")))
+    logged = asyncio.run(store.read_session(run_context("t1")))
     store.close()
     assert [event.kind for event in logged] == ["run.started", "node.updated", "run.completed"]
     assert (logged[1].payload.node, logged[1].payload.state_patch) == ("shout", {"input": "HI"})

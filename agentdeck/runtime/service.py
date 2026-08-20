@@ -185,7 +185,7 @@ class Runtime:
         )
         # ponytail: whole log per run  -  window it (or hand the engine a summary) once a
         # session's history outgrows one read, which a real store will notice long before this does
-        history = await self._store.read(ctx.log_key, ctx)
+        history = await self._history(ctx)
 
         opening = RunStarted(
             invocable=spec.name,
@@ -200,7 +200,7 @@ class Runtime:
             # before the response starts. A cancellation landing between the two would leave the
             # run open in the log and its session held for a whole staleness window.
             # Anything not None is a run the claim opened, and it is owed a terminal event.
-            if await self._store.run_status(ctx.log_key, ctx.run_id, ctx) is not None:
+            if await self._store.run_status(ctx) is not None:
                 await self._close_cancelled(spec, ctx, "cancelled during the claim")
             raise
 
@@ -249,7 +249,7 @@ class Runtime:
         ctx, reports = self._bind(
             self._context(run_id=run_id, session_id=session_id, namespace=namespace, data=context)
         )
-        status = await self._store.run_status(ctx.log_key, run_id, ctx)
+        status = await self._store.run_status(replace(ctx, run_id=run_id))
         if status is None:
             return
         # No precondition check here: which states admit an answer is the front door's business
@@ -266,7 +266,7 @@ class Runtime:
         # Before the claim, exactly as :meth:`resume_run` reads it before its own: a bail-out
         # after the claim would leave a run flipped to RUNNING with nobody playing it, owed a
         # terminal event forever and still holding its session.
-        events = await self._store.read_run(ctx.log_key, run_id, ctx)
+        events = await self._store.read_run(replace(ctx, run_id=run_id))
         opened = next((event.payload for event in events if isinstance(event.payload, RunStarted)), None)
         if opened is None:
             return
@@ -289,7 +289,7 @@ class Runtime:
         # at its first safe point instead.
         # Read after the claim, so the ``run.resumed`` carrying the answer is in it: that event
         # is how the executor learns there is an answer at all, and what it is.
-        history = await self._store.read(ctx.log_key, ctx)
+        history = await self._history(ctx)
         stream = executor.execute(spec, opened.input, history, ctx)
         async with aclosing(self._play(opening, stream, spec, ctx, executor, reports)) as resumed:
             async for event in resumed:
@@ -336,7 +336,7 @@ class Runtime:
             raise RunStateError(f"run {run_id!r} cannot be resumed: {allowed.why}")
         if allowed.verdict is Verdict.NO_OP:
             return
-        started = await self._opening_of(summary.log_key, run_id, ctx)
+        started = await self._opening_of(run_id, ctx)
         if started is None:
             return
         session_id, opened = started
@@ -356,7 +356,7 @@ class Runtime:
             yield await self._record(ControlRequested(verb="cancel", reason=pending.reason), spec, run_ctx)
             yield await self._record(RunCancelled(reason=pending.reason), spec, run_ctx)
             return
-        history = await self._store.read(summary.log_key, run_ctx)
+        history = await self._history(run_ctx)
         stream = executor.execute(spec, opened.input, history, run_ctx)
         async with aclosing(self._play(opening, stream, spec, run_ctx, executor, reports)) as resumed:
             async for event in resumed:
@@ -413,7 +413,7 @@ class Runtime:
         summary = await self._find(run_id, ctx)
         if summary is None or not can_resume(summary.status):
             return False
-        started = await self._opening_of(summary.log_key, run_id, ctx)
+        started = await self._opening_of(run_id, ctx)
         if started is None:
             return False
         session_id, opened = started
@@ -572,11 +572,11 @@ class Runtime:
                 return summary
         return None
 
-    async def _opening_of(self, log_key: str, run_id: str, ctx: RunContext) -> tuple[str | None, RunStarted] | None:
+    async def _opening_of(self, run_id: str, ctx: RunContext) -> tuple[str | None, RunStarted] | None:
         """Whose session this run holds and what it was asked to do  -  its own ``run.started``.
         Read only once the state machine has admitted the operation, so a refused or no-op call
         never pays for a run's log."""
-        for event in await self._store.read_run(log_key, run_id, ctx):
+        for event in await self._store.read_run(replace(ctx, run_id=run_id)):
             if isinstance(event.payload, RunStarted):
                 return event.session_id, event.payload
         return None
@@ -631,7 +631,7 @@ class Runtime:
         and holds its session  -  the safe direction to be wrong in.
         """
         claim, event = await self._store.claim_start(
-            ctx.log_key, opening, ctx, spec.name, self._stale_run_after, dead=await self._dead_runs(history)
+            opening, ctx, spec.name, self._stale_run_after, dead=await self._dead_runs(history)
         )
         if claim.held_by is not None or event is None:
             raise SessionBusyError(await self._session_busy_message(ctx, claim.held_by))
@@ -654,20 +654,25 @@ class Runtime:
         ``WAITING_ANSWER`` is not  -  nothing is executing it, and no ``stale_run_after`` will
         ever free it  -  so the message names the verb that actually unsticks that run instead
         of repeating a claim that is false of it.
+
+        ``ctx.session_id`` is never ``None`` here: only a session can be busy, so only a run that
+        named one can be refused for it. It used to read the log key instead, which for a run
+        with no session is that run's own id  -  a message naming a session that does not exist,
+        held by the very run being refused.
         """
-        status = None if held_by is None else await self._store.run_status(ctx.log_key, held_by, ctx)
+        status = None if held_by is None else await self._store.run_status(replace(ctx, run_id=held_by))
         if status is RunStatus.WAITING_ANSWER:
             return (
-                f"session {ctx.log_key!r} is held by run {held_by!r}, parked waiting for an answer  -  "
+                f"session {ctx.session_id!r} is held by run {held_by!r}, parked waiting for an answer  -  "
                 f"supply it with run.answer(...) or end it with run.cancel(...), see {_SESSIONS_DOCS}"
             )
         if status is RunStatus.PAUSED:
             return (
-                f"session {ctx.log_key!r} is held by run {held_by!r}, paused  -  "
+                f"session {ctx.session_id!r} is held by run {held_by!r}, paused  -  "
                 f"lift it with run.resume() or end it with run.cancel(...), see {_SESSIONS_DOCS}"
             )
         return (
-            f"session {ctx.log_key!r} already has run {held_by!r} in flight, "
+            f"session {ctx.session_id!r} already has run {held_by!r} in flight, "
             f"so run {ctx.run_id!r} cannot start on it  -  see {_SESSIONS_DOCS}"
         )
 
@@ -685,7 +690,7 @@ class Runtime:
         logger.warning(
             "run %s went silent holding session %s; run %s took it over and closed it as failed",
             tail.run_id,
-            ctx.log_key,
+            ctx.session_id,
             ctx.run_id,
         )
         payload = RunFailed(
@@ -694,7 +699,7 @@ class Runtime:
             retryable=False,
         )
         abandoned = replace(ctx, run_id=tail.run_id, session_id=tail.session_id)
-        event = (await self._store.append(ctx.log_key, [payload], abandoned, tail.origin))[0]
+        event = (await self._store.append([payload], abandoned, tail.origin))[0]
         await self._fan_out(event)
         if self._lease is not None:
             # The dead worker's expired row has done its job and nothing else prunes it. Not
@@ -739,7 +744,7 @@ class Runtime:
         assigns it from the run's own log (ADR-D11)  -  there is no counter here to recover.
         """
         resumed = RunResumed(reason=reason, value=as_answer(value))
-        event = await self._store.claim_resume(ctx.log_key, ctx.run_id, resumed, ctx, spec.name)
+        event = await self._store.claim_resume(resumed, ctx, spec.name)
         if event is None:
             return None
         await self._fan_out(event)
@@ -765,7 +770,7 @@ class Runtime:
         ctx = self._context(namespace=namespace)
         out: list[PendingRun] = []
         for summary in await self._store.list_runs(ctx, status=RunStatus.WAITING_ANSWER):
-            found = _last_interrupt(await self._store.read_run(summary.log_key, summary.run_id, ctx))
+            found = _last_interrupt(await self._store.read_run(replace(ctx, run_id=summary.run_id)))
             if found is None:
                 continue
             event, interrupted = found
@@ -815,6 +820,18 @@ class Runtime:
         one reaches none of them.
         """
         await asyncio.gather(*(dispatch.close() for dispatch in self._sinks), return_exceptions=True)
+
+    async def _history(self, ctx: RunContext) -> list[Event]:
+        """What an executor is played with: the conversation this run is part of, or  -  when it
+        is part of none  -  the run's own events.
+
+        The derivation the log key used to hide. Written out because the two are different
+        questions: a run in a session is re-entered knowing what was said before it, and a
+        standalone run is re-entered knowing only what it itself already did.
+        """
+        if ctx.session_id is None:
+            return await self._store.read_run(ctx)
+        return await self._store.read_session(ctx)
 
     def _context(
         self,
@@ -905,7 +922,7 @@ class Runtime:
         step that writes the row, so a refused append cannot leave a number spent. Nothing here
         holds a counter to get wrong.
         """
-        event = (await self._store.append(ctx.log_key, [payload], ctx, spec.name))[0]
+        event = (await self._store.append([payload], ctx, spec.name))[0]
         await self._fan_out(event)
         return event
 

@@ -150,7 +150,7 @@ class Harness:
         ]
 
     async def log(self) -> list[Event]:
-        return await self.store.read(self.ctx.log_key, self.ctx)
+        return await self.store.read_session(self.ctx)
 
 
 @pytest.fixture

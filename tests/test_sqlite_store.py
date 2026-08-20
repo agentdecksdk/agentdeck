@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -55,28 +56,28 @@ def _interrupted() -> RunInterrupted:
 
 async def test_events_read_back_in_the_order_they_were_appended() -> None:
     store, ctx = SqliteEventStore(), _ctx()
-    await store.append("s-1", _deltas(2), ctx, ORIGIN)
-    await store.append("s-1", _deltas(1), ctx, ORIGIN)
-    assert [event.seq for event in await store.read("s-1", ctx)] == [0, 1, 2]
+    await store.append(_deltas(2), ctx, ORIGIN)
+    await store.append(_deltas(1), ctx, ORIGIN)
+    assert [event.seq for event in await store.read_session(ctx)] == [0, 1, 2]
 
 
 async def test_from_seq_is_inclusive_so_zero_reads_the_whole_run() -> None:
     store, ctx = SqliteEventStore(), _ctx()
-    await store.append("s-1", _deltas(3), ctx, ORIGIN)
-    assert [event.seq for event in await store.read_run("s-1", "r-1", ctx, from_seq=0)] == [0, 1, 2]
-    assert [event.seq for event in await store.read_run("s-1", "r-1", ctx, from_seq=2)] == [2]
+    await store.append(_deltas(3), ctx, ORIGIN)
+    assert [event.seq for event in await store.read_run(replace(ctx, run_id="r-1"), from_seq=0)] == [0, 1, 2]
+    assert [event.seq for event in await store.read_run(replace(ctx, run_id="r-1"), from_seq=2)] == [2]
 
 
 async def test_a_seq_range_covers_one_run_and_never_splices_two() -> None:
     """``seq`` restarts at 0 per run, so a range over the whole log would return the tail of
     every run in it  -  which is why a range read has to name the run."""
     store, ctx = SqliteEventStore(), _ctx()
-    await store.append("s-1", _deltas(2), ctx, ORIGIN)
-    await store.append("s-1", _deltas(2), _ctx(run_id="r-2"), ORIGIN)
+    await store.append(_deltas(2), ctx, ORIGIN)
+    await store.append(_deltas(2), _ctx(run_id="r-2"), ORIGIN)
 
-    tail = await store.read_run("s-1", "r-2", ctx, from_seq=1)
+    tail = await store.read_run(replace(ctx, run_id="r-2"), from_seq=1)
     assert [(event.run_id, event.seq) for event in tail] == [("r-2", 1)]
-    assert [(event.run_id, event.seq) for event in await store.read("s-1", ctx)] == [
+    assert [(event.run_id, event.seq) for event in await store.read_session(ctx)] == [
         ("r-1", 0),
         ("r-1", 1),
         ("r-2", 0),
@@ -85,18 +86,18 @@ async def test_a_seq_range_covers_one_run_and_never_splices_two() -> None:
 
 
 async def test_an_unknown_log_reads_as_empty() -> None:
-    assert await SqliteEventStore().read("nobody", _ctx()) == []
-    assert await SqliteEventStore().read_run("nobody", "r-1", _ctx()) == []
+    assert await SqliteEventStore().read_session(_ctx()) == []
+    assert await SqliteEventStore().read_run(replace(_ctx(), run_id="r-1")) == []
 
 
 async def test_one_namespace_cannot_read_another_namespaces_log_under_the_same_key() -> None:
     """Two namespaces are free to pick the same session id; the store keeps them apart."""
     store = SqliteEventStore()
-    await store.append("s-1", _deltas(1), _ctx("acme"), ORIGIN)
-    await store.append("s-1", _deltas(1), _ctx("globex"), ORIGIN)
+    await store.append(_deltas(1), _ctx("acme"), ORIGIN)
+    await store.append(_deltas(1), _ctx("globex"), ORIGIN)
 
-    acme = await store.read("s-1", _ctx("acme"))
-    globex = await store.read("s-1", _ctx("globex"))
+    acme = await store.read_session(_ctx("acme"))
+    globex = await store.read_session(_ctx("globex"))
     assert [event.namespace for event in acme] == ["acme"]
     assert [event.namespace for event in globex] == ["globex"]
 
@@ -105,8 +106,8 @@ async def test_the_stub_completion_payload_round_trips_through_the_log() -> None
     """The store holds events, not dicts  -  a payload comes back as the class it went in as."""
     store, ctx = SqliteEventStore(), _ctx()
     payload = RunCompleted(output=[TextBlock(text="done")], usage=Usage(input_tokens=1, output_tokens=1))
-    await store.append("s-1", [payload], ctx, ORIGIN)
-    assert (await store.read("s-1", ctx))[0].payload == payload
+    await store.append([payload], ctx, ORIGIN)
+    assert (await store.read_session(ctx))[0].payload == payload
 
 
 async def test_a_file_backed_log_opens_in_wal_with_the_busy_timeout_it_asked_for(tmp_path, monkeypatch) -> None:
@@ -122,7 +123,7 @@ async def test_a_file_backed_log_opens_in_wal_with_the_busy_timeout_it_asked_for
     db_path = tmp_path / "events.sqlite3"
     store = SqliteEventStore(db_path)
     try:
-        await store.append("s-1", _deltas(1), _ctx(), ORIGIN)
+        await store.append(_deltas(1), _ctx(), ORIGIN)
         # Per-connection, so only this store's own connection can be asked.
         assert store._conn.execute("PRAGMA busy_timeout").fetchone()[0] == 3_000
         assert (tmp_path / "events.sqlite3-wal").exists()
@@ -146,7 +147,7 @@ async def test_opening_a_pre_wal_file_a_peer_is_writing_falls_back_instead_of_fa
     peer = sqlite3.connect(db_path)
     peer.execute("PRAGMA journal_mode = DELETE")
     peer.execute("BEGIN IMMEDIATE")
-    peer.execute("INSERT INTO events (namespace, log_key, run_id, seq, data) VALUES ('acme', 's-1', 'r-9', 0, '{}')")
+    peer.execute("INSERT INTO events (namespace, session_id, run_id, seq, data) VALUES ('acme', 's-1', 'r-9', 0, '{}')")
     try:
         store = SqliteEventStore(db_path)
         assert store._conn.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
@@ -161,17 +162,17 @@ async def test_an_in_memory_log_still_works_where_there_is_no_wal_to_switch_to()
     and the store has to open and work anyway  -  it is the mode every other test here uses."""
     store = SqliteEventStore()
     assert store._conn.execute("PRAGMA journal_mode").fetchone()[0] == "memory"
-    await store.append("s-1", _deltas(1), _ctx(), ORIGIN)
-    assert [event.seq for event in await store.read("s-1", _ctx())] == [0]
+    await store.append(_deltas(1), _ctx(), ORIGIN)
+    assert [event.seq for event in await store.read_session(_ctx())] == [0]
 
 
 async def test_persists_to_a_real_file_across_separate_store_instances(tmp_path) -> None:
     """The one thing memory can't prove: durability past the process holding it."""
     db_path = tmp_path / "events.sqlite3"
     ctx = _ctx()
-    await SqliteEventStore(db_path).append("s-1", _deltas(2), ctx, ORIGIN)
+    await SqliteEventStore(db_path).append(_deltas(2), ctx, ORIGIN)
     reopened = SqliteEventStore(db_path)
-    assert [event.seq for event in await reopened.read("s-1", ctx)] == [0, 1]
+    assert [event.seq for event in await reopened.read_session(ctx)] == [0, 1]
 
 
 async def test_the_run_id_index_is_dropped_from_a_database_built_before_it_was_removed(tmp_path) -> None:
@@ -235,13 +236,13 @@ async def test_a_migrated_database_still_enforces_the_tightened_run_index(tmp_pa
     _pre_324_file(db_path)
     store = SqliteEventStore(db_path)
     try:
-        await store.append("s-1", _deltas(1), _ctx(), ORIGIN)
+        await store.append(_deltas(1), _ctx(), ORIGIN)
         # Raw SQL against the migrated index itself, deliberately bypassing the port's own
         # StoreError translation: same namespace, run_id and seq (0) as the write above, under a
-        # different log_key  -  exactly the shape the old, looser index let through.
+        # different session  -  exactly the shape the old, looser index let through.
         with pytest.raises(sqlite3.IntegrityError, match="events.namespace, events.run_id, events.seq"):
             store._conn.execute(
-                "INSERT INTO events (namespace, log_key, run_id, seq, data) VALUES ('acme', 's-2', 'r-1', 0, '{}')"
+                "INSERT INTO events (namespace, session_id, run_id, seq, data) VALUES ('acme', 's-2', 'r-1', 0, '{}')"
             )
     finally:
         store.close()
@@ -255,12 +256,12 @@ async def test_a_migrated_database_enforces_the_key_claim_too(tmp_path) -> None:
     store = SqliteEventStore(db_path)
     try:
         ctx = RunContext(namespace="acme", run_id="r-1", session_id="s-1", key="order-1234")
-        claim, event = await store.claim_start("s-1", _started(), ctx, ORIGIN, timedelta(hours=1))
+        claim, event = await store.claim_start(_started(), ctx, ORIGIN, timedelta(hours=1))
         assert event is not None
 
         other = RunContext(namespace="acme", run_id="r-2", session_id="s-2", key="order-1234")
         with pytest.raises(DuplicateKeyError):
-            await store.claim_start("s-2", _started(), other, ORIGIN, timedelta(hours=1))
+            await store.claim_start(_started(), other, ORIGIN, timedelta(hours=1))
     finally:
         store.close()
 
@@ -274,17 +275,17 @@ async def test_two_connections_to_one_file_settle_a_resume_claim_on_one_winner(t
         db_path = tmp_path / f"race-{trial}.sqlite3"
         ctx = _ctx()
         seeder = SqliteEventStore(db_path)
-        await seeder.append("s-1", [_started(), _interrupted()], ctx, "Approver")
+        await seeder.append([_started(), _interrupted()], ctx, "Approver")
         seeder.close()
 
         first, second = SqliteEventStore(db_path), SqliteEventStore(db_path)
         try:
             outcomes = await asyncio.gather(
-                first.claim_resume("s-1", "r-1", RunResumed(reason=None), ctx, "Approver"),
-                second.claim_resume("s-1", "r-1", RunResumed(reason=None), ctx, "Approver"),
+                first.claim_resume(RunResumed(reason=None), ctx, "Approver"),
+                second.claim_resume(RunResumed(reason=None), ctx, "Approver"),
             )
             assert [event is not None for event in outcomes].count(True) == 1, f"trial {trial}: {outcomes}"
-            stored = await first.read_run("s-1", "r-1", ctx)
+            stored = await first.read_run(replace(ctx, run_id="r-1"))
         finally:
             first.close()
             second.close()

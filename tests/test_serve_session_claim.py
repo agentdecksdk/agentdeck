@@ -11,6 +11,7 @@ path did not lose or duplicate its opening event on the way to fixing that.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 
 import httpx
 
@@ -64,7 +65,7 @@ async def _hold_the_session(store: MemoryEventStore) -> None:
         input=[TextBlock(text="the turn already running")],
     )
     waiting = RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1")
-    await store.append(SESSION_ID, [opening, waiting], _holder(), AGENT)
+    await store.append([opening, waiting], _holder(), AGENT)
 
 
 async def test_a_turn_on_a_busy_session_is_a_409_naming_the_run_that_holds_it() -> None:
@@ -80,11 +81,11 @@ async def test_a_turn_on_a_busy_session_is_a_409_naming_the_run_that_holds_it() 
     assert SESSION_ID in detail, detail
     assert HOLDER in detail, detail
     # A refused turn is not a turn: the log still holds the one run it held before.
-    assert {event.run_id for event in await store.read(SESSION_ID, _reader())} == {HOLDER}
+    assert {event.run_id for event in await store.read_session(replace(_reader(), session_id=SESSION_ID))} == {HOLDER}
 
 
 async def test_an_empty_session_id_is_refused_rather_than_given_a_log_of_its_own() -> None:
-    """``RunContext.log_key`` is ``session_id or run_id``, so ``""`` is not an error anywhere
+    """``RunContext.session_id`` is ``session_id or run_id``, so ``""`` is not an error anywhere
     downstream  -  it quietly gives the turn a private log, and the caller's next message finds
     no history with nothing anywhere saying why. Caught at the boundary, where it is still a 422."""
     runtime, store = _runtime()
@@ -94,7 +95,7 @@ async def test_an_empty_session_id_is_refused_rather_than_given_a_log_of_its_own
         response = await client.post(CHAT, json={"session_id": "", "message": "hi"})
 
     assert response.status_code == 422
-    assert await store.read(SESSION_ID, _reader()) == []  # and no run was played
+    assert await store.read_session(replace(_reader(), session_id=SESSION_ID)) == []  # and no run was played
 
 
 async def test_a_turn_on_an_idle_session_still_streams_every_event_once() -> None:
@@ -116,4 +117,4 @@ async def test_a_turn_on_an_idle_session_still_streams_every_event_once() -> Non
                 frames.append(Event.model_validate(json.loads(line.removeprefix("data: "))))
 
     assert [event.kind for event in frames] == ["run.started", "message.completed", "run.completed"]
-    assert frames == await store.read(SESSION_ID, _reader())
+    assert frames == await store.read_session(replace(_reader(), session_id=SESSION_ID))

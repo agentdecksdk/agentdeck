@@ -23,10 +23,15 @@ if TYPE_CHECKING:
 @dataclass(frozen=True, slots=True)
 class RunSummary:
     """One run as :meth:`EventStorePort.list_runs` projects it  -  never a stored row of its
-    own (ADR-D5: the log stays the sole source of truth)."""
+    own (ADR-D5: the log stays the sole source of truth).
 
-    log_key: str
+    ``session_id`` is the conversation this run belongs to, or ``None`` when it stands alone. Not
+    a partition key to decode: a caller reads it, it does not compare it to ``run_id`` to work out
+    whether a session existed.
+    """
+
     run_id: str
+    session_id: str | None
     status: RunStatus
 
 
@@ -52,8 +57,10 @@ class EventStorePort(ABC):
     """Append-only. A log holds every run of one session, so it is ordered by *append*, not
     by ``seq``  -  ``seq`` restarts at 0 for each run and only orders events within it.
 
-    ``log_key`` is the session the events belong to, or the run itself when there is no
-    session (``RunContext.log_key``)  -  a store never has to decide where to put them.
+    Where an event goes is ``ctx``'s to say and never a parameter: ``run_id`` is what it belongs
+    to, ``session_id`` is the conversation it is part of when there is one. A store that was
+    handed one encoded key instead could not tell a session named after a run from the run
+    itself, and had to be asked twice for what one context already knew.
 
     **The store assigns ``seq`` and ``ts``** (ADR-D11), in the same indivisible step that
     persists the event. Callers hand over payloads and get finished events back. That is what
@@ -66,7 +73,7 @@ class EventStorePort(ABC):
     """
 
     @abstractmethod
-    async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+    async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
         """Stamp and write ``payloads`` in the order given, returning the finished events.
 
         Each gets this run's next ``seq`` and the store's own ``ts``, assigned inside whatever
@@ -81,8 +88,9 @@ class EventStorePort(ABC):
         """
 
     @abstractmethod
-    async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
-        """Events in append order, oldest first.
+    async def read_session(self, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
+        """Every run of ``ctx.session_id``, in append order, oldest first  -  empty when this run
+        has no session, which is a run that is part of no conversation rather than a missing one.
 
         ``offset`` counts from the start of the log, not a ``seq`` cursor  -  ``seq`` restarts per
         run, so it cannot address a position in a log holding several. Safe to page with a plain
@@ -93,18 +101,19 @@ class EventStorePort(ABC):
         """
 
     @abstractmethod
-    async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
-        """One run's events from ``from_seq`` onward, inclusive  -  what a consumer calls to
-        refetch after spotting a gap.
+    async def read_run(self, ctx: RunContext, from_seq: int = 0) -> list[Event]:
+        """``ctx.run_id``'s events from ``from_seq`` onward, inclusive  -  what a consumer calls
+        to refetch after spotting a gap.
 
-        A range read has to name the run: a seq range over a whole log would splice together
-        the tails of every run in it.
+        The context says which run, here and everywhere else on this port: a second ``run_id``
+        parameter beside it is one fact with two sources, and the two can disagree. A caller
+        reading a run other than the one it is playing says so by building the context for it
+        (``dataclasses.replace(ctx, run_id=...)``), which is what the takeover write already did.
         """
 
     @abstractmethod
     async def claim_start(
         self,
-        log_key: str,
         opening: RunStarted,
         ctx: RunContext,
         origin: str,
@@ -112,9 +121,12 @@ class EventStorePort(ABC):
         *,
         dead: frozenset[str] = frozenset(),
     ) -> tuple[SessionClaim, Event | None]:
-        """Stamp and append ``opening``  -  a run's ``run.started``  -  if and only if this log has no
-        open run, in one indivisible step. One session runs one turn at a time. The event is
-        returned when the claim won, ``None`` when it lost.
+        """Stamp and append ``opening``  -  a run's ``run.started``  -  if and only if this run's
+        session has no open run, in one indivisible step. One session runs one turn at a time. The
+        event is returned when the claim won, ``None`` when it lost.
+
+        A run with no session claims nothing: there is no conversation for a second turn to
+        collide over, and its own ``run_id`` was minted, so nothing else can be opening it.
 
         Condition and write must be one operation, which is what carries this across processes:
         two servers sharing a store would both read an idle session and both open a run on it.
@@ -159,11 +171,9 @@ class EventStorePort(ABC):
         """
 
     @abstractmethod
-    async def claim_resume(
-        self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
-    ) -> Event | None:
-        """Stamp and append ``resumed`` if and only if ``run_id`` is ``WAITING_ANSWER``, in one
-        indivisible step. The event when appended, ``None`` when not.
+    async def claim_resume(self, resumed: RunResumed, ctx: RunContext, origin: str) -> Event | None:
+        """Stamp and append ``resumed`` if and only if ``ctx.run_id`` is ``WAITING_ANSWER``, in
+        one indivisible step. The event when appended, ``None`` when not.
 
         The write publishing the ``WAITING_ANSWER`` -> ``RUNNING`` transition is the same write
         that tests for it, which is what makes double-resume protection hold between processes
@@ -186,12 +196,12 @@ class EventStorePort(ABC):
     async def list_runs(
         self, ctx: RunContext, status: RunStatus | None = None, limit: int | None = None
     ) -> list[RunSummary]:
-        """Every run in this namespace that recorded a lifecycle transition, across all its logs,
+        """Every run in this namespace that recorded a lifecycle transition, sessioned or not,
         optionally narrowed to one status and capped at ``limit`` entries.
 
         A run with no transition at all is left out, being indistinguishable from one the store
         never heard of.
-        Index this however the store can: finding waiting runs must not cost a fold of every log
+        Index this however the store can: finding waiting runs must not cost a fold of every run
         the namespace owns.
 
         A negative ``limit`` raises ``ValueError``, the same pin :meth:`read` uses rather than
@@ -212,7 +222,7 @@ class EventStorePort(ABC):
         both answer ``None``  -  indistinguishable, as everywhere else in this port.
         """
 
-    async def run_status(self, log_key: str, run_id: str, ctx: RunContext) -> RunStatus | None:
+    async def run_status(self, ctx: RunContext) -> RunStatus | None:
         """One run's status, derived from its own events only  -  never the whole log. ``None``
         when the run has no events at all: a run this store never heard of, which is also what
         a run that exists but has logged no lifecycle transition yet looks like. No status
@@ -221,5 +231,5 @@ class EventStorePort(ABC):
         Default projection: fold :meth:`read_run` through ``status_of`` (ADR-D5: a projection,
         not a second store). A store with a cheaper way to answer may override it.
         """
-        events = await self.read_run(log_key, run_id, ctx)
+        events = await self.read_run(ctx)
         return status_of(events) if events else None

@@ -166,7 +166,7 @@ class DurableSessions(ExecutionStore):
         self._open: dict[str, SQLiteSession] = {}
 
     def session_for(self, ctx: RunContext) -> SQLiteSession:
-        key = f"{ctx.namespace}:{ctx.log_key}"
+        key = f"{ctx.namespace}:{ctx.session_id}"
         session = self._open.get(key)
         if session is None:
             session = SQLiteSession(key, self._path)
@@ -184,14 +184,13 @@ class StallingStore(SqliteEventStore):
         self._marker = marker
         self._starts_seen = 0
 
-    async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
-        written = await super().append(log_key, payloads, ctx, origin)
+    async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        written = await super().append(payloads, ctx, origin)
         await self._stall_if_written(written)
         return written
 
     async def claim_start(
         self,
-        log_key: str,
         opening: RunStarted,
         ctx: RunContext,
         origin: str,
@@ -201,7 +200,7 @@ class StallingStore(SqliteEventStore):
     ) -> tuple[SessionClaim, Event | None]:
         # A turn's opening event is the session claim's own write, never an append, so a
         # fixture watching for one has to watch both doors.
-        claim, event = await super().claim_start(log_key, opening, ctx, origin, stale_after, dead=dead)
+        claim, event = await super().claim_start(opening, ctx, origin, stale_after, dead=dead)
         if event is not None:
             await self._stall_if_written([event])
         return claim, event
