@@ -14,6 +14,7 @@ from agentdeck.core import (
     CURRENT_VERSION,
     KNOWN_KINDS,
     RESULT_PREVIEW_MAX,
+    SUPPORTED_MAJORS,
     TERMINAL_KINDS,
     ControlObserved,
     ControlRequested,
@@ -619,3 +620,34 @@ def test_a_resume_that_cannot_be_carried_through_returns_the_run_to_waiting(exam
     repaired = [*stranded, make_event(examples["run.interrupted"].payload, 3)]
     assert status_of(repaired) is RunStatus.WAITING_ANSWER
     assert check_terminal(repaired) == "no terminal event"
+
+
+def test_a_log_written_by_the_previous_major_still_reads():
+    """The upgrade case, and the reason the check is a set rather than an equality: v5 reads a
+    log v4 wrote. The envelope did not change between the two  -  only payload kinds moved, which
+    the unknown-kind fallback already handles  -  so refusing it would make every upgrade a store
+    migration to guard against a rollback nobody performed."""
+    wire = _wire("run.paused", {"kind": "run.paused", "reason": "operator stepped away"})
+
+    event = Event.model_validate({**wire, "v": {"major": 3, "minor": 1}})
+
+    assert event.v == SchemaVersion(major=3, minor=1)
+    assert event.kind == "run.paused"
+
+
+def test_a_kind_the_previous_major_never_had_still_degrades_inside_it():
+    """The two halves compose: an old envelope carrying a kind this reader does not know is still
+    an ``UnknownEvent``, not a refusal."""
+    wire = _wire("legacy.thing", {"whatever": 1})
+
+    event = Event.model_validate({**wire, "v": {"major": 3, "minor": 1}})
+
+    assert isinstance(event.payload, UnknownEvent)
+
+
+def test_every_supported_major_is_one_this_reader_writes_or_has_written():
+    """A guard against the set becoming a wish list: a major belongs here because this reader
+    genuinely understands that envelope, and the only evidence of that is that agentdeck itself
+    wrote it."""
+    assert CURRENT_VERSION.major in SUPPORTED_MAJORS
+    assert max(SUPPORTED_MAJORS) == CURRENT_VERSION.major
