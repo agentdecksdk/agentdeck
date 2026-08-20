@@ -14,6 +14,21 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   provider reads its own environment credential, and `Deck.build()` reports every missing
   requirement before execution. Runtime settings now come only from environment variables or
   the project `.env`; the undocumented `config.yaml` source is removed.
+- **`run.can` says which lifecycle controls are available before you call one.** `run.can.pause`,
+  `run.can.resume` and `run.can.cancel` combine the engine's own capability with the run's current
+  state, so a UI can enable its buttons and a workflow can branch without guessing. Informational
+  by design: it reads the status the handle last saw, and the lifecycle methods stay the
+  authoritative answer.
+
+### Changed
+
+- **`run.pause()` and `run.cancel()` refuse loudly instead of returning `False`.** Both used to
+  answer `bool`, where `False` meant "this deck has no control backend" and was indistinguishable
+  from "the run had already ended". They now return `None`, raise `RunStateError` when the run's
+  state refuses the operation, and raise the new `UnsupportedControlError` when the control can
+  never be applied. An operation with nothing to do (pausing a paused run, cancelling a finished
+  one) still returns quietly. `run.resume()` is strict on the same terms and no longer ignores a
+  run that is waiting for an answer.
 
 ## [4.0.5] - 2026-08-19
 

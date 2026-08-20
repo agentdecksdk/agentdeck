@@ -69,6 +69,17 @@ class RunStateError(AgentdeckError):
     """
 
 
+class UnsupportedControlError(AgentdeckError):
+    """A lifecycle control this run can never be given, as opposed to one its state refuses now.
+
+    Two causes, one meaning for a caller: the engine behind the run does not suspend, or this
+    deck has no control backend to record a signal in. Neither is a race to retry  -  the same
+    call in the same deployment will refuse again, so what has to change is the target or the
+    configuration, which the message names. A refusal that *is* about the state is
+    :class:`RunStateError`, and ``run.can`` is how a caller avoids both.
+    """
+
+
 class StoreError(AgentdeckError):
     """A durable store failed  -  the event log, or the control-signal rows beside it.
 
@@ -117,4 +128,5 @@ __all__ = [
     "SessionBusyError",
     "SkillError",
     "StoreError",
+    "UnsupportedControlError",
 ]

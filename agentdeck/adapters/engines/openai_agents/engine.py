@@ -108,6 +108,7 @@ class OpenAIAgentsEngine(EnginePort):
     """
 
     engine: ClassVar[str] = "openai-agents"
+    suspendable: ClassVar[bool] = True
 
     def __init__(
         self,

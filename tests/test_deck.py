@@ -35,6 +35,7 @@ from agentdeck.errors import (
     RunStateError,
     RunSuspendedError,
     SessionBusyError,
+    UnsupportedControlError,
 )
 from agentdeck.mcp import MCP
 from agentdeck.skills import Skills
@@ -1415,7 +1416,7 @@ async def test_starting_on_a_session_held_paused_raises_session_busy(no_project)
         stream = deck.stream("Greeter", "hi there", session_id="s-paused")
         started = await anext(stream)
         run = await deck.runs.get(started.run_id)
-        assert await run.pause("operator stepped away") is True
+        await run.pause("operator stepped away")
         [event async for event in stream]
         assert await run.status() is RunStatus.PAUSED
 
@@ -1474,7 +1475,7 @@ async def test_two_handles_on_one_run_agree_a_cancel_through_one_is_visible_thro
     async with _parked_approval(monkeypatch) as (deck, run):
         other_handle = await deck.runs.get(run.id)
 
-        assert await run.cancel("operator said stop") is True
+        await run.cancel("operator said stop")
 
         assert await other_handle.status() is RunStatus.CANCELLED
 
@@ -1659,7 +1660,7 @@ async def test_a_cancel_against_a_parked_run_ends_it_immediately(no_project, mon
     the session is free the moment the cancel call returns, not on whichever later call notices.
     """
     async with _parked_approval(monkeypatch) as (deck, run):
-        assert await run.cancel("operator said stop") is True
+        await run.cancel("operator said stop")
 
         assert await run.status() is RunStatus.CANCELLED
         log = await deck._require_open().store.read("t-1", _new_context("t-1"))
@@ -1688,7 +1689,7 @@ async def test_a_cancel_against_a_parked_run_in_a_real_namespace_still_ends_it(n
     layer never had this gap.
     """
     async with _parked_approval(monkeypatch, namespace="acme") as (deck, run):
-        assert await run.cancel("operator said stop") is True
+        await run.cancel("operator said stop")
 
         log = await deck._require_open().store.read(
             "t-1", RunContext(run_id="reader", session_id="t-1", namespace="acme")
@@ -1726,7 +1727,7 @@ async def test_a_cancel_in_one_namespace_leaves_the_same_key_in_another_untouche
         # Signalled before either stream is asked to produce more, so the first safe point
         # each hits is the one that observes it  -  deterministic without a clock or a sleep.
         acme_run = await deck.runs.get(acme_started.run_id, namespace="acme")
-        assert await acme_run.cancel("acme said stop") is True
+        await acme_run.cancel("acme said stop")
 
         globex = [globex_started, *[event async for event in globex_stream]]
         acme = [acme_started, *[event async for event in acme_stream]]
@@ -1755,7 +1756,7 @@ async def test_pause_and_resume_isolate_between_namespaces_sharing_one_key(no_pr
         globex_run = await deck.runs.get(globex_started.run_id, namespace="globex")
         # Signalled before either stream is asked to produce more, so the first safe point
         # each hits is the one that observes it  -  deterministic without a clock or a sleep.
-        assert await acme_run.pause("acme stepped away") is True
+        await acme_run.pause("acme stepped away")
 
         globex = [globex_started, *[event async for event in globex_stream]]
         acme = [acme_started, *[event async for event in acme_stream]]
@@ -1819,7 +1820,7 @@ async def test_a_pause_against_a_parked_run_refuses_the_answer_and_stays_pending
     intent would lose the very stop it cited.
     """
     async with _parked_approval(monkeypatch) as (deck, run):
-        assert await run.pause("operator stepped away") is True
+        await run.pause("operator stepped away")
 
         with pytest.raises(RunStateError, match="override"):
             await run.answer("yes")
@@ -1863,7 +1864,7 @@ async def test_a_paused_timer_defers_its_wake_without_stopping_the_rest_of_the_s
             # already hold the run reaches for the private inbox, the same as the sweep does.
             stopped_id = next(run.run_id for run in await deck._pending() if run.thread_id == "t-stopped")
             stopped = await deck.runs.get(stopped_id)
-            assert await stopped.pause("operator stepped away") is True
+            await stopped.pause("operator stepped away")
 
             woke = await deck._tick()
 
@@ -1897,7 +1898,7 @@ async def test_answering_a_paused_run_names_resume(no_project, scripted):
         stream = deck.stream("Greeter", "hi there")
         started = await anext(stream)  # the run's own minted id, before it reaches a safe point
         run = await deck.runs.get(started.run_id)
-        assert await run.pause("operator stepped away") is True
+        await run.pause("operator stepped away")
         [event async for event in stream]
 
         assert await run.status() is RunStatus.PAUSED
@@ -1967,7 +1968,7 @@ async def test_pause_and_resume_reach_the_runtime_this_deck_composed(no_project,
         stream = deck.stream("Greeter", "hi there")
         started = await anext(stream)  # the run's own minted id, before it reaches a safe point
         run = await deck.runs.get(started.run_id)
-        assert await run.pause("operator stepped away") is True
+        await run.pause("operator stepped away")
         paused = [started, *[event async for event in stream]]
         await run.resume()
         resumed = [event async for event in run.events()][len(paused) :]
@@ -2128,3 +2129,122 @@ async def test_sweep_survives_a_raising_tick_and_keeps_going_on_the_next_interva
             assert any("timer sweep failed" in r.message for r in caplog.records)
     finally:
         reset_settings_cache()
+
+
+# --- run.can, and lifecycle methods that refuse rather than report ---
+
+
+@pytest.mark.asyncio
+async def test_a_running_run_offers_pause_and_cancel_but_not_resume(no_project):
+    """The first row of ``can_of``'s table, read off a real handle: what a live run offers is
+    the stop half, and there is no pause yet for a resume to lift."""
+    hold = asyncio.Event()
+    model = ScriptedModel(deltas=("Hel", "lo"), hold=hold)
+    deck = Deck(agents=[_greeter()])
+
+    with patch_model(model):
+        async with deck:
+            run = await deck.runs.start("Greeter", "hello", session_id="s-can")
+            await model.holding.wait()
+
+            assert (run.can.pause, run.can.resume, run.can.cancel) == (True, False, True)
+
+            hold.set()
+            await run
+            await run.status()  # `can` reads the last status this handle saw, so refresh it
+            assert (run.can.pause, run.can.resume, run.can.cancel) == (False, False, False)
+
+
+@pytest.mark.asyncio
+async def test_a_paused_run_offers_resume_instead_of_pause(no_project):
+    """The second row, and the one a UI's two buttons are wired to."""
+    deck = Deck(agents=[_greeter()])
+    async with deck:
+        stream = deck.stream("Greeter", "hi there", session_id="s-can-paused")
+        started = await anext(stream)
+        run = await deck.runs.get(started.run_id)
+        await run.pause("operator stepped away")
+        [event async for event in stream]
+
+        assert await run.status() is RunStatus.PAUSED
+        assert (run.can.pause, run.can.resume, run.can.cancel) == (False, True, True)
+
+
+@pytest.mark.asyncio
+async def test_a_recovered_handle_knows_what_it_can_do_without_being_asked(no_project, monkeypatch):
+    """``deck.runs.get`` reads a status to find the run at all, so the handle it hands back
+    answers ``can`` from that read rather than from a second one the caller has to make."""
+    async with _parked_approval(monkeypatch) as (deck, parked):
+        recovered = await deck.runs.get(parked.id)
+
+        assert recovered.can.cancel is True
+        assert recovered.can.resume is False  # waiting for a value, which `answer` supplies
+
+
+@pytest.mark.asyncio
+async def test_resuming_a_run_that_wants_an_answer_refuses_and_names_answer(no_project, monkeypatch):
+    """Strictness where 4.x returned quietly: a resume against ``WAITING_ANSWER`` used to do
+    nothing at all, which reads as "resumed" to the caller who asked for it."""
+    async with _parked_approval(monkeypatch) as (deck, parked):
+        with pytest.raises(RunStateError, match="run.answer"):
+            await parked.resume()
+
+        assert await parked.status() is RunStatus.WAITING_ANSWER
+
+
+@pytest.mark.asyncio
+async def test_pausing_a_run_that_has_already_ended_is_quiet(no_project, scripted):
+    """A no-op is not a refusal: the run is stopped, which is what the caller wanted. Only a
+    state that would have to be overridden raises."""
+    deck = Deck(agents=[_greeter()])
+    async with deck:
+        run = await deck.runs.start("Greeter", "hello", session_id="s-over")
+        await run
+
+        await run.pause("too late")
+        await run.cancel("also too late")
+
+
+@pytest.mark.asyncio
+async def test_a_deck_with_no_control_backend_says_so_instead_of_returning_false(no_project):
+    """4.x answered ``False`` here, which a caller could not tell apart from "the run had already
+    ended". The signal was never recorded, so nothing was ever going to happen."""
+    hold = asyncio.Event()
+    model = ScriptedModel(deltas=("Hel", "lo"), hold=hold)
+    deck = Deck(agents=[_greeter()])
+
+    with patch_model(model):
+        async with deck:
+            run = await deck.runs.start("Greeter", "hello", session_id="s-uncontrolled")
+            await model.holding.wait()
+            deck._runtime._control = None
+
+            with pytest.raises(UnsupportedControlError, match="AGENTDECK_CONTROL"):
+                await run.pause("operator stepped away")
+
+            hold.set()
+            await run
+
+
+@pytest.mark.asyncio
+async def test_a_run_whose_engine_cannot_suspend_refuses_pause_outright(no_project):
+    """The capability half of ``can``, on the handle. Set by hand because every engine this
+    deck can register suspends today  -  the first one that does not arrives with the invocation
+    resolver (agentdeck #337), and this is the branch it will land on.
+    """
+    hold = asyncio.Event()
+    model = ScriptedModel(deltas=("Hel", "lo"), hold=hold)
+    deck = Deck(agents=[_greeter()])
+
+    with patch_model(model):
+        async with deck:
+            run = await deck.runs.start("Greeter", "hello", session_id="s-unsuspendable")
+            await model.holding.wait()
+            run._suspendable = False
+
+            assert (run.can.pause, run.can.resume, run.can.cancel) == (False, False, True)
+            with pytest.raises(UnsupportedControlError, match="does not suspend"):
+                await run.pause()
+
+            hold.set()
+            await run

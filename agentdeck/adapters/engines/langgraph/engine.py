@@ -128,6 +128,7 @@ class LangGraphEngine(EnginePort):
     """
 
     engine: ClassVar[str] = "langgraph"
+    suspendable: ClassVar[bool] = True
 
     def __init__(
         self,

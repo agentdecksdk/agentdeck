@@ -49,14 +49,16 @@ class Operation(StrEnum):
     """What a caller *invokes*, which is a different question from what is *pending*.
 
     ``run`` opens a run, ``answer`` supplies the value an interrupt is waiting for, ``resume``
-    lifts a pause. Legality is a property of these; :data:`POLICY`'s columns are the signals
-    found in the port at the moment of a read, and conflating the two is what made a pause
-    against a waiting run look liftable.
+    lifts a pause, ``pause`` and ``cancel`` ask it to stop. Legality is a property of these;
+    :data:`POLICY`'s columns are the signals found in the port at the moment of a read, and
+    conflating the two is what made a pause against a waiting run look liftable.
     """
 
     RUN = "run"
     ANSWER = "answer"
     RESUME = "resume"
+    PAUSE = "pause"
+    CANCEL = "cancel"
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,12 +131,15 @@ class Precondition:
 
 _LEGAL = Precondition(Verdict.LEGAL, "the operation is what this state is waiting for")
 _BUSY = Precondition(Verdict.REFUSED, "the session already has a run in flight")
+_STOPPABLE = Precondition(Verdict.LEGAL, "the run has not ended, so it can still be told to stop")
 
 _LEGALITY: Mapping[RunStatus, Mapping[Operation, Precondition]] = {
     RunStatus.RUNNING: {
         Operation.RUN: _BUSY,
         Operation.ANSWER: Precondition(Verdict.REFUSED, "the run is still running and nothing awaits an answer"),
         Operation.RESUME: Precondition(Verdict.NO_OP, "the run is already running, so there is no pause to lift"),
+        Operation.PAUSE: _STOPPABLE,
+        Operation.CANCEL: _STOPPABLE,
     },
     RunStatus.PAUSED: {
         Operation.RUN: _BUSY,
@@ -142,6 +147,8 @@ _LEGALITY: Mapping[RunStatus, Mapping[Operation, Precondition]] = {
             Verdict.REFUSED, "the run is paused, not waiting for a value: lift it with run.resume()"
         ),
         Operation.RESUME: _LEGAL,
+        Operation.PAUSE: Precondition(Verdict.NO_OP, "the run is already paused"),
+        Operation.CANCEL: _STOPPABLE,
     },
     RunStatus.WAITING_ANSWER: {
         Operation.RUN: _BUSY,
@@ -150,6 +157,10 @@ _LEGALITY: Mapping[RunStatus, Mapping[Operation, Precondition]] = {
             Verdict.REFUSED,
             "the run is waiting for a value, not for a pause to be lifted: supply it with run.answer(...)",
         ),
+        # Legal, and it is not a pause of the running work  -  there is none. It is the veto
+        # `_WAITING_ANSWER_ROW` honours: the answer is held back until somebody lifts it.
+        Operation.PAUSE: _STOPPABLE,
+        Operation.CANCEL: _STOPPABLE,
     },
 } | dict.fromkeys(
     TERMINAL_STATUSES,
@@ -157,6 +168,8 @@ _LEGALITY: Mapping[RunStatus, Mapping[Operation, Precondition]] = {
         Operation.RUN: _LEGAL,
         Operation.ANSWER: Precondition(Verdict.NO_OP, "the run has already ended, so there is nothing to answer"),
         Operation.RESUME: Precondition(Verdict.NO_OP, "the run has already ended, so there is no pause to lift"),
+        Operation.PAUSE: Precondition(Verdict.NO_OP, "the run has already ended, so there is nothing to pause"),
+        Operation.CANCEL: Precondition(Verdict.NO_OP, "the run has already ended, so there is nothing to cancel"),
     },
 )
 
@@ -292,6 +305,32 @@ def can_resume(status: RunStatus | None) -> bool:
     never heard of  -  makes a resume a no-op rather than an error, which is why callers check
     this instead of raising."""
     return status in RESUMABLE_STATUSES
+
+
+@dataclass(frozen=True, slots=True)
+class Controls:
+    """Which lifecycle controls are available on a run: what ``run.can`` is."""
+
+    pause: bool
+    resume: bool
+    cancel: bool
+
+
+def can_of(status: RunStatus, *, suspendable: bool) -> Controls:
+    """The controls available to a run in ``status`` whose engine is (or is not) ``suspendable``.
+
+    Two halves, and neither alone is the answer: an engine that cannot suspend never offers pause
+    or resume whatever its state, and one that can still offers neither once the run is over. The
+    state half is :data:`PRECONDITIONS`, so this adds no lifecycle rule of its own.
+
+    Cancel asks only the state: every engine's run can be ended, whether by a safe point it
+    reaches or by the terminal event a suspended run gets instead.
+    """
+    return Controls(
+        pause=suspendable and PRECONDITIONS[status, Operation.PAUSE].verdict is Verdict.LEGAL,
+        resume=suspendable and PRECONDITIONS[status, Operation.RESUME].verdict is Verdict.LEGAL,
+        cancel=PRECONDITIONS[status, Operation.CANCEL].verdict is Verdict.LEGAL,
+    )
 
 
 def decide(status: RunStatus, pending: str | None) -> Ruling:

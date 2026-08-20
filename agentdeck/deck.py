@@ -77,8 +77,15 @@ from agentdeck.core.events import (
     RunPaused,
 )
 from agentdeck.core.ports import EventSinkPort
-from agentdeck.core.status import PRECONDITIONS, SUSPENDED_KINDS, Operation, RunStatus, Verdict
-from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, RunStateError, RunSuspendedError
+from agentdeck.core.status import PRECONDITIONS, SUSPENDED_KINDS, Controls, Operation, RunStatus, Verdict, can_of
+from agentdeck.errors import (
+    AgentdeckError,
+    ConfigError,
+    NotFoundError,
+    RunStateError,
+    RunSuspendedError,
+    UnsupportedControlError,
+)
 from agentdeck.mcp import MCP
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.registry import PROJECT_DIR, PluginRegistry, mount_project_dir
@@ -1118,6 +1125,21 @@ class Deck:
         return build_asgi_app(self)
 
 
+_NO_CONTROL_PORT = (
+    "the run could not be told to {verb}: this deck has no control backend, so nothing was "
+    "recorded and nothing will happen. Set AGENTDECK_CONTROL  -  `memory://` reaches runs in this "
+    "process, `sqlite:///<path>` reaches runs in another."
+)
+
+# What ``run.can`` assumes about a handle that never learned which invocable opened its run: the
+# store's summary projects status, not origin, so ``Runs.get`` and ``Runs.list`` have no name to
+# ask :meth:`Runtime.suspends` about. Exact rather than optimistic today, since every registered
+# engine suspends.
+# ponytail: assumed, not read. The first executor that answers False (a plain callable, agentdeck
+# #337) is what puts the origin on ``RunSummary`` and turns this into a lookup.
+_RECOVERED_SUSPENDABLE = True
+
+
 def _completed_result(deck: Deck, event: Event, payload: RunCompleted) -> Any:
     """A run's own ``run.completed`` as the value :meth:`Run.__await__` hands back  -  a
     :class:`TurnResult` for an agent, the graph's own state for a workflow.
@@ -1156,7 +1178,7 @@ class Run:
     context, and supplies ``None`` to whichever of those it calls.
     """
 
-    __slots__ = ("_context", "_deck", "id", "key", "namespace", "session_id")
+    __slots__ = ("_context", "_deck", "_seen", "_suspendable", "id", "key", "namespace", "session_id")
 
     def __init__(
         self,
@@ -1167,6 +1189,8 @@ class Run:
         namespace: str | None,
         session_id: str | None,
         context: object,
+        seen: RunStatus,
+        suspendable: bool,
     ) -> None:
         self._deck = deck
         self.id = id
@@ -1174,6 +1198,19 @@ class Run:
         self.namespace = namespace
         self.session_id = session_id
         self._context = context
+        self._seen = seen
+        self._suspendable = suspendable
+
+    @property
+    def can(self) -> Controls:
+        """Which of :meth:`pause`, :meth:`resume` and :meth:`cancel` are available right now.
+
+        Informational, and read off the status this handle last saw rather than the store: it is
+        for a UI's button states and for branching, and the run may end between reading it and
+        acting on it. The lifecycle methods below are the authoritative answer, which is why they
+        raise rather than returning a second, weaker one.
+        """
+        return can_of(self._seen, suspendable=self._suspendable)
 
     @property
     def _log_key(self) -> str:
@@ -1188,26 +1225,62 @@ class Run:
         runtime = self._deck._require_open()
         status = await runtime.status(self.id, namespace=self.namespace)
         assert status is not None, f"a Run handle always names a run that exists: {self.id!r}"
+        self._seen = status
         return status
 
-    async def pause(self, reason: str | None = None) -> bool:
+    async def pause(self, reason: str | None = None) -> None:
         """Ask the run to stop at its next safe point, and record why  -  recorded, not stopped:
         a run inside a tool call stops at its own next safe point, and its own ``run.paused``
-        event is what reports that it did. ``False`` means this deck has no control backend
-        wired, and nothing was recorded."""
-        return await self._deck._pause(self.id, reason, self.namespace)
+        event is what reports that it did.
+
+        Strict: :class:`~agentdeck.errors.RunStateError` if the run's state refuses a pause,
+        :class:`~agentdeck.errors.UnsupportedControlError` if it can never take one. Returns
+        quietly when there is nothing to do, which is a run already paused or already over.
+        """
+        if not await self._admits(Operation.PAUSE):
+            return
+        if not await self._deck._pause(self.id, reason, self.namespace):
+            raise UnsupportedControlError(_NO_CONTROL_PORT.format(verb="pause"))
 
     async def resume(self) -> None:
-        """Continue a paused run. A no-op if this run is not, in fact, paused  -  running,
-        waiting for an answer instead (call :meth:`answer`), or already over."""
+        """Continue a paused run.
+
+        Strict, on the same terms as :meth:`pause`: a run waiting for an answer refuses (call
+        :meth:`answer` instead), and one already running or already over returns quietly.
+        """
+        if not await self._admits(Operation.RESUME):
+            return
         await self._deck._resume(self.id, context=self._context, namespace=self.namespace)
 
-    async def cancel(self, reason: str | None = None) -> bool:
+    async def cancel(self, reason: str | None = None) -> None:
         """Ask the run to stop for good. A live run stops at its next safe point; one already
         paused or waiting on an answer has none left to reach, so it ends immediately instead.
-        ``False`` means this deck has no control backend wired, and nothing was recorded.
+
+        Strict, on the same terms as :meth:`pause`. A run that has already ended returns
+        quietly: it is stopped, which is what was asked for.
         """
-        return await self._deck._cancel(self.id, reason, self.namespace)
+        if not await self._admits(Operation.CANCEL):
+            return
+        if not await self._deck._cancel(self.id, reason, self.namespace):
+            raise UnsupportedControlError(_NO_CONTROL_PORT.format(verb="cancel"))
+
+    async def _admits(self, operation: Operation) -> bool:
+        """Whether ``operation`` is worth attempting, raising if it is refused outright.
+
+        Reads the live status rather than :attr:`can`  -  which is the snapshot of whatever this
+        handle last saw, and deliberately not authoritative. Refreshing it here is what keeps
+        the two from drifting for a caller that checks ``can`` after every op.
+        """
+        if operation is not Operation.CANCEL and not self._suspendable:
+            raise UnsupportedControlError(
+                f"run {self.id!r} cannot {operation.value}: the engine running it does not suspend, so "
+                f"there is no pause to record or lift. Cancelling it is what ends it early; "
+                f"`run.can.{operation.value}` says so before the call."
+            )
+        allowed = PRECONDITIONS[await self.status(), operation]
+        if allowed.verdict is Verdict.REFUSED:
+            raise RunStateError(f"run {self.id!r} cannot {operation.value}: {allowed.why}")
+        return allowed.verdict is Verdict.LEGAL
 
     async def pending(self) -> InterruptResult | None:
         """What this run is waiting to be answered about, or ``None`` if it is not
@@ -1362,6 +1435,8 @@ class Runs:
             namespace=opening.namespace,
             session_id=opening.session_id,
             context=context,
+            seen=RunStatus.RUNNING,
+            suspendable=deck._require_open().suspends(name),
         )
 
     async def get(self, id: str | None = None, *, namespace: str | None = None, key: str | None = None) -> Run:
@@ -1390,7 +1465,16 @@ class Runs:
         if summary is None:
             raise NotFoundError(f"No run {id!r} in namespace {namespace!r}.")
         session_id = None if summary.log_key == summary.run_id else summary.log_key
-        return Run(self._deck, id=id, key=key, namespace=namespace, session_id=session_id, context=None)
+        return Run(
+            self._deck,
+            id=id,
+            key=key,
+            namespace=namespace,
+            session_id=session_id,
+            context=None,
+            seen=summary.status,
+            suspendable=_RECOVERED_SUSPENDABLE,
+        )
 
     # The return type says `builtins.list`, not the bare name: this method is itself named
     # `list`, and a checker resolving the annotation against this class's own namespace would
@@ -1414,6 +1498,8 @@ class Runs:
                 namespace=namespace,
                 session_id=None if summary.log_key == summary.run_id else summary.log_key,
                 context=None,
+                seen=summary.status,
+                suspendable=_RECOVERED_SUSPENDABLE,
             )
             for summary in summaries
         ]
