@@ -22,6 +22,16 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Changed
 
+- **The reporter has four methods and one event kind.** `ctx.reporter.status(...)` and
+  `ctx.reporter.progress(...)` are replaced by `info`, `warning`, `error` and `report`, each taking
+  arbitrary keyword fields: `ctx.reporter.warning("Primary source unavailable", source="drive")`,
+  `ctx.reporter.report("candidate_found", score=0.91)`. The `status.reported` and
+  `progress.reported` events become one `report` event carrying `level`, `message` and `fields`.
+  A stage count is now `report("reviewing", current=2, total=4)`, and nothing validates the pair.
+- **`Context[T]` is `ToolCtx[T]`, and `ctx.checkpoint()` is `ctx.safepoint()`.** A tool declares
+  `ToolCtx[T]`; the orchestration surface an imperative workflow gets is `WorkflowCtx[T]`, so one
+  type no longer has to mean both. The method rename follows the concept the docstrings already
+  used: a safe point is where a run can be stopped.
 - **`run.pause()` and `run.cancel()` refuse loudly instead of returning `False`.** Both used to
   answer `bool`, where `False` meant "this deck has no control backend" and was indistinguishable
   from "the run had already ended". They now return `None`, raise `RunStateError` when the run's

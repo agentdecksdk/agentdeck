@@ -3,7 +3,7 @@
     "major": 3,
     "minor": 1
   },
-  "kind": "status.reported",
+  "kind": "report",
   "seq": 0,
   "run_id": "run_1",
   "session_id": "sess_1",
@@ -11,7 +11,11 @@
   "origin": "Greeter",
   "ts": "2026-01-01T12:00:00Z",
   "payload": {
-    "kind": "status.reported",
-    "message": "Searching GitHub"
+    "kind": "report",
+    "level": "info",
+    "message": "Searching GitHub",
+    "fields": {
+      "source": "github"
+    }
   }
 }

@@ -73,7 +73,7 @@ def _peek(seen: list[ToolCtx[Environment]]) -> Callable[..., Any]:
         """Look at the run's environment."""
         seen.append(environment)
         await environment.safepoint()
-        await environment.reporter.status(ANSWER)
+        await environment.reporter.info(ANSWER)
         # A constant, never anything read off the environment: what a tool returns is recorded,
         # and a subject that echoed its secret would defeat the "never in the log" assertions.
         return "ok"

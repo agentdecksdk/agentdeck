@@ -108,7 +108,7 @@ async def test_the_context_carries_a_working_reporter_and_gate(
     context whose gate was missing never reaches the report this asserts."""
     events = await _play(runtime, subject, environment)
 
-    reported = [event for event in events if event.kind == "status.reported"]
+    reported = [event for event in events if event.kind == "report"]
     assert [event.payload.message for event in reported] == [ANSWER]  # ty: ignore[unresolved-attribute]
 
 

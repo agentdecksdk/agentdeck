@@ -28,7 +28,6 @@ from pydantic import (
     ConfigDict,
     Field,
     NonNegativeInt,
-    PositiveInt,
     ValidationError,
     ValidatorFunctionWrapHandler,
     field_validator,
@@ -294,35 +293,23 @@ class InputAppended(CoreModel):
     source: str
 
 
-class StatusReported(CoreModel):
-    """Advisory: what the run is doing right now, in words a person can read.
+class Reported(CoreModel):
+    """Advisory: what the running code chose to say about itself.
 
     Not a transition  -  status folds from the lifecycle kinds (``core/status.py``), so a run
-    reporting ``"Searching GitHub"`` is still ``RUNNING``.
+    reporting ``"Searching GitHub"`` is still ``RUNNING``. And not an event about the runtime:
+    every other kind here says what AgentDeck did, this one says what the application said.
+
+    Four things a report can be, in one field rather than one kind each: three severities a
+    person reads, and a structured record a pipeline filters. A record's ``message`` is its own
+    name (``"candidate_found"``), so a reader that knows no schema still has something to show
+    and a consumer that does filters on the same string.
     """
 
-    kind: Literal["status.reported"] = "status.reported"
+    kind: Literal["report"] = "report"
+    level: Literal["info", "warning", "error", "record"] = "info"
     message: str = Field(min_length=1)
-
-
-class ProgressReported(CoreModel):
-    """Advisory: which named stage the run is on, optionally counted.
-
-    ``step`` is required; the counts are not, because a run that knows its stage often does not
-    know how many there are. Never a percentage  -  a consumer that wants one divides, and only
-    when ``total`` is present.
-    """
-
-    kind: Literal["progress.reported"] = "progress.reported"
-    step: str = Field(min_length=1)
-    current: NonNegativeInt | None = None
-    total: PositiveInt | None = None
-
-    @model_validator(mode="after")
-    def _current_within_total(self) -> ProgressReported:
-        if self.current is not None and self.total is not None and self.current > self.total:
-            raise ValueError(f"progress current={self.current} is past total={self.total}")
-        return self
+    fields: dict[str, JsonData] = Field(default_factory=dict)
 
 
 class Custom(CoreModel):
@@ -375,8 +362,7 @@ KnownPayload = Annotated[
     | ArtifactCreated
     | UsageReported
     | InputAppended
-    | StatusReported
-    | ProgressReported
+    | Reported
     | Custom,
     Field(discriminator="kind"),
 ]

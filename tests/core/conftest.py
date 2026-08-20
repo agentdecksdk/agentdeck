@@ -22,7 +22,7 @@ from agentdeck.core import (
     InputAppended,
     MessageCompleted,
     NodeUpdated,
-    ProgressReported,
+    Reported,
     ResourceBlock,
     RunCancelled,
     RunCompleted,
@@ -31,7 +31,6 @@ from agentdeck.core import (
     RunPaused,
     RunResumed,
     RunStarted,
-    StatusReported,
     TextBlock,
     TextDelta,
     ThoughtDelta,
@@ -96,8 +95,7 @@ PAYLOADS = (
     Custom(name="langgraph.checkpoint_written", data={"thread_id": "t-1"}),
     ControlRequested(verb="cancel", reason="operator pressed cancel"),
     ControlObserved(verb="cancel", safe_point="tool_dispatch"),
-    StatusReported(message="Searching GitHub"),
-    ProgressReported(step="Reviewing issues", current=2, total=4),
+    Reported(level="info", message="Searching GitHub", fields={"source": "github"}),
 )
 
 
