@@ -130,7 +130,7 @@ ABSTRACT_DECORATORS = frozenset({"abstractmethod", "overload", "override"})
 DIVIDER_RE = re.compile(r"-{4,}|={4,}")
 HUNK_RE = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
 TEXT_SUFFIXES = frozenset({".py", ".md", ".mdx", ".toml", ".txt", ".yaml", ".yml"})
-SPACED_DASH = "  " + "-" + "  "
+EM_DASH = chr(0x2014)
 
 
 @dataclass(frozen=True)
@@ -271,9 +271,9 @@ def check_source(source: str) -> list[Violation]:
 
 def check_style(source: str) -> list[Violation]:
     return [
-        Violation(row, row, "SLOP009 spaced-dash", "replace the spaced dash with a colon, hyphen, or new sentence")
+        Violation(row, row, "SLOP009 em-dash", "replace the em dash with a colon, hyphen, or new sentence")
         for row, line in enumerate(source.splitlines(), 1)
-        if SPACED_DASH in line
+        if EM_DASH in line
     ]
 
 
@@ -563,8 +563,8 @@ def _self_test() -> None:
     assert not check_source(skipif), "conditional skipif must pass"
     allow = "# Increment the retry count  (slopcheck: allow SLOP001 exemplar fixture)\nretry_count += 1\n"
     assert not check_source(allow), "explicit coded allow marker must suppress"
-    spaced_dash = "Use the short path" + "  " + "-" + "  " + "the runtime owns the machinery.\n"
-    assert any(v.rule.startswith("SLOP009") for v in check_style(spaced_dash)), "spaced dash must be flagged"
+    em_dash = "Use the short path" + chr(0x2014) + "the runtime owns the machinery.\n"
+    assert any(v.rule.startswith("SLOP009") for v in check_style(em_dash)), "em dash must be flagged"
     assert not check_style("Use the short path: the runtime owns the machinery.\n"), "colon must pass"
     print("slopcheck self-test: ok")
 
