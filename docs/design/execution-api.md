@@ -61,7 +61,7 @@ control surface, whichever side it came from.
 result = await ctx.invoke(agent, input)          # the short path: Run is awaitable
 
 child = ctx.invoke(agent, input)                 # the same call, held
-if (await child.can()).pause:
+if child.can.pause:
     await child.pause()
 result = await child
 ```
@@ -69,12 +69,12 @@ result = await child
 | member | note |
 |---|---|
 | `id`, `status` | as 4.x |
-| `can()` | new: a frozen `pause`/`resume`/`cancel` snapshot |
+| `can.pause` / `can.resume` / `can.cancel` | new |
 | `pause()` / `resume()` / `cancel()` | strict: they raise instead of returning `False` |
 | `events()` | as 4.x |
 | `__await__` | as 4.x |
 
-## `run.can()`
+## `run.can.*`
 
 `can` answers "is this control available on this Run right now", not "does the executor support
 it". Three inputs, one answer:
@@ -94,13 +94,16 @@ The legality half is `core/status.py`'s existing table, extended with `Operation
 `Operation.CANCEL` rows, and the whole derivation is one pure function beside it. No second
 lifecycle table anywhere: `run-lifecycle.md` still holds.
 
-`can()` is a method, not an attribute, because status is a store read and a `Run` handle caches no
-authoritative state (`run-identity.md` §3). A sync attribute would have to cache one, and an
-awaitable attribute makes the forgotten `await` in `if run.can.pause:` always true.
+`can` reads the status the handle last saw, so it stays a plain attribute: `if run.can.pause`, not
+an `await`. Every way a handle is made already knows a status (`start()` just opened the run,
+`get()` and `list()` read one), and every op that talks to the store refreshes it.
 
-`can` is informational, never a transaction. The run may finish between the snapshot and the call,
-so the strict method stays authoritative and a caller that races catches `RunStateError`. This is
-why there is no `try_pause()`: a boolean return that means four different things is what 4.x had.
+That is not the cached state `run-identity.md` §3 forbids. `status()` and the lifecycle methods
+never read the snapshot, so nothing authoritative is answered from it: `can` is informational by
+ruling, and a snapshot is exactly what "informational" means. The run may finish between the read
+and the call, which is why the strict method stays authoritative and a caller that races catches
+`RunStateError`. This is also why there is no `try_pause()`: a boolean return that means four
+different things is what 4.x had.
 
 ## Executor
 
@@ -125,15 +128,20 @@ Capability is a declaration, not a pair of methods:
 ```python
 class EnginePort(ABC):
     engine: ClassVar[str]
-    controls: ClassVar[frozenset[Operation]]
+    suspendable: ClassVar[bool]
 ```
 
-The doc this file supersedes proposed `Suspendable` / `Cancelable` protocols with `pause()` and
-`resume()` methods. Rejected: pause, resume and cancel are already implemented once, by the
-Runtime's control port and the cooperative `Gate`, and no engine implements them today. A protocol
-whose methods every engine would satisfy by delegating back to the Runtime declares a capability in
-the most expensive way available. A `ClassVar` says the same thing beside `engine`, which is the
-idiom that is already there.
+The source design proposed `Suspendable` / `Cancelable` protocols with `pause()` and `resume()`
+methods. Rejected: pause, resume and cancel are already implemented once, by the Runtime's control
+port and the cooperative `Gate`, and no engine implements them today. A protocol whose methods
+every engine would satisfy by delegating back to the Runtime declares a capability in the most
+expensive way available. A `ClassVar` says the same thing beside `engine`, which is the idiom
+already there.
+
+One flag, not two. Pause and resume are one reversible capability (the source design's own
+argument for `Suspendable` over `Pausable` + `Resumable`), and a boolean cannot express the
+half-capability that argument rejects. There is no `cancelable` flag because no executor has
+needed one: a run can always be ended, and the flag arrives with the first target that cannot be.
 
 ## Suspension parks the body, it does not raise through it
 
@@ -150,7 +158,7 @@ native workflow:
 | cancel | raises, because the run ends and there is nothing left to preserve |
 
 `ctx.ask()` and `ctx.approve()` park by the same mechanism. This is what makes a native workflow
-suspendable in the `run.can()` table, and it is also its ceiling: a parked body lives in one
+suspendable in the `run.can` table, and it is also its ceiling: a parked body lives in one
 process, and surviving a restart is the deferred replay model.
 
 ## Reporter
@@ -190,10 +198,9 @@ The design this file was written from is adopted whole except:
 | proposed | here | why |
 |---|---|---|
 | `Executor` protocol with `execute()` | `EnginePort`, unchanged | a parallel contract for what already exists |
-| `Suspendable` / `Cancelable` protocols | `EnginePort.controls` ClassVar | see Executor above |
+| `Suspendable` / `Cancelable` protocols | `EnginePort.suspendable` ClassVar | see Executor above |
 | `ctx.agents.create/fork` in the baseline | deferred | agent instances are #236's own lifecycle concept |
 | silent on durable replay | deferred, stated below | #336 requires it and the draft does not say how |
-| `run.can.pause` as an attribute | `await run.can()` | status is a store read, and the handle caches no authoritative state |
 | pause raises at every safepoint | a native workflow parks | a raise through an imperative body destroys the state that is the workflow |
 
 #336 sketches `ctx.run.ask()` / `ctx.run.pause()` / `ctx.run.wait()`. This file rules `ctx.ask()`
@@ -213,7 +220,7 @@ and `ctx.approve()` instead, with no `ctx.pause()` at all, and both issues are u
 | PR | scope | closes |
 |---|---|---|
 | 1 | this file | - |
-| 2 | `run.can()`, strict lifecycle ops, `ToolCtx`/`WorkflowCtx`, `@tool`/`@workflow` validation, `ctx.invoke`/`parallel`/`safepoint`, child runs, reporter | #336 |
+| 2 | `run.can`, strict lifecycle ops, `ToolCtx`/`WorkflowCtx`, `@tool`/`@workflow` validation, `ctx.invoke`/`parallel`/`safepoint`, child runs, reporter | #336 |
 | 3 | `InvocationResolver`, foreign executors (Agents SDK object, LangGraph graph, plain callable), `deck.runs.start(target)` | #337 |
 
 Two lines PR2 does not cross:
