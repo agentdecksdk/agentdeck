@@ -24,7 +24,7 @@ afterwards, approvals that outlive the process that requested them.
 - [Events](https://agentdecksdk.com/reference/events): Every event kind a run can emit, with its payload fields.
 - [python-api](https://agentdecksdk.com/reference/python-api)
 - [run](https://agentdecksdk.com/reference/run)
-- [Settings](https://agentdecksdk.com/reference/settings): Every AGENTDECK_* (and OPENAI_*/TAVILY_*) environment variable, generated from agentdeck/runtime/settings.py.
+- [Settings](https://agentdecksdk.com/reference/settings): Every AGENTDECK_*, OPENAI_*, ANTHROPIC_*, GEMINI_*, OLLAMA_*, OPENROUTER_*, and TAVILY_* environment variable, generated from agentdeck/runtime/settings.py.
 - [Agents](https://agentdecksdk.com/build-your-deck/agents): Declarative agents with tools, instructions, and model configurations.
 - [context](https://agentdecksdk.com/build-your-deck/context)
 - [deck](https://agentdecksdk.com/build-your-deck/deck)

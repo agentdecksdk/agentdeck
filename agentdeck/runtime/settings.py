@@ -357,7 +357,7 @@ class LangfuseSettings(LayeredSettings):
 
 
 class TavilySettings(LayeredSettings):
-    """Tavily web-search API. One knob: ``TAVILY_API_KEY`` env var (or YAML ``tavily: api_key:``)."""
+    """Tavily web-search API. One knob: ``TAVILY_API_KEY``."""
 
     model_config = settings_config("TAVILY_")
 

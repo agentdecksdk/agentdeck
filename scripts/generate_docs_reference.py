@@ -111,7 +111,8 @@ def render_settings_mdx() -> str:
     lines = [
         "---",
         "title: Settings",
-        "description: Every AGENTDECK_* (and OPENAI_*/TAVILY_*) environment variable, "
+        "description: Every AGENTDECK_*, OPENAI_*, ANTHROPIC_*, GEMINI_*, OLLAMA_*, "
+        "OPENROUTER_*, and TAVILY_* environment variable, "
         "generated from agentdeck/runtime/settings.py.",
         "---",
         "",
