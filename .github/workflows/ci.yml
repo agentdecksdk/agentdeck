@@ -150,6 +150,8 @@ jobs:
           fetch-depth: 0
       - name: Comment slop on lines this PR adds
         run: python3 scripts/slopcheck.py --changed --base "origin/${{ github.base_ref }}" < /dev/null
+      - name: Commit metadata has no agent attribution
+        run: python3 scripts/check_commit_hygiene.py "origin/${{ github.base_ref }}"
       - name: Concept budget honored (new classes/symbols/modules/deps declared)
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
