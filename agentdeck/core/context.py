@@ -11,7 +11,7 @@ application that has those concepts keeps them, and may project one of them onto
 not a counter-example: it is application-*owned*, an environment the application hands the run,
 and AgentDeck reads it only to hand it back. Owning a value is not being identified by it.
 
-:class:`Context` is the public half of the same subject  -  the restricted view application code
+:class:`ToolCtx` is the public half of the same subject  -  the restricted view application code
 receives, so a tool signature names one AgentDeck type instead of an engine's.
 """
 
@@ -52,7 +52,7 @@ class RunContext:
     ``trace_id``, ``budget``, ``triggered_by``, ``parent_run_id``, ``deadline`` and
     ``idempotency_key`` were all of that, and each comes back with the thing that enforces it.
     ``data`` is the fourth value because it arrives with that thing: the engine bridges read it
-    on every injected call to build the :class:`Context` a user callable declared.
+    on every injected call to build the :class:`ToolCtx` a user callable declared.
 
     ``data`` is opaque by construction  -  ``object``, never inspected, never copied, never
     serialized into an event, and left out of the repr so a logged context cannot leak a DB
@@ -117,8 +117,8 @@ class RunContext:
 
 
 @dataclass(frozen=True, slots=True)
-class Context[T]:
-    """The only public context type: what a user callable declaring ``Context[T]`` receives.
+class ToolCtx[T]:
+    """The only public context type: what a user callable declaring ``ToolCtx[T]`` receives.
 
     One portable type above two engines. The OpenAI SDK hands a tool its own
     ``RunContextWrapper`` and LangGraph hands a node its own ``Runtime``; each engine bridge
@@ -130,8 +130,13 @@ class Context[T]:
     and a dynamic-instructions callable contributes only its return value to what the model sees.
 
     Narrower than the carrier on purpose. ``namespace`` is absent because no injection site has
-    needed to read it, and ``gate`` is absent because :meth:`checkpoint` is the whole of what a
+    needed to read it, and ``gate`` is absent because :meth:`safepoint` is the whole of what a
     callable may do with it  -  adding a property later is cheaper than changing one after release.
+
+    A tool is a leaf capability, so this is where the surface stops: orchestration
+    (``invoke``, ``parallel``, ``ask``, ``approve``) is :class:`WorkflowCtx`'s, and a tool that
+    declared it would silently acquire the ability to coordinate other executions
+    (``docs/design/execution-api.md``).
     """
 
     _run: RunContext
@@ -158,7 +163,7 @@ class Context[T]:
     def session_id(self) -> str | None:
         return self._run.session_id
 
-    async def checkpoint(self) -> None:
+    async def safepoint(self) -> None:
         """Offer a safe point: returns, or raises if the run was signaled to stop or pause.
 
         Deliberately takes no safe-point argument. The kinds of safe point are a recorded

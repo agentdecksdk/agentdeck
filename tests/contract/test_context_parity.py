@@ -1,4 +1,4 @@
-"""One contract, two bridges: the ``Context[T]`` a user callable receives must be the same
+"""One contract, two bridges: the ``ToolCtx[T]`` a user callable receives must be the same
 thing whether the OpenAI Agents SDK or langgraph carried it there.
 
 **One test body per property, parametrized over both engines**  -  not two similar suites. The
@@ -22,7 +22,7 @@ import pytest
 from context_subjects import ANSWER, SUBJECTS, Environment, Subject
 
 from agentdeck.adapters.stores.memory import MemoryEventStore
-from agentdeck.core.context import Context, RunContext
+from agentdeck.core.context import RunContext, ToolCtx
 from agentdeck.runtime.service import Runtime
 
 if TYPE_CHECKING:
@@ -68,7 +68,7 @@ async def test_the_callable_receives_the_public_context_and_not_the_internal_car
     tool signature in the application to an AgentDeck internal."""
     await _play(runtime, subject, environment)
 
-    assert [type(seen) for seen in subject.seen] == [Context]
+    assert [type(seen) for seen in subject.seen] == [ToolCtx]
 
 
 async def test_the_context_data_is_the_callers_own_object_by_reference(
@@ -103,7 +103,7 @@ async def test_a_run_given_no_context_reaches_the_callable_with_none(runtime: Ru
 async def test_the_context_carries_a_working_reporter_and_gate(
     runtime: Runtime, subject: Subject, environment: Environment
 ) -> None:
-    """``ctx.reporter`` and ``ctx.checkpoint()`` are AgentDeck concepts rather than either
+    """``ctx.reporter`` and ``ctx.safepoint()`` are AgentDeck concepts rather than either
     engine's, so both bridges owe them. The subject awaits the gate *before* it reports, so a
     context whose gate was missing never reaches the report this asserts."""
     events = await _play(runtime, subject, environment)

@@ -14,7 +14,7 @@ alternative, and the reason that alternative lost.
 
 ## The tools are undecorated
 
-A tool that declares a `Context` parameter stays a plain function. `@function_tool` puts every
+A tool that declares a `ToolCtx` parameter stays a plain function. `@function_tool` puts every
 parameter into the schema the model sees, and the model has no `DocsCorpus` to pass. `build()`
 compiles the function instead, so the model is offered only `query` or `slug`.
 
@@ -27,7 +27,7 @@ deck = Deck(agents=[jack], context=DocsCorpus)
 ```
 
 `context=DocsCorpus` is the *type*; the instance goes in per run. Declaring it makes `build()`
-check every `Context[...]` in the catalog, tools and the instructions callable alike, before a
+check every `ToolCtx[...]` in the catalog, tools and the instructions callable alike, before a
 question is ever asked. The wrong type raises `ContextTypeError` naming both, at startup rather
 than mid-answer.
 

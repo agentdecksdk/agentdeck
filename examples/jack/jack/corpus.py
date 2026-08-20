@@ -37,7 +37,7 @@ It is also 450 lines mentioning every environment variable the project has ever 
 this was noticed: publishing it pushed ``reference/settings`` out of the top three for *"what
 environment variables are there?"*, and the retrieval test failed.
 
-So it moves **behind its own tool** rather than out of the corpus. *"When was `Context` added?"*
+So it moves **behind its own tool** rather than out of the corpus. *"When was `ToolCtx` added?"*
 is a real question whose answer is only here; it just must never arrive as a documentation
 lookup. Roadmap and known-issues stay in general search  -  both describe the present.
 """
@@ -93,10 +93,10 @@ class DocsCorpus:
         than no line  -  it reads as current.
         """
         # Lowercased first: `_matcher` escapes the word as given and every body is compared
-        # lowercase, so an un-lowered `Context` would match nothing at all.
+        # lowercase, so an un-lowered `ToolCtx` would match nothing at all.
         words = [word for word in _WORD.findall(topic.lower()) if _stem(word) not in _STOPWORDS]
         if not words:
-            return "ask about a version (3.0.0, latest) or a topic (Context, AudioBlock)"
+            return "ask about a version (3.0.0, latest) or a topic (ToolCtx, AudioBlock)"
         pattern = _matcher(words[0])
         hits: list[str] = []
         for version, date, body in self.releases:

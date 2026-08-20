@@ -363,7 +363,7 @@ class Deck:
     ``context=`` declares the *type* of the application context this catalog's callables receive
      -  the class, not an instance of it. The value itself arrives per run (:meth:`run`,
     :meth:`stream`, :meth:`Runs.start`), and a tool, a dynamic-instructions callable, an agent
-    hook or a workflow node declaring a :class:`~agentdeck.core.context.Context` parameter
+    hook or a workflow node declaring a :class:`~agentdeck.core.context.ToolCtx` parameter
     receives it. Declaring the type is what makes :meth:`build` able to check every such
     parameter against it before anything runs; a deck that declares none still runs exactly the
     same, with the requirement unchecked until the callable is played.
@@ -525,7 +525,7 @@ class Deck:
         unknown ones  -  the only warning this can still log is a genuine open-time drop, not a
         false "not found in config" for a server that will, in fact, connect once opened.
 
-        When this Deck declared ``context=``, every ``Context[...]`` a tool, an instructions
+        When this Deck declared ``context=``, every ``ToolCtx[...]`` a tool, an instructions
         callable, a hook or a workflow node requires is checked against it here, and an
         incompatible one raises :class:`~agentdeck.errors.ContextTypeError` naming both types.
         Only what the runtime can decide is decided  -  see
@@ -898,7 +898,7 @@ class Deck:
 
         ``context`` is the application's own environment for this run  -  a database handle, a
         client, whatever the code the run reaches needs. A tool, a dynamic-instructions callable
-        or a workflow node that declares a :class:`~agentdeck.core.context.Context` parameter
+        or a workflow node that declares a :class:`~agentdeck.core.context.ToolCtx` parameter
         receives it; the model never does, and it is never written to the event log. The same
         object serves the whole run, by reference.
 

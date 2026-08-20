@@ -30,7 +30,7 @@ from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.authoring.tools import compile_tool
 from agentdeck.core.content import coerce_input
-from agentdeck.core.context import Context, RunContext  # noqa: TC001  -  ``peek`` resolves it at runtime
+from agentdeck.core.context import RunContext, ToolCtx  # noqa: TC001  -  ``peek`` resolves it at runtime
 from agentdeck.core.control import CONTROL_POLL_INTERVAL, ControlSignal, Gate, RunPausedError, Signal
 from agentdeck.core.events import RunCompleted, TextDelta, Usage
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
@@ -398,7 +398,7 @@ async def test_lifting_a_pause_resupplies_the_run_s_application_context() -> Non
     control = MemoryControlPort()
     ctx = _ctx()
 
-    async def peek(environment: Context[Calendar]) -> str:
+    async def peek(environment: ToolCtx[Calendar]) -> str:
         """Look at the run's environment."""
         seen.append(environment.data)
         if len(seen) == 1:
@@ -437,7 +437,7 @@ async def test_lifting_a_pause_without_a_context_replays_with_none() -> None:
     control = MemoryControlPort()
     ctx = _ctx()
 
-    async def peek(environment: Context[Calendar]) -> str:
+    async def peek(environment: ToolCtx[Calendar]) -> str:
         """Look at the run's environment."""
         seen.append(environment.data)
         if len(seen) == 1:

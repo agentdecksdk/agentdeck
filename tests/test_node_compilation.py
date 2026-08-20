@@ -26,7 +26,7 @@ from pydantic import BaseModel
 from agentdeck.adapters.engines.langgraph.engine import REPORTER_KEY
 from agentdeck.authoring import Workflow
 from agentdeck.authoring.graphs import bridge_context_nodes
-from agentdeck.core.context import Context  # noqa: TC001  -  the nodes below must resolve it at runtime
+from agentdeck.core.context import ToolCtx  # noqa: TC001  -  the nodes below must resolve it at runtime
 from agentdeck.deck import Deck
 from agentdeck.errors import ConfigError, RunSuspendedError
 from agentdeck.runtime.settings import reset_settings_cache
@@ -77,7 +77,7 @@ def _workflow(node: Any, *, name: str = "Book", durable: bool = False) -> Workfl
 async def test_a_node_declaring_a_context_receives_the_object_the_run_was_given(no_project) -> None:
     seen: list[Any] = []
 
-    async def book(state: _State, environment: Context[Calendar]) -> dict[str, Any]:
+    async def book(state: _State, environment: ToolCtx[Calendar]) -> dict[str, Any]:
         seen.append(environment.data)
         return {"out": f"{state.request}@{environment.data.slot}"}
 
@@ -98,7 +98,7 @@ async def test_state_and_context_are_separate_and_neither_absorbs_the_other(no_p
     state patch, and afterwards each holds only its own change. A bridge that folded the context
     into state (or read state back out of it) fails one half or the other."""
 
-    async def book(state: _State, environment: Context[Calendar]) -> dict[str, Any]:
+    async def book(state: _State, environment: ToolCtx[Calendar]) -> dict[str, Any]:
         environment.data.booked.append(state.request)
         return {"out": "written to state only"}
 
@@ -125,7 +125,7 @@ async def test_a_sync_node_declaring_a_context_runs_off_the_event_loop(no_projec
 
     ran_on: list[threading.Thread] = []
 
-    def book(state: _State, environment: Context[Calendar]) -> dict[str, Any]:
+    def book(state: _State, environment: ToolCtx[Calendar]) -> dict[str, Any]:
         ran_on.append(threading.current_thread())
         return {"out": environment.data.slot}
 
@@ -146,7 +146,7 @@ async def test_a_node_keeps_the_langgraph_parameters_it_also_declared(no_project
     rather than swallowing them."""
     reached: list[Any] = []
 
-    async def book(state: _State, config: RunnableConfig, environment: Context[Calendar]) -> dict[str, Any]:
+    async def book(state: _State, config: RunnableConfig, environment: ToolCtx[Calendar]) -> dict[str, Any]:
         reached.append(config["configurable"][REPORTER_KEY])
         return {"out": environment.data.slot}
 
@@ -199,7 +199,7 @@ def test_a_node_whose_signature_cannot_be_read_is_left_alone_rather_than_refused
         return wrapper
 
     @destroying
-    def book(state: _State, environment: Context[Calendar]) -> dict[str, Any]:
+    def book(state: _State, environment: ToolCtx[Calendar]) -> dict[str, Any]:
         return {"out": "never"}
 
     graph = StateGraph(_State)
@@ -212,7 +212,7 @@ def test_a_node_whose_signature_cannot_be_read_is_left_alone_rather_than_refused
 def test_two_context_parameters_on_a_node_fail_at_build_naming_the_node() -> None:
     """The same failure a tool's gets, at the same moment  -  ``build()``, not the first run."""
 
-    def book(state: _State, here: Context[Calendar], also: Context[Calendar]) -> dict[str, Any]:
+    def book(state: _State, here: ToolCtx[Calendar], also: ToolCtx[Calendar]) -> dict[str, Any]:
         return {}
 
     deck = Deck(workflows=[_workflow(book)])
@@ -230,7 +230,7 @@ async def test_a_bridged_node_played_by_a_foreign_run_says_so(no_project) -> Non
     """The invocation-time safety net, the node's version: a graph compiled by AgentDeck and
     then invoked by langgraph directly has no run context to unwrap."""
 
-    async def book(state: _State, environment: Context[Calendar]) -> dict[str, Any]:
+    async def book(state: _State, environment: ToolCtx[Calendar]) -> dict[str, Any]:
         return {"out": "ran"}
 
     graph = bridge_context_nodes(_workflow(book).build_graph())
@@ -246,7 +246,7 @@ def _approval_workflow(seen: list[Any]) -> Workflow:
     """Pauses on ``interrupt()``, then reads its environment. The node re-runs from its start on
     resume, so ``seen`` records what the context was on each pass."""
 
-    async def ask(state: _State, environment: Context[Calendar]) -> dict[str, Any]:
+    async def ask(state: _State, environment: ToolCtx[Calendar]) -> dict[str, Any]:
         seen.append(environment.data)
         decision = interrupt({"question": state.request})
         return {"decision": decision, "out": f"{decision}@{environment.data.slot}"}

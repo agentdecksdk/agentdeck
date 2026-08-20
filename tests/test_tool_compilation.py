@@ -1,6 +1,6 @@
 """Compiling a plain callable into an SDK tool, and the ``context=`` that reaches it.
 
-The rule these tests exist to defend is the design's strongest one: possessing a ``Context[T]``
+The rule these tests exist to defend is the design's strongest one: possessing a ``ToolCtx[T]``
 gives *code* access to the run's dependencies and never gives the *model* access to them. So the
 central assertion is an absence  -  the context parameter must not appear anywhere in the schema
 the SDK builds  -  and a test that only proved the call works would pass while leaking that
@@ -26,7 +26,7 @@ from pydantic import BaseModel
 import agentdeck
 from agentdeck.authoring import Agent, Workflow
 from agentdeck.authoring.tools import compile_tool
-from agentdeck.core.context import Context, RunContext
+from agentdeck.core.context import RunContext, ToolCtx
 from agentdeck.deck import Deck
 from agentdeck.errors import ConfigError
 from agentdeck.testing import ScriptedModel, patch_model
@@ -42,22 +42,22 @@ class Calendar:
         return f"{day} {self.slot}"
 
 
-async def find_slots(day: str, environment: Context[Calendar]) -> str:
+async def find_slots(day: str, environment: ToolCtx[Calendar]) -> str:
     """Find free appointment slots on a given day."""
     return environment.data.find(day)
 
 
-def sync_find_slots(day: str, environment: Context[Calendar]) -> str:
+def sync_find_slots(day: str, environment: ToolCtx[Calendar]) -> str:
     """The same tool, written synchronously."""
     return environment.data.find(day)
 
 
-async def whoami(environment: Context[Calendar]) -> str:
+async def whoami(environment: ToolCtx[Calendar]) -> str:
     """Report which run is asking."""
     return f"{environment.run_id}/{environment.data.slot}"
 
 
-async def bare(environment: Context) -> str:
+async def bare(environment: ToolCtx) -> str:
     """A context with no type argument at all."""
     return str(environment.data)
 
@@ -111,7 +111,7 @@ async def test_the_declared_context_reaches_the_callable_by_reference() -> None:
     calendar = Calendar()
     received: list[Any] = []
 
-    async def record(environment: Context[Calendar]) -> str:
+    async def record(environment: ToolCtx[Calendar]) -> str:
         """Record what it was handed."""
         received.append(environment.data)
         return "ok"
@@ -136,7 +136,7 @@ async def test_the_run_identity_travels_on_the_context_as_well_as_the_data() -> 
 
 async def test_a_bare_context_annotation_is_injected_like_any_other() -> None:
     """Confirms slice 1's reading now that the schema builder exists: an unparameterised
-    ``Context`` is injected, so the internal never reaches the schema."""
+    ``ToolCtx`` is injected, so the internal never reaches the schema."""
     tool = compile_tool(bare)
 
     assert tool.params_json_schema["properties"] == {}
@@ -148,7 +148,7 @@ async def test_a_synchronous_tool_body_runs_off_the_event_loop() -> None:
     run on the loop, where it would stall the stream and every safe point with it."""
     ran_on: list[threading.Thread] = []
 
-    def blocking(environment: Context[Calendar]) -> str:
+    def blocking(environment: ToolCtx[Calendar]) -> str:
         """Records which thread ran it."""
         ran_on.append(threading.current_thread())
         return environment.data.find("mon")
@@ -177,7 +177,7 @@ async def test_a_wraps_decorated_callable_compiles_to_the_function_it_wraps() ->
         return wrapper
 
     @logged
-    async def decorated(day: str, environment: Context[Calendar]) -> str:
+    async def decorated(day: str, environment: ToolCtx[Calendar]) -> str:
         """Find free slots, through a decorator."""
         return environment.data.find(day)
 
@@ -216,7 +216,7 @@ def test_a_callable_whose_signature_cannot_be_read_is_refused_rather_than_compil
         return wrapper
 
     @destroying
-    async def obscured(day: str, environment: Context[Calendar]) -> str:
+    async def obscured(day: str, environment: ToolCtx[Calendar]) -> str:
         return environment.data.find(day)
 
     with pytest.raises(ConfigError) as raised:
@@ -228,7 +228,7 @@ def test_a_callable_whose_signature_cannot_be_read_is_refused_rather_than_compil
 
 
 def test_two_context_parameters_are_still_a_configuration_error_at_compile_time() -> None:
-    async def greedy(here: Context[Calendar], also: Context[Calendar]) -> None: ...
+    async def greedy(here: ToolCtx[Calendar], also: ToolCtx[Calendar]) -> None: ...
 
     with pytest.raises(ConfigError, match="at most one"):
         compile_tool(greedy)
@@ -244,7 +244,7 @@ async def test_a_tool_played_by_a_foreign_run_says_so_instead_of_failing_obscure
     """
     called: list[bool] = []
 
-    async def never(environment: Context[Calendar]) -> str:
+    async def never(environment: ToolCtx[Calendar]) -> str:
         """Must not run."""
         called.append(True)
         return "ran"
@@ -283,7 +283,7 @@ async def test_deck_run_hands_its_context_to_a_tool_that_declared_one(no_project
     ``ctx.data`` inside a tool the SDK dispatched."""
     seen: list[Any] = []
 
-    async def peek(environment: Context[Calendar]) -> str:
+    async def peek(environment: ToolCtx[Calendar]) -> str:
         """Look at the environment."""
         seen.append(environment.data)
         return environment.data.find("mon")
@@ -304,7 +304,7 @@ async def test_deck_run_hands_its_context_to_a_tool_that_declared_one(no_project
 async def test_deck_stream_carries_the_context_the_same_way(no_project) -> None:
     seen: list[Any] = []
 
-    async def peek(environment: Context[Calendar]) -> str:
+    async def peek(environment: ToolCtx[Calendar]) -> str:
         """Look at the environment."""
         seen.append(environment.data)
         return "ok"
@@ -326,7 +326,7 @@ async def test_a_run_without_a_context_reaches_a_declaring_tool_with_none(no_pro
     which is the value the application declined to supply."""
     seen: list[Any] = []
 
-    async def peek(environment: Context[Calendar | None]) -> str:
+    async def peek(environment: ToolCtx[Calendar | None]) -> str:
         """Look at the environment."""
         seen.append(environment.data)
         return "ok"
@@ -345,7 +345,7 @@ async def test_a_run_without_a_context_reaches_a_declaring_tool_with_none(no_pro
 async def test_the_context_is_never_written_to_the_event_log(no_project) -> None:
     """Lifecycle rule: the log records what a run was asked to do, not the live objects it held."""
 
-    async def peek(environment: Context[Calendar]) -> str:
+    async def peek(environment: ToolCtx[Calendar]) -> str:
         """Look at the environment."""
         return "ok"
 
@@ -408,10 +408,10 @@ async def test_a_workflow_run_without_a_context_is_unaffected(no_project, monkey
 
 
 def test_context_is_exported_from_the_package_root() -> None:
-    """A tool signature names ``agentdeck.Context``  -  importing it from a private module would
+    """A tool signature names ``agentdeck.ToolCtx``  -  importing it from a private module would
     make the one portable type look like an internal."""
-    assert agentdeck.Context is Context
-    assert "Context" in agentdeck.__all__
+    assert agentdeck.ToolCtx is ToolCtx
+    assert "ToolCtx" in agentdeck.__all__
 
 
 def test_a_pre_built_sdk_tool_object_is_still_passed_straight_through(no_project) -> None:

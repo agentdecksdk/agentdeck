@@ -24,7 +24,7 @@ from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring import Agent, Workflow
 from agentdeck.authoring.timers import sleep_until
 from agentdeck.core.content import coerce_input
-from agentdeck.core.context import Context, RunContext  # noqa: TC001  -  the node below resolves it at runtime
+from agentdeck.core.context import RunContext, ToolCtx  # noqa: TC001  -  the node below resolves it at runtime
 from agentdeck.core.control import Signal
 from agentdeck.core.status import RunStatus
 from agentdeck.deck import Deck, TurnResult, _new_context, _turn_result
@@ -381,7 +381,7 @@ async def test_a_sequential_deck_reads_its_own_bundles_not_the_previous_projects
 def test_the_constructor_declares_a_context_type_and_the_run_supplies_the_value():
     """The parameter was deleted in #182 for being accepted and then refused at run time. It is
     back because it now does something: the type it declares is what ``build()`` checks every
-    ``Context[...]`` in the catalog against (``tests/test_context_validation.py``), while the
+    ``ToolCtx[...]`` in the catalog against (``tests/test_context_validation.py``), while the
     value still arrives per run."""
     deck = Deck(agents=[_greeter()], context=object)
 
@@ -390,7 +390,7 @@ def test_the_constructor_declares_a_context_type_and_the_run_supplies_the_value(
 
 @pytest.mark.asyncio
 async def test_run_and_stream_accept_a_context_for_an_agent(no_project, scripted):
-    """Accepted here because it arrives somewhere: a tool declaring ``Context[...]`` reads it
+    """Accepted here because it arrives somewhere: a tool declaring ``ToolCtx[...]`` reads it
     (``tests/test_tool_compilation.py``). An agent with no such tool simply ignores the value."""
     deck = Deck(agents=[_greeter()])
     async with deck:
@@ -508,7 +508,7 @@ def test_a_durable_workflow_used_as_a_tool_fails_build_naming_both():
 
 # --- a plain callable in tools= is compiled, and one that cannot be is refused loudly ------
 # (#172 rejected every bare callable; #166 makes one the canonical declaration, because a
-# callable annotated Context[...] cannot be pre-decorated without leaking that parameter)
+# callable annotated ToolCtx[...] cannot be pre-decorated without leaking that parameter)
 
 
 def test_agent_tool_that_is_a_bare_named_function_is_compiled():
@@ -536,7 +536,7 @@ def test_agent_tool_that_is_a_bare_lambda_is_compiled_under_its_own_unhelpful_na
 
 def test_agent_tool_whose_signature_cannot_be_read_fails_build_naming_both():
     """A decorator that dropped ``functools.wraps`` leaves nothing to build a schema from  -  and
-    nothing that could rule out a ``Context[...]`` parameter either, so compiling it anyway would
+    nothing that could rule out a ``ToolCtx[...]`` parameter either, so compiling it anyway would
     drop that argument at the first call."""
 
     def destroying(fn):
@@ -1169,7 +1169,7 @@ class _CtxApprovalState(BaseModel):
     decision: str = ""
 
 
-def _ask_with_context(state: _CtxApprovalState, environment: Context[str]) -> dict:
+def _ask_with_context(state: _CtxApprovalState, environment: ToolCtx[str]) -> dict:
     from langgraph.types import interrupt
 
     decision = interrupt({"question": state.request})

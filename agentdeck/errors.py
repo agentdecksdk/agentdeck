@@ -38,7 +38,7 @@ class ConfigError(AgentdeckError):
 
 
 class ContextTypeError(ConfigError):
-    """A callable requires a ``Context[T]`` this deck's declared context type cannot satisfy.
+    """A callable requires a ``ToolCtx[T]`` this deck's declared context type cannot satisfy.
 
     A configuration error rather than a kind of its own: it is raised at ``Deck.build()``,
     alongside every other "this catalog does not hold together" refusal, and a caller already

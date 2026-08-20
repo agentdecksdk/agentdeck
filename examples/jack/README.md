@@ -55,12 +55,12 @@ signature is what stays fixed if the corpus ever outgrows it.
 **The tools take a context, so they are plain functions.**
 
 ```python
-def read_doc(slug: str, docs: Context[DocsCorpus]) -> str:
+def read_doc(slug: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Read one AgentDeck documentation page in full, by its slug."""
     return docs.data.pages.get(slug, ...)
 ```
 
-No `@function_tool`. A tool that declares a `Context` parameter must stay undecorated, because
+No `@function_tool`. A tool that declares a `ToolCtx` parameter must stay undecorated, because
 the decorator would put that parameter into the schema the model sees  -  and the model has no
 `DocsCorpus` to pass. `build()` compiles it instead, and the model is offered only `slug`.
 
@@ -72,7 +72,7 @@ async with Deck(agents=[ask], context=DocsCorpus) as deck:
 ```
 
 `context=DocsCorpus` is the *type*; the instance goes in per run. Declaring it makes `build()`
-check every `Context[...]` in the catalog  -  both tools and the instructions callable  -  before a
+check every `ToolCtx[...]` in the catalog  -  both tools and the instructions callable  -  before a
 question is ever asked. Declaring the wrong type raises `ContextTypeError` naming both, which
 `tests/test_jack.py` pins.
 
@@ -90,7 +90,7 @@ So `server.py` is forty lines of FastAPI over `deck.stream()`. Each SSE frame is
 `Event`, dumped as written  -  no translation layer, so a browser switching on `event.kind` reads
 exactly what a later process reading the run back would read.
 
-The page context travels as **text**, not as a `Context` and not as a `DataBlock`:
+The page context travels as **text**, not as a `ToolCtx` and not as a `DataBlock`:
 
 ```
 <context>
@@ -100,7 +100,7 @@ The reader is on the documentation page: concepts/skills
 explain what this page is for
 ```
 
-A `Context[T]` cannot cross HTTP  -  that is the documented boundary, and the right one, because a
+A `ToolCtx[T]` cannot cross HTTP  -  that is the documented boundary, and the right one, because a
 page slug is data a browser sent rather than a live object this server owns. `DataBlock` is the
 typed way to put JSON in an input and the engine refuses it: *"cannot send a 'data' block to the
 model; it accepts text, image, and audio."* Both are recorded as findings in

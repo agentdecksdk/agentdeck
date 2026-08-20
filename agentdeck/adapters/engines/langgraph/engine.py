@@ -312,7 +312,7 @@ class LangGraphEngine(EnginePort):
         stream = cast(
             "AsyncIterator[tuple[str, Any]]",
             # The run context travels as langgraph's own runtime context, which is what reaches
-            # a node: `authoring.graphs` compiles a node declaring ``Context[...]`` into one
+            # a node: `authoring.graphs` compiles a node declaring ``ToolCtx[...]`` into one
             # declaring ``runtime``, and reads the carrier back off ``runtime.context`` there.
             # Distinct from ``configurable`` on purpose  -  langgraph draws the same
             # state-vs-runtime-context line, and application data does not belong beside a

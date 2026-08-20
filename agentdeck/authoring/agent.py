@@ -58,13 +58,13 @@ class Agent:
     explicit empty value  -  omission, not falsiness, is what defers to the base.
 
     ``instructions=`` takes a plain string, or a callable ``build()`` compiles into the SDK's
-    dynamic-instructions shape  -  one declaring a ``Context[...]`` parameter receives the run's
+    dynamic-instructions shape  -  one declaring a ``ToolCtx[...]`` parameter receives the run's
     environment, and **only what it returns** reaches the model. ``hooks=`` stays an Agents SDK
-    ``AgentHooks`` object; a hook method that declares ``Context[...]`` first is bridged the
+    ``AgentHooks`` object; a hook method that declares ``ToolCtx[...]`` first is bridged the
     same way, and one that does not is passed through untouched.
 
     ``tools=`` takes plain functions  -  ``build()`` compiles each one, which is what lets a
-    parameter annotated ``Context[...]`` be injected without ever appearing in the schema the
+    parameter annotated ``ToolCtx[...]`` be injected without ever appearing in the schema the
     model sees. An already-built Agents SDK tool object is still accepted and passed straight
     through as engine-native, introspected by nothing here. A callable whose signature cannot be
     read is refused at ``build()``, naming the agent and the callable.

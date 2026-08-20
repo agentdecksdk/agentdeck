@@ -1,4 +1,4 @@
-"""Compile an agent's lifecycle hooks so a hook method can declare ``Context[...]`` too.
+"""Compile an agent's lifecycle hooks so a hook method can declare ``ToolCtx[...]`` too.
 
 The fourth injection site, and the last one, through the same analysis as
 :mod:`agentdeck.authoring.tools` and :mod:`agentdeck.authoring.instructions`  -  a hook that
@@ -7,7 +7,7 @@ application's own hook class would stop being portable at the one place it is ea
 an engine type into.
 
 Narrow by construction: only the SDK's own hook methods are considered, only the ones the
-author actually overrode, and only those declaring a ``Context[...]`` parameter are rewritten.
+author actually overrode, and only those declaring a ``ToolCtx[...]`` parameter are rewritten.
 A hooks object with none is returned exactly as it was given  -  engine-native, introspected by
 nothing, so an application already writing SDK hooks keeps every behavior it has.
 
@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Any
 from agents.lifecycle import AgentHooks
 
 from agentdeck.authoring.injection import analyze_callable, check_context_type, describe_callable
-from agentdeck.core.context import Context, RunContext
+from agentdeck.core.context import RunContext, ToolCtx
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
@@ -38,7 +38,7 @@ here, so a hook the SDK adds is bridged without this module being edited to noti
 
 
 def compile_hooks(hooks: Any, *, context_type: object | None = None) -> Any:
-    """Return ``hooks`` with each ``Context[...]``-declaring method bridged, or unchanged.
+    """Return ``hooks`` with each ``ToolCtx[...]``-declaring method bridged, or unchanged.
 
     Raises :class:`ConfigError` naming the method when its context parameter is not first, or
     when it declares more than one (through the shared analysis)  -  and
@@ -65,7 +65,7 @@ def compile_hooks(hooks: Any, *, context_type: object | None = None) -> Any:
         first = next(iter(inspect.signature(inspect.unwrap(method)).parameters), None)
         if first != analysis.context_parameter:
             raise ConfigError(
-                f"{_describe(hooks)}.{name} declares its Context[...] parameter as "
+                f"{_describe(hooks)}.{name} declares its ToolCtx[...] parameter as "
                 f"{analysis.context_parameter!r}, but a hook receives it first  -  where the SDK passes "
                 f"its own context object. Move it ahead of {first!r}."
             )
@@ -90,7 +90,7 @@ class _BridgedHooks(AgentHooks[Any]):
 
 
 def _bridge(method: Callable[..., Any]) -> Callable[..., Any]:
-    """The hook the SDK calls: its own wrapper first, unwrapped to a ``Context`` before the
+    """The hook the SDK calls: its own wrapper first, unwrapped to a ``ToolCtx`` before the
     author's method runs. Every later argument travels through untouched."""
     named = describe_callable(method)
 
@@ -98,11 +98,11 @@ def _bridge(method: Callable[..., Any]) -> Callable[..., Any]:
         run = wrapper.context
         if not isinstance(run, RunContext):
             raise ConfigError(
-                f"{named} declares a Context[...] parameter, but this run carries "
+                f"{named} declares a ToolCtx[...] parameter, but this run carries "
                 f"{type(run).__name__} rather than an AgentDeck run context  -  hooks compiled by "
                 "AgentDeck have to be played by an AgentDeck run."
             )
-        result = method(Context(run), *rest, **kwargs)
+        result = method(ToolCtx(run), *rest, **kwargs)
         return await result if inspect.isawaitable(result) else result
 
     hook.__name__ = getattr(method, "__name__", "hook")

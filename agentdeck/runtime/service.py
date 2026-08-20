@@ -158,7 +158,7 @@ class Runtime:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
 
         ``context`` is the application's own value for this run, reaching a callable that declares
-        a ``Context[...]`` parameter and nothing else. It is held by reference for the run's whole
+        a ``ToolCtx[...]`` parameter and nothing else. It is held by reference for the run's whole
         life and never written to the log  -  the record says what a run was asked to do, not which
         live objects it held.
 

@@ -92,7 +92,7 @@ class InvocableRegistry:
         the association is otherwise lost the moment ``agents``/``workflows`` are handed in as
         plain instances  -  a code-first entry has no bundle, so it is simply absent here.
         ``context_type`` is the owning deck's ``Deck(context=...)`` declaration, checked against
-        every ``Context[...]`` requirement in the catalog as each entry compiles.
+        every ``ToolCtx[...]`` requirement in the catalog as each entry compiles.
 
         Eager on purpose: a bundle that can't be imported, an agent that can't be built and
         an engine that isn't registered all fail here, not mid-conversation.
@@ -130,7 +130,7 @@ class InvocableRegistry:
                 # checkpointer  -  ``durable`` names, which is why that flag travels with the
                 # spec rather than staying on the Workflow only the authoring layer can see.
                 # Bridged here rather than in the adapter so a node declaring two
-                # ``Context[...]`` parameters fails at build(), exactly where a tool's would.
+                # ``ToolCtx[...]`` parameters fails at build(), exactly where a tool's would.
                 graph = bridge_context_nodes(workflow.build_graph(), context_type=context_type)
             except Exception as exc:
                 bundle_file = bundle_of.get(workflow.name)

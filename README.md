@@ -46,21 +46,21 @@ deck = Deck(agents=[jack])
 
 ## Jack needs to know things
 
-Tools do work; agents make decisions. A tool that takes a `Context` stays an ordinary function,
+Tools do work; agents make decisions. A tool that takes a `ToolCtx` stays an ordinary function,
 because the model is offered only the arguments it can actually choose: it never sees `docs`.
 
 ```python
-from agentdeck import Agent, Context, Deck
+from agentdeck import Agent, ToolCtx, Deck
 
-def search_docs(query: str, docs: Context[DocsCorpus]) -> str:
+def search_docs(query: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Find AgentDeck documentation pages matching a query."""
     return docs.data.search(query)
 
-def read_doc(slug: str, docs: Context[DocsCorpus]) -> str:
+def read_doc(slug: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Read one AgentDeck documentation page in full, by its slug."""
     return docs.data.pages[slug]
 
-def read_changelog(subject: str, docs: Context[DocsCorpus]) -> str:
+def read_changelog(subject: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Read AgentDeck's release history, by version or by topic."""
     return docs.data.changelog(subject)
 
@@ -74,7 +74,7 @@ deck = Deck(agents=[jack], context=DocsCorpus)
 ```
 
 `context=DocsCorpus` is the *type*; the instance goes in per run. Declaring it makes `build()`
-check every `Context[...]` in the catalog before a question is ever asked, so the wrong type
+check every `ToolCtx[...]` in the catalog before a question is ever asked, so the wrong type
 raises at startup rather than mid-answer.
 
 ## Everything becomes one execution tree
@@ -114,7 +114,7 @@ thing either reads.
 The panel on **[agentdecksdk.com](https://agentdecksdk.com/)** is that agent. Ask it something
 about AgentDeck and it searches these docs, reads the pages it finds, and cites them.
 
-He is three tools over one `Context[DocsCorpus]`, streaming the run's own canonical events to
+He is three tools over one `ToolCtx[DocsCorpus]`, streaming the run's own canonical events to
 the browser over SSE with no translation layer on either side, and he is the thing serving the
 site: an origin check, a per-day quota, a token ceiling, and an allowlist deciding which event
 kinds a browser may see are all parts a public endpoint needs and a demo skips.

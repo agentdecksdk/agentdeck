@@ -138,10 +138,10 @@ def page_context_input(asked: Question, corpus: DocsCorpus | None = None) -> str
     is not guarded. They stop the structure of the prompt being forged, which is the part that
     can actually be fixed here.
 
-    **Text, not a `DataBlock`, and not a `Context`.** Both of the tidier-looking options are
+    **Text, not a `DataBlock`, and not a `ToolCtx`.** Both of the tidier-looking options are
     closed:
 
-    - A `Context[T]` cannot cross HTTP at all. That is the documented boundary, and it is the
+    - A `ToolCtx[T]` cannot cross HTTP at all. That is the documented boundary, and it is the
       right one  -  the page slug is data a browser sent, not a live object this server owns.
     - `DataBlock` is the typed way to put JSON in an input, and the openai-agents engine refuses
       it: *"cannot send a 'data' block to the model; it accepts text, image, and audio"*. It is
@@ -190,7 +190,7 @@ def build_app(corpus: DocsCorpus | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         """One deck for the process, opened before the first request and closed after the last  -
         which is also all one process may have (#204). Building it here rather than per request
-        is not an optimisation: `build()` compiles the catalog and checks every `Context[...]`
+        is not an optimisation: `build()` compiles the catalog and checks every `ToolCtx[...]`
         against the declared type, and that should fail at startup, not on someone's question.
         """
         resolved = corpus or DocsCorpus()
