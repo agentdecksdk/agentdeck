@@ -1,0 +1,31 @@
+name: Documentation impact
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check affected documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check documentation impact
+        env:
+          DOCS_REVIEWED: >-
+            ${{ contains(github.event.pull_request.body, '- [x] Unchanged pages in the docs impact report were reviewed') ||
+                contains(github.event.pull_request.body, '- [X] Unchanged pages in the docs impact report were reviewed') }}
+          PR_ACTION: ${{ github.event.action }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          args=(--base "$BASE_SHA" --head "$HEAD_SHA" --pr-action "$PR_ACTION")
+          if [ "$DOCS_REVIEWED" = "true" ]; then
+            args+=(--acknowledge-review)
+          fi
+          python scripts/check_docs_impact.py "${args[@]}"

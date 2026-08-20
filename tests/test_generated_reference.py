@@ -62,5 +62,7 @@ def test_the_changelog_page_can_be_regenerated() -> None:
 
 def test_llms_full_txt_can_be_regenerated() -> None:
     """Not byte-equal, for the same reason: it embeds the changelog."""
-    assert render_llms_full_txt().strip(), "llms-full.txt rendered empty"
+    rendered = render_llms_full_txt()
+    assert rendered.strip(), "llms-full.txt rendered empty"
+    assert "docs_sources" not in rendered, "docs impact metadata leaked into the LLM export"
     assert LLMS_FULL_PAGE.exists(), f"{LLMS_FULL_PAGE} is missing  -  {_REGEN_HINT}"
