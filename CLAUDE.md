@@ -7,6 +7,7 @@ AgentDeck is a declarative runtime harness for multi-agent systems and workflows
 2. [`docs/engineering/coding-standards.md`](docs/engineering/coding-standards.md)  -  Binding front door for every code change.
 3. [`docs/engineering/coding-agents.md`](docs/engineering/coding-agents.md)  -  Mandatory rules for coding agents.
 4. Specialized standards: [`architecture.md`](docs/engineering/architecture.md), [`runtime-contracts.md`](docs/engineering/runtime-contracts.md), [`testing.md`](docs/engineering/testing.md), [`dependencies.md`](docs/engineering/dependencies.md), [`repository-policy.md`](docs/engineering/repository-policy.md), [`import-boundaries.md`](docs/engineering/import-boundaries.md).
+5. [`docs/patterns/`](docs/patterns/README.md): the project's taste as real good/bad pairs. Read the file for your concern before writing; match the good side.
 
 ---
 

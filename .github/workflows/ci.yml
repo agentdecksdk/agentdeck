@@ -122,15 +122,9 @@ jobs:
           fetch-depth: 0
       - name: Comment slop on lines this PR adds
         run: python3 scripts/slopcheck.py --changed --base "origin/${{ github.base_ref }}" < /dev/null
-      - name: New public symbols require a reuse analysis
+      - name: Concept budget honored (new classes/symbols/modules/deps declared)
         env:
-          BODY: ${{ github.event.pull_request.body }}
-        run: |
-          new_defs=$(git diff "origin/${{ github.base_ref }}...HEAD" -- '*.py' \
-                       | grep -cE '^\+\s*(async )?(def|class) [A-Za-z]' || true)
-          if [ "$new_defs" -gt 0 ] && ! grep -q '## Reuse analysis' <<< "$BODY"; then
-            echo "::error::PR adds $new_defs public defs/classes but no '## Reuse analysis' section — run 'uv run scripts/repomap.py', state what was considered and why it is insufficient (CLAUDE.md reuse gate)"
-            exit 1
-          fi
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python3 scripts/concept_budget.py "origin/${{ github.base_ref }}"
       - name: Quality delta
         run: python3 scripts/quality_delta.py "origin/${{ github.base_ref }}"

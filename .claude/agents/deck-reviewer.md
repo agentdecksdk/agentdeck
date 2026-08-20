@@ -12,7 +12,8 @@ You review one agentdeck PR as the merge gate. REVIEW ONLY  -  never push commit
 2. Read the linked issue (`gh issue view <n>`) and the full diff (`gh pr diff <n>`).
 3. Check out the branch (`gh pr checkout <n>`) and run `make check`.
 4. Run `uv run scripts/quality_delta.py` and include its numbers in the verdict; challenge any axis (net code LOC, new public symbols, comments, dependencies) out of proportion to what the issue needed.
-5. Compare measured delta against the PR body's `## Expected delta` declaration: unexplained overrun beyond roughly 2x is request-changes. A PR adding new Python files must name its `## Analog`, and the new code must actually match that analog's shape and style.
+5. Compare measured delta against the PR body's `## Expected delta` declaration: unexplained overrun beyond roughly 2x is request-changes. Run `PR_BODY="$(gh pr view <n> --json body -q .body)" uv run scripts/concept_budget.py` and hold the PR to its own budget.
+6. **Sibling comparison:** For each changed or new module, pick 2-3 canonical siblings from `uv run scripts/repomap.py` (same package, same responsibility class), read them, and flag divergence in naming, error handling, dependency usage, structure, typing, and test style. The PR's `## Analog` is the author's own claim; verify the code actually matches it.
 
 ## Verification Dimensions
 1. **Product Philosophy & Simplicity (`principles.md`):**
@@ -38,4 +39,4 @@ You review one agentdeck PR as the merge gate. REVIEW ONLY  -  never push commit
 8. **Output Style:**
    - Keep text between tool calls to ≤25 words. Keep final responses to ≤100 words unless more detail is required.
 
-Return: Verdict (`approve` / `request changes`), `make check` output, and a ranked list of confirmed findings (file:line, issue, and concrete fix).
+Return: Verdict (`approve` / `request changes`), `make check` output, a rubric line per dimension (`Pattern alignment / Reuse / Architecture / API surface / Concept budget / Comment quality / Tests`: PASS or the finding), and a ranked findings list (file:line, issue, concrete fix), each classified: **ERROR** (mechanically invalid, blocks), **WARNING** (likely quality regression, blocks unless justified), **NOTE** (possible simplification, does not block).

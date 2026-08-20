@@ -103,6 +103,7 @@ known-first-party = ["agentdeck"]
 # so the ban lands where the SDK is actually named.
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "agents.mcp".msg = "the MCP client is adapters/tools/mcp's alone  -  take tools off a ToolSet instead"
+"asyncio.create_task".msg = "tasks belong to the runtime (docs/patterns/lifecycle.md): a task created elsewhere bypasses cancellation and drain"
 
 [tool.ruff.lint.per-file-ignores]
 "agentdeck/adapters/tools/mcp/*" = ["TID251"]
@@ -112,6 +113,16 @@ known-first-party = ["agentdeck"]
 "tests/*" = ["T201"]
 "scripts/*" = ["T201"]
 "examples/*" = ["T201"]
+# The runtime owns task creation (docs/patterns/lifecycle.md); tests drive it.
+# Enumerated rather than tests/*: a blanket TID251 ignore would also un-ban agents.mcp.
+"agentdeck/deck.py" = ["TID251"]
+"agentdeck/runtime/dispatch.py" = ["TID251"]
+"agentdeck/runtime/service.py" = ["TID251"]
+"tests/contract/test_store.py" = ["TID251"]
+"tests/test_deck.py" = ["TID251"]
+"tests/test_run_control.py" = ["TID251"]
+"tests/test_runtime_service.py" = ["TID251"]
+"tests/test_serve_compat.py" = ["TID251"]
 
 [tool.ruff.lint.flake8-type-checking]
 runtime-evaluated-base-classes = [

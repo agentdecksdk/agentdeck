@@ -6,6 +6,23 @@
 
 <!-- Link the issue, or explain the motivation. -->
 
+## Reuse analysis
+
+<!-- Required when adding public symbols: existing abstractions considered (uv run scripts/repomap.py) and why each is insufficient. -->
+
+## Concept budget
+
+<!-- Required when introducing concepts; CI enforces actual <= declared.
+new classes: 0
+new public symbols: 0
+new modules: 0
+new dependencies: 0
+-->
+
+## Analog
+
+<!-- When adding new files: the existing file this was modeled on, one line on what was matched. -->
+
 ## Checklist
 
 - [ ] `make check` passes (lint + typecheck + lint-imports + tests)
