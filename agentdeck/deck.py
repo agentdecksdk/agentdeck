@@ -103,7 +103,7 @@ if TYPE_CHECKING:
     from agentdeck.core.content import Input
     from agentdeck.core.events import Event, Usage
     from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import Executor, EventStorePort
+    from agentdeck.core.ports import EventStorePort, Executor
     from agentdeck.runtime.service import PendingRun, Runtime
 
 # The two engine names a Deck's catalog always targets  -  read off each engine's own ``ClassVar``,
