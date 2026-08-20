@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Incremental slop check for Claude Code hooks.
 
-Flags three AI-agent comment smells in Python files: narrative comments
+Flags AI-agent comment smells in Python files: narrative comments
 that restate the code (SLOP001), TODO/FIXME/HACK without an issue
 reference (SLOP002), and placeholder comments masking unfinished work
 (SLOP003). Only lines changed relative to git HEAD are enforced, so
 pre-existing repository debt is ignored while all current-worktree debt
 remains gated.
 
+Changed text files also reject the spaced-dash substitute forbidden by the
+repository style guide. Existing occurrences remain untouched until edited.
+
 Two loops share this script: a PostToolUse hook checks the single edited
-file (fast loop), and a Stop hook runs `--changed` over every Python file
+file (fast loop), and a Stop hook runs `--changed` over every supported text file
 changed vs HEAD, catching files written via Bash or other processes that
 the Edit|Write matcher never sees (completion loop). Violations go to
 stderr with exit code 2, which Claude Code feeds back to the agent.
@@ -126,6 +129,8 @@ ABSTRACT_BASES = ("Protocol", "ABC", "ABCMeta")
 ABSTRACT_DECORATORS = frozenset({"abstractmethod", "overload", "override"})
 DIVIDER_RE = re.compile(r"-{4,}|={4,}")
 HUNK_RE = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
+TEXT_SUFFIXES = frozenset({".py", ".md", ".mdx", ".toml", ".txt", ".yaml", ".yml"})
+SPACED_DASH = "  " + "-" + "  "
 
 
 @dataclass(frozen=True)
@@ -264,6 +269,14 @@ def check_source(source: str) -> list[Violation]:
     return sorted(violations, key=lambda v: v.start)
 
 
+def check_style(source: str) -> list[Violation]:
+    return [
+        Violation(row, row, "SLOP009 spaced-dash", "replace the spaced dash with a colon, hyphen, or new sentence")
+        for row, line in enumerate(source.splitlines(), 1)
+        if SPACED_DASH in line
+    ]
+
+
 def _stub_body(stmts: list[ast.stmt]) -> bool:
     if (
         stmts
@@ -394,14 +407,18 @@ def _outside_repo(path: Path) -> bool:
 
 def check_file(path: Path, all_lines: bool = False, base: str = "HEAD") -> list[str]:
     path = path.resolve()
-    violations = _scope(path, check_source(path.read_text(encoding="utf-8")))
+    source = path.read_text(encoding="utf-8")
+    violations = check_style(source)
+    if path.suffix == ".py":
+        violations.extend(check_source(source))
+    violations = _scope(path, violations)
     changed = None if all_lines else changed_lines(path, base)
     if changed is not None:
         violations = [v for v in violations if v.touches(changed)]
     return [f"{path}:{v.start}: {v.rule}: {v.message}" for v in violations]
 
 
-def changed_py_files(base: str = "HEAD") -> list[Path]:
+def changed_text_files(base: str = "HEAD") -> list[Path]:
     try:
         root_proc = _git("rev-parse", "--show-toplevel")
         if root_proc.returncode != 0:
@@ -411,7 +428,7 @@ def changed_py_files(base: str = "HEAD") -> list[Path]:
         untracked = _git("ls-files", "--others", "--exclude-standard", cwd=root).stdout.splitlines()
     except (OSError, subprocess.SubprocessError):
         return []
-    return [root / p for p in {*tracked, *untracked} if p.endswith(".py") and (root / p).is_file()]
+    return [root / p for p in {*tracked, *untracked} if Path(p).suffix in TEXT_SUFFIXES and (root / p).is_file()]
 
 
 def main() -> int:
@@ -432,7 +449,7 @@ def main() -> int:
             return 0
         tool_input = payload.get("tool_input", {})
         raw = tool_input.get("file_path", "")
-        if not raw.endswith(".py"):
+        if Path(raw).suffix not in TEXT_SUFFIXES:
             return 0
         path = Path(raw)
         if _outside_repo(path.resolve()):
@@ -452,7 +469,10 @@ def main() -> int:
             return 0
         previous_lines = set(previous.splitlines())
         new_rows = {i for i, ln in enumerate(candidate.splitlines(), 1) if ln not in previous_lines}
-        blocked = [v for v in _scope(path.resolve(), check_source(candidate)) if v.touches(new_rows)]
+        violations = check_style(candidate)
+        if path.suffix == ".py":
+            violations.extend(check_source(candidate))
+        blocked = [v for v in _scope(path.resolve(), violations) if v.touches(new_rows)]
         for v in blocked:
             print(f"{path}:{v.start}: {v.rule}: {v.message}", file=sys.stderr)
         return 2 if blocked else 0
@@ -464,10 +484,10 @@ def main() -> int:
                 payload = {}
             if payload.get("stop_hook_active"):
                 return 0
-        reports = [line for path in changed_py_files(base) for line in check_file(path, base=base)]
+        reports = [line for path in changed_text_files(base) for line in check_file(path, base=base)]
     elif argv_paths:
         path = Path(argv_paths[0])
-        if path.suffix != ".py" or not path.is_file():
+        if path.suffix not in TEXT_SUFFIXES or not path.is_file():
             return 0
         reports = check_file(path, all_lines="--all" in args)
     else:
@@ -477,7 +497,7 @@ def main() -> int:
             return 0
         raw = payload.get("tool_input", {}).get("file_path", "")
         path = Path(raw) if raw else None
-        if path is None or path.suffix != ".py" or not path.is_file() or _outside_repo(path.resolve()):
+        if path is None or path.suffix not in TEXT_SUFFIXES or not path.is_file() or _outside_repo(path.resolve()):
             return 0
         reports = check_file(path)
     for line in reports:
@@ -543,6 +563,9 @@ def _self_test() -> None:
     assert not check_source(skipif), "conditional skipif must pass"
     allow = "# Increment the retry count  (slopcheck: allow SLOP001 exemplar fixture)\nretry_count += 1\n"
     assert not check_source(allow), "explicit coded allow marker must suppress"
+    spaced_dash = "Use the short path" + "  " + "-" + "  " + "the runtime owns the machinery.\n"
+    assert any(v.rule.startswith("SLOP009") for v in check_style(spaced_dash)), "spaced dash must be flagged"
+    assert not check_style("Use the short path: the runtime owns the machinery.\n"), "colon must pass"
     print("slopcheck self-test: ok")
 
 

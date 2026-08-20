@@ -147,7 +147,7 @@ jobs:
     # else in this repository cannot publish. Name it exactly `pypi` there.
     environment:
       name: pypi
-      url: https://pypi.org/project/agentdeck/
+      url: https://pypi.org/project/agentdeck-sdk/
     steps:
       - name: Download distributions
         uses: actions/download-artifact@v8

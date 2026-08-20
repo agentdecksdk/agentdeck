@@ -25,7 +25,7 @@ Run `uv run scripts/repomap.py`. Then write the complete design into the draft P
 - For bugs: failing regression test first, minimal fix, test passes.
 - Match the analog. Stay inside the concept budget. No speculative abstractions, no unrequested configuration surface.
 - Tests assert real behavior and invariants without live model calls (`agentdeck.testing` scripted models); stub only at the engine SDK boundary; `timeout=` on every subprocess.
-- Hooks will block slop at write time (SLOP001-008); fix the finding, never suppress without a coded reason.
+- Hooks will block slop at write time (SLOP001-009); fix the finding, never suppress without a coded reason.
 - Update `CHANGELOG.md` under `[Unreleased]` for user-visible changes. Push as you go.
 
 ## Stage 3: Self-review the diff (before the gate)

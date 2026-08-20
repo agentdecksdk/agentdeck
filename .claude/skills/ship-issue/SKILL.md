@@ -1,6 +1,6 @@
 ---
 name: ship-issue
-description: Run one agentdeck issue through the full pipeline  -  brief the user, deck-dev implements it, deck-reviewer gates it, findings get fixed, PR merges to dev, board updated.
+description: "Run one agentdeck issue through the full pipeline: brief the user, deck-dev implements it, deck-reviewer gates it, findings get fixed, PR merges to dev, board updated."
 ---
 
 # Ship an issue
@@ -26,13 +26,13 @@ If it stops at its own spec gate despite step 0, the issue needs a human decisio
 Verify the draft PR targets `dev`, includes `Closes #<n>`, and its body carries the design sections (`## Reuse analysis`, `## Analog`, `## Concept budget`, `## Expected delta`). Missing sections go back to deck-dev before any review is spent. Set **Status = In review** when marked ready.
 
 ## 4. Review
-Spawn `deck-reviewer` on the PR.
+Spawn `deck-reviewer` on the PR. The reviewer must post a COMMENTED GitHub review; a session-only verdict does not count.
 
 ## 5. Address Findings
 The review lands on the PR itself (GitHub review + inline comments); read it there. Route by class: **ERROR** and **WARNING** findings go to `deck-dev` to fix on the branch; **NOTE** findings that will not be fixed now become `finding:`-titled issues via open-issue, never silently dropped. Promotion issues the reviewer filed get scheduled as their own small harness PRs, never implemented by the reviewer.
 
 ## 6. Merge
-When approved and `make check` is green: `gh pr merge --squash --delete-branch`.
+Merge only when `Agent review` and every other required check are green: `gh pr merge --squash --delete-branch`.
 
 ## 7. Complete
 Set **Status = Done**, record Target Date, comment with completion summary and PR link.

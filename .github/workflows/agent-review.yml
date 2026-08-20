@@ -1,0 +1,49 @@
+name: Agent review gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions:
+  pull-requests: read
+
+concurrency:
+  group: agent-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Agent review
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require a passing review on the current commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          reviews=$(gh api --paginate --slurp \
+            "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews?per_page=100")
+          if ! jq -e --arg sha "$HEAD_SHA" '
+            add
+            | map(select(
+                .commit_id == $sha
+                and .state == "COMMENTED"
+                and (.author_association == "OWNER"
+                     or .author_association == "MEMBER"
+                     or .author_association == "COLLABORATOR")
+                and (((.body // "") | contains("<!-- agentdeck-review: pass -->"))
+                     or ((.body // "") | contains("<!-- agentdeck-review: block -->")))
+              ))
+            | sort_by(.submitted_at)
+            | last
+            | (.body // "")
+            | contains("<!-- agentdeck-review: pass -->")
+          ' <<< "$reviews"; then
+            echo "::error::Current commit needs a passing AgentDeck review comment from a repository member."
+            exit 1
+          fi
