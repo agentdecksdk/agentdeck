@@ -156,12 +156,14 @@ is Agent Blue with a Canvas A rather than `currentColor`, since nothing inlines 
 
 ## The social card
 
-`social-card.svg` is the 1280×640 image GitHub shows under every link to this repository in X,
-LinkedIn, Slack, Discord and Hacker News. Left unset  -  as it was until 2026-08-12  -  GitHub renders
-its grey default with the repository name in it.
+`social-card.svg` is the 1280×640 source for the preview shown when the repository or site is
+shared in X, LinkedIn, Slack, Discord and Hacker News. It matches the light landing-page hero:
+the blue card, white A, red spark and the exact headline a visitor sees above the fold.
 
-It is **not** committed as a PNG, for the same reason nothing else here is: `.gitignore:19` keeps
-`docs/brand/*.png` out of the tree. Regenerate the upload artifact instead:
+The SVG stays here as the reviewable source. Its tracked raster lives at
+`.github/assets/social-card.png`: upload that file under
+**Settings → General → Social preview**, and use its raw GitHub URL in the site's Open Graph
+and Twitter metadata. Regenerate it from the SVG:
 
 ```bash
 # Poppins (wordmark and tagline) and Inter (body) are live `<text>`, not paths, so they must be
@@ -180,8 +182,8 @@ google-chrome --headless --disable-gpu --hide-scrollbars --force-device-scale-fa
 magick /tmp/card-2x.png -crop 2560x1280+0+0 +repage -resize 1280x640 -strip social-card.png
 ```
 
-Then upload `social-card.png` at **Settings → General → Social preview**. It is a manual upload;
-no API sets it.
+Copy the result to `.github/assets/social-card.png`, then upload the same file at
+**Settings → General → Social preview**. The GitHub upload remains manual; no API sets it.
 
 One thing in the SVG looks wrong and is not. The A is a **hole** in the card path rather than a
 shape: both `nonzero` and `evenodd` knock it out, because its subpath winds against the outer

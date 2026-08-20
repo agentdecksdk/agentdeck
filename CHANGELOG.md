@@ -8,6 +8,11 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+
+- **Shared documentation links now carry a branded large preview.** Open Graph and Twitter cards
+  use the landing-page mark and its "Agentic software should feel like software" headline.
+
 ### Fixed
 
 - **Install metadata now names the published distribution correctly.** Context7 guidance and

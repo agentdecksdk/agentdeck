@@ -17,6 +17,7 @@ import './jack.css'
 // Self-hosted at build time  -  the static export makes no external font request.
 const body = Inter({ subsets: ['latin'], variable: '--font-body', display: 'swap' })
 const display = Poppins({ subsets: ['latin'], weight: ['500', '600'], variable: '--font-display', display: 'swap' })
+const socialCard = 'https://raw.githubusercontent.com/agentdecksdk/agentdeck/dev/.github/assets/social-card.png'
 
 export const metadata: Metadata = {
   // Every relative URL in metadata  -  canonical tags, OG images  -  resolves against this, so the
@@ -30,9 +31,19 @@ export const metadata: Metadata = {
     title: 'AgentDeck SDK  -  a production runtime for AI agents',
     description:
       'Durable human-in-the-loop approvals, sessions, streaming, run control and one ordered '
-      + 'event log per run  -  wrapping the OpenAI Agents SDK and LangGraph rather than replacing them.'
+      + 'event log per run  -  wrapping the OpenAI Agents SDK and LangGraph rather than replacing them.',
+    images: [{
+      url: socialCard,
+      width: 1280,
+      height: 640,
+      alt: 'AgentDeck SDK: Agentic software should feel like software.'
+    }]
   },
-  twitter: { card: 'summary_large_image', title: 'AgentDeck SDK' },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'AgentDeck SDK',
+    images: [socialCard]
+  },
   title: {
     default: 'AgentDeck SDK  -  a production runtime for AI agents',
     template: '%s | AgentDeck SDK'
