@@ -160,6 +160,28 @@ def test_packaged_default_yaml_is_removed():
     assert not (AGENTDECK_PKG / "runtime" / "config.default.yaml").exists()
 
 
+def test_provider_credentials_use_their_dedicated_environment_names(monkeypatch):
+    expected = {
+        "anthropic_api_key": "anthropic-key",
+        "gemini_api_key": "gemini-key",
+        "ollama_base_url": "http://ollama:11434/v1",
+        "openrouter_api_key": "openrouter-key",
+    }
+    for field, value in expected.items():
+        monkeypatch.setenv(
+            {
+                "anthropic_api_key": "ANTHROPIC_API_KEY",
+                "gemini_api_key": "GEMINI_API_KEY",
+                "ollama_base_url": "OLLAMA_BASE_URL",
+                "openrouter_api_key": "OPENROUTER_API_KEY",
+            }[field],
+            value,
+        )
+    reset_settings_cache()
+
+    assert get_settings().providers.model_dump() == expected
+
+
 def test_sandbox_env_and_skills_settings_are_gone():
     """Issue #155: sandboxing left v3 in #163 and `SkillExecutor`  -  `sandbox_env()`'s only
     caller  -  was deleted in #164, leaving both with zero callers. A deletion, not the
