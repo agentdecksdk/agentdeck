@@ -30,6 +30,6 @@ Heuristic ceilings (deliberate): narration whose nouns are absent from the code 
 | CodeRabbit gets an anti-slop instruction scoped to judgment calls | `.coderabbit.yaml` | The semantic layer reviews only what ruff and slopcheck cannot express |
 | deck-reviewer promotion loop: a repeat finding class must name the mechanical form that would have caught it | `.claude/agents/deck-reviewer.md` | Repeated review feedback is a harness gap; promote it to a rule instead of re-litigating |
 
-Upgrade shelf, each layer activates on evidence: ast-grep when a structural anti-pattern repeats (rule one = that pattern); graph tools (code-review-graph family, after vetting) when the repo map outgrows one read or reuse analyses fail for lack of relationship queries.
+Upgrade shelf, each layer activates on evidence: ast-grep when a structural anti-pattern repeats (rule one = that pattern); graph tools (code-review-graph family, after vetting) when the repo map outgrows one read or reuse analyses fail for lack of relationship queries; sloplint's remaining rules (hardcoded URLs, fake fallbacks, unsafe casts) when agents commit those here; gptlint only if prose-rule violations keep surviving both CodeRabbit and deck-reviewer.
 
 Next planned actions: none queued; run the stack on real issues and let the evidence pick the next layer.
