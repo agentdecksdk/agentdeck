@@ -18,9 +18,11 @@ receives, so a tool signature names one AgentDeck type instead of an engine's.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import cast
+from typing import Any, Literal, Protocol, cast
+from uuid import uuid4
 
-from agentdeck.core.control import Gate
+from agentdeck.core.control import Gate, RunPausedError
+from agentdeck.core.events import KnownPayload, RunInterrupted
 from agentdeck.core.reporting import Reporter
 
 
@@ -133,6 +135,10 @@ class ToolCtx[T]:
     needed to read it, and ``gate`` is absent because :meth:`safepoint` is the whole of what a
     callable may do with it  -  adding a property later is cheaper than changing one after release.
 
+    ``_channel`` is present when the executor playing this body can stop it in place, and absent
+    when it cannot: a tool inside an Agents SDK turn has no way to park, because the SDK owns the
+    stack and the turn is replayed from the log on resume.
+
     A tool is a leaf capability, so this is where the surface stops: orchestration
     (``invoke``, ``parallel``, ``ask``, ``approve``) is :class:`WorkflowCtx`'s, and a tool that
     declared it would silently acquire the ability to coordinate other executions
@@ -140,6 +146,7 @@ class ToolCtx[T]:
     """
 
     _run: RunContext
+    _channel: Suspender | None = None
 
     @property
     def data(self) -> T:
@@ -164,10 +171,108 @@ class ToolCtx[T]:
         return self._run.session_id
 
     async def safepoint(self) -> None:
-        """Offer a safe point: returns, or raises if the run was signaled to stop or pause.
+        """Offer a safe point: returns, or stops the run here if one was signaled.
+
+        How it stops depends on what is playing this body, and that is the whole difference:
+        where the body can be parked it waits in place with its locals intact, and where it
+        cannot it unwinds and the run is replayed from the log on resume. A cancel always
+        unwinds, because the run is over and there is nothing left to preserve.
 
         Deliberately takes no safe-point argument. The kinds of safe point are a recorded
-        contract engine adapters share, and a user callable naming a new one would change what
-        the event log means from outside the engines.
+        contract executor adapters share, and a user callable naming a new one would change what
+        the event log means from outside the executors.
         """
-        await self._run.gate.checkpoint()
+        try:
+            await self._run.gate.checkpoint()
+        except RunPausedError as paused:
+            if self._channel is None:
+                raise
+            # The request and the observation are records; the ``run.paused`` they end in is what
+            # the run is actually suspended by, so it is the only one that waits.
+            *recorded, suspending = paused.payloads
+            for payload in recorded:
+                await self._channel.emit(payload)
+            await self._channel.suspend(suspending)
+
+
+class Suspender(Protocol):
+    """How a native body reaches the run it is inside: record something, or stop and wait.
+
+    Bound by the native executor, which is the only thing that can honour the waiting half  -  the
+    body is a live coroutine, so a suspension is a real wait rather than an unwind
+    (``docs/design/execution-api.md``).
+    """
+
+    async def emit(self, payload: KnownPayload) -> None:
+        """Record a payload on the run and keep going."""
+        ...
+
+    async def suspend(self, payload: KnownPayload) -> Any:
+        """Record a suspending payload, park here, and return whatever answers it."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowCtx[T](ToolCtx[T]):
+    """What an imperative ``@workflow`` body receives: :class:`ToolCtx` plus orchestration.
+
+    The split is the semantic rule, not a convenience: a tool performs a capability, a workflow
+    coordinates executions, and a tool that could ``ask`` a person or start another run is no
+    longer a leaf. Declaring the wrong one is a ``build()`` error.
+
+    ``invoke`` and ``parallel`` join this in the PR that adds child runs; what is here is the
+    half that suspends the current branch. Both need somewhere to park, so a workflow is only
+    ever built by an executor that can provide one.
+    """
+
+    async def ask(self, question: str, **fields: Any) -> Any:
+        """Suspend this branch until somebody answers ``question``, and return their answer.
+
+        The run becomes ``WAITING_ANSWER`` and shows up in ``deck.runs.list(status=...)`` and the
+        approval inbox; ``run.answer(value)`` is what continues it. The body is not unwound  -  it
+        waits where it stands, locals intact  -  which is why an answer resumes the next line
+        rather than replaying the workflow.
+        """
+        return await self._waiting.suspend(_asked(question, "human", fields))
+
+    async def approve(self, question: str, **fields: Any) -> bool:
+        """:meth:`ask` for a yes or a no, and refuse anything that is neither.
+
+        An approval is a decision about doing something, so a value that only *looks* like an
+        answer must not read as consent: a bare truthiness test would take the string ``"no"``
+        for a yes.
+        """
+        return _as_decision(await self._waiting.suspend(_asked(question, "approval", fields)))
+
+    @property
+    def _waiting(self) -> Suspender:
+        """The channel this body parks on. Absent only on a context built by hand: an executor
+        that plays a workflow is one that can suspend it."""
+        if self._channel is None:
+            raise RuntimeError(
+                "this WorkflowCtx has no way to suspend its run, so ask()/approve() cannot wait "
+                "for an answer. A workflow context is built by the executor playing it; one "
+                "constructed by hand has no run to park."
+            )
+        return self._channel
+
+
+def _asked(question: str, reason: Literal["human", "approval"], fields: dict[str, Any]) -> RunInterrupted:
+    if not question:
+        raise ValueError("ask()/approve() need a question; an empty one has no answer to wait for.")
+    return RunInterrupted(interrupt_id=uuid4().hex, reason=reason, payload={"question": question, **fields})
+
+
+_YES = frozenset({"true", "yes", "y", "approve", "approved"})
+_NO = frozenset({"false", "no", "n", "reject", "rejected"})
+
+
+def _as_decision(answer: object) -> bool:
+    if isinstance(answer, bool):
+        return answer
+    if isinstance(answer, str) and (word := answer.strip().lower()) in _YES | _NO:
+        return word in _YES
+    raise ValueError(
+        f"approve() was answered with {answer!r}, which is neither a yes nor a no. Answer with a "
+        f"bool, or one of {sorted(_YES)} / {sorted(_NO)}."
+    )

@@ -66,11 +66,16 @@ def project(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_the_project_executor_set_covers_both_bundle_shapes():
-    """Discovery refuses a project whose workflows have no executor, so both are registered."""
+def test_the_project_executor_set_covers_every_authored_shape():
+    """Discovery refuses a catalog whose entries have no executor, so every shape a project can
+    author  -  an agent bundle, a graph workflow, a native @workflow  -  has one registered."""
     executors = project_executors()
-    assert sorted(executor.name for executor in executors) == ["langgraph", "openai-agents"]
-    assert [type(executor).__name__ for executor in executors] == ["OpenAIAgentsExecutor", "LangGraphExecutor"]
+    assert sorted(executor.name for executor in executors) == ["langgraph", "native", "openai-agents"]
+    assert [type(executor).__name__ for executor in executors] == [
+        "OpenAIAgentsExecutor",
+        "LangGraphExecutor",
+        "NativeExecutor",
+    ]
 
 
 async def test_deck_wires_the_same_engines_this_suite_builds_by_hand(project):

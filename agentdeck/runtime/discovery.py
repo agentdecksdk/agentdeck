@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Final
 from agentdeck.authoring.agent import Agent
 from agentdeck.authoring.compile import compile_agent, link_handoffs
 from agentdeck.authoring.graphs import bridge_context_nodes
+from agentdeck.authoring.native import NativeDefinition
 from agentdeck.authoring.workflow import Workflow
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.errors import ConfigError
@@ -37,6 +38,11 @@ EXECUTOR_FOR_KIND: Final[Mapping[InvocableKind, str]] = {
     InvocableKind.AGENT: "openai-agents",
     InvocableKind.WORKFLOW: "langgraph",
 }
+
+NATIVE_EXECUTOR: Final[str] = "native"
+"""What plays an AgentDeck-native definition, whatever kind it is  -  the one shape that names its
+own executor rather than inheriting one from the table above, because ``@workflow`` and
+``Workflow(graph=...)`` are two executors playing one kind."""
 
 # Where a workflow's opt-in durability travels to the executor that acts on it: the langgraph
 # adapter reads ``spec.metadata[DURABLE_KEY]`` to decide whether to resolve the configured
@@ -72,7 +78,7 @@ class InvocableRegistry:
         self,
         *,
         agents: Sequence[Agent] | None = None,
-        workflows: Sequence[Workflow] | None = None,
+        workflows: Sequence[Workflow | NativeDefinition] | None = None,
         resolve_skills: Callable[[Sequence[str]], tuple[str, Sequence[FunctionTool]]] | None = None,
         resolve_workflow_tool: Callable[[Workflow], FunctionTool] | None = None,
         bundle_of: Mapping[str, str] | None = None,
@@ -125,6 +131,9 @@ class InvocableRegistry:
         for agent in agents:
             self._add(specs, agent.name, InvocableKind.AGENT, compiled[agent.name])
         for workflow in workflows:
+            if isinstance(workflow, NativeDefinition):
+                self._add(specs, workflow.name, workflow.kind, workflow, executor=NATIVE_EXECUTOR)
+                continue
             try:
                 # uncompiled: the langgraph adapter compiles the graph itself, around the
                 # checkpointer  -  ``durable`` names, which is why that flag travels with the
@@ -155,6 +164,7 @@ class InvocableRegistry:
         kind: InvocableKind,
         native: Any,
         metadata: dict[str, Any] | None = None,
+        executor: str | None = None,
     ) -> None:
         # Only catches a collision across kinds; a collision within one kind (two bundles
         # exposing the same invocable name) already raised inside the scan that fed this.
@@ -163,7 +173,7 @@ class InvocableRegistry:
                 f"an agent and a workflow are both named {name!r} (kinds: {specs[name].kind.value} and "
                 f"{kind.value}); one name is one invocable  -  rename one of them."
             )
-        executor = EXECUTOR_FOR_KIND[kind]
+        executor = executor or EXECUTOR_FOR_KIND[kind]
         if executor not in self._executors:
             raise ConfigError(
                 f"{kind.value} {name!r} needs executor {executor!r}, which is not registered. "
@@ -172,4 +182,4 @@ class InvocableRegistry:
         specs[name] = InvocableSpec(name=name, kind=kind, executor=executor, native=native, metadata=metadata or {})
 
 
-__all__ = ["DURABLE_KEY", "EXECUTOR_FOR_KIND", "InvocableRegistry"]
+__all__ = ["DURABLE_KEY", "EXECUTOR_FOR_KIND", "NATIVE_EXECUTOR", "InvocableRegistry"]

@@ -31,7 +31,7 @@ import types
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Union, get_args, get_origin, get_type_hints
 
-from agentdeck.core.context import ToolCtx
+from agentdeck.core.context import ToolCtx, WorkflowCtx
 from agentdeck.errors import ConfigError, ContextTypeError
 
 if TYPE_CHECKING:
@@ -45,8 +45,10 @@ and two before it, and the older one is *itself a class*  -  so falling through 
 would compare a context type against ``UnionType`` and refuse every union that is in fact fine.
 """
 
-_NOT_A_CONTEXT = object()
-"""Distinguishes "this parameter is not a ``ToolCtx``" from a genuine ``ToolCtx[None]``."""
+_CONTEXT_CLASSES = (WorkflowCtx, ToolCtx)
+"""The context types a parameter may be annotated with, widest first: ``WorkflowCtx`` is a
+``ToolCtx``, so a subclass has to be recognised before its base or every workflow body would
+read as a tool's."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +70,10 @@ class CallableAnalysis:
     context_type: object | None
     visible_parameters: tuple[inspect.Parameter, ...]
     reliable: bool
+    context_class: type | None = None
+    """Which context the parameter asked for  -  :class:`ToolCtx` or :class:`WorkflowCtx`. What a
+    ``@tool`` and a ``@workflow`` check, since the difference between them is exactly which
+    surface the body is handed."""
 
 
 def analyze_callable(target: Callable[..., object]) -> CallableAnalysis:
@@ -93,9 +99,9 @@ def analyze_callable(target: Callable[..., object]) -> CallableAnalysis:
         return _unanalyzable(target)
 
     declared = [
-        (parameter.name, required)
+        (parameter.name, found)
         for parameter in parameters
-        if (required := _required_type(hints.get(parameter.name))) is not _NOT_A_CONTEXT
+        if (found := _declared_context(hints.get(parameter.name))) is not None
     ]
     if len(declared) > 1:
         names = ", ".join(name for name, _ in declared)
@@ -105,28 +111,32 @@ def analyze_callable(target: Callable[..., object]) -> CallableAnalysis:
     if not declared:
         return CallableAnalysis(target, None, None, tuple(_resolved(parameters, hints)), reliable=True)
 
-    name, required = declared[0]
+    name, (context_class, required) = declared[0]
     visible = [parameter for parameter in parameters if parameter.name != name]
-    return CallableAnalysis(target, name, required, tuple(_resolved(visible, hints)), reliable=True)
+    return CallableAnalysis(
+        target, name, required, tuple(_resolved(visible, hints)), reliable=True, context_class=context_class
+    )
 
 
 def _unanalyzable(target: Callable[..., object]) -> CallableAnalysis:
     return CallableAnalysis(target, None, None, (), reliable=False)
 
 
-def _required_type(hint: object) -> object:
-    """The ``T`` a ``ToolCtx[T]`` annotation requires, or :data:`_NOT_A_CONTEXT`.
+def _declared_context(hint: object) -> tuple[type, object] | None:
+    """Which context class this annotation asks for and the ``T`` it requires, or ``None``.
 
     A bare ``ToolCtx`` reads as ``ToolCtx[Any]``. Treating it as an ordinary parameter instead
     would put an AgentDeck internal in a model-visible tool schema, which is the one thing the
     context rule forbids  -  and the author plainly meant to be injected.
     """
-    if hint is ToolCtx:
-        return Any
-    if get_origin(hint) is ToolCtx:
-        args = get_args(hint)
-        return args[0] if args else Any
-    return _NOT_A_CONTEXT
+    origin = get_origin(hint)
+    for context_class in _CONTEXT_CLASSES:
+        if hint is context_class:
+            return context_class, Any
+        if origin is context_class:
+            args = get_args(hint)
+            return context_class, (args[0] if args else Any)
+    return None
 
 
 def _resolved(parameters: Iterable[inspect.Parameter], hints: Mapping[str, object]) -> Iterator[inspect.Parameter]:

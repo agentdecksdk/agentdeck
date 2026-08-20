@@ -7,17 +7,21 @@ An agent, a workflow and a skill differ only in ``kind`` and in what their engin
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from pydantic import ConfigDict, Field
 
 from agentdeck.core.base import CoreModel
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 class InvocableKind(StrEnum):
     AGENT = "agent"
     WORKFLOW = "workflow"
     SKILL = "skill"
+    TOOL = "tool"
 
 
 class InvocableSpec(CoreModel):
@@ -36,3 +40,24 @@ class InvocableSpec(CoreModel):
     executor: str
     metadata: dict[str, Any] = Field(default_factory=dict)
     native: Any = None
+
+
+@runtime_checkable
+class NativeInvocable(Protocol):
+    """What the native executor needs of an AgentDeck-native definition.
+
+    A protocol rather than the definition class itself, because that class is authoring's  -  it
+    validates signatures and raises ``ConfigError``, neither of which belongs in core, and an
+    executor may not import authoring (``.importlinter``). What crosses the boundary is this:
+    five values and a callable, all of them settled at import.
+    """
+
+    name: str
+    kind: InvocableKind
+    call: Callable[..., Any]
+    context_parameter: str | None
+    """The parameter to inject a context into, or ``None`` if the body asked for none."""
+    context_class: type | None
+    """Which context it asked for: ``ToolCtx`` or ``WorkflowCtx``."""
+    parameters: tuple[str, ...]
+    """The body's own parameters, in order, context excluded  -  what an input binds to."""

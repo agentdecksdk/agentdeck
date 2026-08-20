@@ -104,7 +104,7 @@ class RunStarted(CoreModel):
 
     kind: Literal["run.started"] = "run.started"
     invocable: str
-    kind_of_invocable: Literal["agent", "workflow", "skill"]
+    kind_of_invocable: Literal["agent", "workflow", "skill", "tool"]
     input: Input
 
 

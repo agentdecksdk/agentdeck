@@ -18,5 +18,5 @@ class TimeoutManager:            # second lifecycle path
 Rules:
 - No `*Manager`/`*Controller`/`*Handler` class whose responsibility an existing handle owns; check `uv run scripts/repomap.py` first.
 - Never mutate run state directly; go through the transition path.
-- `asyncio.create_task` belongs to the runtime (`runtime/dispatch.py`, `runtime/service.py`, `deck.py`); a task created elsewhere bypasses the run's cancellation and drain guarantees (enforced by ruff TID251).
+- `asyncio.create_task` belongs to the runtime (`runtime/dispatch.py`, `runtime/service.py`, `deck.py`); a task created elsewhere bypasses the run's cancellation and drain guarantees (enforced by ruff TID251). One exception, allowlisted with its own owner: the native executor runs a `@workflow` body that parks mid-await, so the coroutine outlives the call that started it  -  it is held in that executor's own registry and cancelled by its `aclose()`.
 - Control verbs are signals, not errors: honoring a cancel raises `ControlSignalled`, which records the effect.

@@ -77,3 +77,13 @@ class Executor(ABC):
         has nothing to implement twice. An executor that cannot take an answer raises on that
         play  -  the Runtime only ever sends one to a run that suspended.
         """
+
+    async def aclose(self) -> None:
+        """Release whatever this executor still holds. A no-op for one that holds nothing.
+
+        Called once, by the composition root, when the deck closes. It exists for the executor
+        that keeps a live body between two calls (the native one, whose parked workflows are
+        coroutines waiting to be answered): without it those tasks outlive the deck that started
+        them, and the loop complains about it at exit.
+        """
+        return
