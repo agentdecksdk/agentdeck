@@ -74,10 +74,10 @@ def validate_mappings(mappings: tuple[PageMapping, ...]) -> None:
         raise ValueError(f"source patterns matching no files: {', '.join(unmatched)}")
 
 
-def changed_files(base: str, head: str) -> tuple[str, ...]:
+def changed_files(base: str, head: str, repo_root: Path = REPO_ROOT) -> tuple[str, ...]:
     result = subprocess.run(
-        ["git", "diff", "--name-only", "--diff-filter=ACDMR", base, head],
-        cwd=REPO_ROOT,
+        ["git", "diff", "--no-renames", "--name-only", "--diff-filter=ACDMR", base, head],
+        cwd=repo_root,
         check=True,
         capture_output=True,
         text=True,
@@ -108,6 +108,12 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default="origin/dev", help="base git revision")
     parser.add_argument("--head", default="HEAD", help="head git revision")
+    parser.add_argument(
+        "--pr-action",
+        choices=("local", "opened", "synchronize", "reopened", "edited"),
+        default="local",
+        help="pull request event action, used to invalidate stale review acknowledgement",
+    )
     parser.add_argument(
         "--acknowledge-review",
         action="store_true",
@@ -141,7 +147,8 @@ def main(argv: list[str] | None = None) -> int:
         for match in matches:
             print(f"    source: {match}")
 
-    if not missing or args.acknowledge_review:
+    acknowledgement_is_current = args.acknowledge_review and args.pr_action != "synchronize"
+    if not missing or acknowledgement_is_current:
         return 0
 
     print(

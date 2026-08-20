@@ -20,10 +20,11 @@ jobs:
           DOCS_REVIEWED: >-
             ${{ contains(github.event.pull_request.body, '- [x] Unchanged pages in the docs impact report were reviewed') ||
                 contains(github.event.pull_request.body, '- [X] Unchanged pages in the docs impact report were reviewed') }}
+          PR_ACTION: ${{ github.event.action }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          args=(--base "$BASE_SHA" --head "$HEAD_SHA")
+          args=(--base "$BASE_SHA" --head "$HEAD_SHA" --pr-action "$PR_ACTION")
           if [ "$DOCS_REVIEWED" = "true" ]; then
             args+=(--acknowledge-review)
           fi
