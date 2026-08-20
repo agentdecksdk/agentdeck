@@ -15,7 +15,7 @@ import subprocess
 import sys
 
 DEP_LINE_RE = re.compile(r'^\+\s*"[A-Za-z0-9_.-]+[>=<!~]')
-TOP_LEVEL_RE = re.compile(r"^\+(async def|def|class) [A-Za-z]")
+TOP_LEVEL_RE = re.compile(r"^([+-])(async def|def|class) ([A-Za-z]\w*)")
 BUDGET_RE = re.compile(r"new (classes|public symbols|modules|dependencies)\s*:\s*(\d+)", re.IGNORECASE)
 
 
@@ -30,18 +30,29 @@ def actual_concepts(merge_base: str) -> dict[str, list[str]]:
         if status == "A" and path.startswith("agentdeck/") and path.endswith(".py"):
             found["modules"].append(path)
     in_lib = in_pyproject = False
+    added: dict[str, str] = {}
+    removed: set[str] = set()
     for line in _git("diff", merge_base, "HEAD").splitlines():
         if line.startswith("+++ "):
-            in_lib = line.startswith("+++ b/agentdeck/") and line.endswith(".py")
+            in_lib = line[4:].startswith("b/agentdeck/") and line.endswith(".py")
             in_pyproject = line == "+++ b/pyproject.toml"
             continue
+        if line.startswith("--- "):
+            continue
         if in_lib and (match := TOP_LEVEL_RE.match(line)):
-            name = line.lstrip("+").split("(")[0].split(":")[0].strip()
-            found["public symbols"].append(name)
-            if match.group(1) == "class":
-                found["classes"].append(name)
+            sign, kind, name = match.groups()
+            if sign == "+":
+                added[name] = kind
+            else:
+                removed.add(name)
         if in_pyproject and DEP_LINE_RE.match(line):
             found["dependencies"].append(line.lstrip("+ ").strip())
+    # A name both removed and re-added is a move or an edited signature, not a new concept.
+    for name, kind in added.items():
+        if name not in removed:
+            found["public symbols"].append(name)
+            if kind == "class":
+                found["classes"].append(name)
     return found
 
 

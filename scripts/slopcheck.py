@@ -370,6 +370,13 @@ def _scope(path: Path, violations: list[Violation]) -> list[Violation]:
     return violations
 
 
+def _outside_repo(path: Path) -> bool:
+    """Hook modes gate this repo only: a session here editing another project's
+    legacy file must not be blocked on lines nobody is writing."""
+    cwd = Path.cwd().resolve()
+    return cwd != path and cwd not in path.parents
+
+
 def check_file(path: Path, all_lines: bool = False, base: str = "HEAD") -> list[str]:
     path = path.resolve()
     violations = _scope(path, check_source(path.read_text(encoding="utf-8")))
@@ -408,6 +415,8 @@ def main() -> int:
         if not raw.endswith(".py"):
             return 0
         path = Path(raw)
+        if _outside_repo(path.resolve()):
+            return 0
         previous = path.read_text(encoding="utf-8") if path.is_file() else ""
         if "content" in tool_input:
             candidate = tool_input["content"]
@@ -445,7 +454,7 @@ def main() -> int:
             return 0
         raw = payload.get("tool_input", {}).get("file_path", "")
         path = Path(raw) if raw else None
-        if path is None or path.suffix != ".py" or not path.is_file():
+        if path is None or path.suffix != ".py" or not path.is_file() or _outside_repo(path.resolve()):
             return 0
         reports = check_file(path)
     for line in reports:
