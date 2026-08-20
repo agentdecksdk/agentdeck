@@ -28,5 +28,6 @@ Checklist of observable, testable behaviors (mapping 1:1 to deterministic tests 
 - **Title:** Terse and specific: `<area>: <what>` (e.g., `runtime: propagate cancellation to subagents`).
 - **Single concern:** One issue per topic; split unrelated asks.
 - **Check duplicates:** `gh issue list --state open`.
+- **Labels:** Select one type label (`bug`, `enhancement`, `feature`, `chore`, `design`, `documentation`, or `finding`) and the closest `area:*` label from `gh label list`.
 - **Output limits:** Keep text between tool calls to ≤25 words. Keep final responses to ≤100 words unless more detail is required.
-- Create via `gh issue create -t <title> -b <body>` and return the URL.
+- Create via `gh issue create -t <title> -b <body> --label <type> --label <area>` and verify the resulting issue has both labels before returning its URL.

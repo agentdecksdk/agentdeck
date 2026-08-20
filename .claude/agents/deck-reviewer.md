@@ -45,8 +45,13 @@ You review one agentdeck PR as the merge gate. REVIEW ONLY on the code: never pu
 
 ## Delivering the Review
 The review lives on the PR, not in your session:
-- Post it as a real GitHub review: `gh pr review <n> --approve` or `--request-changes`, body = the rubric (one line per dimension: `Pattern alignment / Reuse / Architecture / API surface / Concept budget / Comment quality / Tests`, PASS or the finding) plus the ranked findings, each classified **ERROR** (mechanically invalid, blocks), **WARNING** (likely quality regression, blocks unless justified), **NOTE** (possible simplification, does not block).
+- Post line-anchored findings first, then finish with a real COMMENTED GitHub review using `gh pr review <n> --comment --body-file <file>`. Approval and request-changes cannot be used when the agent authenticates as the PR author.
+- The body contains the rubric (one line per dimension: `Pattern alignment / Reuse / Architecture / API surface / Concept budget / Comment quality / Tests`, PASS or the finding) plus ranked findings classified **ERROR** (mechanically invalid, blocks), **WARNING** (likely quality regression, blocks unless justified), or **NOTE** (possible simplification, does not block).
+- When no ERROR or WARNING remains, end the review body with `<!-- agentdeck-review: pass -->`. Otherwise end it with `<!-- agentdeck-review: block -->`. Never emit the PASS marker for a conditional verdict or before `make check` succeeds.
+- The marker applies only to the reviewed head commit. Any later push requires a complete new review and a new comment.
 - Line-anchored findings additionally go inline: `gh api repos/{owner}/{repo}/pulls/<n>/comments -f body=... -f commit_id=$(gh pr view <n> --json headRefOid -q .headRefOid) -f path=<file> -F line=<line> -f side=RIGHT`.
+- After posting the marked review, rerun its trusted gate: extract the run ID from the `Agent review` check URL returned by `gh pr checks <n> --json name,link`, then run `gh run rerun <run-id>`. The gate runs only from base-branch workflow code, so a review submission does not trigger it directly.
 - File promotion issues per dimension 7.
+- Confirm the `Agent review` check turns green after posting PASS. A successful local review with no GitHub comment is incomplete.
 
 Return to the orchestrator (short): verdict, `make check` result, counts per finding class, links to the posted review and any promotion issues.

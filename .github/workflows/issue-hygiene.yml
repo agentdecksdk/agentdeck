@@ -1,0 +1,38 @@
+name: Issue hygiene
+
+on:
+  # This gate reads PR metadata only. Never check out or execute the proposed change.
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: issue-hygiene-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Issue hygiene
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require a labeled closing issue
+        if: github.event.pull_request.user.login != 'dependabot[bot]'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          IFS=/ read -r owner repo <<< "$GITHUB_REPOSITORY"
+          issues=$(gh api graphql \
+            -f query='query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$number){closingIssuesReferences(first:20){nodes{number labels(first:1){totalCount}}}}}}' \
+            -f owner="$owner" -f repo="$repo" -F number="$PR_NUMBER")
+          if ! jq -e '
+            .data.repository.pullRequest.closingIssuesReferences.nodes as $issues
+            | ($issues | length > 0) and ($issues | any(.labels.totalCount > 0))
+          ' <<< "$issues"; then
+            echo "::error::PR must close at least one labeled issue with a closing keyword."
+            exit 1
+          fi
