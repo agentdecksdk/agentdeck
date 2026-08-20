@@ -24,6 +24,9 @@ time would remove the tradeoff entirely and deserves its own issue.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+import generate_docs_reference as reference
 from generate_docs_reference import (
     CHANGELOG_PAGE,
     CLI_PAGE,
@@ -36,6 +39,9 @@ from generate_docs_reference import (
     render_llms_txt,
     render_settings_mdx,
 )
+
+if TYPE_CHECKING:
+    from pytest import MonkeyPatch
 
 _REGEN_HINT = "run `python scripts/generate_docs_reference.py` to regenerate it"
 
@@ -66,3 +72,16 @@ def test_llms_full_txt_can_be_regenerated() -> None:
     assert rendered.strip(), "llms-full.txt rendered empty"
     assert "docs_sources" not in rendered, "docs impact metadata leaked into the LLM export"
     assert LLMS_FULL_PAGE.exists(), f"{LLMS_FULL_PAGE} is missing  -  {_REGEN_HINT}"
+
+
+def test_aggregate_pages_use_content_from_the_same_generator_pass(monkeypatch: MonkeyPatch) -> None:
+    marker = "same-pass-changelog-marker"
+    monkeypatch.setattr(
+        reference,
+        "render_changelog_mdx",
+        lambda: f"---\ntitle: Changelog\ndescription: Notes.\n---\n\n{marker}\n",
+    )
+
+    pages = reference._generated_pages()
+
+    assert marker in pages[LLMS_FULL_PAGE]

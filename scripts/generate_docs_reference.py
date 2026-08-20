@@ -34,7 +34,7 @@ from agentdeck.runtime import settings as settings_module
 from agentdeck.runtime.settings import LayeredSettings
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
 
     from pydantic.fields import FieldInfo
 
@@ -320,9 +320,14 @@ project, a chat surface and a batch path over the same definitions, runs you mus
 afterwards, approvals that outlive the process that requested them."""
 
 
-def _page_meta(path: Path) -> tuple[str, str]:
+def _page_text(path: Path, generated: Mapping[Path, str] | None = None) -> str:
+    """Read a page, preferring content rendered earlier in this generator pass."""
+    return generated[path] if generated and path in generated else path.read_text()
+
+
+def _page_meta(path: Path, generated: Mapping[Path, str] | None = None) -> tuple[str, str]:
     """``(title, description)`` from a page's frontmatter, falling back to the slug."""
-    found = _FRONTMATTER.search(path.read_text())
+    found = _FRONTMATTER.search(_page_text(path, generated))
     fields = dict(_FIELD.findall(found.group(1))) if found else {}
     return fields.get("title", path.stem), fields.get("description", "")
 
@@ -354,7 +359,7 @@ def _site_pages() -> list[tuple[str, Path]]:
     return sorted(pages, key=lambda pair: rank(pair[0]))
 
 
-def render_llms_txt() -> str:
+def render_llms_txt(generated: Mapping[Path, str] | None = None) -> str:
     """`/llms.txt`  -  the llmstxt.org convention: what this is, then every page as a link.
 
     Small on purpose. A model or crawler reads this to decide *which* page to fetch; the whole
@@ -373,7 +378,7 @@ def render_llms_txt() -> str:
         "",
     ]
     for slug, path in _site_pages():
-        title, description = _page_meta(path)
+        title, description = _page_meta(path, generated)
         url = f"{SITE_URL}/{'' if slug == 'index' else slug}"
         out.append(f"- [{title}]({url}){': ' + description if description else ''}")
     out += [
@@ -387,7 +392,7 @@ def render_llms_txt() -> str:
     return "\n".join(out)
 
 
-def render_llms_full_txt() -> str:
+def render_llms_full_txt(generated: Mapping[Path, str] | None = None) -> str:
     """`/llms-full.txt`  -  every page's Markdown in one file, in reading order.
 
     Frontmatter becomes a heading and a line of prose so the file reads as a document rather than
@@ -404,8 +409,9 @@ def render_llms_full_txt() -> str:
         "",
     ]
     for slug, path in _site_pages():
-        title, description = _page_meta(path)
-        body = _DOCS_SOURCES.sub("", _JSX_ONLY.sub("", _FRONTMATTER.sub("", path.read_text(), count=1))).strip()
+        page = _page_text(path, generated)
+        title, description = _page_meta(path, generated)
+        body = _DOCS_SOURCES.sub("", _JSX_ONLY.sub("", _FRONTMATTER.sub("", page, count=1))).strip()
         url = f"{SITE_URL}/{'' if slug == 'index' else slug}"
         out += [f"# {title}", "", f"*{description}*" if description else "", f"Source: {url}", "", body, "", "---", ""]
     # The loop leaves a separator and a blank line after the last page, which `end-of-file-fixer`
@@ -415,13 +421,14 @@ def render_llms_full_txt() -> str:
 
 
 def _generated_pages() -> dict[Path, str]:
-    return {
+    pages = {
         SETTINGS_PAGE: render_settings_mdx(),
         CLI_PAGE: render_cli_mdx(),
         CHANGELOG_PAGE: render_changelog_mdx(),
-        LLMS_PAGE: render_llms_txt(),
-        LLMS_FULL_PAGE: render_llms_full_txt(),
     }
+    pages[LLMS_PAGE] = render_llms_txt(pages)
+    pages[LLMS_FULL_PAGE] = render_llms_full_txt(pages)
+    return pages
 
 
 def main(argv: list[str] | None = None) -> int:
