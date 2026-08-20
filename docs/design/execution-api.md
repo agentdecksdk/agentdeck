@@ -39,12 +39,12 @@ a workflow gets the orchestration half.
 |---|---|---|
 | `data` | ToolCtx | `Context.data`, unchanged |
 | `reporter` | ToolCtx | `Context.reporter`, new methods (below) |
-| `agent` | ToolCtx | new: the current `AgentInstance`, or `None` |
+| `agent` | ToolCtx | new: the current `AgentInstance`, or `None`. Lands with PR4 |
 | `safepoint()` | ToolCtx | `Context.checkpoint()`, renamed |
 | `invoke(target, input)` | WorkflowCtx | new |
 | `parallel(*runs)` | WorkflowCtx | new |
 | `ask(prompt)` / `approve(prompt)` | WorkflowCtx | new public form of today's langgraph interrupt |
-| `agents.create()` / `agents.fork()` | WorkflowCtx | deferred, see Out of scope |
+| `agents.create()` / `agents.fork()` | WorkflowCtx | new, and last: see Delivery |
 
 `ctx` does not grow into a runtime namespace. Nothing else goes on it without a ruling.
 
@@ -161,6 +161,21 @@ native workflow:
 suspendable in the `run.can` table, and it is also its ceiling: a parked body lives in one
 process, and surviving a restart is the deferred replay model.
 
+## Where LangGraph ends up
+
+It stops being the engine behind AgentDeck's own workflow concept and becomes one target the
+resolver knows.
+
+| | |
+|---|---|
+| imperative `@workflow` | a coroutine on the native engine. No graph, no checkpointer |
+| `Workflow(graph=...)` | a LangGraph graph a user brought, run through the LangGraph adapter |
+| a durable workflow | still a graph, because durable replay of an imperative body is deferred |
+
+That last row is what keeps `langgraph` a base dependency rather than an extra: it is currently
+the only way to get a workflow that survives a restart. Moving it behind an extra is a real
+follow-up and it waits on the replay model, not on this file.
+
 ## Reporter
 
 Four methods, one event kind.
@@ -199,7 +214,6 @@ The design this file was written from is adopted whole except:
 |---|---|---|
 | `Executor` protocol with `execute()` | `EnginePort`, unchanged | a parallel contract for what already exists |
 | `Suspendable` / `Cancelable` protocols | `EnginePort.suspendable` ClassVar | see Executor above |
-| `ctx.agents.create/fork` in the baseline | deferred | agent instances are #236's own lifecycle concept |
 | silent on durable replay | deferred, stated below | #336 requires it and the draft does not say how |
 | pause raises at every safepoint | a native workflow parks | a raise through an imperative body destroys the state that is the workflow |
 
@@ -211,7 +225,6 @@ and `ctx.approve()` instead, with no `ctx.pause()` at all, and both issues are u
 | deferred | why, and what unblocks it |
 |---|---|
 | durable replay of an imperative `@workflow` | v5.0.0 suspends and resumes in one process. A body that survives a restart without re-executing committed invocations needs an invocation journal; its own issue and design |
-| `ctx.agents.create()` / `fork()` | agent instances are a new lifecycle concept, and #236 already owns it |
 | durability for a wrapped LangGraph graph | #330: the checkpointer keys a thread by id alone, so a wrapped graph's durable identity crosses namespaces. Wrapping lands non-durable |
 | streaming / checkpointing capability protocols | nothing needs AgentDeck to control them yet |
 
@@ -222,6 +235,7 @@ and `ctx.approve()` instead, with no `ctx.pause()` at all, and both issues are u
 | 1 | this file | - |
 | 2 | `run.can`, strict lifecycle ops, `ToolCtx`/`WorkflowCtx`, `@tool`/`@workflow` validation, `ctx.invoke`/`parallel`/`safepoint`, child runs, reporter | #336 |
 | 3 | `InvocationResolver`, foreign executors (Agents SDK object, LangGraph graph, plain callable), `deck.runs.start(target)` | #337 |
+| 4 | `AgentInstance`, `ctx.agent`, `ctx.agents.create()` / `fork()` | #236 |
 
 Two lines PR2 does not cross:
 
