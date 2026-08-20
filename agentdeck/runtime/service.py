@@ -259,6 +259,13 @@ class Runtime:
         refusal, _ = await self._peek(ctx.id, status)
         if refusal.action is Action.REFUSE:
             raise RunStateError(f"run {run_id!r} cannot be answered: {refusal.why}")
+        # Before the claim, exactly as :meth:`resume_run` reads it before its own: a bail-out
+        # after the claim would leave a run flipped to RUNNING with nobody playing it, owed a
+        # terminal event forever and still holding its session.
+        started = await self._opening_of(ctx.log_key, run_id, ctx)
+        if started is None:
+            return
+        _, opened = started
         opening = await self._claim_resume(spec, ctx, value)
         if opening is None:
             return
@@ -274,10 +281,7 @@ class Runtime:
         # Read after the claim, so the ``run.resumed`` carrying the answer is in it: that event
         # is how the executor learns there is an answer at all, and what it is.
         history = await self._store.read(ctx.log_key, ctx)
-        started = _opening_payload(history, run_id)
-        if started is None:
-            return
-        stream = executor.execute(spec, started.input, history, ctx)
+        stream = executor.execute(spec, opened.input, history, ctx)
         async with aclosing(self._play(opening, stream, spec, ctx, executor, reports)) as resumed:
             async for event in resumed:
                 yield event
@@ -904,14 +908,6 @@ class Runtime:
         """
         for dispatch in self._sinks:
             await dispatch.submit(event)
-
-
-def _opening_payload(history: Sequence[Event], run_id: str) -> RunStarted | None:
-    """This run's own ``run.started`` out of a log that may hold a whole session's worth."""
-    for event in history:
-        if event.run_id == run_id and isinstance(event.payload, RunStarted):
-            return event.payload
-    return None
 
 
 def _failed(exc: Exception, engine: str) -> RunFailed:
