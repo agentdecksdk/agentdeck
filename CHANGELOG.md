@@ -78,6 +78,25 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   never be applied. An operation with nothing to do (pausing a paused run, cancelling a finished
   one) still returns quietly. `run.resume()` is strict on the same terms and no longer ignores a
   run that is waiting for an answer.
+- **A run that belongs to no conversation now belongs to no session.** `RunContext.log_key`
+  (`session_id or run_id`) is gone. It answered "which stream do these events go in" by encoding
+  two different things as one string, and a store handed it could not tell a session named after a
+  run from that run itself. Event stores hold a nullable `session_id` instead, and every
+  `EventStorePort` method takes `ctx` plus only what is genuinely not identity: `read(log_key, ctx)`
+  is `read_session(ctx)`, `read_run(log_key, run_id, ctx)` is `read_run(ctx)`,
+  `claim_resume(log_key, run_id, resumed, ctx, origin)` is `claim_resume(resumed, ctx, origin)`, and
+  `RunSummary.log_key` is `RunSummary.session_id`. A caller reading another run builds the context
+  for it (`replace(ctx, run_id=...)`). SQLite and Postgres migrate in place when the store opens.
+  **Redis does not**: its keys were shaped by the old encoding, so a Redis event log written by 4.x
+  is not read by 5.0. Drain or discard a Redis log before upgrading.
+
+### Fixed
+
+- **`deck.runs.get` no longer corrupts a session id that happens to equal a run id.** It recovered
+  the session by comparing the stored key against the run id, so a caller-chosen `session_id` that
+  matched came back as `None`.
+- **A busy standalone run no longer names a session that does not exist.** The refusal read
+  `session '<the run's own id>' is held by run '<the same id>'`; a run in no session now says so.
 
 ## [4.0.5] - 2026-08-19
 

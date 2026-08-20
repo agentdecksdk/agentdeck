@@ -150,6 +150,20 @@ def _read_sessions(root: Path, sessions: Sequence[str]) -> dict[str, list[Event]
     return asyncio.run(_read())
 
 
+def _read_runs(root: Path, run_ids: Sequence[str]) -> dict[str, list[Event]]:
+    """The same fresh-connection read for a run that belongs to no session: it has no session
+    log to be found in, so it is asked for by name."""
+
+    async def _read() -> dict[str, list[Event]]:
+        store = SqliteEventStore(worker.events_db(root))
+        try:
+            return {run_id: await store.read_run(worker.context(run_id)) for run_id in run_ids}
+        finally:
+            store.close()
+
+    return asyncio.run(_read())
+
+
 def _claim_windows(root: Path) -> dict[str, list[tuple[int, int]]]:
     """Every claim attempt, keyed by whatever it contended for  -  a run for a resume, a session
     for a start  -  as the (start, end) wall-clock nanoseconds the worker recorded around it."""
@@ -268,7 +282,7 @@ def test_a_cancel_racing_completion_leaves_exactly_one_terminal_event_with_nothi
     # trial's ``cancel_run_id``. "a" left the real one on disk for this to read.
     sync = tmp_path / "sync"
     real_ids = [worker.runid_file(sync, worker.cancel_run_id(trial)).read_text() for trial in range(CANCEL_TRIALS)]
-    logs = _read_sessions(tmp_path, real_ids)
+    logs = _read_runs(tmp_path, real_ids)
     winners: Counter[str] = Counter()
 
     for trial in range(CANCEL_TRIALS):
@@ -486,12 +500,11 @@ def test_a_restart_continues_a_killed_processs_log_without_resetting_seq(tmp_pat
     suspended_id = worker.runid_file(sync, worker.RESTART_SUSPENDED).read_text()
     killed_id = worker.runid_file(sync, worker.RESTART_KILLED).read_text()
 
-    logs = _read_sessions(tmp_path, [worker.RESTART_LOG, killed_id])
-    log = logs[worker.RESTART_LOG]
+    log = _read_sessions(tmp_path, [worker.RESTART_LOG])[worker.RESTART_LOG]
     resumed = [event for event in log if event.run_id == suspended_id]
-    # A log of its own, because the victim's suspended run still holds the session and one
+    # No session of its own, because the victim's suspended run still holds that one and a
     # session takes one turn at a time: a second run there would have been refused, not killed.
-    killed = logs[killed_id]
+    killed = _read_runs(tmp_path, [killed_id])[killed_id]
 
     # Its seq check is the one that matters here: a resume that restarted the counter would
     # give 0,1,2,0,1,2,3  -  no gaps to find, and still wrong.

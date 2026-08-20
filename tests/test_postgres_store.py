@@ -68,7 +68,7 @@ async def keyspace() -> AsyncIterator[tuple[str, str]]:
         yield pair
 
 
-async def _warm(first: PostgresEventStore, second: PostgresEventStore, session_id: str, ctx: RunContext) -> None:
+async def _warm(first: PostgresEventStore, second: PostgresEventStore, ctx: RunContext) -> None:
     """Connect and set both stores up *before* the race, so neither starts one behind.
 
     A cold store's first call connects, waits the schema-setup lock and runs four DDL
@@ -122,14 +122,13 @@ async def test_two_connections_settle_a_resume_claim_on_one_winner(keyspace: tup
         # unique index to (namespace, run_id, seq) with no session_id in it, so reusing one run_id
         # across trials would collide against the previous trial's own rows instead of testing
         # this trial's race.
-        ctx = _ctx(run_id=f"r-{trial}")
-        session_id = f"s-{trial}"
+        ctx = _ctx(run_id=f"r-{trial}", session_id=f"s-{trial}")
         seeder = PostgresEventStore(dsn, schema=schema)
         await seeder.append([_started(), _interrupted()], ctx, ORIGIN)
         await seeder.aclose()
 
         first, second = PostgresEventStore(dsn, schema=schema), PostgresEventStore(dsn, schema=schema)
-        await _warm(first, second, session_id, ctx)
+        await _warm(first, second, ctx)
         try:
             outcomes = await asyncio.gather(
                 first.claim_resume(RunResumed(reason=None), ctx, ORIGIN),
@@ -153,18 +152,13 @@ async def test_two_connections_settle_a_session_claim_on_one_winner(keyspace: tu
         # Fresh run_ids per trial for the same reason as the resume race above: #324's tightened
         # index has no session_id in it, so "r-a"/"r-b" reused across trials would collide with an
         # earlier trial's own rows rather than exercising this trial's race.
-        ctx = _ctx()
-        session_id = f"s-{trial}"
+        ctx = _ctx(session_id=f"s-{trial}")
         first, second = PostgresEventStore(dsn, schema=schema), PostgresEventStore(dsn, schema=schema)
-        await _warm(first, second, session_id, ctx)
+        await _warm(first, second, ctx)
         try:
             outcomes = await asyncio.gather(
-                first.claim_start(
-                    session_id, _started(), _ctx(run_id=f"r-a-{trial}", session_id=session_id), ORIGIN, NOTHING_IS_STALE
-                ),
-                second.claim_start(
-                    session_id, _started(), _ctx(run_id=f"r-b-{trial}", session_id=session_id), ORIGIN, NOTHING_IS_STALE
-                ),
+                first.claim_start(_started(), replace(ctx, run_id=f"r-a-{trial}"), ORIGIN, NOTHING_IS_STALE),
+                second.claim_start(_started(), replace(ctx, run_id=f"r-b-{trial}"), ORIGIN, NOTHING_IS_STALE),
             )
             stored = await first.read_session(ctx)
         finally:
