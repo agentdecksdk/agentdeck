@@ -58,6 +58,8 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - name: Verify tag matches pyproject version
         run: |
           version=$(uv run --no-project python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
@@ -71,7 +73,7 @@ jobs:
         # narrower one.
         run: |
           uv pip install -e ".[dev,serve,durability,observability]"
-          .venv/bin/python -c "import langgraph.checkpoint.sqlite, langfuse, psycopg, redis"
+          .venv/bin/python -c "import fastapi, uvicorn, langgraph.checkpoint.sqlite, langfuse, psycopg, redis"
           .venv/bin/ruff check agentdeck/ tests/
           .venv/bin/ty check agentdeck
           .venv/bin/lint-imports

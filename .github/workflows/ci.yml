@@ -80,6 +80,8 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
       # durability pulls in the sqlite checkpointer that the langgraph half of the
       # contract suite and UC2's kill/restart/approve tests need — omitting it here
       # let ~16 tests skip silently in the gate of record for months (#33).
@@ -93,7 +95,7 @@ jobs:
       # extra silently failed to install, every test guarding on it turns into a skip and the
       # gate goes green having measured nothing (#33, #142).
       - name: Every guarded extra is importable
-        run: .venv/bin/python -c "import langgraph.checkpoint.sqlite, langfuse, psycopg, redis"
+        run: .venv/bin/python -c "import fastapi, uvicorn, langgraph.checkpoint.sqlite, langfuse, psycopg, redis"
       - name: Lint
         run: .venv/bin/ruff check agentdeck/ tests/
       - name: Typecheck
