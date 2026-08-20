@@ -51,6 +51,7 @@ from agentdeck.core.content import AudioBlock, DataBlock, ImageBlock, ResourceBl
 from agentdeck.core.control import ControlSignalled
 from agentdeck.core.events import RunCompleted, Usage, UsageReported
 from agentdeck.core.ports import Executor
+from agentdeck.core.status import Play, continuation_of
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
@@ -121,13 +122,18 @@ class OpenAIAgentsExecutor(Executor):
         self._settings = settings or RunSettings()
         self._sandbox = sandbox
 
-    async def start(
+    async def execute(
         self,
         spec: InvocableSpec,
         input: Input,
         history: Sequence[Event],
         ctx: RunContext,
     ) -> AsyncGenerator[KnownPayload, None]:
+        if continuation_of(history, ctx.run_id).play is Play.ANSWER:
+            # M0 scope is UC1's plain chat, which never suspends, so no run of this executor is
+            # ever waiting on an answer. Raising (not a silent no-op) matches the Runtime's own
+            # rule that an answer only ever reaches a run that suspended.
+            raise ConfigError(f"the openai-agents executor has no interrupts to answer: {spec.name!r} never suspends")
         agent = _agent_of(spec)
         session = self._session(ctx)
         if session is not None:
@@ -211,19 +217,6 @@ class OpenAIAgentsExecutor(Executor):
 
     def _terminal(self, result: RunResultStreaming) -> Sequence[KnownPayload]:
         return (_run_completed(result),)
-
-    async def resume(
-        self,
-        spec: InvocableSpec,
-        thread_id: str,
-        value: Any,
-        ctx: RunContext,
-    ) -> AsyncGenerator[KnownPayload, None]:
-        # M0 scope is UC1's plain chat, which never suspends  -  there is no interrupted run
-        # for this engine to continue. Raising (not a silent no-op) matches the Runtime's
-        # own rule that this method is only ever called on a WAITING_ANSWER run.
-        raise ConfigError(f"openai-agents engine (M0) has no interrupts to resume: {spec.name!r} never suspends")
-        yield  # pragma: no cover  -  makes this an async generator; never reached
 
 
 def _usage_reported(event: Any) -> KnownPayload | None:

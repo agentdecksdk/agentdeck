@@ -994,7 +994,6 @@ class Deck:
         result, applied = await _workflow_result(
             runtime.resume(
                 pending.invocable,
-                pending.thread_id,
                 value,
                 context=context,
                 run_id=pending.run_id,
@@ -1085,7 +1084,6 @@ class Deck:
                     result, applied = await _workflow_result(
                         runtime.resume(
                             logged_run.invocable,
-                            logged_run.thread_id,
                             # The payload's own ISO string, not the parsed `wake_at`: this value
                             # also becomes the logged `run.resumed`, and a bare `datetime` fails
                             # that event's JSON validation  -  recorded as a lost answer, with a

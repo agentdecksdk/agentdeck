@@ -236,12 +236,12 @@ class _ReportingStub(StubExecutor):
     """A scripted run that reports between its payloads  -  the surface must not care which
     engine did it, so the cheapest one is the honest choice here."""
 
-    async def start(
+    async def execute(
         self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
     ) -> AsyncGenerator[KnownPayload, None]:
         await ctx.reporter.info("Searching GitHub")
         await ctx.reporter.report("issues_reviewed", current=2, total=4)
-        async for payload in super().start(spec, input, history, ctx):
+        async for payload in super().execute(spec, input, history, ctx):
             yield payload
 
 

@@ -50,7 +50,7 @@ from agentdeck.core.content import DataBlock, TextBlock
 from agentdeck.core.control import ControlSignalled
 from agentdeck.core.events import Custom, NodeUpdated, RunCompleted, RunInterrupted, Usage
 from agentdeck.core.ports import Executor
-from agentdeck.core.status import LIFECYCLE_KINDS
+from agentdeck.core.status import Play, continuation_of
 from agentdeck.errors import DOCS_URL, ConfigError
 
 if TYPE_CHECKING:
@@ -142,30 +142,30 @@ class LangGraphExecutor(Executor):
         self._workspace = workspace
         self._compiled: dict[str, CompiledStateGraph[Any, Any, Any, Any]] = {}
 
-    async def start(
+    async def execute(
         self,
         spec: InvocableSpec,
         input: Input,
         history: Sequence[Event],
         ctx: RunContext,
     ) -> AsyncGenerator[KnownPayload, None]:
-        thread_id = self._thread_id(ctx)
-        # ``resume_run`` re-enters a paused run through this same method (ADR-D5: the engine
-        # loads its own execution state, the Runtime does not carry it)  -  its own claim is the
-        # ``run.resumed`` this history now ends on, right after the ``run.paused`` this engine
-        # wrote. Filtered to ``ctx.run_id``, not just the kind: ``history`` is
-        # ``Runtime.run()``'s whole *session* log (``log_key`` is ``session_id or run_id``),
-        # read before this run's own claim closes out whatever the session's previous run left
-        # behind  -  so an abandoned run's stale ``[..., "run.paused", "run.resumed"]`` tail is
-        # still sitting there when a genuinely new run starts on the same session. Without the
-        # ``run_id`` filter that stranger's tail reads as this run continuing a pause, and a
-        # fresh run's own input is silently discarded in favor of someone else's checkpoint.
-        lifecycle = [event.kind for event in history if event.kind in LIFECYCLE_KINDS and event.run_id == ctx.run_id]
-        graph_input = (
-            await self._continue_from_pause(spec, thread_id)
-            if lifecycle[-2:] == ["run.paused", "run.resumed"]
-            else _to_graph_input(input)
-        )
+        """Three ways in, one method: the graph's own input, a continuation of the thread's last
+        checkpoint (a lifted pause), or the ``Command`` that answers an interrupt.
+
+        Which one is the log's to say (:func:`~agentdeck.core.status.continuation_of`), and so
+        is the thread an answer lands on: this executor wrote that ``thread_id`` onto its own
+        ``run.interrupted``, and reading it back is what keeps a caller-named thread
+        (``POST /workflows/X?thread_id=t``) answering the thread it actually paused.
+        """
+        continuation = continuation_of(history, ctx.run_id)
+        thread_id = continuation.thread_id or self._thread_id(ctx)
+        match continuation.play:
+            case Play.ANSWER:
+                graph_input: Any = Command(resume=continuation.answer)
+            case Play.REPLAY:
+                graph_input = await self._continue_from_pause(spec, thread_id)
+            case Play.FRESH:
+                graph_input = _to_graph_input(input)
         # aclosing at every delegation: closing an async generator unwinds its own frame only,
         # so an inner one iterated with a bare `async for` is abandoned to the GC  -  which
         # finalizes it in a fresh context, where a ContextVar reset (the workspace scope
@@ -202,17 +202,6 @@ class LangGraphExecutor(Executor):
                 f"Set `durable = True` on the workflow, with a durable checkpoint backend  -  see {_WORKFLOWS_DOCS}",
             )
         return None
-
-    async def resume(
-        self,
-        spec: InvocableSpec,
-        thread_id: str,
-        value: Any,
-        ctx: RunContext,
-    ) -> AsyncGenerator[KnownPayload, None]:
-        async with aclosing(self._drive(spec, Command(resume=value), thread_id, ctx)) as stream:
-            async for payload in stream:
-                yield payload
 
     def _thread_id(self, ctx: RunContext) -> str:
         """Which langgraph thread this run plays on: the session's, or its own.

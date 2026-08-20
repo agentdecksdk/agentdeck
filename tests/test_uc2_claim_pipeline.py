@@ -184,7 +184,6 @@ async def test_langgraph_transcript_fidelity() -> None:
         event
         async for event in runtime.resume(
             "ClaimPipeline",
-            thread_id,
             "approved",
             run_id=run_id,
             session_id=(ctx).session_id,
@@ -273,7 +272,7 @@ async def main():
         async for event in runtime.run("ClaimPipeline", coerce_input("claim 9911"), session_id=(ctx).session_id, namespace=(ctx).namespace):
             print(event.kind)
     else:
-        async for event in runtime.resume("ClaimPipeline", sys.argv[4], "approved", run_id=sys.argv[5], session_id=(ctx).session_id, namespace=(ctx).namespace):
+        async for event in runtime.resume("ClaimPipeline", "approved", run_id=sys.argv[5], session_id=(ctx).session_id, namespace=(ctx).namespace):
             print(event.kind)
 
 

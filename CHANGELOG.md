@@ -35,6 +35,17 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `SUPPORTED_MAJORS` (`{3, 4}`) rather than against its own version alone, because the envelope is
   identical between the two and only payload kinds moved. Upgrading to v5 reads every log v4
   wrote; rolling back to v4 refuses a v5 log by name. No store migration, no replay.
+- **One executor method: `execute`.** `start` and `resume` are one call. `resume` was never the
+  pause's resume  -  lifting a pause already re-entered `start` with the log as history  -  so it
+  existed only to answer an interrupt, which the log already records: the answer rides on
+  `run.resumed` and the thread on `run.interrupted`. An executor now reads which of the three
+  plays it is (fresh, a replayed pause, an answered interrupt) off `history`, and
+  `Runtime.resume(...)` no longer takes a `thread_id`. A custom executor implements one method,
+  and a target that never suspends implements nothing extra.
+- **An answer the log cannot hold is refused.** `run.answer(...)` with a value JSON cannot carry
+  used to log a warning, record nothing, and hand the value to the engine in memory anyway  -  a
+  run resumed on an answer no replay and no other process could reproduce. It raises `ValueError`
+  now, before anything is claimed, and the run stays answerable.
 - **The engine port is `Executor`.** `agentdeck.core.ports.EnginePort` becomes `Executor`,
   `adapters/engines/` becomes `adapters/executors/`, `LangGraphEngine`/`OpenAIAgentsEngine`/
   `StubEngine` become `LangGraphExecutor`/`OpenAIAgentsExecutor`/`StubExecutor`, and

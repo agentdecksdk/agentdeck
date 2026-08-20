@@ -51,7 +51,7 @@ def _ctx() -> RunContext:
 
 
 async def _completed(input: Input, spec: InvocableSpec | None = None) -> RunCompleted:
-    payloads = [payload async for payload in LangGraphExecutor().start(spec or _spec(), input, [], _ctx())]
+    payloads = [payload async for payload in LangGraphExecutor().execute(spec or _spec(), input, [], _ctx())]
     terminal = payloads[-1]
     assert isinstance(terminal, RunCompleted)
     return terminal

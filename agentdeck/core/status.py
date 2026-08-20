@@ -18,9 +18,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from agentdeck.core.events import TERMINAL_KINDS
+from agentdeck.core.content import answer_of
+from agentdeck.core.events import TERMINAL_KINDS, RunInterrupted, RunResumed
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -295,6 +296,55 @@ def status_of(events: Sequence[Event]) -> RunStatus | None:
     for event in events:
         status = TRANSITIONS.get(event.kind, status)
     return status
+
+
+class Play(StrEnum):
+    """Which of the three ways an executor is being entered."""
+
+    FRESH = "fresh"
+    REPLAY = "replay"
+    ANSWER = "answer"
+
+
+@dataclass(frozen=True, slots=True)
+class Continuation:
+    """What the log says an :meth:`~agentdeck.core.ports.Executor.execute` call is.
+
+    Read off the log rather than passed as arguments: the Runtime writes the transition that
+    decides all three before it calls, so a parameter saying the same thing could only ever
+    disagree with the record. ``answer`` and ``thread_id`` are set for :attr:`Play.ANSWER`
+    alone  -  the value the interrupt was answered with, and the thread the executor itself
+    wrote onto that interrupt.
+    """
+
+    play: Play
+    answer: Any = None
+    thread_id: str | None = None
+
+
+def continuation_of(history: Sequence[Event], run_id: str) -> Continuation:
+    """Which play this is, for the run ``run_id``, and what it carries.
+
+    A ``run.resumed`` is always the last lifecycle event of a continuation, because the claim
+    that opens one is what wrote it. What precedes it says which continuation: a lifted pause
+    replays the run from its own input, an answered interrupt carries a value.
+
+    Filtered to this run, never merely to the kinds: ``history`` is the whole *session* log, so
+    an abandoned run's stale ``[run.paused, run.resumed]`` tail is still sitting in it when a
+    genuinely new run starts on the same session. Unfiltered, that stranger's tail reads as this
+    run continuing, and the fresh run's own input is silently discarded.
+    """
+    mine = [event for event in history if event.run_id == run_id and event.kind in LIFECYCLE_KINDS]
+    if len(mine) < 2 or mine[-1].kind != "run.resumed":
+        return Continuation(Play.FRESH)
+    if mine[-2].kind != "run.interrupted":
+        return Continuation(Play.REPLAY)
+    resumed, interrupted = mine[-1].payload, mine[-2].payload
+    return Continuation(
+        Play.ANSWER,
+        answer=answer_of(resumed.value) if isinstance(resumed, RunResumed) else None,
+        thread_id=interrupted.thread_id if isinstance(interrupted, RunInterrupted) else None,
+    )
 
 
 def can_resume(status: RunStatus | None) -> bool:

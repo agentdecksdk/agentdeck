@@ -35,7 +35,7 @@ from agentdeck.core.events import (
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports import EventSinkPort, SessionClaim
-from agentdeck.core.status import RunStatus, status_of
+from agentdeck.core.status import Play, RunStatus, continuation_of, status_of
 from agentdeck.errors import DOCS_URL, ConfigError, NotFoundError, SessionBusyError, StoreError
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import RuntimeSettings, reset_settings_cache
@@ -178,7 +178,7 @@ async def test_sinks_see_the_resume_events_too_not_just_the_opening_run() -> Non
     resumed = [
         event
         async for event in runtime.resume(
-            "Approver", "t1", "approved", run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
+            "Approver", "approved", run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
         )
     ]
     await runtime.drain()
@@ -350,7 +350,7 @@ async def test_the_engine_receives_the_history_the_store_holds() -> None:
     seen_history: list[list[Event]] = []
 
     class Nosy(StubExecutor):
-        async def start(
+        async def execute(
             self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
         ) -> AsyncGenerator[KnownPayload, None]:
             seen_history.append(list(history))
@@ -445,12 +445,12 @@ class _Blocking(StubExecutor):
         self.entered = asyncio.Event()
         self.release = asyncio.Event()
 
-    async def start(
+    async def execute(
         self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
     ) -> AsyncGenerator[KnownPayload, None]:
         self.entered.set()
         await self.release.wait()
-        async for payload in super().start(spec, input, history, ctx):
+        async for payload in super().execute(spec, input, history, ctx):
             yield payload
 
 
@@ -471,10 +471,10 @@ class _Stalling(StubExecutor):
         self.quiet = asyncio.Event()
         self.release = asyncio.Event()
 
-    async def start(
+    async def execute(
         self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
     ) -> AsyncGenerator[KnownPayload, None]:
-        stream = super().start(spec, input, history, ctx)
+        stream = super().execute(spec, input, history, ctx)
         if not self._entered_quiet:
             self._entered_quiet = True
             yield await anext(stream)
@@ -1022,23 +1022,24 @@ class _Reporting(StubExecutor):
     def __init__(self, before: int = 1) -> None:
         self._before = before
 
-    async def start(
+    async def execute(
         self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
     ) -> AsyncGenerator[KnownPayload, None]:
+        # An answered play reports before its first payload, since a resumed script may have
+        # only one left; a fresh one reports between two, which is where the drain's ordering
+        # is worth asserting.
+        if continuation_of(history, ctx.run_id).play is Play.ANSWER:
+            await ctx.reporter.info("Searching GitHub")
+            await ctx.reporter.report("issues_reviewed", current=2, total=4)
+            async for payload in super().execute(spec, input, history, ctx):
+                yield payload
+            return
         played = 0
-        async for payload in super().start(spec, input, history, ctx):
+        async for payload in super().execute(spec, input, history, ctx):
             if played == self._before:
                 await ctx.reporter.info("Searching GitHub")
                 await ctx.reporter.report("issues_reviewed", current=2, total=4)
             played += 1
-            yield payload
-
-    async def resume(
-        self, spec: InvocableSpec, thread_id: str, value: object, ctx: RunContext
-    ) -> AsyncGenerator[KnownPayload, None]:
-        await ctx.reporter.info("Searching GitHub")
-        await ctx.reporter.report("issues_reviewed", current=2, total=4)
-        async for payload in super().resume(spec, thread_id, value, ctx):
             yield payload
 
 
@@ -1109,7 +1110,7 @@ async def test_two_concurrent_runs_never_drain_each_others_reports() -> None:
     release = asyncio.Event()
 
     class _Interleaved(StubExecutor):
-        async def start(
+        async def execute(
             self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
         ) -> AsyncGenerator[KnownPayload, None]:
             await ctx.reporter.info(f"working on {ctx.session_id}")
@@ -1148,7 +1149,7 @@ async def test_a_resumed_run_can_report_too() -> None:
     resumed = [
         event
         async for event in runtime.resume(
-            "Asker", "t-1", "yes", run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
+            "Asker", "yes", run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
         )
     ]
 
@@ -1240,7 +1241,6 @@ async def test_the_answer_is_in_the_log_before_the_engine_has_been_asked_for_any
 
     resuming = runtime.resume(
         "Approver",
-        "t1",
         {"approved": True, "note": "ship it"},
         run_id=run_id,
         session_id=CTX.session_id,
@@ -1262,7 +1262,7 @@ async def test_a_text_answer_is_recorded_the_way_a_turn_s_own_input_is() -> None
     ]
     run_id = opened[0].run_id
     async for _ in runtime.resume(
-        "Approver", "t1", "approved", run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
+        "Approver", "approved", run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
     ):
         pass
 
@@ -1280,7 +1280,6 @@ async def test_an_answer_already_in_blocks_is_recorded_as_those_blocks() -> None
     run_id = opened[0].run_id
     async for _ in runtime.resume(
         "Approver",
-        "t1",
         [TextBlock(text="approved")],
         run_id=run_id,
         session_id=CTX.session_id,
@@ -1300,9 +1299,7 @@ async def test_an_empty_array_answer_is_data_not_content_with_no_blocks() -> Non
         event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
     run_id = opened[0].run_id
-    async for _ in runtime.resume(
-        "Approver", "t1", [], run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
-    ):
+    async for _ in runtime.resume("Approver", [], run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace):
         pass
 
     resumed = next(event for event in await store.read(CTX.log_key, CTX) if event.kind == "run.resumed")
@@ -1317,9 +1314,7 @@ async def test_a_resume_with_nothing_to_answer_records_no_value() -> None:
         event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
     run_id = opened[0].run_id
-    async for _ in runtime.resume(
-        "Approver", "t1", None, run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
-    ):
+    async for _ in runtime.resume("Approver", None, run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace):
         pass
 
     resumed = next(event for event in await store.read(CTX.log_key, CTX) if event.kind == "run.resumed")
@@ -1351,27 +1346,25 @@ class Elementwise:
         pytest.param(Elementwise(), id="array-like"),
     ],
 )
-async def test_an_answer_the_log_cannot_hold_is_reported_rather_than_failing_the_resume(
+async def test_an_answer_the_log_cannot_hold_is_refused_rather_than_dropped(
     value: object,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The declared ceiling: JSON is what the log can carry, so a value outside it records
-    nothing  -  and says which run, because a silent skip leaves the log looking exactly like the
-    bug this field fixed."""
+    """The declared ceiling: JSON is what the log can carry, and the log is where the executor
+    reads the answer back from (``docs/design/execution-api.md``). A value outside it used to be
+    dropped with a warning while the run resumed on it anyway  -  an answer no replay, and no
+    other process, could ever reproduce. It is refused now, before anything is claimed."""
     runtime, store = _approver()
     opened = [
         event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
     run_id = opened[0].run_id
-    with caplog.at_level(logging.WARNING):
-        events = [
-            event
-            async for event in runtime.resume(
-                "Approver", "t1", value, run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
-            )
-        ]
 
-    assert [event.kind for event in events] == ["run.resumed", "run.completed"]
-    resumed = next(event for event in await store.read(CTX.log_key, CTX) if event.kind == "run.resumed")
-    assert resumed.payload.value is None
-    assert f"the answer for run {run_id} is a" in caplog.text
+    with pytest.raises(ValueError, match="cannot be recorded"):
+        async for _ in runtime.resume(
+            "Approver", value, run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
+        ):
+            pass
+
+    # Nothing was claimed: the run is still waiting, and whoever holds a serializable answer
+    # can still land it.
+    assert status_of(await store.read(CTX.log_key, CTX)) is RunStatus.WAITING_ANSWER

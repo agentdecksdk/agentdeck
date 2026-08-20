@@ -78,7 +78,7 @@ async def test_a_run_plays_the_declared_model_not_the_configured_one():
     engine = OpenAIAgentsExecutor(ExecutionStore(), settings=RunSettings(model="configured-default"))
 
     with patch_model(provider_model):
-        async for _ in engine.start(spec, coerce_input("hi"), [], _ctx()):
+        async for _ in engine.execute(spec, coerce_input("hi"), [], _ctx()):
             pass
 
     assert declared.calls == 1
@@ -102,7 +102,7 @@ async def test_a_run_still_plays_the_configured_model_when_the_agent_declares_no
     engine = OpenAIAgentsExecutor(ExecutionStore(), settings=RunSettings(model="configured-default"))
 
     with patch_model(configured_model):
-        async for _ in engine.start(spec, coerce_input("hi"), [], _ctx()):
+        async for _ in engine.execute(spec, coerce_input("hi"), [], _ctx()):
             pass
 
     assert configured_model.calls == 1

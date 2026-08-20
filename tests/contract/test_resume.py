@@ -48,13 +48,14 @@ async def test_resume_continues_seq_with_exactly_one_terminal_event_at_the_end(
         )
     ]
     run_id = opening[0].run_id
-    thread_id = await _interrupt_thread_id(opening)
+    # The executor reads this off the log now, so what a caller owes is only that the
+    # interrupt carried one at all.
+    assert await _interrupt_thread_id(opening)
 
     resumed = [
         event
         async for event in runtime.resume(
             suspended_case.spec.name,
-            thread_id,
             RESUME_VALUE,
             run_id=run_id,
             session_id=ctx.session_id,
@@ -80,13 +81,14 @@ async def test_a_stray_resume_on_an_already_completed_run_is_a_noop(
         )
     ]
     run_id = opening[0].run_id
-    thread_id = await _interrupt_thread_id(opening)
+    # The executor reads this off the log now, so what a caller owes is only that the
+    # interrupt carried one at all.
+    assert await _interrupt_thread_id(opening)
 
     first = [
         event
         async for event in runtime.resume(
             suspended_case.spec.name,
-            thread_id,
             RESUME_VALUE,
             run_id=run_id,
             session_id=ctx.session_id,
@@ -99,7 +101,6 @@ async def test_a_stray_resume_on_an_already_completed_run_is_a_noop(
         event
         async for event in runtime.resume(
             suspended_case.spec.name,
-            thread_id,
             RESUME_VALUE,
             run_id=run_id,
             session_id=ctx.session_id,
@@ -119,14 +120,15 @@ async def test_two_concurrent_resumes_have_exactly_one_winner_and_no_duplicate_s
         )
     ]
     run_id = opening[0].run_id
-    thread_id = await _interrupt_thread_id(opening)
+    # The executor reads this off the log now, so what a caller owes is only that the
+    # interrupt carried one at all.
+    assert await _interrupt_thread_id(opening)
 
     async def _collect() -> list[Event]:
         return [
             event
             async for event in runtime.resume(
                 suspended_case.spec.name,
-                thread_id,
                 RESUME_VALUE,
                 run_id=run_id,
                 session_id=ctx.session_id,

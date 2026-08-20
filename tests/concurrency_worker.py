@@ -57,8 +57,11 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Sequence
     from datetime import timedelta
 
+    from agentdeck.core.content import Input
     from agentdeck.core.events import KnownPayload, RunResumed
     from agentdeck.core.ports import SessionClaim
+
+from agentdeck.core.status import Play, continuation_of
 
 TENANT = "demo"
 PRINCIPAL = "user:demo"
@@ -254,8 +257,8 @@ def chatty_spec(tag: str) -> InvocableSpec:
 
 
 class MarkingStub(StubExecutor):
-    """Appends a line every time ``resume`` is entered, so "node B ran exactly once" is a
-    fact about which process reached the engine and not only about what the log ended up
+    """Appends a line every time an answered play is entered, so "node B ran exactly once" is a
+    fact about which process reached the executor and not only about what the log ended up
     holding.
 
     Also refuses to yield its last (terminal) event until the peer's ``claim_resume`` has been
@@ -268,13 +271,17 @@ class MarkingStub(StubExecutor):
         self._sync = sync
         self._tag = tag
 
-    async def resume(
-        self, spec: InvocableSpec, thread_id: str, value: Any, ctx: RunContext
+    async def execute(
+        self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
     ) -> AsyncGenerator[KnownPayload, None]:
+        if continuation_of(history, ctx.run_id).play is not Play.ANSWER:
+            async for payload in super().execute(spec, input, history, ctx):
+                yield payload
+            return
         with self._marks.open("a") as handle:
             handle.write(f"{ctx.run_id}\n")
         pending: KnownPayload | None = None
-        async for payload in super().resume(spec, thread_id, value, ctx):
+        async for payload in super().execute(spec, input, history, ctx):
             if pending is not None:
                 yield pending
             pending = payload
@@ -575,7 +582,6 @@ async def _race_resume(tag: str, trials: int, root: Path) -> None:
                 event
                 async for event in runtime.resume(
                     APPROVER,
-                    THREAD_ID,
                     "approved",
                     run_id=real_id,
                     session_id=log_key,
@@ -800,7 +806,6 @@ async def _restart_successor(root: Path) -> None:
         event
         async for event in runtime.resume(
             APPROVER,
-            THREAD_ID,
             "approved",
             run_id=suspended_id,
             session_id=RESTART_LOG,
@@ -813,7 +818,6 @@ async def _restart_successor(root: Path) -> None:
         event
         async for event in runtime.resume(
             CHATTY,
-            THREAD_ID,
             "approved",
             run_id=killed_id,
             namespace=TENANT,

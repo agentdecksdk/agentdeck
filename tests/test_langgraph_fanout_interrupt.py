@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
+from plays import answered
 
 from agentdeck.adapters.executors.langgraph import LangGraphExecutor
 from agentdeck.core.content import DataBlock
@@ -74,7 +75,7 @@ def _ctx(run_id: str) -> RunContext:
 
 async def _start(engine: LangGraphExecutor, spec: InvocableSpec) -> list[KnownPayload]:
     input: Input = [DataBlock(data={"text": "approve?"})]
-    return [payload async for payload in engine.start(spec, input, [], _ctx("r-1"))]
+    return [payload async for payload in engine.execute(spec, input, [], _ctx("r-1"))]
 
 
 async def test_a_completed_siblings_update_reaches_the_log_before_the_pause() -> None:
@@ -105,7 +106,8 @@ async def test_resuming_still_reaches_the_merged_final_state() -> None:
     first = await _start(engine, spec)
     pause = next(p for p in first if isinstance(p, RunInterrupted))
 
-    resumed = [payload async for payload in engine.resume(spec, pause.thread_id, "yes", _ctx("r-1"))]
+    history = answered(pause, "yes", run_id="r-1", session_id="thread-fanout", origin=spec.name)
+    resumed = [payload async for payload in engine.execute(spec, [], history, _ctx("r-1"))]
 
     terminal = resumed[-1]
     assert isinstance(terminal, RunCompleted), terminal

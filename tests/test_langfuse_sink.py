@@ -431,7 +431,7 @@ async def test_an_interrupted_run_ships_its_half_and_the_resume_continues_the_sa
     async for event in runtime.run("Approver", INPUT, session_id=(CTX).session_id, namespace=(CTX).namespace):
         run_id = event.run_id
     async for _ in runtime.resume(
-        "Approver", "t1", "approved", run_id=run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
+        "Approver", "approved", run_id=run_id, session_id=(CTX).session_id, namespace=(CTX).namespace
     ):
         pass
     await runtime.drain()

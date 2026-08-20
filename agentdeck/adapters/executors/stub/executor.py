@@ -13,12 +13,13 @@ case without a second field on ``InvocableSpec``.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from agentdeck.core.control import ControlSignalled
 from agentdeck.core.events import RunInterrupted
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports import Executor
+from agentdeck.core.status import Play, continuation_of
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
@@ -35,51 +36,53 @@ type Step = KnownPayload | Exception
 class StubExecutor(Executor):
     """Plays ``spec.native`` back as a run. Scripts are reusable: payloads are immutable.
 
-    Honors the gate between steps, so run control is part of what this engine models rather
+    Honors the gate between steps, so run control is part of what this executor models rather
     than something only a real one can be tested against.
     """
 
     name: ClassVar[str] = "stub"
     suspendable: ClassVar[bool] = True
 
-    async def start(
+    async def execute(
         self,
         spec: InvocableSpec,
         input: Input,
         history: Sequence[Event],
         ctx: RunContext,
     ) -> AsyncGenerator[KnownPayload, None]:
-        for step in _script_of(spec):
+        """Play the script, or  -  when the log says an interrupt was just answered  -  whatever
+        the script has after that interrupt. A lifted pause replays from the top, which is what
+        a scripted run has instead of a checkpoint to come back to."""
+        for step in _resolve_script(spec, history, ctx.run_id):
             if isinstance(step, Exception):
                 raise step
             yield step
             if isinstance(step, RunInterrupted):
-                return  # suspend here; resume() plays whatever the script has after this
+                return  # suspend here; the answered play picks up after this
             try:
                 await ctx.gate.checkpoint()
             except ControlSignalled as signalled:
-                # Between two steps is this engine's stream_item boundary  -  the same safe
-                # point a real engine has between two translated items, which is what lets
-                # the contract suite hold both to one control contract.
+                # Between two steps is this executor's stream_item boundary  -  the same safe
+                # point a real one has between two translated items, which is what lets the
+                # contract suite hold both to one control contract.
                 for payload in signalled.payloads:
                     yield payload
                 return
 
-    async def resume(
-        self,
-        spec: InvocableSpec,
-        thread_id: str,
-        value: Any,
-        ctx: RunContext,
-    ) -> AsyncGenerator[KnownPayload, None]:
-        after_interrupt = False
-        for step in _script_of(spec):
-            if not after_interrupt:
-                after_interrupt = isinstance(step, RunInterrupted)
-                continue
-            if isinstance(step, Exception):
-                raise step
-            yield step
+
+def _resolve_script(spec: InvocableSpec, history: Sequence[Event], run_id: str) -> tuple[Step, ...]:
+    """The steps this play owes: all of them, or the tail after the interrupt an answer just
+    landed on."""
+    script = _script_of(spec)
+    if continuation_of(history, run_id).play is not Play.ANSWER:
+        return script
+    seen = False
+    rest: list[Step] = []
+    for step in script:
+        if seen:
+            rest.append(step)
+        seen = seen or isinstance(step, RunInterrupted)
+    return tuple(rest)
 
 
 def stub_spec(name: str, *steps: Step, kind: InvocableKind = InvocableKind.AGENT) -> InvocableSpec:

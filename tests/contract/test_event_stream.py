@@ -155,13 +155,11 @@ async def _played_out(case: Case, runtime: Runtime, ctx: RunContext) -> list[Eve
     if not events or not isinstance(events[-1].payload, RunInterrupted):
         return events
     run_id = events[0].run_id
-    thread_id = events[-1].payload.thread_id or run_id
     return events + [
         event
         async for event in _tolerant(
             runtime.resume(
                 case.spec.name,
-                thread_id,
                 "approved",
                 run_id=run_id,
                 session_id=ctx.session_id,

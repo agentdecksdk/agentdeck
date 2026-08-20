@@ -21,9 +21,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from pydantic import ValidationError
-
-from agentdeck.core.content import DataBlock, coerce_input
+from agentdeck.core.content import as_answer
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import CONTROL_POLL_INTERVAL, Gate, Signal
 from agentdeck.core.events import (
@@ -203,7 +201,7 @@ class Runtime:
             raise
 
         async with aclosing(
-            self._play(claimed, executor.start(spec, input, history, ctx), spec, ctx, executor, reports)
+            self._play(claimed, executor.execute(spec, input, history, ctx), spec, ctx, executor, reports)
         ) as run:
             async for event in run:
                 yield event
@@ -211,7 +209,6 @@ class Runtime:
     async def resume(
         self,
         name: str,
-        thread_id: str,
         value: Any,
         *,
         context: object = None,
@@ -230,11 +227,13 @@ class Runtime:
         atomic, so exactly one caller wins even when the callers are separate processes; the
         winner opens the run with ``run.resumed``, seq recovered from the log's own
         ``max(seq)`` so it stays contiguous across a process restart  -  never reset to 0.
-        From there the engine plays on exactly like ``run()`` plays an opening: same
-        terminal/suspended/exception handling.
+        From there the executor plays on exactly like ``run()`` plays an opening: same
+        terminal/suspended/exception handling  -  and through the same
+        :meth:`~agentdeck.core.ports.Executor.execute`, which reads the answer and the thread
+        off the log rather than taking either as an argument.
 
         A stray resume  -  already resumed by a racing caller, or a completed run  -  is a no-op:
-        nothing is read from the engine, nothing is yielded. A run an operator asked to *stop*
+        nothing is read from the executor, nothing is yielded. A run an operator asked to *stop*
         is not stray, and refuses instead: honoring the answer would let it silently override
         somebody who said stop. Both intents survive the refusal  -  the run is still waiting, and
         the pause is still pending for whoever reads next.
@@ -272,7 +271,13 @@ class Runtime:
         # Any other ruling plays the run on, including a pause that landed inside the window the
         # peek left open: the answer is recorded by now, so the run resumes and meets that pause
         # at its first safe point instead.
-        stream = executor.resume(spec, thread_id, value, ctx)
+        # Read after the claim, so the ``run.resumed`` carrying the answer is in it: that event
+        # is how the executor learns there is an answer at all, and what it is.
+        history = await self._store.read(ctx.log_key, ctx)
+        started = _opening_payload(history, run_id)
+        if started is None:
+            return
+        stream = executor.execute(spec, started.input, history, ctx)
         async with aclosing(self._play(opening, stream, spec, ctx, executor, reports)) as resumed:
             async for event in resumed:
                 yield event
@@ -339,7 +344,7 @@ class Runtime:
             yield await self._record(RunCancelled(reason=pending.reason), spec, run_ctx)
             return
         history = await self._store.read(summary.log_key, run_ctx)
-        stream = executor.start(spec, opened.input, history, run_ctx)
+        stream = executor.execute(spec, opened.input, history, run_ctx)
         async with aclosing(self._play(opening, stream, spec, run_ctx, executor, reports)) as resumed:
             async for event in resumed:
                 yield event
@@ -720,7 +725,7 @@ class Runtime:
         ``seq`` continues across a process restart rather than resetting, because the store
         assigns it from the run's own log (ADR-D11)  -  there is no counter here to recover.
         """
-        resumed = RunResumed(reason=reason, value=_as_content(value, ctx.run_id))
+        resumed = RunResumed(reason=reason, value=as_answer(value))
         event = await self._store.claim_resume(ctx.log_key, ctx.run_id, resumed, ctx, spec.name)
         if event is None:
             return None
@@ -901,34 +906,12 @@ class Runtime:
             await dispatch.submit(event)
 
 
-def _as_content(value: Any, run_id: str) -> Input | None:
-    """A resume answer as content blocks, so the log holds the input and not merely the fact
-    that one arrived.
-
-    Content stays content  -  the field's own type, so an approval typed at an inbox is the
-    ``TextBlock`` it was sent as rather than a data block wrapping one. Everything else is
-    JSON data, which is what a caller answering over HTTP or a graph resuming with a state
-    object actually sends. A value JSON cannot carry is the one case that records nothing:
-    losing the answer is better than failing a resume that would otherwise work, and the
-    warning says which run to go and look at.
-    """
-    if value is None:
-        return None
-    # `[]` reaches coerce_input's list branch vacuously, and recording it as content with no
-    # blocks would say an answer arrived and was blank. It is the empty JSON array: an answer.
-    # A type check, not a comparison: `!=` runs the caller's own `__ne__`, and an array-like
-    # answer (ndarray, Series) returns elementwise and then raises on `bool()`.
-    if not (isinstance(value, list) and not value):
-        try:
-            return coerce_input(value)
-        except TypeError:
-            pass
-    try:
-        return [DataBlock(data=value)]
-    except ValidationError:
-        # Not "was resumed": this runs before the claim, so the caller may still lose it.
-        logger.warning("the answer for run %s is a %s, which the log cannot hold", run_id, type(value).__name__)
-        return None
+def _opening_payload(history: Sequence[Event], run_id: str) -> RunStarted | None:
+    """This run's own ``run.started`` out of a log that may hold a whole session's worth."""
+    for event in history:
+        if event.run_id == run_id and isinstance(event.payload, RunStarted):
+            return event.payload
+    return None
 
 
 def _failed(exc: Exception, engine: str) -> RunFailed:

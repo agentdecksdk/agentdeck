@@ -67,7 +67,7 @@ def _ctx(run_id: str) -> RunContext:
 
 async def _seen(engine: LangGraphExecutor, spec: InvocableSpec, text: str, run_id: str) -> list[str]:
     input: Input = [DataBlock(data={"input": text})]
-    payloads = [payload async for payload in engine.start(spec, input, [], _ctx(run_id))]
+    payloads = [payload async for payload in engine.execute(spec, input, [], _ctx(run_id))]
     terminal = payloads[-1]
     assert isinstance(terminal, RunCompleted), terminal
     block = terminal.output[0]
@@ -99,7 +99,7 @@ async def test_a_durable_workflow_with_no_session_id_raises_naming_the_docs() ->
     ctx = RunContext(namespace="acme", run_id="r-1", session_id=None)
 
     with pytest.raises(ValueError, match="thread_id") as excinfo:
-        async for _ in engine.start(spec, [DataBlock(data={"input": "a"})], [], ctx):
+        async for _ in engine.execute(spec, [DataBlock(data={"input": "a"})], [], ctx):
             pass
 
     assert f"{DOCS_URL}/build-your-deck/workflows" in str(excinfo.value)

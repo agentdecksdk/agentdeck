@@ -7,7 +7,7 @@ ordering and isolation stay with the Runtime and an executor cannot get them wro
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Sequence
@@ -49,29 +49,31 @@ class Executor(ABC):
     """
 
     @abstractmethod
-    def start(
+    def execute(
         self,
         spec: InvocableSpec,
         input: Input,
         history: Sequence[Event],
         ctx: RunContext,
     ) -> AsyncGenerator[KnownPayload, None]:
-        """Play one run. ``history`` is the log so far, which is the record of the session  -
-        an executor that keeps its own execution state loads that itself (ADR-D5).
-        """
+        """Play one run of ``spec``.
 
-    @abstractmethod
-    def resume(
-        self,
-        spec: InvocableSpec,
-        thread_id: str,
-        value: Any,
-        ctx: RunContext,
-    ) -> AsyncGenerator[KnownPayload, None]:
-        """Continue a run this executor suspended with ``run.interrupted(thread_id=...)``.
+        ``input`` is what the run was opened with, unchanged however many times it is played.
+        ``history`` is the log so far, which is the record of the session  -  an executor that
+        keeps its own execution state loads that itself (ADR-D5)  -  and it is also what says
+        which of the three plays this call is
+        (:func:`~agentdeck.core.status.play_of`):
 
-        ``value`` answers the interrupt; ``thread_id`` is whatever the executor put on that
-        event, opaque to the Runtime. An executor with nothing to suspend on raises rather than
-        yielding  -  there is no run to continue. The Runtime calls this only after confirming the
-        run is waiting on a human answer, so a well-behaved one never sees a stray or duplicate.
+        =========  =================================================================
+        fresh      the run has not run yet, or ran and ended
+        replay     a pause was lifted, so the run is played again from ``input``
+        answer     an interrupt was answered, and the value is on the last
+                   ``run.resumed`` (:func:`~agentdeck.core.content.answer_of`)
+        =========  =================================================================
+
+        One method rather than a second one for the answer: a paused run is already replayed
+        through here, the log already carries both the answer and the ``thread_id`` this
+        executor wrote onto its own ``run.interrupted``, and an executor that never suspends
+        has nothing to implement twice. An executor that cannot take an answer raises on that
+        play  -  the Runtime only ever sends one to a run that suspended.
         """

@@ -89,25 +89,25 @@ async def _run_config_passed_to_runner(monkeypatch: pytest.MonkeyPatch) -> RunCo
 
     monkeypatch.setattr(executor_module, "Runner", _FakeRunner)
     engine = OpenAIAgentsExecutor(ExecutionStore())
-    async for _ in engine.start(_spec(), coerce_input("hi"), [], _ctx()):
+    async for _ in engine.execute(_spec(), coerce_input("hi"), [], _ctx()):
         pass
     return captured["run_config"]
 
 
-async def test_start_disables_tracing_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_execute_disables_tracing_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AGENTDECK_OPENAI_AGENTS_TRACING_ENABLED", raising=False)
     run_config = await _run_config_passed_to_runner(monkeypatch)
     assert run_config is not None
     assert run_config.tracing_disabled is True
 
 
-async def test_start_keeps_tracing_off_for_falsy_values(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_execute_keeps_tracing_off_for_falsy_values(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTDECK_OPENAI_AGENTS_TRACING_ENABLED", "false")
     run_config = await _run_config_passed_to_runner(monkeypatch)
     assert run_config.tracing_disabled is True
 
 
-async def test_start_enables_tracing_on_explicit_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_execute_enables_tracing_on_explicit_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTDECK_OPENAI_AGENTS_TRACING_ENABLED", "true")
     run_config = await _run_config_passed_to_runner(monkeypatch)
     assert run_config.tracing_disabled is False
@@ -134,7 +134,7 @@ async def _terminal(monkeypatch: pytest.MonkeyPatch, final_output: Any) -> RunCo
 
     monkeypatch.setattr(executor_module, "Runner", _FakeRunner)
     engine = OpenAIAgentsExecutor(ExecutionStore())
-    payloads = [payload async for payload in engine.start(_spec(), coerce_input("hi"), [], _ctx())]
+    payloads = [payload async for payload in engine.execute(_spec(), coerce_input("hi"), [], _ctx())]
     terminal = payloads[-1]
     assert isinstance(terminal, RunCompleted)
     return terminal
@@ -345,7 +345,7 @@ def test_the_sdk_converter_is_the_oracle_for_the_emitted_shape():
     ]
 
 
-async def test_start_hands_the_sdk_boundary_the_multimodal_item_verbatim(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_execute_hands_the_sdk_boundary_the_multimodal_item_verbatim(monkeypatch: pytest.MonkeyPatch) -> None:
     """Not just a unit test of ``_to_sdk_input`` in isolation  -  the exact value ``engine.start``
     passes ``Runner.run_streamed`` as its ``message`` argument."""
     captured: dict[str, Any] = {}
@@ -359,7 +359,7 @@ async def test_start_hands_the_sdk_boundary_the_multimodal_item_verbatim(monkeyp
     monkeypatch.setattr(executor_module, "Runner", _FakeRunner)
     engine = OpenAIAgentsExecutor(ExecutionStore())
     blocks = [TextBlock(text="what is this?"), ImageBlock(media_type="image/png", data_b64="AAAA")]
-    async for _ in engine.start(_spec(), blocks, [], _ctx()):
+    async for _ in engine.execute(_spec(), blocks, [], _ctx()):
         pass
 
     assert captured["message"] == [
@@ -373,7 +373,7 @@ async def test_start_hands_the_sdk_boundary_the_multimodal_item_verbatim(monkeyp
     ]
 
 
-async def test_start_raises_for_audio_under_responses_before_touching_the_sdk(
+async def test_execute_raises_for_audio_under_responses_before_touching_the_sdk(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _NeverCalledRunner:
@@ -384,5 +384,5 @@ async def test_start_raises_for_audio_under_responses_before_touching_the_sdk(
     monkeypatch.setattr(executor_module, "Runner", _NeverCalledRunner)
     engine = OpenAIAgentsExecutor(ExecutionStore())  # default settings: use_responses=True
     with pytest.raises(ConfigError, match="Responses API"):
-        async for _ in engine.start(_spec(), [AudioBlock(media_type="audio/wav", data_b64="AAAA")], [], _ctx()):
+        async for _ in engine.execute(_spec(), [AudioBlock(media_type="audio/wav", data_b64="AAAA")], [], _ctx()):
             pass

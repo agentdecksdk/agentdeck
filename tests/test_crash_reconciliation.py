@@ -335,8 +335,8 @@ async def test_two_turns_racing_on_one_session_apply_the_repair_once() -> None:
     history = await store.read(worker.SESSION_ID, worker.context("reader"))
     sessions.session.hold_reads_for_a_second_reader()
     raced = await asyncio.gather(
-        _drain(engine.start(spec, coerce_input(worker.QUESTION_3), history, worker.context("racer-a"))),
-        _drain(engine.start(spec, coerce_input(QUESTION_5), history, worker.context("racer-b"))),
+        _drain(engine.execute(spec, coerce_input(worker.QUESTION_3), history, worker.context("racer-a"))),
+        _drain(engine.execute(spec, coerce_input(QUESTION_5), history, worker.context("racer-b"))),
     )
 
     session_transcript = worker.transcript_of(await sessions.session.get_items())
