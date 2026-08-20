@@ -234,12 +234,12 @@ def _git(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str
     return subprocess.run(["git", *args], capture_output=True, text=True, cwd=cwd, timeout=10)
 
 
-def changed_lines(path: Path) -> set[int] | None:
-    """Line numbers changed vs HEAD; None means check every line (untracked or no git)."""
+def changed_lines(path: Path, base: str = "HEAD") -> set[int] | None:
+    """Line numbers changed vs base; None means check every line (untracked or no git)."""
     try:
         if _git("ls-files", "--error-unmatch", str(path), cwd=path.parent).returncode != 0:
             return None
-        diff = _git("diff", "HEAD", "-U0", "--", str(path), cwd=path.parent)
+        diff = _git("diff", base, "-U0", "--", str(path), cwd=path.parent)
         if diff.returncode != 0:
             return None
     except (OSError, subprocess.SubprocessError):
@@ -251,22 +251,22 @@ def changed_lines(path: Path) -> set[int] | None:
     return lines
 
 
-def check_file(path: Path, all_lines: bool = False) -> list[str]:
+def check_file(path: Path, all_lines: bool = False, base: str = "HEAD") -> list[str]:
     path = path.resolve()
     violations = check_source(path.read_text(encoding="utf-8"))
-    changed = None if all_lines else changed_lines(path)
+    changed = None if all_lines else changed_lines(path, base)
     if changed is not None:
         violations = [v for v in violations if v.touches(changed)]
     return [f"{path}:{v.start}: {v.rule}: {v.message}" for v in violations]
 
 
-def changed_py_files() -> list[Path]:
+def changed_py_files(base: str = "HEAD") -> list[Path]:
     try:
         root_proc = _git("rev-parse", "--show-toplevel")
         if root_proc.returncode != 0:
             return []
         root = Path(root_proc.stdout.strip())
-        tracked = _git("diff", "--name-only", "HEAD", cwd=root).stdout.splitlines()
+        tracked = _git("diff", "--name-only", base, cwd=root).stdout.splitlines()
         untracked = _git("ls-files", "--others", "--exclude-standard", cwd=root).stdout.splitlines()
     except (OSError, subprocess.SubprocessError):
         return []
@@ -274,20 +274,22 @@ def changed_py_files() -> list[Path]:
 
 
 def main() -> int:
-    argv_paths = [a for a in sys.argv[1:] if not a.startswith("-")]
-    if "--changed" in sys.argv:
+    args = sys.argv[1:]
+    base = args[args.index("--base") + 1] if "--base" in args else "HEAD"
+    argv_paths = [a for a in args if not a.startswith("-") and a != base]
+    if "--changed" in args:
         if not sys.stdin.isatty():
             try:
                 if json.load(sys.stdin).get("stop_hook_active"):
                     return 0
             except (json.JSONDecodeError, ValueError):
                 pass
-        reports = [line for path in changed_py_files() for line in check_file(path)]
+        reports = [line for path in changed_py_files(base) for line in check_file(path, base=base)]
     elif argv_paths:
         path = Path(argv_paths[0])
         if path.suffix != ".py" or not path.is_file():
             return 0
-        reports = check_file(path, all_lines="--all" in sys.argv)
+        reports = check_file(path, all_lines="--all" in args)
     else:
         try:
             payload = json.load(sys.stdin)

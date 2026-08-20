@@ -24,6 +24,12 @@ Heuristic ceilings (deliberate): narration whose nouns are absent from the code 
 | `scripts/quality_delta.py`: per-PR structural cost vs merge base (code LOC, new public symbols, comments, TODOs, dependency lines); deck-reviewer runs it and challenges out-of-proportion axes | `scripts/`, `.claude/agents/deck-reviewer.md` | Agents inflate exactly these axes; a delta line makes 600-line-diff growth a one-glance fact. Measurement, not a gate: thresholds only after real baselines exist |
 | `deck-cleanup` agent: one narrow scan per run (narrative-comments via `slopcheck --all`, dead-code, duplicate-helpers, pattern-drift), one evidence-backed small PR | `.claude/agents/deck-cleanup.md`, `slopcheck.py --all` flag | OpenAI's lesson: reviewed changes still accumulate entropy; a recurring restoring force beats Friday cleanup days |
 
+| CI `slop` job: slopcheck over PR-added lines, reuse-analysis-required check when public symbols are added, quality delta in the job log | `.github/workflows/ci.yml`, `slopcheck.py --base` flag | Hooks only cover Claude Code sessions; CI covers outside contributors and anything that slipped the hooks, and makes the reuse gate mechanical instead of instructional |
+| ruff gains the structural slop set: ERA (commented-out code), S110/S112 (swallowed exceptions), PIE790 (placeholder bodies) | `pyproject.toml` | Native rules before custom code; all four pass on the existing tree so they gate only new debt |
+| YAGNI rule exemplar-paired (Run.cancel() vs CancellationManager) | `CLAUDE.md` section 3 | Third paired rule; the duplicate-abstraction case now has a named anti-pattern |
+| CodeRabbit gets an anti-slop instruction scoped to judgment calls | `.coderabbit.yaml` | The semantic layer reviews only what ruff and slopcheck cannot express |
+| deck-reviewer promotion loop: a repeat finding class must name the mechanical form that would have caught it | `.claude/agents/deck-reviewer.md` | Repeated review feedback is a harness gap; promote it to a rule instead of re-litigating |
+
 Upgrade shelf, each layer activates on evidence: ast-grep when a structural anti-pattern repeats (rule one = that pattern); graph tools (code-review-graph family, after vetting) when the repo map outgrows one read or reuse analyses fail for lack of relationship queries.
 
 Next planned actions: none queued; run the stack on real issues and let the evidence pick the next layer.

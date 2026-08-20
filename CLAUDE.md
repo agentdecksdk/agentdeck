@@ -43,6 +43,8 @@ AgentDeck is a declarative runtime harness for multi-agent systems and workflows
   * Bad: "invalid workflow state".
 * **Typing:** Python ≥3.12. Strict annotations everywhere. Pydantic v2 models at system boundaries; `@dataclass(frozen=True, slots=True)` for internal immutable value objects. No unprincipled `Any`.
 * **Zero unnecessary abstractions:** YAGNI. Delete dead code aggressively. Do not add configuration for things that never change.
+  * Good (real, `deck.py`): cancellation is `Run.cancel()`, a method on the existing handle.
+  * Bad: a new `CancellationManager` class for that same responsibility. Run `uv run scripts/repomap.py` before adding any public abstraction.
 * **Comments:** Extremely rare, max 1–2 lines explaining non-obvious *why*, never restating what the code does.
   * Good (real, `core/control.py`): `# Before the raise, because the raise is what records the effect: an intent left pending behind an honored one would be honored a second time on the next resume.`
   * Bad: `# Increment the retry count` above `retry_count += 1`. A `PostToolUse` hook (`scripts/slopcheck.py`) flags this per edit.

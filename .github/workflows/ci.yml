@@ -109,3 +109,28 @@ jobs:
         run: .venv/bin/pytest tests/golden -q
       - name: Build
         run: uv build
+
+  # The anti-slop gate for code that never went through a Claude Code hook:
+  # outside contributors, and anything written by a process the Edit|Write
+  # matcher never saw. Same scripts, PR-base-relative, stdlib only.
+  slop:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Comment slop on lines this PR adds
+        run: python3 scripts/slopcheck.py --changed --base "origin/${{ github.base_ref }}" < /dev/null
+      - name: New public symbols require a reuse analysis
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          new_defs=$(git diff "origin/${{ github.base_ref }}...HEAD" -- '*.py' \
+                       | grep -cE '^\+\s*(async )?(def|class) [A-Za-z]' || true)
+          if [ "$new_defs" -gt 0 ] && ! grep -q '## Reuse analysis' <<< "$BODY"; then
+            echo "::error::PR adds $new_defs public defs/classes but no '## Reuse analysis' section — run 'uv run scripts/repomap.py', state what was considered and why it is insufficient (CLAUDE.md reuse gate)"
+            exit 1
+          fi
+      - name: Quality delta
+        run: python3 scripts/quality_delta.py "origin/${{ github.base_ref }}"

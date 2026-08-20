@@ -88,7 +88,9 @@ line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "SIM", "TC", "TID251"]
+# ERA, S110/S112, PIE790: the structural AI-slop set  -  commented-out code,
+# swallowed exceptions, unnecessary placeholder bodies.
+select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "SIM", "TC", "TID251", "ERA", "S110", "S112", "PIE790"]
 ignore = ["E501", "UP046", "UP047"]
 
 [tool.ruff.lint.isort]
