@@ -19,4 +19,6 @@ Heuristic ceilings (deliberate): narration whose nouns are absent from the code 
 | deck-dev must run the map and post a `## Reuse analysis` in the PR body before the first edit | `.claude/agents/deck-dev.md` | Duplicate abstractions are the next slop class after comments (intra-repo cloning study); the gate forces the question, the map makes it answerable |
 | deck-reviewer gets a Reuse & Duplication dimension: missing analysis or overlap with an existing symbol is request-changes | `.claude/agents/deck-reviewer.md` | The dev's own reuse analysis becomes reviewable evidence |
 
+| Repo map lines carry first-line docstrings | `scripts/repomap.py` | Names alone don't state responsibility; the docstring column turns the flat symbol spread into a responsibility index without a call graph's cost |
+
 Next planned actions, in order: recurring cleanup agents, per-PR quality delta.
