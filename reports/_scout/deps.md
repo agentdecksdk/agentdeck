@@ -63,16 +63,16 @@ Package: `agentdeck-sdk` (name), imported as `agentdeck`. `requires-python = ">=
 | uvicorn | `uvicorn` | used, serve.py:354 (guarded) |
 | langfuse | `langfuse` | used, adapters/telemetry/langfuse/client.py:60,102 (guarded) |
 | openinference-instrumentation-openai-agents | `openinference` | used, observers.py:37 (guarded) |
-| opentelemetry-sdk | `opentelemetry` | **declared-but-never-imported** — only appears as a logger-name string literal (adapters/telemetry/langfuse/client.py:36: `_OTLP_EXPORTER_LOGGER = "opentelemetry.exporter.otlp.proto.http.trace_exporter"`), no `import opentelemetry` anywhere |
+| opentelemetry-sdk | `opentelemetry` | **declared-but-never-imported** - only appears as a logger-name string literal (adapters/telemetry/langfuse/client.py:36: `_OTLP_EXPORTER_LOGGER = "opentelemetry.exporter.otlp.proto.http.trace_exporter"`), no `import opentelemetry` anywhere |
 | langgraph-checkpoint-postgres | `langgraph.checkpoint.postgres` | used, adapters/engines/langgraph/checkpointer.py:184 (guarded) |
-| psycopg | `psycopg` | used, checkpointer.py:191 (guarded), adapters/stores/postgres/store.py:23-25 (eager, but module itself lazily imported — see 3) |
-| redis | `redis` | used, adapters/stores/redis/store.py:36-37 (eager, but module itself lazily imported — see 3) |
+| psycopg | `psycopg` | used, checkpointer.py:191 (guarded), adapters/stores/postgres/store.py:23-25 (eager, but module itself lazily imported - see 3) |
+| redis | `redis` | used, adapters/stores/redis/store.py:36-37 (eager, but module itself lazily imported - see 3) |
 
 **Imported but not declared:**
 
 | Import | Where | Note |
 |---|---|---|
-| `aiosqlite` | adapters/engines/langgraph/checkpointer.py:152,160,163 | not stdlib, not in pyproject. Transitive dep of `langgraph-checkpoint-sqlite` (uv.lock:908-914 lists it as a direct dependency of that package). Imported and used directly (`aiosqlite.connect`, `conn._thread.daemon`), not just re-exported by langgraph — a version bump that drops it from langgraph-checkpoint-sqlite's deps would break this import silently. |
+| `aiosqlite` | adapters/engines/langgraph/checkpointer.py:152,160,163 | not stdlib, not in pyproject. Transitive dep of `langgraph-checkpoint-sqlite` (uv.lock:908-914 lists it as a direct dependency of that package). Imported and used directly (`aiosqlite.connect`, `conn._thread.daemon`), not just re-exported by langgraph - a version bump that drops it from langgraph-checkpoint-sqlite's deps would break this import silently. |
 
 No other non-stdlib import root found without a matching declared dependency.
 
@@ -99,8 +99,8 @@ Pattern: every optional-extra package is either function-local at its own import
 
 | Dep | Status | Gate | Note |
 |---|---|---|---|
-| openai-agents | core | — | exact-pinned to 0.17.0, paired with openai==2.32.0 |
-| langgraph | core | — | >=1.1.10, core dep, pulls `langgraph-checkpoint-sqlite` (base) which pulls `aiosqlite` + `sqlite-vec` (comment pyproject.toml:33-36: sqlite-vec is "unrelated to checkpointing, ~164 KB on disk, accepted") |
+| openai-agents | core | - | exact-pinned to 0.17.0, paired with openai==2.32.0 |
+| langgraph | core | - | >=1.1.10, core dep, pulls `langgraph-checkpoint-sqlite` (base) which pulls `aiosqlite` + `sqlite-vec` (comment pyproject.toml:33-36: sqlite-vec is "unrelated to checkpointing, ~164 KB on disk, accepted") |
 | langgraph-checkpoint-postgres + psycopg[binary] | optional | `durability` | `[binary]` explicit because plain `psycopg` (pulled transitively by the postgres checkpointer) needs system `libpq`, which a fresh CI/dev box lacks (pyproject.toml:57-60) |
 | langfuse + openinference-instrumentation-openai-agents + opentelemetry-sdk | optional | `observability` | 3-package group for tracing; opentelemetry-sdk unused in code (see section 2) |
 | fastapi + uvicorn | optional | `serve` | HTTP surface only |
@@ -111,6 +111,6 @@ No single heaviest-transitive-chain concern beyond what's already extra-gated; t
 ## 5. Lockfile / metadata
 
 - `uv.lock` exists at repo root (402.5K).
-- `[project] name = "agentdeck-sdk"`, import package `agentdeck` — name/import mismatch is intentional (PyPI distribution name vs. import name).
+- `[project] name = "agentdeck-sdk"`, import package `agentdeck` - name/import mismatch is intentional (PyPI distribution name vs. import name).
 - `requires-python = ">=3.12"`; ruff `target-version = "py312"` (consistent).
 - Build backend: hatchling, wheel packages = `["agentdeck"]`.

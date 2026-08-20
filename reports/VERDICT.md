@@ -12,7 +12,7 @@ Things I rarely see done this well, in any codebase:
 - **Zero mocks in 21K test LOC.** One contract suite runs 56 cases against all four real store backends, races are arranged through files across real processes, and CI greps skip reasons so a subsystem cannot drop out silently. ([05-testing.md](05-testing.md))
 - **`Context[T]` injection.** Plain undecorated functions as tools, one portable context type above both engines, invisible to the model's schema. The single best idea in the API. ([02-api-design.md](02-api-design.md))
 - **Store adapters with correct transaction posture.** SQLite `BEGIN IMMEDIATE` before the read, Postgres advisory locks with pinned isolation, Redis key escaping with the exact failure mode documented. ([04-adapters.md](04-adapters.md))
-- **Docs that cannot drift, where generated.** Settings and CLI reference pages are byte-compared in the gate; doc fences can execute as real subprocesses; examples are built by the test suite. README, engineering docs, examples, and CHANGELOG verified clean of drift. ([06-docs-dx.md](06-docs-dx.md), `_scout/drift.md`)
+- **Docs that cannot drift, where generated.** Settings and CLI reference pages are byte-compared in the gate; doc fences can execute as real subprocesses; examples are built by the test suite. README, engineering docs, examples, and CHANGELOG verified clean of drift. ([06-docs-dx.md](06-docs-dx.md))
 
 ## The worst
 
@@ -30,7 +30,7 @@ Things that bite a real user, ranked by who bleeds first:
 ## The good
 
 - Import boundaries machine-enforced, 11 contracts green; core is stdlib+pydantic only. ([01](01-architecture.md))
-- Optional extras genuinely optional and lazily imported, each `ImportError` naming the extra and a docs link. ([01](01-architecture.md), `_scout/deps.md`)
+- Optional extras genuinely optional and lazily imported, each `ImportError` naming the extra and a docs link. ([01](01-architecture.md))
 - Error messages that name the object, the cause, the fix, and the tracking issue. ([02](02-api-design.md), [06](06-docs-dx.md))
 - Store assigns `seq`/`ts` in the persisting write; every transition is a conditional append; sink fan-out is bounded and never blocks a run. ([03](03-runtime.md))
 - Zero dynamic execution primitives, fully parameterized SQL, secret-aware error text, honest SECURITY.md about tool trust. ([07](07-security-deps.md))

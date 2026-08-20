@@ -76,4 +76,4 @@ No stale examples found; all imported symbols exist in current `agentdeck/` expo
 
 No topical duplication in prose content: `docs/` is internal engineering/PRD/delivery tracking, `docs-site/content/` is the public-facing SDK documentation.
 
-One asset duplication: `docs/brand/` and `docs-site/public/brand/` both carry identical-named SVGs (`logo*.svg`, `favicon.svg`, `social-card.svg`, `contributor-*.svg`) — source assets copied into the Next.js `public/` dir for serving. `docs-site/public/brand/` additionally has `card.svg`, `spark.svg`, `wordmark.svg` not present in `docs/brand/`.
+One asset duplication: `docs/brand/` and `docs-site/public/brand/` both carry identical-named SVGs (`logo*.svg`, `favicon.svg`, `social-card.svg`, `contributor-*.svg`) - source assets copied into the Next.js `public/` dir for serving. `docs-site/public/brand/` additionally has `card.svg`, `spark.svg`, `wordmark.svg` not present in `docs/brand/`.
