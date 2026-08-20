@@ -61,7 +61,7 @@ control surface, whichever side it came from.
 result = await ctx.invoke(agent, input)          # the short path: Run is awaitable
 
 child = ctx.invoke(agent, input)                 # the same call, held
-if child.can.pause:
+if (await child.can()).pause:
     await child.pause()
 result = await child
 ```
@@ -69,12 +69,12 @@ result = await child
 | member | note |
 |---|---|
 | `id`, `status` | as 4.x |
-| `can.pause` / `can.resume` / `can.cancel` | new |
+| `can()` | new: a frozen `pause`/`resume`/`cancel` snapshot |
 | `pause()` / `resume()` / `cancel()` | strict: they raise instead of returning `False` |
 | `events()` | as 4.x |
 | `__await__` | as 4.x |
 
-## `run.can.*`
+## `run.can()`
 
 `can` answers "is this control available on this Run right now", not "does the executor support
 it". Three inputs, one answer:
@@ -91,11 +91,16 @@ executor declares the control  +  PRECONDITIONS[status, operation] is LEGAL  =  
 | plain callable | RUNNING | False | False | True |
 
 The legality half is `core/status.py`'s existing table, extended with `Operation.PAUSE` and
-`Operation.CANCEL` rows. No second lifecycle table anywhere: `run-lifecycle.md` still holds.
+`Operation.CANCEL` rows, and the whole derivation is one pure function beside it. No second
+lifecycle table anywhere: `run-lifecycle.md` still holds.
 
-`can` is informational, never a transaction. The run may finish between the check and the call, so
-the strict method stays authoritative and a caller that races catches `RunStateError`. This is why
-there is no `try_pause()`: a boolean return that means four different things is what 4.x had.
+`can()` is a method, not an attribute, because status is a store read and a `Run` handle caches no
+authoritative state (`run-identity.md` §3). A sync attribute would have to cache one, and an
+awaitable attribute makes the forgotten `await` in `if run.can.pause:` always true.
+
+`can` is informational, never a transaction. The run may finish between the snapshot and the call,
+so the strict method stays authoritative and a caller that races catches `RunStateError`. This is
+why there is no `try_pause()`: a boolean return that means four different things is what 4.x had.
 
 ## Executor
 
@@ -129,6 +134,24 @@ Runtime's control port and the cooperative `Gate`, and no engine implements them
 whose methods every engine would satisfy by delegating back to the Runtime declares a capability in
 the most expensive way available. A `ClassVar` says the same thing beside `engine`, which is the
 idiom that is already there.
+
+## Suspension parks the body, it does not raise through it
+
+`Gate.checkpoint()` raises today, and that is right for the two engines that have it: a graph node
+or an agent turn that unwinds is re-entered from its own checkpoint on resume.
+
+An imperative `@workflow` has no checkpoint. Raising through the body destroys the local state that
+*is* the workflow, and with durable replay deferred there is nothing to rebuild it from. So in a
+native workflow:
+
+| control | at a safepoint |
+|---|---|
+| pause | the body parks in place and awaits the resume, coroutine and locals alive |
+| cancel | raises, because the run ends and there is nothing left to preserve |
+
+`ctx.ask()` and `ctx.approve()` park by the same mechanism. This is what makes a native workflow
+suspendable in the `run.can()` table, and it is also its ceiling: a parked body lives in one
+process, and surviving a restart is the deferred replay model.
 
 ## Reporter
 
@@ -170,6 +193,8 @@ The design this file was written from is adopted whole except:
 | `Suspendable` / `Cancelable` protocols | `EnginePort.controls` ClassVar | see Executor above |
 | `ctx.agents.create/fork` in the baseline | deferred | agent instances are #236's own lifecycle concept |
 | silent on durable replay | deferred, stated below | #336 requires it and the draft does not say how |
+| `run.can.pause` as an attribute | `await run.can()` | status is a store read, and the handle caches no authoritative state |
+| pause raises at every safepoint | a native workflow parks | a raise through an imperative body destroys the state that is the workflow |
 
 #336 sketches `ctx.run.ask()` / `ctx.run.pause()` / `ctx.run.wait()`. This file rules `ctx.ask()`
 and `ctx.approve()` instead, with no `ctx.pause()` at all, and both issues are updated to match.
@@ -188,13 +213,20 @@ and `ctx.approve()` instead, with no `ctx.pause()` at all, and both issues are u
 | PR | scope | closes |
 |---|---|---|
 | 1 | this file | - |
-| 2 | `run.can`, strict lifecycle ops, `ToolCtx`/`WorkflowCtx`, `@tool`/`@workflow` validation, `ctx.invoke`/`parallel`/`safepoint`, child runs, reporter | #336 |
-| 3 | `InvocationResolver`, foreign executors (Agents SDK object, LangGraph graph), `deck.runs.start(target)` | #337 |
+| 2 | `run.can()`, strict lifecycle ops, `ToolCtx`/`WorkflowCtx`, `@tool`/`@workflow` validation, `ctx.invoke`/`parallel`/`safepoint`, child runs, reporter | #336 |
+| 3 | `InvocationResolver`, foreign executors (Agents SDK object, LangGraph graph, plain callable), `deck.runs.start(target)` | #337 |
+
+Two lines PR2 does not cross:
+
+| | |
+|---|---|
+| what `ctx.invoke()` accepts in PR2 | a catalog name and a native definition, nothing else. Every bare object, a plain callable included, waits for PR3's resolver, so there is one rule and no special case |
+| the parent edge | no parent field on `run.started` in PR2, where the parent holds the child handle in memory. `RunStarted` dropped `parent_run_id` once already for being written and never read; it comes back in PR3 with the invocation tree that reads it |
 
 ## Open
 
 | | |
 |---|---|
-| child run identity | a child Run needs a parent edge on `run.started` for cancel cascade, usage roll-up and trace nesting. #337 says the invocation tree is where all three are read from; the field is not named yet |
+| what the parent edge is called | the field PR3 puts on `run.started` for cancel cascade, usage roll-up and trace nesting. `parent_run_id` is the obvious name and the one that was already removed once |
 | `run.started` for a foreign target | `kind_of_invocable` is a closed literal and a resolved foreign object matches none of its members. PR3 either widens it or records the engine instead |
 | `ctx.parallel` failure policy | all-or-nothing, or gather-with-exceptions. Undecided |
