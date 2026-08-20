@@ -21,4 +21,6 @@ You run ONE cleanup scan over agentdeck and open one small PR. The scan type com
 5. Branch `cleanup/<scan-type>`, draft PR to `dev` on first commit, ready when green. No attribution trailers.
 6. Nothing found = no PR; return "clean" with the evidence of what was scanned.
 
+**Progress:** TaskCreate one task per phase (scan / change / gate / PR); TaskUpdate as you go.
+
 Return: PR URL (or "clean"), findings count, and `make check` status.

@@ -8,7 +8,7 @@ description: Run one agentdeck issue through the full pipeline  -  brief the use
 Orchestrate the end-to-end delivery of an issue.
 
 ## 0. Brief Before Launching
-Read the issue and verify its claims against the tree. Output a concise 5-point brief (1–2 lines each):
+Read the issue and verify its claims against the tree. **Spec gate first:** if the issue lacks `Done when` outcomes or scope bounds (what must NOT be added), fix the issue body or ask the user; do not spawn deck-dev against an unbounded spec. Then output a concise 5-point brief (1–2 lines each):
 > **The claim:** What the issue asks for.
 > **What's true now:** Current behavior in the codebase (file:line).
 > **The shape:** Implementation plan in 3–4 concise bullets.
@@ -19,16 +19,17 @@ Read the issue and verify its claims against the tree. Output a concise 5-point 
 Update GitHub Project (`PVT_kwHOBHijkM4BgHFZ`): Set **Status = In progress**, record Start Date, comment with start timestamp.
 
 ## 2. Implement
-Spawn `deck-dev` with the issue number and brief.
+Spawn `deck-dev` with the issue number and brief. It works in stages (understand, design-in-PR-body, implement, self-review, gate) and posts task progress; poll for stalls.
+If it stops at its own spec gate despite step 0, the issue needs a human decision: set the board back to **Todo**, surface what is missing, stop the pipeline.
 
 ## 3. Attach PR
-Verify draft PR targets `dev` and includes `Closes #<n>`. Set **Status = In review** when marked ready.
+Verify the draft PR targets `dev`, includes `Closes #<n>`, and its body carries the design sections (`## Reuse analysis`, `## Analog`, `## Concept budget`, `## Expected delta`). Missing sections go back to deck-dev before any review is spent. Set **Status = In review** when marked ready.
 
 ## 4. Review
 Spawn `deck-reviewer` on the PR.
 
 ## 5. Address Findings
-Route blocking findings to `deck-dev` to fix on the branch.
+Route by class: **ERROR** and **WARNING** findings go to `deck-dev` to fix on the branch; **NOTE** findings that will not be fixed now become `finding:`-titled issues via open-issue, never silently dropped. A `Promote:` line in the verdict becomes a harness change (rule, exemplar, pattern file) in its own small PR or issue.
 
 ## 6. Merge
 When approved and `make check` is green: `gh pr merge --squash --delete-branch`.
