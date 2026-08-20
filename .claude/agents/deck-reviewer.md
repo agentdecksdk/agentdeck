@@ -50,6 +50,7 @@ The review lives on the PR, not in your session:
 - When no ERROR or WARNING remains, end the review body with `<!-- agentdeck-review: pass -->`. Otherwise end it with `<!-- agentdeck-review: block -->`. Never emit the PASS marker for a conditional verdict or before `make check` succeeds.
 - The marker applies only to the reviewed head commit. Any later push requires a complete new review and a new comment.
 - Line-anchored findings additionally go inline: `gh api repos/{owner}/{repo}/pulls/<n>/comments -f body=... -f commit_id=$(gh pr view <n> --json headRefOid -q .headRefOid) -f path=<file> -F line=<line> -f side=RIGHT`.
+- After posting the marked review, rerun its trusted gate: extract the run ID from the `Agent review` check URL returned by `gh pr checks <n> --json name,link`, then run `gh run rerun <run-id>`. The gate runs only from base-branch workflow code, so a review submission does not trigger it directly.
 - File promotion issues per dimension 7.
 - Confirm the `Agent review` check turns green after posting PASS. A successful local review with no GitHub comment is incomplete.
 

@@ -129,7 +129,28 @@ ABSTRACT_BASES = ("Protocol", "ABC", "ABCMeta")
 ABSTRACT_DECORATORS = frozenset({"abstractmethod", "overload", "override"})
 DIVIDER_RE = re.compile(r"-{4,}|={4,}")
 HUNK_RE = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
-TEXT_SUFFIXES = frozenset({".py", ".md", ".mdx", ".toml", ".txt", ".yaml", ".yml"})
+TEXT_SUFFIXES = frozenset(
+    {
+        ".css",
+        ".html",
+        ".http",
+        ".js",
+        ".json",
+        ".lock",
+        ".md",
+        ".mdx",
+        ".mjs",
+        ".py",
+        ".sh",
+        ".svg",
+        ".toml",
+        ".ts",
+        ".tsx",
+        ".txt",
+        ".yaml",
+        ".yml",
+    }
+)
 EM_DASH = chr(0x2014)
 
 
@@ -566,6 +587,7 @@ def _self_test() -> None:
     em_dash = "Use the short path" + chr(0x2014) + "the runtime owns the machinery.\n"
     assert any(v.rule.startswith("SLOP009") for v in check_style(em_dash)), "em dash must be flagged"
     assert not check_style("Use the short path: the runtime owns the machinery.\n"), "colon must pass"
+    assert {".css", ".json", ".sh", ".ts", ".tsx"} <= TEXT_SUFFIXES, "repository text must route to SLOP009"
     print("slopcheck self-test: ok")
 
 

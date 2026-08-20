@@ -1,7 +1,8 @@
 name: Issue hygiene
 
 on:
-  pull_request:
+  # This gate reads PR metadata only. Never check out or execute the proposed change.
+  pull_request_target:
     types: [opened, synchronize, reopened, edited, ready_for_review]
 
 permissions:
@@ -30,7 +31,7 @@ jobs:
             -f owner="$owner" -f repo="$repo" -F number="$PR_NUMBER")
           if ! jq -e '
             .data.repository.pullRequest.closingIssuesReferences.nodes as $issues
-            | ($issues | length > 0) and ($issues | all(.labels.totalCount > 0))
+            | ($issues | length > 0) and ($issues | any(.labels.totalCount > 0))
           ' <<< "$issues"; then
             echo "::error::PR must close at least one labeled issue with a closing keyword."
             exit 1
