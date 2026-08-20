@@ -20,7 +20,7 @@ jobs:
     timeout-minutes: 2
     steps:
       - name: Require a labeled closing issue
-        if: github.actor != 'dependabot[bot]'
+        if: github.event.pull_request.user.login != 'dependabot[bot]'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

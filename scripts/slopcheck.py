@@ -129,28 +129,6 @@ ABSTRACT_BASES = ("Protocol", "ABC", "ABCMeta")
 ABSTRACT_DECORATORS = frozenset({"abstractmethod", "overload", "override"})
 DIVIDER_RE = re.compile(r"-{4,}|={4,}")
 HUNK_RE = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
-TEXT_SUFFIXES = frozenset(
-    {
-        ".css",
-        ".html",
-        ".http",
-        ".js",
-        ".json",
-        ".lock",
-        ".md",
-        ".mdx",
-        ".mjs",
-        ".py",
-        ".sh",
-        ".svg",
-        ".toml",
-        ".ts",
-        ".tsx",
-        ".txt",
-        ".yaml",
-        ".yml",
-    }
-)
 EM_DASH = chr(0x2014)
 
 
@@ -439,6 +417,14 @@ def check_file(path: Path, all_lines: bool = False, base: str = "HEAD") -> list[
     return [f"{path}:{v.start}: {v.rule}: {v.message}" for v in violations]
 
 
+def _is_text_file(path: Path) -> bool:
+    try:
+        path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return False
+    return True
+
+
 def changed_text_files(base: str = "HEAD") -> list[Path]:
     try:
         root_proc = _git("rev-parse", "--show-toplevel")
@@ -449,7 +435,7 @@ def changed_text_files(base: str = "HEAD") -> list[Path]:
         untracked = _git("ls-files", "--others", "--exclude-standard", cwd=root).stdout.splitlines()
     except (OSError, subprocess.SubprocessError):
         return []
-    return [root / p for p in {*tracked, *untracked} if Path(p).suffix in TEXT_SUFFIXES and (root / p).is_file()]
+    return [root / p for p in {*tracked, *untracked} if _is_text_file(root / p)]
 
 
 def main() -> int:
@@ -470,8 +456,6 @@ def main() -> int:
             return 0
         tool_input = payload.get("tool_input", {})
         raw = tool_input.get("file_path", "")
-        if Path(raw).suffix not in TEXT_SUFFIXES:
-            return 0
         path = Path(raw)
         if _outside_repo(path.resolve()):
             return 0
@@ -508,7 +492,7 @@ def main() -> int:
         reports = [line for path in changed_text_files(base) for line in check_file(path, base=base)]
     elif argv_paths:
         path = Path(argv_paths[0])
-        if path.suffix not in TEXT_SUFFIXES or not path.is_file():
+        if not _is_text_file(path):
             return 0
         reports = check_file(path, all_lines="--all" in args)
     else:
@@ -518,7 +502,7 @@ def main() -> int:
             return 0
         raw = payload.get("tool_input", {}).get("file_path", "")
         path = Path(raw) if raw else None
-        if path is None or path.suffix not in TEXT_SUFFIXES or not path.is_file() or _outside_repo(path.resolve()):
+        if path is None or not _is_text_file(path) or _outside_repo(path.resolve()):
             return 0
         reports = check_file(path)
     for line in reports:
@@ -587,7 +571,7 @@ def _self_test() -> None:
     em_dash = "Use the short path" + chr(0x2014) + "the runtime owns the machinery.\n"
     assert any(v.rule.startswith("SLOP009") for v in check_style(em_dash)), "em dash must be flagged"
     assert not check_style("Use the short path: the runtime owns the machinery.\n"), "colon must pass"
-    assert {".css", ".json", ".sh", ".ts", ".tsx"} <= TEXT_SUFFIXES, "repository text must route to SLOP009"
+    assert _is_text_file(Path(__file__).resolve().parents[1] / "Makefile"), "extensionless text must route to SLOP009"
     print("slopcheck self-test: ok")
 
 

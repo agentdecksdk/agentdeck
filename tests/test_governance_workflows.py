@@ -31,3 +31,9 @@ def test_issue_hygiene_accepts_one_labeled_closing_issue() -> None:
 
     assert any(issue["labels"]["totalCount"] > 0 for issue in issues)
     assert "any(.labels.totalCount > 0)" in workflow
+
+
+def test_dependabot_exemption_follows_pr_author() -> None:
+    workflow = (WORKFLOWS / "issue-hygiene.yml").read_text()
+    assert "github.event.pull_request.user.login != 'dependabot[bot]'" in workflow
+    assert "github.actor != 'dependabot[bot]'" not in workflow
