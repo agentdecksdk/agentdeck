@@ -6,7 +6,13 @@ on:
   # Every pull request, whatever it targets. Filtering by base branch silently skips CI on a
   # stacked PR (one whose base is another feature branch), so the stack reports "no checks
   # reported" and merges on nothing but the author's word.
+  #
+  # `edited` is here for `slop`, which reads the PR body: without it a body that adds the concept
+  # budget the job just asked for never re-runs the job, and the author has to push a commit that
+  # changes nothing to clear a red check. The two heavy jobs opt out below, so an edit costs one
+  # short run rather than the whole suite.
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
@@ -17,6 +23,8 @@ concurrency:
 
 jobs:
   test:
+    # Nothing about the code changed, so neither can the answer.
+    if: github.event.action != 'edited'
     name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -127,7 +135,10 @@ jobs:
 
   check:
     name: check
-    if: always()
+    # `always()` so a failed matrix still reports, and skipped on an edited body for the reason
+    # `test` is: it asserts the matrix succeeded, and a matrix that never ran has no result to
+    # assert. The conclusions from the last push stand.
+    if: always() && github.event.action != 'edited'
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 2
