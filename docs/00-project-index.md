@@ -40,7 +40,7 @@ Date: 2026-08-04. Amended 2026-08-11, 2026-08-14.
 | 14 | `design/sink-dispatch.md` | `runtime/dispatch.py`'s operational contract: bounded fan-out, the breaker, the flush/close lifecycle. **Supersedes** doc #3 §4.6 on the dispatch | engineers |
 | 15 | `design/run-operations.md` | The surface that acts on an existing run: the `deck.runs.*` namespace, its eight ops, and the internal deadline sweep that replaces public `tick`/`due`. **Amends** `delivery/decision-v3-entry-point.md` ruling 2 and its no-daemon note. Semantics stay in doc #12. **Its "there is no per-run object" ruling is superseded by doc #16**; the deadline sweep is not | engineers |
 | 16 | `design/run-identity.md` | Run identity (`id`, `namespace`, `key`), the `Run` object, session ownership, execution ownership, and the control plane's cross-tenant defect. **Supersedes** doc #15's surface ruling: lifecycle ops move onto `Run` and `deck.runs` keeps `start`/`get`/`list`. Semantics stay in doc #12 | engineers |
-| 17 | `design/execution-api.md` | The v5 execution API: `ctx`, `Run`, `run.can.*`, `Reporter`, and the resolver in front of `EnginePort` that lets any target become a Run. Rules #336 and #337. Lifecycle semantics stay in doc #12, identity in doc #16 | engineers |
+| 17 | `design/execution-api.md` | The v5 execution API: `ctx`, `Run`, `run.can.*`, `Reporter`, and the one `Executor.execute()` that any target becomes a Run through. Rules #336 and #337. Lifecycle semantics stay in doc #12, identity in doc #16 | engineers |
 
 ## 1b. The v3 cutover set (added 2026-08-11)
 
