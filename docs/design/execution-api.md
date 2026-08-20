@@ -163,18 +163,26 @@ process, and surviving a restart is the deferred replay model.
 
 ## Where LangGraph ends up
 
-It stops being the engine behind AgentDeck's own workflow concept and becomes one target the
-resolver knows.
+`Workflow(graph=...)` goes away. A prebuilt graph is a target, not a declaration to wrap, and the
+one invocation boundary is what runs it.
+
+| today | v5 |
+|---|---|
+| `Workflow(graph=build_graph)` in `Deck(workflows=[...])` | the compiled graph itself, invoked or registered directly |
+| a `WorkflowDeclaration` subclass | `@workflow`, an ordinary Python body |
+| `durable=True`, and AgentDeck wires langgraph's checkpointer | the author compiles their graph with the checkpointer they want, and AgentDeck runs it |
+
+Removal follows the replacement rather than leading it: the resolver is what makes a bare graph
+invocable, so `Workflow`, `WorkflowDeclaration`, `graph=` and `durable=` are deleted in the PR
+after it, together with what hangs off them (`sleep_until` and the timer sweep, `Workflow.pending`,
+`as_tool`, the serve surface's workflow routes).
+
+Two consequences, stated rather than discovered later:
 
 | | |
 |---|---|
-| imperative `@workflow` | a coroutine on the native engine. No graph, no checkpointer |
-| `Workflow(graph=...)` | a LangGraph graph a user brought, run through the LangGraph adapter |
-| a durable workflow | still a graph, because durable replay of an imperative body is deferred |
-
-That last row is what keeps `langgraph` a base dependency rather than an extra: it is currently
-the only way to get a workflow that survives a restart. Moving it behind an extra is a real
-follow-up and it waits on the replay model, not on this file.
+| AgentDeck stops owning workflow durability | a durable graph is durable because its author compiled a checkpointer into it. AgentDeck's own answer is the deferred replay model, and until that lands a native `@workflow` does not survive a restart |
+| #330 stops being AgentDeck's bug to fix | a thread id with no namespace is a property of the graph the author compiled and checkpointed. What AgentDeck owes is to say so where a graph is registered, not to key somebody else's checkpointer |
 
 ## Reporter
 
@@ -203,7 +211,7 @@ Each row is a break, and each needs a CHANGELOG entry.
 | `Context[T]` | `ToolCtx[T]` / `WorkflowCtx[T]` | one context type cannot express that a tool may not orchestrate |
 | `Context.checkpoint()` | `ctx.safepoint()` | same `Gate`, the name a caller can guess |
 | `Reporter.status()/progress()` | `info/warning/error/report` | two hard-coded shapes, no structured record |
-| `Workflow(graph=...)` only | `@workflow` body, graph still accepted | #336 |
+| `Workflow(graph=...)` | `@workflow` body; a graph is a target the resolver runs | #336, #337 |
 | `deck.runs.start(name, ...)` | also `start(target, ...)` | #337 |
 
 ## Rejected from the source design
@@ -236,6 +244,7 @@ and `ctx.approve()` instead, with no `ctx.pause()` at all, and both issues are u
 | 2 | `run.can`, strict lifecycle ops, `ToolCtx`/`WorkflowCtx`, `@tool`/`@workflow` validation, `ctx.invoke`/`parallel`/`safepoint`, child runs, reporter | #336 |
 | 3 | `InvocationResolver`, foreign executors (Agents SDK object, LangGraph graph, plain callable), `deck.runs.start(target)` | #337 |
 | 4 | `AgentInstance`, `ctx.agent`, `ctx.agents.create()` / `fork()` | #236 |
+| 5 | delete `Workflow`, `WorkflowDeclaration`, `graph=`, `durable=` and what hangs off them | - |
 
 Two lines PR2 does not cross:
 
