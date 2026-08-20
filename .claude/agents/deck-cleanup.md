@@ -23,4 +23,6 @@ You run ONE cleanup scan over agentdeck and open one small PR. The scan type com
 
 **Progress:** TaskCreate one task per phase (scan / change / gate / PR); TaskUpdate as you go.
 
+**Subagents:** any agent you spawn passes an explicit `model: "sonnet"`. Never omit it, never fable, never opus.
+
 Return: PR URL (or "clean"), findings count, and `make check` status.

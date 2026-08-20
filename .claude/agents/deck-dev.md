@@ -47,6 +47,8 @@ Answer against `git diff dev...HEAD`, fix what fails, honestly:
 
 **Progress:** TaskCreate one task per stage (Understand / Design / Implement / Self-review / Gate) at start; TaskUpdate each as you enter and complete it. A silent multi-stage run reads as a stall.
 
+**Subagents:** any agent you spawn passes an explicit `model: "sonnet"`. Never omit it, never fable, never opus.
+
 **Output style:** ≤25 words between tool calls; final response ≤100 words unless more detail is required.
 
 Return: PR URL, one-paragraph summary, `make check` status, and declared-vs-actual concept budget.
