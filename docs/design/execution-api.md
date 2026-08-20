@@ -109,9 +109,34 @@ different things is what 4.x had.
 
 The executor is `EnginePort`, unchanged in shape. There is no second execution contract.
 
-`EnginePort.start(spec, input, history, ctx)` already answers "how is this target executed", and
+`EnginePort` already answers "how is this target executed", and
 `InvocableSpec{name, kind, engine, native}` is already the engine-neutral description of a target.
-What is missing is only the front half:
+Two things change.
+
+**One method, not two.** `start` and `resume` are collapsed into a single `play`:
+
+```python
+def play(self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext) -> ...
+```
+
+`resume` was never the pause's resume. Lifting a pause already re-enters `start` with the log as
+history, because a paused turn left no stack to return to; `resume` existed only for the answer to
+an interrupt, where LangGraph needs `Command(resume=value)` rather than a state. The log already
+carries that: `RunResumed.value` stores the answer in full, and the history tail says which of the
+three plays this is.
+
+| history ends on | the play is |
+|---|---|
+| the previous run's terminal event, or nothing | fresh |
+| `run.paused`, `run.resumed` | a lifted pause, replayed |
+| `run.interrupted`, `run.resumed` | an answered interrupt |
+
+The `thread_id` parameter goes with it: it is a LangGraph concept on a neutral port, and the
+adapter already derives its own (`session_id or run_id`). What this buys is the wrapping adapters:
+a plain callable and an Agents SDK object have one way in, and neither has to implement a second
+method it cannot mean.
+
+**The front half is missing.**
 
 ```text
 target object -> InvocationResolver -> InvocableSpec -> EnginePort -> Run
@@ -220,7 +245,7 @@ The design this file was written from is adopted whole except:
 
 | proposed | here | why |
 |---|---|---|
-| `Executor` protocol with `execute()` | `EnginePort`, unchanged | a parallel contract for what already exists |
+| `Executor` protocol with `execute()` | `EnginePort`, reduced to one `play` | a parallel contract for what already exists, but the draft was right that one method is enough |
 | `Suspendable` / `Cancelable` protocols | `EnginePort.suspendable` ClassVar | see Executor above |
 | silent on durable replay | deferred, stated below | #336 requires it and the draft does not say how |
 | pause raises at every safepoint | a native workflow parks | a raise through an imperative body destroys the state that is the workflow |
