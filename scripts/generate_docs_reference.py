@@ -119,9 +119,8 @@ def render_settings_mdx() -> str:
         "",
         f"Generated from [`agentdeck/runtime/settings.py`]({_REPO_SETTINGS_URL})'s `LayeredSettings` "
         "subclasses  -  this page cannot drift from the code because `make check` regenerates it and "
-        "fails if the result differs (`scripts/generate_docs_reference.py`). Every variable is also "
-        "settable in the shared `config.yaml`, under the section derived from its env-var prefix "
-        "(`openai:`, `runner:`, …); an env var wins over the file.",
+        "fails if the result differs (`scripts/generate_docs_reference.py`). Values come from process "
+        "environment variables or the project-root `.env`; process values win.",
         "",
     ]
     for cls in _settings_classes():

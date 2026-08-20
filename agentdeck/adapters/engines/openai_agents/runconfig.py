@@ -6,14 +6,10 @@ control port are already resolved there: an adapter that reaches for ``get_setti
 cannot be handed a different endpoint by a caller, and a second front door would have to
 mutate process state to get one.
 
-A bare :class:`RunSettings` therefore configures nothing at all  -  no provider, the SDK's
-own defaults  -  which is what a code-first caller wiring ``OpenAIAgentsEngine()`` by hand
-gets. Naming a model is what turns on the provider (see ``_provider``), but it never reaches
-``RunConfig.model``: the SDK overrides *every* agent's own model with that field once it is
-set, string or ``Model`` alike, so the settings-resolved default is handed to each agent
-instead, at compile time (``authoring.compile.compile_agent``)  -  the one place an agent's own
-declared model and the run's default both resolve to a single value before either ever
-reaches an SDK ``RunConfig``.
+The adapter maps supported model prefixes to provider endpoints, while bare and unknown
+namespaced IDs stay on the configured OpenAI-compatible endpoint. ``RunConfig.model`` remains
+unset because the SDK uses it to override every agent's own model; the settings default is
+resolved onto undeclared agents at compile time instead.
 """
 
 from __future__ import annotations
@@ -24,9 +20,14 @@ from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 from agents import ModelSettings, MultiProvider, OpenAIProvider, RunConfig, default_handoff_history_mapper
+from agents.models.multi_provider import MultiProviderMap
 from openai import AsyncOpenAI
 
+from agentdeck.errors import ConfigError
+
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from agents.handoffs import HandoffHistoryMapper
     from agents.items import TResponseInputItem
 
@@ -35,15 +36,17 @@ if TYPE_CHECKING:
 class RunSettings:
     """Everything a run's ``RunConfig`` is resolved from, as values an adapter can hold.
 
-    Defaults are the SDK's, not the project's: ``RunSettings()`` must leave a run exactly as
-    ``RunConfig()`` would, so the contract suite and a code-first caller keep configuring
-    their agents themselves.
+    Defaults are adapter-safe empty values; the composition root supplies project settings.
     """
 
     model: str | None = None
     api_key: str = ""
     base_url: str = ""
     ca_bundle: str = ""
+    anthropic_api_key: str = ""
+    gemini_api_key: str = ""
+    ollama_base_url: str = ""
+    openrouter_api_key: str = ""
     use_responses: bool = True
     workflow_name: str = "Agent workflow"
     nest_handoff_history: bool = False
@@ -89,7 +92,7 @@ def build_run_config(settings: RunSettings, *, sandbox: Any = None) -> RunConfig
             else None
         ),
         tracing_disabled=not tracing_enabled(),
-        model_provider=_provider(settings) or MultiProvider(),
+        model_provider=build_model_provider(settings),
         # ``include_usage`` asks the Chat-Completions API to emit the streaming usage chunk
         # (prompt/completion tokens)  -  without it, streamed turns carry no token counts at
         # all, so ``usage.reported`` and ``run.completed`` would both report zero. No-op on
@@ -118,29 +121,84 @@ def tracing_enabled() -> bool:
     return raw is not None and raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _provider(settings: RunSettings) -> OpenAIProvider | None:
-    """The provider for the endpoint these settings name, or ``None`` for "no endpoint".
-
-    A custom CA bundle needs its own httpx client (``verify=<path>``), so ``base_url`` and
-    ``api_key`` ride on that client rather than on the provider  -  the provider ignores both
-    once it is handed a client of its own.
-    """
-    if not settings.model:
-        return None
+def build_model_provider(settings: RunSettings) -> MultiProvider:
+    """Route supported prefixes while preserving bare and namespaced compatible model IDs."""
+    providers = MultiProviderMap()
+    providers.set_mapping(
+        {
+            "anthropic": OpenAIProvider(
+                base_url="https://api.anthropic.com/v1",
+                api_key=settings.anthropic_api_key or None,
+                use_responses=False,
+            ),
+            "gemini": OpenAIProvider(
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai",
+                api_key=settings.gemini_api_key or None,
+                use_responses=False,
+            ),
+            "ollama": OpenAIProvider(
+                base_url=settings.ollama_base_url or None,
+                api_key="ollama",
+                use_responses=False,
+            ),
+            "openrouter": OpenAIProvider(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=settings.openrouter_api_key or None,
+                use_responses=False,
+            ),
+        }
+    )
+    openai_options: dict[str, Any]
     if settings.ca_bundle:
-        return OpenAIProvider(
-            openai_client=AsyncOpenAI(
+        openai_options = {
+            "openai_client": AsyncOpenAI(
                 base_url=settings.base_url or None,
                 api_key=settings.api_key,
                 http_client=httpx.AsyncClient(verify=settings.ca_bundle),
-            ),
-            use_responses=settings.use_responses,
-        )
-    return OpenAIProvider(
-        base_url=settings.base_url or None,
-        api_key=settings.api_key or None,
-        use_responses=settings.use_responses,
+            )
+        }
+    else:
+        openai_options = {
+            "openai_api_key": settings.api_key or ("agentdeck" if settings.base_url else None),
+            "openai_base_url": settings.base_url or None,
+        }
+    return MultiProvider(
+        provider_map=providers,
+        openai_use_responses=settings.use_responses,
+        unknown_prefix_mode="model_id",
+        **openai_options,
     )
 
 
-__all__ = ["RunSettings", "build_handoff_ends_on_user_turn_mapper", "build_run_config", "tracing_enabled"]
+def validate_model_requirements(models: Iterable[tuple[str, object]], settings: RunSettings) -> None:
+    """Reject missing credentials for every string model before a Deck can open."""
+    requirements = {
+        "anthropic": (settings.anthropic_api_key, "ANTHROPIC_API_KEY"),
+        "gemini": (settings.gemini_api_key, "GEMINI_API_KEY"),
+        "ollama": (settings.ollama_base_url, "OLLAMA_BASE_URL"),
+        "openrouter": (settings.openrouter_api_key, "OPENROUTER_API_KEY"),
+    }
+    missing: list[str] = []
+    for agent_name, model in models:
+        if not isinstance(model, str):
+            continue
+        prefix = model.partition("/")[0] if "/" in model else "openai"
+        if prefix in requirements:
+            value, env_name = requirements[prefix]
+        else:
+            value = settings.api_key or settings.base_url
+            env_name = "OPENAI_API_KEY or OPENAI_BASE_URL"
+        if not value:
+            missing.append(f"agent {agent_name!r} uses model {model!r}: set {env_name}")
+    if missing:
+        raise ConfigError("model provider configuration is incomplete:\n  " + "\n  ".join(missing))
+
+
+__all__ = [
+    "RunSettings",
+    "build_handoff_ends_on_user_turn_mapper",
+    "build_model_provider",
+    "build_run_config",
+    "tracing_enabled",
+    "validate_model_requirements",
+]

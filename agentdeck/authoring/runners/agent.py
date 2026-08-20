@@ -18,11 +18,9 @@ from contextlib import aclosing
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Self, cast
 
-import httpx
-from agents import Agent, ModelSettings, OpenAIProvider, RunConfig, Runner, RunResult
-from openai import AsyncOpenAI
+from agents import Agent, RunConfig, Runner, RunResult
 
-from agentdeck.adapters.engines.openai_agents.runconfig import build_handoff_ends_on_user_turn_mapper, tracing_enabled
+from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings, build_run_config
 from agentdeck.runtime.settings import Settings, default_use_responses, get_settings
 
 if TYPE_CHECKING:
@@ -90,36 +88,29 @@ class BaseRunner:
             max_turns=max_turns,
             max_tokens=max_tokens,
         )
-        run_config = RunConfig(
-            workflow_name=runner.workflow_name,
-            # The raw `model=` kwarg, not `openai.model`: `RunConfig.model` overrides every
-            # agent's own model once set, so only an explicit per-call override belongs here.
-            # An agent that names none is defaulted at compile time instead
-            # (`authoring.compile.compile_agent`), before it ever reaches this runner.
-            model=model,
-            nest_handoff_history=True,
-            handoff_history_mapper=(
-                build_handoff_ends_on_user_turn_mapper(runner.handoff_closing_turn)
-                if runner.handoff_ends_on_user_turn
-                else None
-            ),
-            tracing_disabled=not tracing_enabled(),
-            model_provider=OpenAIProvider(
-                openai_client=AsyncOpenAI(
-                    base_url=openai.base_url or None,
-                    api_key=openai.api_key,
-                    http_client=httpx.AsyncClient(verify=openai.ca_bundle),
-                )
-                if openai.ca_bundle
-                else None,
-                base_url=None if openai.ca_bundle else (openai.base_url or None),
-                api_key=None if openai.ca_bundle else (openai.api_key or None),
+        run_config = build_run_config(
+            RunSettings(
+                model=openai.model,
+                api_key=openai.api_key,
+                base_url=openai.base_url,
+                ca_bundle=openai.ca_bundle,
+                anthropic_api_key=settings.anthropic.api_key,
+                gemini_api_key=settings.gemini.api_key,
+                ollama_base_url=settings.ollama.base_url,
+                openrouter_api_key=settings.openrouter.api_key,
                 use_responses=default_use_responses(),
-            ),
-            model_settings=ModelSettings(
-                temperature=runner.temperature, max_tokens=runner.max_tokens, include_usage=True
-            ),
+                workflow_name=runner.workflow_name,
+                nest_handoff_history=True,
+                handoff_ends_on_user_turn=runner.handoff_ends_on_user_turn,
+                handoff_closing_turn=runner.handoff_closing_turn,
+                temperature=runner.temperature,
+                max_tokens=runner.max_tokens,
+                max_turns=runner.max_turns,
+            )
         )
+        # Only an explicit per-call override belongs on RunConfig: it overrides the agent's
+        # own model, while OPENAI_MODEL was already resolved when the agent compiled.
+        run_config.model = model
         return cls(
             agent=agent,
             run_config=run_config,

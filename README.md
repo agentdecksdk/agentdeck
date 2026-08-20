@@ -196,8 +196,8 @@ configuration, and those opinions are the product.
   agent something destructive.
 - **No auth, no multi-tenancy, no hosted control plane, no marketplace.** `namespace` labels a
   run; it does not authenticate anyone. Put a real gateway in front of the HTTP surface.
-- **No model routing, evaluation framework, or prompt management.** One OpenAI-compatible
-  endpoint per process, configured by environment.
+- **No evaluation framework or prompt management.** Model prefixes select configured providers;
+  AgentDeck does not add a dynamic routing service.
 
 ## Install
 
@@ -206,8 +206,10 @@ pip install agentdeck-sdk              # or, with the HTTP surface: agentdeck-sd
 export OPENAI_MODEL=gpt-4.1-mini OPENAI_API_KEY=sk-...
 ```
 
-The distribution is **`agentdeck-sdk`**; the import stays `agentdeck`. `OPENAI_BASE_URL` points
-it at any OpenAI-compatible endpoint instead (a gateway, vLLM, Ollama). Extras: `serve` for the
+The distribution is **`agentdeck-sdk`**; the import stays `agentdeck`. Agents may declare
+`openai/...`, `anthropic/...`, `gemini/...`, `ollama/...`, or `openrouter/...`; see
+[model configuration](https://agentdecksdk.com/build-your-deck/agents). `OPENAI_BASE_URL` also
+supports any OpenAI-compatible endpoint. Extras: `serve` for the
 HTTP surface, `durability` for the Postgres checkpointer and event store (SQLite ships in base,
 so `durable=True` works out of the box), `redis` for Redis-backed sessions or event log,
 `observability` for Langfuse tracing.

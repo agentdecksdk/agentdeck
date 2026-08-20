@@ -76,6 +76,12 @@ def test_namespaced_model_remains_supported_by_an_openai_compatible_endpoint() -
     assert str(resolved._client.base_url) == "https://gateway.invalid/v1/"
 
 
+def test_keyless_openai_compatible_endpoint_gets_an_internal_client_placeholder() -> None:
+    resolved = _resolved("local/model", base_url="http://models.invalid/v1")
+
+    assert resolved._client.api_key == "agentdeck"
+
+
 def test_build_reports_every_missing_provider_credential(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
         monkeypatch.delenv(name, raising=False)
@@ -101,6 +107,15 @@ def test_build_requires_an_ollama_endpoint(monkeypatch: pytest.MonkeyPatch) -> N
 
     with pytest.raises(ConfigError, match="OLLAMA_BASE_URL"):
         Deck(agents=[Agent(name="Local", model="ollama/llama3.2")]).build()
+
+
+def test_build_requires_openai_credentials_for_the_undeclared_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY")
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    reset_settings_cache()
+
+    with pytest.raises(ConfigError, match="OPENAI_API_KEY or OPENAI_BASE_URL"):
+        Deck(agents=[Agent(name="Default")]).build()
 
 
 def test_build_accepts_non_string_sdk_models_without_provider_credentials() -> None:

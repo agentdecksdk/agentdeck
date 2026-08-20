@@ -8,6 +8,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+
+- **Agents can select OpenAI, Anthropic, Gemini, Ollama, or OpenRouter by model prefix.** Each
+  provider reads its own environment credential, and `Deck.build()` reports every missing
+  requirement before execution. Runtime settings now come only from environment variables or
+  the project `.env`; the undocumented `config.yaml` source is removed.
+
 ## [4.0.5] - 2026-08-19
 
 ### Added

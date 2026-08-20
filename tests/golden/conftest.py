@@ -48,16 +48,12 @@ def make_client(monkeypatch):
     from fastapi.testclient import TestClient
 
     from agentdeck.adapters.engines.langgraph.checkpointer import _memory_saver
-    from agentdeck.runtime.settings import PACKAGED_DEFAULT_YAML, reset_settings_cache
+    from agentdeck.runtime.settings import reset_settings_cache
     from agentdeck.serve import create_app
 
     for key, value in _PINNED_ENV.items():
         monkeypatch.setenv(key, value)
-    # .env and config.yaml resolve from cwd at settings-build time, and chdir below puts
-    # that at fixture_project (neither file lives there) — AGENTDECK_CONFIG_PATH is still
-    # pinned to the shipped defaults as a belt-and-suspenders guard against either
-    # appearing there later.
-    monkeypatch.setenv("AGENTDECK_CONFIG_PATH", str(PACKAGED_DEFAULT_YAML))
+    # .env resolves from cwd at settings-build time, and chdir below puts that at the fixture.
     monkeypatch.chdir(FIXTURE_PROJECT)
 
     with patch_model(_golden_model):

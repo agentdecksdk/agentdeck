@@ -2,7 +2,7 @@
 
 Model-agnostic web search (works with Gemini / any OpenAI-compatible model,
 unlike the SDK's hosted ``WebSearchTool``). One knob: ``TAVILY_API_KEY``
-env var or ``tavily: api_key:`` in config.yaml. Without a key the tool
+env var. Without a key the tool
 returns an ``error:`` line instead of raising, so the agent degrades the
 same way an unavailable MCP server does.
 """
