@@ -124,8 +124,6 @@ ALLOW_RE = re.compile(r"slopcheck:\s*allow\s+(SLOP\d{3})\b")
 SKIP_MARK_RE = re.compile(r"pytest\.mark\.(?:skip(?!if)|xfail)")
 ABSTRACT_BASES = ("Protocol", "ABC", "ABCMeta")
 ABSTRACT_DECORATORS = frozenset({"abstractmethod", "overload", "override"})
-# Signature-only fixtures are idiomatic outside library code; SLOP004 is library-only.
-SLOP004_EXEMPT_DIRS = frozenset({"tests", "scripts", "examples", "docs-site"})
 DIVIDER_RE = re.compile(r"-{4,}|={4,}")
 HUNK_RE = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
 
@@ -323,6 +321,8 @@ def _ast_violations(source: str) -> list[Violation]:
                 if isinstance(child, ast.Try):
                     # Broad catches only: a narrow typed except with pass/continue is a
                     # judgment call (deck.py's deferred-wake pattern); silence + Exception is not.
+                    # Deliberate write-gate twin of ruff S110/S112, which run later at commit/CI;
+                    # scope changes must land in both.
                     for handler in child.handlers:
                         names = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
                         broad = handler.type is None or any(
@@ -364,8 +364,23 @@ def changed_lines(path: Path, base: str = "HEAD") -> set[int] | None:
     return lines
 
 
+def _repo_root() -> Path:
+    try:
+        out = _git("rev-parse", "--show-toplevel").stdout.strip()
+        return Path(out).resolve() if out else Path.cwd().resolve()
+    except (OSError, subprocess.SubprocessError):
+        return Path.cwd().resolve()
+
+
 def _scope(path: Path, violations: list[Violation]) -> list[Violation]:
-    if SLOP004_EXEMPT_DIRS & set(path.parts):
+    # Library-only rules use the same predicate as concept_budget/quality_delta:
+    # under <toplevel>/agentdeck/. The toplevel comes from the file's own git so a
+    # worktree checkout resolves to its own root, not the session's.
+    try:
+        out = _git("rev-parse", "--show-toplevel", cwd=path.parent).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        out = ""
+    if not out or Path(out).resolve() / "agentdeck" not in path.parents:
         return [v for v in violations if not v.rule.startswith("SLOP004")]
     return violations
 
@@ -373,8 +388,8 @@ def _scope(path: Path, violations: list[Violation]) -> list[Violation]:
 def _outside_repo(path: Path) -> bool:
     """Hook modes gate this repo only: a session here editing another project's
     legacy file must not be blocked on lines nobody is writing."""
-    cwd = Path.cwd().resolve()
-    return cwd != path and cwd not in path.parents
+    root = _repo_root()
+    return root != path and root not in path.parents
 
 
 def check_file(path: Path, all_lines: bool = False, base: str = "HEAD") -> list[str]:
@@ -402,6 +417,11 @@ def changed_py_files(base: str = "HEAD") -> list[Path]:
 def main() -> int:
     args = sys.argv[1:]
     base = args[args.index("--base") + 1] if "--base" in args else "HEAD"
+    if base != "HEAD":
+        # Merge-base, same as concept_budget/quality_delta: a base branch that advanced
+        # after the PR forked must not leak its own changes into what "this PR added".
+        merge_base = _git("merge-base", base, "HEAD").stdout.strip()
+        base = merge_base or base
     argv_paths = [a for a in args if not a.startswith("-") and a != base]
     if "--write" in args:
         # PreToolUse: reconstruct what the file would become and deny the write
@@ -422,9 +442,12 @@ def main() -> int:
             candidate = tool_input["content"]
         elif "new_string" in tool_input:
             old = tool_input.get("old_string", "")
+            if not old or old not in previous:
+                # Stale or mismatched old_string: the Edit itself will fail, and the
+                # PostToolUse belt re-checks whatever actually lands on disk.
+                return 0
             count = -1 if tool_input.get("replace_all") else 1
-            in_place = bool(old) and old in previous
-            candidate = previous.replace(old, tool_input["new_string"], count) if in_place else tool_input["new_string"]
+            candidate = previous.replace(old, tool_input["new_string"], count)
         else:
             return 0
         previous_lines = set(previous.splitlines())

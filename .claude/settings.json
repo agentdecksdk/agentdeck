@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 scripts/slopcheck.py --write"
+            "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/slopcheck.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\" --write"
           }
         ]
       }
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 scripts/slopcheck.py"
+            "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/slopcheck.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\""
           }
         ]
       }
@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 scripts/slopcheck.py --changed"
+            "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/slopcheck.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\" --changed"
           }
         ]
       }

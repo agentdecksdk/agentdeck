@@ -25,14 +25,16 @@ def _git(*args: str) -> str:
 
 def actual_concepts(merge_base: str) -> dict[str, list[str]]:
     found: dict[str, list[str]] = {"classes": [], "public symbols": [], "modules": [], "dependencies": []}
-    for line in _git("diff", "--name-status", merge_base, "HEAD").splitlines():
+    for line in _git("diff", "-M", "--name-status", merge_base, "HEAD").splitlines():
         status, _, path = line.partition("\t")
         if status == "A" and path.startswith("agentdeck/") and path.endswith(".py"):
             found["modules"].append(path)
     in_lib = in_pyproject = False
     added: dict[str, str] = {}
     removed: set[str] = set()
-    for line in _git("diff", merge_base, "HEAD").splitlines():
+    # -M: a moved file must diff as a rename, or every symbol it carries would
+    # count as newly created against the budget.
+    for line in _git("diff", "-M", merge_base, "HEAD").splitlines():
         if line.startswith("+++ "):
             in_lib = line[4:].startswith("b/agentdeck/") and line.endswith(".py")
             in_pyproject = line == "+++ b/pyproject.toml"

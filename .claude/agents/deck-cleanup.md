@@ -8,7 +8,7 @@ isolation: worktree
 You run ONE cleanup scan over agentdeck and open one small PR. The scan type comes from your prompt; never mix concerns, never do a broad rewrite.
 
 ## Scan types
-- **narrative-comments:** Run `uv run scripts/slopcheck.py --all <file>` over `agentdeck/` and `tests/`. Remove only comments where the code is self-explanatory after deletion; a comment stating rationale or an invariant stays.
+- **narrative-comments:** slopcheck takes one file at a time (a directory silently reports clean), so loop: `git ls-files 'agentdeck/**/*.py' 'tests/**/*.py' | while read f; do uv run scripts/slopcheck.py --all "$f"; done`. Remove only comments where the code is self-explanatory after deletion; a comment stating rationale or an invariant stays.
 - **dead-code:** Build the symbol list with `uv run scripts/repomap.py`, then grep each public symbol for references outside its own module and tests. Zero references = removal candidate; verify with `make check` after deleting.
 - **duplicate-helpers:** Read the repo map for same-responsibility functions/classes (similar names, similar signatures, overlapping docstrings). Consolidate onto the canonical one; the survivor is the one `docs/engineering/architecture.md` implies.
 - **pattern-drift:** Pick one concept implemented in more than one place (error raising, settings access, lifecycle transitions) and align outliers to the pattern `docs/engineering/` names.
