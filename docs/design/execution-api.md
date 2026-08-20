@@ -238,20 +238,24 @@ and `ctx.approve()` instead, with no `ctx.pause()` at all, and both issues are u
 
 ## Delivery
 
+Native first, wrapping last: nothing foreign is adapted until the thing it is being adapted *to*
+exists and is proven by AgentDeck's own targets.
+
 | PR | scope | closes |
 |---|---|---|
 | 1 | this file | - |
-| 2 | `run.can`, strict lifecycle ops, `ToolCtx`/`WorkflowCtx`, `@tool`/`@workflow` validation, `ctx.invoke`/`parallel`/`safepoint`, child runs, reporter | #336 |
-| 3 | `InvocationResolver`, foreign executors (Agents SDK object, LangGraph graph, plain callable), `deck.runs.start(target)` | #337 |
+| 2 | `run.can`, strict lifecycle ops, `ToolCtx`, `safepoint()`, `Reporter` | - |
+| 3 | native `@tool` / `@workflow`, `WorkflowCtx`, the native engine, `ctx.invoke` / `parallel` / `ask` / `approve`, child runs | #336 |
 | 4 | `AgentInstance`, `ctx.agent`, `ctx.agents.create()` / `fork()` | #236 |
-| 5 | delete `Workflow`, `WorkflowDeclaration`, `graph=`, `durable=` and what hangs off them | - |
+| 5 | `InvocationResolver` and the wrapping adapters: a LangGraph graph, an Agents SDK object, a plain callable, `deck.runs.start(target)` | #337 |
+| 6 | migration: delete `Workflow`, `WorkflowDeclaration`, `graph=`, `durable=` and what hangs off them | - |
 
-Two lines PR2 does not cross:
+Two lines PR3 does not cross:
 
 | | |
 |---|---|
-| what `ctx.invoke()` accepts in PR2 | a catalog name and a native definition, nothing else. Every bare object, a plain callable included, waits for PR3's resolver, so there is one rule and no special case |
-| the parent edge | no parent field on `run.started` in PR2, where the parent holds the child handle in memory. `RunStarted` dropped `parent_run_id` once already for being written and never read; it comes back in PR3 with the invocation tree that reads it |
+| what `ctx.invoke()` accepts | a catalog name and a native definition, nothing else. Every bare object, a plain callable included, waits for PR5's resolver, so there is one rule and no special case |
+| the parent edge | no parent field on `run.started`, where the parent holds the child handle in memory. `RunStarted` dropped `parent_run_id` once already for being written and never read; it comes back in PR5 with the invocation tree that reads it |
 
 ## Open
 
