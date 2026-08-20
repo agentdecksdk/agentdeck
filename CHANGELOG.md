@@ -2316,9 +2316,16 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.1...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.5...HEAD
+[4.0.5]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.4...v4.0.5
+[4.0.4]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.3...v4.0.4
+[4.0.3]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.2...v4.0.3
+[4.0.2]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.1...v4.0.2
 [4.0.1]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.0...v4.0.1
 [4.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v3.1.0...v4.0.0
+[3.1.0]: https://github.com/agentdecksdk/agentdeck/compare/v3.0.1...v3.1.0
+[3.0.1]: https://github.com/agentdecksdk/agentdeck/compare/v3.0.0...v3.0.1
+[3.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v3.0.0b1...v3.0.0
 [3.0.0b1]: https://github.com/agentdecksdk/agentdeck/compare/v2.0.0...v3.0.0b1
 [2.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v2.0.0b4...v2.0.0
 [2.0.0b4]: https://github.com/agentdecksdk/agentdeck/compare/v2.0.0b3...v2.0.0b4

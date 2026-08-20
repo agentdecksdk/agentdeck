@@ -85,3 +85,11 @@ If a standard is repeatedly waived, either:
 - the standard is wrong.
 
 Resolve the contradiction.
+
+## 9. Changelog entries
+
+Write release notes for package users, not as a development diary.
+
+Each entry should lead with the observable outcome, then name only the migration step or limitation a user needs. Omit implementation chronology, contributor process, and exhaustive file-level detail. Split unrelated outcomes into separate bullets.
+
+Every release heading and `[Unreleased]` must have a link reference. Release links compare the immediately preceding release tag to that release; `[Unreleased]` compares the latest release tag to `HEAD`.
