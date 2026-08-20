@@ -39,6 +39,10 @@ Each analyst reads its area (excerpts, not whole-file dumps) plus the relevant s
 | [x] | 05-testing.md | test quality (not just count): doubles, goldens, flakiness risk, what a regression would slip past | reports/05-testing.md (12 GOOD / 13 BAD) |
 | [x] | 06-docs-dx.md | onboarding path, docs-site, examples, error-message quality, time-to-first-agent | reports/06-docs-dx.md (12 GOOD / 16 BAD; headline: 15/33 docs-site stub pages contradict code, Quickstart cannot run as written; contradicts drift scout's zero-drift claim, resolve in Phase 3) |
 | [x] | 07-security-deps.md | trust boundaries, secrets handling, serve surface (HTTP/SSE), dependency risk | reports/07-security-deps.md (12 GOOD / 16 BAD) |
+| [x] | 08-coding-patterns.md | cross-cutting coding craft: idioms, consistency, naming, comment discipline, typing/pydantic patterns, async style (added post-synthesis at user request) | reports/08-coding-patterns.md (13 GOOD / 13 BAD) |
+| [x] | 09-dev-process.md | how the project is developed and shipped: git/branch/PR workflow, code review, CI/CD pipelines, release process, versioning/changelog, staging/deploy story (added post-synthesis at user request) | reports/09-dev-process.md (20 GOOD / 26 BAD, 6 high each side) |
+| [x] | 10-mental-model.md | conceptual consistency: does the SDK teach one coherent mental model; term coherence (run/turn, session/thread_id/log_key, pause/interrupt/waiting_answer) across API, events, docs, CLI, errors (added post-synthesis at user request) | reports/10-mental-model.md (10 GOOD / 26 BAD; agent died on 529 after writing, file verified complete: 36 findings + bottom line, 0 em dashes) |
+| [x] | 11-branding-adoption.md | brand identity and polish (naming, presentation, docs-site tone, PyPI/GitHub surfaces) plus adoption/marketing machinery, shipped and planned (plan-adoption.md, GFI funnel, LLM discoverability, Jack) (added post-synthesis at user request) | reports/11-branding-adoption.md (19 GOOD / 28 BAD + 26-row plan-vs-reality table; agent restarted once after API error) |
 
 ## Phase 3: Synthesis (main agent)
 
