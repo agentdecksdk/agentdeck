@@ -23,7 +23,7 @@ Each scout writes raw findings to `reports/_scout/<name>.md`. No opinions, only 
 |------|-------|-------|------------------------|
 | [x] | inventory | LOC per package, public API surface (`__init__` exports), dead/oversized modules, TODO/FIXME/ponytail markers | reports/_scout/inventory.md (15032 LOC; deck.py 1413 + service.py 951 oversized; adapter-level export leaks; 12 ponytail markers) |
 | [x] | deps | pyproject deps + extras vs actual imports, unused/heavy deps, version pins, supply-chain notes | reports/_scout/deps.md (opentelemetry-sdk declared never imported; aiosqlite imported undeclared; all optional imports lazy) |
-| [ ] | tests | test count per area, coverage gaps (SDK modules with no test file), golden/snapshot hygiene, slow/skipped tests | reports/_scout/tests.md |
+| [x] | tests | test count per area, coverage gaps (SDK modules with no test file), golden/snapshot hygiene, slow/skipped tests | reports/_scout/tests.md (21K test LOC, flat layout; 5 coverage gaps incl. runners/workflow.py and mcp/transport.py; 9 documented skips, 0 xfail) |
 | [x] | drift | README + docs/engineering claims vs code reality, CHANGELOG vs shipped API, stale examples | reports/_scout/drift.md (zero drift: README, engineering docs, examples, CHANGELOG all verified against code) |
 
 ## Phase 2: Area analysts (opus, parallel, judgment)

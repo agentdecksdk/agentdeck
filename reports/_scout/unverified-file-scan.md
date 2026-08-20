@@ -1,3 +1,5 @@
+> UNVERIFIED scout over-delivery: judgments and the "make check passing" claim were not validated by the audit lead. Working material only.
+
 # AgentDeck Comprehensive Source Code Audit Report
 
 **Date:** 2026-08-20
