@@ -12,6 +12,7 @@ You review one agentdeck PR as the merge gate. REVIEW ONLY  -  never push commit
 2. Read the linked issue (`gh issue view <n>`) and the full diff (`gh pr diff <n>`).
 3. Check out the branch (`gh pr checkout <n>`) and run `make check`.
 4. Run `uv run scripts/quality_delta.py` and include its numbers in the verdict; challenge any axis (net code LOC, new public symbols, comments, dependencies) out of proportion to what the issue needed.
+5. Compare measured delta against the PR body's `## Expected delta` declaration: unexplained overrun beyond roughly 2x is request-changes. A PR adding new Python files must name its `## Analog`, and the new code must actually match that analog's shape and style.
 
 ## Verification Dimensions
 1. **Product Philosophy & Simplicity (`principles.md`):**

@@ -17,6 +17,7 @@ stderr with exit code 2, which Claude Code feeds back to the agent.
 
 from __future__ import annotations
 
+import ast
 import io
 import json
 import re
@@ -113,9 +114,18 @@ PLACEHOLDER_RE = re.compile(
 )
 # Tool directives, deliberate-shortcut markers, and section dividers are not prose.
 MARKER_RE = re.compile(
-    r"^#\s*(!|type:|noqa|ruff:|fmt:|pragma|ponytail:|coding[:=]"
+    r"^#\s*(!|type:|noqa|ruff:|fmt:|pragma|ponytail:|slopcheck:|coding[:=]"
     r"|pyright:|mypy:|pylint:|isort:|coverage:)"
 )
+# A suppression that names no rule code silences everything, including what it
+# never meant to silence; blanket forms are themselves slop.
+BLANKET_RE = re.compile(r"^(noqa|type:\s*ignore|pyright:\s*ignore|ruff:\s*noqa)\s*$")
+ALLOW_RE = re.compile(r"slopcheck:\s*allow\s+(SLOP\d{3})\b")
+SKIP_MARK_RE = re.compile(r"pytest\.mark\.(?:skip(?!if)|xfail)")
+ABSTRACT_BASES = ("Protocol", "ABC", "ABCMeta")
+ABSTRACT_DECORATORS = frozenset({"abstractmethod", "overload", "override"})
+# Signature-only fixtures are idiomatic outside library code; SLOP004 is library-only.
+SLOP004_EXEMPT_DIRS = frozenset({"tests", "scripts", "examples", "docs-site"})
 DIVIDER_RE = re.compile(r"-{4,}|={4,}")
 HUNK_RE = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
 
@@ -180,15 +190,39 @@ def check_source(source: str) -> list[Violation]:
     violations: list[Violation] = []
 
     comments: list[tuple[int, int, str, bool]] = []
+    allowed: dict[int, set[str]] = {}
     for tok in all_tokens:
-        if tok.type != tokenize.COMMENT or MARKER_RE.match(tok.string):
+        if tok.type != tokenize.COMMENT:
             continue
         row, col = tok.start
+        for rule_id in ALLOW_RE.findall(tok.string):
+            allowed.setdefault(row, set()).add(rule_id)
         text = tok.string.lstrip("#").strip()
-        if DIVIDER_RE.search(text):
+        if BLANKET_RE.match(text):
+            violations.append(
+                Violation(
+                    row,
+                    row,
+                    "SLOP006 blanket-suppression",
+                    f"{text!r} names no rule code; suppress the specific code or fix the finding",
+                )
+            )
+            continue
+        if MARKER_RE.match(tok.string) or DIVIDER_RE.search(text):
             continue
         trailing = bool(lines[row - 1][:col].strip())
         comments.append((row, col, text, trailing))
+
+    for row, ln in enumerate(lines, 1):
+        if SKIP_MARK_RE.search(ln) and not ISSUE_REF_RE.search(ln):
+            violations.append(
+                Violation(
+                    row,
+                    row,
+                    "SLOP008 untracked-skip",
+                    "skip/xfail weakens the suite silently; add reason= with an issue ref (#123)",
+                )
+            )
 
     for row, _col, text, _trailing in comments:
         if TODO_RE.search(text) and not ISSUE_REF_RE.search(text):
@@ -227,7 +261,86 @@ def check_source(source: str) -> list[Violation]:
         if code and _is_narrative(joined, code):
             violations.append(_narrative(block[0][0], last_row, joined))
 
+    violations.extend(_ast_violations(source))
+    violations = [v for v in violations if not any(v.rule.startswith(r) for r in allowed.get(v.start, ()))]
     return sorted(violations, key=lambda v: v.start)
+
+
+def _stub_body(stmts: list[ast.stmt]) -> bool:
+    if (
+        stmts
+        and isinstance(stmts[0], ast.Expr)
+        and isinstance(stmts[0].value, ast.Constant)
+        and isinstance(stmts[0].value.value, str)
+    ):
+        stmts = stmts[1:]
+    if len(stmts) != 1:
+        return False
+    stmt = stmts[0]
+    if isinstance(stmt, ast.Pass):
+        return True
+    # `raise NotImplementedError` is exempt on purpose: this codebase uses it as the
+    # informal-abstract-hook idiom (ControlSignalled._effect, Workflow.build_graph).
+    return isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and stmt.value.value is Ellipsis
+
+
+def _decorator_names(node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    names: set[str] = set()
+    for dec in node.decorator_list:
+        target = dec.func if isinstance(dec, ast.Call) else dec
+        if isinstance(target, ast.Attribute):
+            names.add(target.attr)
+        elif isinstance(target, ast.Name):
+            names.add(target.id)
+    return names
+
+
+def _ast_violations(source: str) -> list[Violation]:
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return []
+    out: list[Violation] = []
+
+    def visit(node: ast.AST, abstract: bool) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.ClassDef):
+                bases = {getattr(b, "id", None) or getattr(b, "attr", "") for b in child.bases}
+                visit(child, any(b in ABSTRACT_BASES or b.endswith(("Protocol", "ABC")) for b in bases))
+            elif isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+                if not abstract and not (_decorator_names(child) & ABSTRACT_DECORATORS) and _stub_body(child.body):
+                    out.append(
+                        Violation(
+                            child.lineno,
+                            child.lineno,
+                            "SLOP004 concrete-placeholder",
+                            f"{child.name}() is a pass/... stub outside an abstract context; "
+                            "implement it, or raise NotImplementedError if it is a subclass hook",
+                        )
+                    )
+                visit(child, abstract)
+            else:
+                if isinstance(child, ast.Try):
+                    # Broad catches only: a narrow typed except with pass/continue is a
+                    # judgment call (deck.py's deferred-wake pattern); silence + Exception is not.
+                    for handler in child.handlers:
+                        names = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+                        broad = handler.type is None or any(
+                            getattr(n, "id", None) in ("Exception", "BaseException") for n in names
+                        )
+                        if broad and all(isinstance(s, ast.Pass | ast.Continue) for s in handler.body):
+                            out.append(
+                                Violation(
+                                    handler.lineno,
+                                    handler.lineno,
+                                    "SLOP005 swallowed-exception",
+                                    "broad except silently swallowed; handle it, log it, or narrow and justify",
+                                )
+                            )
+                visit(child, abstract)
+
+    visit(tree, False)
+    return out
 
 
 def _git(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -251,9 +364,15 @@ def changed_lines(path: Path, base: str = "HEAD") -> set[int] | None:
     return lines
 
 
+def _scope(path: Path, violations: list[Violation]) -> list[Violation]:
+    if SLOP004_EXEMPT_DIRS & set(path.parts):
+        return [v for v in violations if not v.rule.startswith("SLOP004")]
+    return violations
+
+
 def check_file(path: Path, all_lines: bool = False, base: str = "HEAD") -> list[str]:
     path = path.resolve()
-    violations = check_source(path.read_text(encoding="utf-8"))
+    violations = _scope(path, check_source(path.read_text(encoding="utf-8")))
     changed = None if all_lines else changed_lines(path, base)
     if changed is not None:
         violations = [v for v in violations if v.touches(changed)]
@@ -277,13 +396,42 @@ def main() -> int:
     args = sys.argv[1:]
     base = args[args.index("--base") + 1] if "--base" in args else "HEAD"
     argv_paths = [a for a in args if not a.startswith("-") and a != base]
+    if "--write" in args:
+        # PreToolUse: reconstruct what the file would become and deny the write
+        # (exit 2) before slop ever reaches disk. Only newly introduced lines count.
+        try:
+            payload = json.load(sys.stdin)
+        except (json.JSONDecodeError, ValueError):
+            return 0
+        tool_input = payload.get("tool_input", {})
+        raw = tool_input.get("file_path", "")
+        if not raw.endswith(".py"):
+            return 0
+        path = Path(raw)
+        previous = path.read_text(encoding="utf-8") if path.is_file() else ""
+        if "content" in tool_input:
+            candidate = tool_input["content"]
+        elif "new_string" in tool_input:
+            old = tool_input.get("old_string", "")
+            count = -1 if tool_input.get("replace_all") else 1
+            in_place = bool(old) and old in previous
+            candidate = previous.replace(old, tool_input["new_string"], count) if in_place else tool_input["new_string"]
+        else:
+            return 0
+        previous_lines = set(previous.splitlines())
+        new_rows = {i for i, ln in enumerate(candidate.splitlines(), 1) if ln not in previous_lines}
+        blocked = [v for v in _scope(path.resolve(), check_source(candidate)) if v.touches(new_rows)]
+        for v in blocked:
+            print(f"{path}:{v.start}: {v.rule}: {v.message}", file=sys.stderr)
+        return 2 if blocked else 0
     if "--changed" in args:
         if not sys.stdin.isatty():
             try:
-                if json.load(sys.stdin).get("stop_hook_active"):
-                    return 0
+                payload = json.load(sys.stdin)
             except (json.JSONDecodeError, ValueError):
-                pass
+                payload = {}
+            if payload.get("stop_hook_active"):
+                return 0
         reports = [line for path in changed_py_files(base) for line in check_file(path, base=base)]
     elif argv_paths:
         path = Path(argv_paths[0])
@@ -335,8 +483,34 @@ def _self_test() -> None:
     assert not check_source(prose), "prose mentioning 'placeholder' mid-sentence must pass"
     divider = "# --- context= accepts a type and a value -----------------\ncontext = 1\n"
     assert not check_source(divider), "section dividers must pass"
-    directives = "x = 1  # noqa: E501\ny = 2  # type: ignore\nz = 3  # pyright: ignore\n"
-    assert not check_source(directives), "tool directives must pass"
+    directives = (
+        "x = 1  # noqa: E501\ny = 2  # type: ignore[arg-type]\nz = 3  # pyright: ignore[reportGeneralTypeIssues]\n"
+    )
+    assert not check_source(directives), "coded suppressions must pass"
+    blanket = "x = 1  # noqa\n"
+    assert any(v.rule.startswith("SLOP006") for v in check_source(blanket)), "blanket noqa must be flagged"
+    blanket_ty = "y = 2  # type: ignore\n"
+    assert any(v.rule.startswith("SLOP006") for v in check_source(blanket_ty)), "bare type: ignore must be flagged"
+    stub_fn = "class SqliteRunStore:\n    def save(self, run):\n        pass\n"
+    assert any(v.rule.startswith("SLOP004") for v in check_source(stub_fn)), "concrete stub must be flagged"
+    protocol = "class RunStore(Protocol):\n    def save(self, run) -> None: ...\n"
+    assert not check_source(protocol), "Protocol stubs must pass"
+    abstract = "class Base(ABC):\n    @abstractmethod\n    def save(self):\n        pass\n"
+    assert not check_source(abstract), "abstractmethod stubs must pass"
+    informal = "class Signal:\n    def effect(self):\n        raise NotImplementedError\n"
+    assert not check_source(informal), "NotImplementedError subclass hooks must pass"
+    swallow = "try:\n    x = 1\nexcept Exception:\n    pass\n"
+    assert any(v.rule.startswith("SLOP005") for v in check_source(swallow)), "swallowed exception must be flagged"
+    handled = "try:\n    x = 1\nexcept ValueError:\n    logger.warning('bad value')\n"
+    assert not check_source(handled), "handled exception must pass"
+    skip = "@pytest.mark.skip(reason='broken')\ndef test_x(): assert run()\n"  # slopcheck: allow SLOP008 fixture
+    assert any(v.rule.startswith("SLOP008") for v in check_source(skip)), "untracked skip must be flagged"
+    skip_ref = "@pytest.mark.xfail(reason='known engine bug #311')\ndef test_y(): assert run()\n"
+    assert not check_source(skip_ref), "issue-referenced xfail must pass"
+    skipif = "@pytest.mark.skipif(sys.platform == 'win32', reason='posix only')\ndef test_z(): assert run()\n"
+    assert not check_source(skipif), "conditional skipif must pass"
+    allow = "# Increment the retry count  (slopcheck: allow SLOP001 exemplar fixture)\nretry_count += 1\n"
+    assert not check_source(allow), "explicit coded allow marker must suppress"
     print("slopcheck self-test: ok")
 
 

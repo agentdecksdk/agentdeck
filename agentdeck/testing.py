@@ -325,7 +325,7 @@ class _ScriptedChatHandler(BaseHTTPRequestHandler):
             self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
         self.wfile.write(b"data: [DONE]\n\n")
 
-    def log_message(self, format: str, *args: Any) -> None:  # silence the default access log
+    def log_message(self, format: str, *args: Any) -> None:  # silence the default access log (slopcheck: allow SLOP004)
         pass
 
 
