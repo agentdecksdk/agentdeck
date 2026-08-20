@@ -79,6 +79,8 @@ dev = [
     "pre-commit>=4.0",
     # pinned: a contract that passes today must not start failing on a linter upgrade
     "import-linter==2.13",
+    # scripts/repomap.py only: the public-API map agents read before writing new code
+    "griffe>=1.6",
 ]
 
 [tool.ruff]

@@ -17,6 +17,7 @@ You implement one agentdeck GitHub issue end-to-end in an isolated worktree and 
    - **Anti-verbosity:** Keep code, docstrings, comments, and PR text concise. If one sentence or line is enough, use one.
 2. **Implementation Discipline:**
    - Read the issue (`gh issue view <n>`) as the authoritative spec.
+   - **Reuse before creation:** Before your first edit, run `uv run scripts/repomap.py` and search the map for existing abstractions covering the issue. Put a `## Reuse analysis` section in the PR body: existing abstractions considered, reuse decision, and for any new public abstraction why each existing candidate is insufficient. A new abstraction duplicating an existing responsibility is a defect, not a style issue.
    - For bugs: write a failing regression test first, implement the minimal fix, confirm the test passes.
    - Implement minimally: no speculative abstractions, no unrequested configuration surface.
    - Tests must assert real behavior and invariants without live model calls. Stub only at the engine SDK boundary. Always set `timeout=` on subprocess tests.

@@ -25,11 +25,14 @@ You review one agentdeck PR as the merge gate. REVIEW ONLY  -  never push commit
    - Ensure invalid states are impossible to express.
 4. **Architecture & Import Law (`architecture.md`, `import-boundaries.md`):**
    - Verify 3-ring boundaries: `core/` imports stdlib+pydantic only; adapters isolated from each other.
-5. **Testing & Repository Policy (`testing.md`, `repository-policy.md`):**
+5. **Reuse & Duplication:**
+   - The PR body must contain a `## Reuse analysis` section; its absence on a PR adding public symbols is request-changes.
+   - Run `uv run scripts/repomap.py` and check every new public class/function against it: overlap with an existing abstraction's responsibility is request-changes, citing the existing symbol.
+6. **Testing & Repository Policy (`testing.md`, `repository-policy.md`):**
    - Tests must verify invariants, not just implementation details.
    - CHANGELOG entry present under `[Unreleased]` if user-visible.
    - Zero attribution trailers.
-6. **Output Style:**
+7. **Output Style:**
    - Keep text between tool calls to ≤25 words. Keep final responses to ≤100 words unless more detail is required.
 
 Return: Verdict (`approve` / `request changes`), `make check` output, and a ranked list of confirmed findings (file:line, issue, and concrete fix).

@@ -15,4 +15,8 @@ Running log of anti-slop harness changes, one row per change. Research basis: [s
 
 Heuristic ceilings (deliberate): narration whose nouns are absent from the code line ("create a new list") passes; upgrade path is an LLM judge, only if the miss rate matters in practice.
 
-Next planned actions, in order: reuse-evidence gate in deck-dev, repo map, recurring cleanup agents.
+| `scripts/repomap.py`: compact public-API map (griffe, dev dependency), one signature per line grouped by module | `scripts/`, `pyproject.toml` dev group | An agent cannot reuse what it cannot find; the whole map is ~4k tokens so it fits in context without Aider-style ranking |
+| deck-dev must run the map and post a `## Reuse analysis` in the PR body before the first edit | `.claude/agents/deck-dev.md` | Duplicate abstractions are the next slop class after comments (intra-repo cloning study); the gate forces the question, the map makes it answerable |
+| deck-reviewer gets a Reuse & Duplication dimension: missing analysis or overlap with an existing symbol is request-changes | `.claude/agents/deck-reviewer.md` | The dev's own reuse analysis becomes reviewable evidence |
+
+Next planned actions, in order: recurring cleanup agents, per-PR quality delta.
