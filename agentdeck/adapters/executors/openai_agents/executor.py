@@ -1,4 +1,4 @@
-"""The openai-agents engine: ``EnginePort`` over ``agents.Runner``.
+"""The openai-agents engine: ``Executor`` over ``agents.Runner``.
 
 ``spec.native`` is the pre-built ``agents.Agent`` (handoffs and tools included)  -  this
 adapter only runs it and translates its stream, per ``core/ports/engine.py``. Execution
@@ -43,14 +43,14 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 from agents import Agent, Runner
 from pydantic import BaseModel
 
-from agentdeck.adapters.engines.openai_agents.reconcile import reconcile, render_data_block
-from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings, build_run_config
-from agentdeck.adapters.engines.openai_agents.sessions import ExecutionStore
-from agentdeck.adapters.engines.openai_agents.translate import translate
+from agentdeck.adapters.executors.openai_agents.reconcile import reconcile, render_data_block
+from agentdeck.adapters.executors.openai_agents.runconfig import RunSettings, build_run_config
+from agentdeck.adapters.executors.openai_agents.sessions import ExecutionStore
+from agentdeck.adapters.executors.openai_agents.translate import translate
 from agentdeck.core.content import AudioBlock, DataBlock, ImageBlock, ResourceBlock, TextBlock, coerce_input
 from agentdeck.core.control import ControlSignalled
 from agentdeck.core.events import RunCompleted, Usage, UsageReported
-from agentdeck.core.ports import EnginePort
+from agentdeck.core.ports import Executor
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
@@ -97,17 +97,17 @@ class Launch:
     finished: bool = False
 
 
-class OpenAIAgentsEngine(EnginePort):
+class OpenAIAgentsExecutor(Executor):
     """Plays ``spec.native`` (an ``agents.Agent``) through ``Runner.run_streamed``.
 
     Everything a run is configured with arrives here already resolved  -  ``sessions`` is the
     conversation memory (Redis-backed or local), ``settings`` the endpoint and limits, and
     ``sandbox`` the scope an agent that needs one runs inside. All three default to the
-    SDK's own behavior, so ``OpenAIAgentsEngine()`` still runs an agent that configured
+    SDK's own behavior, so ``OpenAIAgentsExecutor()`` still runs an agent that configured
     itself.
     """
 
-    engine: ClassVar[str] = "openai-agents"
+    name: ClassVar[str] = "openai-agents"
     suspendable: ClassVar[bool] = True
 
     def __init__(
@@ -343,4 +343,4 @@ def _usage_of(result: RunResultStreaming) -> Usage:
     return Usage(input_tokens=usage.input_tokens, output_tokens=usage.output_tokens)
 
 
-__all__ = ["Launch", "OpenAIAgentsEngine", "SandboxScope"]
+__all__ = ["Launch", "OpenAIAgentsExecutor", "SandboxScope"]

@@ -29,8 +29,8 @@ import crash_worker as worker
 import pytest
 from agents import SQLiteSession
 
-from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
-from agentdeck.adapters.engines.openai_agents.reconcile import DIVERGED
+from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
+from agentdeck.adapters.executors.openai_agents.reconcile import DIVERGED
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import TextBlock, coerce_input
 from agentdeck.core.events import MessageCompleted, RunStarted
@@ -118,7 +118,7 @@ class _CrashingSessions(ExecutionStore):
 
 def _build(model: worker.ScriptedModel, sessions: ExecutionStore) -> tuple[Runtime, SqliteEventStore]:
     store = SqliteEventStore()
-    return Runtime([OpenAIAgentsEngine(sessions)], store, {worker.AGENT: worker.spec(model)}), store
+    return Runtime([OpenAIAgentsExecutor(sessions)], store, {worker.AGENT: worker.spec(model)}), store
 
 
 async def _play(runtime: Runtime, question: str, label: str) -> list[Event]:
@@ -321,7 +321,7 @@ async def test_two_turns_racing_on_one_session_apply_the_repair_once() -> None:
     """
     model = worker.ScriptedModel(worker.ANSWER_1)
     sessions = _CrashingSessions("racing-turns", slow_reads=True)
-    engine = OpenAIAgentsEngine(sessions)
+    engine = OpenAIAgentsExecutor(sessions)
     spec = worker.spec(model)
     store = SqliteEventStore()
     runtime = Runtime([engine], store, {worker.AGENT: spec})
@@ -355,7 +355,7 @@ async def test_a_session_lost_entirely_is_refilled_from_the_log() -> None:
 
     # Same log, execution state the process no longer has.
     second_model = worker.ScriptedModel(worker.ANSWER_3)
-    restarted = Runtime([OpenAIAgentsEngine(ExecutionStore())], store, {worker.AGENT: worker.spec(second_model)})
+    restarted = Runtime([OpenAIAgentsExecutor(ExecutionStore())], store, {worker.AGENT: worker.spec(second_model)})
     await _play(restarted, worker.QUESTION_2, "turn-2")
 
     assert worker.transcript_of(second_model.inputs[-1]) == [*FIRST_EXCHANGE, ["user", worker.QUESTION_2]]

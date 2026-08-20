@@ -49,7 +49,7 @@ def _researcher() -> Agent:
 
 def _spec(*names):
     metadata = {MCP_SERVER_NAMES_KEY: list(names)} if names else {}
-    return InvocableSpec(name="Researcher", kind=InvocableKind.AGENT, engine="openai-agents", metadata=metadata)
+    return InvocableSpec(name="Researcher", kind=InvocableKind.AGENT, executor="openai-agents", metadata=metadata)
 
 
 @pytest.fixture(autouse=True)
@@ -150,7 +150,7 @@ def test_a_lone_server_name_is_not_read_as_characters(connect):
     spec = InvocableSpec(
         name="Researcher",
         kind=InvocableKind.AGENT,
-        engine="openai-agents",
+        executor="openai-agents",
         metadata={MCP_SERVER_NAMES_KEY: "knowledge"},
     )
 
@@ -165,7 +165,7 @@ def test_a_declared_name_that_is_not_a_string_is_reported_missing(connect):
     spec = InvocableSpec(
         name="Researcher",
         kind=InvocableKind.AGENT,
-        engine="openai-agents",
+        executor="openai-agents",
         metadata={MCP_SERVER_NAMES_KEY: [None, 5]},
     )
 

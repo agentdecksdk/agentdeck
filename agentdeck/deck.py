@@ -27,7 +27,7 @@ every name a catalog references (skills, MCP servers, workflow-as-tool) and comp
 agent/workflow to an ``InvocableSpec``  -  reading local files, never the network, and idempotent.
 The catalog is immutable from construction: :attr:`agents` and :attr:`workflows` are read-only
 mappings, so nothing after ``build()`` can invalidate what it already checked. Opening starts
-what ``build()`` deliberately left alone  -  the MCP lifecycle, the Runtime's engines and event
+what ``build()`` deliberately left alone  -  the MCP lifecycle, the Runtime's executors and event
 store, the observers on its event stream  -  and closing tears down only what this Deck itself
 started (the ownership rule: configuration this Deck instantiated is its to close; an object
 the caller constructed and handed in stays the caller's).
@@ -45,9 +45,9 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
-from agentdeck.adapters.engines.langgraph import LangGraphEngine
-from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine, SessionFactory
-from agentdeck.adapters.engines.openai_agents.runconfig import validate_model_requirements
+from agentdeck.adapters.executors.langgraph import LangGraphExecutor
+from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor, SessionFactory
+from agentdeck.adapters.executors.openai_agents.runconfig import validate_model_requirements
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring.agent import Agent
 from agentdeck.authoring.compile import refresh_mcp_status
@@ -103,13 +103,13 @@ if TYPE_CHECKING:
     from agentdeck.core.content import Input
     from agentdeck.core.events import Event, Usage
     from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import EnginePort, EventStorePort
+    from agentdeck.core.ports import Executor, EventStorePort
     from agentdeck.runtime.service import PendingRun, Runtime
 
 # The two engine names a Deck's catalog always targets  -  read off each engine's own ``ClassVar``,
 # never an instance, so ``build()`` can validate "an engine is registered" without constructing
 # anything that could touch the network. See the module docstring's lifecycle note.
-_DEFAULT_ENGINE_NAMES: tuple[str, str] = (OpenAIAgentsEngine.engine, LangGraphEngine.engine)
+_DEFAULT_EXECUTORS: tuple[str, str] = (OpenAIAgentsExecutor.name, LangGraphExecutor.name)
 
 _State = Literal["NEW", "BUILT", "OPEN", "CLOSED"]
 
@@ -406,11 +406,11 @@ class Deck:
         observers: Sequence[EventSinkPort] | None = None,
         session_factory: SessionFactory | None = None,
         # Private-by-name test seams  -  never part of the documented constructor, exactly like
-        # ``tests/contract/``'s need for ``_engines=`` on the Runtime this composes. A bare
+        # ``tests/contract/``'s need for ``_executors=`` on the Runtime this composes. A bare
         # engine-name string restricts `build()`'s "is this engine registered" check without
-        # constructing anything (see `_DEFAULT_ENGINE_NAMES`); a live `EnginePort` is what
+        # constructing anything (see `_DEFAULT_EXECUTORS`); a live `Executor` is what
         # `__aenter__` needs to actually play a run on  -  a string-only override never opens.
-        _engines: Sequence[EnginePort | str] | None = None,
+        _executors: Sequence[Executor | str] | None = None,
         _store: EventStorePort | None = None,
         _session_factory: SessionFactory | None = None,
         # Not a test seam like the two below: the bundle path each discovered ``agents``/
@@ -428,14 +428,14 @@ class Deck:
         self._context_type = declared_context_type(context)
         self._observers_arg = observers
         self._session_factory_arg = session_factory if session_factory is not None else _session_factory
-        self._engines_arg = _engines
+        self._executors_arg = _executors
         self._store_arg = _store
         self._bundle_of = _bundle_of or {}
         self._project_path = _project_path
 
         self._state: _State = "NEW"
         self._invocables: Mapping[str, InvocableSpec] | None = None
-        self._engine_instances: tuple[EnginePort, ...] | None = None
+        self._executor_instances: tuple[Executor, ...] | None = None
         self._runtime: Runtime | None = None
         self._sessions: ExecutionStore | None = None
         self._sweeper: asyncio.Task[None] | None = None
@@ -518,7 +518,7 @@ class Deck:
 
         Idempotent: a second call is a no-op once ``BUILT`` (or later). Reads local files
         (every ``SKILL.md``, the MCP file) but opens no connection and starts no MCP server  -
-        engines are named, never constructed, until :meth:`__aenter__` actually needs one.
+        executors are named, never constructed, until :meth:`__aenter__` actually needs one.
 
         Registering the MCP server specs (``MCPLifecycle.configure``, itself network-free) here
         means an agent's ``mcp=`` compiles against known-but-not-yet-connected names rather than
@@ -554,7 +554,7 @@ class Deck:
             self._validate_agent_skills(agent, skills_by_name)
             self._validate_agent_mcp(agent, mcp_names)
             self._validate_agent_workflow_tools(agent)
-        engine_names = tuple(self._engines_arg) if self._engines_arg is not None else _DEFAULT_ENGINE_NAMES
+        engine_names = tuple(self._executors_arg) if self._executors_arg is not None else _DEFAULT_EXECUTORS
         registry = InvocableRegistry(engine_names)
         self._invocables = registry.load(
             agents=list(self._agents.values()),
@@ -624,7 +624,7 @@ class Deck:
         """Open: build (if not yet), start the MCP lifecycle, and compose the Runtime.
 
         Everything ``build()`` deliberately left alone happens here  -  constructing the real
-        engines, the event store, the session factory, the telemetry client, and connecting
+        executors, the event store, the session factory, the telemetry client, and connecting
         every configured MCP server (soft per-server failure, same as today). MCP status on
         every already-compiled agent is refreshed right after, since ``build()`` resolved it
         before anything connected.
@@ -642,18 +642,18 @@ class Deck:
         self.build()
         if self._state == "OPEN":
             return self
-        if self._engines_arg is not None:
-            live = [e for e in self._engines_arg if not isinstance(e, str)]
-            if len(live) != len(self._engines_arg):
+        if self._executors_arg is not None:
+            live = [e for e in self._executors_arg if not isinstance(e, str)]
+            if len(live) != len(self._executors_arg):
                 raise ConfigError(
-                    "_engines= given as bare engine-name strings only restricts build()'s "
-                    "validation; opening a Deck needs live EnginePort instances to run on."
+                    "_executors= given as bare engine-name strings only restricts build()'s "
+                    "validation; opening a Deck needs live Executor instances to run on."
                 )
-            self._engine_instances = tuple(live)
+            self._executor_instances = tuple(live)
         else:
-            self._engine_instances = (
-                OpenAIAgentsEngine(self._ensure_sessions(), settings=resolve_run_settings()),
-                LangGraphEngine(durable_checkpoint=resolve_checkpoint()),
+            self._executor_instances = (
+                OpenAIAgentsExecutor(self._ensure_sessions(), settings=resolve_run_settings()),
+                LangGraphExecutor(durable_checkpoint=resolve_checkpoint()),
             )
         self._owns_store = self._store_arg is None
         store = self._store_arg if self._store_arg is not None else resolve_event_store()
@@ -676,7 +676,7 @@ class Deck:
                 raise
             self._started_observers = (*self._started_observers, observer)
         self._runtime = build_runtime(
-            engines=self._engine_instances,
+            executors=self._executor_instances,
             invocables=self._invocables,
             store=store,
             sinks=observers,

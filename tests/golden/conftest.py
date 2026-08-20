@@ -47,7 +47,7 @@ def make_client(monkeypatch):
     """Factory of independent clients — the stability test needs two fresh ones in a row."""
     from fastapi.testclient import TestClient
 
-    from agentdeck.adapters.engines.langgraph.checkpointer import _memory_saver
+    from agentdeck.adapters.executors.langgraph.checkpointer import _memory_saver
     from agentdeck.runtime.settings import reset_settings_cache
     from agentdeck.serve import create_app
 

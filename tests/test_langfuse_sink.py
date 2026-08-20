@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from agentdeck.adapters.engines.stub import StubEngine, stub_spec
+from agentdeck.adapters.executors.stub import StubExecutor, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.telemetry.langfuse import LangfuseSink
 from agentdeck.adapters.telemetry.langfuse.sink import _render
@@ -185,7 +185,7 @@ class Collector:
 def _runtime(collector: Collector, *steps: KnownPayload, kind: InvocableKind, name: str) -> Runtime:
     spec = stub_spec(name, *steps, kind=kind)
     return Runtime(
-        [StubEngine()],
+        [StubExecutor()],
         MemoryEventStore(),
         {spec.name: spec},
         sinks=[LangfuseSink(collector)],

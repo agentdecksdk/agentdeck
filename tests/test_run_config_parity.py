@@ -24,7 +24,10 @@ import httpx
 import pytest
 from agents import Agent, MultiProvider
 
-from agentdeck.adapters.engines.openai_agents.runconfig import build_handoff_ends_on_user_turn_mapper, build_run_config
+from agentdeck.adapters.executors.openai_agents.runconfig import (
+    build_handoff_ends_on_user_turn_mapper,
+    build_run_config,
+)
 from agentdeck.authoring.runners.agent import HeadlessRunner
 from agentdeck.composition import resolve_run_settings
 from agentdeck.runtime.settings import reset_settings_cache

@@ -18,7 +18,7 @@ pytest.importorskip("langfuse", reason="needs the [observability] extra")
 from opentelemetry.sdk.trace import TracerProvider  # noqa: E402
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor, SpanExporter, SpanExportResult  # noqa: E402
 
-from agentdeck.adapters.engines.stub import StubEngine, stub_spec  # noqa: E402
+from agentdeck.adapters.executors.stub import StubExecutor, stub_spec  # noqa: E402
 from agentdeck.adapters.stores.memory import MemoryEventStore  # noqa: E402
 from agentdeck.adapters.telemetry.langfuse import LangfuseSink, LangfuseTracer, build_client  # noqa: E402
 from agentdeck.core.content import TextBlock  # noqa: E402
@@ -113,7 +113,7 @@ async def _run(spy, name: str = "Pipeline") -> str:  # noqa: ANN001
     the only way a test can predict that seed now that #324 mints it rather than a caller."""
     spec = stub_spec(name, *WORKFLOW, kind=InvocableKind.WORKFLOW)
     runtime = Runtime(
-        [StubEngine()],
+        [StubExecutor()],
         MemoryEventStore(),
         {spec.name: spec},
         sinks=[LangfuseSink(LangfuseTracer(spy.client))],
@@ -176,7 +176,7 @@ async def test_an_inline_data_uri_in_tool_args_never_reaches_the_langfuse_media_
         kind=InvocableKind.WORKFLOW,
     )
     runtime = Runtime(
-        [StubEngine()],
+        [StubExecutor()],
         MemoryEventStore(),
         {spec.name: spec},
         sinks=[LangfuseSink(LangfuseTracer(spy.client))],

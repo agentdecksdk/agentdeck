@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import pytest
 
-from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
-from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings
+from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
+from agentdeck.adapters.executors.openai_agents.runconfig import RunSettings
 from agentdeck.authoring import Agent
 from agentdeck.authoring.compile import compile_agent, link_handoffs
 from agentdeck.core.content import coerce_input
@@ -74,8 +74,8 @@ async def test_a_run_plays_the_declared_model_not_the_configured_one():
     provider_model = ScriptedModel(deltas=["from the configured default  -  wrong"])
 
     compiled = compile_agent(Agent(name="A", instructions="x", model=declared))
-    spec = InvocableSpec(name="A", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=compiled)
-    engine = OpenAIAgentsEngine(ExecutionStore(), settings=RunSettings(model="configured-default"))
+    spec = InvocableSpec(name="A", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=compiled)
+    engine = OpenAIAgentsExecutor(ExecutionStore(), settings=RunSettings(model="configured-default"))
 
     with patch_model(provider_model):
         async for _ in engine.start(spec, coerce_input("hi"), [], _ctx()):
@@ -95,11 +95,11 @@ async def test_a_run_still_plays_the_configured_model_when_the_agent_declares_no
     configured_model = ScriptedModel(deltas=["from the configured default"])
 
     compiled = compile_agent(Agent(name="A", instructions="x"))
-    spec = InvocableSpec(name="A", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=compiled)
+    spec = InvocableSpec(name="A", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=compiled)
     # `RunSettings.model` is what turns the provider on at all (`runconfig._provider`)  -  in
     # the real composition root it is the same `OPENAI_MODEL` value the agent just defaulted
     # to above, so it is named again here rather than left at `RunSettings()`'s bare default.
-    engine = OpenAIAgentsEngine(ExecutionStore(), settings=RunSettings(model="configured-default"))
+    engine = OpenAIAgentsExecutor(ExecutionStore(), settings=RunSettings(model="configured-default"))
 
     with patch_model(configured_model):
         async for _ in engine.start(spec, coerce_input("hi"), [], _ctx()):

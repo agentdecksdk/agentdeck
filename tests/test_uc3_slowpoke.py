@@ -36,7 +36,7 @@ from openai.types.responses import (
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
 from agentdeck.adapters.control.memory import MemoryControlPort
-from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
+from agentdeck.adapters.executors.openai_agents import OpenAIAgentsExecutor
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import coerce_input
@@ -118,7 +118,7 @@ class SlowPokeModel(Model):
 
 def _spec() -> InvocableSpec:
     agent = Agent(name="SlowPoke", instructions="stall", model=SlowPokeModel())
-    return InvocableSpec(name="SlowPoke", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
+    return InvocableSpec(name="SlowPoke", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=agent)
 
 
 def _build(control: ControlPort) -> tuple[Runtime, EventStorePort]:
@@ -133,7 +133,9 @@ def _build(control: ControlPort) -> tuple[Runtime, EventStorePort]:
     streams for six seconds.
     """
     store = MemoryEventStore()
-    runtime = Runtime([OpenAIAgentsEngine()], store, {"SlowPoke": _spec()}, control=control, control_poll_interval=0.0)
+    runtime = Runtime(
+        [OpenAIAgentsExecutor()], store, {"SlowPoke": _spec()}, control=control, control_poll_interval=0.0
+    )
     return runtime, store
 
 
@@ -277,7 +279,7 @@ from openai.types.responses import (
 )
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 from agentdeck.adapters.control.sqlite import SqliteControlPort
-from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
+from agentdeck.adapters.executors.openai_agents import OpenAIAgentsExecutor
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
@@ -321,8 +323,8 @@ async def main():
     control = SqliteControlPort(sys.argv[1])
     store = SqliteEventStore(sys.argv[2])
     agent = Agent(name="SlowPoke", instructions="stall", model=SlowPokeModel())
-    spec = InvocableSpec(name="SlowPoke", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
-    runtime = Runtime([OpenAIAgentsEngine()], store, {"SlowPoke": spec}, control=control)
+    spec = InvocableSpec(name="SlowPoke", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=agent)
+    runtime = Runtime([OpenAIAgentsExecutor()], store, {"SlowPoke": spec}, control=control)
     async for event in runtime.run("SlowPoke", coerce_input("go slow"), key=sys.argv[3]):
         print(event.kind, event.run_id, event.seq, flush=True)
 

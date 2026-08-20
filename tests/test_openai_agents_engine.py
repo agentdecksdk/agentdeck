@@ -24,9 +24,9 @@ from agents.models.chatcmpl_converter import Converter
 from agents.models.interface import Model
 from pydantic import BaseModel, ConfigDict
 
-from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
-from agentdeck.adapters.engines.openai_agents import engine as engine_module
-from agentdeck.adapters.engines.openai_agents.engine import _to_sdk_input
+from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
+from agentdeck.adapters.executors.openai_agents import executor as executor_module
+from agentdeck.adapters.executors.openai_agents.executor import _to_sdk_input
 from agentdeck.core.content import (
     AudioBlock,
     DataBlock,
@@ -71,7 +71,7 @@ class _FakeStreamResult:
 
 def _spec() -> InvocableSpec:
     agent = Agent(name="Test", instructions="reply", model=_NeverCalledModel())
-    return InvocableSpec(name="Test", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
+    return InvocableSpec(name="Test", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=agent)
 
 
 def _ctx() -> RunContext:
@@ -87,8 +87,8 @@ async def _run_config_passed_to_runner(monkeypatch: pytest.MonkeyPatch) -> RunCo
             captured["run_config"] = run_config
             return _FakeStreamResult()
 
-    monkeypatch.setattr(engine_module, "Runner", _FakeRunner)
-    engine = OpenAIAgentsEngine(ExecutionStore())
+    monkeypatch.setattr(executor_module, "Runner", _FakeRunner)
+    engine = OpenAIAgentsExecutor(ExecutionStore())
     async for _ in engine.start(_spec(), coerce_input("hi"), [], _ctx()):
         pass
     return captured["run_config"]
@@ -132,8 +132,8 @@ async def _terminal(monkeypatch: pytest.MonkeyPatch, final_output: Any) -> RunCo
         def run_streamed(*_args: Any, **_kwargs: Any) -> _FakeStreamResult:
             return _FakeStreamResult(final_output)
 
-    monkeypatch.setattr(engine_module, "Runner", _FakeRunner)
-    engine = OpenAIAgentsEngine(ExecutionStore())
+    monkeypatch.setattr(executor_module, "Runner", _FakeRunner)
+    engine = OpenAIAgentsExecutor(ExecutionStore())
     payloads = [payload async for payload in engine.start(_spec(), coerce_input("hi"), [], _ctx())]
     terminal = payloads[-1]
     assert isinstance(terminal, RunCompleted)
@@ -356,8 +356,8 @@ async def test_start_hands_the_sdk_boundary_the_multimodal_item_verbatim(monkeyp
             captured["message"] = args[1]
             return _FakeStreamResult()
 
-    monkeypatch.setattr(engine_module, "Runner", _FakeRunner)
-    engine = OpenAIAgentsEngine(ExecutionStore())
+    monkeypatch.setattr(executor_module, "Runner", _FakeRunner)
+    engine = OpenAIAgentsExecutor(ExecutionStore())
     blocks = [TextBlock(text="what is this?"), ImageBlock(media_type="image/png", data_b64="AAAA")]
     async for _ in engine.start(_spec(), blocks, [], _ctx()):
         pass
@@ -381,8 +381,8 @@ async def test_start_raises_for_audio_under_responses_before_touching_the_sdk(
         def run_streamed(*_args: Any, **_kwargs: Any) -> _FakeStreamResult:
             raise AssertionError("must not reach the SDK boundary")
 
-    monkeypatch.setattr(engine_module, "Runner", _NeverCalledRunner)
-    engine = OpenAIAgentsEngine(ExecutionStore())  # default settings: use_responses=True
+    monkeypatch.setattr(executor_module, "Runner", _NeverCalledRunner)
+    engine = OpenAIAgentsExecutor(ExecutionStore())  # default settings: use_responses=True
     with pytest.raises(ConfigError, match="Responses API"):
         async for _ in engine.start(_spec(), [AudioBlock(media_type="audio/wav", data_b64="AAAA")], [], _ctx()):
             pass

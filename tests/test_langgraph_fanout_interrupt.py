@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from agentdeck.adapters.engines.langgraph import LangGraphEngine
+from agentdeck.adapters.executors.langgraph import LangGraphExecutor
 from agentdeck.core.content import DataBlock
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import NodeUpdated, RunCompleted, RunInterrupted
@@ -62,7 +62,7 @@ def _spec() -> InvocableSpec:
     return InvocableSpec(
         name="FanOut",
         kind=InvocableKind.WORKFLOW,
-        engine=LangGraphEngine.engine,
+        executor=LangGraphExecutor.name,
         native=graph,
         metadata={DURABLE_KEY: True},
     )
@@ -72,14 +72,14 @@ def _ctx(run_id: str) -> RunContext:
     return RunContext(namespace="acme", run_id=run_id, session_id="thread-fanout")
 
 
-async def _start(engine: LangGraphEngine, spec: InvocableSpec) -> list[KnownPayload]:
+async def _start(engine: LangGraphExecutor, spec: InvocableSpec) -> list[KnownPayload]:
     input: Input = [DataBlock(data={"text": "approve?"})]
     return [payload async for payload in engine.start(spec, input, [], _ctx("r-1"))]
 
 
 async def test_a_completed_siblings_update_reaches_the_log_before_the_pause() -> None:
     """The sibling's report is not dropped, and the pause is reported last."""
-    engine = LangGraphEngine()
+    engine = LangGraphExecutor()
     spec = _spec()
 
     payloads = await _start(engine, spec)
@@ -99,7 +99,7 @@ async def test_resuming_still_reaches_the_merged_final_state() -> None:
     prior superstep's cached results too, which is its own well-established mechanism, not part
     of #122)  -  only that the two branches' writes both land in the state the run finishes with.
     """
-    engine = LangGraphEngine()
+    engine = LangGraphExecutor()
     spec = _spec()
 
     first = await _start(engine, spec)

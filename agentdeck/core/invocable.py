@@ -33,6 +33,6 @@ class InvocableSpec(CoreModel):
 
     name: str
     kind: InvocableKind
-    engine: str
+    executor: str
     metadata: dict[str, Any] = Field(default_factory=dict)
     native: Any = None

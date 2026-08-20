@@ -1,4 +1,4 @@
-"""The engine that plays a script  -  the reference implementation of ``EnginePort``.
+"""The engine that plays a script  -  the reference implementation of ``Executor``.
 
 An invocable's ``native`` is the script: payloads to yield in order, with any exception in
 the sequence raised where it sits. That covers every way a run can end  -  completes, fails
@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from agentdeck.core.control import ControlSignalled
 from agentdeck.core.events import RunInterrupted
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
-from agentdeck.core.ports import EnginePort
+from agentdeck.core.ports import Executor
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
@@ -32,14 +32,14 @@ type Step = KnownPayload | Exception
 """One scripted step: a payload to yield, or an exception to raise at that point."""
 
 
-class StubEngine(EnginePort):
+class StubExecutor(Executor):
     """Plays ``spec.native`` back as a run. Scripts are reusable: payloads are immutable.
 
     Honors the gate between steps, so run control is part of what this engine models rather
     than something only a real one can be tested against.
     """
 
-    engine: ClassVar[str] = "stub"
+    name: ClassVar[str] = "stub"
     suspendable: ClassVar[bool] = True
 
     async def start(
@@ -84,7 +84,7 @@ class StubEngine(EnginePort):
 
 def stub_spec(name: str, *steps: Step, kind: InvocableKind = InvocableKind.AGENT) -> InvocableSpec:
     """A scripted invocable. Leave ``run.started`` out  -  the Runtime opens every run itself."""
-    return InvocableSpec(name=name, kind=kind, engine=StubEngine.engine, native=steps)
+    return InvocableSpec(name=name, kind=kind, executor=StubExecutor.name, native=steps)
 
 
 def _script_of(spec: InvocableSpec) -> tuple[Step, ...]:
@@ -98,4 +98,4 @@ def _script_of(spec: InvocableSpec) -> tuple[Step, ...]:
     return tuple(script)
 
 
-__all__ = ["Step", "StubEngine", "stub_spec"]
+__all__ = ["Step", "StubExecutor", "stub_spec"]

@@ -864,14 +864,14 @@ async def test_deck_closes_a_store_it_built_itself(no_project, monkeypatch, scri
     assert store.aclose_calls == 1
 
 
-# --- the private `_engines=` seam exists and is exercised -----------------------------------
+# --- the private `_executors=` seam exists and is exercised -----------------------------------
 
 
 def test_engines_seam_restricts_which_engines_a_catalog_may_use(no_project):
     """A private, test-only override (never in the documented constructor, same as the
     Runtime's own ``tests/contract/`` seam): naming only the stub engine means an ordinary
     ``Agent``  -  which needs "openai-agents"  -  fails ``build()`` instead of silently compiling."""
-    deck = Deck(agents=[_greeter()], _engines=("stub",))
+    deck = Deck(agents=[_greeter()], _executors=("stub",))
 
     with pytest.raises(ConfigError, match="openai-agents"):
         deck.build()
@@ -880,10 +880,10 @@ def test_engines_seam_restricts_which_engines_a_catalog_may_use(no_project):
 def test_engines_seam_accepts_the_matching_default_engines(no_project):
     """The same seam, given the real default engine names, builds exactly like the default
     constructor  -  proving the restriction above comes from the *set*, not the seam itself."""
-    from agentdeck.adapters.engines.langgraph import LangGraphEngine
-    from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
+    from agentdeck.adapters.executors.langgraph import LangGraphExecutor
+    from agentdeck.adapters.executors.openai_agents import OpenAIAgentsExecutor
 
-    deck = Deck(agents=[_greeter()], _engines=(OpenAIAgentsEngine.engine, LangGraphEngine.engine))
+    deck = Deck(agents=[_greeter()], _executors=(OpenAIAgentsExecutor.name, LangGraphExecutor.name))
 
     deck.build()  # no raise
 
@@ -1983,7 +1983,7 @@ async def test_pause_and_resume_reach_the_runtime_this_deck_composed(no_project,
 async def test_injected_session_factory_is_used_and_closed_once(no_project, monkeypatch, scripted):
     """The DI seam bypasses ``SessionFactory.from_settings``, and ``aclose()`` closes the
     injection exactly once."""
-    from agentdeck.adapters.engines.openai_agents.sessions import SessionFactory
+    from agentdeck.adapters.executors.openai_agents.sessions import SessionFactory
 
     def boom(_settings: Any) -> Any:
         raise AssertionError("from_settings must not be called when a factory is injected")

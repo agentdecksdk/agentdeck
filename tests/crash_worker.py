@@ -33,7 +33,7 @@ from openai.types.responses import (
 )
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
-from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
+from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
@@ -218,7 +218,7 @@ class StallingStore(SqliteEventStore):
 
 def spec(model: Model) -> InvocableSpec:
     agent = Agent(name=AGENT, instructions="remember what you are told", model=model)
-    return InvocableSpec(name=AGENT, kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
+    return InvocableSpec(name=AGENT, kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=agent)
 
 
 def runtime_over(store: SqliteEventStore, sessions: ExecutionStore, model: Model) -> Runtime:
@@ -230,7 +230,7 @@ def runtime_over(store: SqliteEventStore, sessions: ExecutionStore, model: Model
     ``build_runtime`` would.
     """
     return Runtime(
-        [OpenAIAgentsEngine(sessions)],
+        [OpenAIAgentsExecutor(sessions)],
         store,
         {AGENT: spec(model)},
         stale_run_after=get_settings().runtime.stale_run_after,

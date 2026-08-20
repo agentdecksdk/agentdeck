@@ -34,7 +34,7 @@ from openai.types.responses import (
 )
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
-from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
+from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import RESULT_PREVIEW_MAX, Event
@@ -193,11 +193,11 @@ def _build() -> tuple[Runtime, ExecutionStore, SqliteEventStore]:
         name="FrontDesk", instructions="route to claims", handoffs=[claims_agent], model=FrontModel(handoff_tool)
     )
     spec = InvocableSpec(
-        name="FrontDesk", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=front_agent
+        name="FrontDesk", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=front_agent
     )
     sessions = ExecutionStore()
     store = SqliteEventStore()
-    runtime = Runtime([OpenAIAgentsEngine(sessions)], store, {"FrontDesk": spec})
+    runtime = Runtime([OpenAIAgentsExecutor(sessions)], store, {"FrontDesk": spec})
     return runtime, sessions, store
 
 

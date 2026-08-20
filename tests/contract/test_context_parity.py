@@ -50,7 +50,7 @@ def store() -> MemoryEventStore:
 
 @pytest.fixture
 def runtime(subject: Subject, store: MemoryEventStore) -> Runtime:
-    return Runtime([subject.engine], store, {subject.spec.name: subject.spec})
+    return Runtime([subject.executor], store, {subject.spec.name: subject.spec})
 
 
 async def _play(runtime: Runtime, subject: Subject, context: object) -> list[Event]:

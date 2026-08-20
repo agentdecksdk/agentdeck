@@ -32,8 +32,8 @@ from openai.types.responses import (
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
 from agentdeck.adapters.control.sqlite import SqliteControlPort
-from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
-from agentdeck.adapters.engines.stub import StubEngine, stub_spec
+from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
+from agentdeck.adapters.executors.stub import StubExecutor, stub_spec
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import TextBlock, coerce_input
 from agentdeck.core.context import RunContext
@@ -253,7 +253,7 @@ def chatty_spec(tag: str) -> InvocableSpec:
     )
 
 
-class MarkingStub(StubEngine):
+class MarkingStub(StubExecutor):
     """Appends a line every time ``resume`` is entered, so "node B ran exactly once" is a
     fact about which process reached the engine and not only about what the log ended up
     holding.
@@ -616,8 +616,10 @@ async def _race_cancel(tag: str, trials: int, root: Path) -> None:
                 continue
             remaining = (trial // 2) % 3 if cancel_is_racing(trial) else None
             agent = Agent(name="Racer", instructions="stream", model=BarrierModel(sync, barrier_name, tag, remaining))
-            spec = InvocableSpec(name="Racer", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
-            runtime = Runtime([OpenAIAgentsEngine()], store, {"Racer": spec}, control=control)
+            spec = InvocableSpec(
+                name="Racer", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=agent
+            )
+            runtime = Runtime([OpenAIAgentsExecutor()], store, {"Racer": spec}, control=control)
             events: list[Event] = []
             async for event in runtime.run("Racer", coerce_input("go"), namespace=TENANT):
                 if not events:
@@ -638,13 +640,15 @@ async def _race_session(tag: str, trials: int, root: Path) -> None:
     """
     sync = root / "sync"
     store = ClaimStartTimingStore(events_db(root), windows_file(root), sync, tag)
-    engine = OpenAIAgentsEngine(FileSessions(session_db(root)))
+    engine = OpenAIAgentsExecutor(FileSessions(session_db(root)))
     for trial in range(trials):
         async with asyncio.timeout(TRIAL_TIMEOUT):
             log_key = session_log_key(trial)
             model = PeerClaimModel(attempted_file(sync, log_key, PEER[tag]))
             agent = Agent(name=CHATTY, instructions="stream", model=model)
-            spec = InvocableSpec(name=CHATTY, kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
+            spec = InvocableSpec(
+                name=CHATTY, kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=agent
+            )
             runtime = Runtime([engine], store, {CHATTY: spec})
             try:
                 events = [
@@ -718,7 +722,7 @@ async def _takeover_victim(root: Path) -> None:
     """Open a turn on the session and stall mid-stream, waiting to be killed with it open."""
     sync = root / "sync"
     store = StallingStore(events_db(root), TAKEOVER_STALL_AFTER, sync / "mid")
-    runtime = Runtime([StubEngine()], store, {CHATTY: chatty_spec("killed")})
+    runtime = Runtime([StubExecutor()], store, {CHATTY: chatty_spec("killed")})
     real_id: str | None = None
     async for event in runtime.run(CHATTY, coerce_input("go"), session_id=TAKEOVER_LOG, namespace=TENANT):
         if real_id is None:
@@ -741,7 +745,7 @@ async def _takeover_successor(root: Path) -> None:
     sync = root / "sync"
     store = SqliteEventStore(events_db(root))
     runtime = Runtime(
-        [StubEngine()], store, {CHATTY: chatty_spec("next")}, stale_run_after=get_settings().runtime.stale_run_after
+        [StubExecutor()], store, {CHATTY: chatty_spec("next")}, stale_run_after=get_settings().runtime.stale_run_after
     )
     try:
         events = [
@@ -763,7 +767,7 @@ async def _restart_victim(root: Path) -> None:
     """Suspend one run, then stall a second one mid-stream and wait to be killed."""
     sync = root / "sync"
     store = StallingStore(events_db(root), RESTART_STALL_AFTER, sync / "mid")
-    runtime = Runtime([StubEngine()], store, {APPROVER: approver_spec(), CHATTY: chatty_spec("killed")})
+    runtime = Runtime([StubExecutor()], store, {APPROVER: approver_spec(), CHATTY: chatty_spec("killed")})
     opening: list[Event] = []
     async for event in runtime.run(APPROVER, coerce_input("go"), session_id=RESTART_LOG, namespace=TENANT):
         if not opening:
@@ -788,7 +792,7 @@ async def _restart_successor(root: Path) -> None:
     """A fresh process on the dead one's log: continue what can be continued, no-op on the rest."""
     sync = root / "sync"
     store = SqliteEventStore(events_db(root))
-    runtime = Runtime([StubEngine()], store, {APPROVER: approver_spec(), CHATTY: chatty_spec("killed")})
+    runtime = Runtime([StubExecutor()], store, {APPROVER: approver_spec(), CHATTY: chatty_spec("killed")})
     # Both real ids were minted by the victim, not chosen, and left on disk for this process
     # (a fresh one that never saw either run open) to read back.
     suspended_id = runid_file(sync, RESTART_SUSPENDED).read_text()

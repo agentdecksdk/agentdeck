@@ -18,8 +18,8 @@ from langgraph.graph import END, START, StateGraph
 from openai_agents_cases import TailScriptedModel
 from pydantic import BaseModel
 
-from agentdeck.adapters.engines.langgraph import LangGraphEngine
-from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
+from agentdeck.adapters.executors.langgraph import LangGraphExecutor
+from agentdeck.adapters.executors.openai_agents import OpenAIAgentsExecutor
 from agentdeck.authoring.graphs import bridge_context_nodes
 from agentdeck.authoring.tools import compile_tool
 from agentdeck.core.content import TextBlock
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from agentdeck.core.content import Input
-    from agentdeck.core.ports import EnginePort
+    from agentdeck.core.ports import Executor
 
 ANSWER = "looked"
 """What both subjects report through ``ctx.reporter``, so one assertion covers both."""
@@ -59,7 +59,7 @@ class Subject:
     """One engine's version of the same root, plus what its injected callable saw."""
 
     id: str
-    engine: EnginePort
+    executor: Executor
     spec: InvocableSpec
     seen: list[ToolCtx[Environment]] = field(default_factory=list)
     input: Input = field(default_factory=lambda: [TextBlock(text="any slot tuesday?")])
@@ -91,8 +91,8 @@ def openai_agents_subject() -> Subject:
     )
     return Subject(
         id="openai-agents",
-        engine=OpenAIAgentsEngine(),
-        spec=InvocableSpec(name="Looker", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent),
+        executor=OpenAIAgentsExecutor(),
+        spec=InvocableSpec(name="Looker", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=agent),
         seen=seen,
     )
 
@@ -113,11 +113,11 @@ def langgraph_subject() -> Subject:
     graph.add_edge("look", END)
     return Subject(
         id="langgraph",
-        engine=LangGraphEngine(),
+        executor=LangGraphExecutor(),
         spec=InvocableSpec(
             name="Looker",
             kind=InvocableKind.WORKFLOW,
-            engine=LangGraphEngine.engine,
+            executor=LangGraphExecutor.name,
             native=bridge_context_nodes(graph),
         ),
         seen=seen,

@@ -1,7 +1,7 @@
 """Direct-call workflow runner: compiled graph + per-invocation configuration, no event log.
 
 Used by :meth:`~agentdeck.authoring.workflow.Workflow.run`/``run_stream``  -  a Runtime-driven
-workflow run never touches this; it goes through ``adapters/engines/langgraph/engine.py``
+workflow run never touches this; it goes through ``adapters/executors/langgraph/engine.py``
 instead. Sandbox scoping (v1's ``open_sandbox`` around every invocation) is gone with
 ``BaseSandboxAgent``: no workflow compiled through ``authoring`` needs one in v3.
 
@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Self, cast
 
 from langchain_core.runnables import RunnableConfig
 
-from agentdeck.adapters.engines.langgraph.engine import STREAM_CONFIGURABLE_KEY
+from agentdeck.adapters.executors.langgraph.executor import STREAM_CONFIGURABLE_KEY
 from agentdeck.authoring.compile import compile_workflow
 from agentdeck.authoring.state import coerce_input
 

@@ -1,4 +1,4 @@
-"""The langgraph engine: ``EnginePort`` over a compiled ``StateGraph``.
+"""The langgraph engine: ``Executor`` over a compiled ``StateGraph``.
 
 ``spec.native`` is an *uncompiled* ``StateGraph``  -  this adapter compiles it itself, with
 its own checkpointer, and caches the result per invocable name (ADR-D5: an engine's
@@ -45,11 +45,11 @@ from langgraph.graph.state import StateGraph
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from agentdeck.adapters.engines.langgraph.checkpointer import resolve_checkpointer
+from agentdeck.adapters.executors.langgraph.checkpointer import resolve_checkpointer
 from agentdeck.core.content import DataBlock, TextBlock
 from agentdeck.core.control import ControlSignalled
 from agentdeck.core.events import Custom, NodeUpdated, RunCompleted, RunInterrupted, Usage
-from agentdeck.core.ports import EnginePort
+from agentdeck.core.ports import Executor
 from agentdeck.core.status import LIFECYCLE_KINDS
 from agentdeck.errors import DOCS_URL, ConfigError
 
@@ -76,7 +76,7 @@ DURABLE_KEY = "durable"
 """``spec.metadata[DURABLE_KEY]``: whether this workflow's state must outlive the process.
 
 Absent  -  a spec built in code that never said  -  leaves the engine's own default checkpointer
-in place, which is what a caller wiring ``LangGraphEngine()`` by hand already gets. ``True``
+in place, which is what a caller wiring ``LangGraphExecutor()`` by hand already gets. ``True``
 is what makes the configured (sqlite/postgres) checkpointer be resolved *at all*, and only at
 the first durable run, so the ``[durability]`` extra  -  needed only for the Postgres backend  -
 stays optional for a project that only chats."""
@@ -113,7 +113,7 @@ STREAM_WRITE = "langgraph.stream_write"
 STREAM_WRITE_KEY = "value"
 
 
-class LangGraphEngine(EnginePort):
+class LangGraphExecutor(Executor):
     """Plays ``spec.native`` (an uncompiled ``StateGraph``) through ``astream``.
 
     ``checkpointer`` is what a non-durable graph compiles around  -  a fresh in-memory one by
@@ -127,7 +127,7 @@ class LangGraphEngine(EnginePort):
     a capability rather than an engine concern, and unset for a project whose nodes need none.
     """
 
-    engine: ClassVar[str] = "langgraph"
+    name: ClassVar[str] = "langgraph"
     suspendable: ClassVar[bool] = True
 
     def __init__(
@@ -284,7 +284,7 @@ class LangGraphEngine(EnginePort):
 
         Absent is not the same as ``False``: a spec built in code never said, so it keeps the
         engine's own default (see ``DURABLE_KEY``), which is what a hand-wired
-        ``LangGraphEngine()`` already gets and what lets such a graph interrupt at all.
+        ``LangGraphExecutor()`` already gets and what lets such a graph interrupt at all.
 
         The configured saver is resolved here and not in ``__init__``: the ``postgres`` saver
         lives in the ``[durability]`` extra, so a composition root that merely names a backend
@@ -497,5 +497,5 @@ __all__ = [
     "STREAM_CONFIGURABLE_KEY",
     "STREAM_WRITE",
     "STREAM_WRITE_KEY",
-    "LangGraphEngine",
+    "LangGraphExecutor",
 ]

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, TypedDict
 import pytest
 from langgraph.graph import END, START, StateGraph
 
-from agentdeck.adapters.engines.langgraph import LangGraphEngine
+from agentdeck.adapters.executors.langgraph import LangGraphExecutor
 from agentdeck.core.content import DataBlock, TextBlock, coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import RunCompleted, Usage
@@ -43,7 +43,7 @@ def _spec() -> InvocableSpec:
     graph.add_node("ship", _ship)
     graph.add_edge(START, "ship")
     graph.add_edge("ship", END)
-    return InvocableSpec(name="Shipper", kind=InvocableKind.WORKFLOW, engine=LangGraphEngine.engine, native=graph)
+    return InvocableSpec(name="Shipper", kind=InvocableKind.WORKFLOW, executor=LangGraphExecutor.name, native=graph)
 
 
 def _ctx() -> RunContext:
@@ -51,7 +51,7 @@ def _ctx() -> RunContext:
 
 
 async def _completed(input: Input, spec: InvocableSpec | None = None) -> RunCompleted:
-    payloads = [payload async for payload in LangGraphEngine().start(spec or _spec(), input, [], _ctx())]
+    payloads = [payload async for payload in LangGraphExecutor().start(spec or _spec(), input, [], _ctx())]
     terminal = payloads[-1]
     assert isinstance(terminal, RunCompleted)
     return terminal
@@ -103,7 +103,7 @@ async def test_a_non_finite_float_in_the_state_becomes_its_token_not_null() -> N
     graph.add_node("rate", _rate)
     graph.add_edge(START, "rate")
     graph.add_edge("rate", END)
-    spec = InvocableSpec(name="Rater", kind=InvocableKind.WORKFLOW, engine=LangGraphEngine.engine, native=graph)
+    spec = InvocableSpec(name="Rater", kind=InvocableKind.WORKFLOW, executor=LangGraphExecutor.name, native=graph)
 
     completed = await _completed(coerce_input("order 41"), spec)
     assert completed.output == [DataBlock(data={"input": "order 41", "ratio": "NaN"})]
@@ -124,7 +124,7 @@ async def test_a_state_leaf_that_is_not_json_becomes_its_string() -> None:
     graph.add_node("stamp", _stamp)
     graph.add_edge(START, "stamp")
     graph.add_edge("stamp", END)
-    spec = InvocableSpec(name="Stamper", kind=InvocableKind.WORKFLOW, engine=LangGraphEngine.engine, native=graph)
+    spec = InvocableSpec(name="Stamper", kind=InvocableKind.WORKFLOW, executor=LangGraphExecutor.name, native=graph)
 
     completed = await _completed(coerce_input("order 41"), spec)
     assert completed.output == [DataBlock(data={"input": "order 41", "at": "2026-01-01 00:00:00+00:00"})]

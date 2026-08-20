@@ -59,7 +59,7 @@ if TYPE_CHECKING:
     from agentdeck.core.control import ControlSignal
     from agentdeck.core.events import KnownPayload
     from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort, LeasePort
+    from agentdeck.core.ports import ControlPort, EventSinkPort, EventStorePort, Executor, LeasePort
     from agentdeck.core.ports.store import RunSummary
 
 logger = logging.getLogger(__name__)
@@ -117,7 +117,7 @@ class Runtime:
 
     def __init__(
         self,
-        engines: Sequence[EnginePort],
+        executors: Sequence[Executor],
         store: EventStorePort,
         invocables: Mapping[str, InvocableSpec],
         sinks: Sequence[EventSinkPort] = (),
@@ -127,7 +127,7 @@ class Runtime:
         lease: LeasePort | None = None,
         lease_ttl: timedelta = _DEFAULT_LEASE_TTL,
     ) -> None:
-        self._engines = {engine.engine: engine for engine in engines}
+        self._executors = {executor.name: executor for executor in executors}
         self._store = store
         self._invocables = invocables
         self._sinks = tuple(SinkDispatch(sink) for sink in sinks)
@@ -177,7 +177,7 @@ class Runtime:
         closes the run in the log: a consumer that walks away gets ``run.cancelled``, whether it
         closed this generator or had its own task cancelled under it.
         """
-        spec, engine = self._resolve(name)
+        spec, executor = self._resolve(name)
         ctx, reports = self._bind(
             self._new_run_context(key=key, session_id=session_id, namespace=namespace, data=context)
         )
@@ -203,7 +203,7 @@ class Runtime:
             raise
 
         async with aclosing(
-            self._play(claimed, engine.start(spec, input, history, ctx), spec, ctx, engine, reports)
+            self._play(claimed, executor.start(spec, input, history, ctx), spec, ctx, executor, reports)
         ) as run:
             async for event in run:
                 yield event
@@ -242,7 +242,7 @@ class Runtime:
         A **cancel** recorded while the run waited ends it here rather than answering it, for
         the reason :meth:`resume_run` gives: this claim is the only thing that will ever look.
         """
-        spec, engine = self._resolve(name)
+        spec, executor = self._resolve(name)
         ctx, reports = self._bind(
             self._context(run_id=run_id, session_id=session_id, namespace=namespace, data=context)
         )
@@ -272,8 +272,8 @@ class Runtime:
         # Any other ruling plays the run on, including a pause that landed inside the window the
         # peek left open: the answer is recorded by now, so the run resumes and meets that pause
         # at its first safe point instead.
-        stream = engine.resume(spec, thread_id, value, ctx)
-        async with aclosing(self._play(opening, stream, spec, ctx, engine, reports)) as resumed:
+        stream = executor.resume(spec, thread_id, value, ctx)
+        async with aclosing(self._play(opening, stream, spec, ctx, executor, reports)) as resumed:
             async for event in resumed:
                 yield event
 
@@ -322,7 +322,7 @@ class Runtime:
         if started is None:
             return
         session_id, opened = started
-        spec, engine = self._resolve(opened.invocable)
+        spec, executor = self._resolve(opened.invocable)
         run_ctx, reports = self._bind(replace(ctx, run_id=run_id, session_id=session_id))
         opening = await self._claim_resume(spec, run_ctx, None, reason)
         if opening is None:
@@ -339,8 +339,8 @@ class Runtime:
             yield await self._record(RunCancelled(reason=pending.reason), spec, run_ctx)
             return
         history = await self._store.read(summary.log_key, run_ctx)
-        stream = engine.start(spec, opened.input, history, run_ctx)
-        async with aclosing(self._play(opening, stream, spec, run_ctx, engine, reports)) as resumed:
+        stream = executor.start(spec, opened.input, history, run_ctx)
+        async with aclosing(self._play(opening, stream, spec, run_ctx, executor, reports)) as resumed:
             async for event in resumed:
                 yield event
 
@@ -413,7 +413,7 @@ class Runtime:
         stream: AsyncGenerator[KnownPayload, None],
         spec: InvocableSpec,
         ctx: RunContext,
-        engine: EnginePort,
+        executor: Executor,
         reports: deque[KnownPayload],
     ) -> AsyncGenerator[Event, None]:
         """Yield ``opening``, then everything ``stream`` produces  -  and close the run in the
@@ -462,14 +462,14 @@ class Runtime:
         except Exception as exc:
             # The exception is the caller's, the event is the record  -  both, always. The type
             # name only: an exception message can carry content that must not reach a sink.
-            logger.exception("run %s failed in engine %r", ctx.run_id, engine.engine)
-            yield await self._record(_failed(exc, engine.engine), spec, ctx)
+            logger.exception("run %s failed in engine %r", ctx.run_id, executor.name)
+            yield await self._record(_failed(exc, executor.name), spec, ctx)
             raise
 
         if last not in TERMINAL_KINDS and last not in SUSPENDED_KINDS:
             # An engine that just stops leaves consumers waiting forever; close the run for it.
-            logger.error("engine %r ended run %s after %r, not a terminal event", engine.engine, ctx.run_id, last)
-            yield await self._record(_engine_failed(f"engine {engine.engine!r} ended after {last!r}"), spec, ctx)
+            logger.error("engine %r ended run %s after %r, not a terminal event", executor.name, ctx.run_id, last)
+            yield await self._record(_engine_failed(f"engine {executor.name!r} ended after {last!r}"), spec, ctx)
 
     @asynccontextmanager
     async def _holding(self, run_id: str) -> AsyncIterator[None]:
@@ -768,11 +768,11 @@ class Runtime:
         return await self._find(run_id, self._context(run_id=run_id, namespace=namespace))
 
     def suspends(self, name: str) -> bool:
-        """Whether the engine behind ``name`` can pause and later continue a run of it  -  the
+        """Whether the executor behind ``name`` can pause and later continue a run of it  -  the
         capability half of ``run.can`` (:func:`~agentdeck.core.status.can_of`). Sync, because
         it is a lookup in the catalog this Runtime was built with and never a store read."""
-        _, engine = self._resolve(name)
-        return engine.suspendable
+        _, executor = self._resolve(name)
+        return executor.suspendable
 
     async def status(self, run_id: str, *, namespace: str | None = None) -> RunStatus | None:
         """This run's current status, or ``None`` if this namespace has never heard of it.
@@ -870,14 +870,14 @@ class Runtime:
             except StoreError:
                 logger.warning("run %s could not record its %s; dropping the report", ctx.run_id, payload.kind)
 
-    def _resolve(self, name: str) -> tuple[InvocableSpec, EnginePort]:
+    def _resolve(self, name: str) -> tuple[InvocableSpec, Executor]:
         spec = self._invocables.get(name)
         if spec is None:
             raise NotFoundError(f"no invocable named {name!r}")
-        engine = self._engines.get(spec.engine)
-        if engine is None:
-            raise NotFoundError(f"{name!r} needs engine {spec.engine!r}, which is not registered")
-        return spec, engine
+        executor = self._executors.get(spec.executor)
+        if executor is None:
+            raise NotFoundError(f"{name!r} needs executor {spec.executor!r}, which is not registered")
+        return spec, executor
 
     async def _record(self, payload: KnownPayload, spec: InvocableSpec, ctx: RunContext) -> Event:
         """Persist, fan out, return the event to yield  -  in that order.

@@ -72,7 +72,7 @@ type = forbidden
 source_modules =
     agentdeck.adapters.stores.memory
     agentdeck.adapters.stores.sqlite
-    agentdeck.adapters.engines.stub
+    agentdeck.adapters.executors.stub
     agentdeck.adapters.control.memory
     agentdeck.adapters.control.sqlite
     agentdeck.adapters.leases.memory
@@ -122,8 +122,8 @@ source_modules =
     agentdeck.adapters.stores.sqlite
     agentdeck.adapters.stores.redis
     agentdeck.adapters.stores.postgres
-    agentdeck.adapters.engines.stub
-    agentdeck.adapters.engines.openai_agents
+    agentdeck.adapters.executors.stub
+    agentdeck.adapters.executors.openai_agents
     agentdeck.adapters.control.memory
     agentdeck.adapters.control.sqlite
     agentdeck.adapters.leases.memory
@@ -186,7 +186,7 @@ source_modules =
     agentdeck.runtime
     agentdeck.adapters.stores
     agentdeck.adapters.control
-    agentdeck.adapters.engines
+    agentdeck.adapters.executors
     agentdeck.surfaces
     agentdeck.serve
     agentdeck.deck
@@ -217,7 +217,7 @@ source_modules =
     agentdeck.authoring
     agentdeck.adapters.stores
     agentdeck.adapters.control
-    agentdeck.adapters.engines
+    agentdeck.adapters.executors
     agentdeck.adapters.tools
     agentdeck.surfaces
 forbidden_modules =
@@ -237,7 +237,7 @@ forbidden_modules =
     redis
     psycopg
     agentdeck.adapters.control
-    agentdeck.adapters.engines
+    agentdeck.adapters.executors
     agentdeck.adapters.stores
     agentdeck.adapters.tools
     agentdeck.authoring

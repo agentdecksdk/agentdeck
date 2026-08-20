@@ -19,7 +19,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from agentdeck.adapters.control.memory import MemoryControlPort
-from agentdeck.adapters.engines.langgraph import LangGraphEngine
+from agentdeck.adapters.executors.langgraph import LangGraphExecutor
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
@@ -59,7 +59,7 @@ def _graph() -> StateGraph[Any]:
 def _spec(*, durable: bool | None = None) -> InvocableSpec:
     metadata = {} if durable is None else {DURABLE_KEY: durable}
     return InvocableSpec(
-        name="Grapher", kind=InvocableKind.WORKFLOW, engine=LangGraphEngine.engine, native=_graph(), metadata=metadata
+        name="Grapher", kind=InvocableKind.WORKFLOW, executor=LangGraphExecutor.name, native=_graph(), metadata=metadata
     )
 
 
@@ -73,7 +73,7 @@ def _one_node_graph() -> StateGraph[Any]:
 
 def _one_node_spec() -> InvocableSpec:
     return InvocableSpec(
-        name="OneNode", kind=InvocableKind.WORKFLOW, engine=LangGraphEngine.engine, native=_one_node_graph()
+        name="OneNode", kind=InvocableKind.WORKFLOW, executor=LangGraphExecutor.name, native=_one_node_graph()
     )
 
 
@@ -89,7 +89,7 @@ async def test_resume_continues_from_the_node_boundary_without_rerunning_a_compl
     """The guarantee itself. "a" ran once before the pause; the resume must run "b" and "c"  -
     the work the pause left behind  -  and must not run "a" again."""
     spec = _spec()
-    engine = LangGraphEngine()
+    engine = LangGraphExecutor()
     store = MemoryEventStore()
     control = MemoryControlPort()
     runtime = Runtime([engine], store, {spec.name: spec}, control=control, control_poll_interval=0.0)
@@ -125,7 +125,7 @@ async def test_a_stale_resumed_tail_from_an_abandoned_run_does_not_leak_into_a_f
     to prevent, from the other direction: silently inheriting state instead of replaying.
     """
     spec = _spec()
-    engine = LangGraphEngine()
+    engine = LangGraphExecutor()
     store = MemoryEventStore()
     control = MemoryControlPort()
     # A stale run must look immediately abandoned to the next claim on its session, not held.
@@ -174,7 +174,7 @@ async def test_a_pause_at_the_last_node_boundary_resumes_straight_to_completion(
     not even langgraph's own replay of the step its checkpoint was loaded from, which a
     one-node graph makes the *only* step there is to replay."""
     spec = _one_node_spec()
-    engine = LangGraphEngine()
+    engine = LangGraphExecutor()
     store = MemoryEventStore()
     control = MemoryControlPort()
     runtime = Runtime([engine], store, {spec.name: spec}, control=control, control_poll_interval=0.0)
@@ -205,7 +205,7 @@ async def test_a_durable_pause_can_be_resumed_from_another_process() -> None:
     ctx = RunContext(namespace="acme", run_id="r-durable", session_id="s-durable")
 
     runtime1 = Runtime(
-        [LangGraphEngine(checkpointer=shared_checkpoint)],
+        [LangGraphExecutor(checkpointer=shared_checkpoint)],
         store,
         {spec.name: spec},
         control=control,
@@ -218,7 +218,7 @@ async def test_a_durable_pause_can_be_resumed_from_another_process() -> None:
     assert _kinds(paused)[-1] == "run.paused"
 
     runtime2 = Runtime(
-        [LangGraphEngine(checkpointer=shared_checkpoint)],
+        [LangGraphExecutor(checkpointer=shared_checkpoint)],
         store,
         {spec.name: spec},
         control=control,
@@ -239,7 +239,7 @@ async def test_resuming_a_non_durable_pause_from_another_process_is_refused() ->
     control = MemoryControlPort()
     ctx = RunContext(namespace="acme", run_id="r-cross-process", session_id="s-cross-process")
 
-    runtime1 = Runtime([LangGraphEngine()], store, {spec.name: spec}, control=control, control_poll_interval=0.0)
+    runtime1 = Runtime([LangGraphExecutor()], store, {spec.name: spec}, control=control, control_poll_interval=0.0)
     stream = runtime1.run(spec.name, coerce_input("go"), session_id=ctx.session_id, namespace=ctx.namespace)
     started = await anext(stream)
     await control.signal(started.run_id, Signal.PAUSE)
@@ -248,7 +248,7 @@ async def test_resuming_a_non_durable_pause_from_another_process_is_refused() ->
 
     # "another process": a second engine instance with its own in-memory checkpointer, sharing
     # only the log store and the control port.
-    runtime2 = Runtime([LangGraphEngine()], store, {spec.name: spec}, control=control, control_poll_interval=0.0)
+    runtime2 = Runtime([LangGraphExecutor()], store, {spec.name: spec}, control=control, control_poll_interval=0.0)
 
     resumed: list[Any] = []
     with pytest.raises(ConfigError, match="durable"):
@@ -263,7 +263,7 @@ async def test_a_durable_false_pause_is_refused_even_in_the_same_process() -> No
     refusal), so there is nothing to continue from even when the very same engine instance
     that recorded the pause is the one asked to lift it."""
     spec = _spec(durable=False)
-    engine = LangGraphEngine()
+    engine = LangGraphExecutor()
     store = MemoryEventStore()
     control = MemoryControlPort()
     runtime = Runtime([engine], store, {spec.name: spec}, control=control, control_poll_interval=0.0)

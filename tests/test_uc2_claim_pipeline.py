@@ -33,8 +33,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from agentdeck.adapters.engines.langgraph import LangGraphEngine, resolve_checkpointer
-from agentdeck.adapters.engines.langgraph.engine import _to_graph_input
+from agentdeck.adapters.executors.langgraph import LangGraphExecutor, resolve_checkpointer
+from agentdeck.adapters.executors.langgraph.executor import _to_graph_input
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
@@ -85,12 +85,15 @@ def _claim_pipeline_graph() -> StateGraph[Any]:
 
 def _spec() -> InvocableSpec:
     return InvocableSpec(
-        name="ClaimPipeline", kind=InvocableKind.WORKFLOW, engine=LangGraphEngine.engine, native=_claim_pipeline_graph()
+        name="ClaimPipeline",
+        kind=InvocableKind.WORKFLOW,
+        executor=LangGraphExecutor.name,
+        native=_claim_pipeline_graph(),
     )
 
 
 def _runtime(db_path: str, checkpoint_path: str) -> tuple[Runtime, SqliteEventStore]:
-    engine = LangGraphEngine(checkpointer=resolve_checkpointer("sqlite", checkpoint_path))
+    engine = LangGraphExecutor(checkpointer=resolve_checkpointer("sqlite", checkpoint_path))
     store = SqliteEventStore(db_path)
     return Runtime([engine], store, {"ClaimPipeline": _spec()}), store
 
@@ -160,7 +163,7 @@ async def test_langgraph_transcript_fidelity() -> None:
     execution state is missing from the log.
     """
     checkpointer = MemorySaver()
-    engine = LangGraphEngine(checkpointer=checkpointer)
+    engine = LangGraphExecutor(checkpointer=checkpointer)
     store = SqliteEventStore()
     runtime = Runtime([engine], store, {"ClaimPipeline": _spec()})
     ctx = RunContext(run_id="fidelity-1", session_id="fidelity")
@@ -203,7 +206,7 @@ async def test_langgraph_transcript_fidelity() -> None:
 
 _RESTART_SCRIPT = """
 import asyncio, pathlib, sys
-from agentdeck.adapters.engines.langgraph import LangGraphEngine, resolve_checkpointer
+from agentdeck.adapters.executors.langgraph import LangGraphExecutor, resolve_checkpointer
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
@@ -235,7 +238,7 @@ def _spec():
     g.add_edge(START, "validate")
     g.add_edge("validate", "approve")
     g.add_edge("approve", END)
-    return InvocableSpec(name="ClaimPipeline", kind=InvocableKind.WORKFLOW, engine=LangGraphEngine.engine, native=g)
+    return InvocableSpec(name="ClaimPipeline", kind=InvocableKind.WORKFLOW, executor=LangGraphExecutor.name, native=g)
 
 
 # Holds this process on the doorstep of its resume claim until the gate file appears, so the
@@ -259,7 +262,7 @@ class LateStore(SqliteEventStore):
 
 
 async def main():
-    engine = LangGraphEngine(checkpointer=resolve_checkpointer("sqlite", sys.argv[2]))
+    engine = LangGraphExecutor(checkpointer=resolve_checkpointer("sqlite", sys.argv[2]))
     # resume mode: thread_id, then the run's own real id (#324 mints it, so a fresh process
     # asked to resume has to be told rather than deriving it), then an optional gate.
     gate = sys.argv[6] if len(sys.argv) > 6 else None

@@ -20,7 +20,7 @@ import pytest
 from agents import default_tool_error_function
 from agents.tool_context import ToolContext
 
-from agentdeck.adapters.engines.openai_agents.translate import translate
+from agentdeck.adapters.executors.openai_agents.translate import translate
 from agentdeck.authoring.tools import compile_tool
 from agentdeck.core.context import RunContext, ToolCtx
 from agentdeck.core.events import RESULT_PREVIEW_MAX, ToolCallCompleted

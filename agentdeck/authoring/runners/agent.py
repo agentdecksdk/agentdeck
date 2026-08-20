@@ -2,7 +2,7 @@
 
 Used by :class:`~agentdeck.authoring.nodes.AgentNode` (a nested agent turn inside a workflow
 node)  -  a Runtime-driven turn never touches this; it goes through
-``adapters/engines/openai_agents/engine.py`` instead. Sandbox attachment (v1's
+``adapters/executors/openai_agents/engine.py`` instead. Sandbox attachment (v1's
 ``BaseRunner.attach_sandbox``) is gone with ``BaseSandboxAgent``: no agent compiled through
 ``authoring`` needs one in v3 (sandboxing is disabled, tracked in #163).
 
@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Self, cast
 
 from agents import Agent, RunConfig, Runner, RunResult
 
-from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings, build_run_config
+from agentdeck.adapters.executors.openai_agents.runconfig import RunSettings, build_run_config
 from agentdeck.runtime.settings import Settings, default_use_responses, get_settings
 
 if TYPE_CHECKING:

@@ -23,7 +23,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.types import interrupt
 from pydantic import BaseModel
 
-from agentdeck.adapters.engines.langgraph.engine import REPORTER_KEY
+from agentdeck.adapters.executors.langgraph.executor import REPORTER_KEY
 from agentdeck.authoring import Workflow
 from agentdeck.authoring.graphs import bridge_context_nodes
 from agentdeck.core.context import ToolCtx  # noqa: TC001  -  the nodes below must resolve it at runtime

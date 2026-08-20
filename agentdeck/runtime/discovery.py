@@ -3,7 +3,7 @@ Runtime can run.
 
 One registry for every shape a project authors  -  an agent bundle and a workflow bundle
 both come out as an ``InvocableSpec``, so the Runtime is handed one mapping and never
-learns which shape a name was authored in. Skills stay out: no engine plays a ``SKILL.md``
+learns which shape a name was authored in. Skills stay out: no executor plays a ``SKILL.md``
 bundle, so a spec for one could only fail at the moment somebody ran it.
 """
 
@@ -25,23 +25,23 @@ if TYPE_CHECKING:
     from agents import Agent as SDKAgent
     from agents.tool import FunctionTool
 
-    from agentdeck.core.ports import EnginePort
+    from agentdeck.core.ports import Executor
 
-# Which engine plays which bundle shape: a bundle names no engine of its own, the shape it
+# Which executor plays which bundle shape: a bundle names no executor of its own, the shape it
 # was authored in decides. Written as strings rather than read off the adapters, because an
 # adapter import here would invert the direction the Runtime's wiring depends on; a test
-# pins each literal to its adapter's own ``engine`` so the two can't drift.
-# ponytail: one engine per kind, forever  -  the day a second engine plays one shape, the
-# engine belongs on the spec (authored per bundle), not in this table.
-ENGINE_FOR_KIND: Final[Mapping[InvocableKind, str]] = {
+# pins each literal to its adapter's own ``executor`` so the two can't drift.
+# ponytail: one executor per kind, forever  -  the day a second executor plays one shape, the
+# executor belongs on the spec (authored per bundle), not in this table.
+EXECUTOR_FOR_KIND: Final[Mapping[InvocableKind, str]] = {
     InvocableKind.AGENT: "openai-agents",
     InvocableKind.WORKFLOW: "langgraph",
 }
 
-# Where a workflow's opt-in durability travels to the engine that acts on it: the langgraph
+# Where a workflow's opt-in durability travels to the executor that acts on it: the langgraph
 # adapter reads ``spec.metadata[DURABLE_KEY]`` to decide whether to resolve the configured
 # checkpointer at all. Spelled out rather than imported, for the reason above; the same test
-# that pins the engine names pins this one to the adapter's own constant.
+# that pins the executor names pins this one to the adapter's own constant.
 DURABLE_KEY: Final[str] = "durable"
 
 
@@ -56,17 +56,17 @@ class InvocableRegistry:
     """The one registry of what a project can run  -  from ``.agentdeck/`` bundles, or from a
     code-first ``agents=``/``workflows=`` list a :class:`~agentdeck.Deck` already holds.
 
-    Construct it with the engines the Runtime was given; :meth:`load` then returns the
-    mapping the Runtime takes, and raises instead if the project asks for an engine nobody
+    Construct it with the executors the Runtime was given; :meth:`load` then returns the
+    mapping the Runtime takes, and raises instead if the project asks for an executor nobody
     registered  -  a wiring mistake belongs at startup, not in the middle of a run.
 
-    An entry may be a live ``EnginePort`` or its bare ``engine`` name string  -  ``Deck.build()``
-    validates which engines a catalog needs before it is safe to construct any of them (no
+    An entry may be a live ``Executor`` or its bare name string  -  ``Deck.build()``
+    validates which executors a catalog needs before it is safe to construct any of them (no
     network I/O), so it names them instead of building disposable instances just to ask.
     """
 
-    def __init__(self, engines: Sequence[EnginePort | str]) -> None:
-        self._engines = frozenset(e if isinstance(e, str) else e.engine for e in engines)
+    def __init__(self, executors: Sequence[Executor | str]) -> None:
+        self._executors = frozenset(e if isinstance(e, str) else e.name for e in executors)
 
     def load(
         self,
@@ -95,7 +95,7 @@ class InvocableRegistry:
         every ``ToolCtx[...]`` requirement in the catalog as each entry compiles.
 
         Eager on purpose: a bundle that can't be imported, an agent that can't be built and
-        an engine that isn't registered all fail here, not mid-conversation.
+        an executor that isn't registered all fail here, not mid-conversation.
         """
         bundle_of = dict(bundle_of) if bundle_of else {}
         if agents is None:
@@ -163,13 +163,13 @@ class InvocableRegistry:
                 f"an agent and a workflow are both named {name!r} (kinds: {specs[name].kind.value} and "
                 f"{kind.value}); one name is one invocable  -  rename one of them."
             )
-        engine = ENGINE_FOR_KIND[kind]
-        if engine not in self._engines:
+        executor = EXECUTOR_FOR_KIND[kind]
+        if executor not in self._executors:
             raise ConfigError(
-                f"{kind.value} {name!r} needs engine {engine!r}, which is not registered. "
-                f"Registered: {sorted(self._engines)}."
+                f"{kind.value} {name!r} needs executor {executor!r}, which is not registered. "
+                f"Registered: {sorted(self._executors)}."
             )
-        specs[name] = InvocableSpec(name=name, kind=kind, engine=engine, native=native, metadata=metadata or {})
+        specs[name] = InvocableSpec(name=name, kind=kind, executor=executor, native=native, metadata=metadata or {})
 
 
-__all__ = ["DURABLE_KEY", "ENGINE_FOR_KIND", "InvocableRegistry"]
+__all__ = ["DURABLE_KEY", "EXECUTOR_FOR_KIND", "InvocableRegistry"]

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from agentdeck.core.content import Input
     from agentdeck.core.events import Event
     from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import EnginePort
+    from agentdeck.core.ports import Executor
 
 
 @dataclass(frozen=True)
@@ -23,7 +23,7 @@ class Case:
     its terminal event only arrives after a resume."""
 
     id: str
-    engine: EnginePort
+    executor: Executor
     spec: InvocableSpec
     ends: Literal["terminal", "suspended"]
     input: Input = field(default_factory=lambda: [TextBlock(text="any slot tuesday?")])
