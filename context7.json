@@ -17,11 +17,9 @@
     "docs-site/.next"
   ],
   "excludeFiles": [
-    "changelog.mdx",
-    "roadmap.mdx"
+    "changelog.mdx"
   ],
   "rules": [
-    "The import name is `agentdeck`. The project is branded AgentDeck SDK; there is no `agentdeck-sdk` package, and `agentdeck-ai` on PyPI is an unrelated project.",
     "Install and import names differ: `pip install agentdeck-sdk`, then `import agentdeck`. Never write `pip install agentdeck` — that name is taken by an unrelated project. Extras: `agentdeck-sdk[serve]`, `[durability]`, `[observability]`.",
     "`Deck` is the only composition root, with two front doors onto one catalog: `Deck(agents=..., workflows=...)` and `Deck.from_project()`, which discovers them from a `.agentdeck/` directory.",
     "AgentDeck owns configuration; the OpenAI Agents SDK and LangGraph own execution. An `Agent` compiles to an SDK agent and a `Workflow` to a LangGraph graph. Never say AgentDeck runs its own agent loop or graph engine.",

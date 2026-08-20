@@ -139,9 +139,6 @@ a recipe, so treat a PNG next to these files as a build artifact that escaped.
   each one rendered and measured in a browser rather than eyeballed. Two things a cleanup cannot
   fix: traced outlines are polygon approximations (invisible at UI sizes, visible on a hero or in
   print), and a crop fixes framing rather than drawing.
-- **A 1280×640 social card.** GitHub renders its grey default on every share to X, LinkedIn, Slack
-  and Hacker News until one exists, and the brand sheet is not it  -  fourteen panels are unreadable
-  at thumbnail size.
 
 ## Why the favicon drops the spark
 

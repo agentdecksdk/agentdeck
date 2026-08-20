@@ -8,6 +8,11 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Install metadata now names the published distribution correctly.** Context7 guidance and
+  GitHub release deployments now point to `agentdeck-sdk`.
+
 ## [4.0.5] - 2026-08-19
 
 ### Added

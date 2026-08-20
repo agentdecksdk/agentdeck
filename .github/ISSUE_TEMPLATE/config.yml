@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask the community
+    url: https://github.com/agentdecksdk/agentdeck/discussions
+    about: Ask questions and discuss how to build with AgentDeck.
+  - name: Read the documentation
+    url: https://agentdecksdk.com/
+    about: Find guides, examples, API reference, and troubleshooting help.
