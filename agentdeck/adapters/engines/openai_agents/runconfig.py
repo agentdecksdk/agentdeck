@@ -92,7 +92,7 @@ def build_run_config(settings: RunSettings, *, sandbox: Any = None) -> RunConfig
             else None
         ),
         tracing_disabled=not tracing_enabled(),
-        model_provider=build_model_provider(settings),
+        model_provider=_build_model_provider(settings),
         # ``include_usage`` asks the Chat-Completions API to emit the streaming usage chunk
         # (prompt/completion tokens)  -  without it, streamed turns carry no token counts at
         # all, so ``usage.reported`` and ``run.completed`` would both report zero. No-op on
@@ -121,7 +121,7 @@ def tracing_enabled() -> bool:
     return raw is not None and raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def build_model_provider(settings: RunSettings) -> MultiProvider:
+def _build_model_provider(settings: RunSettings) -> MultiProvider:
     """Route supported prefixes while preserving bare and namespaced compatible model IDs."""
     providers = MultiProviderMap()
     providers.set_mapping(
@@ -197,7 +197,6 @@ def validate_model_requirements(models: Iterable[tuple[str, object]], settings: 
 __all__ = [
     "RunSettings",
     "build_handoff_ends_on_user_turn_mapper",
-    "build_model_provider",
     "build_run_config",
     "tracing_enabled",
     "validate_model_requirements",

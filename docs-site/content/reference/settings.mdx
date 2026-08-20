@@ -18,36 +18,15 @@ OpenAI-compatible endpoint configuration.
 | `OPENAI_BASE_URL` | `str` | `''` | OpenAI-compatible endpoint base URL. Empty uses the SDK default, api.openai.com. |
 | `OPENAI_CA_BUNDLE` | `str` | `''` | Path to a CA/certificate bundle for verifying the endpoint's TLS certificate. Empty uses the system's default trust store. |
 
-## `AnthropicSettings`
+## `ModelProviderSettings`
 
-Anthropic model credentials.
+Credentials for prefixed model providers.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
 | `ANTHROPIC_API_KEY` | `str` | `''` | API key for `anthropic/...` models. |
-
-## `GeminiSettings`
-
-Google Gemini model credentials.
-
-| Env var | Type | Default | Description |
-|---|---|---|---|
 | `GEMINI_API_KEY` | `str` | `''` | API key for `gemini/...` models. |
-
-## `OllamaSettings`
-
-Ollama endpoint configuration.
-
-| Env var | Type | Default | Description |
-|---|---|---|---|
-| `OLLAMA_BASE_URL` | `str` | `''` | OpenAI-compatible endpoint for `ollama/...` models. |
-
-## `OpenRouterSettings`
-
-OpenRouter model credentials.
-
-| Env var | Type | Default | Description |
-|---|---|---|---|
+| `OLLAMA_BASE_URL` | `str` | `''` | Endpoint for `ollama/...` models. |
 | `OPENROUTER_API_KEY` | `str` | `''` | API key for `openrouter/...` models. |
 
 ## `RunnerSettings`

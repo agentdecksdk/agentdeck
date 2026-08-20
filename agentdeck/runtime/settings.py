@@ -172,32 +172,21 @@ class OpenAISettings(LayeredSettings):
         return {k: v for k, v in env.items() if v}
 
 
-class AnthropicSettings(LayeredSettings):
-    """Anthropic model credentials."""
+class ModelProviderSettings(LayeredSettings):
+    """Credentials for prefixed model providers."""
 
-    model_config = settings_config("ANTHROPIC_")
-    api_key: str = Field(default="", description="API key for `anthropic/...` models.")
+    _bare_env_names: ClassVar[Mapping[str, str]] = {
+        "anthropic_api_key": "ANTHROPIC_API_KEY",
+        "gemini_api_key": "GEMINI_API_KEY",
+        "ollama_base_url": "OLLAMA_BASE_URL",
+        "openrouter_api_key": "OPENROUTER_API_KEY",
+    }
+    model_config = settings_config("AGENTDECK_PROVIDER_")
 
-
-class GeminiSettings(LayeredSettings):
-    """Google Gemini model credentials."""
-
-    model_config = settings_config("GEMINI_")
-    api_key: str = Field(default="", description="API key for `gemini/...` models.")
-
-
-class OllamaSettings(LayeredSettings):
-    """Ollama endpoint configuration."""
-
-    model_config = settings_config("OLLAMA_")
-    base_url: str = Field(default="", description="OpenAI-compatible endpoint for `ollama/...` models.")
-
-
-class OpenRouterSettings(LayeredSettings):
-    """OpenRouter model credentials."""
-
-    model_config = settings_config("OPENROUTER_")
-    api_key: str = Field(default="", description="API key for `openrouter/...` models.")
+    anthropic_api_key: str = Field(default="", description="API key for `anthropic/...` models.")
+    gemini_api_key: str = Field(default="", description="API key for `gemini/...` models.")
+    ollama_base_url: str = Field(default="", description="Endpoint for `ollama/...` models.")
+    openrouter_api_key: str = Field(default="", description="API key for `openrouter/...` models.")
 
 
 class RunnerSettings(LayeredSettings):
@@ -501,10 +490,7 @@ class Settings(BaseModel):
     # in untyped lambdas so the required-field check on env-backed models
     # doesn't block strict typing.
     openai: OpenAISettings = Field(default_factory=lambda: OpenAISettings.model_validate({}))
-    anthropic: AnthropicSettings = Field(default_factory=lambda: AnthropicSettings.model_validate({}))
-    gemini: GeminiSettings = Field(default_factory=lambda: GeminiSettings.model_validate({}))
-    ollama: OllamaSettings = Field(default_factory=lambda: OllamaSettings.model_validate({}))
-    openrouter: OpenRouterSettings = Field(default_factory=lambda: OpenRouterSettings.model_validate({}))
+    providers: ModelProviderSettings = Field(default_factory=lambda: ModelProviderSettings.model_validate({}))
     runner: RunnerSettings = Field(default_factory=lambda: RunnerSettings.model_validate({}))
     runtime: RuntimeSettings = Field(default_factory=lambda: RuntimeSettings.model_validate({}))
     checkpoint: CheckpointSettings = Field(default_factory=lambda: CheckpointSettings.model_validate({}))
@@ -567,15 +553,12 @@ def reset_settings_cache() -> None:
 
 
 __all__ = [
-    "AnthropicSettings",
     "CheckpointSettings",
     "ControlSettings",
     "EventsSettings",
-    "GeminiSettings",
     "LangfuseSettings",
+    "ModelProviderSettings",
     "OpenAISettings",
-    "OllamaSettings",
-    "OpenRouterSettings",
     "RunnerSettings",
     "RuntimeSettings",
     "SessionSettings",

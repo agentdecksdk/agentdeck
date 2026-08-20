@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 _MODEL_NAME = "fake-scripted"
 _CHAT_USAGE = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
 
-_PROVIDER_TARGET = "agentdeck.adapters.engines.openai_agents.runconfig.build_model_provider"
+_PROVIDER_TARGET = "agentdeck.adapters.engines.openai_agents.runconfig._build_model_provider"
 
 
 def _usage(input_tokens: int, output_tokens: int) -> ResponseUsage:
