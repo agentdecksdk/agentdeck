@@ -4,10 +4,7 @@ on:
   pull_request:
     branches:
       - dev
-    paths:
-      - "docs-site/**"
-      - ".github/workflows/docs-check.yml"
-      - ".github/workflows/docs-pages.yml"
+      - main
   workflow_dispatch:
 
 permissions:
@@ -21,6 +18,7 @@ jobs:
   build:
     name: Build documentation
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     defaults:
       run:

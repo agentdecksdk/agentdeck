@@ -15,6 +15,10 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: first-contribution-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # The greeting is what makes the <24h first-response target hold on a weekend. It is a welcome
   # and a pointer, never a substitute for the human review that follows.
@@ -23,6 +27,7 @@ jobs:
       github.event.action == 'opened' &&
       !endsWith(github.event.pull_request.user.login, '[bot]')
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       issues: write
       pull-requests: write
@@ -94,6 +99,7 @@ jobs:
       github.event.pull_request.merged == true &&
       !endsWith(github.event.pull_request.user.login, '[bot]')
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       issues: write
       pull-requests: write

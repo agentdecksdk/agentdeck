@@ -8,9 +8,22 @@ on:
   # reported" and merges on nothing but the author's word.
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  check:
+  test:
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
     # The Redis and Postgres event logs are contract-tested against real servers (#75) —
     # a store proved only against a mock is not proved. Service containers rather than
     # testcontainers: the gate already installs one dependency set and runs one command,
@@ -66,7 +79,7 @@ jobs:
           fi
       - uses: astral-sh/setup-uv@v5
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
       # durability pulls in the sqlite checkpointer that the langgraph half of the
       # contract suite and UC2's kill/restart/approve tests need — omitting it here
       # let ~16 tests skip silently in the gate of record for months (#33).
@@ -110,12 +123,25 @@ jobs:
       - name: Build
         run: uv build
 
+  check:
+    name: check
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Verify the supported-version matrix
+        env:
+          MATRIX_RESULT: ${{ needs.test.result }}
+        run: test "$MATRIX_RESULT" = success
+
   # The anti-slop gate for code that never went through a Claude Code hook:
   # outside contributors, and anything written by a process the Edit|Write
   # matcher never saw. Same scripts, PR-base-relative, stdlib only.
   slop:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
