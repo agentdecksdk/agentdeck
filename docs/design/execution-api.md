@@ -52,6 +52,28 @@ a workflow gets the orchestration half.
 imperative `@workflow` body declares. Declaring the wrong one is a `build()` error, not a runtime
 surprise: a tool that asks for `WorkflowCtx` would silently acquire orchestration it must not have.
 
+### Input binds like a call
+
+`ctx.invoke(target, *args, **kwargs)` binds to the target's own signature, exactly as calling it
+would:
+
+```python
+await ctx.invoke(load_customer, ticket.customer_id)
+await ctx.invoke(search_web, query=topic)
+```
+
+A run started from outside has one value rather than an argument list, so `deck.run(name, value)`
+and `deck.runs.start(name, value)` bind a `dict` as keywords and anything else as the single first
+parameter. That is what keeps JSON over HTTP working and a one-argument workflow short:
+
+| call | body |
+|---|---|
+| `deck.run("research", "agentdeck")` | `research(ctx, topic)` gets `topic="agentdeck"` |
+| `deck.run("resolve", {"ticket": t, "urgent": True})` | `resolve(ctx, ticket, urgent)` gets both |
+
+A body whose single parameter is itself a mapping takes it whole, because binding is by signature:
+one parameter, one value.
+
 ## `Run`
 
 `ctx.invoke()` returns a child Run; `deck.runs.start()` returns a top-level one. Same object, same
@@ -284,27 +306,29 @@ exists and is proven by AgentDeck's own targets.
 | 1 | this file | - |
 | 2 | `run.can`, strict lifecycle ops, `ToolCtx`, `safepoint()`, `Reporter` | - |
 | 3 | `EnginePort` becomes `Executor`, `start` + `resume` become `execute` | - |
-| 4 | native `@tool` / `@workflow`, `WorkflowCtx`, the native executor, `ctx.invoke` / `parallel` / `ask` / `approve`, child runs | #336 |
-| 5 | `AgentInstance`, `ctx.agent`, `ctx.agents.create()` / `fork()` | #236 |
-| 6 | `InvocationResolver` and the wrapping adapters: a LangGraph graph, an Agents SDK object, a plain callable, `deck.runs.start(target)` | #337 |
-| 7 | migration: delete `Workflow`, `WorkflowDeclaration`, `graph=`, `durable=` and what hangs off them | - |
+| 4 | native `@tool` / `@workflow`, `WorkflowCtx`, the native executor, `ask` / `approve`, parking suspension | - |
+| 5 | `ctx.invoke` / `ctx.parallel`, child runs, the invoker seam | #336 |
+| 6 | `AgentInstance`, `ctx.agent`, `ctx.agents.create()` / `fork()` | #236 |
+| 7 | `InvocationResolver` and the wrapping adapters: a LangGraph graph, an Agents SDK object, a plain callable, `deck.runs.start(target)` | #337 |
+| 8 | migration: delete `Workflow`, `WorkflowDeclaration`, `graph=`, `durable=` and what hangs off them | - |
 
 The executor contract is its own PR rather than the native one's first commit: the rename touches
 every adapter and the collapse changes what an answer *is*, and a reviewer should not have to read
-both against a new engine at the same time. It still lands before anything is wrapped, which was
-the ruling.
+both against a new executor at the same time. It still lands before anything is wrapped, which was
+the ruling. The native path splits for the same reason: a new executor and a new context type is
+one read, and a seam that reaches from an executor back out to the Deck is another.
 
-Two lines PR4 does not cross:
+Two lines PR5 does not cross:
 
 | | |
 |---|---|
-| what `ctx.invoke()` accepts | a catalog name and a native definition, nothing else. Every bare object, a plain callable included, waits for PR6's resolver, so there is one rule and no special case |
-| the parent edge | no parent field on `run.started`, where the parent holds the child handle in memory. `RunStarted` dropped `parent_run_id` once already for being written and never read; it comes back in PR6 with the invocation tree that reads it |
+| what `ctx.invoke()` accepts | a catalog name and a native definition, nothing else. Every bare object, a plain callable included, waits for PR7's resolver, so there is one rule and no special case |
+| the parent edge | no parent field on `run.started`, where the parent holds the child handle in memory. `RunStarted` dropped `parent_run_id` once already for being written and never read; it comes back in PR7 with the invocation tree that reads it |
 
 ## Open
 
 | | |
 |---|---|
 | what the parent edge is called | the field PR3 puts on `run.started` for cancel cascade, usage roll-up and trace nesting. `parent_run_id` is the obvious name and the one that was already removed once |
-| `run.started` for a foreign target | `kind_of_invocable` is a closed literal and a resolved foreign object matches none of its members. PR6 either widens it or records the executor instead |
+| `run.started` for a foreign target | `kind_of_invocable` is a closed literal and a resolved foreign object matches none of its members. PR7 either widens it or records the executor instead |
 | `ctx.parallel` failure policy | all-or-nothing, or gather-with-exceptions. Undecided |
