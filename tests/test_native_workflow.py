@@ -230,6 +230,24 @@ def test_a_native_definition_has_to_be_async() -> None:
             return "no"
 
 
+async def test_an_agent_can_use_a_native_tool() -> None:
+    """A ``@tool`` is still a tool: the agent compiles the function underneath, so declaring one
+    costs nothing on the path that existed before it."""
+    from agentdeck import Agent
+
+    @tool
+    async def lookup(ctx: ToolCtx, sku: str) -> str:
+        """Look a SKU up."""
+        return f"{sku} is in stock"
+
+    deck = Deck(agents=[Agent(name="Shop", instructions="Answer with the tool.", tools=[lookup])])
+    try:
+        deck.build()
+        assert [compiled.name for compiled in deck._invocables["Shop"].native.tools] == ["lookup"]
+    finally:
+        Deck._release()
+
+
 def test_a_definition_takes_its_name_and_description_from_the_function() -> None:
     assert echo.name == "echo"
     assert echo.description == "Hand back what it was given."

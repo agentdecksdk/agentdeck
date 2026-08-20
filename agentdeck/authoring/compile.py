@@ -48,6 +48,7 @@ from agentdeck.adapters.executors.langgraph.checkpointer import resolve_checkpoi
 from agentdeck.adapters.tools.mcp.wiring import mcp_status_banner, resolve_agent_mcp_status
 from agentdeck.authoring.hooks import compile_hooks
 from agentdeck.authoring.instructions import compile_instructions
+from agentdeck.authoring.native import NativeDefinition
 from agentdeck.authoring.tools import compile_tool
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.runtime.settings import get_settings, parse_backend_url
@@ -119,7 +120,12 @@ def compile_agent(
 
     resolved_tools: list[Any] = []
     for tool in tools:
-        if isinstance(tool, Workflow):
+        if isinstance(tool, NativeDefinition):
+            # A ``@tool`` is compiled from the function it was declared over: the definition is
+            # what the catalog holds and what makes it invocable in its own right, and the SDK
+            # only ever needed the callable underneath.
+            resolved_tools.append(compile_tool(tool.call, context_type=context_type))
+        elif isinstance(tool, Workflow):
             if resolve_workflow_tool is None:
                 raise ConfigError(
                     f"agent {agent.name!r} uses workflow {tool.name!r} as a tool, but no workflow "

@@ -7,14 +7,68 @@
 
 # Workflows
 
-Workflows orchestrate multi-step graphs and deterministic state transitions.
+A workflow coordinates other executions. Write one as an ordinary async function.
 
-## Declaring a Workflow
+```python
+from agentdeck import Deck, WorkflowCtx, workflow
+
+@workflow
+async def resolve(ctx: WorkflowCtx, ticket: dict) -> str:
+    """Refund a ticket, once a person says so."""
+    if not await ctx.approve(f"refund {ticket['id']}?"):
+        return "declined"
+    return "refunded"
+
+deck = Deck(workflows=[resolve])
+```
+
+## It suspends where it stands
+
+`ctx.ask(...)` and `ctx.approve(...)` stop the run and wait. The body is not unwound: its local
+variables are still there, so the answer continues on the next line rather than replaying the
+workflow from the top.
+
+```python
+run = await deck.runs.start("resolve", {"id": "T-1"})
+# ... the run is now `waiting_answer`, and shows up in deck.runs.list(status=...)
+await run.answer(True)
+print(await run)   # "refunded"
+```
+
+An operator's pause behaves the same way at a safepoint, and a cancel ends the run instead.
+
+```python
+@workflow
+async def batch(ctx: WorkflowCtx, items: list[str]) -> int:
+    done = 0
+    for item in items:
+        await process(item)
+        await ctx.safepoint()   # a pause parks here; a cancel stops the run here
+        done += 1
+    return done
+```
+
+A parked body lives in the process that started the run. If that process restarts, the run is
+still `waiting_answer` in the log but the body is gone, and answering it says so rather than
+silently re-running the workflow.
+
+## Input binds like a call
+
+| the run's input | the body |
+|---|---|
+| `deck.run("research", "kites")` | `research(ctx, topic)` gets `topic="kites"` |
+| `deck.run("resolve", {"ticket": t, "urgent": True})` | `resolve(ctx, ticket, urgent)` gets both |
+| `deck.run("summarize", {"a": 1})` | `summarize(ctx, payload)` gets the mapping whole |
+
+One parameter is one value, a mapping included. Several parameters bind by name.
+
+## Graph workflows
+
+A LangGraph `StateGraph` still runs, through `Workflow(...)`, and is the way to get a workflow
+that survives a process restart today.
 
 ```python
 from agentdeck import Workflow
 
-workflow = Workflow(
-    name="approval_pipeline",
-)
+pipeline = Workflow(name="approval_pipeline", base=ApprovalPipeline, durable=True)
 ```
