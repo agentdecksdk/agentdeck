@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deck Cleanup"
+  short_description: "Remove AgentDeck code entropy with evidence"
+  default_prompt: "Use $deck-cleanup to audit one kind of codebase entropy and propose the smallest evidence-backed cleanup."
