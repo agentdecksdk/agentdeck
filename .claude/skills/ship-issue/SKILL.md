@@ -29,7 +29,7 @@ Verify the draft PR targets `dev`, includes `Closes #<n>`, and its body carries 
 Spawn `deck-reviewer` on the PR.
 
 ## 5. Address Findings
-Route by class: **ERROR** and **WARNING** findings go to `deck-dev` to fix on the branch; **NOTE** findings that will not be fixed now become `finding:`-titled issues via open-issue, never silently dropped. A `Promote:` line in the verdict becomes a harness change (rule, exemplar, pattern file) in its own small PR or issue.
+The review lands on the PR itself (GitHub review + inline comments); read it there. Route by class: **ERROR** and **WARNING** findings go to `deck-dev` to fix on the branch; **NOTE** findings that will not be fixed now become `finding:`-titled issues via open-issue, never silently dropped. Promotion issues the reviewer filed get scheduled as their own small harness PRs, never implemented by the reviewer.
 
 ## 6. Merge
 When approved and `make check` is green: `gh pr merge --squash --delete-branch`.
