@@ -251,10 +251,10 @@ def changed_lines(path: Path) -> set[int] | None:
     return lines
 
 
-def check_file(path: Path) -> list[str]:
+def check_file(path: Path, all_lines: bool = False) -> list[str]:
     path = path.resolve()
     violations = check_source(path.read_text(encoding="utf-8"))
-    changed = changed_lines(path)
+    changed = None if all_lines else changed_lines(path)
     if changed is not None:
         violations = [v for v in violations if v.touches(changed)]
     return [f"{path}:{v.start}: {v.rule}: {v.message}" for v in violations]
@@ -287,7 +287,7 @@ def main() -> int:
         path = Path(argv_paths[0])
         if path.suffix != ".py" or not path.is_file():
             return 0
-        reports = check_file(path)
+        reports = check_file(path, all_lines="--all" in sys.argv)
     else:
         try:
             payload = json.load(sys.stdin)

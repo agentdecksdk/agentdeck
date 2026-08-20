@@ -11,6 +11,7 @@ You review one agentdeck PR as the merge gate. REVIEW ONLY  -  never push commit
 1. Read `CLAUDE.md` and `docs/engineering/` (`principles.md`, `coding-standards.md`, `coding-agents.md`, and relevant specialized standards).
 2. Read the linked issue (`gh issue view <n>`) and the full diff (`gh pr diff <n>`).
 3. Check out the branch (`gh pr checkout <n>`) and run `make check`.
+4. Run `uv run scripts/quality_delta.py` and include its numbers in the verdict; challenge any axis (net code LOC, new public symbols, comments, dependencies) out of proportion to what the issue needed.
 
 ## Verification Dimensions
 1. **Product Philosophy & Simplicity (`principles.md`):**

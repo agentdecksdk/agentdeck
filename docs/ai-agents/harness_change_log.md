@@ -21,4 +21,9 @@ Heuristic ceilings (deliberate): narration whose nouns are absent from the code 
 
 | Repo map lines carry first-line docstrings | `scripts/repomap.py` | Names alone don't state responsibility; the docstring column turns the flat symbol spread into a responsibility index without a call graph's cost |
 
-Next planned actions, in order: recurring cleanup agents, per-PR quality delta.
+| `scripts/quality_delta.py`: per-PR structural cost vs merge base (code LOC, new public symbols, comments, TODOs, dependency lines); deck-reviewer runs it and challenges out-of-proportion axes | `scripts/`, `.claude/agents/deck-reviewer.md` | Agents inflate exactly these axes; a delta line makes 600-line-diff growth a one-glance fact. Measurement, not a gate: thresholds only after real baselines exist |
+| `deck-cleanup` agent: one narrow scan per run (narrative-comments via `slopcheck --all`, dead-code, duplicate-helpers, pattern-drift), one evidence-backed small PR | `.claude/agents/deck-cleanup.md`, `slopcheck.py --all` flag | OpenAI's lesson: reviewed changes still accumulate entropy; a recurring restoring force beats Friday cleanup days |
+
+Upgrade shelf, each layer activates on evidence: ast-grep when a structural anti-pattern repeats (rule one = that pattern); graph tools (code-review-graph family, after vetting) when the repo map outgrows one read or reuse analyses fail for lack of relationship queries.
+
+Next planned actions: none queued; run the stack on real issues and let the evidence pick the next layer.
