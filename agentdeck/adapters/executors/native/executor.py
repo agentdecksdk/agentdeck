@@ -1,19 +1,9 @@
 """The executor for AgentDeck's own definitions: a coroutine, and a channel out of it.
 
-Everything else in ``adapters/executors/`` bridges somebody else's runtime. This one has no
-runtime to bridge  -  a native ``@workflow`` is a Python function  -  so what it owns is the two
-things a function cannot do for itself: turn what the body says into payloads on the run, and
-stop the body in place until somebody answers it.
-
-**Suspension parks, it does not unwind.** A LangGraph node or an agent turn is re-entered from a
-checkpoint, so raising through it costs nothing. An imperative body has no checkpoint: its locals
-*are* the workflow, so a pause keeps the coroutine alive and waiting instead
-(``docs/design/execution-api.md``). A cancel still raises, because the run is over and there is
-nothing left to preserve.
-
-The ceiling that comes with it: a parked body lives in this process and this executor instance.
-Surviving a restart is the durable replay model, which is deferred  -  so a resume that finds no
-parked body says exactly that rather than silently replaying the workflow from the top.
+Everything else in ``adapters/executors/`` bridges somebody else's runtime. This one has none to
+bridge  -  a native ``@workflow`` is a Python function  -  so it owns the two things a function
+cannot do for itself: turn what the body says into payloads on the run, and stop the body in
+place until somebody answers it.
 """
 
 from __future__ import annotations
@@ -89,7 +79,18 @@ class _Body:
 
 
 class NativeExecutor(Executor):
-    """Plays a ``@workflow`` (or a ``@tool``) as the coroutine it is."""
+    """Plays a ``@workflow`` (or a ``@tool``) as the coroutine it is.
+
+    **Suspension parks, it does not unwind.** A LangGraph node or an agent turn is re-entered from
+    a checkpoint, so raising through it costs nothing. An imperative body has no checkpoint: its
+    locals *are* the workflow, so a pause keeps the coroutine alive and waiting instead
+    (``docs/design/execution-api.md``). A cancel still raises, because the run is over and there
+    is nothing left to preserve.
+
+    The ceiling that comes with it: a parked body lives in this process and this executor
+    instance. Surviving a restart is the durable replay model, which is deferred  -  so a resume
+    that finds no parked body says exactly that rather than silently replaying the workflow.
+    """
 
     name: ClassVar[str] = "native"
     suspendable: ClassVar[bool] = True

@@ -1,14 +1,8 @@
 """``@tool`` and ``@workflow``: the two things AgentDeck can execute that are just Python.
 
-A decorator here does three things and no more: it says what kind of executable the function is,
-checks that its context contract matches that kind, and hands back a definition the catalog can
-hold. It creates no run, owns no lifecycle, and never calls the function
+A decorator here classifies a function, checks its context contract, and hands back a definition
+the catalog can hold. It creates no run, owns no lifecycle, and never calls the function
 (``docs/design/execution-api.md``, Appendix A).
-
-The contract check is the whole reason both decorators exist rather than one: a tool performs a
-capability and a workflow coordinates executions, so a tool that could ``ask`` a person or start
-another run is no longer a leaf. Checked here, at import, rather than at the call that would have
-needed it.
 """
 
 from __future__ import annotations
@@ -32,6 +26,10 @@ if TYPE_CHECKING:
 class NativeDefinition:
     """One AgentDeck-native executable: what it is called, what it needs injected, and the
     function itself.
+
+    The contract check that produces one is the reason there are two decorators rather than one: a
+    tool performs a capability and a workflow coordinates executions, so a tool that could suspend
+    a person for an answer is no longer a leaf. Checked at import, not at the call that needed it.
 
     A definition, never a run. The same one serves every invocation, so nothing here is per-call
     and nothing here is mutable.
