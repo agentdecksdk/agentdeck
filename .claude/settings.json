@@ -1,0 +1,36 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/slopcheck.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\" --write"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/slopcheck.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$CLAUDE_PROJECT_DIR/scripts/slopcheck.py\"; [ -f \"$f\" ] || exit 0; python3 \"$f\" --changed"
+          }
+        ]
+      }
+    ]
+  }
+}

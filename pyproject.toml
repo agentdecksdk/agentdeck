@@ -79,6 +79,8 @@ dev = [
     "pre-commit>=4.0",
     # pinned: a contract that passes today must not start failing on a linter upgrade
     "import-linter==2.13",
+    # scripts/repomap.py only: the public-API map agents read before writing new code
+    "griffe>=1.6",
 ]
 
 [tool.ruff]
@@ -86,7 +88,11 @@ line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "SIM", "TC", "TID251"]
+# ERA, S110/S112, PIE790, PGH003/PGH004, T10/T20: the structural AI-slop set  -
+# commented-out code, swallowed exceptions, placeholder bodies, blanket
+# suppressions, and debug output in library code. RUF100 rejected: it deletes
+# noqa markers documenting deliberately non-enabled rules.
+select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "SIM", "TC", "TID251", "ERA", "S110", "S112", "PIE790", "PGH003", "PGH004", "T10", "T20"]
 ignore = ["E501", "UP046", "UP047"]
 
 [tool.ruff.lint.isort]
@@ -97,10 +103,26 @@ known-first-party = ["agentdeck"]
 # so the ban lands where the SDK is actually named.
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "agents.mcp".msg = "the MCP client is adapters/tools/mcp's alone  -  take tools off a ToolSet instead"
+"asyncio.create_task".msg = "tasks belong to the runtime (docs/patterns/lifecycle.md): a task created elsewhere bypasses cancellation and drain"
 
 [tool.ruff.lint.per-file-ignores]
 "agentdeck/adapters/tools/mcp/*" = ["TID251"]
 "tests/test_mcp_tool_source.py" = ["TID251"]
+# print is the legitimate output mechanism everywhere except library code.
+"agentdeck/surfaces/cli/*" = ["T201"]
+"tests/*" = ["T201"]
+"scripts/*" = ["T201"]
+"examples/*" = ["T201"]
+# The runtime owns task creation (docs/patterns/lifecycle.md); tests drive it.
+# Enumerated rather than tests/*: a blanket TID251 ignore would also un-ban agents.mcp.
+"agentdeck/deck.py" = ["TID251"]
+"agentdeck/runtime/dispatch.py" = ["TID251"]
+"agentdeck/runtime/service.py" = ["TID251"]
+"tests/contract/test_store.py" = ["TID251"]
+"tests/test_deck.py" = ["TID251"]
+"tests/test_run_control.py" = ["TID251"]
+"tests/test_runtime_service.py" = ["TID251"]
+"tests/test_serve_compat.py" = ["TID251"]
 
 [tool.ruff.lint.flake8-type-checking]
 runtime-evaluated-base-classes = [

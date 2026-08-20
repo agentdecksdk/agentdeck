@@ -90,6 +90,15 @@ reviews:
         `ty: ignore` is acceptable only at a deliberate SDK shim and only with a
         comment saying why.
 
+    - path: "**/*.py"
+      instructions: >-
+        Anti-slop focus, judgment calls only (ruff owns deterministic style):
+        flag comments that narrate visible code instead of stating a
+        non-obvious why; flag any new public abstraction whose responsibility
+        an existing symbol already owns — the PR body's '## Reuse analysis' is
+        the author's own evidence, hold them to it; flag speculative
+        configuration and single-implementation indirection.
+
     - path: "tests/**"
       instructions: >-
         Tests must be offline and deterministic — no network, no real model
