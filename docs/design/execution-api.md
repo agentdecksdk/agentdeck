@@ -30,6 +30,10 @@ can honour them, and `run.can.*` is where a caller reads that.
 `ctx.ask()` suspends *my own* branch. `child.pause()` controls *another* execution. A generic
 `ctx.pause()` cannot say which, so there is none.
 
+There is no `ctx.approve()` either: an approval is a question with two options, and
+`ask(question, options=[True, False])` already says it. One mechanism that takes any option set
+beats two that overlap, and it keeps AgentDeck out of deciding what counts as a yes.
+
 ## `ctx`
 
 `ToolCtx ⊂ WorkflowCtx`. A tool performs a capability; a workflow coordinates executions, so only
@@ -43,7 +47,7 @@ a workflow gets the orchestration half.
 | `safepoint()` | ToolCtx | `Context.checkpoint()`, renamed |
 | `invoke(target, input)` | WorkflowCtx | new |
 | `parallel(*runs)` | WorkflowCtx | new |
-| `ask(prompt)` / `approve(prompt)` | WorkflowCtx | new public form of today's langgraph interrupt |
+| `ask(question, options=...)` | WorkflowCtx | new public form of today's langgraph interrupt |
 | `agents.create()` / `agents.fork()` | WorkflowCtx | new, and last: see Delivery |
 
 `ctx` does not grow into a runtime namespace. Nothing else goes on it without a ruling.
@@ -172,6 +176,9 @@ cannot carry is dropped from the log with a warning and still handed to the engi
 run resumes on an answer no replay could ever reproduce. `run.answer(...)` refuses such a value
 instead.
 
+`core.invocable.NativeInvocable` is the third piece: the protocol an AgentDeck-native definition
+satisfies, so a pure adapter can play a `@tool`/`@workflow` without importing `authoring`.
+
 **The front half is missing.**
 
 ```text
@@ -218,9 +225,25 @@ native workflow:
 | pause | the body parks in place and awaits the resume, coroutine and locals alive |
 | cancel | raises, because the run ends and there is nothing left to preserve |
 
-`ctx.ask()` and `ctx.approve()` park by the same mechanism. This is what makes a native workflow
-suspendable in the `run.can` table, and it is also its ceiling: a parked body lives in one
-process, and surviving a restart is the deferred replay model.
+`ctx.ask()` parks by the same mechanism. This is what makes a native workflow suspendable in the
+`run.can` table, and it is also its ceiling: a parked body lives in one process, and surviving a
+restart is the deferred replay model.
+
+## An answer is refused before it is claimed
+
+Only a question that named its `options` can be judged from outside the body; a free-form one
+takes whatever it is given, because nothing outside can judge it better than the body can.
+
+| | |
+|---|---|
+| where it is checked | `Runtime.resume`, before the claim. Every surface (in-process, HTTP, CLI) inherits it, because all of them arrive there |
+| what the answerer gets | the error at their own call, naming the options |
+| what the run does | nothing: it is still `WAITING_ANSWER`, and the next answer lands |
+| what the log gets | one `answer.refused`, so an audit sees the attempt. Not a lifecycle kind, and it names the type that arrived rather than the value, which can be anything the answerer typed |
+
+Checked before the claim rather than inside the body, because the claim *is* the `run.resumed`
+carrying the answer: a value refused after it lands leaves the run resumed, the body raising, and
+nobody able to answer it properly.
 
 ## Where LangGraph ends up
 
@@ -306,7 +329,7 @@ exists and is proven by AgentDeck's own targets.
 | 1 | this file | - |
 | 2 | `run.can`, strict lifecycle ops, `ToolCtx`, `safepoint()`, `Reporter` | - |
 | 3 | `EnginePort` becomes `Executor`, `start` + `resume` become `execute` | - |
-| 4 | native `@tool` / `@workflow`, `WorkflowCtx`, the native executor, `ask` / `approve`, parking suspension | - |
+| 4 | native `@tool` / `@workflow`, `WorkflowCtx`, the native executor, `ask(options=...)`, parking suspension | - |
 | 5 | `ctx.invoke` / `ctx.parallel`, child runs, the invoker seam | #336 |
 | 6 | `AgentInstance`, `ctx.agent`, `ctx.agents.create()` / `fork()` | #236 |
 | 7 | `InvocationResolver` and the wrapping adapters: a LangGraph graph, an Agents SDK object, a plain callable, `deck.runs.start(target)` | #337 |
