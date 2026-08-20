@@ -66,7 +66,7 @@ from agentdeck.composition import (
     resolve_observers,
     resolve_run_settings,
 )
-from agentdeck.core.content import DataBlock, TextBlock, coerce_input
+from agentdeck.core.content import DataBlock, TextBlock, as_decision, coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
 from agentdeck.core.events import (
@@ -1014,6 +1014,12 @@ class Deck:
             # which one decides whether the caller is told to lift a pause, told the run is over,
             # or told nothing answers to this id at all.
             raise await self._not_answerable(run_id, namespace)
+        if pending.reason == "approval":
+            # Before the claim, which is what makes a mistyped reply survivable: the claim writes
+            # `run.resumed`, and a value refused after that would leave the run resumed, the body
+            # raising, and nobody able to answer it properly. Refused here, the run is still
+            # waiting and the next answer lands.
+            as_decision(value)
         result, applied = await _workflow_result(
             runtime.resume(
                 pending.invocable,

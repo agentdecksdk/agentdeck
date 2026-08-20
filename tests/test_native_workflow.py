@@ -171,7 +171,13 @@ async def test_an_approval_takes_a_yes_a_no_and_nothing_else() -> None:
         await _settles(refused, RunStatus.WAITING_ANSWER)
         with pytest.raises(ValueError, match="neither a yes nor a no"):
             await refused.answer("maybe")
-        assert await refused.status() is RunStatus.FAILED
+
+        # Refused, not consumed: the reply was checked before anything was claimed, so the run is
+        # still waiting and whoever mistyped can answer it properly.
+        assert await refused.status() is RunStatus.WAITING_ANSWER
+        await refused.answer("no")
+        assert await refused == "done"
+        assert decided == [True, False, False]
 
 
 async def test_a_cancel_ends_the_run_rather_than_parking_it() -> None:

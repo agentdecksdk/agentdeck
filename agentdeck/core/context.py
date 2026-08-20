@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, cast
 from uuid import uuid4
 
+from agentdeck.core.content import as_decision
 from agentdeck.core.control import Gate, RunPausedError
 from agentdeck.core.events import KnownPayload, RunInterrupted
 from agentdeck.core.reporting import Reporter
@@ -242,7 +243,7 @@ class WorkflowCtx[T](ToolCtx[T]):
         answer must not read as consent: a bare truthiness test would take the string ``"no"``
         for a yes.
         """
-        return _as_decision(await self._waiting.suspend(_asked(question, "approval", fields)))
+        return as_decision(await self._waiting.suspend(_asked(question, "approval", fields)))
 
     @property
     def _waiting(self) -> Suspender:
@@ -261,18 +262,3 @@ def _asked(question: str, reason: Literal["human", "approval"], fields: dict[str
     if not question:
         raise ValueError("ask()/approve() need a question; an empty one has no answer to wait for.")
     return RunInterrupted(interrupt_id=uuid4().hex, reason=reason, payload={"question": question, **fields})
-
-
-_YES = frozenset({"true", "yes", "y", "approve", "approved"})
-_NO = frozenset({"false", "no", "n", "reject", "rejected"})
-
-
-def _as_decision(answer: object) -> bool:
-    if isinstance(answer, bool):
-        return answer
-    if isinstance(answer, str) and (word := answer.strip().lower()) in _YES | _NO:
-        return word in _YES
-    raise ValueError(
-        f"approve() was answered with {answer!r}, which is neither a yes nor a no. Answer with a "
-        f"bool, or one of {sorted(_YES)} / {sorted(_NO)}."
-    )

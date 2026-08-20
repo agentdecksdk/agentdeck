@@ -160,12 +160,16 @@ class RunCancelled(CoreModel):
     reason: str | None = None
 
 
+InterruptReason = Literal["human", "pause", "approval"]
+"""What a suspended run is waiting for. ``approval`` is the one with a shape: a yes or a no."""
+
+
 class RunInterrupted(CoreModel):
     """Waiting on an answer. Not terminal  -  ``run_id`` and ``seq`` continue on resume."""
 
     kind: Literal["run.interrupted"] = "run.interrupted"
     interrupt_id: str
-    reason: Literal["human", "pause", "approval"]
+    reason: InterruptReason
     payload: dict[str, JsonData]
     thread_id: str | None = None
     expected_resume: str | None = None

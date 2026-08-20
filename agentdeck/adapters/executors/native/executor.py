@@ -116,13 +116,15 @@ class NativeExecutor(Executor):
                 # it here would leave a workflow that raised looking like one that returned None.
                 await body.task
                 return
-            yield payload
             if payload.kind in SUSPENDED_KINDS:
-                # The body is still sitting inside its own `await`, holding its locals. Left in
-                # `_parked` for whoever resumes, and never awaited here: awaiting it is what a
-                # suspension is not.
+                # Parked *before* the yield: a consumer that walks away mid-stream closes this
+                # generator, and a body registered after the yield would never be registered at
+                # all  -  alive, holding its locals, and unreachable by any resume. Never awaited
+                # here either: awaiting it is what a suspension is not.
                 self._parked[ctx.run_id] = body
+                yield payload
                 return
+            yield payload
 
     async def aclose(self) -> None:
         """Cancel every body still parked. A workflow waiting for an answer nobody will now give

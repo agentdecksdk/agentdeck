@@ -217,3 +217,25 @@ def answer_of(blocks: Input | None) -> Any:
             case TextBlock(text=text):
                 return text
     return blocks
+
+
+_YES = frozenset({"true", "yes", "y", "approve", "approved"})
+_NO = frozenset({"false", "no", "n", "reject", "rejected"})
+
+
+def as_decision(answer: Any) -> bool:
+    """An approval's answer as the yes or no it has to be, or a refusal.
+
+    An approval is consent to do something, so a value that merely *looks* like an answer must
+    not read as one: a bare truthiness test takes the string ``"no"`` for a yes. Refused before
+    the answer is recorded, so a mistyped reply leaves the run waiting for a real one rather than
+    ending it.
+    """
+    if isinstance(answer, bool):
+        return answer
+    if isinstance(answer, str) and (word := answer.strip().lower()) in _YES | _NO:
+        return word in _YES
+    raise ValueError(
+        f"this run is waiting for an approval and {answer!r} is neither a yes nor a no. Answer "
+        f"with a bool, or one of {sorted(_YES)} / {sorted(_NO)}."
+    )

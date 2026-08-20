@@ -55,7 +55,7 @@ if TYPE_CHECKING:
 
     from agentdeck.core.content import Input
     from agentdeck.core.control import ControlSignal
-    from agentdeck.core.events import KnownPayload
+    from agentdeck.core.events import InterruptReason, KnownPayload
     from agentdeck.core.invocable import InvocableSpec
     from agentdeck.core.ports import ControlPort, EventSinkPort, EventStorePort, Executor, LeasePort
     from agentdeck.core.ports.store import RunSummary
@@ -86,6 +86,9 @@ class PendingRun:
     invocable: str
     thread_id: str
     payload: dict[str, Any]
+    reason: InterruptReason = "human"
+    """What kind of answer this run is waiting for. An ``approval`` takes a yes or a no and
+    nothing else, which is checked before the answer is recorded rather than after."""
 
 
 class Runtime:
@@ -767,6 +770,7 @@ class Runtime:
                     invocable=event.origin,
                     thread_id=interrupted.thread_id or summary.run_id,
                     payload=interrupted.payload,
+                    reason=interrupted.reason,
                 )
             )
         return out
