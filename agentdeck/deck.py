@@ -47,6 +47,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from agentdeck.adapters.engines.langgraph import LangGraphEngine
 from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine, SessionFactory
+from agentdeck.adapters.engines.openai_agents.runconfig import validate_model_requirements
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring.agent import Agent
 from agentdeck.authoring.compile import refresh_mcp_status
@@ -468,8 +469,8 @@ class Deck:
         workflows = list(workflow_registry.list(refresh=True).values())
         project_root = Path(path).resolve()
         # ``.mcp.json`` lives at the project root  -  a sibling of ``.agentdeck/``, not inside it.
-        # For the default ``path`` this is also where ``config.yaml``/``.env`` resolve from
-        # (both read off ``Path.cwd()``); an explicit non-default ``path`` only matches that if
+        # For the default ``path`` this is also where ``.env`` resolves from. An explicit
+        # non-default ``path`` only matches that if
         # the caller also runs from its parent. Its absence means "no servers" rather than a
         # configuration error, the same fail-open rule an empty ``mcp.servers`` map always had.
         mcp_json = project_root.parent / ".mcp.json"
@@ -530,6 +531,14 @@ class Deck:
         if self._state != "NEW":
             return self
         _validate_observers(self._observers_arg)
+        run_settings = resolve_run_settings()
+        validate_model_requirements(
+            (
+                (agent.name, agent.model if agent.model is not None else run_settings.model)
+                for agent in self._agents.values()
+            ),
+            run_settings,
+        )
         skills_by_name = self._skills_obj.build() if self._skills_obj is not None else {}
         mcp_names = frozenset(self._mcp_obj.build()) if self._mcp_obj is not None else frozenset()
         if self._mcp_obj is not None:

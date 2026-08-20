@@ -793,12 +793,12 @@ API reference for `Run` instances and execution controls.
 
 # Settings
 
-*Every AGENTDECK_* (and OPENAI_*/TAVILY_*) environment variable, generated from agentdeck/runtime/settings.py.*
+*Every AGENTDECK_*, OPENAI_*, ANTHROPIC_*, GEMINI_*, OLLAMA_*, OPENROUTER_*, and TAVILY_* environment variable, generated from agentdeck/runtime/settings.py.*
 Source: https://agentdecksdk.com/reference/settings
 
 # Settings
 
-Generated from [`agentdeck/runtime/settings.py`](https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/runtime/settings.py)'s `LayeredSettings` subclasses  -  this page cannot drift from the code because `make check` regenerates it and fails if the result differs (`scripts/generate_docs_reference.py`). Every variable is also settable in the shared `config.yaml`, under the section derived from its env-var prefix (`openai:`, `runner:`, …); an env var wins over the file.
+Generated from [`agentdeck/runtime/settings.py`](https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/runtime/settings.py)'s `LayeredSettings` subclasses  -  this page cannot drift from the code because `make check` regenerates it and fails if the result differs (`scripts/generate_docs_reference.py`). Values come from process environment variables or the project-root `.env`; process values win.
 
 ## `OpenAISettings`
 
@@ -806,10 +806,21 @@ OpenAI-compatible endpoint configuration.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `OPENAI_MODEL` | `str` | *required* | Model name passed to the host Agents SDK runner. No default  -  always required. |
-| `OPENAI_API_KEY` | `str` | `''` | API key for the endpoint. What empty does depends on `ca_bundle`: unset (the common case), the OpenAI client falls through to its own `OPENAI_API_KEY` process-env lookup and errors on the first model call if that's empty too; with `ca_bundle` set, the empty value is passed straight through instead and just sends no Authorization header  -  the self-hosted/corporate-CA case doesn't need a placeholder value the way the common path does. |
+| `OPENAI_MODEL` | `str` | `'gpt-4.1-mini'` | Default model for agents that do not declare `model=`. |
+| `OPENAI_API_KEY` | `str` | `''` | API key for OpenAI. A custom `OPENAI_BASE_URL` may omit it when the endpoint needs no auth. |
 | `OPENAI_BASE_URL` | `str` | `''` | OpenAI-compatible endpoint base URL. Empty uses the SDK default, api.openai.com. |
 | `OPENAI_CA_BUNDLE` | `str` | `''` | Path to a CA/certificate bundle for verifying the endpoint's TLS certificate. Empty uses the system's default trust store. |
+
+## `ModelProviderSettings`
+
+Credentials for prefixed model providers.
+
+| Env var | Type | Default | Description |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | `str` | `''` | API key for `anthropic/...` models. |
+| `GEMINI_API_KEY` | `str` | `''` | API key for `gemini/...` models. |
+| `OLLAMA_BASE_URL` | `str` | `''` | Endpoint for `ollama/...` models. |
+| `OPENROUTER_API_KEY` | `str` | `''` | API key for `openrouter/...` models. |
 
 ## `RunnerSettings`
 
@@ -850,7 +861,7 @@ Langfuse LLM-observability export config.
 
 ## `TavilySettings`
 
-Tavily web-search API. One knob: `TAVILY_API_KEY` env var (or YAML `tavily: api_key:`).
+Tavily web-search API. One knob: `TAVILY_API_KEY`.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
@@ -912,6 +923,32 @@ support_agent = Agent(
     model="gpt-4o",
 )
 ```
+
+## Choose a model provider
+
+Prefix `model=` to select a provider. `Deck.build()` checks every required credential before any model call.
+
+```python
+openai_agent = Agent(name="openai", model="openai/gpt-4o")
+anthropic_agent = Agent(name="anthropic", model="anthropic/claude-3-7-sonnet")
+gemini_agent = Agent(name="gemini", model="gemini/gemini-2.5-flash")
+ollama_agent = Agent(name="ollama", model="ollama/llama3.2")
+openrouter_agent = Agent(name="openrouter", model="openrouter/openai/gpt-4o")
+```
+
+Configure only the providers your deck uses:
+
+```dotenv
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=...
+OLLAMA_BASE_URL=http://localhost:11434/v1
+OPENROUTER_API_KEY=sk-or-...
+```
+
+An agent without `model=` uses `OPENAI_MODEL`. Bare model names use OpenAI, while namespaced IDs
+such as `vendor/model` remain available for an endpoint configured with `OPENAI_BASE_URL`.
 
 ---
 
@@ -1182,12 +1219,16 @@ Jack did not assemble these. They are what a `Deck` gives an application the mom
 
 The live experience on this site is that model, exposed.
 
-```text
-Jack executes through AgentDeck
-   → the run emits canonical events
-   → a surface streams them
-   → the site renders the conversation and the tree beside it
+```mermaid
+flowchart TD
+    stream["Deck.stream()<br/>canonical Event"] --> filter["PUBLIC_KINDS filter<br/>run.started<br/>text.delta<br/>tool.call.started<br/>run.completed<br/>run.failed"]
+    filter -->|"canonical Event unchanged"| sse["SSE response<br/>data: event.model_dump_json()"]
+    sse --> browser{"Browser<br/>switch (event.kind)"}
+    browser -->|"text.delta"| transcript["Transcript"]
+    browser -->|"run.started<br/>tool.call.started<br/>run.completed<br/>run.failed"| tree["Execution tree"]
 ```
+
+The allowlist drops other event kinds without reshaping the canonical events it permits.
 
 The route is a few lines over `deck.stream()`, and the wire is the event log itself:
 
@@ -1484,6 +1525,15 @@ Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift fro
 are written for someone using the package: what changed, and what to do about it.
 
 The current release is **v4.0.5**. Earlier releases are listed at the bottom.
+
+## Unreleased
+
+### Added
+
+- **Agents can select OpenAI, Anthropic, Gemini, Ollama, or OpenRouter by model prefix.** Each
+  provider reads its own environment credential, and `Deck.build()` reports every missing
+  requirement before execution. Runtime settings now come only from environment variables or
+  the project `.env`; the undocumented `config.yaml` source is removed.
 
 ## v4.0.5
 

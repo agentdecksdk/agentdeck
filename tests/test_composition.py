@@ -144,10 +144,7 @@ def test_resolve_event_store_builds_sqlite_from_a_scheme_url(tmp_path):
     store.close()
 
 
-def test_events_url_is_settable_from_config_yaml_not_only_the_env_var(tmp_path, monkeypatch):
-    """``_bare_env_names`` rewired ``EventsSettings``'s source tuple  -  this proves the YAML
-    channel it shares with every other layered settings class still reaches the field, and
-    that a real env var still outranks it, the same layering order as everything else."""
+def test_events_url_ignores_config_yaml(tmp_path, monkeypatch):
     yaml_path = tmp_path / "config.yaml"
     db_path = tmp_path / "events.sqlite3"
     yaml_path.write_text(f"events:\n  url: sqlite://{db_path}\n")
@@ -156,8 +153,7 @@ def test_events_url_is_settable_from_config_yaml_not_only_the_env_var(tmp_path, 
     reset_settings_cache()
     try:
         store = resolve_event_store(EventsSettings())
-        assert isinstance(store, SqliteEventStore)
-        store.close()
+        assert isinstance(store, MemoryEventStore)
 
         monkeypatch.setenv("AGENTDECK_EVENTS", "memory://")
         store = resolve_event_store(EventsSettings())

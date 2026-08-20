@@ -4,6 +4,16 @@ import sys
 
 import pytest
 
+from agentdeck.runtime.settings import reset_settings_cache
+
+
+@pytest.fixture(autouse=True)
+def _model_credentials(monkeypatch):
+    """Catalog tests use a deterministic placeholder unless they test missing credentials."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    reset_settings_cache()
+    yield
+
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):  # noqa: ARG001
     # `-q` (the Makefile's test target) prints nothing for passing tests, so the docs

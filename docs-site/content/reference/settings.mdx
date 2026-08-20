@@ -1,11 +1,11 @@
 ---
 title: Settings
-description: Every AGENTDECK_* (and OPENAI_*/TAVILY_*) environment variable, generated from agentdeck/runtime/settings.py.
+description: Every AGENTDECK_*, OPENAI_*, ANTHROPIC_*, GEMINI_*, OLLAMA_*, OPENROUTER_*, and TAVILY_* environment variable, generated from agentdeck/runtime/settings.py.
 ---
 
 # Settings
 
-Generated from [`agentdeck/runtime/settings.py`](https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/runtime/settings.py)'s `LayeredSettings` subclasses  -  this page cannot drift from the code because `make check` regenerates it and fails if the result differs (`scripts/generate_docs_reference.py`). Every variable is also settable in the shared `config.yaml`, under the section derived from its env-var prefix (`openai:`, `runner:`, …); an env var wins over the file.
+Generated from [`agentdeck/runtime/settings.py`](https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/runtime/settings.py)'s `LayeredSettings` subclasses  -  this page cannot drift from the code because `make check` regenerates it and fails if the result differs (`scripts/generate_docs_reference.py`). Values come from process environment variables or the project-root `.env`; process values win.
 
 ## `OpenAISettings`
 
@@ -13,10 +13,21 @@ OpenAI-compatible endpoint configuration.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `OPENAI_MODEL` | `str` | *required* | Model name passed to the host Agents SDK runner. No default  -  always required. |
-| `OPENAI_API_KEY` | `str` | `''` | API key for the endpoint. What empty does depends on `ca_bundle`: unset (the common case), the OpenAI client falls through to its own `OPENAI_API_KEY` process-env lookup and errors on the first model call if that's empty too; with `ca_bundle` set, the empty value is passed straight through instead and just sends no Authorization header  -  the self-hosted/corporate-CA case doesn't need a placeholder value the way the common path does. |
+| `OPENAI_MODEL` | `str` | `'gpt-4.1-mini'` | Default model for agents that do not declare `model=`. |
+| `OPENAI_API_KEY` | `str` | `''` | API key for OpenAI. A custom `OPENAI_BASE_URL` may omit it when the endpoint needs no auth. |
 | `OPENAI_BASE_URL` | `str` | `''` | OpenAI-compatible endpoint base URL. Empty uses the SDK default, api.openai.com. |
 | `OPENAI_CA_BUNDLE` | `str` | `''` | Path to a CA/certificate bundle for verifying the endpoint's TLS certificate. Empty uses the system's default trust store. |
+
+## `ModelProviderSettings`
+
+Credentials for prefixed model providers.
+
+| Env var | Type | Default | Description |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | `str` | `''` | API key for `anthropic/...` models. |
+| `GEMINI_API_KEY` | `str` | `''` | API key for `gemini/...` models. |
+| `OLLAMA_BASE_URL` | `str` | `''` | Endpoint for `ollama/...` models. |
+| `OPENROUTER_API_KEY` | `str` | `''` | API key for `openrouter/...` models. |
 
 ## `RunnerSettings`
 
@@ -57,7 +68,7 @@ Langfuse LLM-observability export config.
 
 ## `TavilySettings`
 
-Tavily web-search API. One knob: `TAVILY_API_KEY` env var (or YAML `tavily: api_key:`).
+Tavily web-search API. One knob: `TAVILY_API_KEY`.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|

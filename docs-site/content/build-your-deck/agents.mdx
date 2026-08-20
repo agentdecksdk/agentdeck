@@ -18,3 +18,29 @@ support_agent = Agent(
     model="gpt-4o",
 )
 ```
+
+## Choose a model provider
+
+Prefix `model=` to select a provider. `Deck.build()` checks every required credential before any model call.
+
+```python
+openai_agent = Agent(name="openai", model="openai/gpt-4o")
+anthropic_agent = Agent(name="anthropic", model="anthropic/claude-3-7-sonnet")
+gemini_agent = Agent(name="gemini", model="gemini/gemini-2.5-flash")
+ollama_agent = Agent(name="ollama", model="ollama/llama3.2")
+openrouter_agent = Agent(name="openrouter", model="openrouter/openai/gpt-4o")
+```
+
+Configure only the providers your deck uses:
+
+```dotenv
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=...
+OLLAMA_BASE_URL=http://localhost:11434/v1
+OPENROUTER_API_KEY=sk-or-...
+```
+
+An agent without `model=` uses `OPENAI_MODEL`. Bare model names use OpenAI, while namespaced IDs
+such as `vendor/model` remain available for an endpoint configured with `OPENAI_BASE_URL`.

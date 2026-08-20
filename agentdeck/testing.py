@@ -41,14 +41,7 @@ if TYPE_CHECKING:
 _MODEL_NAME = "fake-scripted"
 _CHAT_USAGE = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
 
-# Two places still resolve a run config: the Runtime plays a turn through the openai-agents
-# adapter, while a workflow node driving an agent of its own still goes through the
-# direct-call runner. Patching only one would pass a test while the other reached for a
-# real endpoint.
-_PROVIDER_TARGETS = (
-    "agentdeck.authoring.runners.agent.OpenAIProvider",
-    "agentdeck.adapters.engines.openai_agents.runconfig.OpenAIProvider",
-)
+_PROVIDER_TARGET = "agentdeck.adapters.engines.openai_agents.runconfig._build_model_provider"
 
 
 def _usage(input_tokens: int, output_tokens: int) -> ResponseUsage:
@@ -205,7 +198,7 @@ class ScriptedModel(Model):
 
 
 def _provider_class(model: Model | Callable[[], Model]) -> type:
-    """A drop-in ``OpenAIProvider``: a fixed ``model`` hands every lookup the same object,
+    """A drop-in model provider: a fixed ``model`` hands every lookup the same object,
     which is what lets a test read ``model.calls``/``model.inputs`` across turns. A zero-arg
     callable is invoked fresh each time a provider is constructed instead  -  the shape a
     per-turn reset (a fresh model, starting at turn one, for every ``RunConfig`` built) needs.
@@ -227,7 +220,7 @@ def patch_model(model: Model | Callable[[], Model]) -> Iterator[None]:
     duration of the block.
     """
     provider = _provider_class(model)
-    with patch(_PROVIDER_TARGETS[0], provider), patch(_PROVIDER_TARGETS[1], provider):
+    with patch(_PROVIDER_TARGET, lambda _settings: provider()):
         yield
 
 

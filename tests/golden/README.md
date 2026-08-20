@@ -76,14 +76,12 @@ is pinned at the source instead:
   deltas and drops structural events, which is itself part of the recorded contract.
 - **Ids the client owns.** `session_id`, `thread_id` and workflow input state are
   literals in `capture`.
-- **Env and config.** `conftest._PINNED_ENV` overrides the settings knobs that would
+- **Environment.** `conftest._PINNED_ENV` overrides the settings knobs that would
   otherwise reach outside the test (Redis sessions, Langfuse export, the sqlite
-  checkpointer) or truncate the scripted turn (`AGENTDECK_RUNNER_MAX_TURNS`). `.env` and
-  `config.yaml` resolve from cwd at settings-build time (`runtime/settings.py`'s
-  `resolve_env_file` / `resolve_config_path`), and `make_client` chdirs to
-  `fixture_project` before building settings — that directory has no `config.yaml`, and
-  any `.env` there is overridden for the keys in `_PINNED_ENV`. `AGENTDECK_CONFIG_PATH` is
-  still pinned to the packaged `config.default.yaml` as a belt-and-suspenders guard.
+  checkpointer) or truncate the scripted turn (`AGENTDECK_RUNNER_MAX_TURNS`). `.env`
+  resolves from cwd at settings-build time through `resolve_env_file`, and `make_client`
+  chdirs to `fixture_project` before building settings. Any `.env` there is overridden
+  for the keys in `_PINNED_ENV`.
   Env vars outside `_PINNED_ENV` are still able to reach a capture; add one here rather
   than normalizing its effect away. The checkpointer is `memory`, and its process-wide
   cache is cleared per client so `/pending` never sees another capture's threads.
