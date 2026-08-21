@@ -360,9 +360,12 @@ class _Agents:
 
             careful = ctx.agents.fork("Writer", instructions="Draft it in under 100 words.")
 
-        ``source`` is required rather than defaulting to ``ctx.agent``: this is a workflow body,
-        and a workflow is not an agent, so the default could only ever be ``None`` here. What
-        ``ctx.agent`` is for is a tool reading which agent called it.
+        ``source`` is required rather than defaulting to ``ctx.agent``: ``agent`` is a
+        :class:`~agentdeck.core.context.ToolCtx` member and ``agents`` a
+        :class:`~agentdeck.core.context.WorkflowCtx` one, so nothing ever holds both and the
+        default could only ever be ``None``. Forking the agent you are inside is therefore
+        unreachable rather than merely undefaulted, which is intended: a tool is a leaf, and one
+        that could mint a variant of its own agent is orchestrating.
         """
         return self._deck._mint(_forked(self._deck, source, overrides))
 
@@ -1003,6 +1006,10 @@ class Deck:
         are two different agents and every run addresses its invocable by the name its log
         records. Compiled here rather than at the first invoke, so a declaration that cannot be
         built fails at the line that wrote it.
+
+        Against this deck's own catalog, so a minted agent may delegate the way a declared one
+        does: ``subagents=`` travels with a fork, and one compiled against nothing would refuse
+        every name its source could reach.
         """
         self._require_open()
         minted = _copied(declaration, {"name": f"{declaration.name}#{uuid.uuid4().hex[:8]}"})
@@ -1011,7 +1018,9 @@ class Deck:
             name=minted.name,
             kind=InvocableKind.AGENT,
             executor=EXECUTOR_FOR_KIND[InvocableKind.AGENT],
-            native=compile_agent(minted, context_type=self._context_type, catalog={}, delegate=self._delegate),
+            native=compile_agent(
+                minted, context_type=self._context_type, catalog=self._agents, delegate=self._delegate
+            ),
             metadata={"agent": instance},
         )
         return instance

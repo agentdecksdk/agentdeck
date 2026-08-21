@@ -440,11 +440,19 @@ class Runtime:
 
         A **cancel cascades** to the runs this one delegated, and theirs in turn. A parent that
         stops while a child keeps burning tokens is worse than not offering cancel at all, and the
-        parent cannot do it for itself: it is inside the call that is waiting on the child. A
-        **pause does not** cascade. A suspended child would surface in the parent as a failed
-        delegation, and the parent replays its turn from the log on resume  -  so it would delegate
-        the same task a second time. A pause takes effect at the parent's own next safe point,
-        once the delegations in flight have settled.
+        parent cannot do it for itself: it is inside the call that is waiting on the child.
+
+        A **pause does not** cascade, and what that leaves behind differs by executor, so it is
+        stated per executor rather than as one rule:
+
+        | the paused parent is | its in-flight child | why |
+        |---|---|---|
+        | an agent turn | runs on, and the parent does not reach a safe point until it is done | resuming replays the turn from the log, so a suspended child would be delegated a second time |
+        | a native workflow | runs on, while the parent parks wherever it next reaches a safepoint | the body is a live coroutine, so ``await child`` survives the pause and reads the same child on resume |
+
+        Either way the child keeps running and a caller that wants it stopped cancels or pauses
+        that child by its own id. What is common to both is only the refusal to cascade; the
+        re-delegation above is an agent-turn fact and not a workflow one.
         """
         if verb is Signal.CANCEL:
             for child in [child for child, placed in self._tree.items() if placed.parent == run_id]:

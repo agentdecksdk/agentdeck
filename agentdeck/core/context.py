@@ -68,10 +68,10 @@ class RunContext:
     these events go in", and a store handed it could no longer tell a session named after a run
     from that run itself. Beyond identity, a field AgentDeck's own machinery never reads is not
     infrastructure, it is a guess about a mechanism that does not exist yet. ``trace_id``,
-    ``budget``, ``triggered_by``, ``deadline`` and ``idempotency_key`` are all of that, and each
-    comes back with the thing that enforces it. ``parent_run_id`` is the one that has: a cancel
-    cascades along it and a delegated turn's cost rolls up through it, which is also why the log
-    keeps it on ``run.started`` rather than this carrier alone (#236).
+    ``budget``, ``triggered_by``, ``parent_run_id``, ``deadline`` and ``idempotency_key`` were all
+    of that, and each comes back with the thing that enforces it. The delegation edge (#236) is
+    not a counter-example: it is carried on ``run.started`` and, while a run is live, in the
+    Runtime's own tree  -  a copy here would be a third place to disagree with those two.
     ``data`` is the fourth value because it arrives with that thing: the engine bridges read it
     on every injected call to build the :class:`ToolCtx` a user callable declared.
 
@@ -103,7 +103,6 @@ class RunContext:
     session_id: str | None = None
     namespace: str | None = None
     key: str | None = None
-    parent_run_id: str | None = None
     agent: object = field(default=None, repr=False)
     data: object = field(default=None, repr=False)
     gate: Gate = field(default_factory=Gate)

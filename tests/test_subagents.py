@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from agentdeck import Agent, AgentInstance, Deck, ToolCtx, WorkflowCtx, tool, workflow
+from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.events import RunStarted
 from agentdeck.core.status import RunStatus
 from agentdeck.errors import ConfigError, NotFoundError
@@ -177,6 +178,57 @@ async def test_the_decks_context_reaches_what_a_delegation_starts() -> None:
     assert seen["data"] == {"tenant": "acme"}
 
 
+async def test_the_edge_outlives_the_process_that_held_the_parent() -> None:
+    """The reason it is on ``run.started`` and not only in memory: a second deck holding nothing
+    of the first one's still reads which run delegated which, off a store it merely shares."""
+    store = SqliteEventStore(":memory:")
+    with patch_model(_delegating_model()):
+        async with Deck(agents=[_writer(), _researcher()], _store=store) as deck:
+            parent = await deck.runs.start("Writer", "write the section")
+            await parent
+            child_id = next(run.id for run in await deck.runs.list() if run.id != parent.id)
+
+        async with Deck(agents=[_writer(), _researcher()], _store=store) as reader:
+            assert reader._runtime._tree == {}  # noqa: SLF001  -  nothing of the tree is in this process
+            assert (await _opening(reader, child_id)).parent_run_id == parent.id
+
+
+async def test_pausing_a_parent_leaves_the_child_it_delegated_to_running() -> None:
+    """A cancel cascades and a pause does not, so the child of a paused workflow keeps going and
+    is stopped by its own id or not at all."""
+    started = asyncio.Event()
+
+    @workflow
+    async def slow(ctx: WorkflowCtx) -> str:
+        started.set()
+        for _ in range(3000):
+            await ctx.safepoint()
+            await asyncio.sleep(0.01)
+        return "never"
+
+    @workflow
+    async def delegating(ctx: WorkflowCtx) -> str:
+        child = ctx.invoke(slow)
+        for _ in range(3000):
+            await ctx.safepoint()
+            await asyncio.sleep(0.01)
+        return str(await child)
+
+    async with Deck(workflows=[slow, delegating]) as deck:
+        parent = await deck.runs.start("delegating", None)
+        await asyncio.wait_for(started.wait(), timeout=5)
+        await parent.pause("look at this first")
+        await asyncio.wait_for(_reaches(parent, RunStatus.PAUSED), timeout=5)
+
+        child_id = next(run.id for run in await deck.runs.list() if run.id != parent.id)
+        assert await (await deck.runs.get(child_id)).status() is RunStatus.RUNNING
+
+
+async def _reaches(run: Any, status: RunStatus) -> None:
+    while await run.status() is not status:
+        await asyncio.sleep(0.01)
+
+
 # --- the bounds ----------------------------------------------------------------------------
 
 
@@ -261,6 +313,27 @@ async def test_a_created_agent_runs_as_a_child_and_the_log_records_which() -> No
             child_id = next(run.id for run in await deck.runs.list() if run.id != parent.id)
             assert (await _opening(deck, child_id)).parent_run_id == parent.id
             assert (await _opening(deck, child_id)).invocable == minted["name"]
+
+
+async def test_a_minted_agent_delegates_against_the_catalog_that_minted_it() -> None:
+    """``subagents=`` travels with a fork and can be given to ``create``, so a minted agent is
+    compiled against this deck's catalog rather than against nothing."""
+    delegated: dict[str, Any] = {}
+
+    @workflow
+    async def minting(ctx: WorkflowCtx) -> list[str]:
+        forked = ctx.agents.fork("Writer", instructions="Draft it briefly.")
+        made = ctx.agents.create(name="editor", instructions="Tighten it.", subagents=["Researcher"])
+        delegated["forked"] = forked.declaration.subagents
+        return [(await ctx.invoke(forked, "write it")).output, made.name]
+
+    with patch_model(_delegating_model()):
+        async with Deck(agents=[_writer(), _researcher()], workflows=[minting]) as deck:
+            drafted, editor = await deck.run("minting", None)
+
+    assert delegated["forked"] == ("Researcher",)
+    assert drafted == "drafted"
+    assert editor.startswith("editor#")
 
 
 async def test_two_created_agents_of_one_name_are_two_agents() -> None:
