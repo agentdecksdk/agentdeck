@@ -98,9 +98,6 @@ class PostgresEventStore(EventStorePort):
         self._lock = asyncio.Lock()
         self._setup_key = _advisory_key(f"agentdeck:events:setup:{schema}")
         table = sql.Identifier(schema, "events")
-        # Composed once: the schema name is an identifier, so it is quoted by psycopg
-        # rather than interpolated  -  a schema is caller-supplied configuration.
-        events_by_run = sql.Identifier(schema, "events_by_run")
         self._ddl = (
             sql.SQL("CREATE SCHEMA IF NOT EXISTS {schema}").format(schema=sql.Identifier(schema)),
             sql.SQL(
@@ -113,55 +110,14 @@ class PostgresEventStore(EventStorePort):
                 " seq INTEGER NOT NULL,"
                 " data JSONB NOT NULL)"
             ).format(table=table),
-            # Additive migration for a schema an earlier build already created: `key` did not
-            # exist before #324, and Postgres's own `IF NOT EXISTS` makes adding it a no-op on a
-            # database that already has it (this build's own fresh-created one included).
-            sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS key TEXT").format(table=table),
-            # `log_key` -> `session_id`, for a schema an earlier build created: the old column
-            # held the session *or* the run's own id, and only comparing the two can say which,
-            # so the backfill reads rows rather than renaming. A row where they matched was a run
-            # in no session, which is NULL here.
-            #
-            # Guarded as one block rather than statement by statement: `CREATE TABLE IF NOT
-            # EXISTS` above already gives a fresh database the new shape, so `log_key` exists
-            # only on a legacy one  -  and an UPDATE naming a column that is not there is a syntax
-            # error, which no `IF NOT EXISTS` on the neighbouring statements can prevent.
-            sql.SQL(
-                "DO $$ BEGIN IF EXISTS (SELECT 1 FROM information_schema.columns "
-                "WHERE table_schema = {schema_name} AND table_name = 'events' AND column_name = 'log_key') THEN "
-                "ALTER TABLE {table} ADD COLUMN IF NOT EXISTS session_id TEXT; "
-                "UPDATE {table} SET session_id = CASE WHEN log_key = run_id THEN NULL ELSE log_key END; "
-                "DROP INDEX IF EXISTS {index}; "
-                "ALTER TABLE {table} DROP COLUMN log_key; "
-                "END IF; END $$"
-            ).format(
-                schema_name=sql.Literal(schema),
-                table=table,
-                index=sql.Identifier(schema, "events_by_log"),
-            ),
             sql.SQL("CREATE INDEX IF NOT EXISTS events_by_session ON {table} (namespace, session_id, id)").format(
                 table=table
             ),
-            # `events_by_run` is dropped and rebuilt on every open rather than guarded with
-            # `IF NOT EXISTS`: an earlier build's index of the same name is scoped to
-            # `(namespace, log_key, run_id, seq)`, which lets one run_id+seq exist under two log
-            # keys  -  "one logical run split across two logs", the defect #324 closes. Same name,
-            # different columns, so `IF NOT EXISTS` would find the name taken and leave the old,
-            # looser shape in place. Harmless to repeat on a database already at this shape. If
-            # existing rows genuinely violate the tighter constraint, the CREATE below fails and
-            # the `StoreError` it raises names the underlying conflict rather than picking a
-            # survivor silently.
-            sql.SQL("DROP INDEX IF EXISTS {index}").format(index=events_by_run),
             # UNIQUE is the guard, not just the index: one seq per run is the promise consumers
             # refetch a gap with, and a duplicate is the one corruption a gap check cannot see.
             sql.SQL("CREATE UNIQUE INDEX IF NOT EXISTS events_by_run ON {table} (namespace, run_id, seq)").format(
                 table=table
             ),
-            # `events_by_run_id` existed only for `locate`'s "which log holds this run_id"
-            # query, which #322 removed with no caller left for it  -  a schema an earlier build
-            # already created drops it too, rather than carrying an index nothing queries
-            # through for good.
-            sql.SQL("DROP INDEX IF EXISTS {index}").format(index=sql.Identifier(schema, "events_by_run_id")),
             # `(namespace, key)`'s enforcement, partial so unkeyed rows  -  every row but a run's
             # own opening one  -  never compete for the constraint.
             sql.SQL(
@@ -218,6 +174,27 @@ class PostgresEventStore(EventStorePort):
                     self._conn = None
                 raise StoreError(f"event log {op} failed: {exc}") from exc
 
+    async def _reject_legacy_schema(self, conn: Connection) -> None:
+        """Refuse a schema agentdeck 4.x wrote, rather than guess how to carry it forward.
+
+        Every 4.x ``events`` table has a ``log_key`` column, whatever sub-version wrote it: the
+        field 5.0 replaced with a nullable ``session_id`` because one string could not tell a
+        session named after a run from that run itself. A schema with no ``events`` table yet
+        has nothing to check.
+        """
+        cursor = await conn.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = %s AND table_name = 'events' AND column_name = 'log_key'",
+            (self._schema,),
+        )
+        if await cursor.fetchone() is not None:
+            raise StoreError(
+                f"the event log in schema {self._schema!r} was written by agentdeck 4.x (its "
+                "'events' table still has the 'log_key' column 5.0 replaced with 'session_id'). "
+                "agentdeck 5.0 does not migrate a 4.x log: replay it into a new store, or reopen "
+                "it with the 4.x version that wrote it."
+            )
+
     async def _ready(self) -> Connection:
         """Connect and create the schema on first use  -  never at construction, so building
         this store is not I/O and a composition root can wire one without a live server."""
@@ -232,6 +209,7 @@ class PostgresEventStore(EventStorePort):
                 # a duplicate-object error rather than the table it asked for.
                 await conn.execute("SELECT pg_advisory_lock(%s)", (self._setup_key,))
                 try:
+                    await self._reject_legacy_schema(conn)
                     for statement in self._ddl:
                         await conn.execute(statement)
                 finally:
@@ -442,7 +420,7 @@ class PostgresEventStore(EventStorePort):
     async def _lock_stream(self, conn: Connection, ctx: RunContext) -> None:
         """Serialize this log's writes, and bound the wait.
 
-        The lock is per (namespace, log key) and transaction-scoped, so it is released by the
+        The lock is per (namespace, stream) and transaction-scoped, so it is released by the
         commit that publishes the write and never outlives a crashed worker. It is taken
         before any read the decision depends on, which is the whole point: a lock acquired
         afterwards would leave the same check-then-write window a plain read has.

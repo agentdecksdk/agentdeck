@@ -76,7 +76,9 @@ async def two_event_stores(request: pytest.FixtureRequest) -> AsyncIterator[tupl
         yield pair
 
 
-def _ctx(namespace: str = "acme", run_id: str = "r-1", session_id: str = "s-1", key: str | None = None) -> RunContext:
+def _ctx(
+    namespace: str = "acme", run_id: str = "r-1", session_id: str | None = "s-1", key: str | None = None
+) -> RunContext:
     """The context a write is made in  -  which is now the whole envelope bar ``origin``."""
     return RunContext(namespace=namespace, run_id=run_id, session_id=session_id, key=key)
 
@@ -180,11 +182,65 @@ async def test_find_by_key_tells_two_namespaces_sharing_one_key_apart(event_stor
     assert await event_store.find_by_key(globex, "order-1234") == "r-globex"
 
 
+# --- session_id=None: a run that belongs to no conversation -----------------------------------
+
+
+async def test_read_session_of_a_standalone_run_is_empty(event_store: EventStorePort) -> None:
+    """A run with no session has no conversation to read: ``read_session`` answers empty rather
+    than falling back to the run's own log."""
+    ctx = _ctx(session_id=None)
+    await _write(event_store, [_started()], ctx)
+
+    assert await event_store.read_session(ctx) == []
+
+
+async def test_a_standalone_run_is_still_read_by_name_and_answers_its_own_status(
+    event_store: EventStorePort,
+) -> None:
+    """No session to read it through is not no way to reach it: ``read_run`` and ``run_status``
+    answer from the run's own log alone, which is the whole point of naming a run by run_id."""
+    ctx = _ctx(session_id=None)
+    await _write(event_store, [_started()], ctx)
+
+    assert [event.kind for event in await event_store.read_run(ctx)] == ["run.started"]
+    assert await event_store.run_status(ctx) is RunStatus.RUNNING
+
+
+async def test_list_runs_reports_a_standalone_run_with_no_session(event_store: EventStorePort) -> None:
+    ctx = _ctx(session_id=None)
+    await _write(event_store, [_started()], ctx)
+
+    [summary] = await event_store.list_runs(ctx)
+    assert (summary.run_id, summary.session_id) == ("r-1", None)
+
+
 # ``stale_after`` is a duration measured against the store's own clock, so a case decides
 # staleness by asking for a window nothing written in this test can fall outside  -  or inside.
 # The two cases that need a run stale *beside* a live one arrange a real age gap instead.
 NOTHING_IS_STALE = timedelta(hours=1)
 EVERYTHING_IS_STALE = timedelta(0)
+
+
+async def test_find_by_key_resolves_a_standalone_runs_key(event_store: EventStorePort) -> None:
+    ctx = _ctx(session_id=None, key="order-1234")
+    claim, event = await event_store.claim_start(_started(), ctx, ORIGIN, NOTHING_IS_STALE)
+    assert claim == SessionClaim() and event is not None
+
+    assert await event_store.find_by_key(ctx, "order-1234") == "r-1"
+
+
+async def test_two_standalone_runs_never_see_each_other_as_a_session_already_held(
+    event_store: EventStorePort,
+) -> None:
+    """A run with no session claims nothing: unlike two runs sharing a session, opening one
+    standalone run after another must never refuse with ``held_by`` the first run's id."""
+    await event_store.claim_start(_started(), _ctx(run_id="r-1", session_id=None), ORIGIN, EVERYTHING_IS_STALE)
+
+    claim, event = await event_store.claim_start(
+        _started(), _ctx(run_id="r-2", session_id=None), ORIGIN, EVERYTHING_IS_STALE
+    )
+    assert claim == SessionClaim() and event is not None
+
 
 # Long enough that the fresher event is comfortably inside the window while the older one is
 # outside it, short enough to cost a fraction of a second per backend.

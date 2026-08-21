@@ -204,8 +204,8 @@ class EventStorePort(ABC):
         Index this however the store can: finding waiting runs must not cost a fold of every run
         the namespace owns.
 
-        A negative ``limit`` raises ``ValueError``, the same pin :meth:`read` uses rather than
-        one store treating it as "no limit" and another as "none".
+        A negative ``limit`` raises ``ValueError``, the same pin :meth:`read_session` uses rather
+        than one store treating it as "no limit" and another as "none".
         """
 
     @abstractmethod

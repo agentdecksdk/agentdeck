@@ -45,8 +45,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS events_by_run ON events (namespace, run_id, se
 CREATE UNIQUE INDEX IF NOT EXISTS events_by_key ON events (namespace, key) WHERE key IS NOT NULL;
 """
 # `session_id` is nullable because a run that is part of no conversation belongs to no session,
-# which is a fact rather than a missing value. The column it replaces (`log_key`) held the run's
-# own id in that case, so a session named after some run and that run itself were one key.
+# which is a fact rather than a missing value. 4.x's `log_key` held the run's own id in that
+# case, so a session named after some run and that run itself were one key  -  5.0 does not read
+# a log 4.x wrote, so there is no migration from it (see `_reject_legacy_schema`).
 #
 # events_by_session answers "this conversation, in append order"; events_by_run answers "this
 # run's events". Two questions, two indexes, and neither has to know about the other.
@@ -77,7 +78,7 @@ def _connect(db_path: str) -> sqlite3.Connection:
         # Before the journal mode, so the switch itself can wait a peer's transaction out.
         conn.execute(f"PRAGMA busy_timeout = {_BUSY_TIMEOUT_MS}")
         _enable_wal(conn)
-        _migrate_events_schema(conn)
+        _reject_legacy_schema(conn, db_path)
         conn.executescript(_SCHEMA)
         conn.commit()
     except sqlite3.Error as exc:
@@ -85,52 +86,22 @@ def _connect(db_path: str) -> sqlite3.Connection:
     return conn
 
 
-def _migrate_events_schema(conn: sqlite3.Connection) -> None:
-    """Carry an ``events`` table an earlier build created forward to this build's shape.
+def _reject_legacy_schema(conn: sqlite3.Connection, db_path: str) -> None:
+    """Refuse a database agentdeck 4.x wrote, rather than guess how to carry it forward.
 
-    A brand-new file has no ``events`` table yet, so there is nothing to carry  -  ``_SCHEMA``
-    below creates the current shape directly and this is a no-op. An existing one may be missing
-    the ``key`` column outright (``ALTER TABLE ... ADD COLUMN`` is additive, never destructive),
-    may still carry ``log_key`` where this build wants ``session_id``, and its ``events_by_run``
-    index may still be scoped to ``(namespace, log_key, run_id, seq)``, the shape #324 tightens
-    to ``(namespace, run_id, seq)``. Same name, different columns, so
-    ``CREATE UNIQUE INDEX IF NOT EXISTS`` in ``_SCHEMA`` would find the name taken and leave the
-    old, looser shape in place rather than tightening it  -  dropped here so the fresh ``CREATE``
-    rebuilds it. If existing rows genuinely violate the tighter constraint (the same run_id and
-    seq recorded under two different log keys), that ``CREATE UNIQUE INDEX`` fails and the
-    ``StoreError`` it raises names the underlying conflict  -  the correct outcome: silently
-    picking a survivor row would hide a real corruption rather than surface it.
-
-    The ``log_key`` -> ``session_id`` step is the one that reads rows rather than only reshaping
-    the table: the old column held the session *or* the run's own id, and only comparing the two
-    can say which. A row where they match was a run in no session, so its ``session_id`` is NULL.
+    Every 4.x ``events`` table has a ``log_key`` column, whatever sub-version wrote it: the
+    field 5.0 replaced with a nullable ``session_id`` because one string could not tell a
+    session named after a run from that run itself. A brand-new file has no ``events`` table
+    yet, so there is nothing to check.
     """
     columns = {row[1] for row in conn.execute("PRAGMA table_info(events)")}
-    if not columns:
-        return
-    if "key" not in columns:
-        conn.execute("ALTER TABLE events ADD COLUMN key TEXT")
     if "log_key" in columns:
-        if "session_id" not in columns:
-            conn.execute("ALTER TABLE events ADD COLUMN session_id TEXT")
-        conn.execute("UPDATE events SET session_id = CASE WHEN log_key = run_id THEN NULL ELSE log_key END")
-        # Both before the drop, not only the one being replaced: SQLite refuses to drop a column
-        # any index still names, and the inherited `events_by_run` names this one too.
-        conn.execute("DROP INDEX IF EXISTS events_by_log")
-        conn.execute("DROP INDEX IF EXISTS events_by_run")
-        conn.execute("ALTER TABLE events DROP COLUMN log_key")
-    # Only drop and rebuild when the index is genuinely the old shape: on a database already at
-    # this build's schema (freshly created, or already migrated), `events_by_run` already reads
-    # `(namespace, run_id, seq)`, and dropping it unconditionally on every open would force a
-    # write  -  and the write lock that comes with it  -  where opening an up-to-date file used to
-    # need none, which a peer mid-transaction would then see as a false contention.
-    run_index_columns = [row[2] for row in conn.execute("PRAGMA index_info(events_by_run)")]
-    if "log_key" in run_index_columns:
-        conn.execute("DROP INDEX events_by_run")
-    # `events_by_run_id` existed only for `locate`'s "which log holds this run_id" query, which
-    # #322 removed with no caller left for it  -  a database built before this drops it too, rather
-    # than carrying an index nothing queries through for good.
-    conn.execute("DROP INDEX IF EXISTS events_by_run_id")
+        raise StoreError(
+            f"the event log at {db_path!r} was written by agentdeck 4.x (its 'events' table "
+            "still has the 'log_key' column 5.0 replaced with 'session_id'). agentdeck 5.0 does "
+            "not migrate a 4.x log: replay it into a new store, or reopen it with the 4.x "
+            "version that wrote it."
+        )
 
 
 def _enable_wal(conn: sqlite3.Connection) -> None:

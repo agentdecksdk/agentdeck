@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 from dataclasses import replace
-from datetime import timedelta
 
 import pytest
 
@@ -32,7 +31,7 @@ from agentdeck.core.events import (
     TextDelta,
     Usage,
 )
-from agentdeck.errors import DuplicateKeyError
+from agentdeck.errors import StoreError
 
 ORIGIN = "Greeter"
 
@@ -175,95 +174,30 @@ async def test_persists_to_a_real_file_across_separate_store_instances(tmp_path)
     assert [event.seq for event in await reopened.read_session(ctx)] == [0, 1]
 
 
-async def test_the_run_id_index_is_dropped_from_a_database_built_before_it_was_removed(tmp_path) -> None:
-    """``events_by_run_id`` existed only for ``locate``'s "which log holds this run_id" query,
-    which #322 removed with no caller left for it  -  a database an earlier build already
-    created has the index and drops it on open rather than carrying it for good.
-    """
-    db_path = tmp_path / "events.sqlite3"
-    _pre_324_file(db_path)  # its DDL still includes events_by_run_id, the pre-#322 shape
-
-    store = SqliteEventStore(db_path)
-    try:
-        names = {row[1] for row in store._conn.execute("PRAGMA index_list(events)").fetchall()}
-        assert "events_by_run_id" not in names
-    finally:
-        store.close()
-
-
-def _pre_324_file(db_path) -> None:
-    """A database exactly as an earlier build's ``_SCHEMA`` would have created it: no ``key``
-    column, and ``events_by_run`` still scoped to ``(namespace, log_key, run_id, seq)``  -  the
-    shape #324 tightens to ``(namespace, run_id, seq)``."""
+def _v4_file(db_path) -> None:
+    """A database shaped exactly as agentdeck 4.x's own schema (confirmed against the v4.0.5
+    tag): ``log_key`` where 5.0 has a nullable ``session_id``."""
     conn = sqlite3.connect(db_path)
     conn.executescript(
         "CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, namespace TEXT NOT NULL, "
-        "log_key TEXT NOT NULL, run_id TEXT NOT NULL, seq INTEGER NOT NULL, data TEXT NOT NULL);"
+        "log_key TEXT NOT NULL, run_id TEXT NOT NULL, key TEXT, seq INTEGER NOT NULL, "
+        "data TEXT NOT NULL);"
         "CREATE INDEX events_by_log ON events (namespace, log_key, id);"
-        "CREATE UNIQUE INDEX events_by_run ON events (namespace, log_key, run_id, seq);"
-        "CREATE INDEX events_by_run_id ON events (namespace, run_id, id);"
+        "CREATE UNIQUE INDEX events_by_run ON events (namespace, run_id, seq);"
+        "CREATE UNIQUE INDEX events_by_key ON events (namespace, key) WHERE key IS NOT NULL;"
     )
     conn.commit()
     conn.close()
 
 
-async def test_a_pre_324_database_gains_the_key_column_and_the_tightened_index(tmp_path) -> None:
-    """#324's migration, run against a file shaped exactly as an earlier build left it: opening
-    it adds ``key`` (additive, nothing rewritten) and rebuilds ``events_by_run`` in the new,
-    tighter shape rather than leaving the old one in place under ``IF NOT EXISTS``."""
+async def test_opening_a_4x_events_table_fails_clearly_instead_of_migrating(tmp_path) -> None:
+    """5.0 does not read a log 4.x wrote: opening a ``log_key``-shaped database raises a
+    ``StoreError`` naming the fix, rather than silently rewriting it forward."""
     db_path = tmp_path / "events.sqlite3"
-    _pre_324_file(db_path)
+    _v4_file(db_path)
 
-    store = SqliteEventStore(db_path)
-    try:
-        columns = {row[1] for row in store._conn.execute("PRAGMA table_info(events)").fetchall()}
-        assert "key" in columns
-
-        index_names = {row[1] for row in store._conn.execute("PRAGMA index_list(events)").fetchall()}
-        assert "events_by_key" in index_names
-
-        run_index_columns = [row[2] for row in store._conn.execute("PRAGMA index_info(events_by_run)").fetchall()]
-        assert run_index_columns == ["namespace", "run_id", "seq"]
-    finally:
-        store.close()
-
-
-async def test_a_migrated_database_still_enforces_the_tightened_run_index(tmp_path) -> None:
-    """Not just present, load-bearing: a migrated file must refuse the exact corruption the
-    tightened index exists to catch  -  one run_id+seq recorded under two different log keys  -
-    the same as a database this build created from scratch."""
-    db_path = tmp_path / "events.sqlite3"
-    _pre_324_file(db_path)
-    store = SqliteEventStore(db_path)
-    try:
-        await store.append(_deltas(1), _ctx(), ORIGIN)
-        # Raw SQL against the migrated index itself, deliberately bypassing the port's own
-        # StoreError translation: same namespace, run_id and seq (0) as the write above, under a
-        # different session  -  exactly the shape the old, looser index let through.
-        with pytest.raises(sqlite3.IntegrityError, match="events.namespace, events.run_id, events.seq"):
-            store._conn.execute(
-                "INSERT INTO events (namespace, session_id, run_id, seq, data) VALUES ('acme', 's-2', 'r-1', 0, '{}')"
-            )
-    finally:
-        store.close()
-
-
-async def test_a_migrated_database_enforces_the_key_claim_too(tmp_path) -> None:
-    """The migration is not merely schema-deep: a key claimed through a migrated file behaves
-    exactly as one claimed through a database this build created fresh."""
-    db_path = tmp_path / "events.sqlite3"
-    _pre_324_file(db_path)
-    store = SqliteEventStore(db_path)
-    try:
-        ctx = RunContext(namespace="acme", run_id="r-1", session_id="s-1", key="order-1234")
-        claim, event = await store.claim_start(_started(), ctx, ORIGIN, timedelta(hours=1))
-        assert event is not None
-
-        other = RunContext(namespace="acme", run_id="r-2", session_id="s-2", key="order-1234")
-        with pytest.raises(DuplicateKeyError):
-            await store.claim_start(_started(), other, ORIGIN, timedelta(hours=1))
-    finally:
-        store.close()
+    with pytest.raises(StoreError, match="4.x"):
+        SqliteEventStore(db_path)
 
 
 async def test_two_connections_to_one_file_settle_a_resume_claim_on_one_winner(tmp_path) -> None:

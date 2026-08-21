@@ -86,9 +86,10 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   is `read_session(ctx)`, `read_run(log_key, run_id, ctx)` is `read_run(ctx)`,
   `claim_resume(log_key, run_id, resumed, ctx, origin)` is `claim_resume(resumed, ctx, origin)`, and
   `RunSummary.log_key` is `RunSummary.session_id`. A caller reading another run builds the context
-  for it (`replace(ctx, run_id=...)`). SQLite and Postgres migrate in place when the store opens.
-  **Redis does not**: its keys were shaped by the old encoding, so a Redis event log written by 4.x
-  is not read by 5.0. Drain or discard a Redis log before upgrading.
+  for it (`replace(ctx, run_id=...)`). **No migration**: 5.0 does not read a log 4.x wrote, on any
+  store. Opening a SQLite or Postgres log 4.x wrote raises a clear `StoreError`; a Redis log
+  written by 4.x reads as empty, since its keys were shaped by the old encoding. Drain or discard
+  a 4.x log, or replay it into a new store, before upgrading.
 
 ### Fixed
 

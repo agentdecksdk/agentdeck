@@ -57,10 +57,10 @@ class RunContext:
     is what it is kept apart from, and :attr:`session_id` is the conversation it belongs to. There
     was a fifth, derived one (``log_key``, ``session_id or run_id``): it answered "which stream do
     these events go in", and a store handed it could no longer tell a session named after a run
-    from that run itself. a field AgentDeck's own machinery never
-    reads is not infrastructure, it is a guess about a mechanism that does not exist yet.
-    ``trace_id``, ``budget``, ``triggered_by``, ``parent_run_id``, ``deadline`` and
-    ``idempotency_key`` were all of that, and each comes back with the thing that enforces it.
+    from that run itself. Beyond identity, a field AgentDeck's own machinery never reads is not
+    infrastructure, it is a guess about a mechanism that does not exist yet. ``trace_id``,
+    ``budget``, ``triggered_by``, ``parent_run_id``, ``deadline`` and ``idempotency_key`` were all
+    of that, and each comes back with the thing that enforces it.
     ``data`` is the fourth value because it arrives with that thing: the engine bridges read it
     on every injected call to build the :class:`ToolCtx` a user callable declared.
 

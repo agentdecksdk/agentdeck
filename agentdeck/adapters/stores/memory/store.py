@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from agentdeck.core.events import Event
 from agentdeck.core.ports import EventStorePort, RunSummary, SessionClaim
 from agentdeck.core.status import LIFECYCLE_KINDS, STATES, RunStatus, can_resume, status_of
-from agentdeck.errors import DuplicateKeyError, StoreError
+from agentdeck.errors import DuplicateKeyError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -65,14 +65,6 @@ class MemoryEventStore(EventStorePort):
         be handed the same number.
         """
         run = self._runs.setdefault((ctx.namespace, ctx.run_id), [])
-        if run and run[0].session_id != ctx.session_id:
-            # A run belongs to one conversation for its whole life. Writing its later events
-            # under a different session would split it across two histories, which is the
-            # corruption sqlite's own `events_by_run` index refuses at the database level.
-            raise StoreError(
-                f"run {ctx.run_id!r} belongs to session {run[0].session_id!r} in namespace "
-                f"{ctx.namespace!r}; cannot also write it under {ctx.session_id!r}"
-            )
         seq = run[-1].seq if run else -1
         events = []
         for payload in payloads:

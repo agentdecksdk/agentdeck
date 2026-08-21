@@ -27,6 +27,7 @@ from agentdeck.authoring.timers import sleep_until
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext, ToolCtx  # noqa: TC001  -  the node below resolves it at runtime
 from agentdeck.core.control import Signal
+from agentdeck.core.events import RunStarted
 from agentdeck.core.status import RunStatus
 from agentdeck.deck import Deck, TurnResult, _new_context, _turn_result
 from agentdeck.errors import (
@@ -1432,6 +1433,41 @@ async def test_starting_on_a_session_held_waiting_answer_raises_session_busy(no_
         assert await parked.status() is RunStatus.WAITING_ANSWER
         with pytest.raises(SessionBusyError, match=parked.id):
             await deck.runs.start("Approval", {"request": "wed 3pm"}, session_id="t-1")
+
+
+@pytest.mark.asyncio
+async def test_get_does_not_corrupt_a_session_id_that_equals_its_own_run_id(no_project):
+    """The exact case #397 fixes: a caller-chosen ``session_id`` that happens to equal the run's
+    own ``run_id``. The old recovery compared the stored key against the run id and returned
+    ``None`` for a match, indistinguishable from a run with no session at all."""
+    deck = Deck(agents=[_greeter()])
+    async with deck:
+        ctx = RunContext(run_id="same-id", session_id="same-id")
+        await deck._runtime.store.append(
+            [RunStarted(invocable="Greeter", kind_of_invocable="agent", input=[])], ctx, "Greeter"
+        )
+        run = await deck.runs.get("same-id")
+        assert run.session_id == "same-id"
+
+
+@pytest.mark.asyncio
+async def test_a_session_named_after_an_open_standalone_runs_id_does_not_collide_with_it(no_project, scripted):
+    """5.0's whole point: a standalone run and a session are different keyspaces now. The old
+    ``log_key`` encoding made a standalone run's own id its log key too, so a session named
+    after it collided with that run  -  the busy message it raised named a session that did not
+    exist, held by the very run being refused. Starting on that session now succeeds instead."""
+    deck = Deck(agents=[_greeter()])
+    async with deck:
+        stream = deck.stream("Greeter", "hi there")  # no session_id: a standalone run
+        started = await anext(stream)
+        standalone = await deck.runs.get(started.run_id)
+        await standalone.pause("operator stepped away")
+        [event async for event in stream]
+        assert await standalone.status() is RunStatus.PAUSED
+
+        run = await deck.runs.start("Greeter", "hi again", session_id=standalone.id)
+        assert await run.status() is RunStatus.RUNNING
+        await run
 
 
 @pytest.mark.asyncio

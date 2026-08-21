@@ -318,34 +318,21 @@ async def test_a_session_claim_that_wins_on_a_stale_run_reports_it_for_the_calle
         await store.aclose()
 
 
-async def test_the_run_id_index_is_dropped_from_a_schema_built_before_it_was_removed(keyspace: tuple[str, str]) -> None:
-    """``events_by_run_id`` existed only for ``locate``'s "which log holds this run_id" query,
-    which #322 removed with no caller left for it  -  a schema an earlier build already created
-    has the index and drops it on open rather than carrying it for good.
-    """
+async def test_opening_a_4x_events_table_fails_clearly_instead_of_migrating(keyspace: tuple[str, str]) -> None:
+    """5.0 does not read a log 4.x wrote: opening a ``log_key``-shaped schema (confirmed against
+    the v4.0.5 tag) raises a ``StoreError`` naming the fix, rather than silently rewriting it
+    forward."""
     dsn, schema = keyspace
     admin = await psycopg.AsyncConnection.connect(dsn, autocommit=True)
     try:
         await admin.execute(f'CREATE SCHEMA "{schema}"')
         await admin.execute(
             f'CREATE TABLE "{schema}".events (id BIGSERIAL PRIMARY KEY, namespace TEXT NOT NULL, '
-            "session_id TEXT NOT NULL, run_id TEXT NOT NULL, seq INTEGER NOT NULL, data JSONB NOT NULL)"
+            "log_key TEXT NOT NULL, run_id TEXT NOT NULL, key TEXT, seq INTEGER NOT NULL, "
+            "data JSONB NOT NULL)"
         )
-        await admin.execute(f'CREATE INDEX events_by_log ON "{schema}".events (namespace, session_id, id)')
-        await admin.execute(
-            f'CREATE UNIQUE INDEX events_by_run ON "{schema}".events (namespace, session_id, run_id, seq)'
-        )
-        await admin.execute(f'CREATE INDEX events_by_run_id ON "{schema}".events (namespace, run_id, id)')
 
-        store = PostgresEventStore(dsn, schema=schema)
-        try:
-            await store.read_session(_ctx())  # any call: what matters is _ready()'s DDL pass
-            cursor = await admin.execute(
-                "SELECT indexname FROM pg_indexes WHERE schemaname = %s AND tablename = 'events'", (schema,)
-            )
-            names = {row[0] for row in await cursor.fetchall()}
-            assert "events_by_run_id" not in names
-        finally:
-            await store.aclose()
+        with pytest.raises(StoreError, match="4.x"):
+            await PostgresEventStore(dsn, schema=schema).read_session(_ctx())
     finally:
         await admin.close()

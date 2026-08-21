@@ -4,13 +4,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-import pytest
-
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import TextBlock
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import KnownPayload, RunCompleted, RunStarted, TextDelta, Usage
-from agentdeck.errors import StoreError
+from agentdeck.core.events import KnownPayload, RunCompleted, TextDelta, Usage
 
 ORIGIN = "Greeter"
 
@@ -84,15 +81,3 @@ async def test_the_stub_completion_payload_round_trips_through_the_log() -> None
     payload = RunCompleted(output=[TextBlock(text="done")], usage=Usage(input_tokens=1, output_tokens=1))
     await store.append([payload], ctx, ORIGIN)
     assert (await store.read_session(ctx))[0].payload == payload
-
-
-async def test_a_run_already_recorded_in_one_session_refuses_a_write_under_another() -> None:
-    """A run belongs to one conversation for its whole life: writing its later events under a
-    different session would split it across two histories, the same corruption SQLite's
-    ``events_by_run`` index refuses at the database level."""
-    store, ctx = MemoryEventStore(), _ctx()
-    opening = RunStarted(invocable=ORIGIN, kind_of_invocable="agent", input=[])
-    await store.append([opening], ctx, ORIGIN)
-
-    with pytest.raises(StoreError, match="r-1"):
-        await store.append(_deltas(1), replace(ctx, session_id="somewhere-else"), ORIGIN)

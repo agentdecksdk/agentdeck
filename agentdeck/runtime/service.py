@@ -249,7 +249,7 @@ class Runtime:
         ctx, reports = self._bind(
             self._context(run_id=run_id, session_id=session_id, namespace=namespace, data=context)
         )
-        status = await self._store.run_status(replace(ctx, run_id=run_id))
+        status = await self._store.run_status(ctx)
         if status is None:
             return
         # No precondition check here: which states admit an answer is the front door's business
@@ -266,7 +266,7 @@ class Runtime:
         # Before the claim, exactly as :meth:`resume_run` reads it before its own: a bail-out
         # after the claim would leave a run flipped to RUNNING with nobody playing it, owed a
         # terminal event forever and still holding its session.
-        events = await self._store.read_run(replace(ctx, run_id=run_id))
+        events = await self._store.read_run(ctx)
         opened = next((event.payload for event in events if isinstance(event.payload, RunStarted)), None)
         if opened is None:
             return
