@@ -108,6 +108,10 @@ class NativeExecutor(Executor):
     ) -> AsyncGenerator[KnownPayload, None]:
         continuation = continuation_of(history, ctx.run_id)
         body = self._begin(spec, input, ctx) if continuation.play is Play.FRESH else self._wake(ctx, continuation)
+        # Registered from here, not from the first suspending yield: a pause is three payloads,
+        # and a consumer that walks away between the first and the last must still leave this
+        # body reachable for aclose() to cancel  -  it is already alive and holding its locals.
+        self._parked[ctx.run_id] = body
         while True:
             payload = await body.channel.next()
             if payload is None:
@@ -118,11 +122,7 @@ class NativeExecutor(Executor):
                 await body.task
                 return
             if payload.kind in SUSPENDED_KINDS:
-                # Parked *before* the yield: a consumer that walks away mid-stream closes this
-                # generator, and a body registered after the yield would never be registered at
-                # all  -  alive, holding its locals, and unreachable by any resume. Never awaited
-                # here either: awaiting it is what a suspension is not.
-                self._parked[ctx.run_id] = body
+                # Never awaited here: awaiting it is what a suspension is not.
                 yield payload
                 return
             yield payload
@@ -202,7 +202,19 @@ def _arguments(definition: NativeInvocable, input: Input, ctx: RunContext, chann
     if len(visible) == 1:
         return arguments | {visible[0]: value}
     if isinstance(value, dict):
-        return arguments | value
+        if definition.context_parameter is not None and definition.context_parameter in value:
+            raise ConfigError(
+                f"{definition.kind.value} {definition.name!r} declares {definition.context_parameter!r} "
+                f"as its context parameter, which AgentDeck injects; the input mapping cannot also name "
+                f"it. Rename the {definition.context_parameter!r} key in the input, or the parameter."
+            )
+        if set(value) != set(visible):
+            raise ConfigError(
+                f"{definition.kind.value} {definition.name!r} takes {len(visible)} arguments "
+                f"({', '.join(visible)}), so its input mapping must name exactly those; got "
+                f"({', '.join(sorted(value))})."
+            )
+        return arguments | {name: value[name] for name in visible}
     raise ConfigError(
         f"{definition.kind.value} {definition.name!r} takes {len(visible)} arguments "
         f"({', '.join(visible)}), so its input has to be a mapping naming them; got "

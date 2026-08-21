@@ -72,6 +72,20 @@ async def test_a_mismatched_input_says_what_the_body_wanted() -> None:
             await deck.run("joined", "just a string")
 
 
+async def test_an_input_key_may_not_name_the_context_parameter() -> None:
+    """The context is AgentDeck's to fill; a mapping key of the same name is refused rather than
+    silently overwriting the injected ``WorkflowCtx``."""
+    async with Deck(workflows=[joined]) as deck:
+        with pytest.raises(ConfigError, match="ctx"):
+            await deck.run("joined", {"left": "a", "right": "b", "ctx": "not a context"})
+
+
+async def test_an_unknown_input_key_is_refused_by_name() -> None:
+    async with Deck(workflows=[joined]) as deck:
+        with pytest.raises(ConfigError, match="left, right"):
+            await deck.run("joined", {"left": "a", "middle": "b"})
+
+
 async def test_a_body_that_raises_fails_the_run_and_the_caller_sees_why() -> None:
     """The body's own exception travels, exactly as an engine's does: the run is ``FAILED`` in
     the log, and the caller who was awaiting it gets the traceback rather than a ``None``."""
@@ -147,6 +161,39 @@ async def test_a_pause_parks_the_body_and_a_resume_carries_on() -> None:
 
         await run.resume()
         assert await run == [0, 1, 2, 3, 4]
+
+
+async def test_a_consumer_that_disconnects_between_a_pauses_two_plain_payloads_still_gets_reaped() -> None:
+    """A pause is three payloads (``control.requested``, ``control.observed``, ``run.paused``),
+    and only the last is a suspending one. A consumer that closes the stream right after the
+    first must not orphan the body: it has to stay reachable for aclose() regardless."""
+    from agentdeck.adapters.control.memory import MemoryControlPort
+    from agentdeck.adapters.executors.native.executor import NativeExecutor
+    from agentdeck.core.context import RunContext
+    from agentdeck.core.control import Gate, Signal
+    from agentdeck.core.invocable import InvocableKind, InvocableSpec
+
+    run_id = "r-disconnect"
+    port = MemoryControlPort()
+    await port.signal(run_id, Signal.PAUSE, "operator stepped away")
+
+    @workflow
+    async def parking(ctx: WorkflowCtx) -> str:
+        await ctx.safepoint()
+        return "never"  # pragma: no cover  -  the pause never lets this line run
+
+    ctx = RunContext(run_id=run_id, gate=Gate(control=port, id=run_id, poll_interval=0))
+    spec = InvocableSpec(name="parking", kind=InvocableKind.WORKFLOW, executor="native", native=parking)
+    executor = NativeExecutor()
+
+    stream = executor.execute(spec, [], [], ctx)
+    first = await anext(stream)
+    assert first.kind == "control.requested"
+    await stream.aclose()
+
+    assert run_id in executor._parked
+    await asyncio.wait_for(executor.aclose(), timeout=1)
+    assert executor._parked == {}
 
 
 async def test_an_answer_outside_the_options_is_refused_and_the_run_stays_answerable() -> None:

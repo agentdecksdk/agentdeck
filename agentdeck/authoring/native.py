@@ -79,7 +79,7 @@ def workflow(
 
         @workflow
         async def research(ctx: WorkflowCtx, topic: str) -> Report:
-            approved = await ctx.approve(f"Research {topic}?")
+            approved = await ctx.ask(f"Research {topic}?", options=[True, False])
             ...
 
     The body runs as a coroutine on the native executor. It suspends where it stands  -  an
