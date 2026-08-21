@@ -22,7 +22,7 @@
   ],
   "rules": [
     "The import name is `agentdeck`. The project is branded AgentDeck SDK; there is no `agentdeck-sdk` package, and `agentdeck-ai` on PyPI is an unrelated project.",
-    "Install and import names differ: `pip install agentdeck-sdk`, then `import agentdeck`. Never write `pip install agentdeck` — that name is taken by an unrelated project. Extras: `agentdeck-sdk[serve]`, `[postgres]`, `[observability]`.",
+    "Install and import names differ: `pip install agentdeck-sdk`, then `import agentdeck`. Never write `pip install agentdeck`: that name is taken by an unrelated project. Extras: `agentdeck-sdk[serve]`, `[postgres]`, `[observability]`.",
     "`Deck` is the only composition root, with two front doors onto one catalog: `Deck(agents=..., workflows=...)` and `Deck.from_project()`, which discovers them from a `.agentdeck/` directory.",
     "AgentDeck owns configuration; the OpenAI Agents SDK owns execution. An `Agent` compiles to an SDK agent, and a `@workflow` is ordinary Python awaited by AgentDeck's own executor. Never say AgentDeck runs its own agent loop.",
     "A tool is a plain Python function passed to `Agent(tools=[...])`; `build()` compiles it. A tool declaring an `agentdeck.Context[T]` parameter must NOT use `@function_tool` — the decorator would put that parameter in the model's schema.",

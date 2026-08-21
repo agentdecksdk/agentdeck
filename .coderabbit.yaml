@@ -81,7 +81,7 @@ reviews:
 
     - path: "agentdeck/**"
       instructions: >-
-        agentdeck owns configuration only — settings, discovery, runner glue.
+        agentdeck owns configuration only: settings, discovery, runner glue.
         The agent loop stays in the Agents SDK; flag any agent-loop logic
         migrating into this package. Environment variables
         agentdeck owns are `AGENTDECK_*` without exception; only variables a
