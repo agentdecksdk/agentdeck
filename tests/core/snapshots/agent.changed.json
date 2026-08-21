@@ -3,7 +3,7 @@
     "major": 4,
     "minor": 1
   },
-  "kind": "run.cancelled",
+  "kind": "agent.changed",
   "seq": 0,
   "run_id": "run_1",
   "session_id": "sess_1",
@@ -11,7 +11,8 @@
   "origin": "Greeter",
   "ts": "2026-01-01T12:00:00Z",
   "payload": {
-    "kind": "run.cancelled",
-    "reason": "operator"
+    "kind": "agent.changed",
+    "previous_agent": "Greeter",
+    "next_agent": "Scheduler"
   }
 }

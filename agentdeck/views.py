@@ -52,7 +52,9 @@ def _kind_in(kinds: frozenset[str]) -> View:
 
 
 all = View(lambda _event: True)  # noqa: A001  -  `views.all`, the name the design doc rules
-chat = _kind_in(frozenset({"text.delta", "thought.delta", "message.completed"}))
+# ``agent.changed`` is here because a handoff replaces who is answering: a chat surface that
+# omitted it would render replies that silently change author.
+chat = _kind_in(frozenset({"text.delta", "thought.delta", "message.completed", "agent.changed"}))
 tools = _kind_in(frozenset({"tool.call.started", "tool.call.completed"}))
 reports = _kind_in(frozenset({"report"}))
 lifecycle = _kind_in(LIFECYCLE_KINDS)

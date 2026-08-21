@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 import pytest
 
 from agentdeck.core import (
+    AgentChanged,
     AnswerRefused,
     ArtifactCreated,
     AudioBlock,
@@ -76,6 +77,7 @@ PAYLOADS = (
     TextDelta(message_id="msg_1", text="Tuesday "),
     ThoughtDelta(message_id="msg_1", text="checking the calendar"),
     MessageCompleted(message_id="msg_1", text="Tuesday at 9am works."),
+    AgentChanged(previous_agent="Greeter", next_agent="Scheduler"),
     ToolCallStarted(call_id="call_1", tool="lookup_slot", args={"day": "tuesday"}),
     ToolCallCompleted(
         call_id="call_1",

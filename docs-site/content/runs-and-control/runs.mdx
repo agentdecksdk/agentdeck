@@ -81,6 +81,20 @@ async for event in run.events(follow=True):
 Without `follow=True` you get only what the log already holds, which for a run that just started
 is one event. See [Events](/runs-and-control/events).
 
+## Handoffs
+
+A run's active agent can change mid-conversation: one agent hands off to another, and the same
+run keeps going under the new one. `run.id` and `run.session_id` do not change; the log records
+only that the agent did:
+
+```python
+async for event in run.events():
+    if event.kind == "agent.changed":
+        print(event.payload.previous_agent, "->", event.payload.next_agent)
+```
+
+A handoff that was requested but failed or was refused leaves no `agent.changed` behind.
+
 ## Related
 
 - [Sessions](/runs-and-control/sessions) - conversation history across runs
