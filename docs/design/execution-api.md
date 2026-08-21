@@ -43,7 +43,7 @@ a workflow gets the orchestration half.
 |---|---|---|
 | `data` | ToolCtx | `Context.data`, unchanged |
 | `reporter` | ToolCtx | `Context.reporter`, new methods (below) |
-| `agent` | ToolCtx | new: the current `AgentInstance`, or `None`. Lands with PR4 |
+| `agent` | ToolCtx | new: the current `AgentInstance`, or `None`. Lands with PR6 |
 | `safepoint()` | ToolCtx | `Context.checkpoint()`, renamed |
 | `invoke(target, input)` | WorkflowCtx | new |
 | `parallel(*runs)` | WorkflowCtx | new |
@@ -136,10 +136,10 @@ different things is what 4.x had.
 `EnginePort` becomes `Executor`. There is no second execution contract: the port that already
 answers "how is this target executed" takes the name, rather than a new type arriving beside it.
 
-It already answers that question, and `InvocableSpec{name, kind, executor, native}` is already the
-neutral description of a target. Two things change, and the adapters move with the name:
-`adapters/engines/` becomes `adapters/executors/`, and `LangGraphEngine` becomes
-`LangGraphExecutor`.
+It already answers that question, and `InvocableSpec{name, kind, engine, native}` is already the
+neutral description of a target. Three things change, and the adapters move with the name:
+`InvocableSpec.engine` becomes `.executor`, `adapters/engines/` becomes `adapters/executors/`, and
+`LangGraphEngine` becomes `LangGraphExecutor`.
 
 **One method, not two.** `start` and `resume` are collapsed into a single `execute`:
 
@@ -176,8 +176,9 @@ cannot carry is dropped from the log with a warning and still handed to the engi
 run resumes on an answer no replay could ever reproduce. `run.answer(...)` refuses such a value
 instead.
 
-`core.invocable.NativeInvocable` is the third piece: the protocol an AgentDeck-native definition
-satisfies, so a pure adapter can play a `@tool`/`@workflow` without importing `authoring`.
+A third piece is new in `core.invocable`: `NativeInvocable`, the protocol an AgentDeck-native
+definition satisfies, so a pure adapter can play a `@tool`/`@workflow` without importing
+`authoring`. It lands with the native executor.
 
 **The front half is missing.**
 
@@ -295,6 +296,8 @@ Each row is a break, and each needs a CHANGELOG entry.
 | `Context[T]` | `ToolCtx[T]` / `WorkflowCtx[T]` | one context type cannot express that a tool may not orchestrate |
 | `Context.checkpoint()` | `ctx.safepoint()` | same `Gate`, the name a caller can guess |
 | `Reporter.status()/progress()` | `info/warning/error/report` | two hard-coded shapes, no structured record |
+| `EnginePort.start()/resume()` | `Executor.execute()` | `resume` was never the pause's resume, and the answer it took is already in the log |
+| `run.answer(value)` logs a warning | raises `ValueError` | a value the log cannot carry resumed a run no replay could reproduce |
 | `Workflow(graph=...)` | `@workflow` body; a graph is a target the resolver runs | #336, #337 |
 | `deck.runs.start(name, ...)` | also `start(target, ...)` | #337 |
 
@@ -309,7 +312,7 @@ The design this file was written from is adopted whole except:
 | pause raises at every safepoint | a native workflow parks | a raise through an imperative body destroys the state that is the workflow |
 
 #336 sketches `ctx.run.ask()` / `ctx.run.pause()` / `ctx.run.wait()`. This file rules `ctx.ask()`
-and `ctx.approve()` instead, with no `ctx.pause()` at all, and both issues are updated to match.
+alone, with no `ctx.approve()` and no `ctx.pause()`, and both issues are updated to match.
 
 ## Out of scope for v5.0.0
 
