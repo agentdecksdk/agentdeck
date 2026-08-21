@@ -4,8 +4,8 @@ Ported from the delta-only extraction in ``agents/runners/headless.py`` (v1 stay
 untouched) and widened to text deltas, completed messages, tool calls and their results.
 Reasoning items are deliberately not translated (ADR-D5: they live only in the SDK
 session, and mirroring them would chain the event schema to the SDK's item format).
-Handoffs are not a core kind (D10: engines translate or namespace, never mint), so a
-completed handoff becomes one namespaced ``custom`` event.
+A completed handoff maps to the core kind ``agent.changed`` (#249, D10's second
+promotion after ``DataBlock``/#101): it stopped being one namespaced ``custom`` event.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from typing import Any
 
 from agentdeck.core.events import (
     RESULT_PREVIEW_MAX,
-    Custom,
+    AgentChanged,
     KnownPayload,
     MessageCompleted,
     TextDelta,
@@ -120,12 +120,7 @@ def _message_completed(item: Any) -> KnownPayload:
 
 
 def _handoff(item: Any) -> KnownPayload:
-    # ADR-D5's invariant ("everything that enters or leaves execution state is recorded")
-    # without minting a kind (D10): one namespaced custom event, not a new payload class.
-    return Custom(
-        name="openai_agents.handoff",
-        data={"from": item.source_agent.name, "to": item.target_agent.name},
-    )
+    return AgentChanged(previous_agent=item.source_agent.name, next_agent=item.target_agent.name)
 
 
 __all__ = ["translate"]

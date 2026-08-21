@@ -173,7 +173,7 @@ skeleton's adapters and Runtime rather than starting fresh (M0's keep/harden/dis
 |---|---|
 | **D1–D8**  -  engine boundary, no DSL, content blocks, caller-injected capabilities, two-store rule *(as revised by ADR-D5)*, cooperative cancel, ctx everywhere, event versioning | design doc §12 |
 | **D9**  -  the envelope is closed (8 fields); new needs go in payloads or `run.started` | PR #1 prompt |
-| **D10**  -  kinds are minted only in core; engines translate or use namespaced `custom`, and a recurring `custom` is a promotion signal. *Fired once, 2026-08-06, #101: two engines routing structured data around the schema promoted `DataBlock` into `core/content.py`  -  design doc §4.1/§4.2, additive under D8* | PR #1 prompt |
+| **D10**  -  kinds are minted only in core; engines translate or use namespaced `custom`, and a recurring `custom` is a promotion signal. *Fired 2026-08-06, #101: two engines routing structured data around the schema promoted `DataBlock` into `core/content.py`  -  design doc §4.1/§4.2, additive under D8. Fired again, 2026-08-21, #249: `openai_agents.handoff` promoted `agent.changed` into `core/events.py`, `major=4, minor=1`* | PR #1 prompt |
 | **Schema review decisions 1–9 + A + B**  -  nested envelope, `UnknownEvent`, contiguous Runtime-assigned seq, `origin`, `message_id`, usage per-call + aggregate, preview + hash results, structured `run.failed`, naming; A=contiguous, B=full text | PR #1 prompt |
 | **Standing refusals**  -  changing the list requires design review | PRD §8 / design doc §12 |
 

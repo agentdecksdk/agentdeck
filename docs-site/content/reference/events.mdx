@@ -67,6 +67,12 @@ Each of these sets the run's status. See [Lifecycle & Control](/runs-and-control
 | `message.completed` | `message_id`, `text` | The record. Deltas are streaming UX |
 | `artifact.created` | `artifact_id`, `media_type`, `uri`, `size` | A reference to bytes stored elsewhere |
 
+## Agents
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `agent.changed` | `previous_agent`, `next_agent` | The active agent changed, after a handoff completed. Never emitted for one requested but failed or refused |
+
 ## Tools and nodes
 
 | Kind | Payload | Notes |

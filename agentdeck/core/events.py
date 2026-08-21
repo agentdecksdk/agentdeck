@@ -65,12 +65,15 @@ class SchemaVersion(CoreModel):
     minor: NonNegativeInt
 
 
-CURRENT_VERSION = SchemaVersion(major=4, minor=0)
+CURRENT_VERSION = SchemaVersion(major=4, minor=1)
 """What this tree writes onto every event.
 
 ``major=4`` (v5.0.0): the payload vocabulary moved, and v5.0.0 does not read a log v4 wrote. There
 is no compatibility window and no store migration  -  replay a 4.x log into a new store, or read it
 with the version that wrote it.
+
+``minor=1``: :class:`AgentChanged` was added (#249), additive by construction  -  an older reader
+degrades an event it carries to :class:`UnknownEvent` rather than failing.
 
 A future additive change (a new kind, a new optional field) bumps ``minor`` here and nowhere else;
 a breaking one bumps ``major``."""
@@ -238,6 +241,20 @@ class MessageCompleted(CoreModel):
     text: str
 
 
+class AgentChanged(CoreModel):
+    """Within this run and this conversation, the active agent changed: a handoff completed,
+    never one merely requested. A handoff that failed or was refused leaves no event behind.
+
+    ``previous_agent``/``next_agent`` rather than ``from_agent``/``to_agent``: ``from`` is
+    reserved, and the pair reads better matched than split across a keyword workaround and an
+    ordinary word. ``run_id`` and ``session_id`` on the envelope do not change; only this.
+    """
+
+    kind: Literal["agent.changed"] = "agent.changed"
+    previous_agent: str
+    next_agent: str
+
+
 class ToolCallStarted(CoreModel):
     """Dispatch; paired with ``tool.call.completed`` by ``call_id``."""
 
@@ -373,6 +390,7 @@ KnownPayload = Annotated[
     | TextDelta
     | ThoughtDelta
     | MessageCompleted
+    | AgentChanged
     | ToolCallStarted
     | ToolCallCompleted
     | NodeUpdated

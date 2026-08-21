@@ -25,7 +25,7 @@ from agents.exceptions import MaxTurnsExceeded
 
 from agentdeck.authoring import Agent
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import Custom, RunCompleted, RunFailed
+from agentdeck.core.events import AgentChanged, RunCompleted, RunFailed
 from agentdeck.deck import Deck
 from agentdeck.runtime.settings import get_settings
 from agentdeck.testing import scripted_model_server
@@ -76,9 +76,9 @@ def _tool_names(request: dict[str, Any]) -> set[str]:
 
 def _handoffs(events: list[Any]) -> list[tuple[str, str]]:
     return [
-        (event.payload.data["from"], event.payload.data["to"])
+        (event.payload.previous_agent, event.payload.next_agent)
         for event in events
-        if isinstance(event.payload, Custom) and event.payload.name == "openai_agents.handoff"
+        if isinstance(event.payload, AgentChanged)
     ]
 
 

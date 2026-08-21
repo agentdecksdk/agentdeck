@@ -96,6 +96,14 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   store. Opening a SQLite or Postgres log 4.x wrote raises a clear `StoreError`; a Redis log
   written by 4.x reads as empty, since its keys were shaped by the old encoding. Drain or discard
   a 4.x log, or replay it into a new store, before upgrading.
+  for it (`replace(ctx, run_id=...)`). SQLite and Postgres migrate in place when the store opens.
+  **Redis does not**: its keys were shaped by the old encoding, so a Redis event log written by 4.x
+  is not read by 5.0. Drain or discard a Redis log before upgrading.
+- **A completed handoff is the core event `agent.changed`, not a namespaced `custom` one.** The
+  OpenAI Agents executor stopped emitting `custom` named `openai_agents.handoff`; a handoff between
+  agents in the same run and conversation now lands as `agent.changed`, carrying `previous_agent`
+  and `next_agent`, and only once the handoff has actually happened. A handoff that was requested
+  but failed or was refused still emits nothing. The schema is `major=4, minor=1`.
 
 ### Fixed
 
