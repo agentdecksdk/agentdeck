@@ -1117,7 +1117,7 @@ async def test_closing_a_deck_cancels_a_run_still_in_flight_and_says_so(no_proje
         async with deck:
             opening, task = await deck._start("Greeter", coerce_input("hi"), session_id="s1")
             # `holding` is announced one line before the model parks, so a cancel in that same
-            # tick reaches a turn the SDK has not suspended yet and is swallowed (#410). Waiting
+            # tick reaches a turn the SDK has not suspended yet and is swallowed (#412). Waiting
             # for the delta it wrote first is the observable that the turn is genuinely parked.
             await _wait_until(lambda: _has_delta(deck, "s1"))
             assert not task.done()
