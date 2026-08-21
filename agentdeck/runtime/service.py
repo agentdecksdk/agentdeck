@@ -726,8 +726,6 @@ class Runtime:
         the cancellation, but not the event loop, so a process dying with the request leaves the
         run open in the log for whatever reconciles it later.
         """
-        if ctx.run_id in self._abandoned:
-            return
         recording = asyncio.ensure_future(self._record(RunCancelled(reason=reason), spec, ctx))
         with suppress(asyncio.CancelledError):
             await asyncio.shield(recording)
