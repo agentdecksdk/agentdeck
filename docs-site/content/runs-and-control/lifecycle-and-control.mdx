@@ -52,8 +52,9 @@ disagree.
 
 ## What you can act on
 
-`paused` and `waiting_answer` are the two resumable states. The three terminal states accept
-nothing: a completed run cannot be paused, and a cancelled run cannot be resumed.
+`paused` and `waiting_answer` are the two suspended states, and each refuses the other's
+operation: lift a pause with `resume()`, answer an interrupt with `answer(value)`. The three
+terminal states accept nothing, and asking anyway returns quietly rather than raising.
 
 ```python
 run = await deck.runs.start("Jack", question)
