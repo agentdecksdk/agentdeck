@@ -16,10 +16,21 @@ You implement one agentdeck GitHub issue end-to-end in an isolated worktree and 
 
 ## Stage 1: Design (still no source edits)
 Run `uv run scripts/repomap.py`. Then write the complete design into the draft PR body (branch `feat/<n>-<slug>` or `fix/<n>-<slug>`, `gh pr create --draft` targeting `dev`, `Closes #<n>`) BEFORE touching source:
-- `## Reuse analysis`: existing abstractions considered, reuse decision, and for anything new why each existing candidate is insufficient.
-- `## Analog`: the closest existing analog (module, adapter, test file); read it end to end, name what you will match (shape, naming, error style, test style).
-- `## Concept budget` (mechanically enforced by CI): `new classes: N`, `new public symbols: N`, `new modules: N`, `new dependencies: N`. Usually all 0. Exceeding your own budget fails CI.
-- `## Expected delta`: predicted net code LOC. The reviewer compares against `uv run scripts/quality_delta.py`; unexplained 2x overrun is request-changes.
+- `## Reuse analysis` (**max 80 words**): existing abstractions considered, reuse decision, and for anything new why each existing candidate is insufficient.
+- `## Analog` (**max 40 words**): the closest existing analog (module, adapter, test file); read it end to end, name what you will match (shape, naming, error style, test style).
+- `## Concept budget` (**4 lines, no prose**; mechanically enforced by CI): `new classes: N`, `new public symbols: N`, `new modules: N`, `new dependencies: N`. Usually all 0. Exceeding your own budget fails CI.
+- `## Expected delta` (**1 line**): predicted net code LOC. The reviewer compares against `uv run scripts/quality_delta.py`; unexplained 2x overrun is request-changes.
+- `## Design` (**max 200 words, no subsections**): what the change does. A subsection means it grew past what the issue ruled; split the PR instead.
+- Opening summary before the first heading: **max 40 words**.
+
+**Whole body: 500 words**, rising to **800 when the diff touches 20 or more files**, where the extra is a list of what moved, never prose. A change that cannot be described in 500 words and touches under 20 files should be two PRs; say so rather than writing 800.
+
+500 rather than the sections' 400, because the sections do not cover everything a body must carry: `Closes #<n>`, a `## Left for the docs-site pass` list, and the docs-impact checklist line that `.github/workflows/docs-impact.yml` greps for verbatim. A total that squeezes out a line CI requires is a cap working against the repo.
+
+Count it this way, no judgement calls. Headings and table rows count: the house rule is a table *instead of* paragraphs, and a table on top of prose is what the cap exists to stop.
+```
+gh pr view <n> --json body -q .body | perl -0pe 's/```.*?```/ /gs' | wc -w
+```
 
 ## Stage 2: Implement
 - For bugs: failing regression test first, minimal fix, test passes.
@@ -42,8 +53,12 @@ Answer against `git diff dev...HEAD`, fix what fails, honestly:
 10. Does the new code look like its canonical neighbors?
 
 ## Stage 4: Gate
+- Compact the PR body: it describes the change as it now stands, not the rounds that produced it. Delete design you abandoned and justifications the code no longer needs.
 - `make check` 100% green, then `gh pr ready`.
 - No attribution trailers anywhere.
+
+## Answering a review
+Reply in the review thread and resolve it. Never grow the PR body to answer a finding: a thread collapses once addressed, a body is what the next reader has to wade through to learn what the change does. The body only changes when the change does.
 
 **Progress:** TaskCreate one task per stage (Understand / Design / Implement / Self-review / Gate) at start; TaskUpdate each as you enter and complete it. A silent multi-stage run reads as a stall.
 
