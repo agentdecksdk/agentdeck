@@ -90,7 +90,7 @@ async def test_an_unknown_invocable_is_reported_before_anything_is_written() -> 
     with pytest.raises(NotFoundError, match="Nope"):
         async for _ in runtime.run("Nope", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
             pass
-    assert await store.read(CTX.log_key, CTX) == []
+    assert await store.read_session(CTX) == []
 
 
 async def test_an_invocable_whose_engine_is_not_registered_is_reported() -> None:
@@ -142,7 +142,7 @@ async def test_a_run_without_a_session_is_still_persisted_under_its_own_id() -> 
     events = [
         event async for event in runtime.run("Greeter", INPUT, session_id=ctx.session_id, namespace=ctx.namespace)
     ]
-    assert await store.read(events[0].run_id, ctx) == events
+    assert await store.read_run(replace(ctx, run_id=events[0].run_id)) == events
     assert all(event.session_id is None for event in events)
 
 
@@ -195,7 +195,7 @@ async def test_a_failing_sink_does_not_fail_the_run_or_starve_the_others() -> No
     ]
     await runtime.drain()
     assert [event.kind for event in events][-1] == "run.completed"
-    assert await store.read(CTX.log_key, CTX) == events
+    assert await store.read_session(CTX) == events
     assert recorder.by_seq() == events
 
 
@@ -317,7 +317,7 @@ async def test_the_engine_exception_reaches_the_caller_after_run_failed_is_recor
     assert [event.kind for event in seen] == ["run.started", "text.delta", "run.failed"]
     assert seen[-1].payload.error_code == "engine_error"
     assert seen[-1].payload.retryable is False
-    assert await store.read(CTX.log_key, CTX) == seen
+    assert await store.read_session(CTX) == seen
 
 
 async def test_run_failed_names_the_exception_type_and_not_its_message() -> None:
@@ -385,7 +385,7 @@ async def test_nothing_an_engine_yields_after_a_terminal_payload_reaches_the_log
     ]
     assert [event.kind for event in events] == ["run.started", "run.completed"]
     assert check_terminal(events) is None
-    assert await store.read(CTX.log_key, CTX) == events
+    assert await store.read_session(CTX) == events
 
 
 async def test_an_abandoned_run_is_closed_in_the_log() -> None:
@@ -399,7 +399,7 @@ async def test_an_abandoned_run_is_closed_in_the_log() -> None:
         async for _ in run:
             break
 
-    stored = await store.read(CTX.log_key, CTX)
+    stored = await store.read_session(CTX)
     assert [event.kind for event in stored] == ["run.started", "run.cancelled"]
     assert check_terminal(stored) is None
     assert stored[-1].payload.reason == "consumer stopped reading"
@@ -411,7 +411,7 @@ async def test_a_completed_run_is_not_cancelled_when_its_consumer_lets_go() -> N
     async with aclosing(runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)) as run:
         async for _ in run:
             pass
-    assert [event.kind for event in await store.read(CTX.log_key, CTX)][-1] == "run.completed"
+    assert [event.kind for event in await store.read_session(CTX)][-1] == "run.completed"
 
 
 async def test_a_suspended_run_is_not_cancelled_when_its_consumer_lets_go() -> None:
@@ -424,7 +424,7 @@ async def test_a_suspended_run_is_not_cancelled_when_its_consumer_lets_go() -> N
         async for _ in run:
             pass
 
-    assert [event.kind for event in await store.read(CTX.log_key, CTX)] == ["run.started", "run.interrupted"]
+    assert [event.kind for event in await store.read_session(CTX)] == ["run.started", "run.interrupted"]
 
 
 async def test_an_invocable_with_no_script_is_a_config_error() -> None:
@@ -526,7 +526,7 @@ async def _leave_open(store: MemoryEventStore, clock: _Held, run_id: str, age: t
     """Write one run's ``run.started`` ``age`` in the past and leave it at that, then return the
     store's clock to ``TS`` so the next turn judges the run from there."""
     clock.at = TS - age
-    await store.append(CTX.log_key, [_abandoned()], replace(CTX, run_id=run_id), "Ghost")
+    await store.append([_abandoned()], replace(CTX, run_id=run_id), "Ghost")
     clock.at = TS
 
 
@@ -571,7 +571,7 @@ async def test_a_turn_arriving_while_another_is_in_flight_is_refused() -> None:
     # that documents "one turn at a time," not just that this turn was refused.
     assert f"{DOCS_URL}/runs-and-control/sessions" in str(refused.value)
     assert [event.kind for event in await first][-1] == "run.completed"
-    assert {event.run_id for event in await store.read(CTX.log_key, CTX)} == {first_run_id}
+    assert {event.run_id for event in await store.read_session(CTX)} == {first_run_id}
 
 
 async def test_a_turn_on_a_session_whose_run_is_waiting_on_a_human_is_refused() -> None:
@@ -596,7 +596,7 @@ async def test_a_turn_on_a_session_whose_run_is_waiting_on_a_human_is_refused() 
     assert "run.answer(...)" in str(refused.value)
     assert "run.cancel(...)" in str(refused.value)
     assert "in flight" not in str(refused.value)
-    assert [event.kind for event in await store.read(CTX.log_key, CTX)] == ["run.started", "run.interrupted"]
+    assert [event.kind for event in await store.read_session(CTX)] == ["run.started", "run.interrupted"]
 
 
 async def test_a_turn_on_a_session_whose_run_is_paused_is_refused_naming_resume() -> None:
@@ -629,7 +629,7 @@ async def test_a_turn_after_the_previous_one_finished_is_not_refused() -> None:
 
     assert first[-1].kind == "run.completed"
     assert second[-1].kind == "run.completed"
-    assert await store.read(CTX.log_key, CTX) == first + second
+    assert await store.read_session(CTX) == first + second
 
 
 async def test_two_runs_without_a_session_never_contend() -> None:
@@ -666,7 +666,7 @@ async def test_a_turn_takes_over_a_session_whose_run_went_silent_and_closes_it_a
 
     new_run_id = events[0].run_id
     assert events[-1].kind == "run.completed"
-    closed = await store.read_run(CTX.log_key, "r-0", CTX)
+    closed = await store.read_run(replace(CTX, run_id="r-0"))
     assert [event.kind for event in closed] == ["run.started", "run.failed"]
     assert closed[-1].seq == 1
     assert closed[-1].origin == "Ghost", "the closing event belongs to the abandoned run, not the turn that closed it"
@@ -687,7 +687,7 @@ async def test_a_turn_does_not_take_over_a_session_whose_run_is_merely_quiet() -
     with pytest.raises(SessionBusyError, match="r-0"):
         async for _ in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
             pass
-    assert [event.kind for event in await store.read(CTX.log_key, CTX)] == ["run.started"]
+    assert [event.kind for event in await store.read_session(CTX)] == ["run.started"]
 
 
 async def test_a_lease_frees_a_killed_workers_session_without_waiting_out_the_staleness_window(
@@ -713,7 +713,7 @@ async def test_a_lease_frees_a_killed_workers_session_without_waiting_out_the_st
         ]
 
     assert events[-1].kind == "run.completed"
-    assert [event.kind for event in await store.read_run(CTX.log_key, "r-0", CTX)] == ["run.started", "run.failed"]
+    assert [event.kind for event in await store.read_run(replace(CTX, run_id="r-0"))] == ["run.started", "run.failed"]
     assert "took it over and closed it as failed" in caplog.text
 
 
@@ -738,7 +738,7 @@ async def test_a_lease_that_knows_nothing_leaves_the_staleness_window_in_charge(
     with pytest.raises(SessionBusyError, match="r-0"):
         async for _ in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace):
             pass
-    assert [event.kind for event in await store.read(CTX.log_key, CTX)] == ["run.started"]
+    assert [event.kind for event in await store.read_session(CTX)] == ["run.started"]
 
 
 async def test_a_suspended_run_holds_its_session_even_when_its_lease_has_expired() -> None:
@@ -780,7 +780,7 @@ async def test_a_run_holds_a_lease_while_it_plays_and_releases_it_when_it_ends()
     playing = asyncio.create_task(_collect(runtime))
     async with asyncio.timeout(WEDGE_TIMEOUT):
         await engine.quiet.wait()
-        run_id = (await store.read(CTX.log_key, CTX))[0].run_id
+        run_id = (await store.read_session(CTX))[0].run_id
         assert await lease.acquire(run_id, timedelta(seconds=60)) is False, "a playing run holds its lease"
         engine.release.set()
         await playing
@@ -820,7 +820,7 @@ async def test_a_run_that_writes_again_after_being_taken_over_lands_behind_its_t
 
     quiet_run_id = quiet_events[0].run_id
     assert taken[-1].kind == "run.completed"
-    resurrected = await store.read_run(CTX.log_key, quiet_run_id, CTX)
+    resurrected = await store.read_run(replace(CTX, run_id=quiet_run_id))
     pairs = [(event.run_id, event.seq) for event in resurrected]
     assert len(set(pairs)) == len(pairs), f"a seq answers to two events: {[(e.seq, e.kind) for e in resurrected]}"
     assert check_contiguous(resurrected) == []
@@ -864,11 +864,11 @@ async def test_a_run_resurrected_into_an_interrupt_takes_its_session_back() -> N
 
     quiet_run_id = quiet_events[0].run_id
     assert taken[-1].kind == "run.interrupted"
-    resurrected = await store.read_run(CTX.log_key, quiet_run_id, CTX)
+    resurrected = await store.read_run(replace(CTX, run_id=quiet_run_id))
     assert [event.kind for event in resurrected] == ["run.started", "text.delta", "run.failed", "run.interrupted"]
     assert check_contiguous(resurrected) == [], "the log stays dense however wrong its shape is"
     assert check_terminal(resurrected) == "terminal event 'run.failed' at index 2 of 4, not last"
-    assert await store.run_status(CTX.log_key, quiet_run_id, CTX) is RunStatus.WAITING_ANSWER
+    assert await store.run_status(replace(CTX, run_id=quiet_run_id)) is RunStatus.WAITING_ANSWER
     assert quiet_run_id in [run.run_id for run in await runtime.pending(namespace=CTX.namespace)], (
         "the evicted run is resumable again"
     )
@@ -897,7 +897,6 @@ async def test_a_cancellation_during_the_claim_closes_the_run_and_frees_the_sess
 
         async def claim_start(
             self,
-            log_key: str,
             opening: RunStarted,
             ctx: RunContext,
             origin: str,
@@ -905,7 +904,7 @@ async def test_a_cancellation_during_the_claim_closes_the_run_and_frees_the_sess
             *,
             dead: frozenset[str] = frozenset(),
         ) -> tuple[SessionClaim, Event | None]:
-            claimed = await super().claim_start(log_key, opening, ctx, origin, stale_after, dead=dead)
+            claimed = await super().claim_start(opening, ctx, origin, stale_after, dead=dead)
             if not self.committed.is_set():
                 self.committed.set()
                 await asyncio.Event().wait()  # a cancellation is the only way out, which is the point
@@ -922,7 +921,7 @@ async def test_a_cancellation_during_the_claim_closes_the_run_and_frees_the_sess
         with pytest.raises(asyncio.CancelledError):
             await turn
 
-        stored = await store.read(CTX.log_key, CTX)
+        stored = await store.read_session(CTX)
         assert [event.kind for event in stored] == ["run.started", "run.cancelled"]
         assert check_terminal(stored) is None
         assert stored[-1].payload.reason == "cancelled during the claim"
@@ -949,12 +948,10 @@ async def test_a_takeover_whose_bookkeeping_fails_still_leaves_this_turn_runnabl
             super().__init__(clock=clock)
             self.seeded = False
 
-        async def append(
-            self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str
-        ) -> list[Event]:
+        async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
             if self.seeded and ctx.run_id == "r-0":
                 raise StoreError("the log went away mid-takeover")
-            return await super().append(log_key, payloads, ctx, origin)
+            return await super().append(payloads, ctx, origin)
 
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
     clock = _Held()
@@ -970,7 +967,7 @@ async def test_a_takeover_whose_bookkeeping_fails_still_leaves_this_turn_runnabl
 
     assert [event.kind for event in events][-1] == "run.completed"
     assert check_terminal(events) is None
-    assert [event.kind for event in await store.read_run(CTX.log_key, "r-0", CTX)] == ["run.started"]
+    assert [event.kind for event in await store.read_run(replace(CTX, run_id="r-0"))] == ["run.started"]
     assert "could not close abandoned run r-0" in caplog.text
 
 
@@ -1012,7 +1009,7 @@ async def test_the_staleness_window_comes_from_settings_when_it_is_not_passed_in
         reset_settings_cache()
 
     assert events[-1].kind == "run.completed"
-    assert [event.kind for event in await store.read_run(CTX.log_key, "r-0", CTX)] == ["run.started", "run.failed"]
+    assert [event.kind for event in await store.read_run(replace(CTX, run_id="r-0"))] == ["run.started", "run.failed"]
 
 
 class _Reporting(StubExecutor):
@@ -1067,7 +1064,7 @@ async def test_a_run_that_reports_gets_its_reports_in_the_stream_in_order() -> N
     # before it was yielded, which is what lets a consumer refetch one it missed.
     assert {event.origin for event in events} == {"Greeter"}
     assert check_contiguous(events) == [] and check_terminal(events) is None
-    assert await store.read(CTX.log_key, CTX) == events
+    assert await store.read_session(CTX) == events
 
 
 async def test_a_report_made_during_the_last_thing_a_run_did_lands_before_the_terminal_event() -> None:
@@ -1082,7 +1079,7 @@ async def test_a_report_made_during_the_last_thing_a_run_did_lands_before_the_te
     ]
 
     assert [event.kind for event in events[-2:]] == ["report", "run.completed"]
-    assert check_terminal(await store.read(CTX.log_key, CTX)) is None
+    assert check_terminal(await store.read_session(CTX)) is None
 
 
 async def test_a_reporting_run_still_folds_to_the_status_its_lifecycle_says() -> None:
@@ -1097,7 +1094,7 @@ async def test_a_reporting_run_still_folds_to_the_status_its_lifecycle_says() ->
     ]
     run_id = events[0].run_id
 
-    log = await store.read(CTX.log_key, CTX)
+    log = await store.read_session(CTX)
     assert [event.kind for event in log if event.kind == "report"] != []  # it did report
     assert status_of(log) is RunStatus.COMPLETED
     assert [summary.run_id for summary in await store.list_runs(CTX, status=RunStatus.COMPLETED)] == [run_id]
@@ -1154,7 +1151,7 @@ async def test_a_resumed_run_can_report_too() -> None:
     ]
 
     assert [event.kind for event in resumed] == ["run.resumed", "report", "report", "run.completed"]
-    log = await store.read(CTX.log_key, CTX)
+    log = await store.read_session(CTX)
     assert check_contiguous(log) == [] and check_terminal(log) is None
 
 
@@ -1188,14 +1185,12 @@ async def test_a_store_that_refuses_a_report_costs_the_report_not_the_run(caplog
     """
 
     class _RefusesReports(MemoryEventStore):
-        async def append(
-            self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str
-        ) -> list[Event]:
+        async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
             # One of the two reports, so the surviving one proves the cost was the report
             # alone: both are the same kind now, so the refusal keys on what the report said.
             if any(getattr(payload, "level", None) == "info" for payload in payloads):
                 raise StoreError("this store has never heard of an info report")
-            return await super().append(log_key, payloads, ctx, origin)
+            return await super().append(payloads, ctx, origin)
 
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
     store = _RefusesReports()
@@ -1209,11 +1204,11 @@ async def test_a_store_that_refuses_a_report_costs_the_report_not_the_run(caplog
     # The run is untouched: it completes, and the report that survived is still in it.
     assert [event.kind for event in events] == ["run.started", "text.delta", "report", "run.completed"]
     assert check_terminal(events) is None
-    assert status_of(await store.read(CTX.log_key, CTX)) is RunStatus.COMPLETED
+    assert status_of(await store.read_session(CTX)) is RunStatus.COMPLETED
     assert "could not record its report" in caplog.text
     # No gap where the dropped report would have been: a seq is allocated inside the write, so a
     # refused write takes no number, and a hole in this log can only mean an event was truly lost.
-    assert check_contiguous(await store.read(CTX.log_key, CTX)) == []
+    assert check_contiguous(await store.read_session(CTX)) == []
 
 
 def _approver() -> tuple[Runtime, MemoryEventStore]:
@@ -1248,7 +1243,7 @@ async def test_the_answer_is_in_the_log_before_the_engine_has_been_asked_for_any
     )
     claim = await anext(resuming)  # the engine is only started after this is yielded
 
-    logged = await store.read(CTX.log_key, CTX)
+    logged = await store.read_session(CTX)
     assert status_of(logged) is RunStatus.RUNNING
     assert logged[-1] == claim
     assert claim.payload.value == [DataBlock(data={"approved": True, "note": "ship it"})]
@@ -1266,7 +1261,7 @@ async def test_a_text_answer_is_recorded_the_way_a_turn_s_own_input_is() -> None
     ):
         pass
 
-    resumed = next(event for event in await store.read(CTX.log_key, CTX) if event.kind == "run.resumed")
+    resumed = next(event for event in await store.read_session(CTX) if event.kind == "run.resumed")
     assert resumed.payload.value == [TextBlock(text="approved")]
 
 
@@ -1287,7 +1282,7 @@ async def test_an_answer_already_in_blocks_is_recorded_as_those_blocks() -> None
     ):
         pass
 
-    resumed = next(event for event in await store.read(CTX.log_key, CTX) if event.kind == "run.resumed")
+    resumed = next(event for event in await store.read_session(CTX) if event.kind == "run.resumed")
     assert resumed.payload.value == [TextBlock(text="approved")]
 
 
@@ -1302,7 +1297,7 @@ async def test_an_empty_array_answer_is_data_not_content_with_no_blocks() -> Non
     async for _ in runtime.resume("Approver", [], run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace):
         pass
 
-    resumed = next(event for event in await store.read(CTX.log_key, CTX) if event.kind == "run.resumed")
+    resumed = next(event for event in await store.read_session(CTX) if event.kind == "run.resumed")
     assert resumed.payload.value == [DataBlock(data=[])]
 
 
@@ -1317,7 +1312,7 @@ async def test_a_resume_with_nothing_to_answer_records_no_value() -> None:
     async for _ in runtime.resume("Approver", None, run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace):
         pass
 
-    resumed = next(event for event in await store.read(CTX.log_key, CTX) if event.kind == "run.resumed")
+    resumed = next(event for event in await store.read_session(CTX) if event.kind == "run.resumed")
     assert resumed.payload.value is None
 
 
@@ -1367,4 +1362,4 @@ async def test_an_answer_the_log_cannot_hold_is_refused_rather_than_dropped(
 
     # Nothing was claimed: the run is still waiting, and whoever holds a serializable answer
     # can still land it.
-    assert status_of(await store.read(CTX.log_key, CTX)) is RunStatus.WAITING_ANSWER
+    assert status_of(await store.read_session(CTX)) is RunStatus.WAITING_ANSWER

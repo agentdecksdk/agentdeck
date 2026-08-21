@@ -16,6 +16,7 @@ langgraph subject calls no model at all.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -134,6 +135,6 @@ async def test_the_stored_log_holds_no_trace_of_the_context_either(
     replay gets, and it is the one a leak would survive in."""
     events = await _play(runtime, subject, environment)
 
-    stored = await store.read_run("s-1", events[0].run_id, _READER)
+    stored = await store.read_run(replace(_READER, run_id=events[0].run_id))
     dumped = json.dumps([event.model_dump(mode="json") for event in stored])
     assert environment.secret not in dumped

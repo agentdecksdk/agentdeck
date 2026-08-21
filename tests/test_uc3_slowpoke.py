@@ -21,6 +21,7 @@ import asyncio
 import subprocess
 import sys
 import textwrap
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from agents import Agent, Model
@@ -140,7 +141,7 @@ def _build(control: ControlPort) -> tuple[Runtime, EventStorePort]:
 
 
 async def _gap_recovering_consumer(
-    source: AsyncIterator[Event], store: EventStorePort, log_key: str, ctx: RunContext
+    source: AsyncIterator[Event], store: EventStorePort, session_id: str, ctx: RunContext
 ) -> list[Event]:
     """A minimal consumer that trusts the seq invariant: a gap in the live stream is
     detected the moment it arrives and closed by refetching the missing range from the
@@ -149,7 +150,7 @@ async def _gap_recovering_consumer(
     next_expected = 0
     async for event in source:
         if event.seq > next_expected:
-            for missing in await store.read_run(log_key, event.run_id, ctx, from_seq=next_expected):
+            for missing in await store.read_run(replace(ctx, run_id=event.run_id), from_seq=next_expected):
                 seen[missing.seq] = missing
         seen[event.seq] = event
         next_expected = event.seq + 1
@@ -197,15 +198,15 @@ async def test_uc3_run_cancelled_is_terminal_and_a_followup_signal_is_a_noop() -
     assert real_id is not None
 
     assert status_of(events) is RunStatus.CANCELLED
-    # A sessionless run's log_key is its own id (RunContext.log_key), which is real_id here,
+    # A sessionless run has no session at all, so its events are read by its own id,
     # not anything this test could have picked in advance.
-    before = await store.read(real_id, ctx)
+    before = await store.read_session(replace(ctx, session_id=real_id))
 
     # Nobody polls the gate once the run is over; a signal against a finished run is a
     # no-op precisely because there is no more checkpoint left to raise on, not because
     # this test re-derives the status machine's rule.
     await control.signal(real_id, Signal.CANCEL)
-    after = await store.read(real_id, ctx)
+    after = await store.read_session(replace(ctx, session_id=real_id))
     assert after == before
 
 
@@ -227,7 +228,7 @@ async def test_uc3_replay_is_truncated_but_coherent_and_the_renderer_copes(
                 assert real_id is not None
                 await control.signal(real_id, Signal.CANCEL)
 
-    log = await store.read(ctx.log_key, ctx)
+    log = await store.read_session(ctx)
     assert check_terminal(log) is None
     assert log[-1].kind == "run.cancelled"
     assert sum(1 for event in log if event.kind == "text.delta") > 0
@@ -265,7 +266,7 @@ async def test_uc3_chaos_gap_detection_recovers_from_store() -> None:
                 continue  # the transport silently loses exactly this one event
             yield event
 
-    recovered = await _gap_recovering_consumer(lossy_stream(), store, ctx.log_key, ctx)
+    recovered = await _gap_recovering_consumer(lossy_stream(), store, ctx.session_id, ctx)
     assert recovered == full_run
     assert check_contiguous(recovered) == []
 
@@ -383,7 +384,7 @@ def test_uc3_cross_process_cancel(tmp_path: Any) -> None:
     ctx = RunContext(run_id="reader")  # a lookup-only context; never the run's own
 
     async def _read_back() -> list[Event]:
-        return await store.read_run(run_id, run_id, ctx)
+        return await store.read_run(replace(ctx, run_id=run_id))
 
     logged = asyncio.run(_read_back())
     assert check_terminal(logged) is None

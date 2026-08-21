@@ -11,3 +11,7 @@ Core types and public classes exported from `agentdeck`.
 - `Deck`: Unified composition root.
 - `Agent`: Declarative agent specification.
 - `Workflow`: Declarative workflow specification.
+- `tool`: Decorator declaring a leaf capability.
+- `workflow`: Decorator declaring orchestration as an async function.
+- `ToolCtx`: The context a tool receives.
+- `WorkflowCtx`: `ToolCtx` plus orchestration, for a `@workflow` body.

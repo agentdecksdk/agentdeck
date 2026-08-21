@@ -27,7 +27,8 @@ shape, and `ControlPort`'s docstring states the false premise out loud:
 
 It is not. `deck.run(..., run_id=…)` accepts a caller-supplied id (`deck.py:749`) and
 `service.py:614` mints a `uuid4()` only when none is given. The event stores key by
-`(namespace, log_key)` and are correct; the control plane was built on the premise they contradict.
+`(namespace, session_id)` and are correct; the control plane was built on the premise they
+contradict.
 
 This is a live cross-tenant defect. It is also why the fix is an identity change rather than three
 keyword arguments: every subsystem addressing a run by a bare caller id is one collision away from
@@ -338,12 +339,13 @@ Enforced by the store, not by an API check.
 
 `events` is keyed `UNIQUE(namespace, log_key, run_id, seq)` (`sqlite/store.py:43`), so a run's
 identity is entangled with the log that happens to hold it, which is invariant 5's exposure. The
-run-scoped uniqueness becomes `(namespace, id, seq)`. `log_key` survives as the session grouping and
-stops being part of run identity.
+run-scoped uniqueness becomes `(namespace, id, seq)`. `log_key` is replaced by a nullable
+`session_id`: a run in no conversation belongs to no session, rather than to a session named after
+itself.
 
 | | change |
 |---|---|
-| `events` | `id` column; `UNIQUE(namespace, id, seq)`; `log_key` demoted to session grouping |
+| `events` | `id` column; `UNIQUE(namespace, id, seq)`; `log_key` becomes a nullable `session_id` |
 | `(namespace, key)` | a unique index, the enforcement point for invariant 2 |
 | `claim_start` | additionally adopts `(namespace, key)` in the same conditional append |
 | `list_runs` | gains `limit`; already namespace-aware through `ctx` |
@@ -511,8 +513,8 @@ runs = await deck.runs.list(...)  # I need to discover runs
 ```
 
 The alternative is what the tree has now: lifecycle scattered across `Deck`, `Runtime`, `Session`
-and raw ids, with `namespace`, `run_id`, `thread_id`, `session_id` and `log_key` as five things a
-caller coordinates by hand. Temporal's durable handles and LangGraph's thread-to-run model reach
+and raw ids, with `namespace`, `run_id`, `thread_id` and `session_id` as four things a caller
+coordinates by hand. Temporal's durable handles and LangGraph's thread-to-run model reach
 the same separation from the same pressure, with a larger Python surface than this needs.
 
 The API does not expose infrastructure complexity merely because the implementation is complex.

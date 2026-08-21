@@ -68,7 +68,7 @@ async def test_resume_continues_seq_with_exactly_one_terminal_event_at_the_end(
     assert check_terminal(whole) is None
     assert check_contiguous(whole) == []
     assert [event.seq for event in whole] == list(range(len(whole)))
-    assert await store.read(ctx.log_key, ctx) == whole
+    assert await store.read_session(ctx) == whole
 
 
 async def test_a_stray_resume_on_an_already_completed_run_is_a_noop(
@@ -140,7 +140,7 @@ async def test_two_concurrent_resumes_have_exactly_one_winner_and_no_duplicate_s
 
     assert sorted([bool(first), bool(second)]) == [False, True]  # exactly one winner
 
-    stored = await store.read(ctx.log_key, ctx)
+    stored = await store.read_session(ctx)
     seqs = [event.seq for event in stored]
     assert len(seqs) == len(set(seqs))
     assert check_contiguous(stored) == []

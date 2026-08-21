@@ -12,6 +12,7 @@ server processes are in.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -44,8 +45,8 @@ EVERYTHING_IS_STALE = timedelta(0)
 UNREACHABLE_DSN = "postgresql://postgres:postgres@127.0.0.1:1/nope"
 
 
-def _ctx(namespace: str = "acme", run_id: str = "r-1", log_key: str = "s-1") -> RunContext:
-    return RunContext(namespace=namespace, run_id=run_id, session_id=log_key)
+def _ctx(namespace: str = "acme", run_id: str = "r-1", session_id: str = "s-1") -> RunContext:
+    return RunContext(namespace=namespace, run_id=run_id, session_id=session_id)
 
 
 def _started() -> RunStarted:
@@ -67,7 +68,7 @@ async def keyspace() -> AsyncIterator[tuple[str, str]]:
         yield pair
 
 
-async def _warm(first: PostgresEventStore, second: PostgresEventStore, log_key: str, ctx: RunContext) -> None:
+async def _warm(first: PostgresEventStore, second: PostgresEventStore, ctx: RunContext) -> None:
     """Connect and set both stores up *before* the race, so neither starts one behind.
 
     A cold store's first call connects, waits the schema-setup lock and runs four DDL
@@ -75,25 +76,21 @@ async def _warm(first: PostgresEventStore, second: PostgresEventStore, log_key: 
     after the first has finished  -  the contention the test exists to create only sometimes
     happens. With both warm it happens every time.
     """
-    await first.read(log_key, ctx)
-    await second.read(log_key, ctx)
+    await first.read_session(ctx)
+    await second.read_session(ctx)
 
 
 # Every method of the port, so one added later without the boundary wrapper is a missing case
 # here rather than a psycopg exception surfacing to a caller that catches ``StoreError``.
 _CALLS = [
-    pytest.param(lambda store: store.append("s-1", [_started()], _ctx(), ORIGIN), id="append"),
-    pytest.param(lambda store: store.read("s-1", _ctx()), id="read"),
-    pytest.param(lambda store: store.read_run("s-1", "r-1", _ctx()), id="read_run"),
-    pytest.param(lambda store: store.run_status("s-1", "r-1", _ctx()), id="run_status"),
+    pytest.param(lambda store: store.append([_started()], _ctx(), ORIGIN), id="append"),
+    pytest.param(lambda store: store.read_session(_ctx()), id="read"),
+    pytest.param(lambda store: store.read_run(replace(_ctx(), run_id="r-1")), id="read_run"),
+    pytest.param(lambda store: store.run_status(replace(_ctx(), run_id="r-1")), id="run_status"),
     pytest.param(lambda store: store.list_runs(_ctx()), id="list_runs"),
     pytest.param(lambda store: store.find_by_key(_ctx(), "order-1234"), id="find_by_key"),
-    pytest.param(
-        lambda store: store.claim_resume("s-1", "r-1", RunResumed(reason=None), _ctx(), ORIGIN), id="claim_resume"
-    ),
-    pytest.param(
-        lambda store: store.claim_start("s-1", _started(), _ctx(), ORIGIN, NOTHING_IS_STALE), id="claim_start"
-    ),
+    pytest.param(lambda store: store.claim_resume(RunResumed(reason=None), _ctx(), ORIGIN), id="claim_resume"),
+    pytest.param(lambda store: store.claim_start(_started(), _ctx(), ORIGIN, NOTHING_IS_STALE), id="claim_start"),
 ]
 
 
@@ -121,25 +118,24 @@ async def test_two_connections_settle_a_resume_claim_on_one_winner(keyspace: tup
     winner rather than a consistent one."""
     dsn, schema = keyspace
     for trial in range(10):
-        # A fresh run_id per trial, not just a fresh log_key: #324 tightened the run-scoped
-        # unique index to (namespace, run_id, seq) with no log_key in it, so reusing one run_id
+        # A fresh run_id per trial, not just a fresh session_id: #324 tightened the run-scoped
+        # unique index to (namespace, run_id, seq) with no session_id in it, so reusing one run_id
         # across trials would collide against the previous trial's own rows instead of testing
         # this trial's race.
-        ctx = _ctx(run_id=f"r-{trial}")
-        log_key = f"s-{trial}"
+        ctx = _ctx(run_id=f"r-{trial}", session_id=f"s-{trial}")
         seeder = PostgresEventStore(dsn, schema=schema)
-        await seeder.append(log_key, [_started(), _interrupted()], ctx, ORIGIN)
+        await seeder.append([_started(), _interrupted()], ctx, ORIGIN)
         await seeder.aclose()
 
         first, second = PostgresEventStore(dsn, schema=schema), PostgresEventStore(dsn, schema=schema)
-        await _warm(first, second, log_key, ctx)
+        await _warm(first, second, ctx)
         try:
             outcomes = await asyncio.gather(
-                first.claim_resume(log_key, ctx.run_id, RunResumed(reason=None), ctx, ORIGIN),
-                second.claim_resume(log_key, ctx.run_id, RunResumed(reason=None), ctx, ORIGIN),
+                first.claim_resume(RunResumed(reason=None), ctx, ORIGIN),
+                second.claim_resume(RunResumed(reason=None), ctx, ORIGIN),
             )
             assert [event is not None for event in outcomes].count(True) == 1, f"trial {trial}: {outcomes}"
-            stored = await first.read_run(log_key, ctx.run_id, ctx)
+            stored = await first.read_run(ctx)
         finally:
             await first.aclose()
             await second.aclose()
@@ -154,22 +150,17 @@ async def test_two_connections_settle_a_session_claim_on_one_winner(keyspace: tu
     dsn, schema = keyspace
     for trial in range(10):
         # Fresh run_ids per trial for the same reason as the resume race above: #324's tightened
-        # index has no log_key in it, so "r-a"/"r-b" reused across trials would collide with an
+        # index has no session_id in it, so "r-a"/"r-b" reused across trials would collide with an
         # earlier trial's own rows rather than exercising this trial's race.
-        ctx = _ctx()
-        log_key = f"s-{trial}"
+        ctx = _ctx(session_id=f"s-{trial}")
         first, second = PostgresEventStore(dsn, schema=schema), PostgresEventStore(dsn, schema=schema)
-        await _warm(first, second, log_key, ctx)
+        await _warm(first, second, ctx)
         try:
             outcomes = await asyncio.gather(
-                first.claim_start(
-                    log_key, _started(), _ctx(run_id=f"r-a-{trial}", log_key=log_key), ORIGIN, NOTHING_IS_STALE
-                ),
-                second.claim_start(
-                    log_key, _started(), _ctx(run_id=f"r-b-{trial}", log_key=log_key), ORIGIN, NOTHING_IS_STALE
-                ),
+                first.claim_start(_started(), replace(ctx, run_id=f"r-a-{trial}"), ORIGIN, NOTHING_IS_STALE),
+                second.claim_start(_started(), replace(ctx, run_id=f"r-b-{trial}"), ORIGIN, NOTHING_IS_STALE),
             )
-            stored = await first.read(log_key, ctx)
+            stored = await first.read_session(ctx)
         finally:
             await first.aclose()
             await second.aclose()
@@ -197,13 +188,13 @@ async def test_a_log_lock_held_past_the_timeout_is_a_store_error_not_a_lost_clai
     dsn, schema = keyspace
     ctx = _ctx()
     store = PostgresEventStore(dsn, schema=schema)
-    await store.append("s-1", [_started(), _interrupted()], ctx, ORIGIN)
+    await store.append([_started(), _interrupted()], ctx, ORIGIN)
 
     peer = await psycopg.AsyncConnection.connect(dsn)
     try:
         await peer.execute("SELECT pg_advisory_xact_lock(%s)", (store_module._advisory_key("acme\x00s-1"),))
         with pytest.raises(StoreError) as raised:
-            await store.claim_resume("s-1", "r-1", RunResumed(reason=None), ctx, ORIGIN)
+            await store.claim_resume(RunResumed(reason=None), ctx, ORIGIN)
         assert isinstance(raised.value.__cause__, psycopg.errors.LockNotAvailable)
     finally:
         await peer.rollback()
@@ -230,19 +221,19 @@ async def test_a_plain_append_cannot_commit_past_a_held_log_lock(
     dsn, schema = keyspace
     ctx = _ctx()
     store = PostgresEventStore(dsn, schema=schema)
-    await store.read("s-1", ctx)  # connect and create the schema before the lock is taken
+    await store.read_session(ctx)  # connect and create the schema before the lock is taken
 
     peer = await psycopg.AsyncConnection.connect(dsn)
     try:
         await peer.execute("SELECT pg_advisory_xact_lock(%s)", (store_module._advisory_key("acme\x00s-1"),))
         with pytest.raises(StoreError) as raised:
-            await store.append("s-1", [_started()], ctx, ORIGIN)
+            await store.append([_started()], ctx, ORIGIN)
         assert isinstance(raised.value.__cause__, psycopg.errors.LockNotAvailable)
     finally:
         await peer.rollback()
         await peer.close()
 
-    assert await store.read("s-1", ctx) == []
+    assert await store.read_session(ctx) == []
     await store.aclose()
 
 
@@ -258,17 +249,17 @@ async def test_a_claim_still_reads_the_winners_rows_on_a_server_that_defaults_to
     strict = f"{dsn}{'&' if '?' in dsn else '?'}options=-c%20default_transaction_isolation%3Dserializable"
     ctx = _ctx()
     seeder = PostgresEventStore(strict, schema=schema)
-    await seeder.append("s-1", [_started(), _interrupted()], ctx, ORIGIN)
+    await seeder.append([_started(), _interrupted()], ctx, ORIGIN)
     await seeder.aclose()
 
     first, second = PostgresEventStore(strict, schema=schema), PostgresEventStore(strict, schema=schema)
     try:
         outcomes = await asyncio.gather(
-            first.claim_resume("s-1", "r-1", RunResumed(reason=None), ctx, ORIGIN),
-            second.claim_resume("s-1", "r-1", RunResumed(reason=None), ctx, ORIGIN),
+            first.claim_resume(RunResumed(reason=None), ctx, ORIGIN),
+            second.claim_resume(RunResumed(reason=None), ctx, ORIGIN),
         )
         assert [event is not None for event in outcomes].count(True) == 1, outcomes
-        assert [event.seq for event in await first.read_run("s-1", "r-1", ctx)] == [0, 1, 2]
+        assert [event.seq for event in await first.read_run(replace(ctx, run_id="r-1"))] == [0, 1, 2]
     finally:
         await first.aclose()
         await second.aclose()
@@ -289,11 +280,11 @@ async def test_the_log_keeps_to_its_own_schema_and_leaves_the_rest_of_the_databa
         mine = PostgresEventStore(dsn, schema=schema)
         theirs = PostgresEventStore(dsn, schema=other_schema)
         try:
-            await mine.append("s-1", [_started()], ctx, ORIGIN)
-            await theirs.append("s-1", [_started()], _ctx(run_id="r-9"), ORIGIN)
+            await mine.append([_started()], ctx, ORIGIN)
+            await theirs.append([_started()], _ctx(run_id="r-9"), ORIGIN)
 
-            assert [event.run_id for event in await mine.read("s-1", ctx)] == ["r-1"]
-            assert [event.run_id for event in await theirs.read("s-1", ctx)] == ["r-9"]
+            assert [event.run_id for event in await mine.read_session(ctx)] == ["r-1"]
+            assert [event.run_id for event in await theirs.read_session(ctx)] == ["r-9"]
 
             cursor = await admin.execute(
                 "SELECT table_schema FROM information_schema.tables WHERE table_name = 'events'"
@@ -317,8 +308,8 @@ async def test_a_session_claim_that_wins_on_a_stale_run_reports_it_for_the_calle
     dsn, schema = keyspace
     store = PostgresEventStore(dsn, schema=schema)
     try:
-        (abandoned,) = await store.append("s-1", [_started()], _ctx(run_id="r-dead"), ORIGIN)
-        claim, event = await store.claim_start("s-1", _started(), _ctx(run_id="r-new"), ORIGIN, EVERYTHING_IS_STALE)
+        (abandoned,) = await store.append([_started()], _ctx(run_id="r-dead"), ORIGIN)
+        claim, event = await store.claim_start(_started(), _ctx(run_id="r-new"), ORIGIN, EVERYTHING_IS_STALE)
         assert claim.held_by is None and event is not None
         # The abandoned run's own last event, not just its id: the caller needs that envelope to
         # write the closing event in that run's name.
@@ -327,32 +318,21 @@ async def test_a_session_claim_that_wins_on_a_stale_run_reports_it_for_the_calle
         await store.aclose()
 
 
-async def test_the_run_id_index_is_dropped_from_a_schema_built_before_it_was_removed(keyspace: tuple[str, str]) -> None:
-    """``events_by_run_id`` existed only for ``locate``'s "which log holds this run_id" query,
-    which #322 removed with no caller left for it  -  a schema an earlier build already created
-    has the index and drops it on open rather than carrying it for good.
-    """
+async def test_opening_a_4x_events_table_fails_clearly_instead_of_migrating(keyspace: tuple[str, str]) -> None:
+    """5.0 does not read a log 4.x wrote: opening a ``log_key``-shaped schema (confirmed against
+    the v4.0.5 tag) raises a ``StoreError`` naming the fix, rather than silently rewriting it
+    forward."""
     dsn, schema = keyspace
     admin = await psycopg.AsyncConnection.connect(dsn, autocommit=True)
     try:
         await admin.execute(f'CREATE SCHEMA "{schema}"')
         await admin.execute(
             f'CREATE TABLE "{schema}".events (id BIGSERIAL PRIMARY KEY, namespace TEXT NOT NULL, '
-            "log_key TEXT NOT NULL, run_id TEXT NOT NULL, seq INTEGER NOT NULL, data JSONB NOT NULL)"
+            "log_key TEXT NOT NULL, run_id TEXT NOT NULL, key TEXT, seq INTEGER NOT NULL, "
+            "data JSONB NOT NULL)"
         )
-        await admin.execute(f'CREATE INDEX events_by_log ON "{schema}".events (namespace, log_key, id)')
-        await admin.execute(f'CREATE UNIQUE INDEX events_by_run ON "{schema}".events (namespace, log_key, run_id, seq)')
-        await admin.execute(f'CREATE INDEX events_by_run_id ON "{schema}".events (namespace, run_id, id)')
 
-        store = PostgresEventStore(dsn, schema=schema)
-        try:
-            await store.read("s-1", _ctx())  # any call: what matters is _ready()'s DDL pass
-            cursor = await admin.execute(
-                "SELECT indexname FROM pg_indexes WHERE schemaname = %s AND tablename = 'events'", (schema,)
-            )
-            names = {row[0] for row in await cursor.fetchall()}
-            assert "events_by_run_id" not in names
-        finally:
-            await store.aclose()
+        with pytest.raises(StoreError, match="4.x"):
+            await PostgresEventStore(dsn, schema=schema).read_session(_ctx())
     finally:
         await admin.close()

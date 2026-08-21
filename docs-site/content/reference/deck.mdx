@@ -163,7 +163,7 @@ defer and the parameter would promise something it never delivered.
 
 | Method | Signature | Returns |
 |---|---|---|
-| `run` | `(name, input, *, context=None, session_id=None, namespace=None, key=None)` | `TurnResult` for an agent; the final state (or an `InterruptResult`) for a workflow |
+| `run` | `(name, input, *, context=None, session_id=None, namespace=None, key=None)` | `TurnResult` for an agent; the workflow's own result (or an `InterruptResult`) for a workflow |
 | `stream` | `(name, input, *, context=None, session_id=None, namespace=None, key=None)` | `AsyncGenerator[Event]`  -  the run's own canonical events, live |
 | `runs.start` | `(name, input, *, context=None, session_id=None, namespace=None, key=None)` | a [`Run`](#run) handle  -  the same admission as `run`/`stream`, without waiting for or reading it |
 
@@ -312,13 +312,14 @@ two handles on one run always agree: the durable store is the only thing either 
 | Method | Signature | Behavior |
 |---|---|---|
 | `status` | `() -> RunStatus` | this run's current status, folded from its own events |
-| `pause` | `(reason=None) -> bool` | ask it to stop at its next safe point; `False` means no control backend is configured |
-| `resume` | `() -> None` | continue a paused run; a no-op if it is not, in fact, paused |
-| `cancel` | `(reason=None) -> bool` | ask it to stop for good; a suspended run ends immediately rather than waiting for a safe point |
+| `can` | `Controls` | `can.pause`, `can.resume`, `can.cancel`  -  a plain attribute, read off the status this handle last saw |
+| `pause` | `(reason=None) -> None` | ask it to stop at its next safe point; `UnsupportedControlError` when no control backend is configured |
+| `resume` | `() -> None` | continue a paused run; `RunStateError` when it is waiting for an answer instead |
+| `cancel` | `(reason=None) -> None` | ask it to stop for good; a suspended run ends immediately rather than waiting for a safe point |
 | `pending` | `() -> InterruptResult \| None` | what it is waiting to be answered about, or `None` if it is not `WAITING_ANSWER` |
 | `answer` | `(value) -> None` | answer the interrupt it is paused on |
 | `events` | `(*, from_seq=0, follow=False) -> AsyncIterator[Event]` | this run's own events  -  a snapshot by default, tailed live with `follow=True` |
-| `await run` | | the result: a `TurnResult` for an agent, the graph's own state for a workflow |
+| `await run` | | the result: a `TurnResult` for an agent, its own result for a workflow  -  a native body's return value, a graph's final state |
 
 ```python no-test reason="needs a live Run from runs.start/get"
 await run.pause("operator stepped away")
@@ -550,5 +551,8 @@ needs application state is an ordinary tool with a `ToolCtx[...]` parameter.
 
 ## What else this does not cover
 
-[Run Control](/runs-and-control/lifecycle-and-control) reaches agent runs today; a workflow (LangGraph)
-run has no safe point yet, so `pause`/`cancel` record the request but nothing acts on it.
+[Run Control](/runs-and-control/lifecycle-and-control) reaches every executor: an agent run stops
+between stream items or before a tool is dispatched, a graph workflow at a node boundary, a native
+workflow at its own `ctx.safepoint()`. One limit is left on the graph path  -  a graph that paused
+can only be resumed when it is `durable = True`, since a non-durable one compiles with no
+checkpointer to continue from, and the resume raises `ConfigError` saying so.

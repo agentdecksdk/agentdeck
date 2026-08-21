@@ -12,6 +12,7 @@ processes are in.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -65,18 +66,14 @@ async def keyspace() -> AsyncIterator[tuple[str, str]]:
 # Every method of the port, so one added later without the boundary wrapper is a missing case
 # here rather than a redis exception surfacing to a caller that catches ``StoreError``.
 _CALLS = [
-    pytest.param(lambda store: store.append("s-1", [_started()], _ctx(), ORIGIN), id="append"),
-    pytest.param(lambda store: store.read("s-1", _ctx()), id="read"),
-    pytest.param(lambda store: store.read_run("s-1", "r-1", _ctx()), id="read_run"),
-    pytest.param(lambda store: store.run_status("s-1", "r-1", _ctx()), id="run_status"),
+    pytest.param(lambda store: store.append([_started()], _ctx(), ORIGIN), id="append"),
+    pytest.param(lambda store: store.read_session(_ctx()), id="read"),
+    pytest.param(lambda store: store.read_run(replace(_ctx(), run_id="r-1")), id="read_run"),
+    pytest.param(lambda store: store.run_status(replace(_ctx(), run_id="r-1")), id="run_status"),
     pytest.param(lambda store: store.list_runs(_ctx()), id="list_runs"),
     pytest.param(lambda store: store.find_by_key(_ctx(), "order-1234"), id="find_by_key"),
-    pytest.param(
-        lambda store: store.claim_resume("s-1", "r-1", RunResumed(reason=None), _ctx(), ORIGIN), id="claim_resume"
-    ),
-    pytest.param(
-        lambda store: store.claim_start("s-1", _started(), _ctx(), ORIGIN, NOTHING_IS_STALE), id="claim_start"
-    ),
+    pytest.param(lambda store: store.claim_resume(RunResumed(reason=None), _ctx(), ORIGIN), id="claim_resume"),
+    pytest.param(lambda store: store.claim_start(_started(), _ctx(), ORIGIN, NOTHING_IS_STALE), id="claim_start"),
 ]
 
 
@@ -105,21 +102,22 @@ async def test_two_clients_settle_a_resume_claim_on_one_winner(keyspace: tuple[s
     """Repeated, because a lost ``WATCH`` shows up as an occasional second winner rather than
     a consistent one."""
     url, prefix = keyspace
-    ctx = _ctx()
     for trial in range(10):
-        log_key = f"s-{trial}"
+        # A fresh run per trial, not just a fresh session: a run's events are keyed by the run
+        # now, so reusing one id would have each trial resume the previous trial's run.
+        ctx = _ctx(run_id=f"r-{trial}", session_id=f"s-{trial}")
         seeder = RedisEventStore(url, prefix=prefix)
-        await seeder.append(log_key, [_started(), _interrupted()], ctx, ORIGIN)
+        await seeder.append([_started(), _interrupted()], ctx, ORIGIN)
         await seeder.aclose()
 
         first, second = RedisEventStore(url, prefix=prefix), RedisEventStore(url, prefix=prefix)
         try:
             outcomes = await asyncio.gather(
-                first.claim_resume(log_key, "r-1", RunResumed(reason=None), ctx, ORIGIN),
-                second.claim_resume(log_key, "r-1", RunResumed(reason=None), ctx, ORIGIN),
+                first.claim_resume(RunResumed(reason=None), ctx, ORIGIN),
+                second.claim_resume(RunResumed(reason=None), ctx, ORIGIN),
             )
             assert [event is not None for event in outcomes].count(True) == 1, f"trial {trial}: {outcomes}"
-            stored = await first.read_run(log_key, "r-1", ctx)
+            stored = await first.read_run(ctx)
         finally:
             await first.aclose()
             await second.aclose()
@@ -133,18 +131,14 @@ async def test_two_clients_settle_a_session_claim_on_one_winner(keyspace: tuple[
     one ``run.started`` may land in the log."""
     url, prefix = keyspace
     for trial in range(10):
-        log_key = f"s-{trial}"
+        session_id = f"s-{trial}"
         first, second = RedisEventStore(url, prefix=prefix), RedisEventStore(url, prefix=prefix)
         try:
             outcomes = await asyncio.gather(
-                first.claim_start(
-                    log_key, _started(), _ctx(session_id=log_key, run_id="r-a"), ORIGIN, NOTHING_IS_STALE
-                ),
-                second.claim_start(
-                    log_key, _started(), _ctx(session_id=log_key, run_id="r-b"), ORIGIN, NOTHING_IS_STALE
-                ),
+                first.claim_start(_started(), _ctx(session_id=session_id, run_id="r-a"), ORIGIN, NOTHING_IS_STALE),
+                second.claim_start(_started(), _ctx(session_id=session_id, run_id="r-b"), ORIGIN, NOTHING_IS_STALE),
             )
-            stored = await first.read(log_key, _ctx(session_id=log_key))
+            stored = await first.read_session(_ctx(session_id=session_id))
         finally:
             await first.aclose()
             await second.aclose()
@@ -167,11 +161,11 @@ async def test_a_colon_in_a_namespace_cannot_reach_into_another_namespaces_log(k
     try:
         outer = RunContext(namespace="acme:x", run_id="r-1", session_id="s", key="order-1234")
         inner = _ctx(namespace="acme", session_id="x:s")
-        await store.claim_start("s", _started(), outer, ORIGIN, NOTHING_IS_STALE)
+        await store.claim_start(_started(), outer, ORIGIN, NOTHING_IS_STALE)
 
-        assert [event.namespace for event in await store.read("s", outer)] == ["acme:x"]
-        assert await store.read("x:s", inner) == []
-        assert await store.read_run("x:s", "r-1", inner) == []
+        assert [event.namespace for event in await store.read_session(outer)] == ["acme:x"]
+        assert await store.read_session(inner) == []
+        assert await store.read_run(replace(inner, run_id="r-1")) == []
         assert await store.list_runs(inner) == []
         assert await store.find_by_key(inner, "order-1234") is None
     finally:
@@ -193,8 +187,8 @@ async def test_the_log_keeps_to_its_prefix_and_leaves_the_engines_session_keys_a
         # Diffed rather than listed absolutely: a dev's own server may hold anything else,
         # and what this asserts is that the log added nothing outside its prefix.
         before = {key async for key in admin.scan_iter(match="*")}
-        await store.claim_start("s-1", _started(), _ctx(), ORIGIN, NOTHING_IS_STALE)
-        await store.append("s-1", [_interrupted()], _ctx(), ORIGIN)
+        await store.claim_start(_started(), _ctx(), ORIGIN, NOTHING_IS_STALE)
+        await store.append([_interrupted()], _ctx(), ORIGIN)
         added = {key async for key in admin.scan_iter(match="*")} - before
 
         assert added, "the log wrote nothing at all"

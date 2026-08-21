@@ -146,9 +146,7 @@ async def test_a_stale_resumed_tail_from_an_abandoned_run_does_not_leak_into_a_f
     # ``ctx_a`` is rebuilt onto the run's own real id (#324 minted it, so "r-a" was never it) --
     # everything else about the context (namespace, session) is unchanged.
     ctx_a = replace(ctx_a, run_id=started_a.run_id)
-    resumed_event = await store.claim_resume(
-        ctx_a.log_key, ctx_a.run_id, RunResumed(reason=None, value=None), ctx_a, spec.name
-    )
+    resumed_event = await store.claim_resume(RunResumed(reason=None, value=None), ctx_a, spec.name)
     assert resumed_event is not None
 
     # A fresh run B starts on the same session -- its own input, its own run_id.

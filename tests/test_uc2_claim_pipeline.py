@@ -129,7 +129,7 @@ async def test_uc2_claim_pipeline_survives_a_restart(tmp_path: Any) -> None:
     # "restart": brand-new Runtime, store and engine, reading only the two files on disk.
     runtime2, store2 = _runtime(db_path, checkpoint_path)
     status_ctx = RunContext(run_id="n/a", session_id=SESSION_ID)
-    assert status_of(await store2.read(status_ctx.log_key, status_ctx)) is RunStatus.WAITING_ANSWER
+    assert status_of(await store2.read_session(status_ctx)) is RunStatus.WAITING_ANSWER
 
     workflow_app = build_workflow_app(runtime2)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=workflow_app), base_url="http://test") as client2:
@@ -150,7 +150,7 @@ async def test_uc2_claim_pipeline_survives_a_restart(tmp_path: Any) -> None:
     assert check_terminal(whole) is None
     assert check_contiguous(whole) == []
     assert [event.seq for event in whole] == list(range(len(whole)))  # contiguous across the restart, no reset
-    assert await store2.read(status_ctx.log_key, status_ctx) == whole  # one coherent story, no duplicates
+    assert await store2.read_session(status_ctx) == whole  # one coherent story, no duplicates
 
     node_updates = [event.payload.node for event in whole if event.kind == "node.updated"]
     assert node_updates == ["validate", "approve"]  # validate did not re-run after the restart
@@ -302,7 +302,7 @@ def test_uc2_claim_pipeline_survives_a_real_process_restart(tmp_path: Any) -> No
     ctx = RunContext(run_id="n/a", session_id="s1")
 
     async def _read_thread_id_and_run_id() -> tuple[str, str]:
-        history = await store.read(ctx.log_key, ctx)
+        history = await store.read_session(ctx)
         assert status_of(history) is RunStatus.WAITING_ANSWER
         interrupted = next(event for event in history if event.kind == "run.interrupted")
         assert interrupted.payload.thread_id is not None
@@ -358,7 +358,7 @@ def test_two_processes_resuming_one_interrupt_produce_exactly_one_winner(tmp_pat
     ctx = RunContext(run_id="n/a", session_id=SESSION_ID)
 
     async def _read_thread_id_and_run_id() -> tuple[str, str]:
-        history = await store.read(ctx.log_key, ctx)
+        history = await store.read_session(ctx)
         interrupted = next(event for event in history if event.kind == "run.interrupted")
         assert interrupted.payload.thread_id is not None
         return interrupted.payload.thread_id, history[0].run_id
@@ -397,7 +397,7 @@ def test_two_processes_resuming_one_interrupt_produce_exactly_one_winner(tmp_pat
     reopened = SqliteEventStore(db_path)
 
     async def _read_log() -> list[Any]:
-        return await reopened.read(ctx.log_key, ctx)
+        return await reopened.read_session(ctx)
 
     logged = asyncio.run(_read_log())
     kinds = [event.kind for event in logged]

@@ -111,4 +111,4 @@ def test_key_defaults_to_none_and_plays_no_part_in_id_or_log_key() -> None:
 
     keyed = RunContext(run_id="r-1", session_id="s-1", key="order-1234")
     assert keyed.id == ctx.id
-    assert keyed.log_key == ctx.log_key
+    assert keyed.session_id == ctx.session_id

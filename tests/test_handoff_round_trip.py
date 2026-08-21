@@ -94,7 +94,7 @@ async def test_a_handoff_cycle_returns_control_and_completes_with_the_final_agen
         deck.build()
         async with deck:
             events = [event async for event in deck.stream("Alpha", "start the cycle", session_id="s1")]
-            stored = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+            stored = await deck._runtime.store.read_session(_reader_ctx("s1"))
 
     # --- each agent was offered its own transfer tool, and only its own -------------------
     assert _tool_names(received[0]) == {"transfer_to_beta"}  # Alpha's turn: only Beta to hand to

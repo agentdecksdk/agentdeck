@@ -98,46 +98,26 @@ class PostgresEventStore(EventStorePort):
         self._lock = asyncio.Lock()
         self._setup_key = _advisory_key(f"agentdeck:events:setup:{schema}")
         table = sql.Identifier(schema, "events")
-        # Composed once: the schema name is an identifier, so it is quoted by psycopg
-        # rather than interpolated  -  a schema is caller-supplied configuration.
-        events_by_run = sql.Identifier(schema, "events_by_run")
         self._ddl = (
             sql.SQL("CREATE SCHEMA IF NOT EXISTS {schema}").format(schema=sql.Identifier(schema)),
             sql.SQL(
                 "CREATE TABLE IF NOT EXISTS {table} ("
                 " id BIGSERIAL PRIMARY KEY,"
                 " namespace TEXT NOT NULL,"
-                " log_key TEXT NOT NULL,"
+                " session_id TEXT,"
                 " run_id TEXT NOT NULL,"
                 " key TEXT,"
                 " seq INTEGER NOT NULL,"
                 " data JSONB NOT NULL)"
             ).format(table=table),
-            # Additive migration for a schema an earlier build already created: `key` did not
-            # exist before #324, and Postgres's own `IF NOT EXISTS` makes adding it a no-op on a
-            # database that already has it (this build's own fresh-created one included).
-            sql.SQL("ALTER TABLE {table} ADD COLUMN IF NOT EXISTS key TEXT").format(table=table),
-            sql.SQL("CREATE INDEX IF NOT EXISTS events_by_log ON {table} (namespace, log_key, id)").format(table=table),
-            # `events_by_run` is dropped and rebuilt on every open rather than guarded with
-            # `IF NOT EXISTS`: an earlier build's index of the same name is scoped to
-            # `(namespace, log_key, run_id, seq)`, which lets one run_id+seq exist under two log
-            # keys  -  "one logical run split across two logs", the defect #324 closes. Same name,
-            # different columns, so `IF NOT EXISTS` would find the name taken and leave the old,
-            # looser shape in place. Harmless to repeat on a database already at this shape. If
-            # existing rows genuinely violate the tighter constraint, the CREATE below fails and
-            # the `StoreError` it raises names the underlying conflict rather than picking a
-            # survivor silently.
-            sql.SQL("DROP INDEX IF EXISTS {index}").format(index=events_by_run),
+            sql.SQL("CREATE INDEX IF NOT EXISTS events_by_session ON {table} (namespace, session_id, id)").format(
+                table=table
+            ),
             # UNIQUE is the guard, not just the index: one seq per run is the promise consumers
             # refetch a gap with, and a duplicate is the one corruption a gap check cannot see.
             sql.SQL("CREATE UNIQUE INDEX IF NOT EXISTS events_by_run ON {table} (namespace, run_id, seq)").format(
                 table=table
             ),
-            # `events_by_run_id` existed only for `locate`'s "which log holds this run_id"
-            # query, which #322 removed with no caller left for it  -  a schema an earlier build
-            # already created drops it too, rather than carrying an index nothing queries
-            # through for good.
-            sql.SQL("DROP INDEX IF EXISTS {index}").format(index=sql.Identifier(schema, "events_by_run_id")),
             # `(namespace, key)`'s enforcement, partial so unkeyed rows  -  every row but a run's
             # own opening one  -  never compete for the constraint.
             sql.SQL(
@@ -145,34 +125,34 @@ class PostgresEventStore(EventStorePort):
             ).format(table=table),
         )
         self._insert = sql.SQL(
-            "INSERT INTO {table} (namespace, log_key, run_id, key, seq, data) VALUES (%s, %s, %s, %s, %s, %s::jsonb)"
+            "INSERT INTO {table} (namespace, session_id, run_id, key, seq, data) VALUES (%s, %s, %s, %s, %s, %s::jsonb)"
         ).format(table=table)
-        self._select_log = sql.SQL(
-            "SELECT data FROM {table} WHERE namespace = %s AND log_key = %s ORDER BY id ASC LIMIT %s OFFSET %s"
+        self._select_session = sql.SQL(
+            "SELECT data FROM {table} WHERE namespace = %s AND session_id = %s ORDER BY id ASC LIMIT %s OFFSET %s"
         ).format(table=table)
         self._select_run = sql.SQL(
-            "SELECT data FROM {table} WHERE namespace = %s AND log_key = %s AND run_id = %s AND seq >= %s ORDER BY id ASC"
+            "SELECT data FROM {table} WHERE namespace = %s AND run_id = %s AND seq >= %s ORDER BY id ASC"
         ).format(table=table)
-        self._select_last_seq = sql.SQL(
-            "SELECT MAX(seq) FROM {table} WHERE namespace = %s AND log_key = %s AND run_id = %s"
-        ).format(table=table)
+        self._select_last_seq = sql.SQL("SELECT MAX(seq) FROM {table} WHERE namespace = %s AND run_id = %s").format(
+            table=table
+        )
         # DISTINCT ON is Postgres's version of the SQLite store's MAX(id) group-by: the
         # newest lifecycle row of each run, one row per run, one statement.
         self._select_last_lifecycle = sql.SQL(
-            "SELECT DISTINCT ON (log_key, run_id) log_key, run_id, data FROM {table} "
-            "WHERE namespace = %s AND data->>'kind' = ANY(%s) ORDER BY log_key, run_id, id DESC"
+            "SELECT DISTINCT ON (run_id) session_id, run_id, data FROM {table} "
+            "WHERE namespace = %s AND data->>'kind' = ANY(%s) ORDER BY run_id, id DESC"
         ).format(table=table)
         self._select_run_lifecycle = sql.SQL(
-            "SELECT data FROM {table} WHERE namespace = %s AND log_key = %s AND run_id = %s "
+            "SELECT data FROM {table} WHERE namespace = %s AND run_id = %s "
             "AND data->>'kind' = ANY(%s) ORDER BY id DESC LIMIT 1"
         ).format(table=table)
-        self._select_log_lifecycle = sql.SQL(
+        self._select_session_lifecycle = sql.SQL(
             "SELECT DISTINCT ON (run_id) run_id, data FROM {table} "
-            "WHERE namespace = %s AND log_key = %s AND data->>'kind' = ANY(%s) ORDER BY run_id, id DESC"
+            "WHERE namespace = %s AND session_id = %s AND data->>'kind' = ANY(%s) ORDER BY run_id, id DESC"
         ).format(table=table)
         self._select_last_events = sql.SQL(
             "SELECT DISTINCT ON (run_id) run_id, data FROM {table} "
-            "WHERE namespace = %s AND log_key = %s AND run_id = ANY(%s) ORDER BY run_id, id DESC"
+            "WHERE namespace = %s AND run_id = ANY(%s) ORDER BY run_id, id DESC"
         ).format(table=table)
         # `events_by_key` is a unique index over exactly these two columns, so this is the
         # index's own lookup rather than a scan  -  the same query the INSERT it guards runs
@@ -194,6 +174,27 @@ class PostgresEventStore(EventStorePort):
                     self._conn = None
                 raise StoreError(f"event log {op} failed: {exc}") from exc
 
+    async def _reject_legacy_schema(self, conn: Connection) -> None:
+        """Refuse a schema agentdeck 4.x wrote, rather than guess how to carry it forward.
+
+        Every 4.x ``events`` table has a ``log_key`` column, whatever sub-version wrote it: the
+        field 5.0 replaced with a nullable ``session_id`` because one string could not tell a
+        session named after a run from that run itself. A schema with no ``events`` table yet
+        has nothing to check.
+        """
+        cursor = await conn.execute(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_schema = %s AND table_name = 'events' AND column_name = 'log_key'",
+            (self._schema,),
+        )
+        if await cursor.fetchone() is not None:
+            raise StoreError(
+                f"the event log in schema {self._schema!r} was written by agentdeck 4.x (its "
+                "'events' table still has the 'log_key' column 5.0 replaced with 'session_id'). "
+                "agentdeck 5.0 does not migrate a 4.x log: replay it into a new store, or reopen "
+                "it with the 4.x version that wrote it."
+            )
+
     async def _ready(self) -> Connection:
         """Connect and create the schema on first use  -  never at construction, so building
         this store is not I/O and a composition root can wire one without a live server."""
@@ -208,6 +209,7 @@ class PostgresEventStore(EventStorePort):
                 # a duplicate-object error rather than the table it asked for.
                 await conn.execute("SELECT pg_advisory_lock(%s)", (self._setup_key,))
                 try:
+                    await self._reject_legacy_schema(conn)
                     for statement in self._ddl:
                         await conn.execute(statement)
                 finally:
@@ -218,7 +220,7 @@ class PostgresEventStore(EventStorePort):
             self._conn = conn
         return self._conn
 
-    async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+    async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
         """Writes take the log's lock, for the port's paging guarantee and now for ``seq``.
 
         Row order is `BIGSERIAL`, assigned at insert and published at commit, so an
@@ -234,25 +236,28 @@ class PostgresEventStore(EventStorePort):
 
         async def _work(conn: Connection) -> list[Event]:
             async with conn.transaction():
-                await self._lock_log(conn, ctx.namespace_key, log_key)
-                return await self._stamp_and_insert(conn, log_key, list(payloads), ctx, origin)
+                await self._lock_stream(conn, ctx)
+                return await self._stamp_and_insert(conn, list(payloads), ctx, origin)
 
         return await self._run(_work, "append")
 
-    async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
+    async def read_session(self, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
         if limit is not None and limit < 0:
             raise ValueError(f"limit must be None or >= 0, got {limit}")
+        if ctx.session_id is None:
+            return []
+        session_id = ctx.session_id
 
         async def _work(conn: Connection) -> list[dict[str, Any]]:
             # LIMIT NULL is Postgres for "no limit", which is what the port's None means.
-            cursor = await conn.execute(self._select_log, (ctx.namespace_key, log_key, limit, max(offset, 0)))
+            cursor = await conn.execute(self._select_session, (ctx.namespace_key, session_id, limit, max(offset, 0)))
             return [row[0] for row in await cursor.fetchall()]
 
-        return [Event.model_validate(data) for data in await self._run(_work, "read")]
+        return [Event.model_validate(data) for data in await self._run(_work, "read_session")]
 
-    async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
+    async def read_run(self, ctx: RunContext, from_seq: int = 0) -> list[Event]:
         async def _work(conn: Connection) -> list[dict[str, Any]]:
-            cursor = await conn.execute(self._select_run, (ctx.namespace_key, log_key, run_id, from_seq))
+            cursor = await conn.execute(self._select_run, (ctx.namespace_key, ctx.run_id, from_seq))
             return [row[0] for row in await cursor.fetchall()]
 
         return [Event.model_validate(data) for data in await self._run(_work, "read_run")]
@@ -260,7 +265,6 @@ class PostgresEventStore(EventStorePort):
     async def _stamp_and_insert(
         self,
         conn: Connection,
-        log_key: str,
         payloads: list[KnownPayload],
         ctx: RunContext,
         origin: str,
@@ -279,7 +283,7 @@ class PostgresEventStore(EventStorePort):
         """
         cursor = await conn.execute(_SELECT_NOW)
         now = (await cursor.fetchone())[0]  # ty: ignore[not-subscriptable]  -  one-row scalar select
-        seq = await self._last_seq(conn, ctx.namespace_key, log_key, ctx.run_id)
+        seq = await self._last_seq(conn, ctx.namespace_key, ctx.run_id)
         events = []
         for payload in payloads:
             seq += 1
@@ -297,16 +301,12 @@ class PostgresEventStore(EventStorePort):
             )
         await conn.cursor().executemany(
             self._insert,
-            [
-                _row(ctx.namespace_key, log_key, event, key if index == 0 else None)
-                for index, event in enumerate(events)
-            ],
+            [_row(ctx.namespace_key, event, key if index == 0 else None) for index, event in enumerate(events)],
         )
         return events
 
     async def claim_start(
         self,
-        log_key: str,
         opening: RunStarted,
         ctx: RunContext,
         origin: str,
@@ -322,18 +322,18 @@ class PostgresEventStore(EventStorePort):
         because that is a store nobody can write to rather than a session somebody took.
 
         Also adopts ``ctx.key`` when one is given, enforced by ``events_by_key`` rather than a
-        read here: the advisory lock above is per ``(namespace, log_key)``, but a key is a
+        read here: the advisory lock above is per stream, but a key is a
         namespace-wide claim two different sessions could race on, so the unique index  -  not
         this lock  -  is what two servers actually agree through for it.
         """
 
         async def _work(conn: Connection) -> tuple[SessionClaim, Event | None]:
             async with conn.transaction():
-                await self._lock_log(conn, ctx.namespace_key, log_key)
+                await self._lock_stream(conn, ctx)
                 cursor = await conn.execute(_SELECT_NOW)
                 stale_before = (await cursor.fetchone())[0] - stale_after  # ty: ignore[not-subscriptable]
                 overridden: list[Event] = []
-                for _run_id, status, last in await self._open_runs(conn, ctx.namespace_key, log_key):
+                for _run_id, status, last in await self._open_runs(conn, ctx.namespace_key, ctx.session_id):
                     if STATES[status].suspended:
                         # No worker to be dead: PAUSED and WAITING_ANSWER have no engine polling
                         # a clock, so silence is not evidence of anything and neither the timer
@@ -344,7 +344,7 @@ class PostgresEventStore(EventStorePort):
                         return SessionClaim(held_by=last.run_id), None
                     overridden.append(last)
                 try:
-                    event = (await self._stamp_and_insert(conn, log_key, [opening], ctx, origin, key=ctx.key))[0]
+                    event = (await self._stamp_and_insert(conn, [opening], ctx, origin, key=ctx.key))[0]
                 except pg_errors.UniqueViolation as exc:
                     if ctx.key is not None:
                         raise DuplicateKeyError(
@@ -366,9 +366,7 @@ class PostgresEventStore(EventStorePort):
                 f"key {ctx.key!r} is already used by run {holder!r} in namespace {ctx.namespace!r}"
             ) from None
 
-    async def claim_resume(
-        self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
-    ) -> Event | None:
+    async def claim_resume(self, resumed: RunResumed, ctx: RunContext, origin: str) -> Event | None:
         """The port's conditional append as one transaction holding this log's advisory
         lock: the lock is taken before the read, so a peer cannot resume the same run in
         the gap between this caller's check and its insert.
@@ -377,16 +375,14 @@ class PostgresEventStore(EventStorePort):
         published. Only an unreachable store or a lock held past ``lock_timeout`` raises,
         never a fabricated ``None``.
         """
-        if ctx.run_id != run_id:
-            raise ValueError(f"a claim on run {run_id!r} cannot be made in the context of {ctx.run_id!r}")
 
         async def _work(conn: Connection) -> Event | None:
             async with conn.transaction():
-                await self._lock_log(conn, ctx.namespace_key, log_key)
-                last = await self._last_lifecycle_of_run(conn, ctx.namespace_key, log_key, run_id)
+                await self._lock_stream(conn, ctx)
+                last = await self._last_lifecycle_of_run(conn, ctx.namespace_key, ctx.run_id)
                 if not can_resume(status_of([last] if last is not None else [])):
                     return None
-                return (await self._stamp_and_insert(conn, log_key, [resumed], ctx, origin))[0]
+                return (await self._stamp_and_insert(conn, [resumed], ctx, origin))[0]
 
         return await self._run(_work, "claim_resume")
 
@@ -406,8 +402,8 @@ class PostgresEventStore(EventStorePort):
         # folds to a status. It is what narrows ``status_of``'s ``None``  -  the "no transition at
         # all" answer, which a run found by this query cannot give.
         summaries = [
-            RunSummary(log_key=log_key, run_id=run_id, status=folded)
-            for log_key, run_id, data in await self._run(_work, "list_runs")
+            RunSummary(run_id=run_id, session_id=session_id, status=folded)
+            for session_id, run_id, data in await self._run(_work, "list_runs")
             if (folded := status_of([Event.model_validate(data)])) is not None
         ]
         filtered = [summary for summary in summaries if status is None or summary.status is status]
@@ -421,34 +417,40 @@ class PostgresEventStore(EventStorePort):
 
         return await self._run(_work, "find_by_key")
 
-    async def _lock_log(self, conn: Connection, namespace: str, log_key: str) -> None:
+    async def _lock_stream(self, conn: Connection, ctx: RunContext) -> None:
         """Serialize this log's writes, and bound the wait.
 
-        The lock is per (namespace, log key) and transaction-scoped, so it is released by the
+        The lock is per (namespace, stream) and transaction-scoped, so it is released by the
         commit that publishes the write and never outlives a crashed worker. It is taken
         before any read the decision depends on, which is the whole point: a lock acquired
         afterwards would leave the same check-then-write window a plain read has.
         """
         await conn.execute("SELECT set_config('lock_timeout', %s, true)", (f"{_LOCK_TIMEOUT_MS}ms",))
-        await conn.execute("SELECT pg_advisory_xact_lock(%s)", (_advisory_key(f"{namespace}\x00{log_key}"),))
+        # The stream a write extends: the conversation when there is one, the run itself when
+        # there is not. A lock name, never stored  -  what it serializes is appends to one stream,
+        # and a standalone run is a stream of one.
+        stream = ctx.session_id or ctx.run_id
+        await conn.execute("SELECT pg_advisory_xact_lock(%s)", (_advisory_key(f"{ctx.namespace_key}\x00{stream}"),))
 
-    async def _last_seq(self, conn: Connection, namespace: str, log_key: str, run_id: str) -> int:
-        cursor = await conn.execute(self._select_last_seq, (namespace, log_key, run_id))
+    async def _last_seq(self, conn: Connection, namespace: str, run_id: str) -> int:
+        cursor = await conn.execute(self._select_last_seq, (namespace, run_id))
         row = await cursor.fetchone()
         return row[0] if row is not None and row[0] is not None else -1
 
-    async def _last_lifecycle_of_run(self, conn: Connection, namespace: str, log_key: str, run_id: str) -> Event | None:
-        cursor = await conn.execute(self._select_run_lifecycle, (namespace, log_key, run_id, _SORTED_LIFECYCLE_KINDS))
+    async def _last_lifecycle_of_run(self, conn: Connection, namespace: str, run_id: str) -> Event | None:
+        cursor = await conn.execute(self._select_run_lifecycle, (namespace, run_id, _SORTED_LIFECYCLE_KINDS))
         row = await cursor.fetchone()
         return Event.model_validate(row[0]) if row is not None else None
 
-    async def _open_runs(self, conn: Connection, namespace: str, log_key: str) -> list[tuple[str, RunStatus, Event]]:
+    async def _open_runs(
+        self, conn: Connection, namespace: str, session_id: str | None
+    ) -> list[tuple[str, RunStatus, Event]]:
         """Every run in this log that has recorded a transition but not a terminal one,
         paired with its own status and its own last event  -  whatever kind  -  because that
         event is the run's last sign of life, and silence is all that separates an abandoned
         run from a working one.
         """
-        cursor = await conn.execute(self._select_log_lifecycle, (namespace, log_key, _SORTED_LIFECYCLE_KINDS))
+        cursor = await conn.execute(self._select_session_lifecycle, (namespace, session_id, _SORTED_LIFECYCLE_KINDS))
         open_runs = [
             (row[0], status)
             for row in await cursor.fetchall()
@@ -457,7 +459,7 @@ class PostgresEventStore(EventStorePort):
         if not open_runs:
             return []
         run_ids = [run_id for run_id, _ in open_runs]
-        cursor = await conn.execute(self._select_last_events, (namespace, log_key, run_ids))
+        cursor = await conn.execute(self._select_last_events, (namespace, run_ids))
         last_events = {row[0]: Event.model_validate(row[1]) for row in await cursor.fetchall()}
         return [(run_id, status, last_events[run_id]) for run_id, status in open_runs]
 
@@ -469,8 +471,8 @@ class PostgresEventStore(EventStorePort):
             raise StoreError(f"closing the event log failed: {exc}") from exc
 
 
-def _row(namespace: str, log_key: str, event: Event, key: str | None) -> tuple[str, str, str, str | None, int, str]:
-    return (namespace, log_key, event.run_id, key, event.seq, event.model_dump_json())
+def _row(namespace: str, event: Event, key: str | None) -> tuple[str, str | None, str, str | None, int, str]:
+    return (namespace, event.session_id, event.run_id, key, event.seq, event.model_dump_json())
 
 
 __all__ = ["PostgresEventStore"]

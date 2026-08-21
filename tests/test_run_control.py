@@ -289,7 +289,7 @@ async def test_a_pause_signalled_mid_stream_lands_after_the_chunk_that_was_in_fl
     ], _kinds(events)
     assert [event.payload.text for event in events if event.kind == "text.delta"] == ["one "]
     assert model.calls == 1  # no further model step was taken
-    assert status_of(await store.read(ctx.log_key, ctx)) is RunStatus.PAUSED
+    assert status_of(await store.read_session(ctx)) is RunStatus.PAUSED
 
 
 async def test_a_pause_during_a_tool_call_waits_for_the_call_to_return() -> None:
@@ -339,7 +339,7 @@ async def test_a_pause_during_a_tool_call_waits_for_the_call_to_return() -> None
     # tool authors to tolerate it, and why `ctx.idempotency_key` exists.
     assert calls == ["slow_lookup", "slow_lookup"]
     assert _kinds(resumed)[-1] == "run.completed"
-    assert check_contiguous(await store.read(ctx.log_key, ctx)) == []
+    assert check_contiguous(await store.read_session(ctx)) == []
 
 
 async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None:
@@ -370,7 +370,7 @@ async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None
 
     hold.set()  # the replayed turn must not stall on the pause fixture's own gate
     resumed = [event async for event in runtime.resume_run(started.run_id, namespace=ctx.namespace)]
-    log = await store.read(ctx.log_key, ctx)
+    log = await store.read_session(ctx)
 
     assert _kinds(paused)[-1] == "run.paused"
     assert _kinds(resumed)[0] == "run.resumed"
@@ -515,11 +515,11 @@ async def test_resuming_a_run_that_is_not_paused_is_a_noop() -> None:
         async for event in runtime.run("Chatty", coerce_input("hi"), session_id=ctx.session_id, namespace=ctx.namespace)
     ]
     run_id = completed[0].run_id
-    before = await store.read(ctx.log_key, ctx)
+    before = await store.read_session(ctx)
 
     assert [event async for event in runtime.resume_run(run_id, namespace=ctx.namespace)] == []
     assert [event async for event in runtime.resume_run("never-heard-of-it", namespace=ctx.namespace)] == []
-    assert await store.read(ctx.log_key, ctx) == before
+    assert await store.read_session(ctx) == before
     assert _kinds(completed)[-1] == "run.completed"
 
 

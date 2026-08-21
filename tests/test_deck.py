@@ -11,6 +11,7 @@ import json
 import socket
 import sys
 import textwrap
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -26,6 +27,7 @@ from agentdeck.authoring.timers import sleep_until
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext, ToolCtx  # noqa: TC001  -  the node below resolves it at runtime
 from agentdeck.core.control import Signal
+from agentdeck.core.events import RunStarted
 from agentdeck.core.status import RunStatus
 from agentdeck.deck import Deck, TurnResult, _new_context, _turn_result
 from agentdeck.errors import (
@@ -952,7 +954,7 @@ async def test_run_is_recorded_and_returns_a_turn_result(no_project, scripted):
         result = await deck.run("Greeter", "hello")
         assert result.output == "hi"
         assert result.session_id is None
-        events = await deck._runtime.store.read(result.run_id, _reader_ctx(None))
+        events = await deck._runtime.store.read_run(replace(_reader_ctx(None), run_id=result.run_id))
 
     assert [event.kind for event in events] == [
         "run.started",
@@ -971,7 +973,7 @@ async def test_run_with_a_session_id_is_recorded_and_returns_a_turn_result(no_pr
         result = await deck.run("Greeter", "hello", session_id="s1")
         assert result.output == "hi"
         assert result.session_id == "s1"
-        events = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+        events = await deck._runtime.store.read_session(_reader_ctx("s1"))
 
     assert [event.kind for event in events] == [
         "run.started",
@@ -992,7 +994,7 @@ async def test_a_failed_run_still_leaves_run_failed_in_the_log(no_project):
         async with deck:
             with pytest.raises(RuntimeError, match="boom"):
                 await deck.run("Greeter", "hello", session_id="s1")
-            events = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+            events = await deck._runtime.store.read_session(_reader_ctx("s1"))
 
     assert [event.kind for event in events] == ["run.started", "text.delta", "run.failed"]
 
@@ -1037,7 +1039,7 @@ async def test_stream_yields_canonical_events_and_is_recorded(no_project):
 
             # the stream itself already recorded every one of those events; store.read proves it
             # rather than the caller having to trust stream's own bookkeeping
-            stored = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+            stored = await deck._runtime.store.read_session(_reader_ctx("s1"))
 
     assert [event.kind for event in stored] == [event.kind for event in events]
 
@@ -1064,7 +1066,7 @@ async def test_an_abandoned_stream_leaves_execution_running_to_completion(no_pro
             task = deck._executions.get(first.run_id)
             if task is not None:
                 await task
-            events = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+            events = await deck._runtime.store.read_session(_reader_ctx("s1"))
 
     assert (first.kind, second.kind) == ("run.started", "text.delta")
     assert [event.kind for event in events] == [
@@ -1097,15 +1099,15 @@ async def test_two_observers_of_one_run_both_see_every_event_and_it_executes_onc
             opening, task = await deck._start("Greeter", coerce_input("hello"), session_id="s1")
             ctx = RunContext(run_id=opening.run_id, session_id=opening.session_id, namespace=opening.namespace)
 
-            watcher_a = asyncio.create_task(_collect(deck._events(opening.run_id, ctx.log_key, ctx)))
-            watcher_b = asyncio.create_task(_collect(deck._events(opening.run_id, ctx.log_key, ctx)))
+            watcher_a = asyncio.create_task(_collect(deck._events(ctx)))
+            watcher_b = asyncio.create_task(_collect(deck._events(ctx)))
             # Caught mid-turn, inside its own await for the next event  -  the same window a
             # second observer would attach in for real  -  before letting it finish.
             await model.holding.wait()
             hold.set()
             events_a, events_b = await asyncio.gather(watcher_a, watcher_b)
             await task
-            logged = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+            logged = await deck._runtime.store.read_session(_reader_ctx("s1"))
 
     expected = ["run.started", "text.delta", "text.delta", "usage.reported", "message.completed", "run.completed"]
     assert [e.kind for e in events_a] == expected
@@ -1121,7 +1123,7 @@ async def test_events_replay_in_full_for_a_run_that_already_finished(no_project,
     async with deck:
         result = await deck.run("Greeter", "hello", session_id="s1")
         ctx = RunContext(run_id=result.run_id, session_id="s1")
-        replayed = [event async for event in deck._events(result.run_id, "s1", ctx)]
+        replayed = [event async for event in deck._events(replace(ctx, run_id=result.run_id))]
 
     assert [e.kind for e in replayed] == [
         "run.started",
@@ -1139,7 +1141,7 @@ async def test_a_second_handle_awaits_the_same_result_as_the_first(no_project, s
     async with deck:
         result = await deck.run("Greeter", "hello", session_id="s1")
         ctx = RunContext(run_id=result.run_id, session_id="s1")
-        second = await _turn_result(deck._events(result.run_id, "s1", ctx))
+        second = await _turn_result(deck._events(replace(ctx, run_id=result.run_id)))
 
     assert second == result
 
@@ -1158,7 +1160,7 @@ async def test_a_run_recovered_by_another_deck_can_be_observed_and_awaited(no_pr
     async with deck_b:
         assert deck_b._executions == {}  # this "process" never started the run
         ctx = RunContext(run_id=result.run_id, session_id="s1")
-        recovered = await _turn_result(deck_b._events(result.run_id, "s1", ctx))
+        recovered = await _turn_result(deck_b._events(replace(ctx, run_id=result.run_id)))
 
     assert recovered == result
 
@@ -1236,13 +1238,13 @@ async def test_deck_run_and_start_then_await_produce_identical_logs(no_project, 
 
     async with deck:
         via_run = await deck.run("Greeter", "hello", session_id="s1")
-        logged_via_run = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+        logged_via_run = await deck._runtime.store.read_session(_reader_ctx("s1"))
 
         opening, task = await deck._start("Greeter", coerce_input("hello"), session_id="s2")
         await task
         ctx = RunContext(run_id=opening.run_id, session_id="s2")
-        via_start = await _turn_result(deck._events(opening.run_id, "s2", ctx))
-        logged_via_start = await deck._runtime.store.read("s2", _reader_ctx("s2"))
+        via_start = await _turn_result(deck._events(replace(ctx, run_id=opening.run_id)))
+        logged_via_start = await deck._runtime.store.read_session(_reader_ctx("s2"))
 
     assert [e.kind for e in logged_via_run] == [e.kind for e in logged_via_start]
     assert via_run.output == via_start.output
@@ -1279,7 +1281,7 @@ async def test_closing_a_deck_cancels_a_run_still_in_flight_and_says_so(no_proje
 
     assert "run %s was cancelled" not in caplog.text  # the format string, not the rendered line
     assert f"run {opening.run_id} was cancelled" in caplog.text
-    events = await deck._runtime.store.read("s1", RunContext(run_id="reader", session_id="s1"))
+    events = await deck._runtime.store.read_session(RunContext(run_id="reader", session_id="s1"))
     assert [e.kind for e in events][-1] == "run.cancelled"
 
 
@@ -1380,11 +1382,11 @@ async def test_deck_run_and_runs_start_then_await_produce_identical_logs(no_proj
 
     async with deck:
         via_run = await deck.run("Greeter", "hello", session_id="s1")
-        logged_via_run = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+        logged_via_run = await deck._runtime.store.read_session(_reader_ctx("s1"))
 
         run = await deck.runs.start("Greeter", "hello", session_id="s2")
         via_start = await run
-        logged_via_start = await deck._runtime.store.read("s2", _reader_ctx("s2"))
+        logged_via_start = await deck._runtime.store.read_session(_reader_ctx("s2"))
 
     assert [e.kind for e in logged_via_run] == [e.kind for e in logged_via_start]
     assert via_run.output == via_start.output
@@ -1431,6 +1433,41 @@ async def test_starting_on_a_session_held_waiting_answer_raises_session_busy(no_
         assert await parked.status() is RunStatus.WAITING_ANSWER
         with pytest.raises(SessionBusyError, match=parked.id):
             await deck.runs.start("Approval", {"request": "wed 3pm"}, session_id="t-1")
+
+
+@pytest.mark.asyncio
+async def test_get_does_not_corrupt_a_session_id_that_equals_its_own_run_id(no_project):
+    """The exact case #397 fixes: a caller-chosen ``session_id`` that happens to equal the run's
+    own ``run_id``. The old recovery compared the stored key against the run id and returned
+    ``None`` for a match, indistinguishable from a run with no session at all."""
+    deck = Deck(agents=[_greeter()])
+    async with deck:
+        ctx = RunContext(run_id="same-id", session_id="same-id")
+        await deck._runtime.store.append(
+            [RunStarted(invocable="Greeter", kind_of_invocable="agent", input=[])], ctx, "Greeter"
+        )
+        run = await deck.runs.get("same-id")
+        assert run.session_id == "same-id"
+
+
+@pytest.mark.asyncio
+async def test_a_session_named_after_an_open_standalone_runs_id_does_not_collide_with_it(no_project, scripted):
+    """5.0's whole point: a standalone run and a session are different keyspaces now. The old
+    ``log_key`` encoding made a standalone run's own id its log key too, so a session named
+    after it collided with that run  -  the busy message it raised named a session that did not
+    exist, held by the very run being refused. Starting on that session now succeeds instead."""
+    deck = Deck(agents=[_greeter()])
+    async with deck:
+        stream = deck.stream("Greeter", "hi there")  # no session_id: a standalone run
+        started = await anext(stream)
+        standalone = await deck.runs.get(started.run_id)
+        await standalone.pause("operator stepped away")
+        [event async for event in stream]
+        assert await standalone.status() is RunStatus.PAUSED
+
+        run = await deck.runs.start("Greeter", "hi again", session_id=standalone.id)
+        assert await run.status() is RunStatus.RUNNING
+        await run
 
 
 @pytest.mark.asyncio
@@ -1663,7 +1700,7 @@ async def test_a_cancel_against_a_parked_run_ends_it_immediately(no_project, mon
         await run.cancel("operator said stop")
 
         assert await run.status() is RunStatus.CANCELLED
-        log = await deck._require_open().store.read("t-1", _new_context("t-1"))
+        log = await deck._require_open().store.read_session(_new_context("t-1"))
         assert [event.kind for event in log][-3:] == ["run.resumed", "control.requested", "run.cancelled"]
         assert next(e.payload.reason for e in log if e.kind == "run.cancelled") == "operator said stop"
 
@@ -1691,8 +1728,8 @@ async def test_a_cancel_against_a_parked_run_in_a_real_namespace_still_ends_it(n
     async with _parked_approval(monkeypatch, namespace="acme") as (deck, run):
         await run.cancel("operator said stop")
 
-        log = await deck._require_open().store.read(
-            "t-1", RunContext(run_id="reader", session_id="t-1", namespace="acme")
+        log = await deck._require_open().store.read_session(
+            RunContext(run_id="reader", session_id="t-1", namespace="acme")
         )
         assert [event.kind for event in log][-3:] == ["run.resumed", "control.requested", "run.cancelled"]
         assert next(e.payload.reason for e in log if e.kind == "run.cancelled") == "operator said stop"
