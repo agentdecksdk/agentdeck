@@ -123,6 +123,10 @@ known-first-party = ["agentdeck"]
 "agentdeck/deck.py" = ["TID251"]
 "agentdeck/runtime/dispatch.py" = ["TID251"]
 "agentdeck/runtime/service.py" = ["TID251"]
+# The one executor that runs a body rather than bridging one: a native workflow parks mid-await,
+# so its coroutine has to outlive the call that started it. Owned, not loose  -  the executor holds
+# every parked body and `Executor.aclose()` cancels them (docs/patterns/lifecycle.md).
+"agentdeck/adapters/executors/native/executor.py" = ["TID251"]
 "tests/contract/test_store.py" = ["TID251"]
 "tests/test_deck.py" = ["TID251"]
 "tests/test_run_control.py" = ["TID251"]

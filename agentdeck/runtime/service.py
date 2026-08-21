@@ -26,6 +26,7 @@ from agentdeck.core.context import RunContext
 from agentdeck.core.control import CONTROL_POLL_INTERVAL, Gate, Signal
 from agentdeck.core.events import (
     TERMINAL_KINDS,
+    AnswerRefused,
     ControlRequested,
     Event,
     RunCancelled,
@@ -55,7 +56,7 @@ if TYPE_CHECKING:
 
     from agentdeck.core.content import Input
     from agentdeck.core.control import ControlSignal
-    from agentdeck.core.events import KnownPayload
+    from agentdeck.core.events import InterruptReason, KnownPayload
     from agentdeck.core.invocable import InvocableSpec
     from agentdeck.core.ports import ControlPort, EventSinkPort, EventStorePort, Executor, LeasePort
     from agentdeck.core.ports.store import RunSummary
@@ -86,6 +87,9 @@ class PendingRun:
     invocable: str
     thread_id: str
     payload: dict[str, Any]
+    reason: InterruptReason = "human"
+    """What kind of answer this run is waiting for. An ``approval`` takes a yes or a no and
+    nothing else, which is checked before the answer is recorded rather than after."""
 
 
 class Runtime:
@@ -262,10 +266,15 @@ class Runtime:
         # Before the claim, exactly as :meth:`resume_run` reads it before its own: a bail-out
         # after the claim would leave a run flipped to RUNNING with nobody playing it, owed a
         # terminal event forever and still holding its session.
-        started = await self._opening_of(ctx.log_key, run_id, ctx)
-        if started is None:
+        events = await self._store.read_run(ctx.log_key, run_id, ctx)
+        opened = next((event.payload for event in events if isinstance(event.payload, RunStarted)), None)
+        if opened is None:
             return
-        _, opened = started
+        if (why := _refuses(events, value)) is not None:
+            # Recorded, then raised, and both before the claim: the run is still waiting, so the
+            # answerer can send a real one  -  and the log keeps the fact that somebody tried.
+            await self._record(AnswerRefused(reason=why), spec, ctx)
+            raise ValueError(why)
         opening = await self._claim_resume(spec, ctx, value)
         if opening is None:
             return
@@ -767,6 +776,7 @@ class Runtime:
                     invocable=event.origin,
                     thread_id=interrupted.thread_id or summary.run_id,
                     payload=interrupted.payload,
+                    reason=interrupted.reason,
                 )
             )
         return out
@@ -925,6 +935,29 @@ def _failed(exc: Exception, engine: str) -> RunFailed:
 
 def _engine_failed(message: str) -> RunFailed:
     return RunFailed(error_code="engine_error", message=message, retryable=False)
+
+
+def _refuses(events: Sequence[Event], value: Any) -> str | None:
+    """Why ``value`` is not an answer to what this run asked, or ``None`` when it is.
+
+    Only a run that named its options can refuse anything: a plain question takes whatever it is
+    given, because nothing here can judge a free-form answer better than the body can. The options
+    travel on the ``run.interrupted`` itself, so this reads the run's own record of what it asked
+    rather than a second place that could disagree with it.
+
+    The message names the type that arrived, never the value: a refused answer can carry whatever
+    the answerer typed, and this reaches every sink.
+    """
+    last = _last_interrupt(events)
+    if last is None:
+        return None
+    options = last[1].payload.get("options")
+    if not isinstance(options, list) or value in options:
+        return None
+    return (
+        f"this run is waiting for one of {options!r} and got a {type(value).__name__}; the run is "
+        f"still waiting, so answering it again with one of them still works."
+    )
 
 
 def _last_interrupt(events: Sequence[Event]) -> tuple[Event, RunInterrupted] | None:

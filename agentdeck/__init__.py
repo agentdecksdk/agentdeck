@@ -11,7 +11,8 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _version
 
 from agentdeck.authoring import Agent, Workflow
-from agentdeck.core.context import ToolCtx
+from agentdeck.authoring.native import tool, workflow
+from agentdeck.core.context import ToolCtx, WorkflowCtx
 from agentdeck.deck import Deck, Run, TurnResult
 from agentdeck.errors import (
     AgentdeckError,
@@ -39,6 +40,7 @@ __all__ = [
     "AgentdeckError",
     "ConfigError",
     "ToolCtx",
+    "WorkflowCtx",
     "ContextTypeError",
     "Deck",
     "NotFoundError",
@@ -48,5 +50,7 @@ __all__ = [
     "StoreError",
     "TurnResult",
     "Workflow",
+    "tool",
+    "workflow",
     "__version__",
 ]

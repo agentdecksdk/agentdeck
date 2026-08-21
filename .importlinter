@@ -67,12 +67,13 @@ forbidden_modules =
 # adapter (#52): every other store/engine here is explicitly forbidden from importing it.
 # The control and lease adapters join this list for the same reason: all are sqlite3/dict only.
 [importlinter:contract:pure-adapters-stay-pure]
-name = the memory store, sqlite store, stub engine and control/lease adapters import core only
+name = the memory store, sqlite store, stub/native executors and control/lease adapters import core only
 type = forbidden
 source_modules =
     agentdeck.adapters.stores.memory
     agentdeck.adapters.stores.sqlite
     agentdeck.adapters.executors.stub
+    agentdeck.adapters.executors.native
     agentdeck.adapters.control.memory
     agentdeck.adapters.control.sqlite
     agentdeck.adapters.leases.memory

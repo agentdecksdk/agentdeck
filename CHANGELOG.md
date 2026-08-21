@@ -19,6 +19,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   state, so a UI can enable its buttons and a workflow can branch without guessing. Informational
   by design: it reads the status the handle last saw, and the lifecycle methods stay the
   authoritative answer.
+- **`@tool` and `@workflow` declare AgentDeck-native code: ordinary Python, no engine.** A
+  `@workflow` body takes `WorkflowCtx` and runs as a coroutine that suspends in place  -  at
+  `ctx.safepoint()`, or at `ctx.ask(question, options=...)`  -  and continues on the next line
+  rather than replaying, because its own locals are the checkpoint. A `@tool` takes `ToolCtx` and
+  is a leaf capability: it can report and safepoint, but not `ask` or start other runs. Both are
+  played by a new native executor that parks a suspended body's coroutine in memory and cancels
+  it on `Deck.aclose()`.
 
 ### Changed
 
