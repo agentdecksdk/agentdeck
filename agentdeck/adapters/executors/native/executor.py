@@ -240,8 +240,10 @@ def _as_output(result: Any) -> Input:
     and not a message to a person. Content a body built itself is the one exception, and passes
     through as the blocks it already is.
     """
-    if isinstance(result, list) and result and all(isinstance(block, TextBlock | DataBlock) for block in result):
-        return list(result)
+    if isinstance(result, list) and result:
+        blocks: Input = [block for block in result if isinstance(block, TextBlock | DataBlock)]
+        if len(blocks) == len(result):
+            return blocks
     return [DataBlock(data=result)]
 
 
