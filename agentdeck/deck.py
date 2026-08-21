@@ -960,6 +960,9 @@ class Deck:
         root = self._root(name)
         content = _content_for(root, _invocation_input(root, args, kwargs))
         run_id = str(uuid.uuid4())
+        # Before the task, because a bound refused inside it would reach the body as a handle on a
+        # run that was never opened rather than as an error at the ``ctx.invoke`` that asked.
+        runtime.delegate(run_id, parent.run_id, name)
         task = asyncio.create_task(
             _drain(
                 runtime.run(

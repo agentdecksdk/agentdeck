@@ -228,7 +228,7 @@ class Runtime:
             self._new_run_context(run_id=run_id, key=key, session_id=session_id, namespace=namespace, data=context),
             spec,
         )
-        self._delegate(ctx.run_id, parent_run_id, spec.name)
+        self.delegate(ctx.run_id, parent_run_id, spec.name)
         # ponytail: whole log per run  -  window it (or hand the engine a summary) once a
         # session's history outgrows one read, which a real store will notice long before this does
         history = await self._history(ctx)
@@ -317,7 +317,7 @@ class Runtime:
         opened = next((event.payload for event in events if isinstance(event.payload, RunStarted)), None)
         if opened is None:
             return
-        self._delegate(ctx.run_id, opened.parent_run_id, spec.name)
+        self.delegate(ctx.run_id, opened.parent_run_id, spec.name)
         if (why := _refuses(events, value)) is not None:
             # Recorded, then raised, and both before the claim: the run is still waiting, so the
             # answerer can send a real one  -  and the log keeps the fact that somebody tried.
@@ -390,7 +390,7 @@ class Runtime:
         session_id, opened = started
         spec, executor = self._resolve(opened.invocable)
         run_ctx, reports = self._bind(replace(ctx, run_id=run_id, session_id=session_id), spec)
-        self._delegate(run_id, opened.parent_run_id, spec.name)
+        self.delegate(run_id, opened.parent_run_id, spec.name)
         opening = await self._claim_resume(spec, run_ctx, None, reason)
         if opening is None:
             return
@@ -975,13 +975,17 @@ class Runtime:
         )
         return replace(ctx, gate=gate, reporter=Reporter(reports), agent=spec.metadata.get("agent")), reports
 
-    def _delegate(self, run_id: str, parent_run_id: str | None, invocable: str) -> None:
+    def delegate(self, run_id: str, parent_run_id: str | None, invocable: str) -> None:
         """Place ``run_id`` in the delegation tree, refusing it if that puts the tree past a bound.
 
         Called wherever a run is played, so a child answered or resumed in a later segment is
         still known to be one: the first call has the edge from its invoker, the rest read it back
         off the ``run.started`` the first one wrote. A run already placed is left alone  -  a second
         segment of one run is not a second child.
+
+        Public and synchronous because the invoker behind ``ctx.invoke`` has to be refused *at the
+        call*: it hands back a handle without awaiting anything, so a bound raised later would
+        surface as a handle on a run that was never opened.
 
         The bounds are deliberately conservative and deliberately not configurable. Two agents
         that can delegate to each other will, and each level multiplies: at depth 3 and fan-out 8
