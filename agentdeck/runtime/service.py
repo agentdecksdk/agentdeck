@@ -58,7 +58,7 @@ if TYPE_CHECKING:
     from agentdeck.core.control import ControlSignal
     from agentdeck.core.events import InterruptReason, KnownPayload
     from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import ControlPort, EventSinkPort, EventStorePort, Executor, LeasePort
+    from agentdeck.core.ports import ControlPort, EventStorePort, Executor, LeasePort, Observer
     from agentdeck.core.ports.store import RunSummary
 
 logger = logging.getLogger(__name__)
@@ -122,7 +122,7 @@ class Runtime:
         executors: Sequence[Executor],
         store: EventStorePort,
         invocables: Mapping[str, InvocableSpec],
-        sinks: Sequence[EventSinkPort] = (),
+        sinks: Sequence[Observer] = (),
         control: ControlPort | None = None,
         stale_run_after: timedelta = _DEFAULT_STALE_RUN_AFTER,
         control_poll_interval: float = CONTROL_POLL_INTERVAL,
@@ -814,7 +814,7 @@ class Runtime:
 
         The composition root calls this at shutdown: without it, queued emits are destroyed
         with the event loop and the last few audit or cost events are silently lost, and a sink
-        that buffers internally never gets the one ``EventSinkPort.close`` that tells it to
+        that buffers internally never gets the one ``Observer.close`` that tells it to
         write its buffer out. Never called per event  -  that would be exactly the join the
         fan-out exists to avoid. It is terminal: closed sinks stay closed, and a run after this
         one reaches none of them.

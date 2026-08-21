@@ -49,7 +49,7 @@ Deck(
     skills="./skills",              # a path, a sequence of paths, or a Skills(...) object
     mcp=".mcp.json",                # a path, or an MCP(...) object
     context=Calendar,               # the *type* of the per-run context, if this catalog wants one
-    observers=[Langfuse()],         # taps on the event stream; None reads settings, () means none
+    observers=[LangfuseObserver()],         # taps on the event stream; None reads settings, () means none
 )
 ```
 
@@ -403,25 +403,35 @@ A context is a live Python object with no wire form, so an HTTP-started run alwa
 
 The event log is the hub. An **observer** is a read-only tap on it  -  telemetry, cost accounting,
 audit  -  and a deck can have as many as it likes. `observers=` is where they are declared, and
-they start with the deck.
+they start with the deck. `agentdeck.observers` ships three: `LangfuseObserver`, and two
+deliberately plain ones for local development, `ConsoleObserver` (one line printed per event) and
+`FileObserver` (one JSON line appended per event)  -  neither takes any formatting or rotation
+option, so reach for your own observer once you need one.
 
 ```python
-from agentdeck import Deck
-from agentdeck.observers import Langfuse
+from agentdeck import Deck, views
+from agentdeck.observers import ConsoleObserver, LangfuseObserver
 
-deck = Deck(agents=[booking], observers=[Langfuse()])
+deck = Deck(
+    agents=[booking],
+    observers=[ConsoleObserver(view=views.chat | views.reports), LangfuseObserver()],
+)
 
 async with deck:                      # every observer starts here, once, before any run
     await deck.run("booking", "hi")   # never mid-run
 ```
 
+`view=` narrows what an observer receives to a subset of the stream. `agentdeck.views` has one
+predicate per concern  -  `chat`, `tools`, `reports`, `lifecycle`, `errors`, `usage`  -  plus `all`,
+composable with `|`, `&` and `~`. An observer given no `view=` sees everything.
+
 | `observers=` | What starts |
 |---|---|
-| *(omitted, or `None`)* | The configured `Langfuse()` observer if `AGENTDECK_LANGFUSE_PUBLIC_KEY` and `AGENTDECK_LANGFUSE_SECRET_KEY` are both set (see [Settings](/reference/settings)); nothing otherwise, with no warning. |
-| `[observer, …]` | Exactly these, in order. Naming any observer suppresses the settings-derived `Langfuse()`  -  a deck told which taps to open does not open another behind your back, so include it explicitly if you want it alongside your own. |
+| *(omitted, or `None`)* | The configured `LangfuseObserver()` observer if `AGENTDECK_LANGFUSE_PUBLIC_KEY` and `AGENTDECK_LANGFUSE_SECRET_KEY` are both set (see [Settings](/reference/settings)); nothing otherwise, with no warning. |
+| `[observer, …]` | Exactly these, in order. Naming any observer suppresses the settings-derived `LangfuseObserver()`  -  a deck told which taps to open does not open another behind your back, so include it explicitly if you want it alongside your own. |
 | `()` | None at all, even where the environment configures Langfuse. |
 
-`Langfuse()` is configured entirely by `AGENTDECK_LANGFUSE_*`, so there is one place to set the
+`LangfuseObserver()` is configured entirely by `AGENTDECK_LANGFUSE_*`, so there is one place to set the
 endpoint, environment, sample rate and service name rather than two. Naming it with no keys
 configured raises `ConfigError` at open, rather than tracing nothing quietly.
 
@@ -433,7 +443,7 @@ configured raises `ConfigError` at open, rather than tracing nothing quietly.
 | **raw** (`sdk_spans=True`) | OpenInference maps every agent, generation and tool call the Agents SDK makes, with its input and output  -  detail the event log does not record. |
 
 ```python
-deck = Deck(agents=[booking], observers=[Langfuse(sdk_spans=True)])
+deck = Deck(agents=[booking], observers=[LangfuseObserver(sdk_spans=True)])
 ```
 
 **The raw layer arrives as a second, separate trace per run  -  it is not nested under the first.**
@@ -446,13 +456,13 @@ what a tool actually received  -  and leave it off when you want one clean trace
 
 ### Writing your own
 
-An observer implements `EventSinkPort`  -  one required method, two optional lifecycle hooks:
+An observer implements `Observer`  -  one required method, two optional lifecycle hooks:
 
 ```python
-from agentdeck.core.ports import EventSinkPort
+from agentdeck.core.ports import Observer
 
 
-class CostObserver(EventSinkPort):
+class CostObserver(Observer):
     async def start(self) -> None:
         ...   # open a client or a file; called once, at deck open, before any run
 
@@ -469,7 +479,7 @@ an observer which silently never worked.
 
 The lifecycle is the one the rest of the deck follows:
 
-- **`build()`** checks that everything in `observers=` is an `EventSinkPort` and does nothing
+- **`build()`** checks that everything in `observers=` is an `Observer` and does nothing
   else. Nothing is started, no telemetry client is constructed, no exporter contacted  -  so a deck
   with Langfuse configured still validates in CI with nothing reachable.
 - **Opening** calls each `start()` in order and registers every observer before the Runtime
@@ -492,7 +502,7 @@ There is no `deck.observers` property, for the same reason there is no `runtime`
 nothing needs one, and adding a property later is additive while removing one is not.
 
 <Callout type="info">
-  `Langfuse()` needs the `observability` extra: `pip install "agentdeck-sdk[observability]"`. Without
+  `LangfuseObserver()` needs the `observability` extra: `pip install "agentdeck-sdk[observability]"`. Without
   it, a deck with no Langfuse keys is unaffected  -  the SDK is imported when the observer starts,
   not when it is constructed.
 </Callout>

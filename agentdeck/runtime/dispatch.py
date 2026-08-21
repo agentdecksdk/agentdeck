@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from agentdeck.core.events import Event
-    from agentdeck.core.ports import EventSinkPort
+    from agentdeck.core.ports import Observer
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +103,7 @@ class SinkDispatch:
 
     def __init__(
         self,
-        sink: EventSinkPort,
+        sink: Observer,
         *,
         capacity: int = QUEUE_CAPACITY,
         failure_limit: int = FAILURE_LIMIT,
@@ -151,7 +151,16 @@ class SinkDispatch:
         Yields at most one loop turn when the queue is full, and never waits for the sink:
         the turn is what tells a sink that is keeping up apart from one that is not, and only
         then is the stalest event dropped.
+
+        A ``view`` an observer carries is read here, once per event, rather than inside its own
+        ``emit``: this is the one place every sink's fan-out already passes through, so a filter
+        added anywhere else would be a second place to look. An event a view refuses is neither
+        queued nor counted as dropped  -  it was never meant for this sink, which is a different
+        fact from the sink losing one it was owed.
         """
+        view = getattr(self._sink, "view", None)
+        if view is not None and not view.matches(event):
+            return
         if self._closed or (self.disabled and not self._probe_due()):
             self._count_drop(event)
             return

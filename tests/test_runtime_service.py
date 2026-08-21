@@ -34,7 +34,7 @@ from agentdeck.core.events import (
     UsageReported,
 )
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
-from agentdeck.core.ports import EventSinkPort, SessionClaim
+from agentdeck.core.ports import Observer, SessionClaim
 from agentdeck.core.status import Play, RunStatus, continuation_of, status_of
 from agentdeck.errors import DOCS_URL, ConfigError, NotFoundError, SessionBusyError, StoreError
 from agentdeck.runtime.service import Runtime
@@ -57,13 +57,13 @@ CTX = RunContext(namespace="acme", run_id="r-1", session_id="s-1")
 WEDGE_TIMEOUT = 5.0
 
 
-def _runtime(*, sinks: list[EventSinkPort] | None = None) -> tuple[Runtime, MemoryEventStore]:
+def _runtime(*, sinks: list[Observer] | None = None) -> tuple[Runtime, MemoryEventStore]:
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
     store = MemoryEventStore()
     return Runtime([StubExecutor()], store, {spec.name: spec}, sinks=sinks or []), store
 
 
-class Recorder(EventSinkPort):
+class Recorder(Observer):
     """A sink that awaits before recording, so it can only pass if the port's promise holds:
     every event arrives, one at a time, in the order it was submitted."""
 
@@ -78,7 +78,7 @@ class Recorder(EventSinkPort):
         return sorted(self.events, key=lambda event: event.seq)
 
 
-class Broken(EventSinkPort):
+class Broken(Observer):
     """A sink that always fails  -  the run must not care."""
 
     async def emit(self, event: Event) -> None:
@@ -212,7 +212,7 @@ async def test_drain_waits_for_the_sink_emits_still_in_flight() -> None:
 async def test_a_sink_receives_the_stream_in_order_and_one_event_at_a_time() -> None:
     """Each sink is fed from its own queue by a single consumer, so nothing re-enters ``emit``."""
 
-    class Reentrant(EventSinkPort):
+    class Reentrant(Observer):
         def __init__(self) -> None:
             self.events: list[Event] = []
             self.inside = False
@@ -238,7 +238,7 @@ async def test_a_sink_receives_the_stream_in_order_and_one_event_at_a_time() -> 
 async def test_a_slow_sink_does_not_hold_up_the_stream() -> None:
     """NFR-6: the run must not be pinned to its slowest reader."""
 
-    class Slow(EventSinkPort):
+    class Slow(Observer):
         def __init__(self) -> None:
             self.release = asyncio.Event()
 
@@ -280,7 +280,7 @@ async def test_a_stalling_sink_costs_one_task_however_many_events_it_misses() ->
     """A fan-out that spawned a task per event grew one pending task per event past a wedged
     sink; a queue per sink is what makes the cost of a bad sink fixed instead."""
 
-    class Stalled(EventSinkPort):
+    class Stalled(Observer):
         def __init__(self) -> None:
             self.release = asyncio.Event()
 

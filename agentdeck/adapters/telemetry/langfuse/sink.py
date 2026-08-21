@@ -1,4 +1,4 @@
-"""``EventSinkPort`` that renders the canonical event stream as Langfuse traces.
+"""``Observer`` that renders the canonical event stream as Langfuse traces.
 
 One run is one trace: ``run.started`` opens the root observation, a terminal event closes
 it, and what happens in between becomes children  -  tool calls as spans, reported model
@@ -43,7 +43,7 @@ from agentdeck.core.events import (
     ToolCallStarted,
     UsageReported,
 )
-from agentdeck.core.ports import EventSinkPort
+from agentdeck.core.ports import Observer
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -82,7 +82,7 @@ class _OpenTrace:
     calls: dict[str, Observation] = field(default_factory=dict)
 
 
-class LangfuseSink(EventSinkPort):
+class LangfuseSink(Observer):
     """Renders each run as a Langfuse trace. Registered only when Langfuse is configured."""
 
     def __init__(
