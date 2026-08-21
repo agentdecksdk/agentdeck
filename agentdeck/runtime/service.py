@@ -732,7 +732,7 @@ class Runtime:
         over :meth:`_close_cancelled` for an owner that holds an id and not the run's spec and
         bound context, as :meth:`find` is the wrapper over :meth:`_find`.
 
-        ``Deck.aclose``'s, for a run that never observed the cancellation it was sent. Not
+        ``Deck.aclose``'s caller, for a run that never took the cancellation it was sent. Not
         :meth:`_close_abandoned`, which records a different fact: a run whose worker died, taken
         over and failed by the turn that stepped over it.
 

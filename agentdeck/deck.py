@@ -176,11 +176,10 @@ def _new_context(session_id: str | None = None) -> RunContext:
 # own control port.
 _FOLLOW_POLL_INTERVAL = 0.05
 
-# Seconds :meth:`Deck.aclose` gives one cancelled run to settle before abandoning it. A cancel
-# that is observed at all is observed and recorded within one scheduler wake plus one shielded
-# append the store hands to a thread, so a second is the margin over that a loaded box or a
-# network store can need, and short enough that a shutdown with several stuck runs degrades
-# rather than wedges.
+# Seconds :meth:`Deck.aclose` gives one cancelled run to settle before abandoning it. A cancel a
+# run takes at all is recorded within one scheduler wake and one append the store hands to a
+# thread, so a second is margin for a loaded box or a network store, and short enough that a
+# shutdown holding several stuck runs degrades rather than wedges.
 _CLOSE_GRACE = 1.0
 
 
@@ -755,9 +754,8 @@ class Deck:
                 await asyncio.wait_for(asyncio.shield(task), timeout=_CLOSE_GRACE)
             except TimeoutError:
                 # Shielded, so this leaves the task running: a cancel the engine swallowed is not
-                # one a longer wait or a second cancel would ever reach (#412). Writing the run's
-                # own terminal event from here is what keeps the log from holding it open forever
-                # with nothing playing it.
+                # one a longer wait or a second cancel would reach (#412). The run is closed in
+                # the log from here, or it stays open forever with nothing playing it.
                 logger.error("closing deck: run %s ignored its cancellation; abandoning it", run_id)
                 await self._require_open().close_cancelled(
                     run_id,
@@ -766,6 +764,8 @@ class Deck:
                 )
                 continue
             except asyncio.CancelledError:
+                # The run's own cancellation, arriving back through the shield. A cancel of this
+                # close instead leaves the task uncancelled, and has to keep travelling.
                 if not task.cancelled():
                     raise
             logger.info("closing deck: run %s was cancelled", run_id)
