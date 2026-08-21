@@ -134,8 +134,8 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 - **`Deck.aclose()` always returns.** A run whose task never took the cancellation `aclose()` sent
   it held the close open forever, wedging a shutting-down server. The close now asks twice, a
   second apart, and then stops waiting: it logs the run id and records the run's own
-  `run.cancelled`, so an abandoned run does not stay open in the log with nothing playing it, and
-  nothing that run does afterwards reaches the log past that event.
+  `run.cancelled`, so an abandoned run does not stay open in the log with nothing playing it. The
+  run's own later writes are refused rather than appended past that event.
 
 ## [4.0.5] - 2026-08-19
 

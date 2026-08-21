@@ -731,10 +731,14 @@ class Runtime:
             await asyncio.shield(recording)
 
     async def close_cancelled(self, run_id: str, reason: str, *, namespace: str | None = None) -> None:
-        """Close a run this deck abandoned, addressed by ``run_id`` alone: the wrapper over
-        :meth:`_close_cancelled` for a caller holding an id and not a spec and bound context,
-        as :meth:`find` is the wrapper over :meth:`_find`.
+        """Close a run this deck abandoned, addressed by ``run_id`` alone. Its task is still
+        alive, so the mark comes first, before this method's own first await: every turn between
+        the mark and the write is one the run can still get an append into, terminal ones
+        included. That is also why the write goes to the store directly, the way
+        :meth:`_close_abandoned` writes for a run that is not its own: :meth:`_record` would
+        refuse this one along with the rest.
         """
+        self._abandoned.add(run_id)
         ctx = self._context(run_id=run_id, namespace=namespace)
         started = await self._opening_of(run_id, ctx)
         if started is None:
@@ -743,12 +747,13 @@ class Runtime:
                 "open in the log until something reconciles it (#419)",
                 run_id,
             )
-        elif await self._store.run_status(ctx) is RunStatus.RUNNING:
-            session_id, opened = started
-            spec, _ = self._resolve(opened.invocable)
-            await self._close_cancelled(spec, replace(ctx, session_id=session_id), reason)
-        # Marked after the write, so the mark does not refuse the write it exists to protect.
-        self._abandoned.add(run_id)
+            return
+        if await self._store.run_status(ctx) is not RunStatus.RUNNING:
+            return
+        session_id, opened = started
+        closing = replace(ctx, session_id=session_id)
+        event = (await self._store.append([RunCancelled(reason=reason)], closing, opened.invocable))[0]
+        await self._fan_out(event)
 
     async def _claim_resume(
         self, spec: InvocableSpec, ctx: RunContext, value: Any, reason: str | None = None
@@ -957,8 +962,10 @@ class Runtime:
         holds a counter to get wrong.
 
         A run :meth:`close_cancelled` abandoned is cancelled here instead, at its next write. The
-        check is synchronous and the abandoning caller shares this event loop, so an abandoned
-        run cannot get an append past the terminal event that was written for it.
+        check is synchronous and every writer for such a run shares this event loop, so no append
+        that starts here can land past the terminal event written for it. One that started before
+        the mark and is still suspended inside the store can, which is #421 and needs the store's
+        own conditional append rather than a second guard above it.
         """
         if ctx.run_id in self._abandoned:
             raise asyncio.CancelledError(f"run {ctx.run_id} was abandoned by the deck closing")
