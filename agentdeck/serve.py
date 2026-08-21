@@ -4,8 +4,8 @@
 
 Every endpoint below runs on the v2 ``Runtime`` a ``Deck`` composes: the handler builds a
 ``RunContext``, calls ``Runtime.run`` / ``Runtime.resume`` / ``Runtime.pending``, and hands the
-canonical events to ``surfaces/serve/compat.py``, which renders v1's frames. So a turn  -  chat
-or workflow  -  leaves one canonical event log behind. The wire below is unchanged by that; that
+canonical events to ``surfaces/serve/compat.py``, which renders v1's frames. So every turn
+leaves one canonical event log behind. The wire below is unchanged by that; that
 is the point, and ``tests/golden/`` is what proves it.
 
 ``create_app()`` is ``Deck.from_project().asgi()``  -  kept as a module-level function because the
@@ -20,21 +20,6 @@ Endpoints:
                                       -> text/event-stream: "delta" events, then one
                                          "done" event carrying {"output", "usage"};
                                          an "error" event replaces "done" if the turn fails
-    POST /workflows/{name}           -> JSON state in, final state out  -  or
-                                        {"type": "interrupt", "payload", "thread_id"} when the
-                                        run pauses on a human decision;
-                                        409 while that thread's previous turn is unfinished,
-                                        an unanswered approval included
-    POST /workflows/{name}?stream=true
-                                      -> text/event-stream: "node_update"/"custom" events per
-                                         the LangGraph node updates/custom stream, then one
-                                         "done" event carrying the final state  -  or one
-                                         "interrupt" event in its place when the run pauses;
-                                         an "error" event replaces either if the run fails
-    GET  /workflows/{name}/pending   -> [{"type": "interrupt", "payload", "thread_id"}, ...]
-    POST /workflows/{name}/{thread_id}/resume
-                                      -> {"value": ...} -> final state, or the next interrupt;
-                                         404 when the thread has no paused run to answer
     POST /runs/{run_id}/pause        -> {"reason": ...}? -> {"run_id", "verb", "recorded": true}
     POST /runs/{run_id}/cancel       -> {"reason": ...}? -> {"run_id", "verb", "recorded": true}
                                         Recorded, not applied: the run stops at its next safe
@@ -43,10 +28,6 @@ Endpoints:
     POST /runs/{run_id}/resume       -> {"reason": ...}? -> {"run_id", "status", "events"} for
                                         the continuation this call played  -  409 if the run is
                                         not paused
-
-The workflow inbox above reads the event log, while ``Deck._due_resumes()`` still reads
-the graph's checkpointer  -  so the two disagree once approvals are driven through both doors
-(see the CHANGELOG for the plan to join them).
 """
 
 from __future__ import annotations
@@ -60,13 +41,7 @@ from typing import TYPE_CHECKING, Any
 from agentdeck.core.content import coerce_input
 from agentdeck.core.status import status_of
 from agentdeck.errors import AgentdeckError, NotFoundError, RunStateError, SessionBusyError
-from agentdeck.surfaces.serve.compat import (
-    chat_frames,
-    chat_result,
-    interrupt_inbox,
-    workflow_frames,
-    workflow_result,
-)
+from agentdeck.surfaces.serve.compat import chat_frames, chat_result
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
@@ -91,11 +66,6 @@ def _require_agent(deck: Deck, name: str) -> None:
     itself rather than reaching for a private lookup."""
     if name not in deck.agents:
         raise NotFoundError(f"No agent named {name!r}. Available: {sorted(deck.agents)}.")
-
-
-def _require_workflow(deck: Deck, name: str) -> None:
-    if name not in deck.workflows:
-        raise NotFoundError(f"No workflow named {name!r}. Available: {sorted(deck.workflows)}.")
 
 
 def build_asgi_app(deck: Deck) -> Any:
@@ -208,23 +178,6 @@ def build_asgi_app(deck: Deck) -> Any:
             )
         return await chat_result(run)
 
-    @api.post("/workflows/{name}")
-    async def run_workflow(name: str, state: dict[str, Any], stream: bool = False, thread_id: str | None = None) -> Any:
-        deck = _deck()  # resolve before streaming so a pre-startup 503 keeps its status code
-        # Workflows-only, resolved against the workflow catalog rather than the Runtime's
-        # invocables: an agent name must still 404 here, with v1's message.
-        _require_workflow(deck, name)
-        # The posted state *is* the graph's input, and the thread the caller named is the
-        # session it runs under: one turn per thread at a time, and a resume can find it later.
-        run = deck.stream(name, state, session_id=thread_id)
-        if stream:
-            return StreamingResponse(
-                workflow_frames(await _opened(run)),
-                media_type="text/event-stream",
-                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-            )
-        return await workflow_result(run)
-
     # These three routes reach past `Run` into `Deck`'s own private forwards, on purpose: v1's
     # wire accepts a `run_id` nobody has ever heard of and still answers 200 `recorded: true`
     # (a signal is written regardless of whether anything is there to read it), while
@@ -272,28 +225,6 @@ def build_asgi_app(deck: Deck) -> Any:
         if not await operation(run_id, _reason(body)):
             raise HTTPException(status_code=503, detail="run control is unavailable: no control backend is configured")
         return {"run_id": run_id, "verb": verb, "recorded": True}
-
-    @api.get("/workflows/{name}/pending")
-    async def pending_interrupts(name: str) -> Any:
-        deck = _deck()
-        _require_workflow(deck, name)
-        return interrupt_inbox(await deck._pending(), name)
-
-    @api.post("/workflows/{name}/{thread_id}/resume")
-    async def resume_workflow(name: str, thread_id: str, body: dict[str, Any]) -> Any:
-        if "value" not in body:
-            raise HTTPException(status_code=422, detail="missing field: value")
-        deck = _deck()
-        _require_workflow(deck, name)
-        # v1's own 404 names the thread, not a run_id the caller never posted  -  so the lookup
-        # stays here rather than moving into `Run.answer`, whose own miss talks about the id.
-        paused = next(
-            (run for run in await deck._pending() if run.invocable == name and run.thread_id == thread_id),
-            None,
-        )
-        if paused is None:
-            raise NotFoundError(f"No paused run of {name!r} on thread {thread_id!r}.")
-        return await deck._answer(paused.run_id, body["value"])
 
     return api
 

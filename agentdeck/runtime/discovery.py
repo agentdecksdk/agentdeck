@@ -13,9 +13,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 from agentdeck.authoring.agent import Agent
 from agentdeck.authoring.compile import compile_agent, link_handoffs
-from agentdeck.authoring.graphs import bridge_context_nodes
 from agentdeck.authoring.native import NativeDefinition
-from agentdeck.authoring.workflow import Workflow
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.errors import ConfigError
 from agentdeck.runtime.registry import PluginRegistry, mount_project_dir
@@ -36,19 +34,11 @@ if TYPE_CHECKING:
 # executor belongs on the spec (authored per bundle), not in this table.
 EXECUTOR_FOR_KIND: Final[Mapping[InvocableKind, str]] = {
     InvocableKind.AGENT: "openai-agents",
-    InvocableKind.WORKFLOW: "langgraph",
 }
 
 NATIVE_EXECUTOR: Final[str] = "native"
 """What plays an AgentDeck-native definition, whatever kind it is  -  the one shape that names its
-own executor rather than inheriting one from the table above, because ``@workflow`` and
-``Workflow(graph=...)`` are two executors playing one kind."""
-
-# Where a workflow's opt-in durability travels to the executor that acts on it: the langgraph
-# adapter reads ``spec.metadata[DURABLE_KEY]`` to decide whether to resolve the configured
-# checkpointer at all. Spelled out rather than imported, for the reason above; the same test
-# that pins the executor names pins this one to the adapter's own constant.
-DURABLE_KEY: Final[str] = "durable"
+own executor rather than inheriting one from the table above."""
 
 
 def _wrapped(exc: Exception) -> type[ConfigError]:
@@ -78,21 +68,19 @@ class InvocableRegistry:
         self,
         *,
         agents: Sequence[Agent] | None = None,
-        workflows: Sequence[Workflow | NativeDefinition] | None = None,
+        workflows: Sequence[NativeDefinition] | None = None,
         resolve_skills: Callable[[Sequence[str]], tuple[str, Sequence[FunctionTool]]] | None = None,
-        resolve_workflow_tool: Callable[[Workflow], FunctionTool] | None = None,
         bundle_of: Mapping[str, str] | None = None,
         context_type: object | None = None,
     ) -> Mapping[str, InvocableSpec]:
         """Compile every agent and workflow to an ``InvocableSpec``.
 
-        ``agents``/``workflows`` default to a discovery scan of ``./.agentdeck`` (one
-        ``Agent``/``Workflow`` instance per bundle module); pass explicit sequences for a
+        ``agents``/``workflows`` default to a discovery scan of ``./.agentdeck`` (one ``Agent``
+        instance or ``@workflow`` definition per bundle module); pass explicit sequences for a
         code-first catalog instead  -  ``Deck.from_project()`` and ``Deck(agents=..., ...)``
-        both end up here, so the two build the same way. ``resolve_skills``/
-        ``resolve_workflow_tool`` are the catalog-aware hooks ``compile_agent`` needs for
-        ``skills=``/a workflow used as a tool; a bare discovery scan passes neither, so an
-        agent declaring either fails loudly rather than compiling silently short. ``bundle_of``
+        both end up here, so the two build the same way. ``resolve_skills`` is the catalog-aware
+        hook ``compile_agent`` needs for ``skills=``; a bare discovery scan passes none, so an
+        agent declaring skills fails loudly rather than compiling silently short. ``bundle_of``
         names the bundle a discovered ``agents``/``workflows`` entry came from (name -> source
         path); a caller that already ran its own scan (``Deck.from_project``) supplies it since
         the association is otherwise lost the moment ``agents``/``workflows`` are handed in as
@@ -109,7 +97,7 @@ class InvocableRegistry:
             agents = list(registry.list().values())
             bundle_of.update(registry.bundle_files())
         if workflows is None:
-            registry = self._discover(Workflow, type_dir="workflows", module_name="workflow", label="workflow")
+            registry = self._discover(NativeDefinition, type_dir="workflows", module_name="workflow", label="workflow")
             workflows = list(registry.list().values())
             bundle_of.update(registry.bundle_files())
         specs: dict[str, InvocableSpec] = {}
@@ -119,7 +107,6 @@ class InvocableRegistry:
                 compiled[agent.name] = compile_agent(
                     agent,
                     resolve_skills=resolve_skills,
-                    resolve_workflow_tool=resolve_workflow_tool,
                     context_type=context_type,
                 )
             except Exception as exc:
@@ -131,22 +118,7 @@ class InvocableRegistry:
         for agent in agents:
             self._add(specs, agent.name, InvocableKind.AGENT, compiled[agent.name])
         for workflow in workflows:
-            if isinstance(workflow, NativeDefinition):
-                self._add(specs, workflow.name, workflow.kind, workflow, executor=NATIVE_EXECUTOR)
-                continue
-            try:
-                # uncompiled: the langgraph adapter compiles the graph itself, around the
-                # checkpointer  -  ``durable`` names, which is why that flag travels with the
-                # spec rather than staying on the Workflow only the authoring layer can see.
-                # Bridged here rather than in the adapter so a node declaring two
-                # ``ToolCtx[...]`` parameters fails at build(), exactly where a tool's would.
-                graph = bridge_context_nodes(workflow.build_graph(), context_type=context_type)
-            except Exception as exc:
-                bundle_file = bundle_of.get(workflow.name)
-                if bundle_file is None:
-                    raise
-                raise _wrapped(exc)(f"{bundle_file} failed to build: {exc}") from exc
-            self._add(specs, workflow.name, InvocableKind.WORKFLOW, graph, metadata={DURABLE_KEY: workflow.durable})
+            self._add(specs, workflow.name, workflow.kind, workflow, executor=NATIVE_EXECUTOR)
         return specs
 
     def _discover(self, base_class: type, *, type_dir: str, module_name: str, label: str) -> PluginRegistry[Any]:
@@ -163,7 +135,6 @@ class InvocableRegistry:
         name: str,
         kind: InvocableKind,
         native: Any,
-        metadata: dict[str, Any] | None = None,
         executor: str | None = None,
     ) -> None:
         # Only catches a collision across kinds; a collision within one kind (two bundles
@@ -179,7 +150,7 @@ class InvocableRegistry:
                 f"{kind.value} {name!r} needs executor {executor!r}, which is not registered. "
                 f"Registered: {sorted(self._executors)}."
             )
-        specs[name] = InvocableSpec(name=name, kind=kind, executor=executor, native=native, metadata=metadata or {})
+        specs[name] = InvocableSpec(name=name, kind=kind, executor=executor, native=native)
 
 
-__all__ = ["DURABLE_KEY", "EXECUTOR_FOR_KIND", "NATIVE_EXECUTOR", "InvocableRegistry"]
+__all__ = ["EXECUTOR_FOR_KIND", "NATIVE_EXECUTOR", "InvocableRegistry"]

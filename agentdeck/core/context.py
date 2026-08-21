@@ -124,10 +124,10 @@ class RunContext:
 class ToolCtx[T]:
     """The only public context type: what a user callable declaring ``ToolCtx[T]`` receives.
 
-    One portable type above two engines. The OpenAI SDK hands a tool its own
-    ``RunContextWrapper`` and LangGraph hands a node its own ``Runtime``; each engine bridge
-    unwraps its native carrier to the :class:`RunContext` travelling inside and presents this
-    view, so a tool signature does not change when the engine does.
+    One portable type above every executor. The OpenAI SDK hands a tool its own
+    ``RunContextWrapper``; each bridge unwraps its native carrier to the :class:`RunContext`
+    travelling inside and presents this view, so a tool signature does not change when the
+    engine does.
 
     A view, not a copy  -  ``data`` is the very object the caller supplied, by reference. Access
     to it is access for *application* code only: nothing here is ever serialized into a prompt,

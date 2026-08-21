@@ -90,20 +90,19 @@ jobs:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
           cache-dependency-glob: "uv.lock"
-      # durability pulls in the sqlite checkpointer that the langgraph half of the
-      # contract suite and UC2's kill/restart/approve tests need — omitting it here
-      # let ~16 tests skip silently in the gate of record for months (#33).
+      # postgres pulls in the psycopg driver the Postgres event log's tests need: omitting an
+      # extra here let ~16 tests skip silently in the gate of record for months (#33).
       # observability was the same mistake one extra over (#142): without it the 12
       # tests in test_observability.py and test_langfuse_tracer.py skip, which is how
       # #141's keyless-AsyncOpenAI regression shipped green. Install every extra the
-      # suite guards on — a narrower gate is a gate that lies.
+      # suite guards on: a narrower gate is a gate that lies.
       - name: Install
-        run: uv pip install -e ".[dev,serve,durability,observability]"
+        run: uv pip install -e ".[dev,serve,postgres,observability]"
       # Two seconds here beats a full suite that skips the half it was meant to prove: if an
       # extra silently failed to install, every test guarding on it turns into a skip and the
       # gate goes green having measured nothing (#33, #142).
       - name: Every guarded extra is importable
-        run: .venv/bin/python -c "import fastapi, uvicorn, langgraph.checkpoint.sqlite, langfuse, psycopg, redis"
+        run: .venv/bin/python -c "import fastapi, uvicorn, langfuse, psycopg, redis"
       - name: Lint
         run: .venv/bin/ruff check agentdeck/ tests/
       - name: Typecheck
@@ -114,7 +113,7 @@ jobs:
         run: .venv/bin/pytest tests/ -q --junit-xml=/tmp/pytest-results.xml
       # Skips come in two kinds. "only a suspended case can be resumed" is the contract matrix
       # declaring which cells apply — harmless, and it grows whenever a case is added, which is
-      # why counting total skips drifted and false-positived. "needs the [durability] extra" or
+      # why counting total skips drifted and false-positived. "needs the [postgres] extra" or
       # "no Postgres at ..." is a subsystem that dropped out of the gate, which is the thing
       # #33 is actually about. Match the reasons, not the count: this never needs maintaining
       # when the test matrix moves, and when it fires it names what is missing.

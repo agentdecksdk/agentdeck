@@ -5,7 +5,7 @@ and loaded the first time :func:`get_settings` builds :class:`Settings`. A
 ``chdir`` between importing AgentDeck and first use therefore still lands on the
 right project; process environment variables win either way.
 
-``EVENTS``/``CONTROL``/``CHECKPOINT``/``SESSION`` each read one URL-shaped env var
+``EVENTS``/``CONTROL``/``SESSION`` each read one URL-shaped env var
 (``AGENTDECK_EVENTS``, not a ``_BACKEND``/``_URL`` pair)  -  the scheme names the backend, so
 there is no second decision left to disagree with it. See :func:`parse_backend_url`.
 """
@@ -270,15 +270,6 @@ class RuntimeSettings(LayeredSettings):
     worker running more than a window fast takes over live sessions on sight  -  the same lost
     guarantee, arrived at by skew instead of configuration. Keep the fleet on NTP and treat the
     window as a budget skew eats into.
-
-    ``sweep_interval_seconds`` is how often an open Deck wakes a due ``sleep_until`` timer on its
-    own, with no cron or scheduler wired in. **On by default**  -  the interval only trades off wake
-    latency against one cheap checkpointer listing per tick; there is no deployment for which
-    disabling it is the safer choice. **30 seconds** by default: near-immediate next to any timer a
-    workflow would actually set (minutes to days), and light enough that a catalog with no timers
-    at all costs nothing more than an idle sleep. A process that opens the Deck, takes a turn and
-    closes within one interval never sweeps at all; a due timer then wakes on whoever next holds
-    the Deck open past that.
     """
 
     model_config = settings_config("AGENTDECK_RUNTIME_")
@@ -301,14 +292,6 @@ class RuntimeSettings(LayeredSettings):
         "across processes (`AGENTDECK_CONTROL=sqlite:///<path>`); with the in-memory default nothing is ever "
         "reported dead and the staleness timer remains the only backstop. Must be positive; set it above the "
         "longest the event loop can be blocked in one go.",
-    )
-
-    sweep_interval_seconds: float = Field(
-        default=30.0,
-        gt=0,
-        description="How often, in seconds, an open Deck sweeps for a `sleep_until` timer whose wake moment "
-        "has passed and resumes it, with no cron or scheduler required. Must be positive; runs for the Deck's "
-        "own lifetime, started when it opens and cancelled when it closes.",
     )
 
     @property
@@ -368,28 +351,6 @@ class TavilySettings(LayeredSettings):
     )
 
 
-class CheckpointSettings(LayeredSettings):
-    """LangGraph checkpointer backend for ``durable=True`` workflows, as one scheme-shaped URL.
-
-    ``sqlite://<path>`` for dev (relative or absolute  -  see :func:`parse_backend_url`;
-    ``sqlite://.agentdeck/checkpoints.sqlite3`` is the default), ``postgresql://<dsn>`` for
-    prod, ``memory://`` for tests (never persists past the process). Resolving the saver
-    classes lives in ``agentdeck.adapters.executors.langgraph.checkpointer``  -  sqlite ships in
-    base (the default needs it), postgres in the optional ``[durability]`` extra  -  but this
-    settings model stays import-free of either.
-    """
-
-    _bare_env_names: ClassVar[Mapping[str, str]] = {"url": "AGENTDECK_CHECKPOINT"}
-    model_config = settings_config("AGENTDECK_CHECKPOINT_")
-
-    url: str = Field(
-        default="sqlite://.agentdeck/checkpoints.sqlite3",
-        description="LangGraph checkpointer for `durable=True` workflows: `sqlite://<path>` for dev "
-        "(this default), `postgresql://<dsn>` for prod, or `memory://` for tests (never persists past the "
-        "process). The scheme names the backend.",
-    )
-
-
 class EventsSettings(LayeredSettings):
     """Where the Runtime's canonical event log is written, as one scheme-shaped URL.
 
@@ -399,10 +360,10 @@ class EventsSettings(LayeredSettings):
     log that survives a restart.
 
     ``redis://``/``rediss://`` (needs the ``[redis]`` extra) and ``postgresql://`` (needs the
-    ``[durability]`` extra) are the two that several workers can share: SQLite's durability
+    ``[postgres]`` extra) are the two that several workers can share: SQLite's durability
     rests on cross-process shared memory, so one file behind more than one machine is
-    unsupported. Each keeps to its own keyspace, so an instance already holding LangGraph
-    checkpoints or agent conversations is fine to reuse. A Redis instance used as the record
+    unsupported. Each keeps to its own keyspace, so an instance already holding agent
+    conversations is fine to reuse. A Redis instance used as the record
     wants ``appendonly yes`` and ``maxmemory-policy noeviction``  -  this is a log, not a cache.
     """
 
@@ -413,7 +374,7 @@ class EventsSettings(LayeredSettings):
         default="memory://",
         description="Where the Runtime's canonical event log is written: `memory://` (default, in-process, "
         "gone when the process exits), `sqlite://<path>`, `redis://<url>`/`rediss://<url>` (needs the `[redis]` "
-        "extra), or `postgresql://<dsn>` (needs the `[durability]` extra). The scheme names the backend.",
+        "extra), or `postgresql://<dsn>` (needs the `[postgres]` extra). The scheme names the backend.",
     )
 
 
@@ -493,7 +454,6 @@ class Settings(BaseModel):
     providers: ModelProviderSettings = Field(default_factory=lambda: ModelProviderSettings.model_validate({}))
     runner: RunnerSettings = Field(default_factory=lambda: RunnerSettings.model_validate({}))
     runtime: RuntimeSettings = Field(default_factory=lambda: RuntimeSettings.model_validate({}))
-    checkpoint: CheckpointSettings = Field(default_factory=lambda: CheckpointSettings.model_validate({}))
     events: EventsSettings = Field(default_factory=lambda: EventsSettings.model_validate({}))
     control: ControlSettings = Field(default_factory=lambda: ControlSettings.model_validate({}))
     session: SessionSettings = Field(default_factory=lambda: SessionSettings.model_validate({}))
@@ -510,8 +470,6 @@ _RETIRED_ENV_NAMES: Mapping[str, str] = {
     "AGENTDECK_EVENTS_URL": "AGENTDECK_EVENTS",
     "AGENTDECK_CONTROL_BACKEND": "AGENTDECK_CONTROL",
     "AGENTDECK_CONTROL_URL": "AGENTDECK_CONTROL",
-    "AGENTDECK_CHECKPOINT_BACKEND": "AGENTDECK_CHECKPOINT",
-    "AGENTDECK_CHECKPOINT_URL": "AGENTDECK_CHECKPOINT",
     "AGENTDECK_SESSION_REDIS_URL": "AGENTDECK_SESSION",
     "AGENTDECK_LANGFUSE_HOST": "AGENTDECK_LANGFUSE_BASE_URL",
 }
@@ -553,7 +511,6 @@ def reset_settings_cache() -> None:
 
 
 __all__ = [
-    "CheckpointSettings",
     "ControlSettings",
     "EventsSettings",
     "LangfuseSettings",

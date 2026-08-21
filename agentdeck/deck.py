@@ -40,12 +40,10 @@ import functools
 import logging
 import uuid
 from contextlib import aclosing, suppress
-from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
-from agentdeck.adapters.executors.langgraph import LangGraphExecutor
 from agentdeck.adapters.executors.native import NativeExecutor
 from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor, SessionFactory
 from agentdeck.adapters.executors.openai_agents.runconfig import validate_model_requirements
@@ -56,11 +54,8 @@ from agentdeck.authoring.injection import declared_context_type
 from agentdeck.authoring.interrupts import interrupt_result
 from agentdeck.authoring.native import NativeDefinition
 from agentdeck.authoring.skills import skills_resolver
-from agentdeck.authoring.timers import WAKE_AT_KEY, wake_at_of
-from agentdeck.authoring.workflow import Workflow
 from agentdeck.composition import (
     build_runtime,
-    resolve_checkpoint,
     resolve_control_port,
     resolve_event_store,
     resolve_observers,
@@ -71,7 +66,6 @@ from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
 from agentdeck.core.events import (
     TERMINAL_KINDS,
-    NodeUpdated,
     RunCancelled,
     RunCompleted,
     RunFailed,
@@ -99,7 +93,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Generator, Mapping, Sequence
 
     from agents.memory.session import Session
-    from agents.tool import FunctionTool
 
     from agentdeck.authoring.interrupts import InterruptResult
     from agentdeck.core.content import Input
@@ -108,10 +101,10 @@ if TYPE_CHECKING:
     from agentdeck.core.ports import EventStorePort, Executor
     from agentdeck.runtime.service import PendingRun, Runtime
 
-# The two engine names a Deck's catalog always targets  -  read off each engine's own ``ClassVar``,
+# The engine names a Deck's catalog always targets  -  read off each engine's own ``ClassVar``,
 # never an instance, so ``build()`` can validate "an engine is registered" without constructing
 # anything that could touch the network. See the module docstring's lifecycle note.
-_DEFAULT_EXECUTORS: tuple[str, ...] = (OpenAIAgentsExecutor.name, LangGraphExecutor.name, NativeExecutor.name)
+_DEFAULT_EXECUTORS: tuple[str, ...] = (OpenAIAgentsExecutor.name, NativeExecutor.name)
 
 _State = Literal["NEW", "BUILT", "OPEN", "CLOSED"]
 
@@ -132,12 +125,6 @@ def _validate_observers(observers: Sequence[Observer] | None) -> None:
                 "observer implements `async def emit(self, event)` and subclasses "
                 "`agentdeck.core.ports.Observer`."
             )
-
-
-def _require_aware(now: datetime) -> datetime:
-    if now.tzinfo is None:
-        raise ValueError(f"_due_resumes/_tick require a timezone-aware `now`; got naive {now!r}.")
-    return now
 
 
 class TurnResult:
@@ -233,21 +220,12 @@ async def _turn_result(events: AsyncGenerator[Event, None]) -> TurnResult:
     return result
 
 
-async def _workflow_result(
-    events: AsyncGenerator[Event, None], *, completed_is_applied: bool = False
-) -> tuple[Any, bool]:
+async def _workflow_result(events: AsyncGenerator[Event, None]) -> tuple[Any, bool]:
     """A workflow run's final state (or the interrupt it paused on), plus whether anything
     actually ran for this call.
 
-    Mirrors ``surfaces/serve/compat.py``'s own ``_terminal`` (duplicated rather than imported,
-    for the reason above): a lost resume claim or a thread already at ``END`` both produce an
-    empty or update-free stream, and ``applied`` is what keeps that from reading as the stale
-    success langgraph would otherwise hand back.
-
-    ``completed_is_applied`` is what a native workflow needs and a graph must not have. A native
-    body is *parked*, so a terminal event after a resume can only mean it continued from where it
-    stopped; a graph is re-entered from a checkpoint that may already be at ``END``, which is
-    exactly the stale success this flag would otherwise wave through.
+    ``applied`` is what keeps a lost resume claim from reading as success: that race produces a
+    stream with no terminal event at all, since the winner's events belong to its own segment.
     """
     result: Any = None
     applied = False
@@ -256,34 +234,23 @@ async def _workflow_result(
             payload = event.payload
             if isinstance(payload, RunInterrupted):
                 result, applied = interrupt_result(payload.payload, payload.thread_id or "", id=event.run_id), True
-            elif isinstance(payload, NodeUpdated):
-                applied = True
             elif isinstance(payload, RunCompleted):
                 result = next((block.data for block in payload.output if isinstance(block, DataBlock)), None)
-                applied = applied or completed_is_applied
+                applied = True
     return result, applied
 
 
-def _as_state_block(state: Any) -> DataBlock:
-    # `None`'s default meaning here is "no updates", which a data block can only carry as
-    # `{}`  -  `DataBlock(data=None)` would reach the langgraph engine as a null state and fail
-    # its own "must be a JSON object" check.
-    return DataBlock(data=state if state is not None else {})
-
-
-def _content_for(root: Agent | Workflow | NativeDefinition, input: Any) -> Input:
+def _content_for(root: Agent | NativeDefinition, input: Any) -> Input:
     """``input`` coerced the way ``root``'s own kind expects it  -  shared by every caller that
     begins a run (:meth:`Deck.run`, :meth:`Deck.stream`, :meth:`Runs.start`), so the coercion
     rule lives in exactly one place.
 
     A native definition takes whatever it was given: its executor binds the value to the body's
-    own parameters, so a string stays a string rather than becoming a graph's ``{}``.
+    own parameters, so a string stays a string rather than being wrapped as content.
     """
     if isinstance(root, Agent):
         return coerce_input(input)
-    if isinstance(root, NativeDefinition):
-        return coerce_input(input) if isinstance(input, str) else [DataBlock(data=input)]
-    return [_as_state_block(input)]
+    return coerce_input(input) if isinstance(input, str) else [DataBlock(data=input)]
 
 
 async def _aclose_store(store: EventStorePort) -> None:
@@ -373,15 +340,15 @@ def _release_process(deck: Deck) -> None:
 class Deck:
     """One catalog of agents, workflows, skills and MCP servers, and the lifecycle over it.
 
-    Construct with ``agents=``/``workflows=`` (bare :class:`~agentdeck.authoring.agent.Agent` /
-    :class:`~agentdeck.authoring.workflow.Workflow` instances  -  never wrapped, per
+    Construct with ``agents=``/``workflows=`` (bare :class:`~agentdeck.authoring.agent.Agent`
+    instances and ``@workflow`` definitions  -  never wrapped, per
     ``docs/delivery/deck-capability-wrapper-pattern.md``) and ``skills=``/``mcp=`` (a bare path,
     a sequence of paths, or the capability object itself  -  coerced either way).
 
     ``context=`` declares the *type* of the application context this catalog's callables receive
      -  the class, not an instance of it. The value itself arrives per run (:meth:`run`,
     :meth:`stream`, :meth:`Runs.start`), and a tool, a dynamic-instructions callable, an agent
-    hook or a workflow node declaring a :class:`~agentdeck.core.context.ToolCtx` parameter
+    hook or a native definition declaring a :class:`~agentdeck.core.context.ToolCtx` parameter
     receives it. Declaring the type is what makes :meth:`build` able to check every such
     parameter against it before anything runs; a deck that declares none still runs exactly the
     same, with the requirement unchecked until the callable is played.
@@ -417,7 +384,7 @@ class Deck:
         self,
         *,
         agents: Sequence[Agent] = (),
-        workflows: Sequence[Workflow | NativeDefinition] = (),
+        workflows: Sequence[NativeDefinition] = (),
         skills: str | Path | Sequence[str | Path] | Skills | None = None,
         mcp: str | Path | MCP | None = None,
         context: object = None,
@@ -440,7 +407,7 @@ class Deck:
         _project_path: Path | None = None,
     ) -> None:
         self._agents: Mapping[str, Agent] = _named_mapping(agents, "agents")
-        self._workflows: Mapping[str, Workflow | NativeDefinition] = _named_mapping(workflows, "workflows")
+        self._workflows: Mapping[str, NativeDefinition] = _named_mapping(workflows, "workflows")
         self._skills_obj = _coerce_skills(skills)
         self._mcp_obj = _coerce_mcp(mcp)
         self._context_type = declared_context_type(context)
@@ -456,7 +423,6 @@ class Deck:
         self._executor_instances: tuple[Executor, ...] | None = None
         self._runtime: Runtime | None = None
         self._sessions: ExecutionStore | None = None
-        self._sweeper: asyncio.Task[None] | None = None
         # The one execution owner per run (docs/design/run-identity.md §9): keyed by run_id,
         # populated by `_start`, and popped by `_execution_done` the moment the task settles  -
         # whichever way  -  so `_events` degrades to reading the store once nothing local is
@@ -489,7 +455,7 @@ class Deck:
         )
         agents = list(agent_registry.list(refresh=True).values())
         workflow_registry = PluginRegistry(
-            package, base_class=Workflow, module_name="workflow", type_dir="workflows", label="workflow"
+            package, base_class=NativeDefinition, module_name="workflow", type_dir="workflows", label="workflow"
         )
         workflows = list(workflow_registry.list(refresh=True).values())
         project_root = Path(path).resolve()
@@ -514,7 +480,7 @@ class Deck:
         return self._agents
 
     @property
-    def workflows(self) -> Mapping[str, Workflow | NativeDefinition]:
+    def workflows(self) -> Mapping[str, NativeDefinition]:
         return self._workflows
 
     @property
@@ -571,14 +537,12 @@ class Deck:
         for agent in self._agents.values():
             self._validate_agent_skills(agent, skills_by_name)
             self._validate_agent_mcp(agent, mcp_names)
-            self._validate_agent_workflow_tools(agent)
         engine_names = tuple(self._executors_arg) if self._executors_arg is not None else _DEFAULT_EXECUTORS
         registry = InvocableRegistry(engine_names)
         self._invocables = registry.load(
             agents=list(self._agents.values()),
             workflows=list(self._workflows.values()),
             resolve_skills=skills_resolver(self._skills_obj) if self._skills_obj is not None else None,
-            resolve_workflow_tool=self._resolve_workflow_tool,
             bundle_of=self._bundle_of,
             context_type=self._context_type,
         )
@@ -608,35 +572,6 @@ class Deck:
             raise ConfigError(
                 f"agent {agent.name!r} declares unknown MCP server(s) {unknown}. Available: {sorted(mcp_names)}."
             )
-
-    def _validate_agent_workflow_tools(self, agent: Agent) -> None:
-        for tool in agent.tools:
-            if not isinstance(tool, Workflow):
-                continue
-            if tool.name not in self._workflows:
-                raise ConfigError(
-                    f"agent {agent.name!r} uses workflow {tool.name!r} as a tool, but it is not in "
-                    f"this Deck's workflows=. Available: {sorted(self._workflows)}."
-                )
-            if tool.durable:
-                # `as_tool()` calls `run(args)` with no thread_id, and a durable workflow needs
-                # one to load and persist its checkpoint  -  so the tool raises the moment a model
-                # calls it. Refusing at build() turns that into a validation error rather than a
-                # surprise mid-turn; giving a tool-invoked workflow a thread is its own design
-                # question (#193), not something to guess at here.
-                raise ConfigError(
-                    f"agent {agent.name!r} uses workflow {tool.name!r} as a tool, but it is "
-                    f"durable=True. A workflow invoked as a tool gets no thread_id, which a "
-                    f"durable workflow requires  -  set durable=False on {tool.name!r}, or call it "
-                    f"as a root invocable via deck.run() where you can pass a session."
-                )
-
-    def _resolve_workflow_tool(self, workflow: Workflow) -> FunctionTool:
-        # A safety net behind ``_validate_agent_workflow_tools`` above  -  reachable only if a
-        # future caller compiles an agent against a different Deck's catalog than it validated.
-        if workflow.name not in self._workflows:
-            raise ConfigError(f"workflow {workflow.name!r} is used as a tool but is not registered in workflows=.")
-        return workflow.as_tool()
 
     async def __aenter__(self) -> Deck:
         """Open: build (if not yet), start the MCP lifecycle, and compose the Runtime.
@@ -671,7 +606,6 @@ class Deck:
         else:
             self._executor_instances = (
                 OpenAIAgentsExecutor(self._ensure_sessions(), settings=resolve_run_settings()),
-                LangGraphExecutor(durable_checkpoint=resolve_checkpoint()),
                 NativeExecutor(),
             )
         self._owns_store = self._store_arg is None
@@ -712,25 +646,7 @@ class Deck:
             agents = list(self._agents.values())
             refresh_mcp_status({name: invocables[name].native for name in self._agents}, agents)
         self._state = "OPEN"
-        self._sweeper = asyncio.create_task(self._sweep())
         return self
-
-    async def _sweep(self) -> None:
-        """Wake a parked ``sleep_until`` on this Deck's own clock, for as long as this Deck
-        stays open  -  no cron, no user-wired scheduler. Sleeps for
-        ``settings.runtime.sweep_interval_seconds``, then drives :meth:`_tick` by hand, the
-        same call a test does; a tick that raises is logged and the loop keeps going, since one
-        transient store error must not silently end every future wake. A process that opens the
-        Deck, takes a turn and closes within one interval never sweeps at all  -  a due timer's
-        wake-up happens on whoever next holds the Deck open past that.
-        """
-        interval = self.settings.runtime.sweep_interval_seconds
-        while True:
-            await asyncio.sleep(interval)
-            try:
-                await self._tick()
-            except Exception:
-                logger.exception("timer sweep failed; will retry next interval")
 
     async def __aexit__(self, *exc_info: object) -> None:
         await self.aclose()
@@ -760,17 +676,6 @@ class Deck:
         if self._closed:
             return
         self._closed = True
-        if self._sweeper is not None:
-            # Cancelled and awaited before anything below tears down, so no *new* tick can start
-            # once teardown begins. This does not wait out a tick already in flight: a store call
-            # blocked in `asyncio.to_thread` (every SqliteEventStore call) keeps running on its OS
-            # thread after the awaited cancellation returns, so an in-flight tick's write can still
-            # land after `runtime.drain()`/the store close below start. Narrowing that window needs
-            # a cooperative stop (a flag cancellation only interrupts the `asyncio.sleep` on, with
-            # `aclose()` awaiting a tick already running to actually finish)  -  not done here.
-            self._sweeper.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._sweeper
         # Every run this Deck itself is executing settles or is cancelled here, before the
         # runtime drains and the store closes below  -  both are things a still-writing task
         # needs. A task already done has already settled on its own (`run.completed`/
@@ -827,7 +732,7 @@ class Deck:
             raise ConfigError("this Deck is not open: use `async with deck:` (or `await deck.__aenter__()`) first.")
         return self._runtime
 
-    def _root(self, name: str) -> Agent | Workflow | NativeDefinition:
+    def _root(self, name: str) -> Agent | NativeDefinition:
         if name in self._agents:
             return self._agents[name]
         if name in self._workflows:
@@ -1020,8 +925,7 @@ class Deck:
                 run_id=pending.run_id,
                 session_id=pending.session_id,
                 namespace=namespace,
-            ),
-            completed_is_applied=isinstance(self._root(pending.invocable), NativeDefinition),
+            )
         )
         if not applied:
             # Nothing was played: a lost race, or a run the routing ended instead of answering.
@@ -1045,93 +949,6 @@ class Deck:
         if allowed.verdict is not Verdict.REFUSED:
             return NotFoundError(f"No pending run {run_id!r}.")
         return RunStateError(f"run {run_id!r} cannot be answered: {allowed.why}")
-
-    async def _due_resumes(self, now: datetime | None = None) -> list[InterruptResult]:
-        """Timer-paused threads (``sleep_until``) whose wake time has passed. Not public: it is
-        :meth:`_sweep`'s own listing (through :meth:`_tick`) on every interval, and a test that
-        wants determinism drives it by hand instead of waiting on the sweep's clock.
-
-        Listed off each workflow's own checkpointer rather than :meth:`Run.pending`'s event
-        log (see :meth:`_pending_interrupts`)  -  a choice, not an oversight: by default the
-        checkpoint backend is durable (``sqlite``) while the event store is not (``memory``),
-        so a process that restarts keeps the checkpoint's memory of a parked thread but not
-        the log's. Routing this listing through the log alone would silently stop surviving a
-        restart under that (default) configuration, which is exactly #22's own guarantee
-        (``tests/test_workflow_timers.py::test_tick_survives_a_process_restart``).
-        """
-        now = _require_aware(now) if now is not None else datetime.now(UTC)
-        pending = await self._pending_interrupts()
-        return [p for p in pending if (wake_at := wake_at_of(p["payload"])) is not None and wake_at <= now]
-
-    async def _pending_interrupts(self) -> list[InterruptResult]:
-        """Every thread paused on an interrupt, across the whole catalog  -
-        :meth:`_due_resumes`'s own filter, driven straight off each workflow's checkpointer
-        rather than the Runtime's log (the same source :meth:`_tick` reads)."""
-        pending: list[InterruptResult] = []
-        for workflow in self._graph_workflows():
-            pending.extend(await workflow.pending())
-        return pending
-
-    def _graph_workflows(self) -> list[Workflow]:
-        """The catalog's graph-backed workflows. A native ``@workflow`` keeps no checkpointer
-        and parks no thread of its own, so the timer sweep has nothing to ask it."""
-        return [workflow for workflow in self._workflows.values() if isinstance(workflow, Workflow)]
-
-    async def _tick(self, now: datetime | None = None) -> list[Any]:
-        """Resume every thread whose ``sleep_until`` timer is due. Not public: :meth:`_sweep`
-        calls it on every interval for as long as this Deck stays open, and a test that wants
-        determinism calls it directly instead of waiting on that clock.
-
-        A thread the checkpointer lists as due may *also* be a run :meth:`Run.pending`
-        already knows about  -  parked by a ``Deck.run()``/HTTP call that went through the
-        Runtime, the same as any other interrupt. Resuming such a thread by calling the
-        workflow directly (as this used to) never told the log: the run stayed
-        ``WAITING_ANSWER`` and kept holding its session claim forever, a ghost indistinguishable
-        from the one #114 fixed for :meth:`Run.answer`. So a due thread with a matching
-        logged run resumes through the Runtime instead  -  closing that run and freeing its
-        claim  -  and only a thread with no logged run (parked by calling a durable
-        :class:`Workflow`'s own ``run``/``resume`` directly, which never opens a run in the log
-        to begin with) falls back to the direct checkpointer resume, since there is no log
-        entry to reconcile.
-        """
-        now = _require_aware(now) if now is not None else datetime.now(UTC)
-        runtime = self._require_open()
-        logged = {(run.invocable, run.thread_id): run for run in await runtime.pending()}
-        results = []
-        for workflow in self._graph_workflows():
-            for pending in await workflow.pending():
-                wake_at = wake_at_of(pending["payload"])
-                if wake_at is None or wake_at > now:
-                    continue
-                logged_run = logged.get((workflow.name, pending["thread_id"]))
-                if logged_run is None:
-                    results.append(await workflow.resume(pending["thread_id"], wake_at))
-                    continue
-                try:
-                    result, applied = await _workflow_result(
-                        runtime.resume(
-                            logged_run.invocable,
-                            # The payload's own ISO string, not the parsed `wake_at`: this value
-                            # also becomes the logged `run.resumed`, and a bare `datetime` fails
-                            # that event's JSON validation  -  recorded as a lost answer, with a
-                            # warning, even though the graph itself would have resumed fine.
-                            pending["payload"][WAKE_AT_KEY],
-                            run_id=logged_run.run_id,
-                            session_id=logged_run.session_id,
-                        )
-                    )
-                except RunStateError:
-                    # An operator asked this run to stop before its timer came due. Waking it
-                    # would override them, so the wake defers  -  the same ruling an answer gets,
-                    # for the same reason. Caught per run, not per sweep: one held-back timer
-                    # must not stop every other due thread in the catalog from waking.
-                    continue
-                # A lost race (some other caller already resumed this run) leaves nothing to
-                # report  -  not a fallback to the direct resume, which would just re-enter a
-                # thread the winner has already moved on from.
-                if applied:
-                    results.append(result)
-        return results
 
     def session_for(self, session_id: str) -> Session:
         """Conversation memory for ``session_id``  -  the engine's own store, so a turn started
@@ -1167,7 +984,7 @@ _RECOVERED_SUSPENDABLE = True
 
 def _completed_result(deck: Deck, event: Event, payload: RunCompleted) -> Any:
     """A run's own ``run.completed`` as the value :meth:`Run.__await__` hands back  -  a
-    :class:`TurnResult` for an agent, the graph's own state for a workflow.
+    :class:`TurnResult` for an agent, the body's own return value for a workflow.
 
     Keyed off ``event.origin`` (constant for one run, whichever event carries it) rather than
     a name the caller supplied: a handle recovered through :meth:`Runs.get` never held one, and
@@ -1349,7 +1166,7 @@ class Run:
             yield event
 
     def __await__(self) -> Generator[Any, None, Any]:
-        """The result: a :class:`TurnResult` for an agent, the graph's own state for a
+        """The result: a :class:`TurnResult` for an agent, the body's own return value for a
         workflow. Blocks while the run is still ``RUNNING``, wherever it is executing.
 
         Raises rather than blocks once the run has stopped without finishing: ``RunStateError``

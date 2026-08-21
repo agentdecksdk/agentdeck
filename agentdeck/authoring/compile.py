@@ -8,10 +8,10 @@ agent in a catalog has a bare compiled form, and mutates ``.handoffs`` in place 
 ``Agent`` is mutable, so this is the same shape v1's recursive handoff resolution used.
 
 MCP status stays wired straight to the process-wide :class:`MCPLifecycle`, unchanged from v1:
-resolving servers has never needed a catalog, only the lifecycle's own state. Skills and
-workflow-as-tool *do* need one  -  a root to scan, a graph to call  -  so both arrive as optional
-resolver callbacks a ``Deck`` supplies; an ``Agent`` built with neither configured raises a
-clear ``ConfigError`` naming what is missing, instead of silently dropping what it declared.
+resolving servers has never needed a catalog, only the lifecycle's own state. Skills *do* need
+one  -  a root to scan  -  so it arrives as an optional resolver callback a ``Deck`` supplies; an
+``Agent`` built without it raises a clear ``ConfigError`` naming what is missing, instead of
+silently dropping what it declared.
 
 A bare callable in ``tools=`` is **compiled** here, by ``tools.compile_tool``  -  a plain function
 is the canonical way to declare a tool, and a function annotated ``ToolCtx[...]`` can only be
@@ -44,23 +44,20 @@ from agents import Agent as SDKAgent
 from agents import ModelSettings
 from agents import Tool as SDKTool
 
-from agentdeck.adapters.executors.langgraph.checkpointer import resolve_checkpointer
 from agentdeck.adapters.tools.mcp.wiring import mcp_status_banner, resolve_agent_mcp_status
 from agentdeck.authoring.hooks import compile_hooks
 from agentdeck.authoring.instructions import compile_instructions
 from agentdeck.authoring.native import NativeDefinition
 from agentdeck.authoring.tools import compile_tool
 from agentdeck.errors import ConfigError, NotFoundError
-from agentdeck.runtime.settings import get_settings, parse_backend_url
+from agentdeck.runtime.settings import get_settings
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
     from agents.tool import FunctionTool
-    from langgraph.graph.state import CompiledStateGraph
 
     from agentdeck.authoring.agent import Agent
-    from agentdeck.authoring.workflow import Workflow
 
 # `agents.Tool` is a `Union` of concrete SDK tool classes (`FunctionTool`, `WebSearchTool`, a
 # hosted computer/shell tool, ...) rather than a class of its own, so `isinstance(x, SDKTool)`
@@ -71,36 +68,17 @@ if TYPE_CHECKING:
 _SDK_TOOL_TYPES: tuple[type[Any], ...] = tuple(get_origin(a) or a for a in get_args(SDKTool))
 
 
-def compile_workflow(workflow: Workflow) -> CompiledStateGraph[Any]:
-    """Compile ``workflow``'s graph, with a checkpointer if it is ``durable``.
-
-    Every call recompiles rather than caching: unlike v1's ``BaseWorkflow.build()`` (a
-    ``ClassVar`` cache on the declaring class), an immutable ``Workflow`` instance has nowhere
-    to stash one without breaking the freeze guarantee, and compiling a graph is cheap next to
-    opening the checkpointer connection it wraps.
-    """
-    graph = workflow.build_graph()
-    if not workflow.durable:
-        return graph.compile()
-    checkpoint = get_settings().checkpoint
-    scheme, rest = parse_backend_url(checkpoint.url)
-    backend = "postgres" if scheme == "postgresql" else scheme
-    path_or_dsn = rest if backend == "sqlite" else checkpoint.url
-    return graph.compile(checkpointer=resolve_checkpointer(backend, path_or_dsn))
-
-
 def compile_agent(
     agent: Agent,
     *,
     resolve_skills: Callable[[Sequence[str]], tuple[str, Sequence[FunctionTool]]] | None = None,
-    resolve_workflow_tool: Callable[[Workflow], FunctionTool] | None = None,
     context_type: object | None = None,
 ) -> SDKAgent:
     """Build the SDK ``Agent`` for ``agent``, minus handoffs (see module docstring).
 
-    Raises :class:`ConfigError` rather than silently dropping ``skills=``/a workflow tool when
-    no resolver was supplied  -  the caller (``Deck.build()``, or a bare compile with neither
-    configured) must be the one to say why, not the compiled agent by omission.
+    Raises :class:`ConfigError` rather than silently dropping ``skills=`` when no resolver was
+    supplied  -  the caller (``Deck.build()``, or a bare compile with none configured) must be the
+    one to say why, not the compiled agent by omission.
 
     ``context_type`` is the owning deck's ``Deck(context=...)`` declaration, checked against
     every ``ToolCtx[...]`` this agent's tools, instructions and hooks require.
@@ -116,8 +94,6 @@ def compile_agent(
             )
         disclosure, skill_tools = resolve_skills(agent.skills)
         tools.extend(skill_tools)
-    from agentdeck.authoring.workflow import Workflow
-
     resolved_tools: list[Any] = []
     for tool in tools:
         if isinstance(tool, NativeDefinition):
@@ -125,13 +101,6 @@ def compile_agent(
             # what the catalog holds and what makes it invocable in its own right, and the SDK
             # only ever needed the callable underneath.
             resolved_tools.append(compile_tool(tool.call, context_type=context_type))
-        elif isinstance(tool, Workflow):
-            if resolve_workflow_tool is None:
-                raise ConfigError(
-                    f"agent {agent.name!r} uses workflow {tool.name!r} as a tool, but no workflow "
-                    "catalog is configured  -  pass workflows=... to Deck(...)."
-                )
-            resolved_tools.append(resolve_workflow_tool(tool))
         elif isinstance(tool, _SDK_TOOL_TYPES):
             resolved_tools.append(tool)
         elif callable(tool):
@@ -257,4 +226,4 @@ def _resolve_mcp(agent: Agent) -> tuple[str, list[Any]]:
     return mcp_status_banner(missing), list(available)
 
 
-__all__ = ["compile_agent", "compile_workflow", "link_handoffs", "refresh_mcp_status"]
+__all__ = ["compile_agent", "link_handoffs", "refresh_mcp_status"]

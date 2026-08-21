@@ -13,7 +13,7 @@ This module is on every agent run's import path regardless of ``AGENTDECK_SESSIO
 (``__init__.py`` imports it unconditionally), so both the redis client and
 ``agents.extensions.memory``  -  whose ``RedisSession`` import is itself gated on redis being
 installed  -  are resolved lazily in ``from_settings``, only once a ``redis://`` URL is
-actually configured, the same way the langgraph checkpointers resolve theirs.
+actually configured, the same way the event stores resolve theirs.
 """
 
 from __future__ import annotations

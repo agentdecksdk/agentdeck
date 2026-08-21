@@ -31,7 +31,6 @@ from agentdeck.core.content import DataBlock, ImageBlock, ResourceBlock, TextBlo
 from agentdeck.core.events import (
     ControlObserved,
     ControlRequested,
-    NodeUpdated,
     RunCancelled,
     RunCompleted,
     RunFailed,
@@ -115,8 +114,6 @@ class LangfuseSink(Observer):
                 self._tool_started(event, call)
             case ToolCallCompleted() as call:
                 self._tool_completed(event, call)
-            case NodeUpdated() as node:
-                self._node(event, node)
             case UsageReported() as reported:
                 self._usage(event, reported)
             case RunCompleted() as completed:
@@ -251,14 +248,6 @@ class LangfuseSink(Observer):
             level="ERROR" if call.error else None,
             status=call.error,
         )
-
-    def _node(self, event: Event, node: NodeUpdated) -> None:
-        open_trace = self._open.get(event.run_id)
-        if open_trace is None:
-            return
-        # The patched key names, never their values: which node ran and what it touched is
-        # what makes a workflow trace readable, and the state itself is not telemetry's to copy.
-        open_trace.root.child(node.node, kind="span").finish(output=sorted(node.state_patch))
 
     def _usage(self, event: Event, reported: UsageReported) -> None:
         open_trace = self._open.get(event.run_id)

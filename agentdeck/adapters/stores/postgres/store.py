@@ -9,7 +9,7 @@ status still derived by folding events rather than stored (ADR-D5: the log is th
 source of truth).
 
 Everything this store owns lives in its **own schema** (``agentdeck_events`` by default),
-so a database that also holds the langgraph checkpointer's tables keeps the platform record
+so a database that also holds an application's own tables keeps the platform record
 and the engine's private execution state apart  -  the operational separation ADR-D5 asks
 for, expressed as the one thing Postgres can enforce.
 """

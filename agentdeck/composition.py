@@ -143,22 +143,6 @@ def resolve_run_settings(settings: Settings | None = None) -> RunSettings:
     )
 
 
-def resolve_checkpoint(settings: Settings | None = None) -> tuple[str, str]:
-    """The ``(backend, path_or_dsn)`` a durable workflow checkpoints to, derived from
-    ``AGENTDECK_CHECKPOINT``'s scheme.
-
-    A pair of strings, not a saver: the postgres saver lives in the ``[durability]`` extra, so
-    naming a backend here must not import one  -  the langgraph adapter builds it at the first
-    durable run and not before. ``postgresql`` normalizes to the backend name
-    ``resolve_checkpointer`` expects (``postgres``); sqlite's own value is the bare path after
-    the scheme, since the saver takes a filesystem path, not a URL.
-    """
-    checkpoint = (settings if settings is not None else get_settings()).checkpoint
-    scheme, rest = parse_backend_url(checkpoint.url)
-    backend = "postgres" if scheme == "postgresql" else scheme
-    return backend, rest if backend == "sqlite" else checkpoint.url
-
-
 def resolve_control_port(settings: ControlSettings | None = None) -> ControlPort:
     """Build the control port named by ``AGENTDECK_CONTROL``'s scheme: ``memory://`` (default)
     or ``sqlite://<path>``.
@@ -265,7 +249,6 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
 
 __all__ = [
     "build_runtime",
-    "resolve_checkpoint",
     "resolve_control_port",
     "resolve_event_store",
     "resolve_lease_port",
