@@ -248,19 +248,21 @@ nobody able to answer it properly.
 
 ## Where LangGraph ends up
 
-`Workflow(graph=...)` goes away. A prebuilt graph is a target, not a declaration to wrap, and the
-one invocation boundary is what runs it.
+Out of v5.0.0 entirely. A prebuilt graph is a target, not a declaration to wrap, and the one
+invocation boundary that would run it is #337, which is the next release.
 
-| today | v5 |
-|---|---|
-| `Workflow(graph=build_graph)` in `Deck(workflows=[...])` | the compiled graph itself, invoked or registered directly |
-| a `WorkflowDeclaration` subclass | `@workflow`, an ordinary Python body |
-| `durable=True`, and AgentDeck wires langgraph's checkpointer | the author compiles their graph with the checkpointer they want, and AgentDeck runs it |
+| today | v5.0.0 | when the resolver lands |
+|---|---|---|
+| `Workflow(graph=build_graph)` in `Deck(workflows=[...])` | removed | the compiled graph itself, invoked or registered directly |
+| a `WorkflowDeclaration` subclass | removed | `@workflow` already replaced it |
+| `durable=True`, and AgentDeck wires langgraph's checkpointer | removed | the author compiles their graph with the checkpointer they want |
 
-Removal follows the replacement rather than leading it: the resolver is what makes a bare graph
-invocable, so `Workflow`, `WorkflowDeclaration`, `graph=` and `durable=` are deleted in the PR
-after it, together with what hangs off them (`sleep_until` and the timer sweep, `Workflow.pending`,
-`as_tool`, the serve surface's workflow routes).
+Removal leads the replacement rather than following it, which is the reverse of what an earlier
+revision of this file said. The reason is that the alternative is a deprecation window, and a
+deprecated API is still an API: documented, supported, tested, and teaching the shape this design
+just rejected. `Workflow`, `WorkflowDeclaration`, `graph=` and `durable=` go, together with what
+hangs off them (`sleep_until` and the timer sweep, `Workflow.pending`, `as_tool`, the serve
+surface's workflow routes), the adapter itself, and the three LangGraph dependencies.
 
 Two consequences, stated rather than discovered later:
 
@@ -298,8 +300,8 @@ Each row is a break, and each needs a CHANGELOG entry.
 | `Reporter.status()/progress()` | `info/warning/error/report` | two hard-coded shapes, no structured record |
 | `EnginePort.start()/resume()` | `Executor.execute()` | `resume` was never the pause's resume, and the answer it took is already in the log |
 | `run.answer(value)` logs a warning | raises `ValueError` | a value the log cannot carry resumed a run no replay could reproduce |
-| `Workflow(graph=...)` | `@workflow` body; a graph is a target the resolver runs | #336, #337 |
-| `deck.runs.start(name, ...)` | also `start(target, ...)` | #337 |
+| `Workflow(graph=...)`, `WorkflowDeclaration`, `durable=` | removed; write an imperative `@workflow` | #336 |
+| LangGraph as a supported runtime | removed from v5.0.0, adapter and dependencies included | #337 restores it as a target |
 
 ## Rejected from the source design
 
@@ -319,13 +321,41 @@ alone, with no `ctx.approve()` and no `ctx.pause()`, and both issues are updated
 | deferred | why, and what unblocks it |
 |---|---|
 | durable replay of an imperative `@workflow` | v5.0.0 suspends and resumes in one process. A body that survives a restart without re-executing committed invocations needs an invocation journal; its own issue and design |
-| durability for a wrapped LangGraph graph | #330: the checkpointer keys a thread by id alone, so a wrapped graph's durable identity crosses namespaces. Wrapping lands non-durable |
+| `InvocationResolver` and the wrapping adapters | #337. Nothing foreign is adapted until the thing it is adapted *to* exists and is proven, and it now has a whole release to be proven in |
+| LangGraph, entirely | see below |
 | streaming / checkpointing capability protocols | nothing needs AgentDeck to control them yet |
+
+### LangGraph is removed, not deprecated
+
+**Decided 2026-08-21.** v5.0.0 ships native targets and the OpenAI Agents SDK. `Workflow`,
+`WorkflowDeclaration`, `graph=`, `durable=`, `adapters/executors/langgraph/`, the checkpointer
+resolution behind `AGENTDECK_CHECKPOINT`, and the `langgraph` / `langchain-core` /
+`langgraph-checkpoint-sqlite` dependencies all go.
+
+The reasoning is that half-keeping it is worse than either alternative.
+
+| | |
+|---|---|
+| the declaration had to die | `Workflow(graph=StateGraph)` names one framework in the neutral authoring layer, which is the thing this whole design removes |
+| the resolver that would replace it is not ready | #337 is the largest remaining piece, and #330 means a wrapped graph's durable identity crosses namespaces, so it would land non-durable |
+| keeping the adapter dormant costs every user | three LangGraph packages are required dependencies today, for a path 5.0 would give nobody a way to reach |
+
+What a 4.x graph user does: stay on 4.x, or port the graph to an imperative `@workflow`, which is
+ordinary Python and needs no state schema. LangGraph returns when the resolver does, as a target
+the resolver runs rather than a declaration the authoring layer knows about.
+
+This changes the product's own description: `README.md` and `CLAUDE.md` both open by naming
+LangGraph, and the removal PR owns correcting them.
 
 ## Delivery
 
-Native first, wrapping last: nothing foreign is adapted until the thing it is being adapted *to*
-exists and is proven by AgentDeck's own targets.
+Native first, wrapping later: nothing foreign is adapted until the thing it is being adapted *to*
+exists and is proven by AgentDeck's own targets. v5.0.0 ends at "proven", and the wrapping is its
+own release.
+
+No deprecation window anywhere in this list. A name that is wrong is removed in the release that
+decides it is wrong, because a deprecated API is still an API: it is documented, supported,
+tested, and it teaches the shape the design just rejected.
 
 | PR | scope | closes |
 |---|---|---|
@@ -336,8 +366,7 @@ exists and is proven by AgentDeck's own targets.
 | 5 | `ctx.invoke` / `ctx.parallel`, child runs, the invoker seam | #336 |
 | 6 | `Observer`, `views`, and the `view=` filter on a registration | #211 |
 | 7 | `AgentInstance`, `ctx.agent`, `ctx.agents.create()` / `fork()` | #236 |
-| 8 | `InvocationResolver` and the wrapping adapters: a LangGraph graph, an Agents SDK object, a plain callable, `deck.runs.start(target)` | #337 |
-| 9 | migration: delete `Workflow`, `WorkflowDeclaration`, `graph=`, `durable=` and what hangs off them | - |
+| 8 | remove LangGraph: `Workflow`, `WorkflowDeclaration`, `graph=`, `durable=`, the adapter, the checkpointer, the dependencies, and the docs that name them | - |
 
 Observability lands at 6 rather than last because every layer above it produces events a view has
 to be able to select, and a selector retrofitted over a finished vocabulary is one written from
