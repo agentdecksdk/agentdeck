@@ -23,7 +23,9 @@ Run `uv run scripts/repomap.py`. Then write the complete design into the draft P
 - `## Design` (**max 200 words, no subsections**): what the change does. A subsection means it grew past what the issue ruled; split the PR instead.
 - Opening summary before the first heading: **max 40 words**.
 
-**Whole body: 400 words.** A change that cannot be described in 400 words is a change that should be two PRs; say so rather than writing 800. The one exception is a PR whose diff is genuinely large (a sweep, a removal), where the cap is 800 and the extra is a list of what moved, never prose.
+**Whole body: 500 words**, rising to **800 when the diff touches 20 or more files**, where the extra is a list of what moved, never prose. A change that cannot be described in 500 words and touches under 20 files should be two PRs; say so rather than writing 800.
+
+500 rather than the sections' 400, because the sections do not cover everything a body must carry: `Closes #<n>`, a `## Left for the docs-site pass` list, and the docs-impact checklist line that `.github/workflows/docs-impact.yml` greps for verbatim. A total that squeezes out a line CI requires is a cap working against the repo.
 
 Count it this way, no judgement calls. Headings and table rows count: the house rule is a table *instead of* paragraphs, and a table on top of prose is what the cap exists to stop.
 ```
@@ -51,9 +53,9 @@ Answer against `git diff dev...HEAD`, fix what fails, honestly:
 10. Does the new code look like its canonical neighbors?
 
 ## Stage 4: Gate
+- Compact the PR body: it describes the change as it now stands, not the rounds that produced it. Delete design you abandoned and justifications the code no longer needs.
 - `make check` 100% green, then `gh pr ready`.
 - No attribution trailers anywhere.
-- Compact the PR body first: it describes the change as it now stands, not the rounds that produced it. Delete design you abandoned and justifications the code no longer needs.
 
 ## Answering a review
 Reply in the review thread and resolve it. Never grow the PR body to answer a finding: a thread collapses once addressed, a body is what the next reader has to wade through to learn what the change does. The body only changes when the change does.

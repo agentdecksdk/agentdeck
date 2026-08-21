@@ -38,7 +38,9 @@ You review one agentdeck PR as the merge gate. REVIEW ONLY on the code: never pu
      | `## Concept budget` | 4 lines, no prose |
      | `## Expected delta` | 1 line |
      | `## Design` | 200 words, no subsections |
-     | whole body | 400 words, or 800 for a genuinely large diff where the extra is a list, not prose |
+     | whole body | 500 words, or 800 when the diff touches 20 or more files, where the extra is a list, not prose |
+
+     The total exceeds the sections because a body also carries `Closes #<n>`, a `## Left for the docs-site pass` list, and the docs-impact checklist line CI greps for. File count, not net LOC, decides the large-diff cap: LOC would admit an 8-file PR that simply wrote too much, which is the case these caps exist for.
 3. **Correctness & Runtime Contracts (`runtime-contracts.md`):**
    - Trace lifecycle transitions, event ordering, persistence guarantees, and streaming semantics.
    - Ensure invalid states are impossible to express.
