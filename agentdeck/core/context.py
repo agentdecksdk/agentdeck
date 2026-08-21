@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from agentdeck.core.base import JsonData
+    from agentdeck.core.invocable import AgentInstance
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,9 +69,16 @@ class RunContext:
     from that run itself. Beyond identity, a field AgentDeck's own machinery never reads is not
     infrastructure, it is a guess about a mechanism that does not exist yet. ``trace_id``,
     ``budget``, ``triggered_by``, ``parent_run_id``, ``deadline`` and ``idempotency_key`` were all
-    of that, and each comes back with the thing that enforces it.
+    of that, and each comes back with the thing that enforces it. The delegation edge (#236) is
+    not a counter-example: it is carried on ``run.started`` and, while a run is live, in the
+    Runtime's own tree  -  a copy here would be a third place to disagree with those two.
     ``data`` is the fourth value because it arrives with that thing: the engine bridges read it
     on every injected call to build the :class:`ToolCtx` a user callable declared.
+
+    ``agent`` is which agent this run is playing, or ``None`` for a workflow. Read off the
+    resolved spec every time a run is played, so a turn picked up after a pause carries the same
+    one rather than the one whoever resumed it happened to pass. Opaque for ``data``'s reason:
+    what it wraps is an authoring declaration, and core may not name that.
 
     ``data`` is opaque by construction  -  ``object``, never inspected, never copied, never
     serialized into an event, and left out of the repr so a logged context cannot leak a DB
@@ -95,6 +103,7 @@ class RunContext:
     session_id: str | None = None
     namespace: str | None = None
     key: str | None = None
+    agent: object = field(default=None, repr=False)
     data: object = field(default=None, repr=False)
     gate: Gate = field(default_factory=Gate)
     reporter: Reporter = field(default_factory=Reporter)
@@ -169,6 +178,13 @@ class ToolCtx[T]:
         return cast("T", self._run.data)
 
     @property
+    def agent(self) -> AgentInstance | None:
+        """Which agent is playing this body, or ``None`` when no agent is: a workflow, a tool
+        invoked as a run of its own. A tool inside an agent turn reads the agent that called it.
+        """
+        return cast("AgentInstance | None", self._run.agent)
+
+    @property
     def reporter(self) -> Reporter:
         return self._run.reporter
 
@@ -232,6 +248,26 @@ cannot say more: a ``Run`` is ``agentdeck.deck``'s, which is outside this ring (
 """
 
 
+class Agents(Protocol):
+    """Where a body mints an agent the catalog does not hold: ``ctx.agents``.
+
+    A protocol rather than :data:`Invoker`'s bare callable, because two operations are an
+    interface where one is not; loosely typed for :data:`Invoker`'s reason, since what a
+    declaration is made of is ``agentdeck.authoring``'s and this ring may not name it.
+
+    Minting only. Running what was minted is still :meth:`WorkflowCtx.invoke`, so there is one
+    way a run starts however its target came to exist.
+    """
+
+    def create(self, **declaration: Any) -> AgentInstance:
+        """Declare an agent for this deck to hold, and hand back what invokes it."""
+        ...
+
+    def fork(self, source: Any, /, **overrides: Any) -> AgentInstance:
+        """Copy ``source`` with ``overrides`` applied, as a new instance."""
+        ...
+
+
 @runtime_checkable
 class ChildRun(Protocol):
     """What :meth:`WorkflowCtx.parallel` needs of the run :meth:`WorkflowCtx.invoke` handed back.
@@ -262,9 +298,10 @@ class WorkflowCtx[T](ToolCtx[T]):
     coordinates executions, and a tool that could ``ask`` a person or start another run is no
     longer a leaf. Declaring the wrong one is a ``build()`` error.
 
-    Two seams, because the two halves point opposite ways: ``ask`` and ``safepoint`` suspend this
-    branch through the ``_channel`` the executor playing it owns, and ``invoke`` starts another
-    execution through the ``_invoker`` that reaches back out to the deck holding the catalog.
+    Seams, because the halves point opposite ways: ``ask`` and ``safepoint`` suspend this branch
+    through the ``_channel`` the executor playing it owns, while ``invoke`` and ``agents`` reach
+    back out to the deck holding the catalog  -  one to start an execution, one to add to what can
+    be started.
 
     There is no ``approve()``: an approval is a question with two options, and one mechanism that
     takes any option set beats two that overlap. It also keeps AgentDeck out of the business of
@@ -273,13 +310,36 @@ class WorkflowCtx[T](ToolCtx[T]):
     """
 
     _invoker: Invoker | None = None
+    _agents: Agents | None = None
+
+    @property
+    def agents(self) -> Agents:
+        """Mint an agent this deck's catalog does not hold, and invoke it like any other target.
+
+            helper = ctx.agents.create(name="triage", instructions="Rank these by urgency.")
+            ranked = await ctx.invoke(helper, tickets)
+
+            stricter = ctx.agents.fork("Writer", instructions="Draft it in under 100 words.")
+
+        ``create`` declares one from scratch; ``fork`` copies an existing agent with overrides and
+        names which. Either way the deck holds the result for the rest of its life, which is what
+        makes a child run of it answerable, resumable and cancellable by the name its log records.
+        """
+        if self._agents is None:
+            raise RuntimeError(
+                "this WorkflowCtx has no deck to mint an agent into, so agents.create() has "
+                "nowhere to register one. A workflow context is built by the executor playing it, "
+                "which the Deck hands its catalog; one constructed by hand has no deck to reach."
+            )
+        return self._agents
 
     def invoke(self, target: Any, *args: Any, **kwargs: Any) -> Any:
         """Start ``target`` as a child run and hand back its ``Run``, without waiting for it.
 
-        ``target`` is a catalog name or a ``@tool``/``@workflow`` this deck holds, and ``*args``/
-        ``**kwargs`` bind to that target's own signature exactly as calling it would. Anything
-        else waits for the invocation resolver, so there is one rule and no special case.
+        ``target`` is a catalog name, a ``@tool``/``@workflow``, or an :class:`AgentInstance`  -
+        anything this deck holds  -  and ``*args``/``**kwargs`` bind to that target's own signature
+        exactly as calling it would. Anything else waits for the invocation resolver, so there is
+        one rule and no special case.
 
             result = await ctx.invoke(load_customer, ticket.customer_id)   # the short path
 
