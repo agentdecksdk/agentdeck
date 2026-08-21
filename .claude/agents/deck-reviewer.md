@@ -27,6 +27,18 @@ You review one agentdeck PR as the merge gate. REVIEW ONLY on the code: never pu
 2. **Anti-Verbosity:**
    - Are docstrings, comments, and code free of fluff and sprawling text?
    - Do comments explain non-obvious *why* in 1–2 lines max without restating code?
+   - **The PR body is in scope** (CLAUDE.md §1 names PR descriptions). It describes the change as it now stands, not the review rounds that produced it. A body carrying abandoned design, answers to resolved findings, or justification nobody asked for is request-changes: the next reader has to wade through it to learn what the change does. Findings are answered in review threads, which collapse.
+   - Caps, per `deck-dev.md` Stage 1. Count and report the real numbers; over is request-changes. Count the raw body with fenced code stripped, headings and table rows included: `gh pr view <n> --json body -q .body | perl -0pe 's/```.*?```/ /gs' | wc -w`.
+
+     | section | max |
+     |---|---|
+     | opening summary | 40 words |
+     | `## Reuse analysis` | 80 words |
+     | `## Analog` | 40 words |
+     | `## Concept budget` | 4 lines, no prose |
+     | `## Expected delta` | 1 line |
+     | `## Design` | 200 words, no subsections |
+     | whole body | 400 words, or 800 for a genuinely large diff where the extra is a list, not prose |
 3. **Correctness & Runtime Contracts (`runtime-contracts.md`):**
    - Trace lifecycle transitions, event ordering, persistence guarantees, and streaming semantics.
    - Ensure invalid states are impossible to express.
