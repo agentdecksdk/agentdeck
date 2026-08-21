@@ -1131,28 +1131,45 @@ async def test_closing_a_deck_cancels_a_run_still_in_flight_and_says_so(no_proje
 
 @pytest.mark.asyncio
 async def test_closing_a_deck_returns_even_when_a_run_never_observes_its_cancellation(no_project, caplog):
-    """A cancel delivered in the tick a turn parks is swallowed below the executor (#412), so
-    ``aclose()`` bounds the wait at ``_CLOSE_GRACE`` instead of betting on the run observing it,
-    and writes the run's own ``run.cancelled`` on the way past. Without that write the abandoned
-    run would stay open in the log, which is the ghost state ``stale_run_after`` exists for."""
-    hold = asyncio.Event()  # never set: the swallowed cancel leaves this run parked for good
-    model = ScriptedModel(deltas=("one", "two"), hold=hold)
-    deck = Deck(agents=[_greeter()])
+    """``aclose()`` bounds its wait at ``_CLOSE_GRACE`` rather than betting on the run taking the
+    cancellation (#412), and writes the abandoned run's own ``run.cancelled`` on the way past:
+    left open, it would be exactly the ghost state ``stale_run_after`` exists to recover."""
 
-    with patch_model(model), caplog.at_level("ERROR"):
+    class _UncancellableStore(MemoryEventStore):
+        """A write that does not take a cancellation, which is what a driver call already inside
+        a thread is: nothing can cancel the execution task out of it."""
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.writing = asyncio.Event()
+            self.release = asyncio.Event()
+
+        async def append(self, payloads, ctx, origin):
+            if any(payload.kind == "text.delta" for payload in payloads):
+                self.writing.set()
+                while not self.release.is_set():
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await self.release.wait()
+            return await super().append(payloads, ctx, origin)
+
+    store = _UncancellableStore()
+    deck = Deck(agents=[_greeter()], _store=store)
+
+    with patch_model(ScriptedModel(deltas=("one", "two"))), caplog.at_level("ERROR"):
         async with deck:
             opening, task = await deck._start("Greeter", coerce_input("hi"), session_id="s1")
-            # `holding` is announced one line before the model parks, so the cancel below is
-            # delivered into the tick the turn is parking in, which is what swallows it.
-            await model.holding.wait()
+            await store.writing.wait()
             await asyncio.wait_for(deck.aclose(), timeout=_CLOSE_GRACE * 2)
 
     assert not task.done()  # abandoned rather than settled: the case the bound exists for
     assert f"run {opening.run_id} ignored its cancellation" in caplog.text
-    events = await deck._runtime.store.read_session(RunContext(run_id="reader", session_id="s1"))
-    assert [e.kind for e in events][-1] == "run.cancelled"
+    events = await store.read_session(RunContext(run_id="reader", session_id="s1"))
+    assert [event.kind for event in events][-1] == "run.cancelled"
     assert f"within {_CLOSE_GRACE}s" in events[-1].payload.reason
-    task.cancel()  # the abandoned task outlives the deck; nothing else ends it
+    store.release.set()  # the abandoned task outlives the deck; nothing else would end it
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
 
 
 @pytest.mark.asyncio
