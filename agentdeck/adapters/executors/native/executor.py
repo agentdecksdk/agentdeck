@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Sequence
 
     from agentdeck.core.content import Input
-    from agentdeck.core.context import Invoker, RunContext
+    from agentdeck.core.context import Agents, Invoker, RunContext
     from agentdeck.core.events import Event, KnownPayload
     from agentdeck.core.invocable import InvocableSpec
     from agentdeck.core.status import Continuation
@@ -96,12 +96,14 @@ class NativeExecutor(Executor):
     name: ClassVar[str] = "native"
     suspendable: ClassVar[bool] = True
 
-    def __init__(self, invoker: Invoker | None = None) -> None:
+    def __init__(self, invoker: Invoker | None = None, agents: Agents | None = None) -> None:
         # Keyed by run id, because that is what a resume names and what a parked body belongs to.
         self._parked: dict[str, _Body] = {}
-        # The one thing this executor cannot do for a workflow: start another run. It belongs to
-        # whoever holds the catalog, so it is handed in rather than reached for.
+        # The two things this executor cannot do for a workflow: start another run, and add to
+        # what can be started. Both belong to whoever holds the catalog, so both are handed in
+        # rather than reached for.
         self._invoker = invoker
+        self._agents = agents
 
     async def execute(
         self,
@@ -170,7 +172,7 @@ class NativeExecutor(Executor):
         it does for every other executor.
         """
         try:
-            result = await definition.call(**_arguments(definition, input, ctx, channel, self._invoker))
+            result = await definition.call(**_arguments(definition, input, ctx, channel, self._invoker, self._agents))
             await channel.emit(RunCompleted(output=_as_output(result), usage=Usage(input_tokens=0, output_tokens=0)))
         except ControlSignalled as signalled:
             for payload in signalled.payloads:
@@ -189,7 +191,12 @@ def _definition_of(spec: InvocableSpec) -> NativeInvocable:
 
 
 def _arguments(
-    definition: NativeInvocable, input: Input, ctx: RunContext, channel: _Channel, invoker: Invoker | None
+    definition: NativeInvocable,
+    input: Input,
+    ctx: RunContext,
+    channel: _Channel,
+    invoker: Invoker | None,
+    agents: Agents | None,
 ) -> dict[str, Any]:
     """Bind the run's input to the body's own parameters, the way calling it would.
 
@@ -200,7 +207,7 @@ def _arguments(
     """
     arguments: dict[str, Any] = {}
     if definition.context_parameter is not None:
-        arguments[definition.context_parameter] = _context_for(definition, ctx, channel, invoker)
+        arguments[definition.context_parameter] = _context_for(definition, ctx, channel, invoker, agents)
     visible = definition.parameters
     if not visible:
         return arguments
@@ -228,19 +235,26 @@ def _arguments(
     )
 
 
-def _context_for(definition: NativeInvocable, ctx: RunContext, channel: _Channel, invoker: Invoker | None) -> Any:
+def _context_for(
+    definition: NativeInvocable,
+    ctx: RunContext,
+    channel: _Channel,
+    invoker: Invoker | None,
+    agents: Agents | None,
+) -> Any:
     """The context the body declared, holding the channel it can stop on.
 
     Which class it is was settled by the decorator; both get the channel, because a body this
     executor is playing can always be parked  -  a tool's ``safepoint`` waits here exactly as a
     workflow's does, and only a tool played inside somebody else's turn has to unwind instead.
-    Only a workflow gets the invoker: a tool that could start another run is no longer a leaf.
+    Only a workflow gets the invoker and the agent mint: a tool that could start another run,
+    or add one to the catalog, is no longer a leaf.
     """
     context_class = definition.context_class
     if context_class is None:
         return None
     if issubclass(context_class, WorkflowCtx):
-        return context_class(ctx, channel, invoker)
+        return context_class(ctx, channel, invoker, agents)
     return context_class(ctx, channel)
 
 

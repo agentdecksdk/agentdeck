@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Final
 from agentdeck.authoring.agent import Agent
 from agentdeck.authoring.compile import compile_agent, link_handoffs
 from agentdeck.authoring.native import NativeDefinition
-from agentdeck.core.invocable import InvocableKind, InvocableSpec
+from agentdeck.core.invocable import AgentInstance, InvocableKind, InvocableSpec
 from agentdeck.errors import ConfigError
 from agentdeck.runtime.registry import PluginRegistry, mount_project_dir
 
@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from agents import Agent as SDKAgent
     from agents.tool import FunctionTool
 
+    from agentdeck.authoring.compile import Delegate
     from agentdeck.core.ports import Executor
 
 # Which executor plays which bundle shape: a bundle names no executor of its own, the shape it
@@ -72,6 +73,7 @@ class InvocableRegistry:
         resolve_skills: Callable[[Sequence[str]], tuple[str, Sequence[FunctionTool]]] | None = None,
         bundle_of: Mapping[str, str] | None = None,
         context_type: object | None = None,
+        delegate: Delegate | None = None,
     ) -> Mapping[str, InvocableSpec]:
         """Compile every agent and workflow to an ``InvocableSpec``.
 
@@ -86,7 +88,10 @@ class InvocableRegistry:
         the association is otherwise lost the moment ``agents``/``workflows`` are handed in as
         plain instances  -  a code-first entry has no bundle, so it is simply absent here.
         ``context_type`` is the owning deck's ``Deck(context=...)`` declaration, checked against
-        every ``ToolCtx[...]`` requirement in the catalog as each entry compiles.
+        every ``ToolCtx[...]`` requirement in the catalog as each entry compiles. ``delegate`` is
+        how a compiled ``subagents=`` tool starts its child run; without one an agent declaring
+        subagents fails here rather than compiling a tool that could only fail when the model
+        reached for it.
 
         Eager on purpose: a bundle that can't be imported, an agent that can't be built and
         an executor that isn't registered all fail here, not mid-conversation.
@@ -102,12 +107,15 @@ class InvocableRegistry:
             bundle_of.update(registry.bundle_files())
         specs: dict[str, InvocableSpec] = {}
         compiled: dict[str, SDKAgent] = {}
+        catalog = {agent.name: agent for agent in agents}
         for agent in agents:
             try:
                 compiled[agent.name] = compile_agent(
                     agent,
                     resolve_skills=resolve_skills,
                     context_type=context_type,
+                    catalog=catalog,
+                    delegate=delegate,
                 )
             except Exception as exc:
                 bundle_file = bundle_of.get(agent.name)
@@ -116,7 +124,7 @@ class InvocableRegistry:
                 raise _wrapped(exc)(f"{bundle_file} failed to build: {exc}") from exc
         link_handoffs(compiled, agents)
         for agent in agents:
-            self._add(specs, agent.name, InvocableKind.AGENT, compiled[agent.name])
+            self._add(specs, agent.name, InvocableKind.AGENT, compiled[agent.name], instance=agent)
         for workflow in workflows:
             self._add(specs, workflow.name, workflow.kind, workflow, executor=NATIVE_EXECUTOR)
         return specs
@@ -136,6 +144,7 @@ class InvocableRegistry:
         kind: InvocableKind,
         native: Any,
         executor: str | None = None,
+        instance: Agent | None = None,
     ) -> None:
         # Only catches a collision across kinds; a collision within one kind (two bundles
         # exposing the same invocable name) already raised inside the scan that fed this.
@@ -150,7 +159,11 @@ class InvocableRegistry:
                 f"{kind.value} {name!r} needs executor {executor!r}, which is not registered. "
                 f"Registered: {sorted(self._executors)}."
             )
-        specs[name] = InvocableSpec(name=name, kind=kind, executor=executor, native=native)
+        # The instance rides the spec because the spec is what every play resolves  -  a fresh run,
+        # a lifted pause and an answered interrupt all end at ``Runtime._resolve``, so ``ctx.agent``
+        # cannot be forgotten on one of them the way an argument threaded from the caller could.
+        metadata = {"agent": AgentInstance(name=name, declaration=instance)} if instance is not None else {}
+        specs[name] = InvocableSpec(name=name, kind=kind, executor=executor, native=native, metadata=metadata)
 
 
 __all__ = ["EXECUTOR_FOR_KIND", "NATIVE_EXECUTOR", "InvocableRegistry"]

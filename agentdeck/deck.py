@@ -39,17 +39,18 @@ import asyncio
 import functools
 import logging
 import uuid
+from collections import ChainMap
 from contextlib import aclosing, suppress
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from agentdeck.adapters.executors.native import NativeExecutor
 from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor, SessionFactory
 from agentdeck.adapters.executors.openai_agents.runconfig import validate_model_requirements
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring.agent import Agent
-from agentdeck.authoring.compile import refresh_mcp_status
+from agentdeck.authoring.compile import compile_agent, refresh_mcp_status
 from agentdeck.authoring.injection import declared_context_type
 from agentdeck.authoring.interrupts import interrupt_result
 from agentdeck.authoring.native import NativeDefinition
@@ -72,6 +73,7 @@ from agentdeck.core.events import (
     RunInterrupted,
     RunPaused,
 )
+from agentdeck.core.invocable import AgentInstance, InvocableKind, InvocableSpec
 from agentdeck.core.ports import Observer
 from agentdeck.core.status import PRECONDITIONS, SUSPENDED_KINDS, Controls, Operation, RunStatus, Verdict, can_of
 from agentdeck.errors import (
@@ -83,7 +85,7 @@ from agentdeck.errors import (
     UnsupportedControlError,
 )
 from agentdeck.mcp import MCP
-from agentdeck.runtime.discovery import InvocableRegistry
+from agentdeck.runtime.discovery import EXECUTOR_FOR_KIND, InvocableRegistry
 from agentdeck.runtime.registry import PROJECT_DIR, PluginRegistry, mount_project_dir
 from agentdeck.runtime.settings import Settings, get_settings
 from agentdeck.skills import Skills
@@ -97,7 +99,6 @@ if TYPE_CHECKING:
     from agentdeck.authoring.interrupts import InterruptResult
     from agentdeck.core.content import Input
     from agentdeck.core.events import Event, Usage
-    from agentdeck.core.invocable import InvocableSpec
     from agentdeck.core.ports import EventStorePort, Executor
     from agentdeck.runtime.service import PendingRun, Runtime
 
@@ -262,22 +263,33 @@ def _content_for(root: Agent | NativeDefinition, input: Any) -> Input:
 
 
 def _invoked_name(deck: Deck, target: Any) -> str:
-    """The catalog name ``ctx.invoke(target, ...)`` named  -  a name, or a definition this deck holds.
+    """The catalog name ``ctx.invoke(target, ...)`` named  -  a name, or something this deck holds.
 
     A bare object (a plain callable, an SDK agent, a compiled graph) waits for the invocation
     resolver, so there is one rule and no special case. A definition is resolved by identity
     rather than accepted on its own word, because a run's log records its invocable by *name* and
     that name is what ``answer``, ``resume`` and a cancel-while-suspended resolve back through: a
-    child of a definition the catalog does not hold would run, and then be unanswerable.
+    child of a definition the catalog does not hold would run, and then be unanswerable. An
+    :class:`AgentInstance` meets the same check rather than being exempted from it  -  that is what
+    registering a minted agent is *for*, and one from another deck fails here exactly as a
+    definition from another deck does.
     """
     if isinstance(target, str):
         return target
+    if isinstance(target, AgentInstance):
+        if deck._instance(target.name) is not target:
+            raise ConfigError(
+                f"ctx.invoke() was given the agent {target.name!r}, which this deck does not hold "
+                f"under that name. An agent minted by ctx.agents belongs to the deck that minted "
+                f"it, and a child run is resolved by the name its log records."
+            )
+        return target.name
     if not isinstance(target, NativeDefinition):
         raise ConfigError(
-            f"ctx.invoke() takes a catalog name or a @tool/@workflow definition; got a "
-            f"{type(target).__name__}. Running an arbitrary object needs the invocation resolver, "
-            f"which is not built yet  -  declare it with @tool or @workflow, or register it under a "
-            f"name and invoke it by that."
+            f"ctx.invoke() takes a catalog name, a @tool/@workflow definition, or an agent from "
+            f"ctx.agents; got a {type(target).__name__}. Running an arbitrary object needs the "
+            f"invocation resolver, which is not built yet  -  declare it with @tool or @workflow, "
+            f"or register it under a name and invoke it by that."
         )
     if deck._workflows.get(target.name) is not target:
         raise ConfigError(
@@ -314,6 +326,63 @@ def _invocation_input(root: Agent | NativeDefinition, args: tuple[Any, ...], kwa
             f"once by keyword  -  exactly as calling it directly would."
         )
     return positional | kwargs
+
+
+def _copied(source: Agent, overrides: dict[str, Any]) -> Agent:
+    """``source`` with ``overrides`` applied. Field by field because an ``Agent`` is immutable and
+    its ``__slots__`` are exactly its keyword arguments, so a field added there arrives here."""
+    return Agent(**{slot: getattr(source, slot) for slot in Agent.__slots__} | overrides)
+
+
+class _Agents:
+    """``ctx.agents``: mint an agent this deck's catalog does not hold.
+
+    Deck-side because minting is registration  -  a run resolves its invocable by name on every
+    answer, resume and cancel, so an agent nothing holds is one a paused child could never be
+    continued from. Running what it hands back is still ``ctx.invoke``.
+    """
+
+    def __init__(self, deck: Deck) -> None:
+        self._deck = deck
+
+    def create(self, **declaration: Any) -> AgentInstance:
+        """Declare an agent from scratch: the same keywords :class:`Agent` takes.
+
+            helper = ctx.agents.create(name="triage", instructions="Rank these by urgency.")
+
+        The name it comes back under is the one given plus a mint, since two calls that chose one
+        name are two agents and each child run records which it ran.
+        """
+        return self._deck._mint(Agent(**declaration))
+
+    def fork(self, source: str | Agent | AgentInstance, /, **overrides: Any) -> AgentInstance:
+        """Copy ``source``  -  a catalog name, an ``Agent``, or an instance  -  with ``overrides``.
+
+            careful = ctx.agents.fork("Writer", instructions="Draft it in under 100 words.")
+
+        ``source`` is required rather than defaulting to ``ctx.agent``: ``agent`` is a
+        :class:`~agentdeck.core.context.ToolCtx` member and ``agents`` a
+        :class:`~agentdeck.core.context.WorkflowCtx` one, so nothing ever holds both and the
+        default could only ever be ``None``. Forking the agent you are inside is therefore
+        unreachable rather than merely undefaulted, which is intended: a tool is a leaf, and one
+        that could mint a variant of its own agent is orchestrating.
+        """
+        return self._deck._mint(_forked(self._deck, source, overrides))
+
+
+def _forked(deck: Deck, source: str | Agent | AgentInstance, overrides: dict[str, Any]) -> Agent:
+    """``source`` resolved to the declaration a fork copies. A name goes through the same lookup
+    ``ctx.invoke`` does, so an unknown one fails once, in one message."""
+    if isinstance(source, AgentInstance):
+        source = cast("Agent", source.declaration)
+    elif isinstance(source, str):
+        source = cast("Agent", deck._root(source))
+    if not isinstance(source, Agent):
+        raise ConfigError(
+            f"ctx.agents.fork() copies an agent: a catalog name, an Agent, or one ctx.agents "
+            f"minted. Got a {type(source).__name__}."
+        )
+    return _copied(source, overrides)
 
 
 async def _aclose_store(store: EventStorePort) -> None:
@@ -492,6 +561,11 @@ class Deck:
         # left to wake it. The namespace rides along because `aclose` addresses the store with
         # it for a run that has to be closed from outside, and holds only the id.
         self._executions: dict[str, tuple[str | None, asyncio.Task[None]]] = {}
+        # What ``ctx.agents.create()``/``fork()`` minted, under names minted with them. A run
+        # resolves its invocable by name on every answer, resume and cancel, so an agent the
+        # catalog does not hold is one this deck has to hold instead  -  for the rest of its life,
+        # since nothing else knows when the last handle on a minted agent is gone.
+        self._minted: dict[str, InvocableSpec] = {}
         self._owns_store = False
         self._started_observers: tuple[Observer, ...] = ()
         self._started_mcp = False
@@ -609,6 +683,7 @@ class Deck:
             resolve_skills=skills_resolver(self._skills_obj) if self._skills_obj is not None else None,
             bundle_of=self._bundle_of,
             context_type=self._context_type,
+            delegate=self._delegate,
         )
         self._state = "BUILT"
         return self
@@ -670,7 +745,7 @@ class Deck:
         else:
             self._executor_instances = (
                 OpenAIAgentsExecutor(self._ensure_sessions(), settings=resolve_run_settings()),
-                NativeExecutor(self._invoke),
+                NativeExecutor(self._invoke, _Agents(self)),
             )
         self._owns_store = self._store_arg is None
         store = self._store_arg if self._store_arg is not None else resolve_event_store()
@@ -694,7 +769,10 @@ class Deck:
             self._started_observers = (*self._started_observers, observer)
         self._runtime = build_runtime(
             executors=self._executor_instances,
-            invocables=self._invocables,
+            # A view, not a copy: what ``ctx.agents`` mints after this point has to be resolvable
+            # by the Runtime that is already open, and a minted name never shadows a catalog one
+            # because it carries a mint the catalog cannot have written.
+            invocables=ChainMap(self._minted, dict(self._invocables or {})),
             store=store,
             sinks=observers,
             control=resolve_control_port(),
@@ -822,6 +900,8 @@ class Deck:
             return self._agents[name]
         if name in self._workflows:
             return self._workflows[name]
+        if (instance := self._instance(name)) is not None:
+            return cast("Agent", instance.declaration)
         raise NotFoundError(
             f"No agent or workflow named {name!r}. Available: {sorted({*self._agents, *self._workflows})}."
         )
@@ -871,15 +951,29 @@ class Deck:
         and a second turn against it would be refused. What it does inherit is the parent's
         ``namespace``, which is the isolation boundary, and the parent's ``context`` by reference,
         which is the application's environment for the whole invocation rather than for one run.
-        Nothing records the edge: the parent holds the handle in memory (#236).
+        The edge itself is recorded, on the child's ``run.started``: a cancel follows it down and
+        a delegated turn's cost rolls up along it, and both have to be true of a log nobody was
+        watching live.
         """
         runtime = self._require_open()
         name = _invoked_name(self, target)
         root = self._root(name)
         content = _content_for(root, _invocation_input(root, args, kwargs))
         run_id = str(uuid.uuid4())
+        # Before the task, because a bound refused inside it would reach the body as a handle on a
+        # run that was never opened rather than as an error at the ``ctx.invoke`` that asked.
+        runtime.delegate(run_id, parent.run_id, name)
         task = asyncio.create_task(
-            _drain(runtime.run(name, content, context=parent.data, namespace=parent.namespace, run_id=run_id))
+            _drain(
+                runtime.run(
+                    name,
+                    content,
+                    context=parent.data,
+                    namespace=parent.namespace,
+                    run_id=run_id,
+                    parent_run_id=parent.run_id,
+                )
+            )
         )
         self._executions[run_id] = (parent.namespace, task)
         task.add_done_callback(functools.partial(self._execution_done, run_id))
@@ -893,6 +987,48 @@ class Deck:
             seen=RunStatus.RUNNING,
             suspendable=runtime.suspends(name),
         )
+
+    async def _delegate(self, parent: RunContext, name: str, task: str) -> Any:
+        """What a ``subagents=`` tool does when the model calls it: run that agent as a child of
+        the turn that delegated, and hand back what it finished with.
+
+        The tool's result, not the run handle: the model asked a question and gets an answer. A
+        child that fails raises here, which the SDK records on ``tool.call.completed.error`` and
+        tells the model about  -  a delegation that went wrong is never an empty success.
+        """
+        result = await self._invoke(parent, name, task)
+        return result.output if isinstance(result, TurnResult) else result
+
+    def _mint(self, declaration: Agent) -> AgentInstance:
+        """Hold an agent this catalog does not, and hand back what invokes it.
+
+        The name gets a mint of its own, because two ``create()`` calls that chose the same one
+        are two different agents and every run addresses its invocable by the name its log
+        records. Compiled here rather than at the first invoke, so a declaration that cannot be
+        built fails at the line that wrote it.
+
+        Against this deck's own catalog, so a minted agent may delegate the way a declared one
+        does: ``subagents=`` travels with a fork, and one compiled against nothing would refuse
+        every name its source could reach.
+        """
+        self._require_open()
+        minted = _copied(declaration, {"name": f"{declaration.name}#{uuid.uuid4().hex[:8]}"})
+        instance = AgentInstance(name=minted.name, declaration=minted)
+        self._minted[minted.name] = InvocableSpec(
+            name=minted.name,
+            kind=InvocableKind.AGENT,
+            executor=EXECUTOR_FOR_KIND[InvocableKind.AGENT],
+            native=compile_agent(
+                minted, context_type=self._context_type, catalog=self._agents, delegate=self._delegate
+            ),
+            metadata={"agent": instance},
+        )
+        return instance
+
+    def _instance(self, name: str) -> AgentInstance | None:
+        """The agent behind ``name``, whether the catalog holds it or ``ctx.agents`` minted it."""
+        spec = self._minted.get(name) or (self._invocables or {}).get(name)
+        return spec.metadata.get("agent") if spec is not None else None
 
     def _execution_done(self, run_id: str, task: asyncio.Task[None]) -> None:
         """Retire a settled execution task, whatever way it settled  -  completed, suspended, or

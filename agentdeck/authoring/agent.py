@@ -40,6 +40,7 @@ class AgentDeclaration:
     model_settings: ClassVar[Mapping[str, Any]] = {}
     tools: ClassVar[Sequence[Any]] = ()
     handoffs: ClassVar[Sequence[Any]] = ()
+    subagents: ClassVar[Sequence[str]] = ()
     output_type: ClassVar[type[Any] | AgentOutputSchemaBase | None] = None
     hooks: ClassVar[AgentHooks | None] = None
     skills: ClassVar[Sequence[str]] = ()
@@ -63,6 +64,12 @@ class Agent:
     ``AgentHooks`` object; a hook method that declares ``ToolCtx[...]`` first is bridged the
     same way, and one that does not is passed through untouched.
 
+    ``subagents=`` names catalog agents this one may delegate to, and the model decides whether to:
+    each becomes one tool it can call with a task, and calling it runs that agent as a child run
+    and hands back its final output. Not a handoff  -  a handoff replaces who is answering, a
+    delegation comes back  -  so the conversation stays here throughout and the child sees only the
+    task. A name the catalog does not hold is a ``build()`` error, as with ``handoffs=``.
+
     ``tools=`` takes plain functions  -  ``build()`` compiles each one, which is what lets a
     parameter annotated ``ToolCtx[...]`` be injected without ever appearing in the schema the
     model sees. An already-built Agents SDK tool object is still accepted and passed straight
@@ -78,6 +85,7 @@ class Agent:
         "model_settings",
         "tools",
         "handoffs",
+        "subagents",
         "output_type",
         "hooks",
         "skills",
@@ -95,6 +103,7 @@ class Agent:
     model_settings: dict[str, Any]
     tools: tuple[Any, ...]
     handoffs: tuple[Any, ...]
+    subagents: tuple[str, ...]
     output_type: type[Any] | AgentOutputSchemaBase | None
     hooks: AgentHooks | None
     skills: tuple[str, ...]
@@ -111,6 +120,7 @@ class Agent:
         model_settings: Mapping[str, Any] = _UNSET,
         tools: Sequence[Any] = _UNSET,
         handoffs: Sequence[Any] = _UNSET,
+        subagents: Sequence[str] = _UNSET,
         output_type: type[Any] | AgentOutputSchemaBase | None = _UNSET,
         hooks: AgentHooks | None = _UNSET,
         skills: Sequence[str] = _UNSET,
@@ -137,6 +147,7 @@ class Agent:
         )
         object.__setattr__(self, "tools", tuple(source.tools if tools is _UNSET else tools))
         object.__setattr__(self, "handoffs", tuple(source.handoffs if handoffs is _UNSET else handoffs))
+        object.__setattr__(self, "subagents", tuple(source.subagents if subagents is _UNSET else subagents))
         object.__setattr__(self, "output_type", source.output_type if output_type is _UNSET else output_type)
         object.__setattr__(self, "hooks", source.hooks if hooks is _UNSET else hooks)
         object.__setattr__(self, "skills", tuple(source.skills if skills is _UNSET else skills))

@@ -33,6 +33,19 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   a catalog name or a `@tool` / `@workflow` definition the deck holds; any other object waits for
   the invocation resolver. `ctx.parallel(*runs)` is all-or-nothing: the first failure cancels its
   siblings and propagates, so no child is left running behind a parent that gave up.
+- **`Agent(subagents=[...])` lets an agent delegate a bounded task to another agent.** Names
+  resolve against the catalog at `build()`, like `handoffs=`, and each becomes one tool the model
+  may call with a task; calling it runs that agent as a child run and hands its final output back.
+  Not a handoff: the conversation stays with the parent, and the child sees only the task.
+- **`ctx.agents.create()` and `ctx.agents.fork()` mint an agent the catalog does not hold.**
+  `create(**declaration)` takes the keywords `Agent(...)` takes, `fork(source, **overrides)` copies
+  a catalog name, an `Agent` or another instance, and either is invoked with `ctx.invoke` like any
+  other target. The deck holds what it minted, which is what makes a child run of it answerable,
+  resumable and cancellable. `ctx.agent` is the agent whose turn is running, or `None`.
+- **`run.started` carries `parent_run_id`.** A delegated turn's cost rolls up into its parent's
+  `run.completed.usage`, cancelling a parent cancels the children it started, and a reader of the
+  log follows the same edge afterwards. Delegation is bounded at depth 3 and fan-out 8, with an
+  error naming which bound was hit and who hit it; there is no setting for either.
 
 ### Changed
 

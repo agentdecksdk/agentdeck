@@ -38,6 +38,7 @@ ever connects a server, so the first resolution is always stale by the time anyt
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any, get_args, get_origin
 
 from agents import Agent as SDKAgent
@@ -49,15 +50,25 @@ from agentdeck.authoring.hooks import compile_hooks
 from agentdeck.authoring.instructions import compile_instructions
 from agentdeck.authoring.native import NativeDefinition
 from agentdeck.authoring.tools import compile_tool
+from agentdeck.core.context import ToolCtx  # noqa: TC001  -  a subagent tool's own annotation, resolved at runtime
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.runtime.settings import get_settings
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
 
     from agents.tool import FunctionTool
 
     from agentdeck.authoring.agent import Agent
+    from agentdeck.core.context import RunContext
+
+type Delegate = Callable[["RunContext", str, str], "Awaitable[Any]"]
+"""How a subagent tool reaches the deck: ``delegate(parent_context, subagent_name, task)``, run as
+a child of the turn that called it and awaited for its final output.
+
+A callable rather than a protocol, for :data:`~agentdeck.core.context.Invoker`'s reason  -  one
+method is not an interface  -  and the deck's own ``ctx.invoke`` underneath, so there is no second
+execution path for a delegation to take."""
 
 # `agents.Tool` is a `Union` of concrete SDK tool classes (`FunctionTool`, `WebSearchTool`, a
 # hosted computer/shell tool, ...) rather than a class of its own, so `isinstance(x, SDKTool)`
@@ -73,6 +84,8 @@ def compile_agent(
     *,
     resolve_skills: Callable[[Sequence[str]], tuple[str, Sequence[FunctionTool]]] | None = None,
     context_type: object | None = None,
+    catalog: Mapping[str, Agent] | None = None,
+    delegate: Delegate | None = None,
 ) -> SDKAgent:
     """Build the SDK ``Agent`` for ``agent``, minus handoffs (see module docstring).
 
@@ -82,10 +95,13 @@ def compile_agent(
 
     ``context_type`` is the owning deck's ``Deck(context=...)`` declaration, checked against
     every ``ToolCtx[...]`` this agent's tools, instructions and hooks require.
+
+    ``catalog`` and ``delegate`` are what ``subagents=`` needs and a standalone compile has
+    neither of: the agents a name may resolve to, and the deck's own way of starting a child run.
     """
     banner, mcp_servers = _resolve_mcp(agent)
     disclosure = ""
-    tools = list(agent.tools)
+    tools = [*agent.tools, *_subagent_tools(agent, catalog, delegate)]
     if agent.skills:
         if resolve_skills is None:
             raise ConfigError(
@@ -135,6 +151,55 @@ def compile_agent(
     sdk_agent = SDKAgent(**{k: v for k, v in fields.items() if v is not None})
     sdk_agent.handoffs = []
     return sdk_agent
+
+
+def _subagent_tools(agent: Agent, catalog: Mapping[str, Agent] | None, delegate: Delegate | None) -> list[Any]:
+    """One callable per declared subagent, for the loop above to compile like any other tool.
+
+    Resolved against the catalog here rather than validated somewhere else and resolved here: the
+    schema the model is shown names the subagent, so an unknown name has no tool to build and
+    :func:`link_handoffs`'s own lookup failure is the shape it is reported in.
+    """
+    if not agent.subagents:
+        return []
+    if catalog is None or delegate is None:
+        raise ConfigError(
+            f"agent {agent.name!r} declares subagents={list(agent.subagents)!r}, which resolve "
+            f"against a catalog and run as child runs of this one; a standalone compile has "
+            f"neither. Put it in Deck(agents=[...]) and build that."
+        )
+    return [_delegation(_lookup_agent(catalog, name), delegate) for name in agent.subagents]
+
+
+def _delegation(subagent: Agent, delegate: Delegate) -> Callable[..., Any]:
+    """The tool the model calls to hand ``subagent`` a task and wait for what it comes back with.
+
+    A plain callable declaring ``ToolCtx[...]``, so it is compiled by the one tool compiler and
+    the run it is inside reaches the deck through the seam ``ctx.invoke`` already uses  -  a
+    delegation is a child run, not a second way to execute something.
+    """
+
+    async def delegated(ctx: ToolCtx[Any], task: str) -> Any:
+        return await delegate(ctx._run, subagent.name, task)  # noqa: SLF001  -  the carrier this view is of
+
+    delegated.__name__ = f"delegate_to_{_identifier(subagent.name)}"
+    delegated.__doc__ = subagent.handoff_description or (
+        f"Delegate one self-contained task to the {subagent.name} agent and wait for its result."
+    )
+    return delegated
+
+
+def _identifier(name: str) -> str:
+    """An agent name as a tool name can carry it: the SDK's schema names are identifiers and an
+    agent's is free text."""
+    return re.sub(r"\W+", "_", name).strip("_") or "subagent"
+
+
+def _lookup_agent(catalog: Mapping[str, Agent], name: str) -> Agent:
+    try:
+        return catalog[name]
+    except KeyError:
+        raise NotFoundError(f"No agent named {name!r}. Available: {sorted(catalog)}.") from None
 
 
 def link_handoffs(compiled: Mapping[str, SDKAgent], agents: Sequence[Agent]) -> None:
@@ -226,4 +291,4 @@ def _resolve_mcp(agent: Agent) -> tuple[str, list[Any]]:
     return mcp_status_banner(missing), list(available)
 
 
-__all__ = ["compile_agent", "link_handoffs", "refresh_mcp_status"]
+__all__ = ["Delegate", "compile_agent", "link_handoffs", "refresh_mcp_status"]
