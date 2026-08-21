@@ -27,7 +27,7 @@ from agentdeck.core.context import RunContext  # noqa: TC001  -  the node below 
 from agentdeck.core.control import Signal
 from agentdeck.core.events import RunStarted
 from agentdeck.core.status import RunStatus
-from agentdeck.deck import Deck, TurnResult, _new_context, _turn_result
+from agentdeck.deck import _CLOSE_GRACE, Deck, TurnResult, _new_context, _turn_result
 from agentdeck.errors import (
     ConfigError,
     DuplicateKeyError,
@@ -972,9 +972,9 @@ async def test_an_abandoned_stream_leaves_execution_running_to_completion(no_pro
             await stream.aclose()
             # Deterministic settlement, not a sleep-and-hope: the execution task itself is the
             # signal that this segment is over.
-            task = deck._executions.get(first.run_id)
-            if task is not None:
-                await task
+            execution = deck._executions.get(first.run_id)
+            if execution is not None:
+                await execution[1]
             events = await deck._runtime.store.read_session(_reader_ctx("s1"))
 
     assert (first.kind, second.kind) == ("run.started", "text.delta")
@@ -1127,6 +1127,32 @@ async def test_closing_a_deck_cancels_a_run_still_in_flight_and_says_so(no_proje
     assert f"run {opening.run_id} was cancelled" in caplog.text
     events = await deck._runtime.store.read_session(RunContext(run_id="reader", session_id="s1"))
     assert [e.kind for e in events][-1] == "run.cancelled"
+
+
+@pytest.mark.asyncio
+async def test_closing_a_deck_returns_even_when_a_run_never_observes_its_cancellation(no_project, caplog):
+    """A cancel delivered in the tick a turn parks is swallowed below the executor (#412), so
+    ``aclose()`` bounds the wait at ``_CLOSE_GRACE`` instead of betting on the run observing it,
+    and writes the run's own ``run.cancelled`` on the way past. Without that write the abandoned
+    run would stay open in the log, which is the ghost state ``stale_run_after`` exists for."""
+    hold = asyncio.Event()  # never set: the swallowed cancel leaves this run parked for good
+    model = ScriptedModel(deltas=("one", "two"), hold=hold)
+    deck = Deck(agents=[_greeter()])
+
+    with patch_model(model), caplog.at_level("ERROR"):
+        async with deck:
+            opening, task = await deck._start("Greeter", coerce_input("hi"), session_id="s1")
+            # `holding` is announced one line before the model parks, so the cancel below is
+            # delivered into the tick the turn is parking in, which is what swallows it.
+            await model.holding.wait()
+            await asyncio.wait_for(deck.aclose(), timeout=_CLOSE_GRACE * 2)
+
+    assert not task.done()  # abandoned rather than settled: the case the bound exists for
+    assert f"run {opening.run_id} ignored its cancellation" in caplog.text
+    events = await deck._runtime.store.read_session(RunContext(run_id="reader", session_id="s1"))
+    assert [e.kind for e in events][-1] == "run.cancelled"
+    assert f"within {_CLOSE_GRACE}s" in events[-1].payload.reason
+    task.cancel()  # the abandoned task outlives the deck; nothing else ends it
 
 
 @pytest.mark.asyncio

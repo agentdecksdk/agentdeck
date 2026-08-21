@@ -727,6 +727,26 @@ class Runtime:
         with suppress(asyncio.CancelledError):
             await asyncio.shield(recording)
 
+    async def close_cancelled(self, run_id: str, reason: str, *, namespace: str | None = None) -> None:
+        """Close a run nobody is playing any more, addressed by ``run_id`` alone: the wrapper
+        over :meth:`_close_cancelled` for an owner that holds an id and not the run's spec and
+        bound context, as :meth:`find` is the wrapper over :meth:`_find`.
+
+        ``Deck.aclose``'s, for a run that never observed the cancellation it was sent. Not
+        :meth:`_close_abandoned`, which records a different fact: a run whose worker died, taken
+        over and failed by the turn that stepped over it.
+
+        Quiet for anything this namespace does not hold ``RUNNING``, so a task wedged after its
+        own terminal event already landed cannot have it contradicted.
+        """
+        ctx = self._context(run_id=run_id, namespace=namespace)
+        started = await self._opening_of(run_id, ctx)
+        if started is None or await self._store.run_status(ctx) is not RunStatus.RUNNING:
+            return
+        session_id, opened = started
+        spec, _ = self._resolve(opened.invocable)
+        await self._close_cancelled(spec, replace(ctx, session_id=session_id), reason)
+
     async def _claim_resume(
         self, spec: InvocableSpec, ctx: RunContext, value: Any, reason: str | None = None
     ) -> Event | None:
