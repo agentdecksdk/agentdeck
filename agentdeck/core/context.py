@@ -264,7 +264,7 @@ class Agents(Protocol):
         """Declare an agent for this deck to hold, and hand back what invokes it."""
         ...
 
-    def fork(self, source: Any = None, /, **overrides: Any) -> AgentInstance:
+    def fork(self, source: Any, /, **overrides: Any) -> AgentInstance:
         """Copy ``source`` with ``overrides`` applied, as a new instance."""
         ...
 
@@ -322,10 +322,9 @@ class WorkflowCtx[T](ToolCtx[T]):
 
             stricter = ctx.agents.fork("Writer", instructions="Draft it in under 100 words.")
 
-        ``create`` declares one from scratch; ``fork`` copies an existing agent with overrides,
-        defaulting to :attr:`~ToolCtx.agent`  -  which a workflow body does not have, so a workflow
-        names what it is forking. Either way the deck holds the result for the rest of its life,
-        which is what makes a child run of it answerable, resumable and cancellable by name.
+        ``create`` declares one from scratch; ``fork`` copies an existing agent with overrides and
+        names which. Either way the deck holds the result for the rest of its life, which is what
+        makes a child run of it answerable, resumable and cancellable by the name its log records.
         """
         if self._agents is None:
             raise RuntimeError(

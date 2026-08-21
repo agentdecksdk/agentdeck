@@ -65,7 +65,7 @@ class SchemaVersion(CoreModel):
     minor: NonNegativeInt
 
 
-CURRENT_VERSION = SchemaVersion(major=4, minor=1)
+CURRENT_VERSION = SchemaVersion(major=4, minor=2)
 """What this tree writes onto every event.
 
 ``major=4`` (v5.0.0): the payload vocabulary moved, and v5.0.0 does not read a log v4 wrote. There
@@ -74,6 +74,9 @@ with the version that wrote it.
 
 ``minor=1``: :class:`AgentChanged` was added (#249), additive by construction  -  an older reader
 degrades an event it carries to :class:`UnknownEvent` rather than failing.
+
+``minor=2``: :class:`RunStarted` carries ``parent_run_id`` (#236), optional and defaulting to
+``None``, so a reader that has never heard of it reads every run as a top-level one.
 
 A future additive change (a new kind, a new optional field) bumps ``minor`` here and nowhere else;
 a breaking one bumps ``major``."""
