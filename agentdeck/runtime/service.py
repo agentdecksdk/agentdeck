@@ -18,7 +18,7 @@ from collections import deque
 from contextlib import aclosing, asynccontextmanager, suppress
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 from uuid import uuid4
 
 from agentdeck.core.content import as_answer
@@ -30,10 +30,12 @@ from agentdeck.core.events import (
     ControlRequested,
     Event,
     RunCancelled,
+    RunCompleted,
     RunFailed,
     RunInterrupted,
     RunResumed,
     RunStarted,
+    Usage,
 )
 from agentdeck.core.reporting import Reporter
 from agentdeck.core.status import (
@@ -47,7 +49,7 @@ from agentdeck.core.status import (
     can_resume,
     decide,
 )
-from agentdeck.errors import DOCS_URL, NotFoundError, RunStateError, SessionBusyError, StoreError
+from agentdeck.errors import DOCS_URL, ConfigError, NotFoundError, RunStateError, SessionBusyError, StoreError
 from agentdeck.runtime.dispatch import SinkDispatch
 
 if TYPE_CHECKING:
@@ -76,6 +78,29 @@ _DEFAULT_LEASE_TTL = timedelta(seconds=90)
 # briefly slow store gets to not cost a takeover.
 _RENEWALS_PER_TTL = 6
 _SESSIONS_DOCS = f"{DOCS_URL}/runs-and-control/sessions"
+
+MAX_DELEGATION_DEPTH: Final[int] = 3
+"""How many levels of delegation a run may sit under. Three covers orchestrator to worker to
+helper, which is already past where a delegation tree stays legible in the log."""
+
+MAX_DELEGATION_FANOUT: Final[int] = 8
+"""How many child runs one run may start."""
+
+
+@dataclass(slots=True)
+class _Delegation:
+    """One live run's place in the delegation tree.
+
+    ``spent`` is what this run's *settled children* have used, folded into its own total when it
+    ends; ``children`` counts every one it started, not the ones still running, because the bound
+    is on the tree a run can build and not on how much of it is in flight at once.
+    """
+
+    parent: str | None
+    depth: int
+    invocable: str
+    children: int = 0
+    spent: Usage | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,6 +166,11 @@ class Runtime:
         # Runs :meth:`close_cancelled` closed from outside. Only ``Deck.aclose`` abandons a run,
         # and only at teardown, so this is bounded by the runs one process had in flight.
         self._abandoned: set[str] = set()
+        # The delegation tree, live: one entry per run in flight, dropped when it ends. Held here
+        # rather than read off the log because every reader acts while the run is still running  -
+        # a bound has to refuse before the child is claimed, a cancel has to reach a child now,
+        # and a total has to be right before ``run.completed`` is written rather than after.
+        self._tree: dict[str, _Delegation] = {}
 
     @property
     def store(self) -> EventStorePort:
@@ -160,6 +190,7 @@ class Runtime:
         namespace: str | None = None,
         key: str | None = None,
         run_id: str | None = None,
+        parent_run_id: str | None = None,
     ) -> AsyncGenerator[Event, None]:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
 
@@ -179,6 +210,10 @@ class Runtime:
         the opening claim lands. Still minted, and minted by AgentDeck  -  see
         :meth:`_new_run_context`.
 
+        ``parent_run_id`` is which run delegated this one, from the same caller. It is recorded on
+        ``run.started`` and nowhere else, and it is what a cancel cascades along and what a
+        delegated turn's cost rolls up through.
+
         One turn per session at a time: opening the run is a conditional append that fails if
         the session already has one in flight, so a second concurrent turn raises
         ``SessionBusyError`` instead of running against a conversation that is still changing.
@@ -190,8 +225,10 @@ class Runtime:
         """
         spec, executor = self._resolve(name)
         ctx, reports = self._bind(
-            self._new_run_context(run_id=run_id, key=key, session_id=session_id, namespace=namespace, data=context)
+            self._new_run_context(run_id=run_id, key=key, session_id=session_id, namespace=namespace, data=context),
+            spec,
         )
+        self._delegate(ctx.run_id, parent_run_id, spec.name)
         # ponytail: whole log per run  -  window it (or hand the engine a summary) once a
         # session's history outgrows one read, which a real store will notice long before this does
         history = await self._history(ctx)
@@ -200,6 +237,7 @@ class Runtime:
             invocable=spec.name,
             kind_of_invocable=spec.kind.value,
             input=input,
+            parent_run_id=parent_run_id,
         )
         try:
             claimed = await self._claim_session(opening, spec, ctx, history)
@@ -256,7 +294,7 @@ class Runtime:
         """
         spec, executor = self._resolve(name)
         ctx, reports = self._bind(
-            self._context(run_id=run_id, session_id=session_id, namespace=namespace, data=context)
+            self._context(run_id=run_id, session_id=session_id, namespace=namespace, data=context), spec
         )
         status = await self._store.run_status(ctx)
         if status is None:
@@ -279,6 +317,7 @@ class Runtime:
         opened = next((event.payload for event in events if isinstance(event.payload, RunStarted)), None)
         if opened is None:
             return
+        self._delegate(ctx.run_id, opened.parent_run_id, spec.name)
         if (why := _refuses(events, value)) is not None:
             # Recorded, then raised, and both before the claim: the run is still waiting, so the
             # answerer can send a real one  -  and the log keeps the fact that somebody tried.
@@ -350,7 +389,8 @@ class Runtime:
             return
         session_id, opened = started
         spec, executor = self._resolve(opened.invocable)
-        run_ctx, reports = self._bind(replace(ctx, run_id=run_id, session_id=session_id))
+        run_ctx, reports = self._bind(replace(ctx, run_id=run_id, session_id=session_id), spec)
+        self._delegate(run_id, opened.parent_run_id, spec.name)
         opening = await self._claim_resume(spec, run_ctx, None, reason)
         if opening is None:
             return
@@ -397,7 +437,18 @@ class Runtime:
         terminates such a run directly. A **pause**, by contrast, stays merely recorded even
         against a suspended run: it has nothing to do until something next resumes or answers
         that run, per the routing table (``docs/design/run-lifecycle.md``).
+
+        A **cancel cascades** to the runs this one delegated, and theirs in turn. A parent that
+        stops while a child keeps burning tokens is worse than not offering cancel at all, and the
+        parent cannot do it for itself: it is inside the call that is waiting on the child. A
+        **pause does not** cascade. A suspended child would surface in the parent as a failed
+        delegation, and the parent replays its turn from the log on resume  -  so it would delegate
+        the same task a second time. A pause takes effect at the parent's own next safe point,
+        once the delegations in flight have settled.
         """
+        if verb is Signal.CANCEL:
+            for child in [child for child, placed in self._tree.items() if placed.parent == run_id]:
+                await self.signal(child, verb, reason, namespace=namespace)
         if verb is Signal.CANCEL and await self._cancel_suspended(run_id, reason, namespace):
             return True
         if self._control is None:
@@ -427,7 +478,7 @@ class Runtime:
             return False
         session_id, opened = started
         spec, _ = self._resolve(opened.invocable)
-        run_ctx, _ = self._bind(replace(ctx, run_id=run_id, session_id=session_id))
+        run_ctx, _ = self._bind(replace(ctx, run_id=run_id, session_id=session_id), spec)
         if await self._claim_resume(spec, run_ctx, None, reason) is None:
             return False
         await self._record(ControlRequested(verb="cancel", reason=reason), spec, run_ctx)
@@ -904,13 +955,17 @@ class Runtime:
         """
         return RunContext(run_id=run_id or str(uuid4()), key=key, session_id=session_id, namespace=namespace, data=data)
 
-    def _bind(self, ctx: RunContext) -> tuple[RunContext, deque[KnownPayload]]:
-        """Give this run its control gate and its report buffer, and hand back both.
+    def _bind(self, ctx: RunContext, spec: InvocableSpec) -> tuple[RunContext, deque[KnownPayload]]:
+        """Give this run its control gate, its report buffer and the agent it plays.
 
         The Runtime, not the caller, decides whether a run is cancellable and where its status
         and progress reports go  -  a caller builds a plain ``RunContext`` and never has to know
         that a ``ControlPort`` or a buffer exists. The buffer is per run and returned rather than
         stored, so two concurrent runs on one Runtime can never drain into each other.
+
+        ``ctx.agent`` comes off the resolved spec rather than from whoever called in, which is
+        what makes it the same instance on a fresh play, a lifted pause and an answered interrupt:
+        every one of those resolves the spec, and none of them could be relied on to pass it.
         """
         reports: deque[KnownPayload] = deque()
         gate = (
@@ -918,7 +973,62 @@ class Runtime:
             if self._control is None
             else Gate(self._control, ctx.id, poll_interval=self._control_poll_interval)
         )
-        return replace(ctx, gate=gate, reporter=Reporter(reports)), reports
+        return replace(ctx, gate=gate, reporter=Reporter(reports), agent=spec.metadata.get("agent")), reports
+
+    def _delegate(self, run_id: str, parent_run_id: str | None, invocable: str) -> None:
+        """Place ``run_id`` in the delegation tree, refusing it if that puts the tree past a bound.
+
+        Called wherever a run is played, so a child answered or resumed in a later segment is
+        still known to be one: the first call has the edge from its invoker, the rest read it back
+        off the ``run.started`` the first one wrote. A run already placed is left alone  -  a second
+        segment of one run is not a second child.
+
+        The bounds are deliberately conservative and deliberately not configurable. Two agents
+        that can delegate to each other will, and each level multiplies: at depth 3 and fan-out 8
+        the worst case before this refuses is 512 child runs, where 5 and 16 is over a million.
+        """
+        if run_id in self._tree:
+            return
+        above = self._tree.get(parent_run_id) if parent_run_id is not None else None
+        depth = 0 if parent_run_id is None else (above.depth + 1 if above is not None else 1)
+        if above is not None:
+            if depth > MAX_DELEGATION_DEPTH:
+                raise ConfigError(
+                    f"{above.invocable!r} cannot delegate to {invocable!r}: that is {depth} levels "
+                    f"of delegation and a tree is bounded at {MAX_DELEGATION_DEPTH}. Mutual "
+                    f"delegation is the usual cause  -  have this level do the work, or start the "
+                    f"deeper task as a run of its own."
+                )
+            if above.children + 1 > MAX_DELEGATION_FANOUT:
+                raise ConfigError(
+                    f"{above.invocable!r} cannot delegate to {invocable!r}: it has already started "
+                    f"{above.children} child runs and one run is bounded at "
+                    f"{MAX_DELEGATION_FANOUT}. Give it fewer, larger tasks, or hand the fan-out to "
+                    f"a workflow that starts them as runs of its own."
+                )
+            above.children += 1
+        self._tree[run_id] = _Delegation(parent=parent_run_id, depth=depth, invocable=invocable)
+
+    def _rolling_up(self, payload: KnownPayload, ctx: RunContext) -> KnownPayload:
+        """A terminal payload with what this run delegated folded into it, and its own total
+        handed on to whoever delegated *it*.
+
+        One level at a time is the whole tree: a child's total already carries its own children's
+        by the time its parent reads it. A child that ends any way but ``run.completed`` has no
+        total to contribute, and one still running when its parent ends is not in the fold  -
+        which is what ``run.started.parent_run_id`` is for, since a reader of the log can follow
+        the edge afterwards and add up what the live sum could not.
+        """
+        if payload.kind not in TERMINAL_KINDS:
+            return payload
+        placed = self._tree.pop(ctx.run_id, None)
+        if placed is None or not isinstance(payload, RunCompleted):
+            return payload
+        total = payload.usage if placed.spent is None else _summed(payload.usage, placed.spent)
+        above = self._tree.get(placed.parent) if placed.parent is not None else None
+        if above is not None:
+            above.spent = total if above.spent is None else _summed(above.spent, total)
+        return payload if placed.spent is None else payload.model_copy(update={"usage": total})
 
     async def _drain(
         self, reports: deque[KnownPayload], spec: InvocableSpec, ctx: RunContext
@@ -966,10 +1076,16 @@ class Runtime:
         that starts here can land past the terminal event written for it. One that started before
         the mark and is still suspended inside the store can, which is #421 and needs the store's
         own conditional append rather than a second guard above it.
+
+        Every terminal event in this class is written here, which is why the delegation roll-up
+        hangs off this one call rather than off the engine loop: a run that failed or was
+        cancelled ends the edge exactly as a completed one does. It runs after the refusal above,
+        never before, because folding a total into a parent for an append that is about to be
+        refused would bill the parent for an event the log never gets.
         """
         if ctx.run_id in self._abandoned:
             raise asyncio.CancelledError(f"run {ctx.run_id} was abandoned by the deck closing")
-        event = (await self._store.append([payload], ctx, spec.name))[0]
+        event = (await self._store.append([self._rolling_up(payload, ctx)], ctx, spec.name))[0]
         await self._fan_out(event)
         return event
 
@@ -982,6 +1098,17 @@ class Runtime:
         """
         for dispatch in self._sinks:
             await dispatch.submit(event)
+
+
+def _summed(one: Usage, other: Usage) -> Usage:
+    """Two totals as one. ``usd`` stays ``None`` unless somebody set it: agentdeck never does, and
+    a zero would read as a priced call that cost nothing."""
+    priced = [amount for amount in (one.usd, other.usd) if amount is not None]
+    return Usage(
+        input_tokens=one.input_tokens + other.input_tokens,
+        output_tokens=one.output_tokens + other.output_tokens,
+        usd=sum(priced) if priced else None,
+    )
 
 
 def _failed(exc: Exception, engine: str) -> RunFailed:

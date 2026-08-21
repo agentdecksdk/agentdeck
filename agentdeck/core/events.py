@@ -97,18 +97,24 @@ class Usage(CoreModel):
 
 
 class RunStarted(CoreModel):
-    """Opens a run: what was asked for, and what it was asked with.
+    """Opens a run: what was asked for, what it was asked with, and who delegated it.
 
-    No context snapshot. Everything the old one carried  -  a trace id, a budget, who triggered
-    it, a parent run  -  was recorded and read by nothing, so the log said a run was admitted
-    under constraints that never existed. Where a run was played is on the envelope, where
-    every event carries it.
+    No context snapshot. A trace id, a budget and who triggered it were all recorded and read by
+    nothing, so the log said a run was admitted under constraints that never existed. Where a run
+    was played is on the envelope, where every event carries it.
+
+    ``parent_run_id`` is the one that came back, because something reads it: a delegated turn's
+    cost rolls up into its parent's and a cancelled parent's children are cancelled with it, and
+    a reader of the log afterwards follows the same edge to price the whole tree. It is the only
+    event that carries the edge  -  one place writes it, and a second kind saying the same thing
+    is a second thing to disagree.
     """
 
     kind: Literal["run.started"] = "run.started"
     invocable: str
     kind_of_invocable: Literal["agent", "workflow", "skill", "tool"]
     input: Input
+    parent_run_id: str | None = None
 
 
 class RunCompleted(CoreModel):
