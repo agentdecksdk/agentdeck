@@ -1,4 +1,4 @@
-"""The openai-agents engine: ``EnginePort`` over ``agents.Runner``.
+"""The openai-agents engine: ``Executor`` over ``agents.Runner``.
 
 ``spec.native`` is the pre-built ``agents.Agent`` (handoffs and tools included)  -  this
 adapter only runs it and translates its stream, per ``core/ports/engine.py``. Execution
@@ -43,14 +43,15 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 from agents import Agent, Runner
 from pydantic import BaseModel
 
-from agentdeck.adapters.engines.openai_agents.reconcile import reconcile, render_data_block
-from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings, build_run_config
-from agentdeck.adapters.engines.openai_agents.sessions import ExecutionStore
-from agentdeck.adapters.engines.openai_agents.translate import translate
+from agentdeck.adapters.executors.openai_agents.reconcile import reconcile, render_data_block
+from agentdeck.adapters.executors.openai_agents.runconfig import RunSettings, build_run_config
+from agentdeck.adapters.executors.openai_agents.sessions import ExecutionStore
+from agentdeck.adapters.executors.openai_agents.translate import translate
 from agentdeck.core.content import AudioBlock, DataBlock, ImageBlock, ResourceBlock, TextBlock, coerce_input
 from agentdeck.core.control import ControlSignalled
 from agentdeck.core.events import RunCompleted, Usage, UsageReported
-from agentdeck.core.ports import EnginePort
+from agentdeck.core.ports import Executor
+from agentdeck.core.status import Play, continuation_of
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
@@ -97,17 +98,17 @@ class Launch:
     finished: bool = False
 
 
-class OpenAIAgentsEngine(EnginePort):
+class OpenAIAgentsExecutor(Executor):
     """Plays ``spec.native`` (an ``agents.Agent``) through ``Runner.run_streamed``.
 
     Everything a run is configured with arrives here already resolved  -  ``sessions`` is the
     conversation memory (Redis-backed or local), ``settings`` the endpoint and limits, and
     ``sandbox`` the scope an agent that needs one runs inside. All three default to the
-    SDK's own behavior, so ``OpenAIAgentsEngine()`` still runs an agent that configured
+    SDK's own behavior, so ``OpenAIAgentsExecutor()`` still runs an agent that configured
     itself.
     """
 
-    engine: ClassVar[str] = "openai-agents"
+    name: ClassVar[str] = "openai-agents"
     suspendable: ClassVar[bool] = True
 
     def __init__(
@@ -121,13 +122,18 @@ class OpenAIAgentsEngine(EnginePort):
         self._settings = settings or RunSettings()
         self._sandbox = sandbox
 
-    async def start(
+    async def execute(
         self,
         spec: InvocableSpec,
         input: Input,
         history: Sequence[Event],
         ctx: RunContext,
     ) -> AsyncGenerator[KnownPayload, None]:
+        if continuation_of(history, ctx.run_id).play is Play.ANSWER:
+            # M0 scope is UC1's plain chat, which never suspends, so no run of this executor is
+            # ever waiting on an answer. Raising (not a silent no-op) matches the Runtime's own
+            # rule that an answer only ever reaches a run that suspended.
+            raise ConfigError(f"the openai-agents executor has no interrupts to answer: {spec.name!r} never suspends")
         agent = _agent_of(spec)
         session = self._session(ctx)
         if session is not None:
@@ -211,19 +217,6 @@ class OpenAIAgentsEngine(EnginePort):
 
     def _terminal(self, result: RunResultStreaming) -> Sequence[KnownPayload]:
         return (_run_completed(result),)
-
-    async def resume(
-        self,
-        spec: InvocableSpec,
-        thread_id: str,
-        value: Any,
-        ctx: RunContext,
-    ) -> AsyncGenerator[KnownPayload, None]:
-        # M0 scope is UC1's plain chat, which never suspends  -  there is no interrupted run
-        # for this engine to continue. Raising (not a silent no-op) matches the Runtime's
-        # own rule that this method is only ever called on a WAITING_ANSWER run.
-        raise ConfigError(f"openai-agents engine (M0) has no interrupts to resume: {spec.name!r} never suspends")
-        yield  # pragma: no cover  -  makes this an async generator; never reached
 
 
 def _usage_reported(event: Any) -> KnownPayload | None:
@@ -343,4 +336,4 @@ def _usage_of(result: RunResultStreaming) -> Usage:
     return Usage(input_tokens=usage.input_tokens, output_tokens=usage.output_tokens)
 
 
-__all__ = ["Launch", "OpenAIAgentsEngine", "SandboxScope"]
+__all__ = ["Launch", "OpenAIAgentsExecutor", "SandboxScope"]

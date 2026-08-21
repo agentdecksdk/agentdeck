@@ -191,7 +191,7 @@ def test_postgres_resolves_the_async_saver(monkeypatch):
     import sys
     import types
 
-    from agentdeck.adapters.engines.langgraph.checkpointer import resolve_checkpointer
+    from agentdeck.adapters.executors.langgraph.checkpointer import resolve_checkpointer
 
     class StubSaver:
         def __init__(self):
@@ -226,7 +226,7 @@ def test_postgres_resolves_the_async_saver(monkeypatch):
 
 
 def test_postgres_without_url_raises():
-    from agentdeck.adapters.engines.langgraph.checkpointer import resolve_checkpointer
+    from agentdeck.adapters.executors.langgraph.checkpointer import resolve_checkpointer
 
     with pytest.raises(ValueError, match="DSN"):
         resolve_checkpointer("postgres", "")
@@ -234,7 +234,7 @@ def test_postgres_without_url_raises():
 
 def test_run_sync_propagates_exceptions_from_inside_a_loop():
     """A failing bootstrap coroutine must surface its real error, not IndexError."""
-    from agentdeck.adapters.engines.langgraph.checkpointer import _run_sync
+    from agentdeck.adapters.executors.langgraph.checkpointer import _run_sync
 
     async def _boom():
         raise RuntimeError("real cause")
@@ -256,7 +256,7 @@ def test_a_sqlite_checkpointer_is_rebuilt_for_each_event_loop_that_asks_for_one(
     created here on purpose, which is also the only condition under which a server would
     ever have noticed.
     """
-    from agentdeck.adapters.engines.langgraph import resolve_checkpointer
+    from agentdeck.adapters.executors.langgraph import resolve_checkpointer
 
     path = str(tmp_path / "checkpoints.sqlite3")
     config = {"configurable": {"thread_id": "t-1", "checkpoint_ns": ""}}
@@ -275,7 +275,7 @@ def test_a_sqlite_checkpointer_is_rebuilt_for_each_event_loop_that_asks_for_one(
 def test_one_loop_still_gets_one_checkpointer_however_often_it_asks(tmp_path):
     """The per-loop rebuild is not "stop caching": a server compiling several durable graphs
     on its own loop still shares the one connection, which is what the cache is for."""
-    from agentdeck.adapters.engines.langgraph import resolve_checkpointer
+    from agentdeck.adapters.executors.langgraph import resolve_checkpointer
 
     path = str(tmp_path / "checkpoints.sqlite3")
 

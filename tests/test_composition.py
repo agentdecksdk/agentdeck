@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 
 import live_stores
 import pytest
-from project_engines import project_engines
+from project_executors import project_executors
 
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
@@ -66,28 +66,28 @@ def project(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_the_project_engine_set_covers_both_bundle_shapes():
-    """Discovery refuses a project whose workflows have no engine, so both are registered."""
-    engines = project_engines()
-    assert sorted(engine.engine for engine in engines) == ["langgraph", "openai-agents"]
-    assert [type(engine).__name__ for engine in engines] == ["OpenAIAgentsEngine", "LangGraphEngine"]
+def test_the_project_executor_set_covers_both_bundle_shapes():
+    """Discovery refuses a project whose workflows have no executor, so both are registered."""
+    executors = project_executors()
+    assert sorted(executor.name for executor in executors) == ["langgraph", "openai-agents"]
+    assert [type(executor).__name__ for executor in executors] == ["OpenAIAgentsExecutor", "LangGraphExecutor"]
 
 
 async def test_deck_wires_the_same_engines_this_suite_builds_by_hand(project):
-    """What keeps ``tests/project_engines.py`` honest: the composition root is the only
+    """What keeps ``tests/project_executors.py`` honest: the composition root is the only
     production caller, so a test set that stopped matching its wiring would be testing nothing."""
     from agentdeck.deck import Deck
 
     deck = Deck.from_project()
 
     async with deck:
-        assert [type(engine).__name__ for engine in deck._runtime._engines.values()] == [
-            type(engine).__name__ for engine in project_engines()
+        assert [type(executor).__name__ for executor in deck._runtime._executors.values()] == [
+            type(executor).__name__ for executor in project_executors()
         ]
 
 
 async def test_build_runtime_discovers_the_project_when_given_no_invocables(project):
-    runtime = build_runtime(engines=project_engines(), store=MemoryEventStore())
+    runtime = build_runtime(executors=project_executors(), store=MemoryEventStore())
 
     kinds = [
         event.kind
@@ -104,10 +104,10 @@ async def test_build_runtime_takes_explicit_specs_and_a_store_that_holds_time_st
     clock  -  the only seam that decides a ``ts`` now (ADR-D11); ``build_runtime`` has no ``clock``
     keyword of its own."""
     frozen = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
-    engines = project_engines()
-    specs = InvocableRegistry(engines).load()
+    executors = project_executors()
+    specs = InvocableRegistry(executors).load()
 
-    runtime = build_runtime(engines=engines, invocables=specs, store=MemoryEventStore(clock=lambda: frozen))
+    runtime = build_runtime(executors=executors, invocables=specs, store=MemoryEventStore(clock=lambda: frozen))
     stamps = {
         event.ts
         async for event in runtime.run(
@@ -119,7 +119,7 @@ async def test_build_runtime_takes_explicit_specs_and_a_store_that_holds_time_st
 
 
 async def test_build_runtime_refuses_an_unknown_invocable(project):
-    runtime = build_runtime(engines=project_engines(), store=MemoryEventStore())
+    runtime = build_runtime(executors=project_executors(), store=MemoryEventStore())
 
     with pytest.raises(NotFoundError):
         [
@@ -395,7 +395,7 @@ def test_build_runtime_resolves_stale_run_after_from_settings(monkeypatch):
     monkeypatch.setenv("AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS", "123")
     reset_settings_cache()
     try:
-        runtime = build_runtime(engines=[], invocables={}, store=MemoryEventStore(), sinks=())
+        runtime = build_runtime(executors=[], invocables={}, store=MemoryEventStore(), sinks=())
     finally:
         reset_settings_cache()
 

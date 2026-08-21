@@ -254,9 +254,9 @@ def test_build_runtime_wires_no_telemetry_of_its_own():
 
     probe = (
         "import sys;"
-        "from agentdeck.adapters.engines.stub import StubEngine;"
+        "from agentdeck.adapters.executors.stub import StubExecutor;"
         "from agentdeck.composition import build_runtime;"
-        "runtime = build_runtime(engines=[StubEngine()], invocables={});"
+        "runtime = build_runtime(executors=[StubExecutor()], invocables={});"
         "assert runtime._sinks == (), runtime._sinks;"
         "assert 'langfuse' not in sys.modules, sorted(m for m in sys.modules if 'langfuse' in m);"
         "print('configured, and still no client')"

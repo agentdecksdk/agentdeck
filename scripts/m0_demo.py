@@ -63,7 +63,7 @@ from openai.types.responses import (
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
 from agentdeck.adapters.control.memory import MemoryControlPort
-from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
+from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.composition import build_runtime
@@ -181,7 +181,7 @@ class Shout(BaseWorkflow):
 
 async def run_discovery(tmp: Path) -> None:
     _banner("Discovery  -  InvocableRegistry over a `.agentdeck/` project (both engines)")
-    from agentdeck.adapters.engines.langgraph import LangGraphEngine
+    from agentdeck.adapters.executors.langgraph import LangGraphExecutor
 
     root = tmp / "project" / ".agentdeck"
     (root / "agents" / "greeter").mkdir(parents=True)
@@ -189,18 +189,18 @@ async def run_discovery(tmp: Path) -> None:
     (root / "workflows" / "shout").mkdir(parents=True)
     (root / "workflows" / "shout" / "workflow.py").write_text(BUNDLE_WORKFLOW_PY)
 
-    engines: list[Any] = [OpenAIAgentsEngine(), LangGraphEngine()]
+    engines: list[Any] = [OpenAIAgentsExecutor(), LangGraphExecutor()]
     with chdir(root.parent):
         print("-- step 1: InvocableRegistry(engines).load() over ./.agentdeck --")
         specs = InvocableRegistry(engines).load()
         for name, spec in sorted(specs.items()):
-            print(f"  {name}: kind={spec.kind.value} engine={spec.engine} native={type(spec.native).__name__}")
+            print(f"  {name}: kind={spec.kind.value} engine={spec.executor} native={type(spec.native).__name__}")
         assert sorted(specs) == ["Greeter", "Shout"]
-        assert specs["Greeter"].engine == OpenAIAgentsEngine.engine
-        assert specs["Shout"].engine == LangGraphEngine.engine
+        assert specs["Greeter"].engine == OpenAIAgentsExecutor.name
+        assert specs["Shout"].engine == LangGraphExecutor.name
 
         print("-- step 2: the discovered workflow, played by the Runtime handed that mapping --")
-        runtime = build_runtime(engines=engines, invocables=specs, store=MemoryEventStore())
+        runtime = build_runtime(executors=engines, invocables=specs, store=MemoryEventStore())
         ctx = RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="run-discovery", trace_id="t", session_id="s-disc")
         kinds = [event.kind async for event in runtime.run("Shout", coerce_input("hello discovery"), ctx)]
         print(f"  {kinds}")
@@ -208,7 +208,7 @@ async def run_discovery(tmp: Path) -> None:
 
         print("-- step 3: the same project, wired to a Runtime with no langgraph engine --")
         try:
-            InvocableRegistry([OpenAIAgentsEngine()]).load()
+            InvocableRegistry([OpenAIAgentsExecutor()]).load()
         except ConfigError as exc:
             print(f"  refused at load, not at run: {exc}")
         else:
@@ -330,12 +330,12 @@ async def run_uc1(tmp: Path) -> None:
         name="FrontDesk", instructions="route to claims", handoffs=[claims_agent], model=FrontModel(handoff_tool)
     )
     spec = InvocableSpec(
-        name="FrontDesk", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=front_agent
+        name="FrontDesk", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=front_agent
     )
     sessions = ExecutionStore()
     store = SqliteEventStore(str(tmp / "uc1-events.sqlite3"))
     runtime = build_runtime(
-        engines=[OpenAIAgentsEngine(sessions)], invocables={"FrontDesk": spec}, store=store, clock=lambda: TS
+        executors=[OpenAIAgentsExecutor(sessions)], invocables={"FrontDesk": spec}, store=store, clock=lambda: TS
     )
     app = build_app(runtime)
 
@@ -385,7 +385,7 @@ async def run_uc2(tmp: Path) -> None:
     from langgraph.graph import END, START, StateGraph
     from langgraph.types import interrupt
 
-    from agentdeck.adapters.engines.langgraph import LangGraphEngine, resolve_checkpointer
+    from agentdeck.adapters.executors.langgraph import LangGraphExecutor, resolve_checkpointer
 
     def _validate(state: dict[str, Any]) -> dict[str, Any]:
         return {"claim_id": state["input"].rsplit(" ", 1)[-1]}
@@ -412,16 +412,16 @@ async def run_uc2(tmp: Path) -> None:
 
     def _spec() -> InvocableSpec:
         return InvocableSpec(
-            name="ClaimPipeline", kind=InvocableKind.WORKFLOW, engine=LangGraphEngine.engine, native=_graph()
+            name="ClaimPipeline", kind=InvocableKind.WORKFLOW, executor=LangGraphExecutor.name, native=_graph()
         )
 
     db_path = str(tmp / "uc2-events.sqlite3")
     checkpoint_path = str(tmp / "uc2-checkpoints.sqlite3")
     session_id = "s1"
 
-    engine = LangGraphEngine(checkpointer=resolve_checkpointer("sqlite", checkpoint_path))
+    engine = LangGraphExecutor(checkpointer=resolve_checkpointer("sqlite", checkpoint_path))
     store = SqliteEventStore(db_path)
-    runtime = build_runtime(engines=[engine], invocables={"ClaimPipeline": _spec()}, store=store)
+    runtime = build_runtime(executors=[engine], invocables={"ClaimPipeline": _spec()}, store=store)
     app = build_app(runtime)
 
     print("-- step 1: POST /v2/invocables/ClaimPipeline/chat --")
@@ -446,9 +446,9 @@ async def run_uc2(tmp: Path) -> None:
 
     from agentdeck.core.status import RunStatus, status_of
 
-    engine2 = LangGraphEngine(checkpointer=resolve_checkpointer("sqlite", checkpoint_path))
+    engine2 = LangGraphExecutor(checkpointer=resolve_checkpointer("sqlite", checkpoint_path))
     store2 = SqliteEventStore(db_path)
-    runtime2 = build_runtime(engines=[engine2], invocables={"ClaimPipeline": _spec()}, store=store2)
+    runtime2 = build_runtime(executors=[engine2], invocables={"ClaimPipeline": _spec()}, store=store2)
     status_ctx = RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="n/a", trace_id="t", session_id=session_id)
     assert status_of(await store2.read(status_ctx.log_key, status_ctx)) is RunStatus.WAITING_ANSWER
     print("  status read from disk after restart: WAITING_ANSWER")
@@ -529,7 +529,7 @@ class SlowPokeModel(Model):
 
 def _slowpoke_spec(chunk_count: int, delay: float) -> InvocableSpec:
     agent = Agent(name="SlowPoke", instructions="stall", model=SlowPokeModel(chunk_count, delay))
-    return InvocableSpec(name="SlowPoke", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
+    return InvocableSpec(name="SlowPoke", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=agent)
 
 
 async def _gap_recovering_consumer(source: Any, store: Any, log_key: str, ctx: RunContext) -> list[Any]:
@@ -552,7 +552,10 @@ async def run_uc3_chaos_gap_detection() -> None:
     control = MemoryControlPort()
     store = MemoryEventStore()
     runtime = build_runtime(
-        engines=[OpenAIAgentsEngine()], invocables={"SlowPoke": _slowpoke_spec(10, 0.0)}, store=store, control=control
+        executors=[OpenAIAgentsExecutor()],
+        invocables={"SlowPoke": _slowpoke_spec(10, 0.0)},
+        store=store,
+        control=control,
     )
     ctx = RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="run-chaos", trace_id="t", session_id="s-chaos")
 
@@ -585,7 +588,10 @@ async def run_uc3_cross_process_cancel(tmp: Path) -> None:
     # which costs over a second just importing agentdeck (v1's App included) before it
     # can write the signal  -  the delay gives that import time to land mid-stream.
     runtime = build_runtime(
-        engines=[OpenAIAgentsEngine()], invocables={"SlowPoke": _slowpoke_spec(30, 0.2)}, store=store, control=control
+        executors=[OpenAIAgentsExecutor()],
+        invocables={"SlowPoke": _slowpoke_spec(30, 0.2)},
+        store=store,
+        control=control,
     )
     ctx = RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="uc3-cross-process", trace_id="t")
 
@@ -619,7 +625,10 @@ async def run_uc3_replay_and_render(tmp: Path) -> None:
     control = MemoryControlPort()
     store = MemoryEventStore()
     runtime = build_runtime(
-        engines=[OpenAIAgentsEngine()], invocables={"SlowPoke": _slowpoke_spec(30, 0.0)}, store=store, control=control
+        executors=[OpenAIAgentsExecutor()],
+        invocables={"SlowPoke": _slowpoke_spec(30, 0.0)},
+        store=store,
+        control=control,
     )
     ctx = RunContext(tenant=TENANT, principal=PRINCIPAL, run_id="run-replay", trace_id="t", session_id="s-replay")
 

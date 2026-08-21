@@ -57,7 +57,7 @@ def build_workflow_app(runtime: Runtime) -> FastAPI:
 
         async def frames() -> AsyncIterator[str]:
             async for event in runtime.resume(
-                match.invocable, body.thread_id, body.value, run_id=match.run_id, session_id=match.session_id
+                match.invocable, body.value, run_id=match.run_id, session_id=match.session_id
             ):
                 yield f"data: {event.model_dump_json()}\n\n"
 

@@ -32,9 +32,9 @@ from openai.types.responses import (
 )
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
-from agentdeck.adapters.engines.langgraph import REPORTER_KEY, LangGraphEngine
-from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
-from agentdeck.adapters.engines.stub import StubEngine, stub_spec
+from agentdeck.adapters.executors.langgraph import REPORTER_KEY, LangGraphExecutor
+from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
+from agentdeck.adapters.executors.stub import StubExecutor, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import DataBlock, coerce_input
 from agentdeck.core.context import RunContext
@@ -133,9 +133,9 @@ async def test_a_function_tool_reports_through_the_sdk_context() -> None:
     """A tool six frames inside the SDK, with no Runtime in sight: the run context arrives as
     the SDK's own context object, and the reporter on it is the whole reach."""
     agent = Agent(name="Searcher", instructions="use the tool", tools=[search_github], model=_CallsTheToolOnce())
-    spec = InvocableSpec(name="Searcher", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
+    spec = InvocableSpec(name="Searcher", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=agent)
     store = MemoryEventStore()
-    runtime = Runtime([OpenAIAgentsEngine(ExecutionStore())], store, {spec.name: spec})
+    runtime = Runtime([OpenAIAgentsExecutor(ExecutionStore())], store, {spec.name: spec})
 
     events = [
         event
@@ -199,9 +199,9 @@ def _graph() -> StateGraph:
 
 
 async def test_a_workflow_node_reports_through_the_graph_config() -> None:
-    spec = InvocableSpec(name="Reviewer", kind=InvocableKind.WORKFLOW, engine=LangGraphEngine.engine, native=_graph())
+    spec = InvocableSpec(name="Reviewer", kind=InvocableKind.WORKFLOW, executor=LangGraphExecutor.name, native=_graph())
     store = MemoryEventStore()
-    runtime = Runtime([LangGraphEngine()], store, {spec.name: spec})
+    runtime = Runtime([LangGraphExecutor()], store, {spec.name: spec})
 
     events = [
         event
@@ -232,16 +232,16 @@ async def test_a_workflow_node_reports_through_the_graph_config() -> None:
 # --- the SSE surface and the reference renderer ----------------------------------------
 
 
-class _ReportingStub(StubEngine):
+class _ReportingStub(StubExecutor):
     """A scripted run that reports between its payloads  -  the surface must not care which
     engine did it, so the cheapest one is the honest choice here."""
 
-    async def start(
+    async def execute(
         self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
     ) -> AsyncGenerator[KnownPayload, None]:
         await ctx.reporter.info("Searching GitHub")
         await ctx.reporter.report("issues_reviewed", current=2, total=4)
-        async for payload in super().start(spec, input, history, ctx):
+        async for payload in super().execute(spec, input, history, ctx):
             yield payload
 
 

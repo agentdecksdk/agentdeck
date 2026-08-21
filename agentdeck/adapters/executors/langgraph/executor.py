@@ -1,4 +1,4 @@
-"""The langgraph engine: ``EnginePort`` over a compiled ``StateGraph``.
+"""The langgraph engine: ``Executor`` over a compiled ``StateGraph``.
 
 ``spec.native`` is an *uncompiled* ``StateGraph``  -  this adapter compiles it itself, with
 its own checkpointer, and caches the result per invocable name (ADR-D5: an engine's
@@ -45,12 +45,12 @@ from langgraph.graph.state import StateGraph
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from agentdeck.adapters.engines.langgraph.checkpointer import resolve_checkpointer
+from agentdeck.adapters.executors.langgraph.checkpointer import resolve_checkpointer
 from agentdeck.core.content import DataBlock, TextBlock
 from agentdeck.core.control import ControlSignalled
 from agentdeck.core.events import Custom, NodeUpdated, RunCompleted, RunInterrupted, Usage
-from agentdeck.core.ports import EnginePort
-from agentdeck.core.status import LIFECYCLE_KINDS
+from agentdeck.core.ports import Executor
+from agentdeck.core.status import Play, continuation_of
 from agentdeck.errors import DOCS_URL, ConfigError
 
 if TYPE_CHECKING:
@@ -76,7 +76,7 @@ DURABLE_KEY = "durable"
 """``spec.metadata[DURABLE_KEY]``: whether this workflow's state must outlive the process.
 
 Absent  -  a spec built in code that never said  -  leaves the engine's own default checkpointer
-in place, which is what a caller wiring ``LangGraphEngine()`` by hand already gets. ``True``
+in place, which is what a caller wiring ``LangGraphExecutor()`` by hand already gets. ``True``
 is what makes the configured (sqlite/postgres) checkpointer be resolved *at all*, and only at
 the first durable run, so the ``[durability]`` extra  -  needed only for the Postgres backend  -
 stays optional for a project that only chats."""
@@ -113,7 +113,7 @@ STREAM_WRITE = "langgraph.stream_write"
 STREAM_WRITE_KEY = "value"
 
 
-class LangGraphEngine(EnginePort):
+class LangGraphExecutor(Executor):
     """Plays ``spec.native`` (an uncompiled ``StateGraph``) through ``astream``.
 
     ``checkpointer`` is what a non-durable graph compiles around  -  a fresh in-memory one by
@@ -127,7 +127,7 @@ class LangGraphEngine(EnginePort):
     a capability rather than an engine concern, and unset for a project whose nodes need none.
     """
 
-    engine: ClassVar[str] = "langgraph"
+    name: ClassVar[str] = "langgraph"
     suspendable: ClassVar[bool] = True
 
     def __init__(
@@ -142,30 +142,30 @@ class LangGraphEngine(EnginePort):
         self._workspace = workspace
         self._compiled: dict[str, CompiledStateGraph[Any, Any, Any, Any]] = {}
 
-    async def start(
+    async def execute(
         self,
         spec: InvocableSpec,
         input: Input,
         history: Sequence[Event],
         ctx: RunContext,
     ) -> AsyncGenerator[KnownPayload, None]:
-        thread_id = self._thread_id(ctx)
-        # ``resume_run`` re-enters a paused run through this same method (ADR-D5: the engine
-        # loads its own execution state, the Runtime does not carry it)  -  its own claim is the
-        # ``run.resumed`` this history now ends on, right after the ``run.paused`` this engine
-        # wrote. Filtered to ``ctx.run_id``, not just the kind: ``history`` is
-        # ``Runtime.run()``'s whole *session* log (``log_key`` is ``session_id or run_id``),
-        # read before this run's own claim closes out whatever the session's previous run left
-        # behind  -  so an abandoned run's stale ``[..., "run.paused", "run.resumed"]`` tail is
-        # still sitting there when a genuinely new run starts on the same session. Without the
-        # ``run_id`` filter that stranger's tail reads as this run continuing a pause, and a
-        # fresh run's own input is silently discarded in favor of someone else's checkpoint.
-        lifecycle = [event.kind for event in history if event.kind in LIFECYCLE_KINDS and event.run_id == ctx.run_id]
-        graph_input = (
-            await self._continue_from_pause(spec, thread_id)
-            if lifecycle[-2:] == ["run.paused", "run.resumed"]
-            else _to_graph_input(input)
-        )
+        """Three ways in, one method: the graph's own input, a continuation of the thread's last
+        checkpoint (a lifted pause), or the ``Command`` that answers an interrupt.
+
+        Which one is the log's to say (:func:`~agentdeck.core.status.continuation_of`), and so
+        is the thread an answer lands on: this executor wrote that ``thread_id`` onto its own
+        ``run.interrupted``, and reading it back is what keeps a caller-named thread
+        (``POST /workflows/X?thread_id=t``) answering the thread it actually paused.
+        """
+        continuation = continuation_of(history, ctx.run_id)
+        thread_id = continuation.thread_id or self._thread_id(ctx)
+        match continuation.play:
+            case Play.ANSWER:
+                graph_input: Any = Command(resume=continuation.answer)
+            case Play.REPLAY:
+                graph_input = await self._continue_from_pause(spec, thread_id)
+            case Play.FRESH:
+                graph_input = _to_graph_input(input)
         # aclosing at every delegation: closing an async generator unwinds its own frame only,
         # so an inner one iterated with a bare `async for` is abandoned to the GC  -  which
         # finalizes it in a fresh context, where a ContextVar reset (the workspace scope
@@ -202,17 +202,6 @@ class LangGraphEngine(EnginePort):
                 f"Set `durable = True` on the workflow, with a durable checkpoint backend  -  see {_WORKFLOWS_DOCS}",
             )
         return None
-
-    async def resume(
-        self,
-        spec: InvocableSpec,
-        thread_id: str,
-        value: Any,
-        ctx: RunContext,
-    ) -> AsyncGenerator[KnownPayload, None]:
-        async with aclosing(self._drive(spec, Command(resume=value), thread_id, ctx)) as stream:
-            async for payload in stream:
-                yield payload
 
     def _thread_id(self, ctx: RunContext) -> str:
         """Which langgraph thread this run plays on: the session's, or its own.
@@ -284,7 +273,7 @@ class LangGraphEngine(EnginePort):
 
         Absent is not the same as ``False``: a spec built in code never said, so it keeps the
         engine's own default (see ``DURABLE_KEY``), which is what a hand-wired
-        ``LangGraphEngine()`` already gets and what lets such a graph interrupt at all.
+        ``LangGraphExecutor()`` already gets and what lets such a graph interrupt at all.
 
         The configured saver is resolved here and not in ``__init__``: the ``postgres`` saver
         lives in the ``[durability]`` extra, so a composition root that merely names a backend
@@ -497,5 +486,5 @@ __all__ = [
     "STREAM_CONFIGURABLE_KEY",
     "STREAM_WRITE",
     "STREAM_WRITE_KEY",
-    "LangGraphEngine",
+    "LangGraphExecutor",
 ]

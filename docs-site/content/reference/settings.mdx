@@ -108,6 +108,6 @@ Configuration for Redis-backed agent conversation memory.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_SESSION` | `str` or `None` | `None` | Redis URL for `RedisSession`-backed agent conversation memory (`agentdeck.adapters.engines.openai_agents.sessions.SessionFactory`), needing the `[redis]` extra. `None` falls back to one in-process `SQLiteSession` per session key  -  no persistence across a restart, no sharing across workers. |
+| `AGENTDECK_SESSION` | `str` or `None` | `None` | Redis URL for `RedisSession`-backed agent conversation memory (`agentdeck.adapters.executors.openai_agents.sessions.SessionFactory`), needing the `[redis]` extra. `None` falls back to one in-process `SQLiteSession` per session key  -  no persistence across a restart, no sharing across workers. |
 | `AGENTDECK_SESSION_REDIS_KEY_PREFIX` | `str` | `'agents:session'` | Key prefix under which `RedisSession` stores conversations in Redis. |
 | `AGENTDECK_SESSION_REDIS_TTL` | `int` or `None` | `None` | Per-session TTL in seconds for Redis-backed conversations. `None` means sessions persist indefinitely. |

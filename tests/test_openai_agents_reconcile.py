@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from agentdeck.adapters.engines.openai_agents.reconcile import _item_text, _text_of, reconcile, render_data_block
+from agentdeck.adapters.executors.openai_agents.reconcile import _item_text, _text_of, reconcile, render_data_block
 from agentdeck.core.content import DataBlock, ImageBlock, TextBlock
 from agentdeck.core.events import Event, RunStarted
 

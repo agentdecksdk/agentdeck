@@ -82,7 +82,7 @@ class ExecutionStore:
     """The engine's execution memory, keyed by ``(namespace, RunContext.log_key)``  -  session,
     or the run itself when there is no session.
 
-    Not the event log: this is engine-native state (ADR-D5) that only ``OpenAIAgentsEngine``
+    Not the event log: this is engine-native state (ADR-D5) that only ``OpenAIAgentsExecutor``
     reads. ``session_factory`` set means Redis-backed and shared across processes; unset
     falls back to one in-process ``SQLiteSession`` per key, so tests and the M0 skeleton
     need no network. The namespace prefix matters even though ``log_key`` is usually a

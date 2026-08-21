@@ -175,7 +175,7 @@ async def test_stream_yields_one_node_updated_event_per_node_then_run_completed(
 
 
 async def test_stream_agent_node_forwards_deltas_via_custom_events(deck, monkeypatch):
-    from agentdeck.adapters.engines.langgraph.engine import STREAM_WRITE, STREAM_WRITE_KEY
+    from agentdeck.adapters.executors.langgraph.executor import STREAM_WRITE, STREAM_WRITE_KEY
     from agentdeck.core.events import Custom, NodeUpdated
 
     events = [_delta_event("Hel"), _delta_event("lo"), _delta_event("!")]

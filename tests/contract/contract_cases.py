@@ -14,7 +14,7 @@ from case_types import Case
 from langgraph_cases import langgraph_cases
 from openai_agents_cases import openai_agents_cases
 
-from agentdeck.adapters.engines.stub import StubEngine, stub_spec
+from agentdeck.adapters.executors.stub import StubExecutor, stub_spec
 from agentdeck.core.content import TextBlock
 from agentdeck.core.events import (
     MessageCompleted,
@@ -40,7 +40,7 @@ def _stub_cases() -> list[Case]:
     return [
         Case(
             id="stub/completes",
-            engine=StubEngine(),
+            executor=StubExecutor(),
             spec=stub_spec(
                 "Chatty",
                 *deltas,
@@ -51,7 +51,7 @@ def _stub_cases() -> list[Case]:
         ),
         Case(
             id="stub/calls-a-tool",
-            engine=StubEngine(),
+            executor=StubExecutor(),
             spec=stub_spec(
                 "Looker",
                 ToolCallStarted(call_id="c1", tool="lookup_shipment", args={"id": "4412"}),
@@ -65,7 +65,7 @@ def _stub_cases() -> list[Case]:
         ),
         Case(
             id="stub/interrupts",
-            engine=StubEngine(),
+            executor=StubExecutor(),
             spec=stub_spec(
                 "Approver",
                 TextDelta(message_id="m1", text="needs a signature"),
@@ -76,19 +76,19 @@ def _stub_cases() -> list[Case]:
         ),
         Case(
             id="stub/raises-midstream",
-            engine=StubEngine(),
+            executor=StubExecutor(),
             spec=stub_spec("Boom", TextDelta(message_id="m1", text="almost"), RuntimeError("engine blew up")),
             ends="terminal",
         ),
         Case(
             id="stub/stops-without-a-terminal-event",
-            engine=StubEngine(),
+            executor=StubExecutor(),
             spec=stub_spec("Quitter", TextDelta(message_id="m1", text="and then nothing")),
             ends="terminal",
         ),
         Case(
             id="stub/yields-after-a-terminal-event",
-            engine=StubEngine(),
+            executor=StubExecutor(),
             spec=stub_spec(
                 "Chatterbox",
                 MessageCompleted(message_id="m1", text="done"),

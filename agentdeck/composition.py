@@ -7,7 +7,7 @@ everywhere instead of hand-wired per caller. A second front door (a code-first `
 becomes another caller of this function rather than a second assembly.
 
 Only the parts a caller actually varies are arguments; the rest resolve from settings. That
-resolution happens *here*, never inside an adapter: an engine that reached for
+resolution happens *here*, never inside an adapter: an executor that reached for
 ``get_settings()`` itself could not be handed a different endpoint by a caller, and a second
 front door would have to mutate process state to get one. The ``resolve_*`` functions below
 are what an entry point calls to fill an adapter's constructor in.
@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 from agentdeck.adapters.control.memory import MemoryControlPort
 from agentdeck.adapters.control.sqlite import SqliteControlPort
-from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings
+from agentdeck.adapters.executors.openai_agents.runconfig import RunSettings
 from agentdeck.adapters.leases.memory import MemoryLeasePort
 from agentdeck.adapters.leases.sqlite import SqliteLeasePort
 from agentdeck.adapters.stores.memory import MemoryEventStore
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from datetime import timedelta
 
     from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort, LeasePort
+    from agentdeck.core.ports import ControlPort, EventSinkPort, EventStorePort, Executor, LeasePort
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +51,14 @@ _STORE_DOCS = f"{DOCS_URL}/reference/settings"
 
 def build_runtime(
     *,
-    engines: Sequence[EnginePort],
+    executors: Sequence[Executor],
     invocables: Mapping[str, InvocableSpec] | None = None,
     store: EventStorePort | None = None,
     sinks: Sequence[EventSinkPort] = (),
     control: ControlPort | None = None,
     stale_run_after: timedelta | None = None,
 ) -> Runtime:
-    """Wire ``engines`` into a Runtime over the project's invocables.
+    """Wire ``executors`` into a Runtime over the project's invocables.
 
     ``invocables`` defaults to discovery over ``./.agentdeck``  -  pass a mapping to run
     specs built in code instead. ``store`` defaults to the configured event store,
@@ -79,14 +79,14 @@ def build_runtime(
     read their backend's clock so that N workers on one database compare one clock rather
     than N.
     """
-    engines = tuple(engines)
-    specs = InvocableRegistry(engines).load() if invocables is None else invocables
+    executors = tuple(executors)
+    specs = InvocableRegistry(executors).load() if invocables is None else invocables
     store = store or resolve_event_store()
     control = control or resolve_control_port()
     if stale_run_after is None:
         stale_run_after = get_settings().runtime.stale_run_after
     return Runtime(
-        engines,
+        executors,
         store,
         specs,
         sinks=sinks,

@@ -6,7 +6,7 @@ import pytest
 from agents import MultiProvider
 
 from agentdeck import Agent, Deck
-from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings, build_run_config
+from agentdeck.adapters.executors.openai_agents.runconfig import RunSettings, build_run_config
 from agentdeck.errors import ConfigError
 from agentdeck.runtime.settings import reset_settings_cache
 

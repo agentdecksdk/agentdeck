@@ -14,7 +14,7 @@ import json
 
 import httpx
 
-from agentdeck.adapters.engines.stub import StubEngine, stub_spec
+from agentdeck.adapters.executors.stub import StubExecutor, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import TextBlock
 from agentdeck.core.context import RunContext
@@ -42,7 +42,7 @@ def _runtime() -> tuple[Runtime, MemoryEventStore]:
         RunCompleted(output=[TextBlock(text="hi back")], usage=Usage(input_tokens=1, output_tokens=1)),
     )
     store = MemoryEventStore()
-    return Runtime([StubEngine()], store, {spec.name: spec}), store
+    return Runtime([StubExecutor()], store, {spec.name: spec}), store
 
 
 def _reader() -> RunContext:

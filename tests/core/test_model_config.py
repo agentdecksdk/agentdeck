@@ -28,7 +28,7 @@ def test_a_toolset_refuses_a_keyword_it_does_not_have():
 
 def test_an_invocable_spec_refuses_a_keyword_it_does_not_have():
     with pytest.raises(ValidationError):
-        InvocableSpec(name="a", kind=InvocableKind.AGENT, engine="stub", metadta={})  # ty: ignore[unknown-argument]
+        InvocableSpec(name="a", kind=InvocableKind.AGENT, executor="stub", metadta={})  # ty: ignore[unknown-argument]
 
 
 def test_a_payload_still_ignores_a_field_a_newer_writer_added():

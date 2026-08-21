@@ -15,9 +15,9 @@ from contextlib import ExitStack
 import pytest
 from event_log_checks import check_terminal
 from fastapi.testclient import TestClient
-from project_engines import project_engines
+from project_executors import project_executors
 
-from agentdeck.adapters.engines.langgraph import engine as langgraph_engine
+from agentdeck.adapters.executors.langgraph import executor as langgraph_executor
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.composition import build_runtime
@@ -99,7 +99,7 @@ def scripted():
             model = model or ScriptedModel(deltas=("Hello",))
             stack.enter_context(patch_model(model))
             store = MemoryEventStore()
-            return build_runtime(engines=project_engines(), store=store), store, model
+            return build_runtime(executors=project_executors(), store=store), store, model
 
         yield _build
 
@@ -109,8 +109,8 @@ def test_the_surface_and_the_langgraph_engine_agree_on_the_stream_write_carrier(
     ``get_stream_writer()`` write, and the surface names that carrier itself rather than
     importing the adapter that mints it."""
     assert (surface_compat.STREAM_WRITE, surface_compat.STREAM_WRITE_KEY) == (
-        langgraph_engine.STREAM_WRITE,
-        langgraph_engine.STREAM_WRITE_KEY,
+        langgraph_executor.STREAM_WRITE,
+        langgraph_executor.STREAM_WRITE_KEY,
     )
 
 

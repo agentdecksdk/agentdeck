@@ -25,7 +25,7 @@ from openai.types.responses import (
 )
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
-from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
+from agentdeck.adapters.executors.openai_agents import OpenAIAgentsExecutor
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 
 _USAGE = ResponseUsage(
@@ -109,20 +109,20 @@ def lookup_shipment(shipment_id: str) -> str:
 
 
 def _spec(name: str, agent: Agent[Any]) -> InvocableSpec:
-    return InvocableSpec(name=name, kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
+    return InvocableSpec(name=name, kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=agent)
 
 
 def openai_agents_cases() -> list[Case]:
     return [
         Case(
             id="openai-agents/completes",
-            engine=OpenAIAgentsEngine(),
+            executor=OpenAIAgentsExecutor(),
             spec=_spec("Chatty", Agent(name="Chatty", instructions="reply", model=TailScriptedModel("hello there"))),
             ends="terminal",
         ),
         Case(
             id="openai-agents/calls-a-tool",
-            engine=OpenAIAgentsEngine(),
+            executor=OpenAIAgentsExecutor(),
             spec=_spec(
                 "Looker",
                 Agent(
@@ -136,7 +136,7 @@ def openai_agents_cases() -> list[Case]:
         ),
         Case(
             id="openai-agents/raises-midstream",
-            engine=OpenAIAgentsEngine(),
+            executor=OpenAIAgentsExecutor(),
             spec=_spec("Boom", Agent(name="Boom", instructions="boom", model=RaisingModel())),
             ends="terminal",
         ),

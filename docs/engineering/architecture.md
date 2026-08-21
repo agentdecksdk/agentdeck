@@ -35,7 +35,7 @@ Core defines AgentDeck's stable language:
 
 Core should know as little as possible about the outside world.
 
-It must not depend on concrete engines, storage products, telemetry SDKs, HTTP frameworks, or CLI frameworks.
+It must not depend on concrete executors, storage products, telemetry SDKs, HTTP frameworks, or CLI frameworks.
 
 Keep the core dependency set deliberately small.
 

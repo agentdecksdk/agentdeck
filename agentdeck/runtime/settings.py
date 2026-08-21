@@ -374,7 +374,7 @@ class CheckpointSettings(LayeredSettings):
     ``sqlite://<path>`` for dev (relative or absolute  -  see :func:`parse_backend_url`;
     ``sqlite://.agentdeck/checkpoints.sqlite3`` is the default), ``postgresql://<dsn>`` for
     prod, ``memory://`` for tests (never persists past the process). Resolving the saver
-    classes lives in ``agentdeck.adapters.engines.langgraph.checkpointer``  -  sqlite ships in
+    classes lives in ``agentdeck.adapters.executors.langgraph.checkpointer``  -  sqlite ships in
     base (the default needs it), postgres in the optional ``[durability]`` extra  -  but this
     settings model stays import-free of either.
     """
@@ -465,7 +465,7 @@ class SessionSettings(LayeredSettings):
     url: str | None = Field(
         default=None,
         description="Redis URL for `RedisSession`-backed agent conversation memory "
-        "(`agentdeck.adapters.engines.openai_agents.sessions.SessionFactory`), needing the `[redis]` extra. "
+        "(`agentdeck.adapters.executors.openai_agents.sessions.SessionFactory`), needing the `[redis]` extra. "
         "`None` falls back to one in-process `SQLiteSession` per session key  -  no persistence across a restart, "
         "no sharing across workers.",
     )

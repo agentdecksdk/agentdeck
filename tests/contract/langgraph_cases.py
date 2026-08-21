@@ -16,7 +16,7 @@ from typing import Any, TypedDict
 from case_types import Case
 from langgraph.graph import END, START, StateGraph
 
-from agentdeck.adapters.engines.langgraph import LangGraphEngine
+from agentdeck.adapters.executors.langgraph import LangGraphExecutor
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 
 
@@ -57,26 +57,26 @@ def _graph(*nodes: tuple[str, Any]) -> StateGraph[Any]:
 
 
 def _spec(name: str, graph: StateGraph[Any]) -> InvocableSpec:
-    return InvocableSpec(name=name, kind=InvocableKind.WORKFLOW, engine=LangGraphEngine.engine, native=graph)
+    return InvocableSpec(name=name, kind=InvocableKind.WORKFLOW, executor=LangGraphExecutor.name, native=graph)
 
 
 def langgraph_cases() -> list[Case]:
     return [
         Case(
             id="langgraph/completes",
-            engine=LangGraphEngine(),
+            executor=LangGraphExecutor(),
             spec=_spec("Grapher", _graph(("node_a", _node_a))),
             ends="terminal",
         ),
         Case(
             id="langgraph/interrupts",
-            engine=LangGraphEngine(),
+            executor=LangGraphExecutor(),
             spec=_spec("Approver", _graph(("gate", _interrupts))),
             ends="suspended",
         ),
         Case(
             id="langgraph/raises-midstream",
-            engine=LangGraphEngine(),
+            executor=LangGraphExecutor(),
             spec=_spec("Boom", _graph(("boom", _boom))),
             ends="terminal",
         ),

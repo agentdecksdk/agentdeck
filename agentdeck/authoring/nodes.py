@@ -16,7 +16,7 @@ from typing import Any
 
 from langgraph.config import get_config, get_stream_writer
 
-from agentdeck.adapters.engines.langgraph.engine import STREAM_CONFIGURABLE_KEY
+from agentdeck.adapters.executors.langgraph.executor import STREAM_CONFIGURABLE_KEY
 from agentdeck.authoring.agent import Agent
 from agentdeck.authoring.compile import compile_agent
 from agentdeck.authoring.runners.agent import HeadlessRunner, StreamDone

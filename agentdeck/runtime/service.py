@@ -21,9 +21,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from pydantic import ValidationError
-
-from agentdeck.core.content import DataBlock, coerce_input
+from agentdeck.core.content import as_answer
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import CONTROL_POLL_INTERVAL, Gate, Signal
 from agentdeck.core.events import (
@@ -59,7 +57,7 @@ if TYPE_CHECKING:
     from agentdeck.core.control import ControlSignal
     from agentdeck.core.events import KnownPayload
     from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort, LeasePort
+    from agentdeck.core.ports import ControlPort, EventSinkPort, EventStorePort, Executor, LeasePort
     from agentdeck.core.ports.store import RunSummary
 
 logger = logging.getLogger(__name__)
@@ -117,7 +115,7 @@ class Runtime:
 
     def __init__(
         self,
-        engines: Sequence[EnginePort],
+        executors: Sequence[Executor],
         store: EventStorePort,
         invocables: Mapping[str, InvocableSpec],
         sinks: Sequence[EventSinkPort] = (),
@@ -127,7 +125,7 @@ class Runtime:
         lease: LeasePort | None = None,
         lease_ttl: timedelta = _DEFAULT_LEASE_TTL,
     ) -> None:
-        self._engines = {engine.engine: engine for engine in engines}
+        self._executors = {executor.name: executor for executor in executors}
         self._store = store
         self._invocables = invocables
         self._sinks = tuple(SinkDispatch(sink) for sink in sinks)
@@ -177,7 +175,7 @@ class Runtime:
         closes the run in the log: a consumer that walks away gets ``run.cancelled``, whether it
         closed this generator or had its own task cancelled under it.
         """
-        spec, engine = self._resolve(name)
+        spec, executor = self._resolve(name)
         ctx, reports = self._bind(
             self._new_run_context(key=key, session_id=session_id, namespace=namespace, data=context)
         )
@@ -203,7 +201,7 @@ class Runtime:
             raise
 
         async with aclosing(
-            self._play(claimed, engine.start(spec, input, history, ctx), spec, ctx, engine, reports)
+            self._play(claimed, executor.execute(spec, input, history, ctx), spec, ctx, executor, reports)
         ) as run:
             async for event in run:
                 yield event
@@ -211,7 +209,6 @@ class Runtime:
     async def resume(
         self,
         name: str,
-        thread_id: str,
         value: Any,
         *,
         context: object = None,
@@ -230,11 +227,13 @@ class Runtime:
         atomic, so exactly one caller wins even when the callers are separate processes; the
         winner opens the run with ``run.resumed``, seq recovered from the log's own
         ``max(seq)`` so it stays contiguous across a process restart  -  never reset to 0.
-        From there the engine plays on exactly like ``run()`` plays an opening: same
-        terminal/suspended/exception handling.
+        From there the executor plays on exactly like ``run()`` plays an opening: same
+        terminal/suspended/exception handling  -  and through the same
+        :meth:`~agentdeck.core.ports.Executor.execute`, which reads the answer and the thread
+        off the log rather than taking either as an argument.
 
         A stray resume  -  already resumed by a racing caller, or a completed run  -  is a no-op:
-        nothing is read from the engine, nothing is yielded. A run an operator asked to *stop*
+        nothing is read from the executor, nothing is yielded. A run an operator asked to *stop*
         is not stray, and refuses instead: honoring the answer would let it silently override
         somebody who said stop. Both intents survive the refusal  -  the run is still waiting, and
         the pause is still pending for whoever reads next.
@@ -242,7 +241,7 @@ class Runtime:
         A **cancel** recorded while the run waited ends it here rather than answering it, for
         the reason :meth:`resume_run` gives: this claim is the only thing that will ever look.
         """
-        spec, engine = self._resolve(name)
+        spec, executor = self._resolve(name)
         ctx, reports = self._bind(
             self._context(run_id=run_id, session_id=session_id, namespace=namespace, data=context)
         )
@@ -260,6 +259,13 @@ class Runtime:
         refusal, _ = await self._peek(ctx.id, status)
         if refusal.action is Action.REFUSE:
             raise RunStateError(f"run {run_id!r} cannot be answered: {refusal.why}")
+        # Before the claim, exactly as :meth:`resume_run` reads it before its own: a bail-out
+        # after the claim would leave a run flipped to RUNNING with nobody playing it, owed a
+        # terminal event forever and still holding its session.
+        started = await self._opening_of(ctx.log_key, run_id, ctx)
+        if started is None:
+            return
+        _, opened = started
         opening = await self._claim_resume(spec, ctx, value)
         if opening is None:
             return
@@ -272,8 +278,11 @@ class Runtime:
         # Any other ruling plays the run on, including a pause that landed inside the window the
         # peek left open: the answer is recorded by now, so the run resumes and meets that pause
         # at its first safe point instead.
-        stream = engine.resume(spec, thread_id, value, ctx)
-        async with aclosing(self._play(opening, stream, spec, ctx, engine, reports)) as resumed:
+        # Read after the claim, so the ``run.resumed`` carrying the answer is in it: that event
+        # is how the executor learns there is an answer at all, and what it is.
+        history = await self._store.read(ctx.log_key, ctx)
+        stream = executor.execute(spec, opened.input, history, ctx)
+        async with aclosing(self._play(opening, stream, spec, ctx, executor, reports)) as resumed:
             async for event in resumed:
                 yield event
 
@@ -322,7 +331,7 @@ class Runtime:
         if started is None:
             return
         session_id, opened = started
-        spec, engine = self._resolve(opened.invocable)
+        spec, executor = self._resolve(opened.invocable)
         run_ctx, reports = self._bind(replace(ctx, run_id=run_id, session_id=session_id))
         opening = await self._claim_resume(spec, run_ctx, None, reason)
         if opening is None:
@@ -339,8 +348,8 @@ class Runtime:
             yield await self._record(RunCancelled(reason=pending.reason), spec, run_ctx)
             return
         history = await self._store.read(summary.log_key, run_ctx)
-        stream = engine.start(spec, opened.input, history, run_ctx)
-        async with aclosing(self._play(opening, stream, spec, run_ctx, engine, reports)) as resumed:
+        stream = executor.execute(spec, opened.input, history, run_ctx)
+        async with aclosing(self._play(opening, stream, spec, run_ctx, executor, reports)) as resumed:
             async for event in resumed:
                 yield event
 
@@ -413,7 +422,7 @@ class Runtime:
         stream: AsyncGenerator[KnownPayload, None],
         spec: InvocableSpec,
         ctx: RunContext,
-        engine: EnginePort,
+        executor: Executor,
         reports: deque[KnownPayload],
     ) -> AsyncGenerator[Event, None]:
         """Yield ``opening``, then everything ``stream`` produces  -  and close the run in the
@@ -462,14 +471,14 @@ class Runtime:
         except Exception as exc:
             # The exception is the caller's, the event is the record  -  both, always. The type
             # name only: an exception message can carry content that must not reach a sink.
-            logger.exception("run %s failed in engine %r", ctx.run_id, engine.engine)
-            yield await self._record(_failed(exc, engine.engine), spec, ctx)
+            logger.exception("run %s failed in engine %r", ctx.run_id, executor.name)
+            yield await self._record(_failed(exc, executor.name), spec, ctx)
             raise
 
         if last not in TERMINAL_KINDS and last not in SUSPENDED_KINDS:
             # An engine that just stops leaves consumers waiting forever; close the run for it.
-            logger.error("engine %r ended run %s after %r, not a terminal event", engine.engine, ctx.run_id, last)
-            yield await self._record(_engine_failed(f"engine {engine.engine!r} ended after {last!r}"), spec, ctx)
+            logger.error("engine %r ended run %s after %r, not a terminal event", executor.name, ctx.run_id, last)
+            yield await self._record(_engine_failed(f"engine {executor.name!r} ended after {last!r}"), spec, ctx)
 
     @asynccontextmanager
     async def _holding(self, run_id: str) -> AsyncIterator[None]:
@@ -720,7 +729,7 @@ class Runtime:
         ``seq`` continues across a process restart rather than resetting, because the store
         assigns it from the run's own log (ADR-D11)  -  there is no counter here to recover.
         """
-        resumed = RunResumed(reason=reason, value=_as_content(value, ctx.run_id))
+        resumed = RunResumed(reason=reason, value=as_answer(value))
         event = await self._store.claim_resume(ctx.log_key, ctx.run_id, resumed, ctx, spec.name)
         if event is None:
             return None
@@ -768,11 +777,11 @@ class Runtime:
         return await self._find(run_id, self._context(run_id=run_id, namespace=namespace))
 
     def suspends(self, name: str) -> bool:
-        """Whether the engine behind ``name`` can pause and later continue a run of it  -  the
+        """Whether the executor behind ``name`` can pause and later continue a run of it  -  the
         capability half of ``run.can`` (:func:`~agentdeck.core.status.can_of`). Sync, because
         it is a lookup in the catalog this Runtime was built with and never a store read."""
-        _, engine = self._resolve(name)
-        return engine.suspendable
+        _, executor = self._resolve(name)
+        return executor.suspendable
 
     async def status(self, run_id: str, *, namespace: str | None = None) -> RunStatus | None:
         """This run's current status, or ``None`` if this namespace has never heard of it.
@@ -870,14 +879,14 @@ class Runtime:
             except StoreError:
                 logger.warning("run %s could not record its %s; dropping the report", ctx.run_id, payload.kind)
 
-    def _resolve(self, name: str) -> tuple[InvocableSpec, EnginePort]:
+    def _resolve(self, name: str) -> tuple[InvocableSpec, Executor]:
         spec = self._invocables.get(name)
         if spec is None:
             raise NotFoundError(f"no invocable named {name!r}")
-        engine = self._engines.get(spec.engine)
-        if engine is None:
-            raise NotFoundError(f"{name!r} needs engine {spec.engine!r}, which is not registered")
-        return spec, engine
+        executor = self._executors.get(spec.executor)
+        if executor is None:
+            raise NotFoundError(f"{name!r} needs executor {spec.executor!r}, which is not registered")
+        return spec, executor
 
     async def _record(self, payload: KnownPayload, spec: InvocableSpec, ctx: RunContext) -> Event:
         """Persist, fan out, return the event to yield  -  in that order.
@@ -899,36 +908,6 @@ class Runtime:
         """
         for dispatch in self._sinks:
             await dispatch.submit(event)
-
-
-def _as_content(value: Any, run_id: str) -> Input | None:
-    """A resume answer as content blocks, so the log holds the input and not merely the fact
-    that one arrived.
-
-    Content stays content  -  the field's own type, so an approval typed at an inbox is the
-    ``TextBlock`` it was sent as rather than a data block wrapping one. Everything else is
-    JSON data, which is what a caller answering over HTTP or a graph resuming with a state
-    object actually sends. A value JSON cannot carry is the one case that records nothing:
-    losing the answer is better than failing a resume that would otherwise work, and the
-    warning says which run to go and look at.
-    """
-    if value is None:
-        return None
-    # `[]` reaches coerce_input's list branch vacuously, and recording it as content with no
-    # blocks would say an answer arrived and was blank. It is the empty JSON array: an answer.
-    # A type check, not a comparison: `!=` runs the caller's own `__ne__`, and an array-like
-    # answer (ndarray, Series) returns elementwise and then raises on `bool()`.
-    if not (isinstance(value, list) and not value):
-        try:
-            return coerce_input(value)
-        except TypeError:
-            pass
-    try:
-        return [DataBlock(data=value)]
-    except ValidationError:
-        # Not "was resumed": this runs before the claim, so the caller may still lose it.
-        logger.warning("the answer for run %s is a %s, which the log cannot hold", run_id, type(value).__name__)
-        return None
 
 
 def _failed(exc: Exception, engine: str) -> RunFailed:

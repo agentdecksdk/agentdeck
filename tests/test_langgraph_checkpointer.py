@@ -8,7 +8,7 @@ non-durable asked for. v1 compiled such a graph with no saver at all
 
 Absent is the third state and is deliberately not ``False``: a spec built in code never
 said, so it keeps the engine's own default  -  which is what lets a hand-wired
-``LangGraphEngine()`` interrupt at all, and what the contract suite's interrupt case runs on.
+``LangGraphExecutor()`` interrupt at all, and what the contract suite's interrupt case runs on.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ import live_stores
 import pytest
 from langgraph.graph import END, START, StateGraph
 
-from agentdeck.adapters.engines.langgraph import LangGraphEngine
-from agentdeck.adapters.engines.langgraph.checkpointer import resolve_checkpointer
+from agentdeck.adapters.executors.langgraph import LangGraphExecutor
+from agentdeck.adapters.executors.langgraph.checkpointer import resolve_checkpointer
 from agentdeck.core.content import DataBlock
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import RunCompleted
@@ -54,7 +54,7 @@ def _spec(metadata: dict[str, Any]) -> InvocableSpec:
     return InvocableSpec(
         name="Accumulator",
         kind=InvocableKind.WORKFLOW,
-        engine=LangGraphEngine.engine,
+        executor=LangGraphExecutor.name,
         native=graph,
         metadata=metadata,
     )
@@ -65,9 +65,9 @@ def _ctx(run_id: str) -> RunContext:
     return RunContext(namespace="acme", run_id=run_id, session_id="thread-1")
 
 
-async def _seen(engine: LangGraphEngine, spec: InvocableSpec, text: str, run_id: str) -> list[str]:
+async def _seen(engine: LangGraphExecutor, spec: InvocableSpec, text: str, run_id: str) -> list[str]:
     input: Input = [DataBlock(data={"input": text})]
-    payloads = [payload async for payload in engine.start(spec, input, [], _ctx(run_id))]
+    payloads = [payload async for payload in engine.execute(spec, input, [], _ctx(run_id))]
     terminal = payloads[-1]
     assert isinstance(terminal, RunCompleted), terminal
     block = terminal.output[0]
@@ -81,7 +81,7 @@ async def test_a_non_durable_workflow_starts_fresh_on_a_thread_it_already_ran() 
     The engine instance is shared on purpose: one process serving two requests is exactly
     where an in-memory saver keyed by thread would carry state across.
     """
-    engine = LangGraphEngine()
+    engine = LangGraphExecutor()
     spec = _spec({DURABLE_KEY: False})
 
     first = await _seen(engine, spec, "a", "r-1")
@@ -94,12 +94,12 @@ async def test_a_non_durable_workflow_starts_fresh_on_a_thread_it_already_ran() 
 async def test_a_durable_workflow_with_no_session_id_raises_naming_the_docs() -> None:
     """A durable graph loads and persists its state by thread; a run with nothing to name that
     thread by is a lost run, refused before it starts rather than compiled with no checkpoint."""
-    engine = LangGraphEngine()
+    engine = LangGraphExecutor()
     spec = _spec({DURABLE_KEY: True})
     ctx = RunContext(namespace="acme", run_id="r-1", session_id=None)
 
     with pytest.raises(ValueError, match="thread_id") as excinfo:
-        async for _ in engine.start(spec, [DataBlock(data={"input": "a"})], [], ctx):
+        async for _ in engine.execute(spec, [DataBlock(data={"input": "a"})], [], ctx):
             pass
 
     assert f"{DOCS_URL}/build-your-deck/workflows" in str(excinfo.value)
@@ -108,10 +108,10 @@ async def test_a_durable_workflow_with_no_session_id_raises_naming_the_docs() ->
 async def test_a_spec_that_never_declared_durable_keeps_the_engines_own_checkpointer() -> None:
     """Absent metadata is not ``False``: a code-built spec keeps the engine default.
 
-    Without it a hand-wired ``LangGraphEngine()`` could not interrupt, which the contract
+    Without it a hand-wired ``LangGraphExecutor()`` could not interrupt, which the contract
     suite's interrupt case depends on  -  so this pins the distinction the fix rests on.
     """
-    engine = LangGraphEngine()
+    engine = LangGraphExecutor()
     spec = _spec({})
 
     first = await _seen(engine, spec, "a", "r-1")

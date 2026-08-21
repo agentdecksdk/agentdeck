@@ -44,7 +44,7 @@ from agents import Agent as SDKAgent
 from agents import ModelSettings
 from agents import Tool as SDKTool
 
-from agentdeck.adapters.engines.langgraph.checkpointer import resolve_checkpointer
+from agentdeck.adapters.executors.langgraph.checkpointer import resolve_checkpointer
 from agentdeck.adapters.tools.mcp.wiring import mcp_status_banner, resolve_agent_mcp_status
 from agentdeck.authoring.hooks import compile_hooks
 from agentdeck.authoring.instructions import compile_instructions
@@ -147,7 +147,7 @@ def compile_agent(
         "instructions": _instructions(agent, banner, disclosure, context_type),
         "handoff_description": agent.handoff_description,
         # An agent that names no model still needs one: `RunConfig.model` is never set
-        # (`adapters/engines/openai_agents/runconfig.py`), since the SDK treats that field as
+        # (`adapters/executors/openai_agents/runconfig.py`), since the SDK treats that field as
         # an override of every agent's own model, declared or not. Resolving the default here
         # instead means an agent's own `model=` always wins, whatever else the run is playing.
         "model": agent.model if agent.model is not None else get_settings().openai.model,

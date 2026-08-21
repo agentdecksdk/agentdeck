@@ -16,20 +16,20 @@ import pytest
 from agents import Agent
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 
-from agentdeck.adapters.engines.langgraph import LangGraphEngine
-from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
+from agentdeck.adapters.executors.langgraph import LangGraphExecutor
+from agentdeck.adapters.executors.openai_agents import OpenAIAgentsExecutor
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.invocable import InvocableKind
 from agentdeck.errors import ConfigError
-from agentdeck.runtime.discovery import ENGINE_FOR_KIND, InvocableRegistry
+from agentdeck.runtime.discovery import EXECUTOR_FOR_KIND, InvocableRegistry
 from agentdeck.runtime.service import Runtime
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from agentdeck.core.ports import EnginePort
+    from agentdeck.core.ports import Executor
 
 AGENT_PY = '''
 from typing import Any
@@ -148,27 +148,27 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def engines() -> list[EnginePort]:
-    return [OpenAIAgentsEngine(), LangGraphEngine()]
+def executors() -> list[Executor]:
+    return [OpenAIAgentsExecutor(), LangGraphExecutor()]
 
 
-def test_load_compiles_each_bundle_shape_into_a_spec(project: None, engines: list[EnginePort]) -> None:
-    specs = InvocableRegistry(engines).load()
+def test_load_compiles_each_bundle_shape_into_a_spec(project: None, executors: list[Executor]) -> None:
+    specs = InvocableRegistry(executors).load()
 
     assert sorted(specs) == ["Greeter", "Shout"]
     greeter = specs["Greeter"]
-    assert (greeter.name, greeter.kind, greeter.engine) == ("Greeter", InvocableKind.AGENT, "openai-agents")
+    assert (greeter.name, greeter.kind, greeter.executor) == ("Greeter", InvocableKind.AGENT, "openai-agents")
     assert isinstance(greeter.native, Agent), "an agent bundle's native is the built SDK Agent, not its class"
     shout = specs["Shout"]
-    assert (shout.name, shout.kind, shout.engine) == ("Shout", InvocableKind.WORKFLOW, "langgraph")
+    assert (shout.name, shout.kind, shout.executor) == ("Shout", InvocableKind.WORKFLOW, "langgraph")
     assert isinstance(shout.native, StateGraph) and not isinstance(shout.native, CompiledStateGraph), (
         "the langgraph adapter compiles the graph itself, so the spec carries an uncompiled one"
     )
 
 
-def test_skills_are_not_discovered_as_invocables(project: None, engines: list[EnginePort]) -> None:
-    """No engine plays a SKILL.md bundle, so a spec for one could only fail at run time."""
-    specs = InvocableRegistry(engines).load()
+def test_skills_are_not_discovered_as_invocables(project: None, executors: list[Executor]) -> None:
+    """No executor plays a SKILL.md bundle, so a spec for one could only fail at run time."""
+    specs = InvocableRegistry(executors).load()
 
     assert "echo-skill" not in specs
     assert [spec.kind for spec in specs.values()].count(InvocableKind.SKILL) == 0
@@ -176,13 +176,13 @@ def test_skills_are_not_discovered_as_invocables(project: None, engines: list[En
 
 def test_kind_to_engine_names_match_the_adapters() -> None:
     """The table spells the engine names out; drift from the adapters would be silent."""
-    assert ENGINE_FOR_KIND[InvocableKind.AGENT] == OpenAIAgentsEngine.engine
-    assert ENGINE_FOR_KIND[InvocableKind.WORKFLOW] == LangGraphEngine.engine
+    assert EXECUTOR_FOR_KIND[InvocableKind.AGENT] == OpenAIAgentsExecutor.name
+    assert EXECUTOR_FOR_KIND[InvocableKind.WORKFLOW] == LangGraphExecutor.name
 
 
-async def test_discovered_specs_run_to_completion_on_their_engine(project: None, engines: list[EnginePort]) -> None:
+async def test_discovered_specs_run_to_completion_on_their_executor(project: None, executors: list[Executor]) -> None:
     """Both shapes, one Runtime, no inline spec anywhere: discovery output is runnable as-is."""
-    runtime = Runtime(engines, MemoryEventStore(), InvocableRegistry(engines).load())
+    runtime = Runtime(executors, MemoryEventStore(), InvocableRegistry(executors).load())
 
     for name in ("Greeter", "Shout"):
         ctx = RunContext(namespace="acme", run_id=f"r-{name}", session_id=f"s-{name}")
@@ -199,35 +199,35 @@ async def test_discovered_specs_run_to_completion_on_their_engine(project: None,
         assert kinds[-1] == "run.completed", name
 
 
-def test_an_engine_the_runtime_lacks_fails_at_load(project: None) -> None:
+def test_an_executor_the_runtime_lacks_fails_at_load(project: None) -> None:
     """A project with workflows wired to an openai-agents-only Runtime breaks at startup."""
-    registry = InvocableRegistry([OpenAIAgentsEngine()])
+    registry = InvocableRegistry([OpenAIAgentsExecutor()])
 
-    with pytest.raises(ConfigError, match="'Shout' needs engine 'langgraph', which is not registered"):
+    with pytest.raises(ConfigError, match="'Shout' needs executor 'langgraph', which is not registered"):
         registry.load()
 
 
 def test_one_name_for_two_bundles_fails_at_load(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, engines: list[EnginePort]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, executors: list[Executor]
 ) -> None:
     """v1 keeps agents and workflows in separate namespaces; one flat mapping cannot."""
     _project(tmp_path, monkeypatch, agent="Twin", workflow="Twin")
 
     with pytest.raises(ConfigError, match="an agent and a workflow are both named 'Twin'"):
-        InvocableRegistry(engines).load()
+        InvocableRegistry(executors).load()
 
 
 def test_a_project_dir_that_is_not_there_fails_at_load(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, engines: list[EnginePort]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, executors: list[Executor]
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(FileNotFoundError, match=".agentdeck"):
-        InvocableRegistry(engines).load()
+        InvocableRegistry(executors).load()
 
 
 def test_a_discovered_workflows_build_graph_failure_is_wrapped_at_load(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, engines: list[EnginePort]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, executors: list[Executor]
 ) -> None:
     """#119, on the bare ``load()`` path with no ``Deck`` involved (``build_runtime``'s own
     default caller): the bundle association discovery built internally must still reach the
@@ -260,5 +260,5 @@ def test_a_discovered_workflows_build_graph_failure_is_wrapped_at_load(
         del sys.modules[module]
 
     with pytest.raises(ConfigError, match="workflows/boom/workflow.py") as excinfo:
-        InvocableRegistry(engines).load()
+        InvocableRegistry(executors).load()
     assert isinstance(excinfo.value.__cause__, ValueError)
