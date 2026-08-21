@@ -71,6 +71,11 @@ dev = [
     # per-module coverage as one evidence stream for "nothing imports and nothing
     # exercises this". No threshold  -  it is an audit instrument, not a gate.
     "pytest-cov>=5.0",
+    # an upper bound on a wedged test. The suite has deliberate infinite loops (StallingStore,
+    # concurrency_worker's file barriers) whose own guards live inside the worker subprocesses, so
+    # they never fire for the parent: a run found in 2026-08 had been hung for five days, orphaned
+    # to init and outliving the worktree it was started in.
+    "pytest-timeout>=2.3",
     # not exercised by any default path  -  installed here so the gate still covers the
     # redis session/event-log branches without making `[redis]` a base extra.
     "redis>=5.0",
@@ -133,6 +138,11 @@ runtime-evaluated-base-classes = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Generous on purpose: a wedge detector, not a performance budget. Above the multiprocess suite's
+# own 180s WORKER_TIMEOUT so a slow race never trips it, and `thread` rather than `signal` because
+# what hangs here is a blocked `await`, which a signal handler never gets to interrupt.
+timeout = 300
+timeout_method = "thread"
 # tests/golden/conftest.py imports fake_model by name, tests/contract imports contract_cases,
 # tests/ imports concurrency_worker, and tests/test_generated_reference.py imports
 # generate_docs_reference from scripts/; all four basenames are unique across these dirs,
