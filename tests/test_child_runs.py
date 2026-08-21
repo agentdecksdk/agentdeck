@@ -217,6 +217,87 @@ async def test_parallel_refuses_a_bare_ask_rather_than_orphaning_the_first_quest
         assert await run.status() is RunStatus.FAILED
 
 
+async def test_a_refused_parallel_still_gives_up_the_children_it_had_already_started() -> None:
+    """``ctx.invoke`` starts its run at the call, so by the time ``parallel`` can refuse one of
+    its arguments the others are already executing. Refusing without cancelling them is the
+    all-or-nothing rule broken in the one place nothing failed."""
+    ids: list[str] = []
+    running = asyncio.Event()
+
+    @workflow
+    async def lingering(ctx: WorkflowCtx) -> str:
+        running.set()
+        for _ in range(500):
+            await ctx.safepoint()
+            await asyncio.sleep(0.01)
+        return "never"  # pragma: no cover  -  the cancel arrives first
+
+    @workflow
+    async def mixing(ctx: WorkflowCtx) -> list[str]:
+        child = ctx.invoke(lingering)
+        ids.append(child.id)
+        await running.wait()
+        return [str(value) for value in await ctx.parallel(child, ctx.ask("q?"))]
+
+    async with Deck(workflows=[lingering, mixing]) as deck:
+        run = await deck.runs.start("mixing", None)
+        with pytest.raises(TypeError, match="one question at a time"):
+            await run
+
+        orphan = await _child(deck, ids[0])
+        await _settles(orphan, RunStatus.CANCELLED)
+
+
+async def test_giving_up_a_parallel_leaves_the_child_that_is_waiting_for_an_answer() -> None:
+    """A run is not its own sibling, and one waiting for an answer is not running behind anybody:
+    it holds the only state still worth acting on, and the ``RunSuspendedError`` this raises names
+    it. Cancelling it would make that message a lie."""
+    ids: dict[str, str] = {}
+    running = asyncio.Event()
+
+    @workflow
+    async def lingering(ctx: WorkflowCtx) -> str:
+        running.set()
+        for _ in range(500):
+            await ctx.safepoint()
+            await asyncio.sleep(0.01)
+        return "never"  # pragma: no cover  -  the cancel arrives first
+
+    @workflow
+    async def mixed(ctx: WorkflowCtx) -> list[str]:
+        waiting, busy = ctx.invoke("asker", "still there?"), ctx.invoke(lingering)
+        ids.update(waiting=waiting.id, busy=busy.id)
+        await running.wait()
+        return [str(value) for value in await ctx.parallel(waiting, busy)]
+
+    async with Deck(workflows=[asker, lingering, mixed]) as deck:
+        run = await deck.runs.start("mixed", None)
+        with pytest.raises(RunSuspendedError):
+            await run
+
+        busy = await _child(deck, ids["busy"])
+        await _settles(busy, RunStatus.CANCELLED)
+
+        waiting = await _child(deck, ids["waiting"])
+        assert await waiting.status() is RunStatus.WAITING_ANSWER
+        await waiting.answer("yes")
+        assert await waiting == "still there?:yes"
+
+
+async def test_parallel_refuses_an_asyncio_task_rather_than_taking_it_for_a_run() -> None:
+    """A ``Task`` has ``cancel`` and would pass a duck test, then fail to answer the questions the
+    giving-up path asks a child run."""
+
+    @workflow
+    async def tasking(ctx: WorkflowCtx) -> list[str]:
+        return [str(value) for value in await ctx.parallel(asyncio.get_running_loop().create_future())]
+
+    async with Deck(workflows=[tasking]) as deck:
+        run = await deck.runs.start("tasking", None)
+        with pytest.raises(TypeError, match="takes the child runs"):
+            await run
+
+
 # --- a child that asks -----------------------------------------------------------------------
 
 

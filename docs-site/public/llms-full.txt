@@ -1709,6 +1709,13 @@ The current release is **v4.0.5**. Earlier releases are listed at the bottom.
   is a leaf capability: it can report and safepoint, but not `ask` or start other runs. Both are
   played by a new native executor that parks a suspended body's coroutine in memory and cancels
   it on `Deck.aclose()`.
+- **`ctx.invoke()` starts a child run from inside a `@workflow`, and `ctx.parallel()` composes
+  several.** `ctx.invoke(target, *args, **kwargs)` binds to the target's own signature and hands
+  back a `Run`: `await ctx.invoke(...)` is the result, `child = ctx.invoke(...)` is the handle,
+  with its own id, its own log and its own `child.can.*` / `pause` / `resume` / `cancel`. It takes
+  a catalog name or a `@tool` / `@workflow` definition the deck holds; any other object waits for
+  the invocation resolver. `ctx.parallel(*runs)` is all-or-nothing: the first failure cancels its
+  siblings and propagates, so no child is left running behind a parent that gave up.
 
 ### Changed
 

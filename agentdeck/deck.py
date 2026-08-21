@@ -276,7 +276,7 @@ def _invoked_name(deck: Deck, target: Any) -> str:
             f"ctx.invoke() was given the {target.kind.value} {target.name!r}, which this deck's "
             f"catalog does not hold under that name. A child run is resolved by the name its log "
             f"records, so answering, resuming or cancelling one needs the definition in the "
-            f"catalog: pass it in Deck(workflows=[{target.name}, ...])."
+            f"catalog: add it to Deck(workflows=[...])."
         )
     return target.name
 
@@ -811,11 +811,12 @@ class Deck:
         this run again (docs/design/run-identity.md §9).
 
         Everything a caller of ``runtime.run()`` used to have to keep draining for the run to
-        advance at all now happens here, once, in :func:`_drain`. This is the one place that
-        creates such a task, so it is also the one place a claim failure
+        advance at all now happens here, once, in :func:`_drain`. This is the one path that awaits
+        the claim before handing the task back, so it is also the one where a claim failure
         (``SessionBusyError``, ``DuplicateKeyError``, an unknown invocable) still surfaces
         synchronously to the caller  -  exactly as it did when ``runtime.run()``'s first event
-        was pulled directly.
+        was pulled directly. :meth:`_invoke` drains the same way for a child and cannot: it
+        returns the handle without awaiting, so a child's claim failure reaches whoever awaits it.
         """
         runtime = self._require_open()
         agen = runtime.run(name, content, context=context, session_id=session_id, namespace=namespace, key=key)

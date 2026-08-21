@@ -20,12 +20,13 @@ from __future__ import annotations
 import asyncio
 import inspect
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 from uuid import uuid4
 
 from agentdeck.core.control import Gate, RunPausedError
 from agentdeck.core.events import KnownPayload, RunInterrupted
 from agentdeck.core.reporting import Reporter
+from agentdeck.core.status import RunStatus, can_resume
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -228,6 +229,25 @@ cannot say more: a ``Run`` is ``agentdeck.deck``'s, which is outside this ring (
 """
 
 
+@runtime_checkable
+class ChildRun(Protocol):
+    """What :meth:`WorkflowCtx.parallel` needs of the run :meth:`WorkflowCtx.invoke` handed back.
+
+    A protocol rather than that handle, for :class:`~agentdeck.core.invocable.NativeInvocable`'s
+    reason: the handle is ``agentdeck.deck``'s and core may not import it. Two members, and both
+    are used  -  which is also what tells a run from an ``asyncio.Task``, whose ``cancel`` alone
+    would pass for one and then break the giving-up path.
+    """
+
+    async def status(self) -> RunStatus:
+        """This run's current status."""
+        ...
+
+    async def cancel(self, reason: str | None = None) -> None:
+        """Ask this run to stop at its next safe point."""
+        ...
+
+
 @dataclass(frozen=True, slots=True)
 class WorkflowCtx[T](ToolCtx[T]):
     """What an imperative ``@workflow`` body receives: :class:`ToolCtx` plus orchestration.
@@ -264,31 +284,37 @@ class WorkflowCtx[T](ToolCtx[T]):
 
         The child is a run in its own right: its own id, its own log, its own ``can.*`` and
         lifecycle methods. It runs in its own deck-owned task from this call, whether or not the
-        handle is ever awaited, and awaiting it is what gives back the body's return value. A
-        child that stops on a question of its own raises ``RunSuspendedError`` here rather than
-        blocking this body forever; it stays answerable through ``deck.runs.get(child.id)``.
+        handle is ever awaited, and awaiting it is what gives back the body's return value.
+
+        A child that stops on a question of its own is not this body's to wait out: ``await
+        child`` raises ``RunSuspendedError`` naming it rather than blocking on somebody eventually
+        answering. It stays ``WAITING_ANSWER`` and answerable  -  through ``deck.runs.get(child.id)``
+        from outside, and through :meth:`parallel`, which leaves a waiting child alone when it
+        gives the rest up.
         """
         return self._invoking(self._run, target, *args, **kwargs)
 
     async def parallel(self, *runs: Any) -> list[Any]:
         """Await several child runs at once and return their results in the order given.
 
-        All-or-nothing: the first failure cancels its siblings and propagates, the way
+        All-or-nothing: the first failure cancels the siblings and propagates, the way
         ``asyncio.TaskGroup`` does, so no child is left running behind a parent that already gave
         up. A workflow body is ordinary Python, so an exception is an exception  -  there is no
         list of outcomes to forget to inspect.
 
             first, second = await ctx.parallel(ctx.invoke(a, x), ctx.invoke(b, y))
 
-        A sibling's cancel is *recorded* here, not waited out: cancellation in AgentDeck takes
-        effect at the run's next safe point, and this body has already failed.
+        A child waiting for an answer is the one thing not cancelled: see :meth:`_abandon`. The
+        refusal below gives its children up the same way, because ``ctx.invoke`` has already
+        started every one of them by the time this call can look at them.
         """
-        if (refused := next((run for run in runs if not hasattr(run, "cancel")), None)) is not None:
+        if (refused := next((run for run in runs if not isinstance(run, ChildRun)), None)) is not None:
             for run in runs:
                 # Closed rather than dropped: nothing will ever await what this refuses, and a
                 # coroutine collected unawaited costs the author a second, vaguer warning about it.
                 if inspect.iscoroutine(run):
                     run.close()
+            await self._abandon(runs)
             raise TypeError(
                 f"ctx.parallel() takes the child runs ctx.invoke() returns; got a "
                 f"{type(refused).__name__}. Several ctx.ask(...) calls are not among them: one run "
@@ -301,9 +327,21 @@ class WorkflowCtx[T](ToolCtx[T]):
             return list(await gathered)
         except BaseException:
             gathered.cancel()
-            for run in runs:
-                await run.cancel("a sibling failed and ctx.parallel() is all-or-nothing")
+            await self._abandon(runs)
             raise
+
+    async def _abandon(self, runs: tuple[Any, ...]) -> None:
+        """Give up the children of a :meth:`parallel` that is not going to return.
+
+        A child waiting for an answer is left alone. It is not running behind anything, it holds
+        the only state anybody can still act on, and the ``RunSuspendedError`` being unwound past
+        here names it  -  cancelling it is what would make that message a lie. Everything else is
+        cancelled, which in AgentDeck is recorded rather than waited out: the run stops at its own
+        next safe point, and this body has already given up.
+        """
+        for run in runs:
+            if isinstance(run, ChildRun) and not can_resume(await run.status()):
+                await run.cancel("the ctx.parallel() that started it gave up, and it is all-or-nothing")
 
     @property
     def _invoking(self) -> Invoker:
