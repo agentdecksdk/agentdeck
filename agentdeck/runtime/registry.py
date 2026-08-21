@@ -31,8 +31,8 @@ class PluginRegistry(Generic[T]):
     after a rename) is not a collision: it is the same object claiming its name twice.
 
     ``base_class`` is matched by ``isinstance``  -  a bundle module holds one or more
-    already-constructed ``Agent``/``Workflow`` instances (``authoring``'s ``Agent(...)``,
-    ``Workflow(...)``), not subclasses to discover. A bundle that imports cleanly but binds
+    already-constructed values (``authoring``'s ``Agent(...)``, or the ``NativeDefinition`` a
+    ``@workflow`` produces), not subclasses to discover. A bundle that imports cleanly but binds
     no matching instance raises ``ConfigError`` naming it  -  shared code that belongs in a
     ``<type_dir>/`` directory without contributing an invocable of its own opts out with a
     leading ``_``/``.`` (already excluded from the scan by :meth:`_is_bundle`), the same way
@@ -60,7 +60,8 @@ class PluginRegistry(Generic[T]):
 
         Empty until :meth:`list` has run. Lets a caller that lost the association between an
         already-built instance and the bundle it came from (``InvocableRegistry.load()`` taking
-        plain ``Agent``/``Workflow`` sequences) recover it, e.g. to name the bundle in a build error.
+        plain ``Agent``/``NativeDefinition`` sequences) recover it, e.g. to name the bundle in a
+        build error.
         """
         return {name: f"{self.type_dir}/{bundle}/{self.module_name}.py" for name, bundle in self.bundle_of.items()}
 

@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 async def render(lines: AsyncIterator[str]) -> None:
     """Print one line per bubble: a user turn, a tool notice, a completed message, a control
-    notice, or the run's close. Everything else (deltas, ``custom``, ``node.updated``, ...)
+    notice, or the run's close. Everything else (deltas, ``custom``, ``usage.reported``, ...)
     is skipped by design, per this module's docstring  -  the ``case _`` default below."""
     async for line in lines:
         if not line.startswith("data: "):

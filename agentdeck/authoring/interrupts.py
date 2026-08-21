@@ -14,9 +14,13 @@ class InterruptResult(TypedDict):
     """A paused run: what the human is asked (``payload``) and which thread answers it.
 
     ``id`` is the canonical run id (docs/design/run-identity.md §8)  -  present whenever this
-    came from a run the Runtime is tracking (``Deck.run``/``Deck.stream``). ``thread_id`` stays
-    internal to the engine and is never the address a caller holding this dict addresses the run
-    by.
+    came from a run the Runtime is tracking (``Deck.run``/``Deck.stream``).
+
+    ``thread_id`` is vestigial: no executor produces one now that the graph engine is gone, so
+    what reaches a caller is whichever fallback its path applies  -  ``""`` from ``Deck.run``,
+    ``Deck.stream`` and ``await run``, the run id from :meth:`~agentdeck.Run.pending`. Kept
+    rather than dropped because reshaping the human-input contract is #392/#236's subject, not a
+    side effect of deleting an engine. Address a run by ``id``, never by this.
     """
 
     type: Literal["interrupt"]

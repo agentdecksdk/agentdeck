@@ -1491,11 +1491,6 @@ async def test_a_waiter_wakes_on_a_parked_run_rather_than_hanging(no_project, mo
             run = await deck.runs.start("Approval", "tue 9am", session_id="t-wake")
             with pytest.raises(RunSuspendedError):
                 await asyncio.wait_for(run, timeout=5)
-            # Answered rather than left parked: the durable LangGraph checkpointer is a
-            # process-wide singleton (`@cache`) that every workflow's own `pending()` walks
-            # unfiltered by name, so a thread left interrupted here would leak into any other
-            # test in the suite that lists its own inbox with no filter of its own.
-            await run.answer("yes")
     finally:
         reset_settings_cache()
 
@@ -1658,14 +1653,12 @@ async def test_answer_isolates_between_namespaces_sharing_one_key(no_project, mo
     try:
         deck = Deck(workflows=[_approval_workflow()])
         async with deck:
-            # Different thread ids: LangGraph's own checkpointer keys a thread by that id alone,
-            # with no namespace of its own, so two namespaces reusing one *session* id would
-            # collide on the checkpoint itself  -  a separate, already-known gap this test is not
-            # about. The event log and the key claim below are namespaced; this only avoids
-            # tripping over the checkpoint one while proving that.
-            acme_paused = await deck.run("Approval", "tue 9am", session_id="t-acme", namespace="acme", key="order-1234")
+            # One session id, deliberately: the session claim is keyed by
+            # ``(namespace, session_id)``, so the same id in two namespaces is two conversations.
+            # Sharing it here means the key claim below is the only thing left that could collide.
+            acme_paused = await deck.run("Approval", "tue 9am", session_id="t-1", namespace="acme", key="order-1234")
             globex_paused = await deck.run(
-                "Approval", {"request": "wed 3pm"}, session_id="t-globex", namespace="globex", key="order-1234"
+                "Approval", "wed 3pm", session_id="t-1", namespace="globex", key="order-1234"
             )
             assert acme_paused["type"] == globex_paused["type"] == "interrupt"
             assert acme_paused["id"] != globex_paused["id"]  # same key, two unrelated runs

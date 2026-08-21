@@ -93,7 +93,7 @@ PAYLOADS = (
         input=[TextBlock(text="make it 10am"), ResourceBlock(uri="s3://cal/tue.ics", media_type="text/calendar")],
         source="operator",
     ),
-    Custom(name="app.export_completed", data={"thread_id": "t-1"}),
+    Custom(name="app.export_completed", data={"rows": 412, "destination": "s3://exports/tue.csv"}),
     ControlRequested(verb="cancel", reason="operator pressed cancel"),
     ControlObserved(verb="cancel", safe_point="tool_dispatch"),
     Reported(level="info", message="Searching GitHub", fields={"source": "github"}),

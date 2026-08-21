@@ -4,6 +4,8 @@ and expose the run control endpoints once it has.
 
 import subprocess
 import sys
+import textwrap
+from functools import partial
 
 import pytest
 
@@ -66,6 +68,69 @@ def test_resuming_a_run_that_is_not_paused_is_a_conflict_not_a_success(client):
 
     assert response.status_code == 409
     assert "not paused" in response.json()["detail"]
+
+
+APPROVAL_WORKFLOW_PY = """
+from agentdeck import WorkflowCtx, workflow
+
+
+@workflow(name="Approval")
+async def approval(ctx: WorkflowCtx, request: str) -> str:
+    decision = await ctx.ask(request, options=["yes", "no"])
+    return f"{decision}:{request}"
+"""
+
+
+@pytest.fixture
+def approval_client(tmp_path, monkeypatch):
+    """A served deck holding one native ``@workflow`` that parks on ``ctx.ask``."""
+    from fastapi.testclient import TestClient
+
+    from agentdeck.serve import create_app
+
+    bundle = tmp_path / ".agentdeck" / "workflows" / "approval"
+    bundle.mkdir(parents=True)
+    (bundle / "workflow.py").write_text(textwrap.dedent(APPROVAL_WORKFLOW_PY))
+    monkeypatch.chdir(tmp_path)
+    for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
+        del sys.modules[mod]
+
+    with TestClient(create_app()) as c:
+        yield c
+
+
+def test_resuming_a_run_that_is_waiting_for_an_answer_is_a_conflict_that_names_the_verb(approval_client):
+    """The run *does* exist and *is* stopped, so neither 404 nor the generic "not paused" 409
+    fits: it is waiting for a value, and the caller reached for the wrong one of the two verbs.
+    A state refusal is not a server fault either  -  without its own handler ``RunStateError``
+    would fall through to the catch-all and answer 500 with the message swallowed, which is
+    exactly the information this endpoint exists to hand back.
+
+    Parked through the served ``Deck`` itself, on the server's own loop: ``Deck.asgi()`` serves
+    the caller's object, so application code holding it is how a run reaches ``WAITING_ANSWER``
+    now that no route starts one.
+    """
+    deck = approval_client.app.state.deck
+
+    async def _park() -> str:
+        paused = await deck.run("Approval", "tue 9am", session_id="t-409")
+        assert paused["type"] == "interrupt"
+        return paused["id"]
+
+    run_id = approval_client.portal.call(partial(_park))
+
+    response = approval_client.post(f"/runs/{run_id}/resume")
+
+    assert response.status_code == 409, response.text
+    assert "run.answer(...)" in response.json()["detail"]
+
+    async def _answer_and_await() -> str:
+        run = await deck.runs.get(run_id)
+        await run.answer("yes")
+        return await run
+
+    # Refused, not consumed: the approval is still answerable afterwards.
+    assert approval_client.portal.call(partial(_answer_and_await)) == "yes:tue 9am"
 
 
 def test_a_control_reason_that_is_not_a_string_is_refused_at_the_boundary(client):

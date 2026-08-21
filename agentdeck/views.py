@@ -7,8 +7,7 @@ the same kinds that move a run's status, rather than a second hand-kept list.
 
 Reachable only through :data:`all`, by design: ``control.requested``, ``control.observed``
 (signals, not transitions  -  ``LIFECYCLE_KINDS`` already excludes them for the same reason),
-``node.updated``, ``artifact.created``, ``input.appended``, ``custom``, and any kind a newer
-writer invented. None of the other six built-ins fits, and forcing one to would be a view that
+``artifact.created``, ``input.appended``, ``custom``, and any kind a newer writer invented. None of the other six built-ins fits, and forcing one to would be a view that
 means less than its name says.
 """
 

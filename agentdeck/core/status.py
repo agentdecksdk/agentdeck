@@ -83,7 +83,7 @@ STATES: Mapping[RunStatus, StateFacts] = {
 value is ``WAITING_ANSWER``, with nothing is ``PAUSED``. So code pausing itself is ``PAUSED``
 rather than a seventh state."""
 
-# Only these kinds move the needle; everything else (deltas, tool calls, node.updated, ...)
+# Only these kinds move the needle; everything else (deltas, tool calls, reports, ...)
 # leaves status exactly where it was.
 TRANSITIONS: dict[str, RunStatus] = {
     "run.started": RunStatus.RUNNING,

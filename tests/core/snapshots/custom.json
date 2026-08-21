@@ -14,7 +14,8 @@
     "kind": "custom",
     "name": "app.export_completed",
     "data": {
-      "thread_id": "t-1"
+      "rows": 412,
+      "destination": "s3://exports/tue.csv"
     }
   }
 }
