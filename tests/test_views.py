@@ -36,6 +36,7 @@ _MINIMAL_FIELDS: dict[str, dict[str, object]] = {
     "usage.reported": {"model": "gpt", "usage": {"input_tokens": 1, "output_tokens": 1}},
     "input.appended": {"input": [], "source": "human"},
     "answer.refused": {"reason": "not one of the options"},
+    "agent.changed": {"previous_agent": "BookingAgent", "next_agent": "CancelAgent"},
     "report": {"message": "hi"},
     "custom": {"name": "engine.thing", "data": {}},
 }
@@ -86,7 +87,7 @@ def test_composition_builds_a_new_view_and_leaves_the_originals_alone():
 
 
 BUILT_INS = {
-    "chat": {"text.delta", "thought.delta", "message.completed"},
+    "chat": {"text.delta", "thought.delta", "message.completed", "agent.changed"},
     "tools": {"tool.call.started", "tool.call.completed"},
     "reports": {"report"},
     "lifecycle": {
