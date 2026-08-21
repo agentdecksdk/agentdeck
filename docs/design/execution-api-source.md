@@ -1,4 +1,4 @@
-# AgentDeck Execution API — Final Architecture
+# AgentDeck Execution API: Final Architecture
 
 **Status:** Canonical API direction
 **Date:** 2026-08-20
@@ -28,12 +28,12 @@ Instead:
 
 The public API is intentionally split into distinct responsibilities:
 
-- `ctx.*` — what code can do **from inside** an execution.
-- `Run` — the execution itself and its lifecycle/control handle.
-- `Reporter` — structured information emitted **from** an execution.
-- `deck.runs.*` — how an application or operator controls executions **from outside**.
-- `Executor` — the minimal internal contract that teaches AgentDeck how a target executes.
-- Optional executor capabilities — richer control when the underlying runtime supports it.
+- `ctx.*`: what code can do **from inside** an execution.
+- `Run`: the execution itself and its lifecycle/control handle.
+- `Reporter`: structured information emitted **from** an execution.
+- `deck.runs.*`: how an application or operator controls executions **from outside**.
+- `Executor`: the minimal internal contract that teaches AgentDeck how a target executes.
+- Optional executor capabilities: richer control when the underlying runtime supports it.
 
 This is the cleanest way to preserve AgentDeck's short-path API while supporting arbitrary runtimes without reducing everything to the lowest common denominator.
 
@@ -157,7 +157,7 @@ This avoids pretending that every workflow or function necessarily has an agent.
 
 ---
 
-# 4. `ctx.invoke()` — Universal Execution Primitive
+# 4. `ctx.invoke()`: Universal Execution Primitive
 
 ```python
 child = ctx.invoke(target, input)
@@ -240,7 +240,7 @@ Underlying runtime
 
 ---
 
-# 5. `Run` — The Universal Execution Abstraction
+# 5. `Run`: The Universal Execution Abstraction
 
 `Run` is the main abstraction AgentDeck owns.
 
@@ -923,7 +923,7 @@ This avoids making `ctx.invoke()` responsible for agent lifecycle construction.
 
 ---
 
-# 20. `deck.runs.*` — Outside-Execution API
+# 20. `deck.runs.*`: Outside-Execution API
 
 Inside an execution:
 
@@ -1493,7 +1493,7 @@ This is the final clean API direction.
 
 ---
 
-# Appendix A — Native Definitions, Decorators, and Context Contracts
+# Appendix A: Native Definitions, Decorators, and Context Contracts
 
 ## A.1 Purpose
 
@@ -1920,7 +1920,7 @@ The Run remains the single lifecycle abstraction.
 
 ---
 
-# Appendix B — Views and Observers
+# Appendix B: Views and Observers
 
 ## B.1 Core Model
 
