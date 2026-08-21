@@ -96,6 +96,18 @@ def test_content_a_caller_handed_in_comes_back_as_content() -> None:
     assert answer_of(as_answer(blocks)) == blocks
 
 
+def test_a_lone_text_block_comes_back_as_its_string_and_that_is_the_ceiling() -> None:
+    """The pair is not injective, and this is the whole of where: ``"hi"`` and
+    ``[TextBlock(text="hi")]`` encode to the same log entry, so both read back as ``"hi"``.
+
+    Pinned rather than fixed. Distinguishing them would mean a wrapper block whose only job is to
+    say which of two indistinguishable answers a caller meant, and the executor reading the answer
+    cannot act on the difference anyway.
+    """
+    assert answer_of(as_answer([TextBlock(text="hi")])) == "hi"
+    assert as_answer([TextBlock(text="hi")]) == as_answer("hi")
+
+
 def test_another_runs_tail_in_the_same_session_log_is_not_this_runs_continuation() -> None:
     """``history`` is the whole session log, and a session's previous run can have been abandoned
     mid-pause. Unfiltered, that stranger's ``[run.paused, run.resumed]`` reads as this run

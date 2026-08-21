@@ -1292,6 +1292,10 @@ class Run:
         """Answer the interrupt this run is paused on. Raises ``RunStateError`` if it is not,
         in fact, waiting for one  -  paused instead (call :meth:`resume`), or already over.
 
+        Raises ``ValueError`` if ``value`` is not something the log can carry, before anything is
+        claimed, so the run stays answerable: an answer the log cannot hold would resume the run on
+        a value no replay and no other process could reproduce.
+
         ``value`` is resupplied against the context :meth:`Runs.start` was given, not
         recovered: the interrupted run's own copy was never written to the log, so a node that
         read it before the interrupt reads ``None`` on this replay if this handle has none

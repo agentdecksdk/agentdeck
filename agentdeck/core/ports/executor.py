@@ -62,7 +62,7 @@ class Executor(ABC):
         ``history`` is the log so far, which is the record of the session  -  an executor that
         keeps its own execution state loads that itself (ADR-D5)  -  and it is also what says
         which of the three plays this call is
-        (:func:`~agentdeck.core.status.play_of`):
+        (:func:`~agentdeck.core.status.continuation_of`):
 
         =========  =================================================================
         fresh      the run has not run yet, or ran and ended
