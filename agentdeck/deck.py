@@ -253,6 +253,61 @@ def _content_for(root: Agent | NativeDefinition, input: Any) -> Input:
     return coerce_input(input) if isinstance(input, str) else [DataBlock(data=input)]
 
 
+def _invoked_name(deck: Deck, target: Any) -> str:
+    """The catalog name ``ctx.invoke(target, ...)`` named  -  a name, or a definition this deck holds.
+
+    A bare object (a plain callable, an SDK agent, a compiled graph) waits for the invocation
+    resolver, so there is one rule and no special case. A definition is resolved by identity
+    rather than accepted on its own word, because a run's log records its invocable by *name* and
+    that name is what ``answer``, ``resume`` and a cancel-while-suspended resolve back through: a
+    child of a definition the catalog does not hold would run, and then be unanswerable.
+    """
+    if isinstance(target, str):
+        return target
+    if not isinstance(target, NativeDefinition):
+        raise ConfigError(
+            f"ctx.invoke() takes a catalog name or a @tool/@workflow definition; got a "
+            f"{type(target).__name__}. Running an arbitrary object needs the invocation resolver, "
+            f"which is not built yet  -  declare it with @tool or @workflow, or register it under a "
+            f"name and invoke it by that."
+        )
+    if deck._workflows.get(target.name) is not target:
+        raise ConfigError(
+            f"ctx.invoke() was given the {target.kind.value} {target.name!r}, which this deck's "
+            f"catalog does not hold under that name. A child run is resolved by the name its log "
+            f"records, so answering, resuming or cancelling one needs the definition in the "
+            f"catalog: pass it in Deck(workflows=[{target.name}, ...])."
+        )
+    return target.name
+
+
+def _invocation_input(root: Agent | NativeDefinition, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:
+    """``ctx.invoke(target, *args, **kwargs)`` as the single value a run is opened with.
+
+    A call binds to the target's own signature and a run is opened with one value, so the two meet
+    here: one positional argument *is* that value, and anything wider becomes the mapping
+    ``deck.run(name, {...})`` already binds by name (``docs/design/execution-api.md``). Which is
+    why an agent takes one and only one: it has no parameters for names to bind to.
+    """
+    if len(args) == 1 and not kwargs:
+        return args[0]
+    if not args:
+        return dict(kwargs) if kwargs else None
+    names = () if isinstance(root, Agent) else root.parameters
+    if len(args) > len(names):
+        raise ConfigError(
+            f"ctx.invoke() passed {len(args)} positional arguments to {root.name!r}, which takes "
+            f"{len(names)} ({', '.join(names) or 'none'})."
+        )
+    positional = dict(zip(names, args, strict=False))
+    if repeated := sorted(positional.keys() & kwargs.keys()):
+        raise ConfigError(
+            f"ctx.invoke() gave {root.name!r} {', '.join(repeated)} twice, once positionally and "
+            f"once by keyword  -  exactly as calling it directly would."
+        )
+    return positional | kwargs
+
+
 async def _aclose_store(store: EventStorePort) -> None:
     """Best-effort teardown for a store this Deck built itself  -  never one passed in.
 
@@ -606,7 +661,7 @@ class Deck:
         else:
             self._executor_instances = (
                 OpenAIAgentsExecutor(self._ensure_sessions(), settings=resolve_run_settings()),
-                NativeExecutor(),
+                NativeExecutor(self._invoke),
             )
         self._owns_store = self._store_arg is None
         store = self._store_arg if self._store_arg is not None else resolve_event_store()
@@ -769,6 +824,44 @@ class Deck:
         self._executions[opening.run_id] = task
         task.add_done_callback(functools.partial(self._execution_done, opening.run_id))
         return opening, task
+
+    def _invoke(self, parent: RunContext, target: Any, *args: Any, **kwargs: Any) -> Run:
+        """The invoker seam behind ``ctx.invoke``: begin a child run of ``target`` and hand back
+        its handle, having awaited nothing.
+
+        Synchronous because the handle *is* the return value and ``await`` on it is the result, so
+        there is no point in the call at which a body could await the opening claim. That is also
+        why the child's id is minted here rather than read back off its ``run.started``: the
+        handle needs one before the claim lands. The execution task is registered under it
+        straight away, so :meth:`aclose` and :meth:`Run._result` own a child exactly as they own a
+        top-level run.
+
+        A run in its own right, and its own session: the parent holds the one it was started on,
+        and a second turn against it would be refused. What it does inherit is the parent's
+        ``namespace``, which is the isolation boundary, and the parent's ``context`` by reference,
+        which is the application's environment for the whole invocation rather than for one run.
+        Nothing records the edge: the parent holds the handle in memory (#236).
+        """
+        runtime = self._require_open()
+        name = _invoked_name(self, target)
+        root = self._root(name)
+        content = _content_for(root, _invocation_input(root, args, kwargs))
+        run_id = str(uuid.uuid4())
+        task = asyncio.create_task(
+            _drain(runtime.run(name, content, context=parent.data, namespace=parent.namespace, run_id=run_id))
+        )
+        self._executions[run_id] = task
+        task.add_done_callback(functools.partial(self._execution_done, run_id))
+        return Run(
+            self,
+            id=run_id,
+            key=None,
+            namespace=parent.namespace,
+            session_id=None,
+            context=parent.data,
+            seen=RunStatus.RUNNING,
+            suspendable=runtime.suspends(name),
+        )
 
     def _execution_done(self, run_id: str, task: asyncio.Task[None]) -> None:
         """Retire a settled execution task, whatever way it settled  -  completed, suspended, or
@@ -1059,10 +1152,17 @@ class Run:
 
     async def status(self) -> RunStatus:
         """This run's current status. Never ``None``: a handle only ever names a run that has
-        at least started, and a started run always has one."""
+        at least started, or one this deck is still opening."""
         runtime = self._deck._require_open()
         status = await runtime.status(self.id, namespace=self.namespace)
-        assert status is not None, f"a Run handle always names a run that exists: {self.id!r}"
+        if status is None:
+            # The one handle that can outrun its own ``run.started``: ``ctx.invoke`` mints the id
+            # and returns before the claim lands, so this window is a run that is opening.
+            opening = self._deck._executions.get(self.id)
+            assert opening is not None and not opening.done(), (
+                f"a Run handle always names a run that exists: {self.id!r}"
+            )
+            status = RunStatus.RUNNING
         self._seen = status
         return status
 
@@ -1195,9 +1295,7 @@ class Run:
         deck = self._deck
         runtime = deck._require_open()
         while True:
-            status = await runtime.status(self.id, namespace=self.namespace)
-            assert status is not None, f"a Run handle always names a run that exists: {self.id!r}"
-            if status is not RunStatus.RUNNING:
+            if await self.status() is not RunStatus.RUNNING:
                 break
             task = deck._executions.get(self.id)
             if task is not None:
