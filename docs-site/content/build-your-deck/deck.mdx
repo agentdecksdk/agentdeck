@@ -24,3 +24,19 @@ Or discover components automatically from `./.agentdeck/`:
 ```python
 deck = Deck.from_project()
 ```
+
+## What Deck is responsible for
+
+You own intent: which agents, tools, workflows and skills exist, and what they do. `Deck` owns the
+machinery underneath them.
+
+| Deck is responsible for | you never wire it yourself |
+|---|---|
+| run identity | every run gets a durable id, a namespace, and an optional key of your choosing |
+| execution lifecycle | starting, suspending, resuming and cancelling, and the rules for which of those a run will accept right now |
+| persistence | the event log, and the session a conversation accumulates in |
+| event streams | one canonical stream per run, replayable and tailable, whichever process is executing it |
+| concurrency | one turn per session, settled atomically, so two servers cannot both answer the same conversation |
+
+That split is the reason a `Deck` takes declarations rather than infrastructure: an agent says what
+it does, and nothing in it knows which store, executor or surface it will run under.
