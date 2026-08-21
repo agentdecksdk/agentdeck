@@ -21,9 +21,6 @@ from typing import Any
 import pytest
 from agents import Agent
 from agents.handoffs import handoff
-from agents.models.interface import Model
-from openai.types.responses import Response, ResponseCompletedEvent, ResponseFunctionToolCall, ResponseUsage
-from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
 from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
 from agentdeck.adapters.executors.openai_agents.translate import translate
@@ -70,49 +67,6 @@ def test_a_handoff_request_with_no_completed_output_emits_nothing() -> None:
 # --- a refused handoff fails the run, and produces no agent.changed either ------------------
 
 
-def _usage() -> ResponseUsage:
-    return ResponseUsage(
-        input_tokens=10,
-        input_tokens_details=InputTokensDetails(cached_tokens=0),
-        output_tokens=5,
-        output_tokens_details=OutputTokensDetails(reasoning_tokens=0),
-        total_tokens=15,
-    )
-
-
-def _response(output: list[Any]) -> Response:
-    return Response(
-        id="resp_refused",
-        created_at=0.0,
-        model="fake-refused",
-        object="response",
-        output=output,
-        parallel_tool_calls=False,
-        tool_choice="auto",
-        tools=[],
-        usage=_usage(),
-    )
-
-
-class _AlwaysTransfers(Model):
-    """Calls one tool, once, and never resolves to text  -  this fixture only needs to prove
-    the handoff was requested; the run fails before a second call could happen."""
-
-    def __init__(self, tool_name: str) -> None:
-        self._tool_name = tool_name
-
-    async def stream_response(self, _instructions: str | None, _input: Any, *_a: Any, **_k: Any) -> Any:
-        output = [
-            ResponseFunctionToolCall(
-                id="fc_1", call_id="call_1", name=self._tool_name, arguments="{}", type="function_call"
-            )
-        ]
-        yield ResponseCompletedEvent(response=_response(output), sequence_number=0, type="response.completed")
-
-    async def get_response(self, *_a: Any, **_k: Any) -> Any:
-        raise NotImplementedError("this fixture only streams")
-
-
 def _refuse(_ctx: Any) -> None:
     raise RuntimeError("handoff refused")
 
@@ -125,7 +79,7 @@ async def test_a_refused_handoff_fails_the_run_with_no_agent_changed_in_the_log(
     claims_agent = Agent(name="ClaimsAgent", instructions="handle claims")
     declined = handoff(claims_agent, on_handoff=_refuse)
     front_agent = Agent(
-        name="FrontDesk", instructions="route", handoffs=[declined], model=_AlwaysTransfers(declined.tool_name)
+        name="FrontDesk", instructions="route", handoffs=[declined], model=ScriptedModel(tool_name=declined.tool_name)
     )
     spec = InvocableSpec(
         name="FrontDesk", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=front_agent
