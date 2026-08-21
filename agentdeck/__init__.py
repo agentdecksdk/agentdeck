@@ -14,6 +14,7 @@ from agentdeck import views
 from agentdeck.authoring import Agent
 from agentdeck.authoring.native import tool, workflow
 from agentdeck.core.context import ToolCtx, WorkflowCtx
+from agentdeck.core.invocable import AgentInstance
 from agentdeck.deck import Deck, Run, TurnResult
 from agentdeck.errors import (
     AgentdeckError,
@@ -38,6 +39,7 @@ except PackageNotFoundError:
 
 __all__ = [
     "Agent",
+    "AgentInstance",
     "AgentdeckError",
     "ConfigError",
     "ToolCtx",

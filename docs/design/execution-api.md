@@ -390,9 +390,15 @@ Two lines PR5 does not cross:
 no child is left running behind a parent that already gave up. Gather-with-exceptions is the shape
 that gets misused, because a body that forgets to inspect the list gets a silent wrong answer.
 
+## Amended by PR7 (2026-08-22, #236)
+
+| ruled here | shipped | why |
+|---|---|---|
+| the parent edge lands in PR8 | PR7 | the readers land in PR7: a cancel cascade, a usage roll-up and the depth bound all follow the edge, and two of the three have to work on a log nobody watched live |
+| `agents.fork()` copies `ctx.agent` | `fork(source, **overrides)`, source required | `ctx.agents` is `WorkflowCtx`'s and a workflow is not an agent, so `ctx.agent` is always `None` where `fork` is reachable. A default that can only be `None` is a dead API |
+
 ## Open
 
 | | |
 |---|---|
-| what the parent edge is called | the field PR8 puts on `run.started` for cancel cascade, usage roll-up and trace nesting. `parent_run_id` is the obvious name and the one that was already removed once |
 | `run.started` for a foreign target | `kind_of_invocable` is a closed literal and a resolved foreign object matches none of its members. PR8 either widens it or records the executor instead |

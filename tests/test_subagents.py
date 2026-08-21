@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from agentdeck import Agent, Deck, ToolCtx, WorkflowCtx, tool, workflow
+from agentdeck import Agent, AgentInstance, Deck, ToolCtx, WorkflowCtx, tool, workflow
 from agentdeck.core.events import RunStarted
 from agentdeck.core.status import RunStatus
 from agentdeck.errors import ConfigError, NotFoundError
@@ -259,13 +259,11 @@ async def test_forking_something_this_deck_does_not_hold_is_refused() -> None:
         return ctx.agents.fork("Nobody").name
 
     async with Deck(agents=[_researcher()], workflows=[forking]) as deck:
-        with pytest.raises(NotFoundError, match=r"No agent named 'Nobody'"):
+        with pytest.raises(NotFoundError, match=r"No agent or workflow named 'Nobody'"):
             await deck.run("forking", None)
 
 
 async def test_an_agent_instance_this_deck_never_minted_is_refused() -> None:
-    from agentdeck.core.invocable import AgentInstance
-
     @workflow
     async def invoking(ctx: WorkflowCtx) -> str:
         return str(await ctx.invoke(AgentInstance(name="Researcher", declaration=_researcher())))

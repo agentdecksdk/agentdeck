@@ -368,15 +368,12 @@ class _Agents:
 
 
 def _forked(deck: Deck, source: str | Agent | AgentInstance, overrides: dict[str, Any]) -> Agent:
+    """``source`` resolved to the declaration a fork copies. A name goes through the same lookup
+    ``ctx.invoke`` does, so an unknown one fails once, in one message."""
     if isinstance(source, AgentInstance):
         source = cast("Agent", source.declaration)
     elif isinstance(source, str):
-        found = deck._agents.get(source) or (
-            instance.declaration if (instance := deck._instance(source)) is not None else None
-        )
-        if not isinstance(found, Agent):
-            raise NotFoundError(f"No agent named {source!r}. Available: {sorted(deck._agents)}.")
-        source = found
+        source = cast("Agent", deck._root(source))
     if not isinstance(source, Agent):
         raise ConfigError(
             f"ctx.agents.fork() copies an agent: a catalog name, an Agent, or one ctx.agents "
