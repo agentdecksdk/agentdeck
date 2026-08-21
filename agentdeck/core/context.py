@@ -18,6 +18,7 @@ receives, so a tool signature names one AgentDeck type instead of an engine's.
 from __future__ import annotations
 
 import asyncio
+import inspect
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast
 from uuid import uuid4
@@ -282,15 +283,19 @@ class WorkflowCtx[T](ToolCtx[T]):
         A sibling's cancel is *recorded* here, not waited out: cancellation in AgentDeck takes
         effect at the run's next safe point, and this body has already failed.
         """
-        for run in runs:
-            if not hasattr(run, "cancel"):
-                raise TypeError(
-                    f"ctx.parallel() takes the child runs ctx.invoke() returns; got a "
-                    f"{type(run).__name__}. Several ctx.ask(...) calls are not among them: one run "
-                    f"parks on one question at a time, so a second concurrent ask would replace the "
-                    f"first and never be answered (agentdeck #414). Ask in sequence, or give each "
-                    f"question a child run of its own."
-                )
+        if (refused := next((run for run in runs if not hasattr(run, "cancel")), None)) is not None:
+            for run in runs:
+                # Closed rather than dropped: nothing will ever await what this refuses, and a
+                # coroutine collected unawaited costs the author a second, vaguer warning about it.
+                if inspect.iscoroutine(run):
+                    run.close()
+            raise TypeError(
+                f"ctx.parallel() takes the child runs ctx.invoke() returns; got a "
+                f"{type(refused).__name__}. Several ctx.ask(...) calls are not among them: one run "
+                f"parks on one question at a time, so a second concurrent ask would replace the "
+                f"first and never be answered (agentdeck #414). Ask in sequence, or give each "
+                f"question a child run of its own."
+            )
         gathered = asyncio.gather(*runs)
         try:
             return list(await gathered)
