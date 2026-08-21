@@ -87,6 +87,11 @@ async def test_a_delegated_turn_is_a_child_run_linked_to_its_parent() -> None:
             assert [(await _opening(deck, child)).parent_run_id for child in children] == [parent.id]
             assert [(await _opening(deck, child)).invocable for child in children] == ["Researcher"]
             assert (await _opening(deck, parent.id)).parent_run_id is None
+            # Watching the parent alone still says a child is running and which: the delegation is
+            # a tool call on its own stream, so a parent is never silent while a child works.
+            assert "delegate_to_Researcher" in [
+                event.payload.tool async for event in parent.events() if event.kind == "tool.call.started"
+            ]
 
 
 async def test_a_parents_usage_includes_what_it_delegated_and_the_childs_own_stays_readable() -> None:
@@ -97,8 +102,11 @@ async def test_a_parents_usage_includes_what_it_delegated_and_the_childs_own_sta
 
             child_id = next(run.id for run in await deck.runs.list() if run.id != parent.id)
             child = await (await deck.runs.get(child_id))
-            assert child.usage.output_tokens > 0
-            assert result.usage.output_tokens > child.usage.output_tokens
+            # Every scripted model call is 3 in / 4 out. The parent takes two (the delegation, then
+            # its answer) and the child one, so a parent that did not fold reads 6/8 and one that
+            # folded twice reads 12/16.
+            assert (child.usage.input_tokens, child.usage.output_tokens) == (3, 4)
+            assert (result.usage.input_tokens, result.usage.output_tokens) == (9, 12)
 
 
 async def test_a_failed_subagent_reaches_the_parent_rather_than_becoming_an_empty_result() -> None:
@@ -110,7 +118,14 @@ async def test_a_failed_subagent_reaches_the_parent_rather_than_becoming_an_empt
             with pytest.raises(RuntimeError, match="the source is down"):
                 await parent
 
-            assert await parent.status() is RunStatus.FAILED
+            child_id = next(run.id for run in await deck.runs.list() if run.id != parent.id)
+            assert await (await deck.runs.get(child_id)).status() is RunStatus.FAILED
+            failures = [
+                event.payload.error
+                async for event in parent.events()
+                if event.kind == "tool.call.completed" and event.payload.error
+            ]
+            assert failures and "the source is down" in failures[0]
 
 
 async def test_cancelling_a_parent_cancels_the_child_it_is_waiting_on() -> None:
@@ -142,6 +157,24 @@ async def test_cancelling_a_parent_cancels_the_child_it_is_waiting_on() -> None:
 async def _settled(run: Any) -> None:
     while (await run.status()) not in {RunStatus.CANCELLED, RunStatus.COMPLETED, RunStatus.FAILED}:
         await asyncio.sleep(0.01)
+
+
+async def test_the_decks_context_reaches_what_a_delegation_starts() -> None:
+    seen: dict[str, Any] = {}
+
+    @workflow
+    async def child(ctx: WorkflowCtx) -> str:
+        seen["data"] = ctx.data
+        return "read"
+
+    @workflow
+    async def parent(ctx: WorkflowCtx) -> str:
+        return str(await ctx.invoke(child))
+
+    async with Deck(workflows=[child, parent]) as deck:
+        await deck.run("parent", None, context={"tenant": "acme"})
+
+    assert seen["data"] == {"tenant": "acme"}
 
 
 # --- the bounds ----------------------------------------------------------------------------
