@@ -43,7 +43,7 @@ a workflow gets the orchestration half.
 |---|---|---|
 | `data` | ToolCtx | `Context.data`, unchanged |
 | `reporter` | ToolCtx | `Context.reporter`, new methods (below) |
-| `agent` | ToolCtx | new: the current `AgentInstance`, or `None`. Lands with PR6 |
+| `agent` | ToolCtx | new: the current `AgentInstance`, or `None`. Lands with PR7 |
 | `safepoint()` | ToolCtx | `Context.checkpoint()`, renamed |
 | `invoke(target, input)` | WorkflowCtx | new |
 | `parallel(*runs)` | WorkflowCtx | new |
@@ -334,9 +334,14 @@ exists and is proven by AgentDeck's own targets.
 | 3 | `EnginePort` becomes `Executor`, `start` + `resume` become `execute` | - |
 | 4 | native `@tool` / `@workflow`, `WorkflowCtx`, the native executor, `ask(options=...)`, parking suspension | - |
 | 5 | `ctx.invoke` / `ctx.parallel`, child runs, the invoker seam | #336 |
-| 6 | `AgentInstance`, `ctx.agent`, `ctx.agents.create()` / `fork()` | #236 |
-| 7 | `InvocationResolver` and the wrapping adapters: a LangGraph graph, an Agents SDK object, a plain callable, `deck.runs.start(target)` | #337 |
-| 8 | migration: delete `Workflow`, `WorkflowDeclaration`, `graph=`, `durable=` and what hangs off them | - |
+| 6 | `Observer`, `views`, and the `view=` filter on a registration | #211 |
+| 7 | `AgentInstance`, `ctx.agent`, `ctx.agents.create()` / `fork()` | #236 |
+| 8 | `InvocationResolver` and the wrapping adapters: a LangGraph graph, an Agents SDK object, a plain callable, `deck.runs.start(target)` | #337 |
+| 9 | migration: delete `Workflow`, `WorkflowDeclaration`, `graph=`, `durable=` and what hangs off them | - |
+
+Observability lands at 6 rather than last because every layer above it produces events a view has
+to be able to select, and a selector retrofitted over a finished vocabulary is one written from
+the outside.
 
 The executor contract is its own PR rather than the native one's first commit: the rename touches
 every adapter and the collapse changes what an answer *is*, and a reviewer should not have to read
@@ -348,13 +353,17 @@ Two lines PR5 does not cross:
 
 | | |
 |---|---|
-| what `ctx.invoke()` accepts | a catalog name and a native definition, nothing else. Every bare object, a plain callable included, waits for PR7's resolver, so there is one rule and no special case |
-| the parent edge | no parent field on `run.started`, where the parent holds the child handle in memory. `RunStarted` dropped `parent_run_id` once already for being written and never read; it comes back in PR7 with the invocation tree that reads it |
+| what `ctx.invoke()` accepts | a catalog name and a native definition, nothing else. Every bare object, a plain callable included, waits for PR8's resolver, so there is one rule and no special case |
+| the parent edge | no parent field on `run.started`, where the parent holds the child handle in memory. `RunStarted` dropped `parent_run_id` once already for being written and never read; it comes back in PR8 with the invocation tree that reads it |
+
+`ctx.parallel` fails all-or-nothing: the first failure cancels its siblings and propagates, the way
+`asyncio.TaskGroup` does. A workflow body is ordinary Python, so an exception is an exception, and
+no child is left running behind a parent that already gave up. Gather-with-exceptions is the shape
+that gets misused, because a body that forgets to inspect the list gets a silent wrong answer.
 
 ## Open
 
 | | |
 |---|---|
-| what the parent edge is called | the field PR3 puts on `run.started` for cancel cascade, usage roll-up and trace nesting. `parent_run_id` is the obvious name and the one that was already removed once |
-| `run.started` for a foreign target | `kind_of_invocable` is a closed literal and a resolved foreign object matches none of its members. PR7 either widens it or records the executor instead |
-| `ctx.parallel` failure policy | all-or-nothing, or gather-with-exceptions. Undecided |
+| what the parent edge is called | the field PR8 puts on `run.started` for cancel cascade, usage roll-up and trace nesting. `parent_run_id` is the obvious name and the one that was already removed once |
+| `run.started` for a foreign target | `kind_of_invocable` is a closed literal and a resolved foreign object matches none of its members. PR8 either widens it or records the executor instead |
