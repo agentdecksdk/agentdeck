@@ -24,7 +24,6 @@ from agentdeck.adapters.telemetry.langfuse import LangfuseSink, LangfuseTracer, 
 from agentdeck.core.content import TextBlock  # noqa: E402
 from agentdeck.core.context import RunContext  # noqa: E402
 from agentdeck.core.events import (  # noqa: E402
-    NodeUpdated,
     RunCompleted,
     ToolCallCompleted,
     ToolCallStarted,
@@ -41,7 +40,6 @@ CTX = RunContext(namespace="acme", run_id="r-1", session_id="s-1")
 TOTAL = Usage(input_tokens=11, output_tokens=7, usd=0.02)
 SHA = "ab" * 32
 WORKFLOW = (
-    NodeUpdated(node="plan", state_patch={"plan": "search"}),
     ToolCallStarted(call_id="c1", tool="search", args={"q": "agentdeck"}),
     ToolCallCompleted(call_id="c1", tool="search", result_preview="3 hits", result_size=6, result_sha256=SHA),
     UsageReported(model="gpt-4o", usage=TOTAL),
@@ -135,7 +133,7 @@ async def test_a_workflow_run_exports_one_langfuse_trace_with_its_spans_nested(s
     assert _attr(root, "session.id") == "s-1"
     assert _attr(root, "langfuse.trace.name") == "Pipeline"
     assert _attr(root, "langfuse.trace.metadata.namespace") == "acme"
-    for name, kind in [("plan", "span"), ("search", "tool"), ("gpt-4o", "generation")]:
+    for name, kind in [("search", "tool"), ("gpt-4o", "generation")]:
         assert spy.by_name(name).parent.span_id == root.context.span_id
         assert _attr(spy.by_name(name), "langfuse.observation.type") == kind
 

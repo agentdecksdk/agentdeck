@@ -27,7 +27,6 @@ from agentdeck.core.events import (
     ControlObserved,
     ControlRequested,
     Event,
-    NodeUpdated,
     RunCancelled,
     RunCompleted,
     RunFailed,
@@ -60,16 +59,14 @@ CTX = RunContext(
     run_id="r-1",
     session_id="s-1",
 )
-SECRET = "hunter2"
 TOTAL = Usage(input_tokens=11, output_tokens=7, usd=0.02)
 SHA = "ab" * 32
 PAYLOAD = "A" * 3000
 DATA_URI = f"data:image/png;base64,{PAYLOAD}"
 DESCRIBED = "<inline image/png, 3000 base64 chars>"
 
-# A workflow's shape: a node runs, it calls a tool, a model is billed, the run answers.
+# A workflow's shape: it calls a tool, a model is billed, the run answers.
 WORKFLOW: tuple[KnownPayload, ...] = (
-    NodeUpdated(node="plan", state_patch={"plan": "search then answer", "api_key": SECRET}),
     ToolCallStarted(call_id="c1", tool="search", args={"q": "agentdeck"}),
     ToolCallCompleted(call_id="c1", tool="search", result_preview="3 hits", result_size=4096, result_sha256=SHA),
     UsageReported(model="gpt-4o", usage=TOTAL),
@@ -228,7 +225,7 @@ def _started(run_id: str = "r-1") -> Event:
     )
 
 
-async def test_a_workflow_run_becomes_one_trace_carrying_its_nodes_tools_and_usage() -> None:
+async def test_a_workflow_run_becomes_one_trace_carrying_its_tools_and_usage() -> None:
     """The point of reading the stream: a workflow, which v1's runner-level tracing never saw."""
     collector = await _traced(*WORKFLOW)
     trace = collector.only()
@@ -240,12 +237,11 @@ async def test_a_workflow_run_becomes_one_trace_carrying_its_nodes_tools_and_usa
     assert trace.metadata["namespace"] == "acme"
     assert trace.metadata["invocable_kind"] == "workflow"
     assert trace.shape() == [
-        ("plan", "span"),
         ("search", "tool"),
         ("gpt-4o", "generation"),
         ("run.usage", "generation"),
     ]
-    assert [observed.finishes for observed in trace.walk()] == [1, 1, 1, 1, 1]
+    assert [observed.finishes for observed in trace.walk()] == [1, 1, 1, 1]
 
 
 async def test_an_agent_run_takes_the_same_path_and_only_changes_the_trace_kind() -> None:
@@ -274,13 +270,6 @@ async def test_usage_reaches_the_trace_as_generation_metrics() -> None:
     assert trace.named("gpt-4o").usage == TOTAL
     assert trace.named("run.usage").usage == TOTAL
     assert trace.usage is None
-
-
-async def test_a_node_span_names_the_keys_it_patched_and_never_their_values() -> None:
-    trace = (await _traced(*WORKFLOW)).only()
-
-    assert trace.named("plan").output == ["api_key", "plan"]
-    assert SECRET not in repr((await _traced(*WORKFLOW)).everything())
 
 
 async def test_streamed_text_never_becomes_an_observation_of_its_own() -> None:
@@ -421,7 +410,7 @@ async def test_an_interrupted_run_ships_its_half_and_the_resume_continues_the_sa
     collector = Collector()
     runtime = _runtime(
         collector,
-        NodeUpdated(node="plan", state_patch={"plan": "ask"}),
+        ToolCallStarted(call_id="c1", tool="search", args={}),
         RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1"),
         RunCompleted(output=[TextBlock(text="shipped")], usage=TOTAL),
         kind=InvocableKind.WORKFLOW,
@@ -443,7 +432,7 @@ async def test_an_interrupted_run_ships_its_half_and_the_resume_continues_the_sa
         True,
         "i1",
     )
-    assert waiting.shape() == [("plan", "span")]
+    assert waiting.shape() == [("search", "tool")]
     assert continued.metadata["resumed"] is True
     assert continued.output == ["shipped"]
     # The run's constants are only in ``run.started``; a continuation that lost them would leave half a

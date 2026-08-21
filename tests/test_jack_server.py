@@ -76,7 +76,6 @@ def client(scripted_model: str, monkeypatch: pytest.MonkeyPatch) -> Iterator[Tes
         "OPENAI_MODEL": "fake",
         "OPENAI_USE_RESPONSES": "false",
         "AGENTDECK_EVENTS": "memory://",
-        "AGENTDECK_CHECKPOINT": "memory://",
         "AGENTDECK_SESSION": "",
     }.items():
         monkeypatch.setenv(name, value)

@@ -82,7 +82,7 @@ def test_importing_the_openai_agents_adapter_never_imports_redis():
 def test_a_redis_session_without_the_extra_names_the_install_command():
     """Selecting `AGENTDECK_SESSION=redis://...` without the `[redis]` extra must fail with an
     agentdeck error naming the install command, not a raw `ModuleNotFoundError`  -  the same
-    contract the durability extras already give a missing sqlite/postgres saver."""
+    contract the postgres extra already gives a missing saver."""
     probe = textwrap.dedent(
         """
         import sys

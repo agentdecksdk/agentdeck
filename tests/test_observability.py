@@ -35,32 +35,6 @@ from agentdeck.authoring import Agent
 greeter = Agent(name="Greeter", instructions="Greet the user.")
 """
 
-# A workflow whose node drives an agent of its own  -  the shape that used to export two trace
-# trees, because the node's runner started the Agents-SDK instrumentation on its way past.
-AGENT_FLOW_WORKFLOW_PY = """
-from langgraph.graph import END, StateGraph
-from pydantic import BaseModel
-
-from agentdeck.authoring import AgentNode, Workflow
-from agentdeck_project.agents.greeter.agent import greeter
-
-
-class State(BaseModel):
-    input: str = ""
-    output: str = ""
-
-
-def _build_graph():
-    g = StateGraph(State)
-    g.add_node("greet", AgentNode(greeter, input_key="input", output_key="output"))
-    g.set_entry_point("greet")
-    g.add_edge("greet", END)
-    return g
-
-
-chat_flow = Workflow(name="ChatFlow", state=State, graph=_build_graph)
-"""
-
 
 @dataclass
 class Opened:
@@ -186,8 +160,6 @@ def project(tmp_path, monkeypatch):
     root = tmp_path / ".agentdeck"
     (root / "agents" / "greeter").mkdir(parents=True)
     (root / "agents" / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
-    (root / "workflows" / "agent_flow").mkdir(parents=True)
-    (root / "workflows" / "agent_flow" / "workflow.py").write_text(textwrap.dedent(AGENT_FLOW_WORKFLOW_PY))
     monkeypatch.chdir(tmp_path)
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
@@ -554,34 +526,6 @@ async def test_a_broken_sink_never_breaks_a_run(
     assert broken.attempts > 0, "the broken sink was never even offered an event"
     assert "run.completed" in logged
     assert "run.completed" in healthy.kinds
-
-
-# --- #162's second defect: no orphan trees ------------------------------------------------------
-
-
-async def test_a_workflow_turn_driving_an_agent_exports_exactly_one_trace_root(
-    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
-    telemetry,
-    langfuse_keys,
-    scripted,  # noqa: ARG001  -  points the run at a fake model
-):
-    """One run, one trace  -  the count #162's second defect broke.
-
-    A workflow node that drives an agent goes through ``authoring``'s direct-call runner, which
-    used to start the Agents-SDK instrumentation and open a root observation of its own. With
-    Langfuse on, that exported a second, sessionless tree beside the sink's: one good trace plus
-    one orphan. The runner opens nothing now, so the sink's root is the only one, and the
-    instrumentation that produced the orphan's spans is never installed.
-    """
-    from agentdeck.deck import Deck
-
-    langfuse_keys()
-
-    async with Deck.from_project() as deck:
-        await deck.run("ChatFlow", {"input": "hello"}, session_id="s-7")
-
-    assert [(root.name, root.kind, root.session_id) for root in telemetry.roots] == [("ChatFlow", "chain", "s-7")]
-    assert "openinference.instrumentation.openai_agents" not in sys.modules
 
 
 def test_only_the_opt_in_observer_instruments_the_agents_sdk():
