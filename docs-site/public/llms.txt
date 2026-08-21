@@ -1,16 +1,15 @@
 # AgentDeck SDK
 
-> The production runtime for agents you already have  -  composition, durable human-in-the-loop approvals, sessions, streaming, run control and one ordered event log, wrapping the OpenAI Agents SDK and LangGraph.
+> The production runtime for agents you have to operate: composition, human-in-the-loop approvals, sessions, streaming, run control and one ordered event log, wrapping the OpenAI Agents SDK and native workflows.
 
 AgentDeck SDK is a Python harness for agents you have to operate. You write agents, workflows and
 skills as small declarations in a `.agentdeck/` directory; AgentDeck supplies everything around
-them  -  discovery, layered settings, sessions, streaming, MCP servers, durable human-in-the-loop
+them: discovery, layered settings, sessions, streaming, MCP servers, human-in-the-loop
 approvals, run control, and one ordered event log per run.
 
-It wraps the OpenAI Agents SDK and LangGraph rather than replacing them: an `Agent` compiles to an
-SDK agent, a `Workflow` compiles to a LangGraph graph, and each is executed by its own engine.
-AgentDeck owns configuration; the engines own execution. There is no agent loop here and no graph
-engine of its own.
+It executes native `@workflow` and `@tool` targets alongside the OpenAI Agents SDK for agents:
+an `Agent` compiles to an SDK agent, and a `@workflow` coordinates executions with native async
+Python control.
 
 Use it when the wiring around an agent has become the work: several agents and workflows in one
 project, a chat surface and a batch path over the same definitions, runs you must inspect

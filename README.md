@@ -134,7 +134,7 @@ the registration: no catalog file, no `__init__.py`, no decorator to remember.
 ```text
 .agentdeck/
 ├── agents/greeter/agent.py            # an Agent(...)
-├── workflows/new_booking/workflow.py  # a Workflow(...)
+├── workflows/new_booking/workflow.py  # a @workflow function
 └── skills/parse-request/              # SKILL.md + optional scripts
 ```
 
@@ -147,7 +147,7 @@ async with Deck.from_project() as deck:   # discovers ./.agentdeck, fails fast
 unknown MCP name or a workflow that cannot compile fails at `build()`, not in production.
 
 Runnable projects are in [`examples/`](examples/): a chat agent with a tool, a workflow that
-pauses for human approval, an existing LangGraph agent wrapped without rewriting it, and
+pauses for human approval, an agent with skills, and
 [Jack](https://agentdecksdk.com/jack). All are built by the test suite, so none can quietly stop
 working.
 
@@ -168,12 +168,10 @@ build today, and nothing to retrofit when you need the next one.
 
 The complexity is still there. It just lives in the layer built for it.
 
-**AgentDeck owns configuration; the
-[OpenAI Agents SDK](https://github.com/openai/openai-agents-python) and
-[LangGraph](https://langchain-ai.github.io/langgraph/) own execution.** There is no agent loop
-here, no graph engine, and no reimplementation of either: an `Agent` compiles to an SDK agent, a
-`Workflow` compiles to a LangGraph graph, and each is run by its own engine. You keep native
-access when you need it.
+**AgentDeck executes native @workflow and @tool targets alongside the
+[OpenAI Agents SDK](https://github.com/openai/openai-agents-python) for agents.** An `Agent` compiles
+to an SDK agent, and a `@workflow` coordinates executions with native async Python control. You keep
+native access when you need it.
 
 ## Who it is for
 
@@ -189,8 +187,8 @@ configuration, and those opinions are the product.
 ## What it deliberately does not do
 
 - **No DSL.** Definitions are Python. There is no YAML agent format, and there will not be one.
-- **No execution engine of its own.** Bugs in the agent loop or in graph execution belong
-  upstream, and improvements there arrive without agentdeck doing anything.
+- **No execution engine of its own.** Bugs in the agent loop belong upstream, and improvements
+  there arrive without agentdeck doing anything.
 - **No sandbox.** Tools, skills and workflow nodes are ordinary Python in your process, and a
   model-chosen tool call is trusted by design. See [SECURITY.md](SECURITY.md) before you give an
   agent something destructive.
@@ -210,9 +208,8 @@ The distribution is **`agentdeck-sdk`**; the import stays `agentdeck`. Agents ma
 `openai/...`, `anthropic/...`, `gemini/...`, `ollama/...`, or `openrouter/...`; see
 [model configuration](https://agentdecksdk.com/build-your-deck/agents). `OPENAI_BASE_URL` also
 supports any OpenAI-compatible endpoint. Extras: `serve` for the
-HTTP surface, `durability` for the Postgres checkpointer and event store (SQLite ships in base,
-so `durable=True` works out of the box), `redis` for Redis-backed sessions or event log,
-`observability` for Langfuse tracing.
+HTTP surface, `durability` for the Postgres checkpointer and event store (SQLite ships in base),
+`redis` for Redis-backed sessions or event log, `observability` for Langfuse tracing.
 
 Contributing to agentdeck itself is a different setup: see [CONTRIBUTING.md](CONTRIBUTING.md).
 

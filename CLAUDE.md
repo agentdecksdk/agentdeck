@@ -1,11 +1,11 @@
 # AgentDeck
 
-AgentDeck is a declarative runtime harness for multi-agent systems and workflows (OpenAI Agents SDK + LangGraph).
+AgentDeck is a declarative runtime harness for multi-agent systems and workflows (OpenAI Agents SDK + native workflows).
 
-**Core standards:** `docs/engineering/`  -  the linked suite of binding engineering law:
-1. [`docs/engineering/principles.md`](docs/engineering/principles.md)  -  Product philosophy & North Star.
-2. [`docs/engineering/coding-standards.md`](docs/engineering/coding-standards.md)  -  Binding front door for every code change.
-3. [`docs/engineering/coding-agents.md`](docs/engineering/coding-agents.md)  -  Mandatory rules for coding agents.
+**Core standards:** `docs/engineering/`: the linked suite of binding engineering law:
+1. [`docs/engineering/principles.md`](docs/engineering/principles.md): Product philosophy & North Star.
+2. [`docs/engineering/coding-standards.md`](docs/engineering/coding-standards.md): Binding front door for every code change.
+3. [`docs/engineering/coding-agents.md`](docs/engineering/coding-agents.md): Mandatory rules for coding agents.
 4. Specialized standards: [`architecture.md`](docs/engineering/architecture.md), [`runtime-contracts.md`](docs/engineering/runtime-contracts.md), [`testing.md`](docs/engineering/testing.md), [`dependencies.md`](docs/engineering/dependencies.md), [`repository-policy.md`](docs/engineering/repository-policy.md), [`import-boundaries.md`](docs/engineering/import-boundaries.md).
 5. [`docs/patterns/`](docs/patterns/README.md): the project's taste as real good/bad pairs. Read the file for your concern before writing; match the good side.
 
@@ -30,7 +30,7 @@ AgentDeck is a declarative runtime harness for multi-agent systems and workflows
 
 * **`agentdeck/core/`**: Pure domain model, event schema, content blocks, ports, error taxonomy. **Imports stdlib + pydantic only** (enforced by `import-linter`).
 * **`agentdeck/runtime/`**: Execution orchestration, lifecycle state machine, event dispatch. Imports `core/` only.
-* **`agentdeck/adapters/`**: Pluggable integrations (executors: `openai_agents`, `langgraph`; stores: `sqlite`, `postgres`, `redis`; `mcp`; `telemetry`). Each adapter imports `core/` plus exactly one external technology. Adapters never import other adapters.
+* **`agentdeck/adapters/`**: Pluggable integrations (executors: `openai_agents`, `native`; stores: `sqlite`, `postgres`, `redis`; `mcp`; `telemetry`). Each adapter imports `core/` plus exactly one external technology. Adapters never import other adapters.
 * **`agentdeck/authoring/`**: Declarations (`Agent`, `Workflow`, `Skill`) compiled to specs.
 * **`agentdeck/surfaces/`**: Ingress surfaces (HTTP/SSE in `surfaces/serve/`, CLI).
 
