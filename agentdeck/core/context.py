@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 from uuid import uuid4
@@ -26,7 +27,7 @@ from uuid import uuid4
 from agentdeck.core.control import Gate, RunPausedError
 from agentdeck.core.events import KnownPayload, RunInterrupted
 from agentdeck.core.reporting import Reporter
-from agentdeck.core.status import RunStatus, can_resume
+from agentdeck.core.status import RunStatus
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -333,15 +334,22 @@ class WorkflowCtx[T](ToolCtx[T]):
     async def _abandon(self, runs: tuple[Any, ...]) -> None:
         """Give up the children of a :meth:`parallel` that is not going to return.
 
-        A child waiting for an answer is left alone. It is not running behind anything, it holds
-        the only state anybody can still act on, and the ``RunSuspendedError`` being unwound past
-        here names it  -  cancelling it is what would make that message a lie. Everything else is
-        cancelled, which in AgentDeck is recorded rather than waited out: the run stops at its own
-        next safe point, and this body has already given up.
+        A child ``WAITING_ANSWER`` is left alone, and only that one. It is not running behind
+        anything, and the approval inbox holds it: ``deck.runs.list(status=WAITING_ANSWER)`` finds
+        it and ``run.answer(...)`` continues it, whether or not the exception unwinding past here
+        happens to name it. A ``PAUSED`` child is cancelled with the rest, because nobody is left
+        holding a reason to resume it and sparing it would leave a run only a staleness sweep ends.
+
+        Cancelling is recorded rather than waited out, as everywhere: the run stops at its own next
+        safe point, and this body has already given up.
         """
         for run in runs:
-            if isinstance(run, ChildRun) and not can_resume(await run.status()):
-                await run.cancel("the ctx.parallel() that started it gave up, and it is all-or-nothing")
+            # Teardown may not outrank the diagnosis it is tearing down for: a status read or a
+            # cancel that fails here would replace the exception this is unwinding past, which on
+            # the refusal path is the message naming #414 and what to do instead.
+            with suppress(Exception):
+                if isinstance(run, ChildRun) and await run.status() is not RunStatus.WAITING_ANSWER:
+                    await run.cancel("the ctx.parallel() that started it gave up, and it is all-or-nothing")
 
     @property
     def _invoking(self) -> Invoker:

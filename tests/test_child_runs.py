@@ -284,6 +284,65 @@ async def test_giving_up_a_parallel_leaves_the_child_that_is_waiting_for_an_answ
         assert await waiting == "still there?:yes"
 
 
+async def test_giving_up_a_parallel_cancels_a_child_that_is_merely_paused() -> None:
+    """Only ``WAITING_ANSWER`` is spared. A paused child has nobody holding a reason to resume it
+    once the parent has failed, so sparing it would leave a run that only a staleness sweep ends."""
+    ids: list[str] = []
+    running = asyncio.Event()
+
+    @workflow
+    async def lingering(ctx: WorkflowCtx) -> str:
+        running.set()
+        for _ in range(500):
+            await ctx.safepoint()
+            await asyncio.sleep(0.01)
+        return "never"  # pragma: no cover  -  the pause, then the cancel, arrive first
+
+    @workflow
+    async def parking(ctx: WorkflowCtx) -> list[str]:
+        held = ctx.invoke(lingering)
+        ids.append(held.id)
+        await running.wait()
+        await held.pause("the parent parked it")
+        for _ in range(500):
+            if await held.status() is RunStatus.PAUSED:
+                break
+            await asyncio.sleep(0.01)
+        return [str(value) for value in await ctx.parallel(held, ctx.ask("q?"))]
+
+    async with Deck(workflows=[lingering, parking]) as deck:
+        run = await deck.runs.start("parking", None)
+        with pytest.raises(TypeError, match="one question at a time"):
+            await run
+
+        paused = await _child(deck, ids[0])
+        await _settles(paused, RunStatus.CANCELLED)
+
+
+async def test_a_child_that_fails_to_tear_down_does_not_replace_the_error_being_raised() -> None:
+    """Teardown may not outrank the diagnosis it is tearing down for: whatever the giving-up path
+    trips over, the caller keeps the message that names the problem and says what to do."""
+
+    class Wedged:
+        """A child-run shape whose store is gone. Stubbed because a real run cannot be made to
+        fail this way on demand, and what is asserted is the real error reaching the real caller."""
+
+        async def status(self) -> RunStatus:
+            raise RuntimeError("the store is gone")
+
+        async def cancel(self, reason: str | None = None) -> None:
+            raise RuntimeError("the store is gone")  # pragma: no cover  -  status raises first
+
+    @workflow
+    async def wedged(ctx: WorkflowCtx) -> list[str]:
+        return [str(value) for value in await ctx.parallel(Wedged(), ctx.ask("q?"))]
+
+    async with Deck(workflows=[wedged]) as deck:
+        run = await deck.runs.start("wedged", None)
+        with pytest.raises(TypeError, match="one question at a time"):
+            await run
+
+
 async def test_parallel_refuses_an_asyncio_task_rather_than_taking_it_for_a_run() -> None:
     """A ``Task`` has ``cancel`` and would pass a duck test, then fail to answer the questions the
     giving-up path asks a child run."""
