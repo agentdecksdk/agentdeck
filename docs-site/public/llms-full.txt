@@ -1585,7 +1585,7 @@ When building agentic applications, writing model prompts is only the first step
 - **State & Sessions:** Managing conversation history and memory across turns.
 - **Run Lifecycle:** Pausing for human approval, resuming safely, and handling cancellation.
 - **Event Logging:** Capturing every token, tool call, and state transition in an immutable stream.
-- **Interoperability:** Running OpenAI Agents and LangGraph without lock-in or forced rewrites.
+- **Interoperability:** Running OpenAI Agents SDK and native workflows without lock-in.
 
 ---
 
