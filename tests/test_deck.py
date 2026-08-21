@@ -1116,7 +1116,10 @@ async def test_closing_a_deck_cancels_a_run_still_in_flight_and_says_so(no_proje
     with patch_model(model), caplog.at_level("INFO"):
         async with deck:
             opening, task = await deck._start("Greeter", coerce_input("hi"), session_id="s1")
-            await model.holding.wait()
+            # `holding` is announced one line before the model parks, so a cancel in that same
+            # tick reaches a turn the SDK has not suspended yet and is swallowed (#410). Waiting
+            # for the delta it wrote first is the observable that the turn is genuinely parked.
+            await _wait_until(lambda: _has_delta(deck, "s1"))
             assert not task.done()
         assert task.cancelled()
 
@@ -1446,7 +1449,7 @@ async def test_pending_lists_a_paused_run_and_answer_completes_it(no_project, mo
         deck = Deck(workflows=[_approval_workflow()])
 
         async with deck:
-            paused = await deck.run("Approval", {"request": "tue 9am"}, session_id="t-1")
+            paused = await deck.run("Approval", "tue 9am", session_id="t-1")
             assert paused["type"] == "interrupt"
 
             [run] = await deck.runs.list(status=RunStatus.WAITING_ANSWER)
@@ -1485,7 +1488,7 @@ async def test_a_waiter_wakes_on_a_parked_run_rather_than_hanging(no_project, mo
     try:
         deck = Deck(workflows=[_approval_workflow()])
         async with deck:
-            run = await deck.runs.start("Approval", {"request": "tue 9am"}, session_id="t-wake")
+            run = await deck.runs.start("Approval", "tue 9am", session_id="t-wake")
             with pytest.raises(RunSuspendedError):
                 await asyncio.wait_for(run, timeout=5)
             # Answered rather than left parked: the durable LangGraph checkpointer is a
@@ -1514,7 +1517,7 @@ async def _parked_approval(monkeypatch, *, namespace: str | None = None):
     try:
         deck = Deck(workflows=[_approval_workflow()])
         async with deck:
-            parked = await deck.run("Approval", {"request": "tue 9am"}, session_id="t-1", namespace=namespace)
+            parked = await deck.run("Approval", "tue 9am", session_id="t-1", namespace=namespace)
             assert parked["type"] == "interrupt"
             [run] = await deck.runs.list(namespace=namespace, status=RunStatus.WAITING_ANSWER)
             yield deck, run
@@ -1660,9 +1663,7 @@ async def test_answer_isolates_between_namespaces_sharing_one_key(no_project, mo
             # collide on the checkpoint itself  -  a separate, already-known gap this test is not
             # about. The event log and the key claim below are namespaced; this only avoids
             # tripping over the checkpoint one while proving that.
-            acme_paused = await deck.run(
-                "Approval", {"request": "tue 9am"}, session_id="t-acme", namespace="acme", key="order-1234"
-            )
+            acme_paused = await deck.run("Approval", "tue 9am", session_id="t-acme", namespace="acme", key="order-1234")
             globex_paused = await deck.run(
                 "Approval", {"request": "wed 3pm"}, session_id="t-globex", namespace="globex", key="order-1234"
             )
@@ -1804,6 +1805,11 @@ async def _wait_until(condition, *, timeout: float = 5.0, interval: float = 0.01
         if loop.time() >= deadline:
             raise AssertionError(f"condition not met within {timeout}s")
         await asyncio.sleep(interval)
+
+
+async def _has_delta(deck: Deck, session_id: str) -> bool:
+    events = await deck._runtime.store.read_session(RunContext(run_id="reader", session_id=session_id))
+    return any(event.kind == "text.delta" for event in events)
 
 
 async def _pending_is_empty(deck: Deck) -> bool:
