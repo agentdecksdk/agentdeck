@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from contextlib import suppress
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 from uuid import uuid4
@@ -28,6 +28,8 @@ from agentdeck.core.control import Gate, RunPausedError
 from agentdeck.core.events import KnownPayload, RunInterrupted
 from agentdeck.core.reporting import Reporter
 from agentdeck.core.status import RunStatus
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -235,10 +237,13 @@ class ChildRun(Protocol):
     """What :meth:`WorkflowCtx.parallel` needs of the run :meth:`WorkflowCtx.invoke` handed back.
 
     A protocol rather than that handle, for :class:`~agentdeck.core.invocable.NativeInvocable`'s
-    reason: the handle is ``agentdeck.deck``'s and core may not import it. Two members, and both
-    are used  -  which is also what tells a run from an ``asyncio.Task``, whose ``cancel`` alone
-    would pass for one and then break the giving-up path.
+    reason: the handle is ``agentdeck.deck``'s and core may not import it. Three members, and all
+    three are used  -  which is also what tells a run from an ``asyncio.Task``, whose ``cancel``
+    alone would pass for one and then break the giving-up path.
     """
+
+    id: str
+    """Which run, for the one line :meth:`WorkflowCtx._abandon` logs when it cannot end one."""
 
     async def status(self) -> RunStatus:
         """This run's current status."""
@@ -335,21 +340,26 @@ class WorkflowCtx[T](ToolCtx[T]):
         """Give up the children of a :meth:`parallel` that is not going to return.
 
         A child ``WAITING_ANSWER`` is left alone, and only that one. It is not running behind
-        anything, and the approval inbox holds it: ``deck.runs.list(status=WAITING_ANSWER)`` finds
-        it and ``run.answer(...)`` continues it, whether or not the exception unwinding past here
-        happens to name it. A ``PAUSED`` child is cancelled with the rest, because nobody is left
-        holding a reason to resume it and sparing it would leave a run only a staleness sweep ends.
+        anything, and the approval inbox holds it: ``deck.runs.list(namespace=..., status=
+        WAITING_ANSWER)`` finds it and ``run.answer(...)`` continues it, whether or not the
+        exception unwinding past here happens to name it. The namespace is the parent's, which the
+        child inherited, and naming it is not optional: that listing is single-namespace by design.
+        A ``PAUSED`` child is cancelled with the rest, because nobody is left holding a reason to
+        resume it and sparing it would leave a run only a staleness sweep ends.
 
         Cancelling is recorded rather than waited out, as everywhere: the run stops at its own next
         safe point, and this body has already given up.
         """
         for run in runs:
-            # Teardown may not outrank the diagnosis it is tearing down for: a status read or a
-            # cancel that fails here would replace the exception this is unwinding past, which on
-            # the refusal path is the message naming #414 and what to do instead.
-            with suppress(Exception):
+            try:
                 if isinstance(run, ChildRun) and await run.status() is not RunStatus.WAITING_ANSWER:
                     await run.cancel("the ctx.parallel() that started it gave up, and it is all-or-nothing")
+            except Exception:
+                # Teardown may not outrank the diagnosis it is tearing down for: raising here would
+                # replace the exception this is unwinding past, which on the refusal path is the
+                # message naming #414. Logged rather than swallowed, because a child that could not
+                # be told to stop is still running and nothing else is left to say so.
+                logger.warning("could not give up child run %s of a ctx.parallel()", run.id, exc_info=True)
 
     @property
     def _invoking(self) -> Invoker:

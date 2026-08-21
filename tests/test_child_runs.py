@@ -8,6 +8,7 @@ log and the controls a top-level run has, and the only thing the parent holds is
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 import pytest
@@ -319,13 +320,17 @@ async def test_giving_up_a_parallel_cancels_a_child_that_is_merely_paused() -> N
         await _settles(paused, RunStatus.CANCELLED)
 
 
-async def test_a_child_that_fails_to_tear_down_does_not_replace_the_error_being_raised() -> None:
+async def test_a_child_that_fails_to_tear_down_does_not_replace_the_error_being_raised(caplog) -> None:
     """Teardown may not outrank the diagnosis it is tearing down for: whatever the giving-up path
-    trips over, the caller keeps the message that names the problem and says what to do."""
+    trips over, the caller keeps the message that names the problem and says what to do. Not
+    silently, though  -  a child that could not be told to stop is still running, and this is the
+    only thing left to say so."""
 
     class Wedged:
         """A child-run shape whose store is gone. Stubbed because a real run cannot be made to
         fail this way on demand, and what is asserted is the real error reaching the real caller."""
+
+        id = "r-wedged"
 
         async def status(self) -> RunStatus:
             raise RuntimeError("the store is gone")
@@ -339,8 +344,12 @@ async def test_a_child_that_fails_to_tear_down_does_not_replace_the_error_being_
 
     async with Deck(workflows=[wedged]) as deck:
         run = await deck.runs.start("wedged", None)
-        with pytest.raises(TypeError, match="one question at a time"):
+        with (
+            caplog.at_level(logging.WARNING, logger="agentdeck.core.context"),
+            pytest.raises(TypeError, match="one question at a time"),
+        ):
             await run
+        assert "r-wedged" in caplog.text
 
 
 async def test_parallel_refuses_an_asyncio_task_rather_than_taking_it_for_a_run() -> None:
