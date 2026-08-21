@@ -1,4 +1,4 @@
-"""One subject per engine for the shared ``Context[T]`` contract: a root whose single injected
+"""One subject per engine for the shared ``ToolCtx[T]`` contract: a root whose single injected
 callable is the same function written twice, once as an agent's tool and once as a workflow node.
 
 Everything that differs between the two engines is confined here  -  the SDK ``Agent`` and its
@@ -23,7 +23,7 @@ from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
 from agentdeck.authoring.graphs import bridge_context_nodes
 from agentdeck.authoring.tools import compile_tool
 from agentdeck.core.content import TextBlock
-from agentdeck.core.context import Context  # noqa: TC001  -  the subjects below must resolve it at runtime
+from agentdeck.core.context import ToolCtx  # noqa: TC001  -  the subjects below must resolve it at runtime
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 
 if TYPE_CHECKING:
@@ -61,19 +61,19 @@ class Subject:
     id: str
     engine: EnginePort
     spec: InvocableSpec
-    seen: list[Context[Environment]] = field(default_factory=list)
+    seen: list[ToolCtx[Environment]] = field(default_factory=list)
     input: Input = field(default_factory=lambda: [TextBlock(text="any slot tuesday?")])
 
 
-def _peek(seen: list[Context[Environment]]) -> Callable[..., Any]:
+def _peek(seen: list[ToolCtx[Environment]]) -> Callable[..., Any]:
     """The one callable both subjects run. Written once so a difference in what it does cannot
     be mistaken for a difference in what the bridges deliver."""
 
-    async def peek(environment: Context[Environment]) -> str:
+    async def peek(environment: ToolCtx[Environment]) -> str:
         """Look at the run's environment."""
         seen.append(environment)
-        await environment.checkpoint()
-        await environment.reporter.status(ANSWER)
+        await environment.safepoint()
+        await environment.reporter.info(ANSWER)
         # A constant, never anything read off the environment: what a tool returns is recorded,
         # and a subject that echoed its secret would defeat the "never in the log" assertions.
         return "ok"
@@ -82,7 +82,7 @@ def _peek(seen: list[Context[Environment]]) -> Callable[..., Any]:
 
 
 def openai_agents_subject() -> Subject:
-    seen: list[Context[Environment]] = []
+    seen: list[ToolCtx[Environment]] = []
     agent = SDKAgent(
         name="Looker",
         instructions="use the tool",
@@ -98,10 +98,10 @@ def openai_agents_subject() -> Subject:
 
 
 def langgraph_subject() -> Subject:
-    seen: list[Context[Environment]] = []
+    seen: list[ToolCtx[Environment]] = []
     peek = _peek(seen)
 
-    async def look(state: _State, environment: Context[Environment]) -> dict[str, Any]:
+    async def look(state: _State, environment: ToolCtx[Environment]) -> dict[str, Any]:
         # The node's own parameter list is what the contract is about: ``state`` is the
         # workflow's mutable data and ``environment`` is the application's, side by side and
         # neither derived from the other.

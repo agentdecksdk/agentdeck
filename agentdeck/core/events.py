@@ -9,8 +9,7 @@ Unknown kinds parse instead of raising  -  ``Event.model_validate`` lands them a
 survives a newer writer. Adding a kind or an optional field is a ``minor`` bump, tolerated by
 construction through :class:`UnknownEvent`/``UnknownBlock`` without either side consulting the
 number; renaming, removing, or otherwise changing what a reader must already understand to parse
-at all is a ``major`` bump, and :class:`Event` refuses one it does not carry  -  see
-:class:`SchemaVersion`.
+at all is a ``major`` bump, and :class:`Event` refuses any major but its own.
 
 Run control is three phases, not one event: ``control.requested`` (the signal was written),
 ``control.observed`` (the run reached a safe point and acted), and the verb's own kind for the
@@ -28,7 +27,6 @@ from pydantic import (
     ConfigDict,
     Field,
     NonNegativeInt,
-    PositiveInt,
     ValidationError,
     ValidatorFunctionWrapHandler,
     field_validator,
@@ -67,17 +65,15 @@ class SchemaVersion(CoreModel):
     minor: NonNegativeInt
 
 
-CURRENT_VERSION = SchemaVersion(major=3, minor=1)
-"""What this tree writes onto every event. ``major=3`` because this is the change that makes it
-one: replacing the scalar ``v`` with this model is exactly the kind of break a reader must
-recognise to parse at all  -  the same reason ``v`` went from 1 to 2 when ``namespace`` replaced
-the required ``tenant``. A future additive change (a new kind, a new optional field) bumps
-``minor`` here and nowhere else; a future breaking one bumps ``major`` and updates the check on
-:class:`Event`.
+CURRENT_VERSION = SchemaVersion(major=4, minor=0)
+"""What this tree writes onto every event.
 
-``minor=1`` (#159): ``AudioBlock`` is the first real payload change to take this path rather
-than the envelope one  -  old readers already tolerate it via ``UnknownBlock``, which is what
-additive means."""
+``major=4`` (v5.0.0): the payload vocabulary moved, and v5.0.0 does not read a log v4 wrote. There
+is no compatibility window and no store migration  -  replay a 4.x log into a new store, or read it
+with the version that wrote it.
+
+A future additive change (a new kind, a new optional field) bumps ``minor`` here and nowhere else;
+a breaking one bumps ``major``."""
 
 Money = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 """US dollars, constrained where the token counts already were. ``NaN``/``±Infinity`` serialize
@@ -294,35 +290,23 @@ class InputAppended(CoreModel):
     source: str
 
 
-class StatusReported(CoreModel):
-    """Advisory: what the run is doing right now, in words a person can read.
+class Reported(CoreModel):
+    """Advisory: what the running code chose to say about itself.
 
     Not a transition  -  status folds from the lifecycle kinds (``core/status.py``), so a run
-    reporting ``"Searching GitHub"`` is still ``RUNNING``.
+    reporting ``"Searching GitHub"`` is still ``RUNNING``. And not an event about the runtime:
+    every other kind here says what AgentDeck did, this one says what the application said.
+
+    Four things a report can be, in one field rather than one kind each: three severities a
+    person reads, and a structured record a pipeline filters. A record's ``message`` is its own
+    name (``"candidate_found"``), so a reader that knows no schema still has something to show
+    and a consumer that does filters on the same string.
     """
 
-    kind: Literal["status.reported"] = "status.reported"
+    kind: Literal["report"] = "report"
+    level: Literal["info", "warning", "error", "record"] = "info"
     message: str = Field(min_length=1)
-
-
-class ProgressReported(CoreModel):
-    """Advisory: which named stage the run is on, optionally counted.
-
-    ``step`` is required; the counts are not, because a run that knows its stage often does not
-    know how many there are. Never a percentage  -  a consumer that wants one divides, and only
-    when ``total`` is present.
-    """
-
-    kind: Literal["progress.reported"] = "progress.reported"
-    step: str = Field(min_length=1)
-    current: NonNegativeInt | None = None
-    total: PositiveInt | None = None
-
-    @model_validator(mode="after")
-    def _current_within_total(self) -> ProgressReported:
-        if self.current is not None and self.total is not None and self.current > self.total:
-            raise ValueError(f"progress current={self.current} is past total={self.total}")
-        return self
+    fields: dict[str, JsonData] = Field(default_factory=dict)
 
 
 class Custom(CoreModel):
@@ -375,8 +359,7 @@ KnownPayload = Annotated[
     | ArtifactCreated
     | UsageReported
     | InputAppended
-    | StatusReported
-    | ProgressReported
+    | Reported
     | Custom,
     Field(discriminator="kind"),
 ]
@@ -430,13 +413,15 @@ class Event(CoreModel):
 
     @field_validator("v")
     @classmethod
-    def _major_version_must_be_supported(cls, value: SchemaVersion) -> SchemaVersion:
-        """A major bump means this reader may not understand the rest of the envelope either, so
-        it is refused outright rather than offered the unknown-kind path: that path only knows how
-        to skip a kind it has never seen, not a wire shape it was never taught."""
-        supported = CURRENT_VERSION.major
-        if value.major != supported:
-            raise ValueError(f"event major version {value.major} unsupported, this reader supports {supported}")
+    def _major_version_must_be_this_readers_own(cls, value: SchemaVersion) -> SchemaVersion:
+        """Another major is refused outright rather than offered the unknown-kind path: that path
+        only knows how to skip a kind it has never seen, not a wire shape it was never taught."""
+        if value.major != CURRENT_VERSION.major:
+            raise ValueError(
+                f"event major version {value.major} unsupported, this reader writes and reads "
+                f"major {CURRENT_VERSION.major}. An event log written by another major has to be "
+                "replayed into a new store, or read with the version of agentdeck that wrote it."
+            )
         return value
 
     @model_validator(mode="wrap")

@@ -117,7 +117,7 @@ def test_an_unknown_slug_answers_with_the_page_list(corpus: DocsCorpus) -> None:
 
 
 class _AsContext:
-    """Stands in for the ``Context`` the runtime injects  -  the tools only ever read ``.data``."""
+    """Stands in for the ``ToolCtx`` the runtime injects  -  the tools only ever read ``.data``."""
 
     def __init__(self, data: object) -> None:
         self.data = data

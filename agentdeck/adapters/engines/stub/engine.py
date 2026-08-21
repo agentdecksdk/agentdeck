@@ -40,6 +40,7 @@ class StubEngine(EnginePort):
     """
 
     engine: ClassVar[str] = "stub"
+    suspendable: ClassVar[bool] = True
 
     async def start(
         self,

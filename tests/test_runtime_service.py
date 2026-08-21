@@ -1026,16 +1026,16 @@ class _Reporting(StubEngine):
         played = 0
         async for payload in super().start(spec, input, history, ctx):
             if played == self._before:
-                await ctx.reporter.status("Searching GitHub")
-                await ctx.reporter.progress("Reviewing issues", current=2, total=4)
+                await ctx.reporter.info("Searching GitHub")
+                await ctx.reporter.report("issues_reviewed", current=2, total=4)
             played += 1
             yield payload
 
     async def resume(
         self, spec: InvocableSpec, thread_id: str, value: object, ctx: RunContext
     ) -> AsyncGenerator[KnownPayload, None]:
-        await ctx.reporter.status("Searching GitHub")
-        await ctx.reporter.progress("Reviewing issues", current=2, total=4)
+        await ctx.reporter.info("Searching GitHub")
+        await ctx.reporter.report("issues_reviewed", current=2, total=4)
         async for payload in super().resume(spec, thread_id, value, ctx):
             yield payload
 
@@ -1054,12 +1054,12 @@ async def test_a_run_that_reports_gets_its_reports_in_the_stream_in_order() -> N
     assert [event.kind for event in events] == [
         "run.started",
         "text.delta",
-        "status.reported",
-        "progress.reported",
+        "report",
+        "report",
         "run.completed",
     ]
-    assert events[2].payload.message == "Searching GitHub"
-    assert (events[3].payload.step, events[3].payload.current, events[3].payload.total) == ("Reviewing issues", 2, 4)
+    assert (events[2].payload.level, events[2].payload.message) == ("info", "Searching GitHub")
+    assert (events[3].payload.level, events[3].payload.fields) == ("record", {"current": 2, "total": 4})
     # Stamped like every other event  -  same run, same origin, contiguous seq  -  and persisted
     # before it was yielded, which is what lets a consumer refetch one it missed.
     assert {event.origin for event in events} == {"Greeter"}
@@ -1078,7 +1078,7 @@ async def test_a_report_made_during_the_last_thing_a_run_did_lands_before_the_te
         event async for event in runtime.run("Greeter", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
     ]
 
-    assert [event.kind for event in events[-2:]] == ["progress.reported", "run.completed"]
+    assert [event.kind for event in events[-2:]] == ["report", "run.completed"]
     assert check_terminal(await store.read(CTX.log_key, CTX)) is None
 
 
@@ -1095,7 +1095,7 @@ async def test_a_reporting_run_still_folds_to_the_status_its_lifecycle_says() ->
     run_id = events[0].run_id
 
     log = await store.read(CTX.log_key, CTX)
-    assert [event.kind for event in log if event.kind.endswith(".reported")] != []  # it did report
+    assert [event.kind for event in log if event.kind == "report"] != []  # it did report
     assert status_of(log) is RunStatus.COMPLETED
     assert [summary.run_id for summary in await store.list_runs(CTX, status=RunStatus.COMPLETED)] == [run_id]
 
@@ -1110,7 +1110,7 @@ async def test_two_concurrent_runs_never_drain_each_others_reports() -> None:
         async def start(
             self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
         ) -> AsyncGenerator[KnownPayload, None]:
-            await ctx.reporter.status(f"working on {ctx.session_id}")
+            await ctx.reporter.info(f"working on {ctx.session_id}")
             if ctx.session_id == "s-1":
                 entered.set()
                 await release.wait()
@@ -1129,8 +1129,8 @@ async def test_two_concurrent_runs_never_drain_each_others_reports() -> None:
     release.set()
     reported = await asyncio.wait_for(first, WEDGE_TIMEOUT)
 
-    assert [event.payload.message for event in reported if event.kind == "status.reported"] == ["working on s-1"]
-    assert [event.payload.message for event in second if event.kind == "status.reported"] == ["working on s-2"]
+    assert [event.payload.message for event in reported if event.kind == "report"] == ["working on s-1"]
+    assert [event.payload.message for event in second if event.kind == "report"] == ["working on s-2"]
 
 
 async def test_a_resumed_run_can_report_too() -> None:
@@ -1150,7 +1150,7 @@ async def test_a_resumed_run_can_report_too() -> None:
         )
     ]
 
-    assert [event.kind for event in resumed] == ["run.resumed", "status.reported", "progress.reported", "run.completed"]
+    assert [event.kind for event in resumed] == ["run.resumed", "report", "report", "run.completed"]
     log = await store.read(CTX.log_key, CTX)
     assert check_contiguous(log) == [] and check_terminal(log) is None
 
@@ -1159,7 +1159,7 @@ async def test_a_caller_built_context_reports_into_nothing() -> None:
     """Existing runs behave unchanged when no updates are emitted: a context nobody bound
     still accepts a report, drops it, and produces exactly the run it produced before."""
     ctx = replace(CTX, run_id="r-9")
-    await ctx.reporter.status("into the void")
+    await ctx.reporter.info("into the void")
 
     spec = stub_spec("Greeter", DONE)
     store = MemoryEventStore()
@@ -1188,8 +1188,10 @@ async def test_a_store_that_refuses_a_report_costs_the_report_not_the_run(caplog
         async def append(
             self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str
         ) -> list[Event]:
-            if any(payload.kind == "status.reported" for payload in payloads):
-                raise StoreError("this store has never heard of status.reported")
+            # One of the two reports, so the surviving one proves the cost was the report
+            # alone: both are the same kind now, so the refusal keys on what the report said.
+            if any(getattr(payload, "level", None) == "info" for payload in payloads):
+                raise StoreError("this store has never heard of an info report")
             return await super().append(log_key, payloads, ctx, origin)
 
     spec = stub_spec("Greeter", TextDelta(message_id="m1", text="hi back"), DONE)
@@ -1202,10 +1204,10 @@ async def test_a_store_that_refuses_a_report_costs_the_report_not_the_run(caplog
         ]
 
     # The run is untouched: it completes, and the report that survived is still in it.
-    assert [event.kind for event in events] == ["run.started", "text.delta", "progress.reported", "run.completed"]
+    assert [event.kind for event in events] == ["run.started", "text.delta", "report", "run.completed"]
     assert check_terminal(events) is None
     assert status_of(await store.read(CTX.log_key, CTX)) is RunStatus.COMPLETED
-    assert "could not record its status.reported" in caplog.text
+    assert "could not record its report" in caplog.text
     # No gap where the dropped report would have been: a seq is allocated inside the write, so a
     # refused write takes no number, and a hole in this log can only mean an event was truly lost.
     assert check_contiguous(await store.read(CTX.log_key, CTX)) == []

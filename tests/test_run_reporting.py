@@ -38,7 +38,7 @@ from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import DataBlock, coerce_input
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import Event, ProgressReported, RunCompleted, StatusReported, Usage
+from agentdeck.core.events import CURRENT_VERSION, Event, Reported, RunCompleted, Usage
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.runtime.service import Runtime
@@ -59,14 +59,12 @@ CTX = RunContext(namespace="acme", run_id="r-1", session_id="s-1")
 
 
 def _reports(events: Sequence[Event]) -> list[tuple[str, Any]]:
-    """The reported events, as (kind, what a UI would show)  -  the shape assertions read on."""
-    out: list[tuple[str, Any]] = []
-    for event in events:
-        if isinstance(event.payload, StatusReported):
-            out.append(("status.reported", event.payload.message))
-        elif isinstance(event.payload, ProgressReported):
-            out.append(("progress.reported", (event.payload.step, event.payload.current, event.payload.total)))
-    return out
+    """The reported events, as (level, message, fields)  -  the shape assertions read on."""
+    return [
+        (event.payload.level, event.payload.message, event.payload.fields)
+        for event in events
+        if isinstance(event.payload, Reported)
+    ]
 
 
 # --- an openai-agents function tool ----------------------------------------------------
@@ -126,8 +124,8 @@ class _CallsTheToolOnce(Model):
 @function_tool
 async def search_github(wrapper: RunContextWrapper[RunContext]) -> str:
     """Search GitHub, reporting what it is doing while it does."""
-    await wrapper.context.reporter.status("Searching GitHub")
-    await wrapper.context.reporter.progress("Reviewing issues", current=2, total=4)
+    await wrapper.context.reporter.info("Searching GitHub")
+    await wrapper.context.reporter.report("issues_reviewed", current=2, total=4)
     return "two open issues"
 
 
@@ -150,8 +148,8 @@ async def test_a_function_tool_reports_through_the_sdk_context() -> None:
     ]
 
     assert _reports(events) == [
-        ("status.reported", "Searching GitHub"),
-        ("progress.reported", ("Reviewing issues", 2, 4)),
+        ("info", "Searching GitHub", {}),
+        ("record", "issues_reviewed", {"current": 2, "total": 4}),
     ]
     # The ceiling, asserted rather than only documented (``core/reporting.py``): the reports are
     # drained at the engine's *next* payload, and this SDK emits both of a tool call's item
@@ -163,8 +161,8 @@ async def test_a_function_tool_reports_through_the_sdk_context() -> None:
         # One per finished model call, which is what makes two turns visible as two: the
         # terminal event's usage is the turn's cumulative total and cannot tell them apart.
         "usage.reported",
-        "status.reported",
-        "progress.reported",
+        "report",
+        "report",
         "tool.call.started",
         "tool.call.completed",
         "usage.reported",
@@ -187,8 +185,8 @@ class _State(TypedDict, total=False):
 async def _review(state: _State, config: RunnableConfig) -> dict[str, Any]:
     """A node reporting mid-graph, reaching the reporter through langgraph's own config."""
     reporter = config["configurable"][REPORTER_KEY]
-    await reporter.status("Reviewing issues")
-    await reporter.progress("Reviewing issues", current=2, total=4)
+    await reporter.info("Reviewing issues")
+    await reporter.report("issues_reviewed", current=2, total=4)
     return {"reviewed": 2}
 
 
@@ -216,11 +214,11 @@ async def test_a_workflow_node_reports_through_the_graph_config() -> None:
     ]
 
     assert _reports(events) == [
-        ("status.reported", "Reviewing issues"),
-        ("progress.reported", ("Reviewing issues", 2, 4)),
+        ("info", "Reviewing issues", {}),
+        ("record", "issues_reviewed", {"current": 2, "total": 4}),
     ]
     # The node's own update and the graph's final state still arrive, unchanged by the reports.
-    assert [event.kind for event in events if event.kind not in {"status.reported", "progress.reported"}] == [
+    assert [event.kind for event in events if event.kind != "report"] == [
         "run.started",
         "node.updated",
         "run.completed",
@@ -241,8 +239,8 @@ class _ReportingStub(StubEngine):
     async def start(
         self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
     ) -> AsyncGenerator[KnownPayload, None]:
-        await ctx.reporter.status("Searching GitHub")
-        await ctx.reporter.progress("Reviewing issues", current=2, total=4)
+        await ctx.reporter.info("Searching GitHub")
+        await ctx.reporter.report("issues_reviewed", current=2, total=4)
         async for payload in super().start(spec, input, history, ctx):
             yield payload
 
@@ -269,26 +267,26 @@ async def test_an_sse_client_receives_the_reports_in_order() -> None:
     ]
     assert [event.kind for event in frames] == [
         "run.started",
-        "status.reported",
-        "progress.reported",
+        "report",
+        "report",
         "run.completed",
     ]
     assert _reports(frames) == [
-        ("status.reported", "Searching GitHub"),
-        ("progress.reported", ("Reviewing issues", 2, 4)),
+        ("info", "Searching GitHub", {}),
+        ("record", "issues_reviewed", {"current": 2, "total": 4}),
     ]
 
 
-async def test_the_reference_renderer_prints_a_status_and_a_counted_stage(capsys) -> None:
+async def test_the_reference_renderer_prints_prose_and_a_record(capsys) -> None:
     async def lines() -> AsyncIterator[str]:
-        yield f"data: {_event(StatusReported(message='Searching GitHub')).model_dump_json()}"
-        yield f"data: {_event(ProgressReported(step='Reviewing issues', current=2, total=4)).model_dump_json()}"
-        yield f"data: {_event(ProgressReported(step='Wrapping up')).model_dump_json()}"
-        yield f"data: {_event(ProgressReported(step='Halfway', current=2)).model_dump_json()}"
+        yield f"data: {_event(Reported(level='info', message='Searching GitHub')).model_dump_json()}"
+        yield f"data: {_event(Reported(level='warning', message='Primary source down', fields={'source': 'drive'})).model_dump_json()}"
+        yield f"data: {_event(Reported(level='record', message='issues_reviewed', fields={'current': 2})).model_dump_json()}"
         # A kind this renderer has never heard of must not stop it  -  the default case is the
         # forward-compatibility promise, and a new kind is exactly when it gets tested.
         yield (
-            'data: {"v": {"major": 3, "minor": 0}, "kind": "future.thing", "seq": 4, "run_id": "r-1", '
+            f'data: {{"v": {{"major": {CURRENT_VERSION.major}, "minor": {CURRENT_VERSION.minor + 1}}}, '
+            '"kind": "future.thing", "seq": 4, "run_id": "r-1", '
             '"session_id": null, "namespace": "acme", "origin": "Searcher", "ts": "2026-01-01T12:00:00Z", '
             '"payload": {"whatever": 1}}'
         )
@@ -296,10 +294,9 @@ async def test_the_reference_renderer_prints_a_status_and_a_counted_stage(capsys
     await render(lines())
 
     assert capsys.readouterr().out.splitlines() == [
-        "[status] Searching GitHub",
-        "[progress] Reviewing issues (2/4)",
-        "[progress] Wrapping up",
-        "[progress] Halfway (2/?)",
+        "[info] Searching GitHub",
+        "[warning] Primary source down (source='drive')",
+        "[record] issues_reviewed (current=2)",
     ]
 
 

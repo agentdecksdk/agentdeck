@@ -22,14 +22,13 @@ from agentdeck.core import (
     DataBlock,
     Event,
     NodeUpdated,
-    ProgressReported,
+    Reported,
     RunCompleted,
     RunFailed,
     RunInterrupted,
     RunResumed,
     RunStarted,
     SchemaVersion,
-    StatusReported,
     TextBlock,
     TextDelta,
     ToolCallCompleted,
@@ -451,60 +450,48 @@ def test_the_free_form_fields_still_take_ordinary_json():
     assert UnknownEvent(kind="ns.later", raw_payload=nested).raw_payload == nested
 
 
-# --- status and progress reports (#47) -------------------------------------------------
+# --- reports (#47) ---------------------------------------------------------------------
 
 
-def test_a_status_message_must_say_something():
-    StatusReported(message="Searching GitHub")
+def test_a_report_must_say_something():
+    Reported(level="info", message="Searching GitHub")
     with pytest.raises(ValidationError):
-        StatusReported(message="")
+        Reported(level="info", message="")
 
 
-def test_a_stage_needs_a_name_but_not_a_count():
-    """Named stages alone are valid, per the issue: the counts are the optional half, not the step."""
-    assert ProgressReported(step="Reviewing issues").current is None
-    assert ProgressReported(step="Reviewing issues", current=3).total is None
-    assert ProgressReported(step="Reviewing issues", total=4).current is None
+def test_a_report_carries_whatever_fields_the_caller_named():
+    """The structured half: a record is its name plus arbitrary JSON, so a consumer filters on
+    the name and reads the rest without a schema per report type."""
+    assert Reported(level="record", message="candidate_found", fields={"score": 0.91}).fields == {"score": 0.91}
+    assert Reported(level="info", message="Searching").fields == {}
+
+
+def test_a_level_outside_the_four_is_refused():
+    """Three severities and a record, and nothing else: a fifth would be a vocabulary a
+    consumer has no rule for."""
     with pytest.raises(ValidationError):
-        ProgressReported(step="")
-
-
-def test_progress_past_its_own_total_is_refused():
-    """The one arithmetic a caller can get wrong, caught at the call rather than in a UI
-    rendering "6 of 4"."""
-    ProgressReported(step="Reviewing issues", current=4, total=4)
-    with pytest.raises(ValidationError, match="past total"):
-        ProgressReported(step="Reviewing issues", current=5, total=4)
-
-
-def test_progress_counts_are_refused_below_their_floors():
-    with pytest.raises(ValidationError):
-        ProgressReported(step="Reviewing issues", current=-1)
-    with pytest.raises(ValidationError):
-        ProgressReported(step="Reviewing issues", total=0)  # "2 of 0" is not a count
+        Reported(level="debug", message="noisy")
 
 
 def test_a_report_moves_nothing_and_terminates_nothing(examples, make_event):
     """The whole reason these are not lifecycle kinds. A run reporting "Searching GitHub" is
     still RUNNING, and a log of nothing but reports has still not ended."""
-    reporting = _run(examples, make_event, "run.started", "status.reported", "progress.reported")
+    reporting = _run(examples, make_event, "run.started", "report")
     assert status_of(reporting) is RunStatus.RUNNING
     assert check_terminal(reporting) == "no terminal event"
 
-    done = [*reporting, make_event(examples["run.completed"].payload, 3)]
+    done = [*reporting, make_event(examples["run.completed"].payload, 2)]
     assert status_of(done) is RunStatus.COMPLETED
     assert check_terminal(done) is None
 
-    assert not {"status.reported", "progress.reported"} & (LIFECYCLE_KINDS | TERMINAL_KINDS)
+    assert "report" not in (LIFECYCLE_KINDS | TERMINAL_KINDS)
 
 
 def test_a_run_that_never_reports_folds_to_the_same_status(examples, make_event):
     """Existing runs behave unchanged when no updates are emitted, as an assertion: the two
     logs differ only by reports, so any status difference would be the reports' doing."""
     quiet = _run(examples, make_event, "run.started", "text.delta", "run.completed")
-    noisy = _run(
-        examples, make_event, "run.started", "status.reported", "text.delta", "progress.reported", "run.completed"
-    )
+    noisy = _run(examples, make_event, "run.started", "report", "text.delta", "run.completed")
     assert status_of(quiet) is status_of(noisy)
     assert check_terminal(quiet) is check_terminal(noisy) is None
 
@@ -632,3 +619,13 @@ def test_a_resume_that_cannot_be_carried_through_returns_the_run_to_waiting(exam
     repaired = [*stranded, make_event(examples["run.interrupted"].payload, 3)]
     assert status_of(repaired) is RunStatus.WAITING_ANSWER
     assert check_terminal(repaired) == "no terminal event"
+
+
+def test_a_log_written_by_the_previous_major_is_refused_by_name():
+    """v5.0.0 does not read a v4 log, and the refusal has to say so: this is the case an operator
+    meets on upgrade, and a bare "unsupported" would leave them with a store that stopped loading
+    and no idea that replaying it is the answer."""
+    wire = _wire("run.paused", {"kind": "run.paused", "reason": "operator stepped away"})
+
+    with pytest.raises(ValidationError, match="replayed into a new store"):
+        Event.model_validate({**wire, "v": {"major": CURRENT_VERSION.major - 1, "minor": 1}})

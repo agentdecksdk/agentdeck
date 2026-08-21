@@ -14,11 +14,12 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from agentdeck.core.events import ProgressReported, StatusReported
+from agentdeck.core.events import Reported
 
 if TYPE_CHECKING:
     from collections import deque
 
+    from agentdeck.core.base import JsonData
     from agentdeck.core.events import KnownPayload
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ MAX_PENDING_REPORTS = 64
 
 
 class Reporter:
-    """One run's out-of-band report channel: ``status`` in prose, ``progress`` in stages.
+    """One run's out-of-band report channel: three levels of prose, plus named records.
 
     With no buffer  -  the default  -  both methods still validate and then drop the result, so an
     emitter learns its numbers are nonsense even outside a wired run.
@@ -49,17 +50,28 @@ class Reporter:
     def __init__(self, pending: deque[KnownPayload] | None = None) -> None:
         self._pending = pending
 
-    async def status(self, message: str) -> None:
+    async def info(self, message: str, **fields: JsonData) -> None:
         """Report what the run is doing now, for a person to read. ``message`` must not be empty.
 
         Async so a channel that one day waits  -  a queue, a transport  -  need not change its
         callers. Nothing here awaits today.
         """
-        self._offer(StatusReported(message=message))
+        self._offer(Reported(level="info", message=message, fields=fields))
 
-    async def progress(self, step: str, *, current: int | None = None, total: int | None = None) -> None:
-        """Report a named stage, optionally counted. Raises if ``current`` is past ``total``."""
-        self._offer(ProgressReported(step=step, current=current, total=total))
+    async def warning(self, message: str, **fields: JsonData) -> None:
+        """Report something the run worked around: a fallback taken, a source unavailable."""
+        self._offer(Reported(level="warning", message=message, fields=fields))
+
+    async def error(self, message: str, **fields: JsonData) -> None:
+        """Report something the run could not do. Advisory either way: reporting an error is not
+        failing the run, which is what raising does."""
+        self._offer(Reported(level="error", message=message, fields=fields))
+
+    async def report(self, name: str, **fields: JsonData) -> None:
+        """Record a named, structured fact  -  ``report("candidate_found", score=0.91)``  -  for a
+        consumer that filters rather than reads. The name is the record's message, so a reader
+        that knows nothing about it still has something to show."""
+        self._offer(Reported(level="record", message=name, fields=fields))
 
     def _offer(self, payload: KnownPayload) -> None:
         if self._pending is None:

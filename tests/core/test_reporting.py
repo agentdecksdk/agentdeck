@@ -2,8 +2,8 @@
 
 The default reporter is the one most code will meet  -  a ``RunContext`` a caller built, a
 context reused outside a run  -  and it has to be indistinguishable from a wired one except that
-nobody reads the result. Including for a *bad* call: an emitter that only finds out its numbers
-are nonsense when it happens to run under a Runtime has no way to test itself.
+nobody reads the result. Including for a *bad* call: an emitter that only finds out its report is
+malformed when it happens to run under a Runtime has no way to test itself.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from agentdeck.core import ProgressReported, Reporter, RunContext, StatusReported
+from agentdeck.core import Reported, Reporter, RunContext
 from agentdeck.core.reporting import MAX_PENDING_REPORTS
 
 if TYPE_CHECKING:
@@ -30,43 +30,61 @@ def _pending() -> tuple[Reporter, deque[KnownPayload]]:
 
 async def test_a_report_becomes_a_payload_in_the_order_it_was_made() -> None:
     reporter, buffer = _pending()
-    await reporter.status("Searching GitHub")
-    await reporter.progress("Reviewing issues", current=2, total=4)
+    await reporter.info("Searching GitHub")
+    await reporter.warning("Primary source unavailable", source="drive")
     assert list(buffer) == [
-        StatusReported(message="Searching GitHub"),
-        ProgressReported(step="Reviewing issues", current=2, total=4),
+        Reported(level="info", message="Searching GitHub"),
+        Reported(level="warning", message="Primary source unavailable", fields={"source": "drive"}),
+    ]
+
+
+async def test_the_four_methods_differ_only_in_level() -> None:
+    """One payload, four things it can be: three severities a person reads and a record a
+    consumer filters. A record's name is its message, so a reader with no schema still has
+    something to show."""
+    reporter, buffer = _pending()
+    await reporter.info("looking")
+    await reporter.warning("degraded")
+    await reporter.error("index lookup failed", index="customers")
+    await reporter.report("candidate_found", score=0.91)
+
+    assert [(payload.level, payload.message) for payload in buffer] == [
+        ("info", "looking"),
+        ("warning", "degraded"),
+        ("error", "index lookup failed"),
+        ("record", "candidate_found"),
     ]
 
 
 async def test_the_default_reporter_drops_instead_of_raising() -> None:
     """A context nothing is draining must not fail the code that reports into it."""
     ctx = RunContext(namespace="acme", run_id="r-1")
-    await ctx.reporter.status("nobody is listening")
-    await ctx.reporter.progress("still nobody", current=1, total=2)
+    await ctx.reporter.info("nobody is listening")
+    await ctx.reporter.report("still_nobody", n=1)
 
 
 async def test_the_default_reporter_still_validates() -> None:
     """Dropped is not unvalidated: the same call fails the same way wired or not, so a tool's
-    own tests catch a bad count without a Runtime."""
+    own tests catch an empty report without a Runtime."""
     reporter = Reporter()
-    with pytest.raises(ValidationError, match="past total"):
-        await reporter.progress("Reviewing issues", current=9, total=4)
     with pytest.raises(ValidationError):
-        await reporter.status("")
+        await reporter.info("")
+    with pytest.raises(ValidationError):
+        await reporter.report("")
 
 
 async def test_a_flood_is_bounded_dropping_the_newest_and_saying_so(caplog) -> None:
     """The buffer is filled by an invocable's own code, so it is bounded. The front survives:
-    a progress sequence read with its beginning missing looks like a run that started at 40.
+    a sequence read with its beginning missing looks like a run that started at 40.
     """
     reporter, buffer = _pending()
     with caplog.at_level(logging.WARNING, logger="agentdeck.core.reporting"):
         for n in range(MAX_PENDING_REPORTS + 5):
-            await reporter.progress("step", current=n, total=MAX_PENDING_REPORTS + 10)
+            await reporter.report("step", n=n)
 
     assert len(buffer) == MAX_PENDING_REPORTS
-    assert [payload.current for payload in buffer] == list(range(MAX_PENDING_REPORTS))
-    assert "dropping progress.reported" in caplog.text
+    assert [payload.fields["n"] for payload in buffer] == list(range(MAX_PENDING_REPORTS))
+    assert "dropping report" in caplog.text
 
 
 async def test_a_drained_buffer_takes_reports_again() -> None:
@@ -74,7 +92,7 @@ async def test_a_drained_buffer_takes_reports_again() -> None:
     limit, not a per-run quota."""
     reporter, buffer = _pending()
     for n in range(MAX_PENDING_REPORTS):
-        await reporter.progress("step", current=n)
+        await reporter.report("step", n=n)
     buffer.clear()
-    await reporter.status("still reporting")
-    assert list(buffer) == [StatusReported(message="still reporting")]
+    await reporter.info("still reporting")
+    assert list(buffer) == [Reported(level="info", message="still reporting")]

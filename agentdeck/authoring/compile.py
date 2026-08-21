@@ -14,7 +14,7 @@ resolver callbacks a ``Deck`` supplies; an ``Agent`` built with neither configur
 clear ``ConfigError`` naming what is missing, instead of silently dropping what it declared.
 
 A bare callable in ``tools=`` is **compiled** here, by ``tools.compile_tool``  -  a plain function
-is the canonical way to declare a tool, and a function annotated ``Context[...]`` can only be
+is the canonical way to declare a tool, and a function annotated ``ToolCtx[...]`` can only be
 declared that way, since ``@function_tool`` applied by the author would put the context parameter
 in the model-visible schema. This used to be a rejection ("wrap it with ``@function_tool``"), for
 the good reason that an uncompiled callable reached the SDK and failed mid-run with a ``UserError``
@@ -28,7 +28,7 @@ buys, which is the same trade the sentence above names, not a second one.
 
 ``instructions=`` and ``hooks=`` go through that same compiler rather than a mechanism each:
 a callable in ``instructions=`` becomes the SDK's dynamic-instructions shape, and a hooks object
-whose methods declare ``Context[...]`` has those methods bridged. Both are no-ops for what was
+whose methods declare ``ToolCtx[...]`` has those methods bridged. Both are no-ops for what was
 already accepted  -  a plain string, and hooks that name the SDK's own wrapper.
 
 ``refresh_mcp_status`` is a second pass over MCP status specifically, the same shape as
@@ -102,7 +102,7 @@ def compile_agent(
     configured) must be the one to say why, not the compiled agent by omission.
 
     ``context_type`` is the owning deck's ``Deck(context=...)`` declaration, checked against
-    every ``Context[...]`` this agent's tools, instructions and hooks require.
+    every ``ToolCtx[...]`` this agent's tools, instructions and hooks require.
     """
     banner, mcp_servers = _resolve_mcp(agent)
     disclosure = ""

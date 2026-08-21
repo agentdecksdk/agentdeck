@@ -158,7 +158,7 @@ class Runtime:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
 
         ``context`` is the application's own value for this run, reaching a callable that declares
-        a ``Context[...]`` parameter and nothing else. It is held by reference for the run's whole
+        a ``ToolCtx[...]`` parameter and nothing else. It is held by reference for the run's whole
         life and never written to the log  -  the record says what a run was asked to do, not which
         live objects it held.
 
@@ -766,6 +766,13 @@ class Runtime:
         """Public wrapper over :meth:`_find`, for a caller that only needs to know where a run
         lives and what state it is in  -  :meth:`status`, and ``deck.runs.get``'s own lookup."""
         return await self._find(run_id, self._context(run_id=run_id, namespace=namespace))
+
+    def suspends(self, name: str) -> bool:
+        """Whether the engine behind ``name`` can pause and later continue a run of it  -  the
+        capability half of ``run.can`` (:func:`~agentdeck.core.status.can_of`). Sync, because
+        it is a lookup in the catalog this Runtime was built with and never a store read."""
+        _, engine = self._resolve(name)
+        return engine.suspendable
 
     async def status(self, run_id: str, *, namespace: str | None = None) -> RunStatus | None:
         """This run's current status, or ``None`` if this namespace has never heard of it.

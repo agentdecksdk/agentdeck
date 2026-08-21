@@ -37,6 +37,17 @@ class EnginePort(ABC):
     engine: ClassVar[str]
     """Matches ``InvocableSpec.engine``; the Runtime selects the engine on it."""
 
+    suspendable: ClassVar[bool]
+    """Whether a run on this engine can be paused and later continued.
+
+    Declared, not implemented: pause and resume are the Runtime's, through the control port and
+    the cooperative :class:`~agentdeck.core.control.Gate`, so what an engine says here is only
+    whether it reaches a point where either can be applied. It is one flag rather than two
+    because a run that can stop but never continue is not an AgentDeck pause
+    (``docs/design/execution-api.md``), and :func:`~agentdeck.core.status.can_of` is the only
+    reader.
+    """
+
     @abstractmethod
     def start(
         self,

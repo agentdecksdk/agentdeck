@@ -77,8 +77,7 @@ Advisory. These describe progress; they never change status.
 
 | Kind | Payload | Notes |
 |---|---|---|
-| `status.reported` | `message` | What the run is doing now, in words a person can read |
-| `progress.reported` | `step`, `current`, `total` | Which named stage, optionally counted |
+| `report` | `level`, `message`, `fields` | What the running code said about itself: `info`, `warning` and `error` are prose a person reads, `record` is a named fact a consumer filters |
 | `usage.reported` | `model`, `usage` | One model call. The total on `run.completed` wins |
 
 ## Other

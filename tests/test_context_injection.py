@@ -1,4 +1,4 @@
-"""Reading a user callable's signature: is a ``Context`` declared, which ``T``, what is left for
+"""Reading a user callable's signature: is a ``ToolCtx`` declared, which ``T``, what is left for
 the model, and could any of it be established at all.
 
 This module uses postponed annotations, so every subject defined here carries source strings
@@ -20,7 +20,7 @@ import context_injection_subjects
 import pytest
 
 from agentdeck.authoring.injection import analyze_callable
-from agentdeck.core.context import Context  # noqa: TC001  -  the subjects below must resolve it at runtime
+from agentdeck.core.context import ToolCtx  # noqa: TC001  -  the subjects below must resolve it at runtime
 from agentdeck.errors import ConfigError
 
 
@@ -35,13 +35,13 @@ class Ledger:
 def no_context(date: str, attendees: int) -> None: ...
 
 
-def one_context(date: str, environment: Context[Calendar]) -> None: ...
+def one_context(date: str, environment: ToolCtx[Calendar]) -> None: ...
 
 
-def two_contexts(here: Context[Calendar], also_here: Context[Ledger]) -> None: ...
+def two_contexts(here: ToolCtx[Calendar], also_here: ToolCtx[Ledger]) -> None: ...
 
 
-def bare_context(date: str, ctx: Context) -> None: ...  # no type argument, on purpose
+def bare_context(date: str, ctx: ToolCtx) -> None: ...  # no type argument, on purpose
 
 
 def unresolvable(value: NeverDefined) -> None: ...  # noqa: F821  -  the point is that it never resolves
@@ -63,22 +63,22 @@ def destroying(fn):
 
 
 @preserving
-def wrapped(date: str, environment: Context[Calendar]) -> None: ...
+def wrapped(date: str, environment: ToolCtx[Calendar]) -> None: ...
 
 
 @destroying
-def obscured(date: str, environment: Context[Calendar]) -> None: ...
+def obscured(date: str, environment: ToolCtx[Calendar]) -> None: ...
 
 
 class Bookings:
-    def reserve(self, date: str, environment: Context[Calendar]) -> None: ...
+    def reserve(self, date: str, environment: ToolCtx[Calendar]) -> None: ...
 
 
 def _names(analysis) -> list[str]:
     return [parameter.name for parameter in analysis.visible_parameters]
 
 
-# --- how many Context parameters -------------------------------------------------------------
+# --- how many ToolCtx parameters -------------------------------------------------------------
 
 
 def test_a_callable_declaring_no_context_is_an_ordinary_callable() -> None:
@@ -114,7 +114,7 @@ def test_two_context_parameters_are_a_configuration_error_naming_the_callable() 
 
 
 def test_a_context_without_a_type_argument_still_injects() -> None:
-    """Reading a bare ``Context`` as an ordinary parameter would hand it to the schema builder,
+    """Reading a bare ``ToolCtx`` as an ordinary parameter would hand it to the schema builder,
     which is exactly the leak the context rule forbids."""
     analysis = analyze_callable(bare_context)
 
@@ -209,7 +209,7 @@ def test_analysis_keeps_the_original_callable_rather_than_a_replacement() -> Non
 
 
 def test_analysis_preserves_parameter_kinds() -> None:
-    def keyword_only(date: str, *, environment: Context[Calendar], attendees: int = 1) -> None: ...
+    def keyword_only(date: str, *, environment: ToolCtx[Calendar], attendees: int = 1) -> None: ...
 
     analysis = analyze_callable(keyword_only)
 
