@@ -12,20 +12,18 @@ import socket
 import sys
 import textwrap
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from agents import WebSearchTool, function_tool
-from langgraph.graph import END, StateGraph
 from pydantic import BaseModel
 
+from agentdeck import WorkflowCtx, workflow
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
-from agentdeck.authoring import Agent, Workflow
-from agentdeck.authoring.timers import sleep_until
+from agentdeck.authoring import Agent
 from agentdeck.core.content import coerce_input
-from agentdeck.core.context import RunContext, ToolCtx  # noqa: TC001  -  the node below resolves it at runtime
+from agentdeck.core.context import RunContext  # noqa: TC001  -  the node below resolves it at runtime
 from agentdeck.core.control import Signal
 from agentdeck.core.events import RunStarted
 from agentdeck.core.status import RunStatus
@@ -42,6 +40,9 @@ from agentdeck.errors import (
 from agentdeck.mcp import MCP
 from agentdeck.skills import Skills
 from agentdeck.testing import ScriptedModel, patch_model
+
+if TYPE_CHECKING:
+    from agentdeck.authoring.native import NativeDefinition
 
 
 def _greeter(name: str = "Greeter", **kwargs: Any) -> Agent:
@@ -83,64 +84,22 @@ def mcp_connect(monkeypatch):
     return refuse
 
 
-class _State(BaseModel):
-    input: str = ""
-    shouted: str = ""
+def _shout_workflow(name: str = "Shout") -> NativeDefinition:
+    async def shout(ctx: WorkflowCtx, input: str = "") -> dict[str, str]:
+        return {"input": input, "shouted": input.upper()}
+
+    return workflow(shout, name=name)
 
 
-def _build_shout_graph() -> StateGraph:
-    graph = StateGraph(_State)
-    graph.add_node("shout", lambda s: {"shouted": s.input.upper()})
-    graph.set_entry_point("shout")
-    graph.add_edge("shout", END)
-    return graph
+def _approval_workflow(name: str = "Approval") -> NativeDefinition:
+    """Parks on ``ctx.ask`` and continues on the next line once answered  -  the shape every
+    pending/answer case below drives."""
 
+    async def approval(ctx: WorkflowCtx, request: str = "") -> dict[str, str]:
+        decision = await ctx.ask(request, options=["yes", "no"])
+        return {"request": request, "decision": decision, "outcome": f"yes:{request}" if decision == "yes" else "no"}
 
-def _shout_workflow(name: str = "Shout") -> Workflow:
-    return Workflow(name=name, state=_State, graph=_build_shout_graph)
-
-
-class _ApprovalState(BaseModel):
-    request: str = ""
-    decision: str = ""
-    outcome: str = ""
-
-
-def _build_approval_graph() -> StateGraph:
-    from langgraph.types import interrupt
-
-    graph = StateGraph(_ApprovalState)
-    graph.add_node("ask", lambda s: {"decision": interrupt({"question": s.request})})
-    graph.add_node("approved", lambda s: {"outcome": "yes:" + s.request})
-    graph.add_node("rejected", lambda s: {"outcome": "no"})
-    graph.set_entry_point("ask")
-    graph.add_conditional_edges(
-        "ask",
-        lambda s: "approved" if s.decision == "yes" else "rejected",
-        {"approved": "approved", "rejected": "rejected"},
-    )
-    graph.add_edge("approved", END)
-    graph.add_edge("rejected", END)
-    return graph
-
-
-def _approval_workflow(name: str = "Approval") -> Workflow:
-    return Workflow(name=name, state=_ApprovalState, durable=True, graph=_build_approval_graph)
-
-
-class _TimerState(BaseModel):
-    woke_at: str = ""
-
-
-def _timer_workflow(name: str, when: Any) -> Workflow:
-    def _build_graph() -> StateGraph:
-        graph = StateGraph(_TimerState)
-        graph.add_node("wait", lambda s: {"woke_at": str(sleep_until(when))})
-        graph.set_entry_point("wait")
-        graph.add_edge("wait", END)
-        return graph
-
-    return Workflow(name=name, state=_TimerState, durable=True, graph=_build_graph)
+    return workflow(approval, name=name)
 
 
 def _write_skill(root, dirname: str, *, description: str = "does a thing") -> None:
@@ -181,13 +140,12 @@ async def test_deck_builds_and_runs_an_agent_with_no_project_on_disk(no_project,
 
 
 @pytest.mark.asyncio
-async def test_deck_runs_a_workflow_with_no_project_on_disk(no_project, monkeypatch):
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
+async def test_deck_runs_a_workflow_with_no_project_on_disk(no_project):
     deck = Deck(workflows=[_shout_workflow()])
     deck.build()
 
     async with deck:
-        result = await deck.run("Shout", {"input": "hi"})
+        result = await deck.run("Shout", "hi")
 
     assert result == {"input": "hi", "shouted": "HI"}
 
@@ -208,22 +166,11 @@ def test_from_project_matches_the_equivalent_code_first_deck(tmp_path, monkeypat
     (root / "workflows" / "shout").mkdir(parents=True)
     (root / "workflows" / "shout" / "workflow.py").write_text(
         textwrap.dedent("""
-        from langgraph.graph import END, StateGraph
-        from pydantic import BaseModel
-        from agentdeck.authoring import Workflow
+        from agentdeck import WorkflowCtx, workflow
 
-        class State(BaseModel):
-            input: str = ""
-            shouted: str = ""
-
-        def _build_graph():
-            g = StateGraph(State)
-            g.add_node("shout", lambda s: {"shouted": s.input.upper()})
-            g.set_entry_point("shout")
-            g.add_edge("shout", END)
-            return g
-
-        shout = Workflow(name="Shout", state=State, graph=_build_graph)
+        @workflow(name="Shout")
+        async def shout(ctx: WorkflowCtx, input: str = "") -> dict[str, str]:
+            return {"input": input, "shouted": input.upper()}
         """)
     )
     _write_skill(root / "skills", "booking", description="Books things.")
@@ -480,31 +427,6 @@ def test_declaring_mcp_with_no_mcp_configured_at_all_fails_build():
     deck = Deck(agents=[_greeter(mcp=["calendar"])])
 
     with pytest.raises(ConfigError, match="no mcp="):
-        deck.build()
-
-
-def test_agent_workflow_tool_not_registered_fails_build():
-    stray = _shout_workflow(name="NotRegistered")
-    deck = Deck(agents=[_greeter(tools=[stray])])  # `stray` is not in workflows=
-
-    with pytest.raises(ConfigError, match="NotRegistered"):
-        deck.build()
-
-
-def test_agent_workflow_tool_that_is_registered_builds_cleanly():
-    workflow = _shout_workflow(name="Registered")
-    deck = Deck(agents=[_greeter(tools=[workflow])], workflows=[workflow])
-
-    deck.build()  # no raise
-
-
-def test_a_durable_workflow_used_as_a_tool_fails_build_naming_both():
-    """`as_tool()` calls `run(args)` with no thread_id, which a durable workflow requires, so
-    the tool raised the moment a model called it  -  after building clean (#193)."""
-    durable = Workflow(name="Durable", state=_State, graph=_build_shout_graph, durable=True)
-    deck = Deck(agents=[_greeter(tools=[durable])], workflows=[durable])
-
-    with pytest.raises(ConfigError, match="Greeter.*Durable.*durable=True"):
         deck.build()
 
 
@@ -882,10 +804,10 @@ def test_engines_seam_restricts_which_engines_a_catalog_may_use(no_project):
 def test_engines_seam_accepts_the_matching_default_engines(no_project):
     """The same seam, given the real default engine names, builds exactly like the default
     constructor  -  proving the restriction above comes from the *set*, not the seam itself."""
-    from agentdeck.adapters.executors.langgraph import LangGraphExecutor
+    from agentdeck.adapters.executors.native import NativeExecutor
     from agentdeck.adapters.executors.openai_agents import OpenAIAgentsExecutor
 
-    deck = Deck(agents=[_greeter()], _executors=(OpenAIAgentsExecutor.name, LangGraphExecutor.name))
+    deck = Deck(agents=[_greeter()], _executors=(OpenAIAgentsExecutor.name, NativeExecutor.name))
 
     deck.build()  # no raise
 
@@ -931,19 +853,6 @@ def _reader_ctx(session_id: str | None) -> RunContext:
     """A throwaway context of the Deck's own namespace, for reading its log back in a test  -
     exactly what ``serve.py``'s compat routes build for an HTTP request."""
     return RunContext(run_id="reader", session_id=session_id)
-
-
-@pytest.mark.asyncio
-async def test_run_with_no_input_defaults_a_workflow_to_an_empty_object(no_project, monkeypatch):
-    """``state=None``'s old meaning ("no updates") has to survive wrapping it in a
-    ``DataBlock``, which cannot carry ``None`` as a graph's state."""
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
-    deck = Deck(workflows=[_shout_workflow()])
-
-    async with deck:
-        out = await deck.run("Shout", None)
-
-    assert out == {"shouted": ""}
 
 
 @pytest.mark.asyncio
@@ -1165,73 +1074,6 @@ async def test_a_run_recovered_by_another_deck_can_be_observed_and_awaited(no_pr
     assert recovered == result
 
 
-class _CtxApprovalState(BaseModel):
-    request: str = ""
-    seen: str = ""
-    decision: str = ""
-
-
-def _ask_with_context(state: _CtxApprovalState, environment: ToolCtx[str]) -> dict:
-    from langgraph.types import interrupt
-
-    decision = interrupt({"question": state.request})
-    return {"decision": decision, "seen": str(environment.data)}
-
-
-def _build_ctx_approval_graph() -> StateGraph:
-    graph = StateGraph(_CtxApprovalState)
-    graph.add_node("ask", _ask_with_context)
-    graph.set_entry_point("ask")
-    graph.add_edge("ask", END)
-    return graph
-
-
-def _ctx_approval_workflow() -> Workflow:
-    """Pauses on ``interrupt()`` and reads its environment  -  the node re-runs from its start on
-    resume, so ``ctx.data`` is what proves whether the context that answered it is the one that
-    started it, or ``None`` because none did."""
-    return Workflow(name="CtxApproval", state=_CtxApprovalState, durable=True, graph=_build_ctx_approval_graph)
-
-
-@pytest.mark.asyncio
-async def test_a_restarted_deck_recovers_durable_state_but_not_ephemeral_context(no_project, monkeypatch):
-    """The ``Restart`` row: persist a run, rebuild the deck, ``get(id)``  -  durable status,
-    history and result all survive; the context a live process held for it does not, because it
-    was never written down (docs/design/run-identity.md §6, §14).
-    """
-    from agentdeck.runtime.settings import reset_settings_cache
-
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")  # the process-wide saver, see below
-    reset_settings_cache()
-    try:
-        store = MemoryEventStore()
-        deck_a = Deck(workflows=[_ctx_approval_workflow()], _store=store)
-        async with deck_a:
-            paused = await deck_a.run("CtxApproval", {"request": "tue 9am"}, session_id="t-restart", context="alive")
-            assert paused["type"] == "interrupt"
-            run_id = paused["id"]
-
-        # A fresh Deck over the same durable stores  -  everything deck_a held in memory (its own
-        # process, its own `context="alive"`) is gone; only what was written survives. The
-        # checkpointer is the process-wide memory saver both decks share (a real restart would
-        # use a durable one instead), which is exactly what lets `resume` below find the paused
-        # thread at all.
-        deck_b = Deck(workflows=[_ctx_approval_workflow()], _store=store)
-        async with deck_b:
-            recovered = await deck_b.runs.get(run_id)
-            assert await recovered.status() is RunStatus.WAITING_ANSWER
-            history = [event async for event in recovered.events()]
-            assert [e.kind for e in history] == ["run.started", "run.interrupted"]
-
-            await recovered.answer("yes")
-            result = await recovered
-    finally:
-        reset_settings_cache()
-
-    assert result["decision"] == "yes"
-    assert result["seen"] == "None"  # not "alive": deck_a's context never reached the log
-
-
 @pytest.mark.asyncio
 async def test_deck_run_and_start_then_await_produce_identical_logs(no_project, scripted):
     deck = Deck(agents=[_greeter()])
@@ -1264,10 +1106,9 @@ async def test_a_finished_runs_execution_task_is_retired_promptly(no_project, sc
 @pytest.mark.asyncio
 async def test_closing_a_deck_cancels_a_run_still_in_flight_and_says_so(no_project, caplog):
     """``aclose()`` settles or cancels every run it is still executing, and says which
-    (docs/design/run-identity.md §9)  -  the same discipline the sweeper already uses
-    (``deck.py``'s ``_sweep``). A run genuinely mid-turn when the deck closes has no chance to
-    finish on its own, so it is cancelled, and the Runtime's own ``asyncio.CancelledError`` arm
-    is what writes ``run.cancelled`` for it."""
+    (docs/design/run-identity.md §9). A run genuinely mid-turn when the deck closes has no
+    chance to finish on its own, so it is cancelled, and the Runtime's own
+    ``asyncio.CancelledError`` arm is what writes ``run.cancelled`` for it."""
     hold = asyncio.Event()  # never set: this run is held for the deck's whole lifetime
     model = ScriptedModel(deltas=("one", "two"), hold=hold)
     deck = Deck(agents=[_greeter()])
@@ -1275,7 +1116,10 @@ async def test_closing_a_deck_cancels_a_run_still_in_flight_and_says_so(no_proje
     with patch_model(model), caplog.at_level("INFO"):
         async with deck:
             opening, task = await deck._start("Greeter", coerce_input("hi"), session_id="s1")
-            await model.holding.wait()
+            # `holding` is announced one line before the model parks, so a cancel in that same
+            # tick reaches a turn the SDK has not suspended yet and is swallowed (#412). Waiting
+            # for the delta it wrote first is the observable that the turn is genuinely parked.
+            await _wait_until(lambda: _has_delta(deck, "s1"))
             assert not task.done()
         assert task.cancelled()
 
@@ -1600,20 +1444,19 @@ async def test_pending_lists_a_paused_run_and_answer_completes_it(no_project, mo
     inbox, gets a handle on one, answers it  -  no name, thread id, or session id by hand."""
     from agentdeck.runtime.settings import reset_settings_cache
 
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     reset_settings_cache()
     try:
         deck = Deck(workflows=[_approval_workflow()])
 
         async with deck:
-            paused = await deck.run("Approval", {"request": "tue 9am"}, session_id="t-1")
+            paused = await deck.run("Approval", "tue 9am", session_id="t-1")
             assert paused["type"] == "interrupt"
 
             [run] = await deck.runs.list(status=RunStatus.WAITING_ANSWER)
             assert run.id  # minted by the Runtime, not supplied by the caller
             pending = await run.pending()
             assert pending is not None
-            assert pending["thread_id"] == "t-1"
+            assert pending["payload"]["question"] == "tue 9am"
 
             await run.answer("yes")
             result = await run
@@ -1641,19 +1484,13 @@ async def test_a_waiter_wakes_on_a_parked_run_rather_than_hanging(no_project, mo
     """
     from agentdeck.runtime.settings import reset_settings_cache
 
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     reset_settings_cache()
     try:
         deck = Deck(workflows=[_approval_workflow()])
         async with deck:
-            run = await deck.runs.start("Approval", {"request": "tue 9am"}, session_id="t-wake")
+            run = await deck.runs.start("Approval", "tue 9am", session_id="t-wake")
             with pytest.raises(RunSuspendedError):
                 await asyncio.wait_for(run, timeout=5)
-            # Answered rather than left parked: the durable LangGraph checkpointer is a
-            # process-wide singleton (`@cache`) that every workflow's own `pending()` walks
-            # unfiltered by name, so a thread left interrupted here would leak into any other
-            # test in the suite that lists its own inbox with no filter of its own.
-            await run.answer("yes")
     finally:
         reset_settings_cache()
 
@@ -1671,12 +1508,11 @@ async def _parked_approval(monkeypatch, *, namespace: str | None = None):
     """
     from agentdeck.runtime.settings import reset_settings_cache
 
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     reset_settings_cache()
     try:
         deck = Deck(workflows=[_approval_workflow()])
         async with deck:
-            parked = await deck.run("Approval", {"request": "tue 9am"}, session_id="t-1", namespace=namespace)
+            parked = await deck.run("Approval", "tue 9am", session_id="t-1", namespace=namespace)
             assert parked["type"] == "interrupt"
             [run] = await deck.runs.list(namespace=namespace, status=RunStatus.WAITING_ANSWER)
             yield deck, run
@@ -1813,21 +1649,16 @@ async def test_answer_isolates_between_namespaces_sharing_one_key(no_project, mo
     under the identical caller key, alive at once  -  answering one never touches the other."""
     from agentdeck.runtime.settings import reset_settings_cache
 
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
     reset_settings_cache()
     try:
         deck = Deck(workflows=[_approval_workflow()])
         async with deck:
-            # Different thread ids: LangGraph's own checkpointer keys a thread by that id alone,
-            # with no namespace of its own, so two namespaces reusing one *session* id would
-            # collide on the checkpoint itself  -  a separate, already-known gap this test is not
-            # about. The event log and the key claim below are namespaced; this only avoids
-            # tripping over the checkpoint one while proving that.
-            acme_paused = await deck.run(
-                "Approval", {"request": "tue 9am"}, session_id="t-acme", namespace="acme", key="order-1234"
-            )
+            # One session id, deliberately: the session claim is keyed by
+            # ``(namespace, session_id)``, so the same id in two namespaces is two conversations.
+            # Sharing it here means the key claim below is the only thing left that could collide.
+            acme_paused = await deck.run("Approval", "tue 9am", session_id="t-1", namespace="acme", key="order-1234")
             globex_paused = await deck.run(
-                "Approval", {"request": "wed 3pm"}, session_id="t-globex", namespace="globex", key="order-1234"
+                "Approval", "wed 3pm", session_id="t-1", namespace="globex", key="order-1234"
             )
             assert acme_paused["type"] == globex_paused["type"] == "interrupt"
             assert acme_paused["id"] != globex_paused["id"]  # same key, two unrelated runs
@@ -1880,51 +1711,6 @@ async def test_resuming_a_run_that_is_waiting_for_an_answer_names_answer(no_proj
 
 
 @pytest.mark.asyncio
-async def test_a_paused_timer_defers_its_wake_without_stopping_the_rest_of_the_sweep(no_project, monkeypatch):
-    """A due timer is answered through the very path an approval is, so the routing's refusal
-    reaches it too  -  and an exception raised there would abort the sweep for every *other* due
-    thread in the catalog. Deferring is also the right answer on its own terms: waking a run an
-    operator asked to stop would override them exactly as answering it would.
-    """
-    from agentdeck.runtime.settings import reset_settings_cache
-
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
-    reset_settings_cache()
-    past = datetime.now(UTC) - timedelta(days=1)
-    try:
-        deck = Deck(workflows=[_timer_workflow("Timer", past)])
-
-        async with deck:
-            assert (await deck.run("Timer", {}, session_id="t-stopped"))["type"] == "interrupt"
-            assert (await deck.run("Timer", {}, session_id="t-free"))["type"] == "interrupt"
-            # The thread-to-run lookup has no public verb of its own  -  a caller who does not
-            # already hold the run reaches for the private inbox, the same as the sweep does.
-            stopped_id = next(run.run_id for run in await deck._pending() if run.thread_id == "t-stopped")
-            stopped = await deck.runs.get(stopped_id)
-            await stopped.pause("operator stepped away")
-
-            woke = await deck._tick()
-
-            # The free thread woke, once  -  not both, and crucially not none, which is what a
-            # refusal escaping the loop would have produced.
-            assert woke == [{"woke_at": past.isoformat()}]
-            # The stopped one is still parked, and still holds the pause it was stopped with.
-            assert [run.thread_id for run in await deck._pending()] == ["t-stopped"]
-            assert await stopped.status() is RunStatus.WAITING_ANSWER
-
-            # Take the pause back and let it finish, so the process-wide memory saver does not
-            # hand this thread to the next test's timer sweep. Reaching for the port directly is
-            # the point: there is no public verb that lifts a pause on a run that is waiting for
-            # a value, which is the gap noted on #295.
-            control = deck._require_open()._control
-            assert await control.consume(stopped_id, Signal.PAUSE) is True
-            await stopped.answer(past.isoformat())
-            assert await deck.runs.list(status=RunStatus.WAITING_ANSWER) == []
-    finally:
-        reset_settings_cache()
-
-
-@pytest.mark.asyncio
 async def test_answering_a_paused_run_names_resume(no_project, scripted):
     """The mirror image, and the other half of why legality is a table rather than a listing
     filter: a paused run is not waiting for a value, and "No pending run" told a caller nothing
@@ -1941,57 +1727,6 @@ async def test_answering_a_paused_run_names_resume(no_project, scripted):
         assert await run.status() is RunStatus.PAUSED
         with pytest.raises(RunStateError, match=r"run\.resume\(\)"):
             await run.answer("yes")
-
-
-# --- _tick() resumes a Deck.run() interrupt through the Runtime, not a checkpointer ghost ----
-
-
-@pytest.mark.asyncio
-async def test_tick_resumes_a_deck_run_interrupt_through_the_runtime_not_a_ghost(no_project, monkeypatch, caplog):
-    """A timer interrupt ``Deck.run()`` parked is the same thread ``Deck._tick()`` finds on the
-    checkpointer  -  the log and the checkpointer already agree on the *listing* (direction one,
-    already true post-#164). Resuming it by calling the workflow directly, as ``_tick()`` used
-    to, never told the event log: the run stayed ``WAITING_ANSWER`` forever and kept holding its
-    session claim (direction two  -  the still-live half of #120). ``_tick()`` must resume through
-    the Runtime instead, so the log's run closes and a fresh run on the same thread does not
-    hit a stale-lock ``SessionBusyError``.
-    """
-    from agentdeck.runtime.settings import reset_settings_cache
-
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
-    reset_settings_cache()
-    past = datetime.now(UTC) - timedelta(days=1)
-    try:
-        deck = Deck(workflows=[_timer_workflow("Timer", past)])
-
-        async with deck:
-            paused = await deck.run("Timer", {}, session_id="t-tick")
-            assert paused["type"] == "interrupt"
-
-            # direction 1: the checkpointer-sourced listing already sees a Deck.run() interrupt.
-            due = await deck._due_resumes()
-            assert [d["thread_id"] for d in due] == ["t-tick"]
-
-            with caplog.at_level("WARNING"):
-                finished = await deck._tick()
-            # the reconciled resume passes the interrupt payload's own ISO string, not the
-            # parsed datetime, so the Runtime logs the answer cleanly instead of warning that
-            # a datetime "cannot be held" and dropping it. `agentdeck.composition`'s own
-            # memory-backend warning (issue #155), logged once when `Deck` opened above, is
-            # expected and unrelated to what this assertion is checking.
-            assert finished == [{"woke_at": past.isoformat()}]
-            other_warnings = [r for r in caplog.records if r.name != "agentdeck.composition"]
-            assert not other_warnings, [r.message for r in other_warnings]
-
-            # direction 2: resuming through _tick() must close the *logged* run too, not just
-            # the checkpoint  -  a ghost WAITING_ANSWER entry is exactly what this pins against.
-            assert await deck.runs.list(status=RunStatus.WAITING_ANSWER) == []
-
-            # ...and release the session claim it was holding, not leave it stale-locked.
-            again = await deck.run("Timer", {}, session_id="t-tick")
-            assert again["type"] == "interrupt"
-    finally:
-        reset_settings_cache()
 
 
 @pytest.mark.asyncio
@@ -2053,9 +1788,6 @@ async def test_injected_session_factory_is_used_and_closed_once(no_project, monk
     assert fake.closed == 1
 
 
-# --- the deck sweeps its own lifetime for a due sleep_until, with no cron wired in (#303) ----
-
-
 async def _wait_until(condition, *, timeout: float = 5.0, interval: float = 0.01) -> None:
     """Poll ``condition`` (a zero-arg async callable returning a bool) until it is true, never
     sleeping a fixed guess at how long the sweep should take  -  see coding-standards §8, "assert
@@ -2068,104 +1800,13 @@ async def _wait_until(condition, *, timeout: float = 5.0, interval: float = 0.01
         await asyncio.sleep(interval)
 
 
+async def _has_delta(deck: Deck, session_id: str) -> bool:
+    events = await deck._runtime.store.read_session(RunContext(run_id="reader", session_id=session_id))
+    return any(event.kind == "text.delta" for event in events)
+
+
 async def _pending_is_empty(deck: Deck) -> bool:
     return not await deck.runs.list(status=RunStatus.WAITING_ANSWER)
-
-
-@pytest.mark.asyncio
-async def test_sweeper_task_starts_on_open_and_is_actually_gone_after_close(no_project):
-    """Not just that ``__aexit__`` ran: the task itself must be done, so a deck that closes
-    leaves no background loop still scheduled."""
-    deck = Deck(agents=[_greeter()])
-
-    async with deck:
-        sweeper = deck._sweeper
-        assert sweeper is not None
-        assert not sweeper.done()
-
-    assert sweeper.done()
-    assert sweeper.cancelled()
-
-
-@pytest.mark.asyncio
-async def test_sweep_resumes_a_due_timer_with_the_deck_left_open_and_tick_never_called_by_hand(no_project, monkeypatch):
-    """The point of #303: nobody here calls ``_tick()``. The deck parks a run on a past-due
-    ``sleep_until``, then just stays open past one sweep interval, and its own background loop
-    is what has to notice and resume it."""
-    from agentdeck.runtime.settings import reset_settings_cache
-
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
-    monkeypatch.setenv("AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS", "0.02")
-    reset_settings_cache()
-    past = datetime.now(UTC) - timedelta(days=1)
-    try:
-        deck = Deck(workflows=[_timer_workflow("Timer", past)])
-
-        async with deck:
-            paused = await deck.run("Timer", {}, session_id="t-sweep")
-            assert paused["type"] == "interrupt"
-
-            await _wait_until(lambda: _pending_is_empty(deck))
-    finally:
-        reset_settings_cache()
-
-
-@pytest.mark.asyncio
-async def test_sweep_with_no_timers_anywhere_does_nothing_and_raises_nothing(no_project, monkeypatch, caplog):
-    """Most decks have no timers at all  -  the common case, asserted directly: a catalog with
-    only a plain agent sweeps past several intervals with no error and nothing to do."""
-    from agentdeck.runtime.settings import reset_settings_cache
-
-    monkeypatch.setenv("AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS", "0.02")
-    reset_settings_cache()
-    try:
-        deck = Deck(agents=[_greeter()])
-
-        with caplog.at_level("ERROR"):
-            async with deck:
-                await asyncio.sleep(0.1)  # several sweep intervals, idle throughout
-
-        assert not caplog.records
-    finally:
-        reset_settings_cache()
-
-
-@pytest.mark.asyncio
-async def test_sweep_survives_a_raising_tick_and_keeps_going_on_the_next_interval(no_project, monkeypatch, caplog):
-    """A transient store error on one sweep must not silently end every future wake  -  the loop
-    logs it and tries again next interval instead of dying."""
-    from agentdeck.runtime.settings import reset_settings_cache
-
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
-    monkeypatch.setenv("AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS", "0.02")
-    reset_settings_cache()
-    past = datetime.now(UTC) - timedelta(days=1)
-    try:
-        deck = Deck(workflows=[_timer_workflow("Timer", past)])
-
-        async with deck:
-            paused = await deck.run("Timer", {}, session_id="t-flaky")
-            assert paused["type"] == "interrupt"
-
-            real_tick = deck._tick
-            calls = 0
-
-            async def _flaky_tick(*args, **kwargs):
-                nonlocal calls
-                calls += 1
-                if calls == 1:
-                    raise RuntimeError("simulated store failure")
-                return await real_tick(*args, **kwargs)
-
-            monkeypatch.setattr(deck, "_tick", _flaky_tick)
-
-            with caplog.at_level("ERROR"):
-                await _wait_until(lambda: _pending_is_empty(deck))
-
-            assert calls >= 2
-            assert any("timer sweep failed" in r.message for r in caplog.records)
-    finally:
-        reset_settings_cache()
 
 
 # --- run.can, and lifecycle methods that refuse rather than report ---

@@ -2,9 +2,9 @@
 
 install:        ## editable install with every extra the gate needs
 	# Every extra ci.yml installs, so `make check` locally runs the same tests CI does.
-	# `.[dev]` alone silently skipped serve, durability and observability — the whole
+	# `.[dev]` alone silently skipped serve, postgres and observability. The whole
 	# point of #142: a narrower install reads as a pass instead of as untested.
-	uv pip install -e ".[dev,serve,durability,observability]"
+	uv pip install -e ".[dev,serve,postgres,observability]"
 
 build:          ## sdist + wheel into dist/
 	uv build

@@ -20,11 +20,10 @@ FIXTURE_PROJECT = Path(__file__).parent / "fixture_project"
 ANSWER_DELTAS = ("Tuesday ", "at 9am ", "works.")
 TOOL_NAME = "lookup_slot"
 
-# Env that must not leak in from a developer's shell or a stray .env: Redis sessions,
-# Langfuse export and the sqlite checkpointer would all reach outside the test, and
-# max_turns below the scripted two would truncate the recorded turn.
+# Env that must not leak in from a developer's shell or a stray .env: Redis sessions and
+# Langfuse export would both reach outside the test, and max_turns below the scripted two
+# would truncate the recorded turn.
 _PINNED_ENV = {
-    "AGENTDECK_CHECKPOINT": "memory://",
     "AGENTDECK_EVENTS": "memory://",
     "AGENTDECK_SESSION": "",
     "AGENTDECK_LANGFUSE_PUBLIC_KEY": "",
@@ -47,7 +46,6 @@ def make_client(monkeypatch):
     """Factory of independent clients — the stability test needs two fresh ones in a row."""
     from fastapi.testclient import TestClient
 
-    from agentdeck.adapters.executors.langgraph.checkpointer import _memory_saver
     from agentdeck.runtime.settings import reset_settings_cache
     from agentdeck.serve import create_app
 
@@ -60,9 +58,6 @@ def make_client(monkeypatch):
 
         @contextmanager
         def _make():
-            # The memory saver is a process-wide @cache; a stale one would carry a previous
-            # capture's paused threads into this one's /pending body.
-            _memory_saver.cache_clear()
             reset_settings_cache()
             for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
                 del sys.modules[mod]

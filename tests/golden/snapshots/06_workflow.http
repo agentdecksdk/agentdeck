@@ -1,4 +1,0 @@
-HTTP 200
-content-type: application/json
-
-{"text":"hello","upper":"HELLO","length":5}

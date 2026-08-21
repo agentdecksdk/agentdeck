@@ -1,11 +1,10 @@
-"""Issue #47 end to end: a real tool and a real node reporting, through a real surface.
+"""Issue #47 end to end: a real tool reporting, through a real surface.
 
-The three claims worth proving outside the Runtime's own unit tests, because each one is a
-different reach problem: an openai-agents **function tool** finds the reporter on the SDK's
-context object, a langgraph **node** finds it in langgraph's own ``configurable``, and an SSE
-client sees both kinds arrive in order without the surface knowing they exist. The reference
-CLI renderer reading them closes the loop, including its default case  -  the promise every
-consumer makes about a kind it has never heard of.
+The two claims worth proving outside the Runtime's own unit tests: an openai-agents **function
+tool** finds the reporter on the SDK's context object, and an SSE client sees its reports arrive
+in order without the surface knowing they exist. The reference CLI renderer reading them closes
+the loop, including its default case  -  the promise every consumer makes about a kind it has
+never heard of.
 
 Scripted fakes only: the SDK boundary is the one thing stubbed, so nothing here calls a model.
 """
@@ -14,14 +13,13 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import pytest
 from agents import Agent, RunContextWrapper, function_tool
 from agents.models.interface import Model
 from event_log_checks import check_contiguous, check_terminal
-from langgraph.graph.state import END, StateGraph
 from openai.types.responses import (
     Response,
     ResponseCompletedEvent,
@@ -32,11 +30,10 @@ from openai.types.responses import (
 )
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
-from agentdeck.adapters.executors.langgraph import REPORTER_KEY, LangGraphExecutor
 from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
 from agentdeck.adapters.executors.stub import StubExecutor, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
-from agentdeck.core.content import DataBlock, coerce_input
+from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import CURRENT_VERSION, Event, Reported, RunCompleted, Usage
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
@@ -46,8 +43,6 @@ from agentdeck.surfaces.cli.chat import render
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Sequence
-
-    from langchain_core.runnables import RunnableConfig
 
     from agentdeck.core.content import Input
     from agentdeck.core.events import KnownPayload
@@ -172,61 +167,6 @@ async def test_a_function_tool_reports_through_the_sdk_context() -> None:
     assert check_contiguous(events) == [] and check_terminal(events) is None
     assert await store.read_session(CTX) == events
     assert status_of(events) is RunStatus.COMPLETED
-
-
-# --- a langgraph node ------------------------------------------------------------------
-
-
-class _State(TypedDict, total=False):
-    input: str
-    reviewed: int
-
-
-async def _review(state: _State, config: RunnableConfig) -> dict[str, Any]:
-    """A node reporting mid-graph, reaching the reporter through langgraph's own config."""
-    reporter = config["configurable"][REPORTER_KEY]
-    await reporter.info("Reviewing issues")
-    await reporter.report("issues_reviewed", current=2, total=4)
-    return {"reviewed": 2}
-
-
-def _graph() -> StateGraph:
-    graph = StateGraph(_State)
-    graph.add_node("review", _review)
-    graph.set_entry_point("review")
-    graph.add_edge("review", END)
-    return graph
-
-
-async def test_a_workflow_node_reports_through_the_graph_config() -> None:
-    spec = InvocableSpec(name="Reviewer", kind=InvocableKind.WORKFLOW, executor=LangGraphExecutor.name, native=_graph())
-    store = MemoryEventStore()
-    runtime = Runtime([LangGraphExecutor()], store, {spec.name: spec})
-
-    events = [
-        event
-        async for event in runtime.run(
-            "Reviewer",
-            coerce_input("review 4412"),
-            session_id=(CTX).session_id,
-            namespace=(CTX).namespace,
-        )
-    ]
-
-    assert _reports(events) == [
-        ("info", "Reviewing issues", {}),
-        ("record", "issues_reviewed", {"current": 2, "total": 4}),
-    ]
-    # The node's own update and the graph's final state still arrive, unchanged by the reports.
-    assert [event.kind for event in events if event.kind != "report"] == [
-        "run.started",
-        "node.updated",
-        "run.completed",
-    ]
-    final = events[-1].payload
-    assert isinstance(final, RunCompleted)
-    assert isinstance(final.output[0], DataBlock) and final.output[0].data["reviewed"] == 2
-    assert check_contiguous(events) == [] and check_terminal(events) is None
 
 
 # --- the SSE surface and the reference renderer ----------------------------------------

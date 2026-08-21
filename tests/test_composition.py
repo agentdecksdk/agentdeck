@@ -27,27 +27,12 @@ greeter = Agent(name="Greeter", instructions="Greet the user.")
 """
 
 WORKFLOW_PY = """
-from typing import TypedDict
-
-from langgraph.graph import END, StateGraph
-
-from agentdeck.authoring import Workflow
+from agentdeck import WorkflowCtx, workflow
 
 
-class State(TypedDict, total=False):
-    input: str
-    shouted: str
-
-
-def _build_graph():
-    g = StateGraph(State)
-    g.add_node("shout", lambda s: {"shouted": s["input"].upper()})
-    g.set_entry_point("shout")
-    g.add_edge("shout", END)
-    return g
-
-
-shout = Workflow(name="Shout", state=State, graph=_build_graph)
+@workflow
+async def shout(ctx: WorkflowCtx, text: str) -> str:
+    return text.upper()
 """
 
 CTX = RunContext(namespace="local", run_id="r1")
@@ -68,12 +53,11 @@ def project(tmp_path, monkeypatch):
 
 def test_the_project_executor_set_covers_every_authored_shape():
     """Discovery refuses a catalog whose entries have no executor, so every shape a project can
-    author  -  an agent bundle, a graph workflow, a native @workflow  -  has one registered."""
+    author  -  an agent bundle, a native @workflow  -  has one registered."""
     executors = project_executors()
-    assert sorted(executor.name for executor in executors) == ["langgraph", "native", "openai-agents"]
+    assert sorted(executor.name for executor in executors) == ["native", "openai-agents"]
     assert [type(executor).__name__ for executor in executors] == [
         "OpenAIAgentsExecutor",
-        "LangGraphExecutor",
         "NativeExecutor",
     ]
 
@@ -97,11 +81,11 @@ async def test_build_runtime_discovers_the_project_when_given_no_invocables(proj
     kinds = [
         event.kind
         async for event in runtime.run(
-            "Shout", coerce_input("hello"), session_id=(CTX).session_id, namespace=(CTX).namespace
+            "shout", coerce_input("hello"), session_id=(CTX).session_id, namespace=(CTX).namespace
         )
     ]
 
-    assert kinds == ["run.started", "node.updated", "run.completed"]
+    assert kinds == ["run.started", "run.completed"]
 
 
 async def test_build_runtime_takes_explicit_specs_and_a_store_that_holds_time_still(project):
@@ -116,7 +100,7 @@ async def test_build_runtime_takes_explicit_specs_and_a_store_that_holds_time_st
     stamps = {
         event.ts
         async for event in runtime.run(
-            "Shout", coerce_input("hello"), session_id=(CTX).session_id, namespace=(CTX).namespace
+            "shout", coerce_input("hello"), session_id=(CTX).session_id, namespace=(CTX).namespace
         )
     }
 
@@ -321,36 +305,6 @@ def test_resolve_control_port_rejects_an_unknown_scheme():
     assert f"{DOCS_URL}/reference/settings" in str(excinfo.value)
 
 
-@pytest.mark.parametrize(
-    ("url", "expected"),
-    # ``memory`` ignores whatever comes back as its second element (``_memory_saver`` takes no
-    # args), so it is the original url, unstripped  -  only ``sqlite`` strips the scheme.
-    [("memory://", ("memory", "memory://")), ("sqlite://.agentdeck/x.db", ("sqlite", ".agentdeck/x.db"))],
-)
-def test_resolve_checkpoint_derives_backend_and_path_from_the_scheme(url, expected):
-    from types import SimpleNamespace
-
-    from agentdeck.composition import resolve_checkpoint
-    from agentdeck.runtime.settings import CheckpointSettings
-
-    settings = SimpleNamespace(checkpoint=CheckpointSettings(url=url))
-
-    assert resolve_checkpoint(settings) == expected
-
-
-def test_resolve_checkpoint_normalizes_postgresql_to_the_postgres_backend_name():
-    """``resolve_checkpointer`` (the langgraph adapter) speaks ``postgres``, not the URL
-    scheme's own ``postgresql``  -  the composition root's job is to make that seam invisible."""
-    from types import SimpleNamespace
-
-    from agentdeck.composition import resolve_checkpoint
-    from agentdeck.runtime.settings import CheckpointSettings
-
-    settings = SimpleNamespace(checkpoint=CheckpointSettings(url="postgresql://user@host/db"))
-
-    assert resolve_checkpoint(settings) == ("postgres", "postgresql://user@host/db")
-
-
 def test_resolve_event_store_warns_when_memory_is_selected(caplog):
     import logging
 
@@ -407,7 +361,7 @@ def test_build_runtime_resolves_stale_run_after_from_settings(monkeypatch):
     assert runtime._stale_run_after == timedelta(seconds=123)  # noqa: SLF001  -  resolved explicitly by build_runtime
 
 
-def test_choosing_a_store_does_not_make_the_durability_extra_mandatory():
+def test_choosing_a_store_does_not_make_the_postgres_extra_mandatory():
     """``composition`` is on every entry point's import path and ``psycopg`` is an optional
     extra, so its import has to stay inside the branch that asks for it. A fresh interpreter,
     because this one has already imported half the world."""
@@ -432,13 +386,13 @@ async def test_deck_composes_one_runtime_over_the_whole_project(project):
         kinds = [
             event.kind
             async for event in deck._runtime.run(
-                "Shout",
+                "shout",
                 coerce_input("hello"),
                 session_id=(CTX).session_id,
                 namespace=(CTX).namespace,
             )
         ]
-    assert kinds == ["run.started", "node.updated", "run.completed"]
+    assert kinds == ["run.started", "run.completed"]
     await deck.aclose()  # idempotent, with a Runtime already drained
 
 

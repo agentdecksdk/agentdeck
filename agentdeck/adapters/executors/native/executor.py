@@ -81,7 +81,7 @@ class _Body:
 class NativeExecutor(Executor):
     """Plays a ``@workflow`` (or a ``@tool``) as the coroutine it is.
 
-    **Suspension parks, it does not unwind.** A LangGraph node or an agent turn is re-entered from
+    **Suspension parks, it does not unwind.** An agent turn is re-entered from
     a checkpoint, so raising through it costs nothing. An imperative body has no checkpoint: its
     locals *are* the workflow, so a pause keeps the coroutine alive and waiting instead
     (``docs/design/execution-api.md``). A cancel still raises, because the run is over and there

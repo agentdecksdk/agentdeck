@@ -11,7 +11,6 @@ source_modules =
     agentdeck.errors
 forbidden_modules =
     agents
-    langgraph
     fastapi
     redis
     psycopg
@@ -26,7 +25,6 @@ source_modules =
     agentdeck.core
 forbidden_modules =
     agents
-    langgraph
     fastapi
     redis
     psycopg
@@ -50,7 +48,6 @@ source_modules =
     agentdeck.runtime.dispatch
 forbidden_modules =
     agents
-    langgraph
     fastapi
     redis
     psycopg
@@ -80,7 +77,6 @@ source_modules =
     agentdeck.adapters.leases.sqlite
 forbidden_modules =
     agents
-    langgraph
     fastapi
     redis
     psycopg
@@ -100,40 +96,9 @@ source_modules =
     agentdeck.surfaces
 forbidden_modules =
     agents
-    langgraph
     redis
     psycopg
     agentdeck.adapters
-
-# Checkpointer relocation (#53): langgraph is now the langgraph adapter's business, the
-# same way `agents` is openai_agents's (`pure-adapters-stay-pure` above already forbids it
-# for the pure stores/stub; this is the v2-wide version, for every module ADR-D5 says must
-# never see a checkpointer). `agentdeck.authoring` is deliberately absent from this contract's
-# source_modules — it compiles ``Workflow``/``Agent`` declarations for either engine, so it
-# needs both `agents` and `langgraph` directly (amended #164: authoring/ imports core/ plus
-# the engine SDKs it compiles to, not core/ alone).
-[importlinter:contract:langgraph-is-engine-private]
-name = only the langgraph adapter imports langgraph directly (v2 modules)
-type = forbidden
-source_modules =
-    agentdeck.core
-    agentdeck.runtime.service
-    agentdeck.runtime.dispatch
-    agentdeck.adapters.stores.memory
-    agentdeck.adapters.stores.sqlite
-    agentdeck.adapters.stores.redis
-    agentdeck.adapters.stores.postgres
-    agentdeck.adapters.executors.stub
-    agentdeck.adapters.executors.openai_agents
-    agentdeck.adapters.control.memory
-    agentdeck.adapters.control.sqlite
-    agentdeck.adapters.leases.memory
-    agentdeck.adapters.leases.sqlite
-    agentdeck.adapters.tools.mcp
-    agentdeck.surfaces
-    agentdeck.testing
-forbidden_modules =
-    langgraph
 
 # Redis and Postgres event logs (#75): one external system each, which is the rule that
 # keeps "delete any adapter directory and nothing outside it breaks" true. Two contracts
@@ -233,7 +198,6 @@ source_modules =
     agentdeck.adapters.telemetry
 forbidden_modules =
     agents
-    langgraph
     fastapi
     redis
     psycopg

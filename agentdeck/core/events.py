@@ -186,8 +186,10 @@ rejects the whole event rather than skipping it the way it can an unknown kind.
 """
 
 SafePoint = Literal["stream_item", "tool_dispatch", "node_boundary"]
-"""Where a run can notice a signal: between two streamed items, before a tool is dispatched,
-or at a graph node boundary. Closed for the same reason ``ControlVerb`` is."""
+"""Where a run can notice a signal: between two streamed items, before a tool is dispatched, or
+at a node boundary. Closed for the same reason ``ControlVerb`` is, which is also why
+``node_boundary`` stays after the last executor emitting it left: dropping a member rejects
+every logged event that carries it."""
 
 
 class ControlRequested(CoreModel):
@@ -275,14 +277,6 @@ class ToolCallCompleted(CoreModel):
     result_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     artifact_id: str | None = None
     error: str | None = None
-
-
-class NodeUpdated(CoreModel):
-    """``state_patch`` shallow-merges into the state: top-level keys replace."""
-
-    kind: Literal["node.updated"] = "node.updated"
-    node: str
-    state_patch: dict[str, JsonData]
 
 
 class ArtifactCreated(CoreModel):
@@ -393,7 +387,6 @@ KnownPayload = Annotated[
     | AgentChanged
     | ToolCallStarted
     | ToolCallCompleted
-    | NodeUpdated
     | ArtifactCreated
     | UsageReported
     | InputAppended

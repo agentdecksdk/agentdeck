@@ -44,17 +44,11 @@ class Ghost(AgentDeclaration):
     instructions = "boo"
 """
 
-GHOST_WORKFLOW_DECLARATION_PY = """
-from agentdeck.authoring import WorkflowDeclaration
-from pydantic import BaseModel
-
-
-class State(BaseModel):
-    text: str = ""
-
-
-class GhostFlow(WorkflowDeclaration):
-    state = State
+# A workflow.py that imports cleanly but never calls ``@workflow``  -  the native-catalog
+# equivalent of #174's ghost declaration: contributes nothing, and discovery says so.
+GHOST_WORKFLOW_PY = """
+async def not_a_workflow(text: str) -> str:
+    return text
 """
 
 # A shared-code module shaped like a bundle (an `agent.py`, no `Agent(...)` instance) but
@@ -72,19 +66,7 @@ boom = Agent(name="Boom", instructions="x", model_settings={"temperature": "not-
 """
 
 BOOM_WORKFLOW_PY = """
-from agentdeck.authoring import Workflow
-from pydantic import BaseModel
-
-
-class State(BaseModel):
-    text: str = ""
-
-
-def _build_graph():
-    raise ValueError("bad graph")
-
-
-boom_flow = Workflow(name="BoomFlow", state=State, graph=_build_graph)
+raise ValueError("bad workflow module")
 """
 
 
@@ -228,11 +210,12 @@ def test_agent_declaration_never_instantiated_raises_naming_the_bundle(tmp_path,
     assert "Agent(...)" in message
 
 
-def test_workflow_declaration_never_instantiated_raises_naming_the_bundle(tmp_path, monkeypatch):
-    """The same migration trap, for `WorkflowDeclaration`."""
+def test_a_workflow_module_defining_no_workflow_raises_naming_the_bundle(tmp_path, monkeypatch):
+    """The same ghost check as #174's, on the native catalog: a module with no ``@workflow``
+    contributes nothing, and discovery says so rather than silently discarding it."""
     root = tmp_path / ".agentdeck"
     (root / "workflows" / "ghost_flow").mkdir(parents=True)
-    (root / "workflows" / "ghost_flow" / "workflow.py").write_text(textwrap.dedent(GHOST_WORKFLOW_DECLARATION_PY))
+    (root / "workflows" / "ghost_flow" / "workflow.py").write_text(textwrap.dedent(GHOST_WORKFLOW_PY))
     monkeypatch.chdir(tmp_path)
     _drop_project_mount(monkeypatch)
     from agentdeck.deck import Deck
@@ -241,7 +224,7 @@ def test_workflow_declaration_never_instantiated_raises_naming_the_bundle(tmp_pa
         Deck.from_project()
     message = str(excinfo.value)
     assert "defines no workflow" in message
-    assert "Workflow(...)" in message
+    assert "NativeDefinition(...)" in message
 
 
 def test_ghost_check_suggests_a_valid_identifier_for_a_hyphenated_bundle(tmp_path, monkeypatch):
@@ -300,8 +283,10 @@ def test_discovered_agent_build_failure_is_wrapped_with_its_bundle_path(tmp_path
     assert isinstance(excinfo.value.__cause__, pydantic.ValidationError)
 
 
-def test_discovered_workflow_build_graph_failure_is_wrapped_with_its_bundle_path(tmp_path, monkeypatch):
-    """The workflow-side counterpart: a bad ``graph=`` factory raises inside ``build_graph()``."""
+def test_a_broken_workflow_modules_import_failure_is_wrapped_with_its_bundle_path(tmp_path, monkeypatch):
+    """The workflow-side counterpart to ``test_bundle_import_failure_is_wrapped_with_its_path``:
+    a native workflow's whole contract is checked by ``@workflow`` at decoration time, which
+    runs as the module imports, so a broken bundle here fails the same way an agent's does."""
     root = tmp_path / ".agentdeck"
     (root / "workflows" / "boom").mkdir(parents=True)
     (root / "workflows" / "boom" / "workflow.py").write_text(textwrap.dedent(BOOM_WORKFLOW_PY))
@@ -309,12 +294,10 @@ def test_discovered_workflow_build_graph_failure_is_wrapped_with_its_bundle_path
     _drop_project_mount(monkeypatch)
     from agentdeck.deck import Deck
 
-    deck = Deck.from_project()
     with pytest.raises(ConfigError, match="workflows/boom/workflow.py") as excinfo:
-        deck.build()
-    assert "failed to build" in str(excinfo.value)
+        Deck.from_project()
     assert isinstance(excinfo.value.__cause__, ValueError)
-    assert str(excinfo.value.__cause__) == "bad graph"
+    assert str(excinfo.value.__cause__) == "bad workflow module"
 
 
 def test_code_first_agent_build_failure_is_not_wrapped_with_a_bundle_path():

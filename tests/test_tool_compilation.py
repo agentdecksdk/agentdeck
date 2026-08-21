@@ -20,11 +20,9 @@ from typing import Any
 import pytest
 from agents import WebSearchTool, function_tool
 from agents.tool_context import ToolContext
-from langgraph.graph import END, StateGraph
-from pydantic import BaseModel
 
 import agentdeck
-from agentdeck.authoring import Agent, Workflow
+from agentdeck.authoring import Agent
 from agentdeck.authoring.tools import compile_tool
 from agentdeck.core.context import RunContext, ToolCtx
 from agentdeck.deck import Deck
@@ -359,49 +357,6 @@ async def test_the_context_is_never_written_to_the_event_log(no_project) -> None
     dumped = json.dumps([event.model_dump(mode="json") for event in events])
     assert "secret-slot" not in dumped
     assert "Calendar" not in dumped
-
-
-# --- a workflow run is unaffected by all of this -----------------------------------------------------
-# ``context=`` on a workflow used to raise here; it works now, and lives in
-# ``tests/test_node_compilation.py`` with the rest of the langgraph bridge.
-
-
-class _ShoutState(BaseModel):
-    input: str = ""
-    shouted: str = ""
-
-
-def _shout_workflow() -> Workflow:
-    def build() -> StateGraph:
-        graph = StateGraph(_ShoutState)
-        graph.add_node("shout", lambda s: {"shouted": s.input.upper()})
-        graph.set_entry_point("shout")
-        graph.add_edge("shout", END)
-        return graph
-
-    return Workflow(name="Shout", state=_ShoutState, graph=build)
-
-
-@pytest.mark.asyncio
-async def test_a_workflow_whose_nodes_declare_nothing_ignores_a_context(no_project, monkeypatch) -> None:
-    """Accepted and unread is fine here, exactly as it is for an agent with no declaring tool:
-    the node asked for nothing, so there is nothing to hand it."""
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
-    deck = Deck(workflows=[_shout_workflow()])
-    deck.build()
-
-    async with deck:
-        assert await deck.run("Shout", {"input": "hi"}, context=Calendar()) == {"input": "hi", "shouted": "HI"}
-
-
-@pytest.mark.asyncio
-async def test_a_workflow_run_without_a_context_is_unaffected(no_project, monkeypatch) -> None:
-    monkeypatch.setenv("AGENTDECK_CHECKPOINT", "memory://")
-    deck = Deck(workflows=[_shout_workflow()])
-    deck.build()
-
-    async with deck:
-        assert await deck.run("Shout", {"input": "hi"}) == {"input": "hi", "shouted": "HI"}
 
 
 # --- the export ---------------------------------------------------------------------------------

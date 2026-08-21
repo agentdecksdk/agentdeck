@@ -1,16 +1,7 @@
-"""One contract, two bridges: the ``ToolCtx[T]`` a user callable receives must be the same
-thing whether the OpenAI Agents SDK or langgraph carried it there.
-
-**One test body per property, parametrized over both engines**  -  not two similar suites. The
-uniformity a user is promised is produced by two adapters that must agree, and two hand-written
-suites drift toward whatever each engine happens to do: one bridge handing back a copy, or a
-projection, or the internal ``RunContext`` instead of the public view, would keep passing its
-own test forever. Here the identical assertion runs against both, so the first bridge to
-diverge fails on the other's terms.
+"""The ``ToolCtx[T]`` contract a user callable receives, carried by the OpenAI Agents SDK bridge.
 
 ``tests/contract/context_subjects.py`` holds everything engine-shaped; nothing below names an
-SDK type or a ``StateGraph``. No live model: the openai subject's model is scripted and the
-langgraph subject calls no model at all.
+SDK type. No live model: the subject's model is scripted.
 """
 
 from __future__ import annotations

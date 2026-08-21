@@ -24,11 +24,9 @@ from typing import Any, Protocol, TypeVar, runtime_checkable
 
 import pytest
 from agents import AgentHooks, WebSearchTool
-from langgraph.graph import END, StateGraph
-from pydantic import BaseModel
 
 import agentdeck
-from agentdeck.authoring import Agent, Workflow
+from agentdeck.authoring import Agent
 from agentdeck.core.context import ToolCtx  # noqa: TC001  -  the subjects below must resolve it at runtime
 from agentdeck.deck import Deck
 from agentdeck.errors import ConfigError, ContextTypeError
@@ -82,11 +80,6 @@ T = TypeVar("T")
 would be reported unanalyzable long before the compatibility check saw it."""
 
 
-class _State(BaseModel):
-    request: str = ""
-    out: str = ""
-
-
 @pytest.fixture
 def no_project(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -94,17 +87,6 @@ def no_project(tmp_path, monkeypatch):
 
 def _agent_with_tool(tool: Any) -> Agent:
     return Agent(name="Booker", instructions="Book things.", tools=[tool])
-
-
-def _workflow_with_node(node: Any, *, name: str = "Book") -> Workflow:
-    def build() -> StateGraph:
-        graph = StateGraph(_State)
-        graph.add_node("book", node)
-        graph.set_entry_point("book")
-        graph.add_edge("book", END)
-        return graph
-
-    return Workflow(name=name, state=_State, graph=build)
 
 
 def _build(**kwargs: Any) -> Deck:
@@ -270,35 +252,7 @@ def test_an_engine_native_tool_object_is_not_introspected(no_project) -> None:
     _build(agents=[_agent_with_tool(WebSearchTool())], context=GitHubContext)
 
 
-def test_a_node_whose_signature_cannot_be_read_is_still_left_alone(no_project) -> None:
-    """Unanalyzable stays unanalyzable: declaring a context type must not turn a node the
-    analysis reports nothing about into a refusal."""
-
-    def destroying(fn):
-        def wrapper(*args, **kwargs):
-            return fn(*args, **kwargs)
-
-        return wrapper
-
-    @destroying
-    async def book(state: _State, environment: ToolCtx[MiddleContext]) -> dict[str, Any]:
-        return {"out": "ok"}
-
-    _build(workflows=[_workflow_with_node(book)], context=GitHubContext)
-
-
 # --- every injection site, not just tools ----------------------------------------------------------
-
-
-def test_a_workflow_node_requirement_is_checked_and_names_the_node(no_project) -> None:
-    async def book(state: _State, environment: ToolCtx[MiddleContext]) -> dict[str, Any]:
-        return {"out": "ok"}
-
-    with pytest.raises(ContextTypeError) as raised:
-        _build(workflows=[_workflow_with_node(book)], context=GitHubContext)
-
-    assert "node 'book'" in str(raised.value)
-    assert "requires MiddleContext" in str(raised.value)
 
 
 def test_an_instructions_callable_requirement_is_checked(no_project) -> None:
@@ -403,7 +357,4 @@ def test_a_deck_declaring_no_context_checks_nothing(no_project) -> None:
         """Find free slots."""
         return day
 
-    async def book(state: _State, environment: ToolCtx[GitHubContext]) -> dict[str, Any]:
-        return {"out": "ok"}
-
-    _build(agents=[_agent_with_tool(find_slots)], workflows=[_workflow_with_node(book)])
+    _build(agents=[_agent_with_tool(find_slots)])

@@ -172,7 +172,7 @@ def as_answer(value: Any) -> Input | None:
 
     Content stays content  -  the field's own type, so an approval typed at an inbox is the
     ``TextBlock`` it was sent as rather than a data block wrapping one. Everything else is JSON
-    data, which is what a caller answering over HTTP or a graph resuming with a state object
+    data, which is what a caller answering over HTTP or resuming with a structured object
     actually sends.
 
     A value JSON cannot carry raises. The log is what the executor reads the answer back from

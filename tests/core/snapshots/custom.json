@@ -12,9 +12,10 @@
   "ts": "2026-01-01T12:00:00Z",
   "payload": {
     "kind": "custom",
-    "name": "langgraph.checkpoint_written",
+    "name": "app.export_completed",
     "data": {
-      "thread_id": "t-1"
+      "rows": 412,
+      "destination": "s3://exports/tue.csv"
     }
   }
 }

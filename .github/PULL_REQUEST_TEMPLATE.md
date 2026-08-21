@@ -34,4 +34,4 @@ new dependencies: 0
 - [ ] Goldens (`tests/golden/`, `tests/core/snapshots/`) unchanged  -  or the change is declared and justified here
 - [ ] Deliberate simplifications/shortcuts are marked with a comment naming the ceiling
 - [ ] Comments are short, self-contained, and never cite doc sections/paragraphs
-- [ ] No execution logic added to agentdeck (config only  -  execution stays in the SDK / LangGraph)
+- [ ] No agent-loop logic added to agentdeck (config only  -  the agent loop stays in the SDK)

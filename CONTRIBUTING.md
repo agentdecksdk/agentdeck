@@ -4,7 +4,7 @@
 
 AgentDeck SDK is a production runtime around agents you already have  -  it supplies sessions,
 streaming, an event log, human approval and run control, and leaves execution to the OpenAI
-Agents SDK and LangGraph.
+Agents SDK.
 
 Before picking up an issue, run one of the projects in [`examples/`](examples/) as a user would
 (`pip install agentdeck-sdk`, then `python run.py`). Fifteen minutes there makes the rest of this
@@ -79,7 +79,7 @@ The full standards live in **[`docs/engineering/`](docs/engineering/)**  -  read
 non-trivial change; this list is the two-minute version.
 
 - **agentdeck owns configuration, not execution.** Execution stays in the
-  OpenAI Agents SDK / LangGraph. If your change runs things, it belongs in a
+  OpenAI Agents SDK. If your change runs things, it belongs in a
   bundle or an app, not here.
 - **`Deck` is the one composition root.** `Deck(agents=…, workflows=…)` and
   `Deck.from_project()`, which discovers the same arguments from `./.agentdeck/`

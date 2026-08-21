@@ -115,6 +115,18 @@ The current release is **v4.0.5**. Earlier releases are listed at the bottom.
   and `next_agent`, and only once the handoff has actually happened. A handoff that was requested
   but failed or was refused still emits nothing. The schema is `major=4, minor=1`.
 
+### Removed
+
+- **LangGraph is gone: `Workflow`, `WorkflowDeclaration`, `graph=`, `durable=`, the executor, the
+  checkpointer and `AGENTDECK_CHECKPOINT`.** What hung off them goes too: `sleep_until` and the
+  timer sweep (`AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS`), `Workflow.pending()`, `as_tool()`, the
+  `AgentNode`/`LoadFileNode` graph nodes, the `node.updated` event, and the HTTP surface's
+  `/workflows/*` routes. A fresh install pulls no `langgraph`, `langchain-core` or
+  `langgraph-checkpoint-sqlite`. A 4.x graph user stays on 4.x, or ports the graph to an
+  imperative `@workflow`.
+- **The `durability` extra is now `postgres`.** Install `agentdeck-sdk[postgres]`: what remains in
+  it is the Postgres event log's driver, and the checkpointer the old name meant is gone.
+
 ### Fixed
 
 - **`deck.runs.get` no longer corrupts a session id that happens to equal a run id.** It recovered

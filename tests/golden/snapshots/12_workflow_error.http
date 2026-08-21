@@ -1,4 +1,0 @@
-HTTP 500
-content-type: application/json
-
-{"detail":"internal error"}

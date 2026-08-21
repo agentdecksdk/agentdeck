@@ -290,7 +290,7 @@ def _stub_body(stmts: list[ast.stmt]) -> bool:
     if isinstance(stmt, ast.Pass):
         return True
     # `raise NotImplementedError` is exempt on purpose: this codebase uses it as the
-    # informal-abstract-hook idiom (ControlSignalled._effect, Workflow.build_graph).
+    # informal-abstract-hook idiom (ControlSignalled._effect, BaseRunner.run).
     return isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and stmt.value.value is Ellipsis
 
 

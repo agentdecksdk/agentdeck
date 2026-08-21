@@ -1,6 +1,6 @@
 # AgentDeck
 
-AgentDeck is a declarative runtime harness for multi-agent systems and workflows (OpenAI Agents SDK + LangGraph).
+AgentDeck is a declarative runtime harness for multi-agent systems and workflows (OpenAI Agents SDK, plus AgentDeck-native `@tool`/`@workflow`).
 
 **Core standards:** `docs/engineering/`  -  the linked suite of binding engineering law:
 1. [`docs/engineering/principles.md`](docs/engineering/principles.md)  -  Product philosophy & North Star.
@@ -30,8 +30,8 @@ AgentDeck is a declarative runtime harness for multi-agent systems and workflows
 
 * **`agentdeck/core/`**: Pure domain model, event schema, content blocks, ports, error taxonomy. **Imports stdlib + pydantic only** (enforced by `import-linter`).
 * **`agentdeck/runtime/`**: Execution orchestration, lifecycle state machine, event dispatch. Imports `core/` only.
-* **`agentdeck/adapters/`**: Pluggable integrations (executors: `openai_agents`, `langgraph`; stores: `sqlite`, `postgres`, `redis`; `mcp`; `telemetry`). Each adapter imports `core/` plus exactly one external technology. Adapters never import other adapters.
-* **`agentdeck/authoring/`**: Declarations (`Agent`, `Workflow`, `Skill`) compiled to specs.
+* **`agentdeck/adapters/`**: Pluggable integrations (executors: `openai_agents`, `native`; stores: `sqlite`, `postgres`, `redis`; `mcp`; `telemetry`). Each adapter imports `core/` plus exactly one external technology. Adapters never import other adapters.
+* **`agentdeck/authoring/`**: Declarations (`Agent`, `@tool`, `@workflow`, `Skill`) compiled to specs.
 * **`agentdeck/surfaces/`**: Ingress surfaces (HTTP/SSE in `surfaces/serve/`, CLI).
 
 ---
@@ -40,7 +40,7 @@ AgentDeck is a declarative runtime harness for multi-agent systems and workflows
 
 * **Correctness before convenience:** Strict internal invariants, forgiving external APIs. Make invalid states impossible to express.
 * **Errors are part of the API:** Every error must state what happened, why it happened, and the exact code/action to resolve it.
-  * Good (real, `adapters/executors/langgraph/executor.py`): "paused at a node boundary but is durable=False: with no checkpointer the paused run cannot be resumed. Set durable = True on the workflow".
+  * Good (real, `runtime/registry.py`): "No {self.label} named {name!r}. Available: {sorted(plugins)}." - a lookup failure names the alternatives.
   * Bad: "invalid workflow state".
 * **Typing:** Python ≥3.12. Strict annotations everywhere. Pydantic v2 models at system boundaries; `@dataclass(frozen=True, slots=True)` for internal immutable value objects. No unprincipled `Any`.
 * **Zero unnecessary abstractions:** YAGNI. Delete dead code aggressively. Do not add configuration for things that never change.

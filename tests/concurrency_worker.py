@@ -39,9 +39,9 @@ from agentdeck.core.content import TextBlock, coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
 from agentdeck.core.events import (
+    Custom,
     Event,
     MessageCompleted,
-    NodeUpdated,
     RunCompleted,
     RunInterrupted,
     RunStarted,
@@ -88,7 +88,7 @@ TAKEOVER_NEXT = "takeover-next"
 TAKEOVER_STALL_AFTER = 3
 REFUSED = "refused"
 
-APPROVED_KINDS = ["run.resumed", "node.updated", "message.completed", "run.completed"]
+APPROVED_KINDS = ["run.resumed", "custom", "message.completed", "run.completed"]
 
 
 def events_db(root: Path) -> Path:
@@ -238,7 +238,7 @@ def approver_spec() -> InvocableSpec:
         APPROVER,
         TextDelta(message_id="m1", text="checking "),
         RunInterrupted(interrupt_id="i1", reason="approval", payload={"question": "approve?"}, thread_id=THREAD_ID),
-        NodeUpdated(node="B", state_patch={"decision": "approved"}),
+        Custom(name="node.b", data={"decision": "approved"}),
         MessageCompleted(message_id="m1", text="approved"),
         RunCompleted(output=[TextBlock(text="approved")], usage=Usage(input_tokens=1, output_tokens=1)),
         kind=InvocableKind.WORKFLOW,

@@ -1,10 +1,6 @@
 {/* docs_sources:
   - "agentdeck/authoring/native.py"
   - "agentdeck/adapters/executors/native/**"
-  - "agentdeck/authoring/workflow.py"
-  - "agentdeck/authoring/graphs.py"
-  - "agentdeck/authoring/nodes.py"
-  - "agentdeck/authoring/runners/workflow.py"
 */}
 
 # Workflows
@@ -86,14 +82,3 @@ silently re-running the workflow.
 | `deck.run("summarize", {"a": 1})` | `summarize(ctx, payload)` gets the mapping whole |
 
 One parameter is one value, a mapping included. Several parameters bind by name.
-
-## Graph workflows
-
-A LangGraph `StateGraph` still runs, through `Workflow(...)`, and is the way to get a workflow
-that survives a process restart today.
-
-```python
-from agentdeck import Workflow
-
-pipeline = Workflow(name="approval_pipeline", base=ApprovalPipeline, durable=True)
-```
