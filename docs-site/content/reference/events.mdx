@@ -22,7 +22,7 @@ Every event carries the same envelope, whatever its kind:
 |---|---|
 | `v` | Schema version |
 | `kind` | One of the kinds below |
-| `seq` | Position in this run's log, monotonic from 1 |
+| `seq` | Position in this run's log, monotonic from 0 |
 | `run_id` | The run this belongs to |
 | `session_id` | The session, when the run has one |
 | `namespace` | The run's namespace label |
@@ -32,6 +32,10 @@ Every event carries the same envelope, whatever its kind:
 
 `seq` and `ts` are assigned by the store, not the producer, so ordering is the store's to
 guarantee rather than a caller's to get right.
+
+`v` is `{major: 4, minor: 0}`. A reader refuses any other major outright rather than guessing at a
+wire shape it was never taught, so a log written by another major is read with the release that
+wrote it or replayed into a new store. There is no migration.
 
 ## Lifecycle
 
@@ -85,6 +89,7 @@ Advisory. These describe progress; they never change status.
 | Kind | Payload | Notes |
 |---|---|---|
 | `input.appended` | `input`, `source` | Mid-turn steering |
+| `answer.refused` | `reason` | An answer that was not one of the options the run asked for. The run is still `waiting_answer`, and the next answer can still land |
 | `custom` | `name`, `data` | Engine-specific. `name` must be namespaced |
 
 ## Reading them
@@ -95,7 +100,7 @@ async for event in run.events(from_seq=0, follow=True):
 ```
 
 An unknown kind is carried rather than rejected, so a reader written today does not break against
-a log written by a newer release.
+a log written by a newer release of the same schema major.
 
 ```python
 from agentdeck.core.events import KNOWN_KINDS, TERMINAL_KINDS
