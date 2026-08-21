@@ -23,7 +23,7 @@ arguments the plain constructor takes and hands them to it, so there is exactly 
 mechanism underneath either front door.
 
 Lifecycle: ``NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED``. ``build()`` validates
-every name a catalog references (skills, MCP servers, workflow-as-tool) and compiles every
+every name a catalog references (skills, MCP servers) and compiles every
 agent/workflow to an ``InvocableSpec``  -  reading local files, never the network, and idempotent.
 The catalog is immutable from construction: :attr:`agents` and :attr:`workflows` are read-only
 mappings, so nothing after ``build()`` can invalidate what it already checked. Opening starts
