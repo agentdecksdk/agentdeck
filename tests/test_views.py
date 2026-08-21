@@ -102,8 +102,10 @@ BUILT_INS = {
     "usage": {"usage.reported"},
 }
 
-# Kinds no named view selects  -  reachable only through `views.all`, by design.
-ALL_ONLY = KNOWN_KINDS - set().union(*BUILT_INS.values())
+# Kinds no named view selects  -  reachable only through `views.all`, by design. Pinned as a
+# literal, not derived from KNOWN_KINDS: a derived set is true by construction and could never
+# catch a future kind falling out of every named view unnoticed.
+ALL_ONLY = {"control.requested", "control.observed", "node.updated", "artifact.created", "input.appended", "custom"}
 
 
 def test_every_known_kind_is_reachable_by_a_named_view_or_deliberately_by_all_only():

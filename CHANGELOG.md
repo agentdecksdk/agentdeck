@@ -8,15 +8,6 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
-### Changed
-
-- **`EventSinkPort` is renamed `Observer`, and it gains `agentdeck.views`.** `views.all`,
-  `views.chat`, `views.tools`, `views.reports`, `views.lifecycle`, `views.errors` and
-  `views.usage` are composable predicates over the event stream (`|`, `&`, `~`); pass
-  `view=` to any observer to filter what it receives. `agentdeck.observers.Langfuse` is
-  renamed `LangfuseObserver`, and `ConsoleObserver` / `FileObserver` join it: one prints a
-  line per event, the other appends one JSONL line per event, both with no configuration.
-
 ### Added
 
 - **Agents can select OpenAI, Anthropic, Gemini, Ollama, or OpenRouter by model prefix.** Each
@@ -38,6 +29,12 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Changed
 
+- **`EventSinkPort` is renamed `Observer`, and it gains `agentdeck.views`.** `views.all`,
+  `views.chat`, `views.tools`, `views.reports`, `views.lifecycle`, `views.errors` and
+  `views.usage` are composable predicates over the event stream (`|`, `&`, `~`); pass
+  `view=` to any observer to filter what it receives. `agentdeck.observers.Langfuse` is
+  renamed `LangfuseObserver`, and `ConsoleObserver` / `FileObserver` join it: one prints a
+  line per event, the other appends one JSONL line per event, both with no configuration.
 - **The event schema is `major=4`, and v5.0.0 does not read a log 4.x wrote.** The payload
   vocabulary moved (see the reporter entry below), so the major bumps, and this release does not
   carry a compatibility window: `Event` refuses any major but its own, by name, saying that the log

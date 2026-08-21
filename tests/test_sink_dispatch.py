@@ -72,6 +72,13 @@ class Viewed(Recorder):
         self.view = view
 
 
+class ExplodingView:
+    """A custom ``View`` whose ``matches`` raises, the way a buggy predicate does."""
+
+    def matches(self, event: Event) -> bool:
+        raise ValueError("boom from a buggy custom view")
+
+
 class Gated(Recorder):
     """Stalls in ``emit`` until released, the way a wedged telemetry endpoint does."""
 
@@ -338,9 +345,10 @@ async def test_a_sink_that_keeps_up_loses_nothing_however_fast_the_producer_is()
     assert sink.seqs() == list(range(1000))
 
 
-async def test_a_view_that_refuses_an_event_is_never_queued_or_counted_dropped() -> None:
-    """The filter is submit's business, before the queue: a refused event is neither this
-    sink's backlog nor its loss  -  it was never addressed to it."""
+async def test_a_view_that_refuses_an_event_is_never_delivered_or_counted_dropped() -> None:
+    """The filter runs in the consumer, after the queue, so a slow or raising view costs this
+    sink's own backlog rather than the run. A refused event still reaches neither the sink nor
+    the drop count  -  it was never addressed to it, which is a different fact from losing one."""
     sink = Viewed(views.chat)
     dispatch = SinkDispatch(sink)
     report = Event(
@@ -359,6 +367,22 @@ async def test_a_view_that_refuses_an_event_is_never_queued_or_counted_dropped()
 
     assert sink.seqs() == [0]
     assert (dispatch.dropped, dispatch.failed, dispatch.depth) == (0, 0, 0)
+
+
+async def test_a_view_that_raises_never_reaches_the_run_or_floods_the_sink() -> None:
+    """A raising ``matches`` must not fail the run: ``submit`` never sees it, since the check
+    now runs in the consumer. It is counted through the same breaker as a raising ``emit``,
+    so a broken filter is disabled and logged rather than either hidden or flooding the sink."""
+    sink = Viewed(ExplodingView())
+    dispatch = SinkDispatch(sink, failure_limit=3)
+    async with asyncio.timeout(10):  # a hang guard, not a measurement
+        for seq in range(3):
+            await dispatch.submit(_event(seq))  # must not raise
+        await dispatch.flush()
+        await dispatch.close()
+
+    assert sink.events == []  # never delivered: a raising filter must not flood the sink
+    assert (dispatch.failed, dispatch.dropped, dispatch.disabled) == (3, 0, True)
 
 
 async def test_a_full_queue_drops_the_oldest_events_and_keeps_the_newest() -> None:

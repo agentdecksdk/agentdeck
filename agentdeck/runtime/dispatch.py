@@ -151,16 +151,7 @@ class SinkDispatch:
         Yields at most one loop turn when the queue is full, and never waits for the sink:
         the turn is what tells a sink that is keeping up apart from one that is not, and only
         then is the stalest event dropped.
-
-        A ``view`` an observer carries is read here, once per event, rather than inside its own
-        ``emit``: this is the one place every sink's fan-out already passes through, so a filter
-        added anywhere else would be a second place to look. An event a view refuses is neither
-        queued nor counted as dropped  -  it was never meant for this sink, which is a different
-        fact from the sink losing one it was owed.
         """
-        view = getattr(self._sink, "view", None)
-        if view is not None and not view.matches(event):
-            return
         if self._closed or (self.disabled and not self._probe_due()):
             self._count_drop(event)
             return
@@ -341,8 +332,22 @@ class SinkDispatch:
                 self._queue.task_done()
 
     async def _emit(self, event: Event) -> None:
+        """Emit one event, or skip it if the sink's own ``view`` refuses it.
+
+        The check lives here, off ``submit`` and the run's own path, so a raising or slow
+        ``view`` costs this sink's own backlog through the same timeout and breaker as a
+        raising ``emit``  -  never the run, and never a flood of events the sink asked to filter.
+        A refused event is neither delivered nor counted as dropped or failed; only a ``view``
+        that itself raises is, through the same path a broken ``emit`` already takes below.
+        """
+        view = getattr(self._sink, "view", None)
         try:
             async with asyncio.timeout(self._emit_timeout):
+                if view is not None and not view.matches(event):
+                    # A probe event a view refuses still resolves the probe: nothing here found
+                    # the sink itself broken, and a probe left open would never be offered again.
+                    self._probing = False
+                    return
                 await self._sink.emit(event)
         except TimeoutError:
             self._count_failure(f"timed out after {self._emit_timeout}s on {event.kind} seq={event.seq}")
