@@ -176,6 +176,14 @@ def _new_context(session_id: str | None = None) -> RunContext:
 # own control port.
 _FOLLOW_POLL_INTERVAL = 0.05
 
+# Seconds :meth:`Deck.aclose` gives one cancelled run to settle, and how many times it asks. A
+# cancel a run takes at all is recorded within one scheduler wake and one append the store hands
+# to a thread, so a second is margin for a loaded box or a network store. Twice, because a cancel
+# landing in a turn that is already tearing down is eaten by that teardown and the next one is
+# taken. The loop is serial, so a close holding several wedged runs costs 2s each.
+_CLOSE_GRACE = 1.0
+_CLOSE_ATTEMPTS = 2
+
 
 async def _drain(events: AsyncGenerator[Event, None]) -> None:
     """Advance ``events``  -  a live ``runtime.run()`` generator  -  to its end and discard what it
@@ -481,8 +489,9 @@ class Deck:
         # The one execution owner per run (docs/design/run-identity.md §9): keyed by run_id,
         # populated by `_start`, and popped by `_execution_done` the moment the task settles  -
         # whichever way  -  so `_events` degrades to reading the store once nothing local is
-        # left to wake it.
-        self._executions: dict[str, asyncio.Task[None]] = {}
+        # left to wake it. The namespace rides along because `aclose` addresses the store with
+        # it for a run that has to be closed from outside, and holds only the id.
+        self._executions: dict[str, tuple[str | None, asyncio.Task[None]]] = {}
         self._owns_store = False
         self._started_observers: tuple[Observer, ...] = ()
         self._started_mcp = False
@@ -737,14 +746,35 @@ class Deck:
         # `run.failed`/`run.cancelled` is already the log's last word on it); one still running
         # is cancelled, which the Runtime's own `asyncio.CancelledError` arm turns into a
         # `run.cancelled` for (persist-before-yield means that write lands before this awaits
-        # the task out). Either way is logged, so a close that had work in flight says which.
-        for run_id, task in list(self._executions.items()):
+        # the task out). Every way is logged, so a close that had work in flight says which.
+        for run_id, (namespace, task) in list(self._executions.items()):
             if task.done():
                 logger.info("closing deck: run %s had already settled", run_id)
                 continue
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
+            for _ in range(_CLOSE_ATTEMPTS):
+                task.cancel()
+                try:
+                    # Shielded, so a grace that runs out leaves the task running rather than
+                    # cancelling this close's own wait on it.
+                    await asyncio.wait_for(asyncio.shield(task), timeout=_CLOSE_GRACE)
+                except TimeoutError:
+                    # A cancel delivered into a turn that was already tearing down is eaten by
+                    # that teardown; the next one lands at the next await (#412).
+                    continue
+                except asyncio.CancelledError:
+                    # The run's own cancellation, arriving back through the shield. A cancel of
+                    # this close instead leaves the task uncancelled, and has to keep travelling.
+                    if not task.cancelled():
+                        raise
+                break
+            else:
+                logger.error("closing deck: run %s ignored its cancellation; abandoning it", run_id)
+                await self._require_open().close_cancelled(
+                    run_id,
+                    f"abandoned by the closing deck: it took no cancellation in {_CLOSE_ATTEMPTS * _CLOSE_GRACE}s",
+                    namespace=namespace,
+                )
+                continue
             logger.info("closing deck: run %s was cancelled", run_id)
         self._executions.clear()
         try:
@@ -822,7 +852,7 @@ class Deck:
         agen = runtime.run(name, content, context=context, session_id=session_id, namespace=namespace, key=key)
         opening = await anext(agen)
         task = asyncio.create_task(_drain(agen))
-        self._executions[opening.run_id] = task
+        self._executions[opening.run_id] = (namespace, task)
         task.add_done_callback(functools.partial(self._execution_done, opening.run_id))
         return opening, task
 
@@ -851,7 +881,7 @@ class Deck:
         task = asyncio.create_task(
             _drain(runtime.run(name, content, context=parent.data, namespace=parent.namespace, run_id=run_id))
         )
-        self._executions[run_id] = task
+        self._executions[run_id] = (parent.namespace, task)
         task.add_done_callback(functools.partial(self._execution_done, run_id))
         return Run(
             self,
@@ -896,9 +926,9 @@ class Deck:
                 seq = event.seq + 1
                 if event.kind in TERMINAL_KINDS or event.kind in SUSPENDED_KINDS:
                     return
-            task = self._executions.get(ctx.run_id)
-            if task is not None and not task.done():
-                await asyncio.wait({task}, timeout=_FOLLOW_POLL_INTERVAL)
+            execution = self._executions.get(ctx.run_id)
+            if execution is not None and not execution[1].done():
+                await asyncio.wait({execution[1]}, timeout=_FOLLOW_POLL_INTERVAL)
             else:
                 await asyncio.sleep(_FOLLOW_POLL_INTERVAL)
 
@@ -1160,7 +1190,7 @@ class Run:
             # The one handle that can outrun its own ``run.started``: ``ctx.invoke`` mints the id
             # and returns before the claim lands, so this window is a run that is opening.
             opening = self._deck._executions.get(self.id)
-            assert opening is not None and not opening.done(), (
+            assert opening is not None and not opening[1].done(), (
                 f"a Run handle always names a run that exists: {self.id!r}"
             )
             status = RunStatus.RUNNING
@@ -1298,13 +1328,13 @@ class Run:
         while True:
             if await self.status() is not RunStatus.RUNNING:
                 break
-            task = deck._executions.get(self.id)
-            if task is not None:
+            execution = deck._executions.get(self.id)
+            if execution is not None:
                 # The real exception, traceback included  -  the same settle `Deck.run()`
                 # already does before it ever reads the log, so a run this process is
                 # executing raises its own failure rather than a `RuntimeError`
                 # reconstructed from `run.failed`.
-                await task
+                await execution[1]
             else:
                 await asyncio.sleep(_FOLLOW_POLL_INTERVAL)
         events = await runtime.store.read_run(self._rc())
