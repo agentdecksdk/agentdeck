@@ -8,6 +8,15 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Changed
+
+- **`EventSinkPort` is renamed `Observer`, and it gains `agentdeck.views`.** `views.all`,
+  `views.chat`, `views.tools`, `views.reports`, `views.lifecycle`, `views.errors` and
+  `views.usage` are composable predicates over the event stream (`|`, `&`, `~`); pass
+  `view=` to any observer to filter what it receives. `agentdeck.observers.Langfuse` is
+  renamed `LangfuseObserver`, and `ConsoleObserver` / `FileObserver` join it: one prints a
+  line per event, the other appends one JSONL line per event, both with no configuration.
+
 ### Added
 
 - **Agents can select OpenAI, Anthropic, Gemini, Ollama, or OpenRouter by model prefix.** Each
