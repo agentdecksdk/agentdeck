@@ -132,9 +132,10 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 - **A busy standalone run no longer names a session that does not exist.** The refusal read
   `session '<the run's own id>' is held by run '<the same id>'`; a run in no session now says so.
 - **`Deck.aclose()` always returns.** A run whose task never took the cancellation `aclose()` sent
-  it held the close open forever, wedging a shutting-down server. Each run now gets one second to
-  settle, after which the close logs the run id and records the run's own `run.cancelled`, so an
-  abandoned run does not stay open in the log with nothing playing it.
+  it held the close open forever, wedging a shutting-down server. The close now asks twice, a
+  second apart, and then stops waiting: it logs the run id and records the run's own
+  `run.cancelled`, so an abandoned run does not stay open in the log with nothing playing it, and
+  nothing that run does afterwards reaches the log past that event.
 
 ## [4.0.5] - 2026-08-19
 

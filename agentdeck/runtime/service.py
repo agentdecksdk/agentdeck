@@ -138,6 +138,9 @@ class Runtime:
         self._control_poll_interval = control_poll_interval
         self._lease = lease
         self._lease_ttl = lease_ttl
+        # Runs :meth:`close_cancelled` closed from outside. Only ``Deck.aclose`` abandons a run,
+        # and only at teardown, so this is bounded by the runs one process had in flight.
+        self._abandoned: set[str] = set()
 
     @property
     def store(self) -> EventStorePort:
@@ -723,29 +726,31 @@ class Runtime:
         the cancellation, but not the event loop, so a process dying with the request leaves the
         run open in the log for whatever reconciles it later.
         """
+        if ctx.run_id in self._abandoned:
+            return
         recording = asyncio.ensure_future(self._record(RunCancelled(reason=reason), spec, ctx))
         with suppress(asyncio.CancelledError):
             await asyncio.shield(recording)
 
     async def close_cancelled(self, run_id: str, reason: str, *, namespace: str | None = None) -> None:
-        """Close a run nobody is playing any more, addressed by ``run_id`` alone: the wrapper
-        over :meth:`_close_cancelled` for an owner that holds an id and not the run's spec and
-        bound context, as :meth:`find` is the wrapper over :meth:`_find`.
-
-        ``Deck.aclose``'s caller, for a run that never took the cancellation it was sent. Not
-        :meth:`_close_abandoned`, which records a different fact: a run whose worker died, taken
-        over and failed by the turn that stepped over it.
-
-        Quiet for anything this namespace does not hold ``RUNNING``, so a task wedged after its
-        own terminal event already landed cannot have it contradicted.
+        """Close a run this deck abandoned, addressed by ``run_id`` alone: the wrapper over
+        :meth:`_close_cancelled` for a caller holding an id and not a spec and bound context,
+        as :meth:`find` is the wrapper over :meth:`_find`.
         """
         ctx = self._context(run_id=run_id, namespace=namespace)
         started = await self._opening_of(run_id, ctx)
-        if started is None or await self._store.run_status(ctx) is not RunStatus.RUNNING:
-            return
-        session_id, opened = started
-        spec, _ = self._resolve(opened.invocable)
-        await self._close_cancelled(spec, replace(ctx, session_id=session_id), reason)
+        if started is None:
+            logger.error(
+                "run %s is being abandoned but has no run.started to close it against; it stays "
+                "open in the log until something reconciles it (#419)",
+                run_id,
+            )
+        elif await self._store.run_status(ctx) is RunStatus.RUNNING:
+            session_id, opened = started
+            spec, _ = self._resolve(opened.invocable)
+            await self._close_cancelled(spec, replace(ctx, session_id=session_id), reason)
+        # Marked after the write, so the mark does not refuse the write it exists to protect.
+        self._abandoned.add(run_id)
 
     async def _claim_resume(
         self, spec: InvocableSpec, ctx: RunContext, value: Any, reason: str | None = None
@@ -952,7 +957,13 @@ class Runtime:
         The store stamps it (ADR-D11): ``seq`` and ``ts`` are assigned in the same indivisible
         step that writes the row, so a refused append cannot leave a number spent. Nothing here
         holds a counter to get wrong.
+
+        A run :meth:`close_cancelled` abandoned is cancelled here instead, at its next write. The
+        check is synchronous and the abandoning caller shares this event loop, so an abandoned
+        run cannot get an append past the terminal event that was written for it.
         """
+        if ctx.run_id in self._abandoned:
+            raise asyncio.CancelledError(f"run {ctx.run_id} was abandoned by the deck closing")
         event = (await self._store.append([payload], ctx, spec.name))[0]
         await self._fan_out(event)
         return event

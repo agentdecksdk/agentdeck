@@ -27,7 +27,7 @@ from agentdeck.core.context import RunContext  # noqa: TC001  -  the node below 
 from agentdeck.core.control import Signal
 from agentdeck.core.events import RunStarted
 from agentdeck.core.status import RunStatus
-from agentdeck.deck import _CLOSE_GRACE, Deck, TurnResult, _new_context, _turn_result
+from agentdeck.deck import _CLOSE_ATTEMPTS, _CLOSE_GRACE, Deck, TurnResult, _new_context, _turn_result
 from agentdeck.errors import (
     ConfigError,
     DuplicateKeyError,
@@ -35,6 +35,7 @@ from agentdeck.errors import (
     RunStateError,
     RunSuspendedError,
     SessionBusyError,
+    StoreError,
     UnsupportedControlError,
 )
 from agentdeck.mcp import MCP
@@ -1130,14 +1131,17 @@ async def test_closing_a_deck_cancels_a_run_still_in_flight_and_says_so(no_proje
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_closing_a_deck_returns_even_when_a_run_never_observes_its_cancellation(no_project, caplog):
-    """``aclose()`` bounds its wait at ``_CLOSE_GRACE`` rather than betting on the run taking the
-    cancellation (#412), and writes the abandoned run's own ``run.cancelled`` on the way past:
-    left open, it would be exactly the ghost state ``stale_run_after`` exists to recover."""
+    """``aclose()`` asks twice and then stops waiting (#412) rather than betting on the run taking
+    a cancellation at all, and writes the abandoned run's own ``run.cancelled`` on the way past:
+    left open it would be exactly the ghost state ``stale_run_after`` exists to recover. The task
+    stays alive, and nothing it does afterwards may reach the log past that event.
+    """
 
     class _UncancellableStore(MemoryEventStore):
-        """A write that does not take a cancellation, which is what a driver call already inside
-        a thread is: nothing can cancel the execution task out of it."""
+        """A write that does not take a cancellation, which is what a driver call already inside a
+        thread is, and that fails once the wedge clears, which is how such a write ends."""
 
         def __init__(self) -> None:
             super().__init__()
@@ -1150,26 +1154,39 @@ async def test_closing_a_deck_returns_even_when_a_run_never_observes_its_cancell
                 while not self.release.is_set():
                     with contextlib.suppress(asyncio.CancelledError):
                         await self.release.wait()
+                raise StoreError("event log append failed: the connection was gone")
             return await super().append(payloads, ctx, origin)
 
     store = _UncancellableStore()
     deck = Deck(agents=[_greeter()], _store=store)
+    loop = asyncio.get_running_loop()
+    task: asyncio.Task[None] | None = None
 
-    with patch_model(ScriptedModel(deltas=("one", "two"))), caplog.at_level("ERROR"):
-        async with deck:
-            opening, task = await deck._start("Greeter", coerce_input("hi"), session_id="s1")
-            await store.writing.wait()
-            await asyncio.wait_for(deck.aclose(), timeout=_CLOSE_GRACE * 2)
+    try:
+        with patch_model(ScriptedModel(deltas=("one", "two"))), caplog.at_level("ERROR"):
+            async with deck:
+                opening, task = await deck._start("Greeter", coerce_input("hi"), session_id="s1")
+                await store.writing.wait()
+                started = loop.time()
+                await deck.aclose()
+                elapsed = loop.time() - started
 
-    assert not task.done()  # abandoned rather than settled: the case the bound exists for
-    assert f"run {opening.run_id} ignored its cancellation" in caplog.text
-    events = await store.read_session(RunContext(run_id="reader", session_id="s1"))
-    assert [event.kind for event in events][-1] == "run.cancelled"
-    assert f"within {_CLOSE_GRACE}s" in events[-1].payload.reason
-    store.release.set()  # the abandoned task outlives the deck; nothing else would end it
-    task.cancel()
-    with contextlib.suppress(asyncio.CancelledError):
-        await task
+        assert elapsed < _CLOSE_ATTEMPTS * _CLOSE_GRACE + 1
+        assert not task.done()  # abandoned rather than settled: the case the bound exists for
+        assert f"run {opening.run_id} ignored its cancellation" in caplog.text
+        closed = [event.kind for event in await store.read_session(_reader_ctx("s1"))]
+        assert closed[-1] == "run.cancelled"
+
+        store.release.set()
+        with contextlib.suppress(BaseException):
+            await task
+        assert [event.kind for event in await store.read_session(_reader_ctx("s1"))] == closed
+    finally:
+        store.release.set()
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(BaseException):
+                await task
 
 
 @pytest.mark.asyncio

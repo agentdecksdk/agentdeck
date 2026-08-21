@@ -176,11 +176,13 @@ def _new_context(session_id: str | None = None) -> RunContext:
 # own control port.
 _FOLLOW_POLL_INTERVAL = 0.05
 
-# Seconds :meth:`Deck.aclose` gives one cancelled run to settle before abandoning it. A cancel a
-# run takes at all is recorded within one scheduler wake and one append the store hands to a
-# thread, so a second is margin for a loaded box or a network store, and short enough that a
-# shutdown holding several stuck runs degrades rather than wedges.
+# Seconds :meth:`Deck.aclose` gives one cancelled run to settle, and how many times it asks. A
+# cancel a run takes at all is recorded within one scheduler wake and one append the store hands
+# to a thread, so a second is margin for a loaded box or a network store. Twice, because a cancel
+# landing in a turn that is already tearing down is eaten by that teardown and the next one is
+# taken. The loop is serial, so a close holding several wedged runs costs 2s each.
 _CLOSE_GRACE = 1.0
+_CLOSE_ATTEMPTS = 2
 
 
 async def _drain(events: AsyncGenerator[Event, None]) -> None:
@@ -749,25 +751,30 @@ class Deck:
             if task.done():
                 logger.info("closing deck: run %s had already settled", run_id)
                 continue
-            task.cancel()
-            try:
-                await asyncio.wait_for(asyncio.shield(task), timeout=_CLOSE_GRACE)
-            except TimeoutError:
-                # Shielded, so this leaves the task running: a cancel the engine swallowed is not
-                # one a longer wait or a second cancel would reach (#412). The run is closed in
-                # the log from here, or it stays open forever with nothing playing it.
+            for _ in range(_CLOSE_ATTEMPTS):
+                task.cancel()
+                try:
+                    # Shielded, so a grace that runs out leaves the task running rather than
+                    # cancelling this close's own wait on it.
+                    await asyncio.wait_for(asyncio.shield(task), timeout=_CLOSE_GRACE)
+                except TimeoutError:
+                    # A cancel delivered into a turn that was already tearing down is eaten by
+                    # that teardown; the next one lands at the next await (#412).
+                    continue
+                except asyncio.CancelledError:
+                    # The run's own cancellation, arriving back through the shield. A cancel of
+                    # this close instead leaves the task uncancelled, and has to keep travelling.
+                    if not task.cancelled():
+                        raise
+                break
+            else:
                 logger.error("closing deck: run %s ignored its cancellation; abandoning it", run_id)
                 await self._require_open().close_cancelled(
                     run_id,
-                    f"abandoned by the closing deck: it did not observe its cancellation within {_CLOSE_GRACE}s",
+                    f"abandoned by the closing deck: it took no cancellation in {_CLOSE_ATTEMPTS * _CLOSE_GRACE}s",
                     namespace=namespace,
                 )
                 continue
-            except asyncio.CancelledError:
-                # The run's own cancellation, arriving back through the shield. A cancel of this
-                # close instead leaves the task uncancelled, and has to keep travelling.
-                if not task.cancelled():
-                    raise
             logger.info("closing deck: run %s was cancelled", run_id)
         self._executions.clear()
         try:
