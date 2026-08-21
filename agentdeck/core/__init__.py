@@ -22,7 +22,6 @@ from agentdeck.core.events import (
     CURRENT_VERSION,
     KNOWN_KINDS,
     RESULT_PREVIEW_MAX,
-    SUPPORTED_MAJORS,
     TERMINAL_KINDS,
     ArtifactCreated,
     ControlObserved,
@@ -58,7 +57,6 @@ from agentdeck.core.status import RunStatus, can_resume, status_of
 
 __all__ = [
     "CURRENT_VERSION",
-    "SUPPORTED_MAJORS",
     "KNOWN_BLOCK_TYPES",
     "KNOWN_KINDS",
     "RESULT_PREVIEW_MAX",

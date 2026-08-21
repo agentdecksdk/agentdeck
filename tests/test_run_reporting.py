@@ -38,7 +38,7 @@ from agentdeck.adapters.engines.stub import StubEngine, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import DataBlock, coerce_input
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import Event, Reported, RunCompleted, Usage
+from agentdeck.core.events import CURRENT_VERSION, Event, Reported, RunCompleted, Usage
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.runtime.service import Runtime
@@ -285,7 +285,8 @@ async def test_the_reference_renderer_prints_prose_and_a_record(capsys) -> None:
         # A kind this renderer has never heard of must not stop it  -  the default case is the
         # forward-compatibility promise, and a new kind is exactly when it gets tested.
         yield (
-            'data: {"v": {"major": 3, "minor": 0}, "kind": "future.thing", "seq": 4, "run_id": "r-1", '
+            f'data: {{"v": {{"major": {CURRENT_VERSION.major}, "minor": {CURRENT_VERSION.minor + 1}}}, '
+            '"kind": "future.thing", "seq": 4, "run_id": "r-1", '
             '"session_id": null, "namespace": "acme", "origin": "Searcher", "ts": "2026-01-01T12:00:00Z", '
             '"payload": {"whatever": 1}}'
         )

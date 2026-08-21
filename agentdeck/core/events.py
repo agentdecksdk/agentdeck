@@ -9,8 +9,7 @@ Unknown kinds parse instead of raising  -  ``Event.model_validate`` lands them a
 survives a newer writer. Adding a kind or an optional field is a ``minor`` bump, tolerated by
 construction through :class:`UnknownEvent`/``UnknownBlock`` without either side consulting the
 number; renaming, removing, or otherwise changing what a reader must already understand to parse
-at all is a ``major`` bump, and :class:`Event` refuses one it cannot read  -  which is not the same
-as one it does not write: see :data:`SUPPORTED_MAJORS`.
+at all is a ``major`` bump, and :class:`Event` refuses any major but its own.
 
 Run control is three phases, not one event: ``control.requested`` (the signal was written),
 ``control.observed`` (the run reached a safe point and acted), and the verb's own kind for the
@@ -69,29 +68,12 @@ class SchemaVersion(CoreModel):
 CURRENT_VERSION = SchemaVersion(major=4, minor=0)
 """What this tree writes onto every event.
 
-``major=4`` (v5.0.0): the payload vocabulary moved in a way an older reader cannot take. Removing
-``status.reported``/``progress.reported`` was not the reason  -  a kind a reader has never heard of
-degrades to :class:`UnknownEvent` in *either* direction, which is what additive means. The reason
-is ``RunStarted.kind_of_invocable`` gaining ``"tool"``: ``run.started`` is a kind an older reader
-knows, so a payload it cannot parse raises instead of degrading, and stores parse every row  -  one
-such event would take a whole session's log with it.
+``major=4`` (v5.0.0): the payload vocabulary moved, and v5.0.0 does not read a log v4 wrote. There
+is no compatibility window and no store migration  -  replay a 4.x log into a new store, or read it
+with the version that wrote it.
 
 A future additive change (a new kind, a new optional field) bumps ``minor`` here and nowhere else;
-a breaking one bumps ``major`` and decides whether the old one belongs in
-:data:`SUPPORTED_MAJORS`."""
-
-SUPPORTED_MAJORS: frozenset[int] = frozenset({3, 4})
-"""Every major whose envelope this reader still understands, which is not only its own.
-
-The version answers two different questions and they have different answers: *can I read what an
-older writer wrote* and *can I read what a newer one will*. Refusing both  -  ``!=`` against
-:data:`CURRENT_VERSION` alone  -  answers the second correctly and the first wrongly, and makes
-every upgrade a store migration.
-
-``3`` is here because the envelope did not change between 3 and 4: the fields, their names and
-their meanings are identical, and only payload kinds moved  -  which the unknown-kind fallback
-already handles. A major that *does* change the envelope stays out, and its own message
-(:meth:`Event._a_pre_v3_scalar_version_says_so` is the worked example) says what to do instead."""
+a breaking one bumps ``major``."""
 
 Money = Annotated[float, Field(ge=0, allow_inf_nan=False)]
 """US dollars, constrained where the token counts already were. ``NaN``/``±Infinity`` serialize
@@ -431,18 +413,14 @@ class Event(CoreModel):
 
     @field_validator("v")
     @classmethod
-    def _major_version_must_be_supported(cls, value: SchemaVersion) -> SchemaVersion:
-        """An unsupported major is refused outright rather than offered the unknown-kind path:
-        that path only knows how to skip a kind it has never seen, not a wire shape it was never
-        taught.
-
-        Read against :data:`SUPPORTED_MAJORS`, not against :data:`CURRENT_VERSION` alone: a reader
-        that refused every major but its own would refuse the log it was just upgraded over, which
-        is the common case, to guard against the rare one.
-        """
-        if value.major not in SUPPORTED_MAJORS:
+    def _major_version_must_be_this_readers_own(cls, value: SchemaVersion) -> SchemaVersion:
+        """Another major is refused outright rather than offered the unknown-kind path: that path
+        only knows how to skip a kind it has never seen, not a wire shape it was never taught."""
+        if value.major != CURRENT_VERSION.major:
             raise ValueError(
-                f"event major version {value.major} unsupported, this reader supports {sorted(SUPPORTED_MAJORS)}"
+                f"event major version {value.major} unsupported, this reader writes and reads "
+                f"major {CURRENT_VERSION.major}. An event log written by another major has to be "
+                "replayed into a new store, or read with the version of agentdeck that wrote it."
             )
         return value
 
