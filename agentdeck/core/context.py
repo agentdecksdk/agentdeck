@@ -17,15 +17,23 @@ receives, so a tool signature names one AgentDeck type instead of an engine's.
 
 from __future__ import annotations
 
+import asyncio
+import inspect
+import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 from uuid import uuid4
 
 from agentdeck.core.control import Gate, RunPausedError
 from agentdeck.core.events import KnownPayload, RunInterrupted
 from agentdeck.core.reporting import Reporter
+from agentdeck.core.status import RunStatus
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from agentdeck.core.base import JsonData
 
 
@@ -214,6 +222,38 @@ class Suspender(Protocol):
         ...
 
 
+type Invoker = Callable[..., Any]
+"""The reach the other way: from a body out to the Deck that holds the catalog, called as
+``invoker(parent_context, target, *args, **kwargs)`` and returning the child ``Run``.
+
+A callable rather than a protocol, because one method is not an interface and a protocol would
+put a public ``invoke`` on the one object that can satisfy it. Loosely typed for the reason core
+cannot say more: a ``Run`` is ``agentdeck.deck``'s, which is outside this ring (``.importlinter``).
+"""
+
+
+@runtime_checkable
+class ChildRun(Protocol):
+    """What :meth:`WorkflowCtx.parallel` needs of the run :meth:`WorkflowCtx.invoke` handed back.
+
+    A protocol rather than that handle, for :class:`~agentdeck.core.invocable.NativeInvocable`'s
+    reason: the handle is ``agentdeck.deck``'s and core may not import it. Three members, and all
+    three are used  -  which is also what tells a run from an ``asyncio.Task``, whose ``cancel``
+    alone would pass for one and then break the giving-up path.
+    """
+
+    id: str
+    """Which run, for the one line :meth:`WorkflowCtx._abandon` logs when it cannot end one."""
+
+    async def status(self) -> RunStatus:
+        """This run's current status."""
+        ...
+
+    async def cancel(self, reason: str | None = None) -> None:
+        """Ask this run to stop at its next safe point."""
+        ...
+
+
 @dataclass(frozen=True, slots=True)
 class WorkflowCtx[T](ToolCtx[T]):
     """What an imperative ``@workflow`` body receives: :class:`ToolCtx` plus orchestration.
@@ -222,15 +262,116 @@ class WorkflowCtx[T](ToolCtx[T]):
     coordinates executions, and a tool that could ``ask`` a person or start another run is no
     longer a leaf. Declaring the wrong one is a ``build()`` error.
 
-    ``invoke`` and ``parallel`` join this in the PR that adds child runs; what is here is the
-    half that suspends the current branch. Both need somewhere to park, so a workflow is only
-    ever built by an executor that can provide one.
+    Two seams, because the two halves point opposite ways: ``ask`` and ``safepoint`` suspend this
+    branch through the ``_channel`` the executor playing it owns, and ``invoke`` starts another
+    execution through the ``_invoker`` that reaches back out to the deck holding the catalog.
 
     There is no ``approve()``: an approval is a question with two options, and one mechanism that
     takes any option set beats two that overlap. It also keeps AgentDeck out of the business of
     deciding what counts as a yes  -  an answer equals one of the options the asker wrote, or it
     is refused.
     """
+
+    _invoker: Invoker | None = None
+
+    def invoke(self, target: Any, *args: Any, **kwargs: Any) -> Any:
+        """Start ``target`` as a child run and hand back its ``Run``, without waiting for it.
+
+        ``target`` is a catalog name or a ``@tool``/``@workflow`` this deck holds, and ``*args``/
+        ``**kwargs`` bind to that target's own signature exactly as calling it would. Anything
+        else waits for the invocation resolver, so there is one rule and no special case.
+
+            result = await ctx.invoke(load_customer, ticket.customer_id)   # the short path
+
+            child = ctx.invoke(research, topic=subject)                    # the same call, held
+            if child.can.pause:
+                await child.pause()
+            result = await child
+
+        The child is a run in its own right: its own id, its own log, its own ``can.*`` and
+        lifecycle methods. It runs in its own deck-owned task from this call, whether or not the
+        handle is ever awaited, and awaiting it is what gives back the body's return value.
+
+        A child that stops on a question of its own is not this body's to wait out: ``await
+        child`` raises ``RunSuspendedError`` naming it rather than blocking on somebody eventually
+        answering. It stays ``WAITING_ANSWER`` and answerable  -  through ``deck.runs.get(child.id)``
+        from outside, and through :meth:`parallel`, which leaves a waiting child alone when it
+        gives the rest up.
+        """
+        return self._invoking(self._run, target, *args, **kwargs)
+
+    async def parallel(self, *runs: Any) -> list[Any]:
+        """Await several child runs at once and return their results in the order given.
+
+        All-or-nothing: the first failure cancels the siblings and propagates, the way
+        ``asyncio.TaskGroup`` does, so no child is left running behind a parent that already gave
+        up. A workflow body is ordinary Python, so an exception is an exception  -  there is no
+        list of outcomes to forget to inspect.
+
+            first, second = await ctx.parallel(ctx.invoke(a, x), ctx.invoke(b, y))
+
+        A child waiting for an answer is the one thing not cancelled: see :meth:`_abandon`. The
+        refusal below gives its children up the same way, because ``ctx.invoke`` has already
+        started every one of them by the time this call can look at them.
+        """
+        if (refused := next((run for run in runs if not isinstance(run, ChildRun)), None)) is not None:
+            for run in runs:
+                # Closed rather than dropped: nothing will ever await what this refuses, and a
+                # coroutine collected unawaited costs the author a second, vaguer warning about it.
+                if inspect.iscoroutine(run):
+                    run.close()
+            await self._abandon(runs)
+            raise TypeError(
+                f"ctx.parallel() takes the child runs ctx.invoke() returns; got a "
+                f"{type(refused).__name__}. Several ctx.ask(...) calls are not among them: one run "
+                f"parks on one question at a time, so a second concurrent ask would replace the "
+                f"first and never be answered (agentdeck #414). Ask in sequence, or give each "
+                f"question a child run of its own."
+            )
+        gathered = asyncio.gather(*runs)
+        try:
+            return list(await gathered)
+        except BaseException:
+            gathered.cancel()
+            await self._abandon(runs)
+            raise
+
+    async def _abandon(self, runs: tuple[Any, ...]) -> None:
+        """Give up the children of a :meth:`parallel` that is not going to return.
+
+        A child ``WAITING_ANSWER`` is left alone, and only that one. It is not running behind
+        anything, and the approval inbox holds it: ``deck.runs.list(namespace=..., status=
+        WAITING_ANSWER)`` finds it and ``run.answer(...)`` continues it, whether or not the
+        exception unwinding past here happens to name it. The namespace is the parent's, which the
+        child inherited, and naming it is not optional: that listing is single-namespace by design.
+        A ``PAUSED`` child is cancelled with the rest, because nobody is left holding a reason to
+        resume it and sparing it would leave a run only a staleness sweep ends.
+
+        Cancelling is recorded rather than waited out, as everywhere: the run stops at its own next
+        safe point, and this body has already given up.
+        """
+        for run in runs:
+            try:
+                if isinstance(run, ChildRun) and await run.status() is not RunStatus.WAITING_ANSWER:
+                    await run.cancel("the ctx.parallel() that started it gave up, and it is all-or-nothing")
+            except Exception:
+                # Teardown may not outrank the diagnosis it is tearing down for: raising here would
+                # replace the exception this is unwinding past, which on the refusal path is the
+                # message naming #414. Logged rather than swallowed, because a child that could not
+                # be told to stop is still running and nothing else is left to say so.
+                logger.warning("could not give up child run %s of a ctx.parallel()", run.id, exc_info=True)
+
+    @property
+    def _invoking(self) -> Invoker:
+        """The seam this body starts other runs through. Absent only on a context built by hand:
+        an executor that plays a workflow is one the deck handed its catalog to."""
+        if self._invoker is None:
+            raise RuntimeError(
+                "this WorkflowCtx has no way to start another run, so invoke() has nothing to "
+                "invoke against. A workflow context is built by the executor playing it, which the "
+                "Deck hands its catalog; one constructed by hand has no deck to reach."
+            )
+        return self._invoker
 
     async def ask(self, question: str, *, options: list[JsonData] | None = None, **fields: JsonData) -> Any:
         """Suspend this branch until somebody answers ``question``, and return their answer.

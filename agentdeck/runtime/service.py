@@ -156,6 +156,7 @@ class Runtime:
         session_id: str | None = None,
         namespace: str | None = None,
         key: str | None = None,
+        run_id: str | None = None,
     ) -> AsyncGenerator[Event, None]:
         """Play one run of ``name``, yielding every event it produced, ``run.started`` first.
 
@@ -170,6 +171,11 @@ class Runtime:
         ``(namespace, key)`` is a permanent claim: reusing one whose run already started raises
         ``DuplicateKeyError`` rather than handing back the run that holds it.
 
+        ``run_id`` is for the one caller that needs the id before this generator is drawn from:
+        ``ctx.invoke`` hands its body a child ``Run`` synchronously, so the handle exists before
+        the opening claim lands. Still minted, and minted by AgentDeck  -  see
+        :meth:`_new_run_context`.
+
         One turn per session at a time: opening the run is a conditional append that fails if
         the session already has one in flight, so a second concurrent turn raises
         ``SessionBusyError`` instead of running against a conversation that is still changing.
@@ -181,7 +187,7 @@ class Runtime:
         """
         spec, executor = self._resolve(name)
         ctx, reports = self._bind(
-            self._new_run_context(key=key, session_id=session_id, namespace=namespace, data=context)
+            self._new_run_context(run_id=run_id, key=key, session_id=session_id, namespace=namespace, data=context)
         )
         # ponytail: whole log per run  -  window it (or hand the engine a summary) once a
         # session's history outgrows one read, which a real store will notice long before this does
@@ -850,6 +856,7 @@ class Runtime:
     def _new_run_context(
         self,
         *,
+        run_id: str | None = None,
         key: str | None = None,
         session_id: str | None = None,
         namespace: str | None = None,
@@ -862,8 +869,12 @@ class Runtime:
         :meth:`_context` rather than that one falling back to ``uuid4()``. A caller-supplied
         value reaching ``run_id`` is exactly the derivation this design retired  -  two namespaces
         given the same ``key`` must still mint two different, unrelated ids.
+
+        ``run_id`` is that same mint moved one step earlier, never a derivation: the invoker
+        behind ``ctx.invoke`` mints it so a child's handle can exist before its opening claim
+        lands. Nothing an application supplies reaches it.
         """
-        return RunContext(run_id=str(uuid4()), key=key, session_id=session_id, namespace=namespace, data=data)
+        return RunContext(run_id=run_id or str(uuid4()), key=key, session_id=session_id, namespace=namespace, data=data)
 
     def _bind(self, ctx: RunContext) -> tuple[RunContext, deque[KnownPayload]]:
         """Give this run its control gate and its report buffer, and hand back both.
