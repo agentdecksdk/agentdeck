@@ -50,3 +50,30 @@ OPENROUTER_API_KEY=sk-or-...
 
 An agent without `model=` uses `OPENAI_MODEL`. Bare model names use OpenAI, while namespaced IDs
 such as `vendor/model` remain available for an endpoint configured with `OPENAI_BASE_URL`.
+## SDK-native Options
+
+Some agent options come directly from the OpenAI Agents SDK. For example, structured output can use
+`AgentOutputSchema` from the SDK's `agents` package:
+
+```python
+from agents import AgentOutputSchema
+from pydantic import BaseModel
+
+from agentdeck import Agent
+
+
+class Verdict(BaseModel):
+    approved: bool
+    reason: str
+
+
+reviewer = Agent(
+    name="reviewer",
+    instructions="Approve or reject the request.",
+    output_type=AgentOutputSchema(Verdict, strict_json_schema=False),
+)
+```
+
+`AgentOutputSchema` comes from the OpenAI Agents SDK (`agents`). `agentdeck` keeps that boundary
+visible: it discovers and configures your agent, then passes SDK-native options through to the SDK
+runner rather than wrapping them in a second `agentdeck` type.
