@@ -96,7 +96,6 @@ GOLDEN: tuple[Case, ...] = (
     Case("ops-env", "operations", "What environment variables does AgentDeck read?", "answer", ("AGENTDECK_",)),
     Case("ops-cli", "operations", "What can the CLI do?", "answer", ("agentdeck",)),
     # -- integrations ------------------------------------------------------------------------
-    Case("int-langgraph", "integrations", "Can I use an existing LangGraph graph?", "answer", ("LangGraph",)),
     Case(
         "int-oai", "integrations", "How does AgentDeck relate to the OpenAI Agents SDK?", "answer", ("OpenAI Agents",)
     ),

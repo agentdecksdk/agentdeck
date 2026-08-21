@@ -1,6 +1,6 @@
 """Resume invariants (#53): every case that ends ``"suspended"`` gets resumed here, on
-every engine that has one  -  stub and langgraph today, the shared invariants a new
-suspending engine inherits automatically by adding its case to ``contract_cases.py``.
+every engine that has one  -  stub today, the shared invariants a new suspending engine
+inherits automatically by adding its case to ``contract_cases.py``.
 """
 
 from __future__ import annotations

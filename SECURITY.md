@@ -38,19 +38,19 @@ there are no long-term support branches and no backports to older lines.
 **Out of scope**, and both of these are design, not oversight:
 
 - **A model-chosen tool call is trusted by design.** agentdeck owns configuration; the OpenAI
-  Agents SDK and LangGraph own execution. When a model decides to call a tool you declared,
+  Agents SDK owns execution. When a model decides to call a tool you declared,
   that tool runs with the full privileges of the host process, with arguments the model chose.
   There is no allowlist, no confirmation step, and no privilege boundary between the model's
   decision and your function  -  so a prompt injection that reaches an agent reaches every tool
   that agent holds. Treat every tool you declare as reachable by untrusted input: keep the
   destructive ones behind a workflow with a human approval, not behind an agent's judgement.
 - **Nothing is sandboxed.** Sandboxing is not part of v3  -  it was deferred, and the scaffolding
-  for it was deleted rather than left half-built. Skills, tools, and workflow nodes are ordinary
+  for it was deleted rather than left half-built. Skills, tools, and workflows are ordinary
   Python running in your process, with your filesystem, your network, and your environment.
   Code you did not write and would not run yourself does not become safe by being loaded as a
   bundle.
 
-Also out of scope: vulnerabilities in the OpenAI Agents SDK, LangGraph, or any other
+Also out of scope: vulnerabilities in the OpenAI Agents SDK or any other
 dependency (report those upstream; tell us too if agentdeck's use of them makes it worse), and
 anything that requires an attacker to already control the machine or the `.agentdeck/`
 directory.

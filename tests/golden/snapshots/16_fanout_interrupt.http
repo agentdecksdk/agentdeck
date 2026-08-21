@@ -1,4 +1,0 @@
-HTTP 200
-content-type: application/json
-
-{"type":"interrupt","payload":{"question":"approve?"},"thread_id":"t-golden-fanout"}

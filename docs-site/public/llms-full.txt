@@ -5,10 +5,9 @@ skills as small declarations in a `.agentdeck/` directory; AgentDeck supplies ev
 them  -  discovery, layered settings, sessions, streaming, MCP servers, durable human-in-the-loop
 approvals, run control, and one ordered event log per run.
 
-It wraps the OpenAI Agents SDK and LangGraph rather than replacing them: an `Agent` compiles to an
-SDK agent, a `Workflow` compiles to a LangGraph graph, and each is executed by its own engine.
-AgentDeck owns configuration; the engines own execution. There is no agent loop here and no graph
-engine of its own.
+It wraps the OpenAI Agents SDK rather than replacing it: an `Agent` compiles to an SDK agent,
+and a `@workflow` is ordinary Python awaited by AgentDeck's own executor. AgentDeck owns
+configuration; the SDK owns execution. There is no agent loop here.
 
 Use it when the wiring around an agent has become the work: several agents and workflows in one
 project, a chat surface and a batch path over the same definitions, runs you must inspect
@@ -890,7 +889,6 @@ Knobs the Runtime itself reads.
 |---|---|---|---|
 | `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` | `float` | `3600.0` | How long, in seconds, a running open run may go without writing an event before it is treated as abandoned and its session ownership is released for another worker to claim. Never applies to a run paused or waiting on an answer  -  those hold their session until resumed, answered, or cancelled. Must be positive; set it above the longest gap a healthy turn can go quiet. |
 | `AGENTDECK_RUNTIME_LEASE_TTL_SECONDS` | `float` | `90.0` | How long, in seconds, a run's lease stays valid without renewal. A worker renews its lease six times per TTL while it plays a run, so a process killed outright frees its session within one TTL instead of one `stale_run_after_seconds`. Only takes effect with a lease backend shared across processes (`AGENTDECK_CONTROL=sqlite:///<path>`); with the in-memory default nothing is ever reported dead and the staleness timer remains the only backstop. Must be positive; set it above the longest the event loop can be blocked in one go. |
-| `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` | `float` | `30.0` | How often, in seconds, an open Deck sweeps for a `sleep_until` timer whose wake moment has passed and resumes it, with no cron or scheduler required. Must be positive; runs for the Deck's own lifetime, started when it opens and cancelled when it closes. |
 
 ## `LangfuseSettings`
 
@@ -914,21 +912,13 @@ Tavily web-search API. One knob: `TAVILY_API_KEY`.
 |---|---|---|---|
 | `TAVILY_API_KEY` | `str` | `''` | Tavily web-search API key. Empty makes the `web_search` tool return an `error:` string instead of raising  -  it degrades the same way an unavailable MCP server does, rather than disappearing. |
 
-## `CheckpointSettings`
-
-LangGraph checkpointer backend for `durable=True` workflows, as one scheme-shaped URL.
-
-| Env var | Type | Default | Description |
-|---|---|---|---|
-| `AGENTDECK_CHECKPOINT` | `str` | `'sqlite://.agentdeck/checkpoints.sqlite3'` | LangGraph checkpointer for `durable=True` workflows: `sqlite://<path>` for dev (this default), `postgresql://<dsn>` for prod, or `memory://` for tests (never persists past the process). The scheme names the backend. |
-
 ## `EventsSettings`
 
 Where the Runtime's canonical event log is written, as one scheme-shaped URL.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_EVENTS` | `str` | `'memory://'` | Where the Runtime's canonical event log is written: `memory://` (default, in-process, gone when the process exits), `sqlite://<path>`, `redis://<url>`/`rediss://<url>` (needs the `[redis]` extra), or `postgresql://<dsn>` (needs the `[durability]` extra). The scheme names the backend. |
+| `AGENTDECK_EVENTS` | `str` | `'memory://'` | Where the Runtime's canonical event log is written: `memory://` (default, in-process, gone when the process exits), `sqlite://<path>`, `redis://<url>`/`rediss://<url>` (needs the `[redis]` extra), or `postgresql://<dsn>` (needs the `[postgres]` extra). The scheme names the backend. |
 
 ## `ControlSettings`
 
@@ -1270,9 +1260,7 @@ Explore real-world runnable examples built with AgentDeck.
 ## Available Examples
 
 - **Chat Agent with a Tool:** Basic tool execution and streaming.
-- **Workflow with Human Approval:** Pausing for approval before high-stakes actions.
 - **Agent with a Skill:** Extending agent capability using domain skills.
-- **Existing LangGraph Agent:** Wrapping a LangGraph graph in AgentDeck.
 The reference application, [Jack](/jack), is documented separately: he is the agent answering
 questions on this site, and his page records the reasoning behind each decision in him.
 
@@ -1290,21 +1278,6 @@ Wrap existing agents without requiring a rewrite.
 ## Wrapping Agents
 
 Bring your custom agent implementations and wrap them with AgentDeck's runtime.
-
----
-
-# langgraph
-
-
-Source: https://agentdecksdk.com/integrations/langgraph
-
-# LangGraph
-
-Wrap and run LangGraph state graphs with AgentDeck.
-
-## Running LangGraph
-
-Compile LangGraph graphs into workflows with unified event streams and run control.
 
 ---
 
@@ -1825,6 +1798,18 @@ The current release is **v4.0.5**. Earlier releases are listed at the bottom.
   agents in the same run and conversation now lands as `agent.changed`, carrying `previous_agent`
   and `next_agent`, and only once the handoff has actually happened. A handoff that was requested
   but failed or was refused still emits nothing. The schema is `major=4, minor=1`.
+
+### Removed
+
+- **LangGraph is gone: `Workflow`, `WorkflowDeclaration`, `graph=`, `durable=`, the executor, the
+  checkpointer and `AGENTDECK_CHECKPOINT`.** What hung off them goes too: `sleep_until` and the
+  timer sweep (`AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS`), `Workflow.pending()`, `as_tool()`, the
+  `AgentNode`/`LoadFileNode` graph nodes, the `node.updated` event, and the HTTP surface's
+  `/workflows/*` routes. A fresh install pulls no `langgraph`, `langchain-core` or
+  `langgraph-checkpoint-sqlite`. A 4.x graph user stays on 4.x, or ports the graph to an
+  imperative `@workflow`.
+- **The `durability` extra is now `postgres`.** Install `agentdeck-sdk[postgres]`: what remains in
+  it is the Postgres event log's driver, and the checkpointer the old name meant is gone.
 
 ### Fixed
 

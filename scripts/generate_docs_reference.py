@@ -310,10 +310,9 @@ skills as small declarations in a `.agentdeck/` directory; AgentDeck supplies ev
 them  -  discovery, layered settings, sessions, streaming, MCP servers, durable human-in-the-loop
 approvals, run control, and one ordered event log per run.
 
-It wraps the OpenAI Agents SDK and LangGraph rather than replacing them: an `Agent` compiles to an
-SDK agent, a `Workflow` compiles to a LangGraph graph, and each is executed by its own engine.
-AgentDeck owns configuration; the engines own execution. There is no agent loop here and no graph
-engine of its own.
+It wraps the OpenAI Agents SDK rather than replacing it: an `Agent` compiles to an SDK agent,
+and a `@workflow` is ordinary Python awaited by AgentDeck's own executor. AgentDeck owns
+configuration; the SDK owns execution. There is no agent loop here.
 
 Use it when the wiring around an agent has become the work: several agents and workflows in one
 project, a chat surface and a batch path over the same definitions, runs you must inspect
@@ -370,7 +369,7 @@ def render_llms_txt(generated: Mapping[Path, str] | None = None) -> str:
         "",
         "> The production runtime for agents you already have  -  "
         "composition, durable human-in-the-loop approvals, sessions, streaming, run control "
-        "and one ordered event log, wrapping the OpenAI Agents SDK and LangGraph.",
+        "and one ordered event log, wrapping the OpenAI Agents SDK.",
         "",
         _DEFINITION,
         "",
