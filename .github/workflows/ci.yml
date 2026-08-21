@@ -135,10 +135,10 @@ jobs:
 
   check:
     name: check
-    # `always()` so a failed matrix still reports, and skipped on an edited body for the reason
-    # `test` is: it asserts the matrix succeeded, and a matrix that never ran has no result to
-    # assert. The conclusions from the last push stand.
-    if: always() && github.event.action != 'edited'
+    # `always()` so a failed matrix still reports. Unlike `test`, this one never opts out of an
+    # edited body: it is a required context, and a required check that reports *skipped* does not
+    # satisfy the rule, so opting out here would block the PR instead of saving a run.
+    if: always()
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -146,7 +146,9 @@ jobs:
       - name: Verify the supported-version matrix
         env:
           MATRIX_RESULT: ${{ needs.test.result }}
-        run: test "$MATRIX_RESULT" = success
+        # `skipped` is the edited-body path: the matrix deliberately did not run because no code
+        # changed, so the conclusions from the last push are the ones that stand.
+        run: test "$MATRIX_RESULT" = success -o "$MATRIX_RESULT" = skipped
 
   # The anti-slop gate for code that never went through a Claude Code hook:
   # outside contributors, and anything written by a process the Edit|Write
