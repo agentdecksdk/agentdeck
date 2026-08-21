@@ -78,7 +78,7 @@ from agentdeck.core.events import (
     RunInterrupted,
     RunPaused,
 )
-from agentdeck.core.ports import EventSinkPort
+from agentdeck.core.ports import Observer
 from agentdeck.core.status import PRECONDITIONS, SUSPENDED_KINDS, Controls, Operation, RunStatus, Verdict, can_of
 from agentdeck.errors import (
     AgentdeckError,
@@ -118,19 +118,19 @@ _State = Literal["NEW", "BUILT", "OPEN", "CLOSED"]
 logger = logging.getLogger(__name__)
 
 
-def _validate_observers(observers: Sequence[EventSinkPort] | None) -> None:
-    """Refuse anything in ``observers=`` that is not an ``EventSinkPort``, at build() time.
+def _validate_observers(observers: Sequence[Observer] | None) -> None:
+    """Refuse anything in ``observers=`` that is not an ``Observer``, at build() time.
 
     Cheap, and it is the difference between a name in a traceback and a run that reaches an
     ``await observer.emit(...)`` on an object with no ``emit``  -  where the dispatch's own
     breaker would swallow it as "this one keeps failing" and the events would just go missing.
     """
     for observer in observers or ():
-        if not isinstance(observer, EventSinkPort):
+        if not isinstance(observer, Observer):
             raise ConfigError(
-                f"observers= takes EventSinkPort instances; got {type(observer).__name__}. An "
+                f"observers= takes Observer instances; got {type(observer).__name__}. An "
                 "observer implements `async def emit(self, event)` and subclasses "
-                "`agentdeck.core.ports.EventSinkPort`."
+                "`agentdeck.core.ports.Observer`."
             )
 
 
@@ -387,7 +387,7 @@ class Deck:
     same, with the requirement unchecked until the callable is played.
 
     ``observers=`` are the read-only taps on this Deck's event stream  -  telemetry, cost, audit,
-    any :class:`~agentdeck.core.ports.EventSinkPort`, and :class:`agentdeck.observers.Langfuse`
+    any :class:`~agentdeck.core.ports.Observer`, and :class:`agentdeck.observers.LangfuseObserver`
     is the one agentdeck ships. Each one's ``start()`` is called once, while the Deck opens,
     before any run  -  so which run happens to come first never decides whether tracing is on.
     Three states, and the default is not a fourth: ``None`` (the default) opens the configured
@@ -421,7 +421,7 @@ class Deck:
         skills: str | Path | Sequence[str | Path] | Skills | None = None,
         mcp: str | Path | MCP | None = None,
         context: object = None,
-        observers: Sequence[EventSinkPort] | None = None,
+        observers: Sequence[Observer] | None = None,
         session_factory: SessionFactory | None = None,
         # Private-by-name test seams  -  never part of the documented constructor, exactly like
         # ``tests/contract/``'s need for ``_executors=`` on the Runtime this composes. A bare
@@ -463,7 +463,7 @@ class Deck:
         # left to wake it.
         self._executions: dict[str, asyncio.Task[None]] = {}
         self._owns_store = False
-        self._started_observers: tuple[EventSinkPort, ...] = ()
+        self._started_observers: tuple[Observer, ...] = ()
         self._started_mcp = False
         self._closed = False
         self._runs = Runs(self)

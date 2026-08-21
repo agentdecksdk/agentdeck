@@ -46,7 +46,7 @@ from jack.session import BoundedSessions
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from agentdeck.core.ports import EventSinkPort
+    from agentdeck.core.ports import Observer
 
 AGENT = "Jack"
 
@@ -166,7 +166,7 @@ def page_context_input(asked: Question, corpus: DocsCorpus | None = None) -> str
     return "\n".join(lines)
 
 
-def observers() -> list[EventSinkPort]:
+def observers() -> list[Observer]:
     """Langfuse when it is configured, nothing when it is not.
 
     A public endpoint that keeps no record of itself cannot be debugged after a complaint and
@@ -178,9 +178,9 @@ def observers() -> list[EventSinkPort]:
     """
     if not get_settings().langfuse.public_key:
         return []
-    from agentdeck.observers import Langfuse
+    from agentdeck.observers import LangfuseObserver
 
-    return [Langfuse()]
+    return [LangfuseObserver()]
 
 
 def build_app(corpus: DocsCorpus | None = None) -> FastAPI:

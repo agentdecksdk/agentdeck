@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from datetime import timedelta
 
     from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import ControlPort, EventSinkPort, EventStorePort, Executor, LeasePort
+    from agentdeck.core.ports import ControlPort, EventStorePort, Executor, LeasePort, Observer
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ def build_runtime(
     executors: Sequence[Executor],
     invocables: Mapping[str, InvocableSpec] | None = None,
     store: EventStorePort | None = None,
-    sinks: Sequence[EventSinkPort] = (),
+    sinks: Sequence[Observer] = (),
     control: ControlPort | None = None,
     stale_run_after: timedelta | None = None,
 ) -> Runtime:
@@ -97,21 +97,21 @@ def build_runtime(
     )
 
 
-def resolve_observers() -> tuple[EventSinkPort, ...]:
+def resolve_observers() -> tuple[Observer, ...]:
     """The observers a Deck opens when its caller named none: Langfuse, if configured.
 
-    Nothing is built here either  -  :class:`~agentdeck.observers.Langfuse` reads its settings
-    and constructs its client in ``start()``, which the Deck calls as it opens. This function
-    only answers "did the environment ask for one?", so it stays as free of network and of the
-    optional ``[observability]`` extra as the rest of ``build()``'s path.
+    Nothing is built here either  -  :class:`~agentdeck.observers.LangfuseObserver` reads its
+    settings and constructs its client in ``start()``, which the Deck calls as it opens. This
+    function only answers "did the environment ask for one?", so it stays as free of network and
+    of the optional ``[observability]`` extra as the rest of ``build()``'s path.
 
     One observer today, and the shape stays plural: the Runtime already fans out to as many
     taps as it is given, and a caller with a cost or audit observer of its own passes
     ``observers=`` to ``Deck`` instead of coming through here.
     """
-    from agentdeck.observers import Langfuse
+    from agentdeck.observers import LangfuseObserver
 
-    return (Langfuse(),) if get_settings().langfuse.enabled else ()
+    return (LangfuseObserver(),) if get_settings().langfuse.enabled else ()
 
 
 def resolve_run_settings(settings: Settings | None = None) -> RunSettings:

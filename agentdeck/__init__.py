@@ -10,6 +10,7 @@ discovered from a project directory (``Deck.from_project()``).
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _version
 
+from agentdeck import views
 from agentdeck.authoring import Agent, Workflow
 from agentdeck.authoring.native import tool, workflow
 from agentdeck.core.context import ToolCtx, WorkflowCtx
@@ -51,6 +52,7 @@ __all__ = [
     "TurnResult",
     "Workflow",
     "tool",
+    "views",
     "workflow",
     "__version__",
 ]
