@@ -6,7 +6,13 @@ on:
   # Every pull request, whatever it targets. Filtering by base branch silently skips CI on a
   # stacked PR (one whose base is another feature branch), so the stack reports "no checks
   # reported" and merges on nothing but the author's word.
+  #
+  # `edited` is here for `slop`, which reads the PR body: without it a body that adds the concept
+  # budget the job just asked for never re-runs the job, and the author has to push a commit that
+  # changes nothing to clear a red check. The two heavy jobs opt out below, so an edit costs one
+  # short run rather than the whole suite.
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
@@ -17,6 +23,8 @@ concurrency:
 
 jobs:
   test:
+    # Nothing about the code changed, so neither can the answer.
+    if: github.event.action != 'edited'
     name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -127,6 +135,9 @@ jobs:
 
   check:
     name: check
+    # `always()` so a failed matrix still reports. Unlike `test`, this one never opts out of an
+    # edited body: it is a required context, and a required check that reports *skipped* does not
+    # satisfy the rule, so opting out here would block the PR instead of saving a run.
     if: always()
     needs: test
     runs-on: ubuntu-latest
@@ -135,7 +146,9 @@ jobs:
       - name: Verify the supported-version matrix
         env:
           MATRIX_RESULT: ${{ needs.test.result }}
-        run: test "$MATRIX_RESULT" = success
+        # `skipped` is the edited-body path: the matrix deliberately did not run because no code
+        # changed, so the conclusions from the last push are the ones that stand.
+        run: test "$MATRIX_RESULT" = success -o "$MATRIX_RESULT" = skipped
 
   # The anti-slop gate for code that never went through a Claude Code hook:
   # outside contributors, and anything written by a process the Edit|Write
