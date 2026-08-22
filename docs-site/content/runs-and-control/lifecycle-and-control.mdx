@@ -73,6 +73,21 @@ boundary. Two events make that visible, `control.requested` when the signal is r
 `control.observed` when the run picks it up, so a control that has not taken effect yet is
 distinguishable from one that was never seen.
 
+### Capability matrix
+
+Which operations are legal from each state:
+
+| State | `pause()` | `resume()` | `cancel()` | `answer()` |
+|---|---|---|---|---|
+| `running` | ✓ | -- | ✓ | -- |
+| `paused` | -- | ✓ | ✓ | -- |
+| `waiting_answer` | ✓ | -- | ✓ | ✓ |
+| `completed` / `failed` / `cancelled` | -- | -- | -- | -- |
+
+`✓` is legal; `--` is not, and covers both a refusal that raises and a call that quietly does
+nothing. `PRECONDITIONS` in `agentdeck/core/status.py` carries the exact verdict and reason
+attached to each cell.
+
 ## Related
 
 - [Runs](/runs-and-control/runs) - starting a run and getting the handle back
