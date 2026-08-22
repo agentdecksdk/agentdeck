@@ -1,5 +1,22 @@
 .PHONY: install build test lint typecheck lint-imports coverage golden docs-reference docs-impact roadmap-sync fmt clean check
 
+# An agent reads this gate's output, so a passing step says nothing and a failing one says only
+# what failed. 1,700 progress dots and 10 kept import contracts cost more attention than they
+# carry, and pytest's default traceback buries the assertion under frames nobody reads.
+# `make check V=1` restores every tool's own full output.
+V ?= 0
+LOG = $${TMPDIR:-/tmp}/agentdeck-$@.log
+ifeq ($(V),0)
+  E = @
+  PYTEST_ARGS = -q --no-header --tb=line -rf
+  QUIET = > $(LOG) 2>&1 && tail -2 $(LOG) | sed "/^[[:space:]]*$$/d; s/^/$@: /" \
+          || { tail -40 $(LOG); echo "(full output: make $@ V=1)"; exit 1; }
+else
+  E =
+  PYTEST_ARGS = -v --tb=short -ra
+  QUIET =
+endif
+
 install:        ## editable install with every extra the gate needs
 	# Every extra ci.yml installs, so `make check` locally runs the same tests CI does.
 	# `.[dev]` alone silently skipped serve, postgres and observability. The whole
@@ -10,17 +27,17 @@ build:          ## sdist + wheel into dist/
 	uv build
 
 test:           ## run the test suite (includes the golden replay suite)
-	.venv/bin/pytest tests/ -q
+	$(E).venv/bin/pytest tests/ $(PYTEST_ARGS) $(QUIET)
 
+# examples/ too: they are code a reader copies, and nothing else in the gate reads them.
 lint:           ## ruff check
-	# examples/ too: they are code a reader copies, and nothing else in the gate reads them.
-	.venv/bin/ruff check agentdeck/ tests/ examples/
+	$(E).venv/bin/ruff check agentdeck/ tests/ examples/ $(QUIET)
 
 typecheck:      ## ty type check
-	.venv/bin/ty check agentdeck
+	$(E).venv/bin/ty check agentdeck $(QUIET)
 
 lint-imports:   ## import-linter contracts (.importlinter)
-	.venv/bin/lint-imports
+	$(E).venv/bin/lint-imports $(QUIET)
 
 coverage:       ## per-module coverage — audit input for #71/#131, not part of `make check`
 	# Zero coverage is evidence a module *may* be dead, never proof: skill_runtime is
@@ -35,7 +52,7 @@ docs-reference: ## regenerate the five generated docs-site files from the code
 	.venv/bin/python scripts/generate_docs_reference.py
 
 docs-impact: ## report which documentation pages this branch's source changes affect
-	.venv/bin/python scripts/check_docs_impact.py --report
+	$(E).venv/bin/python scripts/check_docs_impact.py --report
 
 roadmap-sync:   ## refresh the live-status tables in docs/delivery/ from GitHub (gh required)
 	.venv/bin/python scripts/sync_roadmap.py

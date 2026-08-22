@@ -4,7 +4,20 @@ import sys
 
 import pytest
 
+from agentdeck.runtime import settings as runtime_settings
 from agentdeck.runtime.settings import reset_settings_cache
+
+
+@pytest.fixture(autouse=True)
+def _no_developer_env_file(monkeypatch, tmp_path):
+    """Settings come from the test's own environment, never from a `.env` on this machine.
+
+    `resolve_env_file()` is `Path.cwd() / ".env"`, which pydantic-settings reads directly rather
+    than through `os.environ`, so a real one outlasted `monkeypatch.delenv` and handed the
+    missing-credential tests the very keys they assert are absent. The gate has to mean the same
+    thing on a laptop as it does in CI, which has no `.env` and so never saw this.
+    """
+    monkeypatch.setattr(runtime_settings, "resolve_env_file", lambda: tmp_path / "absent.env")
 
 
 @pytest.fixture(autouse=True)
