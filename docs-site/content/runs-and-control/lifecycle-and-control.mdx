@@ -84,8 +84,8 @@ Which operations are legal from each state:
 | `waiting_answer` | ✓ | -- | ✓ | ✓ |
 | `completed` / `failed` / `cancelled` | -- | -- | -- | -- |
 
-`resume()` on a `running` run and `answer()` on anything but `waiting_answer` are refused, not
-merely no-ops: see `PRECONDITIONS` in `agentdeck/core/status.py` for the exact verdict and reason
+`✓` is legal; `--` is not, and covers both a refusal that raises and a call that quietly does
+nothing. `PRECONDITIONS` in `agentdeck/core/status.py` carries the exact verdict and reason
 attached to each cell.
 
 ## Related
