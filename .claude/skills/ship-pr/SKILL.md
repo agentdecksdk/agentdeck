@@ -107,10 +107,11 @@ Reply in the review thread and resolve it. Never grow the PR body to answer a fi
 collapses once addressed, a body is what the next reader wades through to learn what the change
 does. The body only changes when the change does.
 
-**CONSTRAINT: resolve every thread, or the PR cannot merge.** `dev`'s ruleset sets
-`required_review_thread_resolution`, so one open thread holds the PR at `BLOCKED` with every check
-green, zero required approvals, and nothing in `gh pr checks` to explain it. Fixing the code is not
-answering the finding; the thread is.
+CONSTRAINT: resolve every thread, or the PR cannot merge. `dev` enforces this twice, as
+`required_conversation_resolution` in branch protection and `required_review_thread_resolution` in
+its ruleset, so one open thread holds the PR at `BLOCKED` with every check green, zero required
+approvals, and nothing in `gh pr checks` to explain it. Fixing the code is not answering the
+finding; the thread is.
 
 ```bash
 gh api graphql -f query='mutation($t:ID!){resolveReviewThread(input:{threadId:$t}){thread{isResolved}}}' -f t="<thread-id>"
