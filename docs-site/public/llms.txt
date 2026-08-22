@@ -36,8 +36,8 @@ afterwards, approvals that outlive the process that requested them.
 - [openai-agents-sdk](https://agentdecksdk.com/integrations/openai-agents-sdk)
 - [How Jack is built](https://agentdecksdk.com/jack): What building a real application with AgentDeck looks like, and what AgentDeck provides around your application code.
 - [Implementation notes](https://agentdecksdk.com/jack/notes): The decisions behind Jack, and the alternatives each one beat.
-- [mental-model](https://agentdecksdk.com/meet-agentdeck/mental-model)
-- [Overview](https://agentdecksdk.com/meet-agentdeck/overview): What AgentDeck is, why it exists, and how it works.
+- [Mental Model](https://agentdecksdk.com/meet-agentdeck/mental-model): The four primitives, what you declare versus what AgentDeck runs, and how one becomes the other.
+- [Overview](https://agentdecksdk.com/meet-agentdeck/overview): What AgentDeck is, the problem it solves, and what you keep when you adopt it.
 - [Quickstart](https://agentdecksdk.com/meet-agentdeck/quickstart): Build a Deck, start a Run, and watch its events.
 - [Changelog](https://agentdecksdk.com/resources/changelog): What changed in each release of AgentDeck, and what to do about it when upgrading.
 - [Known Issues](https://agentdecksdk.com/resources/known-issues): Defects in the current release that will surprise you, what happens, and what to do until each is fixed.
