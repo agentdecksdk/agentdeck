@@ -1,3 +1,8 @@
+---
+title: Context
+description: Typed, request-scoped access to your own application state, for tools and workflows.
+---
+
 {/* docs_sources:
   - "agentdeck/core/context.py"
   - "agentdeck/authoring/injection.py"
@@ -6,8 +11,73 @@
 
 # Context
 
-Context provides strongly-typed runtime dependencies and request-scoped state to agents and tools.
+`ToolCtx[T]` and `WorkflowCtx[T]` give a `@tool` or `@workflow` typed, request-scoped access to
+your own application state: a database client, a config object, whatever the run needs. AgentDeck
+never inspects the value, it holds it by reference and hands it to whichever callable declared it.
 
-## Using context
+## Declare it, pass it, use it
 
-Pass application context during run initialization to safely inject dependencies.
+Declare the type once on `Deck(context=...)`. Pass the object once per run, on
+`deck.run(context=...)`. A callable reaches it through `ctx.data`.
+
+```python run
+import asyncio
+
+from agentdeck import Agent, Deck, ToolCtx
+
+
+class Billing:
+    def status(self, order_id: str) -> str:
+        return f"{order_id}: shipped"
+
+
+def order_status(order_id: str, billing: ToolCtx[Billing]) -> str:
+    """Look up the shipping status of an order."""
+    return billing.data.status(order_id)
+
+
+agent = Agent(name="support", instructions="Help with order questions.", tools=[order_status])
+deck = Deck(agents=[agent], context=Billing)
+
+
+async def main() -> None:
+    async with deck:
+        result = await deck.run("support", "hi", context=Billing())
+        print(result.output)
+
+
+asyncio.run(main())
+```
+
+`billing.data` is the exact `Billing()` instance passed to `context=`, not a copy. `Deck.build`
+checks every `ToolCtx[...]`/`WorkflowCtx[...]` parameter in the catalog against the declared type
+before any run starts, so a mismatched context fails at build time, not mid-run. See
+[Deck: declaring the context type](/reference/deck#declaring-the-context-type) for the full
+compatibility rules.
+
+## What each context can do
+
+A `@tool` takes `ToolCtx` and is a leaf capability. A `@workflow` takes `WorkflowCtx`, which is
+`ToolCtx` plus orchestration. Declaring the wrong one is a `build()` error: a tool that could ask a
+person or start another run would no longer be a leaf.
+
+| Capability | `ToolCtx` (`@tool`) | `WorkflowCtx` (`@workflow`) |
+|---|---|---|
+| `ctx.data`, the context object | yes | yes |
+| `ctx.agent`, `ctx.run_id`, `ctx.session_id` | yes | yes |
+| `await ctx.safepoint()`, offer a pause/cancel point | yes | yes |
+| `await ctx.ask(question, options=...)`, suspend for an answer | no | yes |
+| `ctx.invoke(target, ...)`, `await ctx.parallel(...)`, start child runs | no | yes |
+| `ctx.agents.create()`, `ctx.agents.fork()`, mint an agent not in the catalog | no | yes |
+
+## Where it does not reach
+
+A context is a live Python object, never serialized. It cannot cross the HTTP surface, and the
+timer sweep that resumes a durable workflow supplies none. See
+[Where a context does not reach](/reference/deck#where-a-context-does-not-reach) for the full list.
+
+## Related
+
+- [Workflows](/build-your-deck/workflows) - `ctx.ask()` and `ctx.safepoint()` in practice
+- [Deck](/reference/deck) - `context=` construction and every compatibility rule
+- [Runs](/runs-and-control/runs) - starting and rehydrating the runs a context rides on
