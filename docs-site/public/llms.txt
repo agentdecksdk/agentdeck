@@ -25,7 +25,7 @@ afterwards, approvals that outlive the process that requested them.
 - [run](https://agentdecksdk.com/reference/run)
 - [Settings](https://agentdecksdk.com/reference/settings): Every AGENTDECK_*, OPENAI_*, ANTHROPIC_*, GEMINI_*, OLLAMA_*, OPENROUTER_*, and TAVILY_* environment variable, generated from agentdeck/runtime/settings.py.
 - [Agents](https://agentdecksdk.com/build-your-deck/agents): Declarative agents with tools, instructions, and model configurations.
-- [context](https://agentdecksdk.com/build-your-deck/context)
+- [Context](https://agentdecksdk.com/build-your-deck/context): Typed, request-scoped access to your own application state, for tools and workflows.
 - [deck](https://agentdecksdk.com/build-your-deck/deck)
 - [skills](https://agentdecksdk.com/build-your-deck/skills)
 - [tools](https://agentdecksdk.com/build-your-deck/tools)
