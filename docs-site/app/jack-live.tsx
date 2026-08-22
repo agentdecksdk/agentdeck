@@ -23,7 +23,7 @@ import { jackCitationsPlugin } from './jack-citations'
 import { JackUnavailable, askJack } from './jack-stream'
 
 const EXAMPLES = [
-  'How do I wrap my LangGraph agent?',
+  'How do I write a workflow with human approval?',
   'How does run pause and resume work?',
   'Explain AgentDeck context injection',
   'What is in the latest release?'
