@@ -1127,8 +1127,9 @@ class Runtime:
         A run :meth:`close_cancelled` abandoned is cancelled here instead, at its next write. The
         check is synchronous and every writer for such a run shares this event loop, so no append
         that starts here can land past the terminal event written for it. One that started before
-        the mark and is still suspended inside the store can, which is #421 and needs the store's
-        own conditional append rather than a second guard above it.
+        the mark and is still suspended inside the store is past this guard already, and the store
+        refuses it there: an append to a ``CANCELLED`` run raises ``RunStateError`` inside the same
+        step that would have written it (#421).
 
         Every terminal event in this class is written here, which is why the delegation roll-up
         hangs off this one call rather than off the engine loop: a run that failed or was

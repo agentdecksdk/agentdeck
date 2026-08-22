@@ -237,6 +237,8 @@ class PostgresEventStore(EventStorePort):
         async def _work(conn: Connection) -> list[Event]:
             async with conn.transaction():
                 await self._lock_stream(conn, ctx)
+                last = await self._last_lifecycle_of_run(conn, ctx.namespace_key, ctx.run_id)
+                self._refuse_if_cancelled(status_of([last] if last is not None else []), ctx)
                 return await self._stamp_and_insert(conn, list(payloads), ctx, origin)
 
         return await self._run(_work, "append")

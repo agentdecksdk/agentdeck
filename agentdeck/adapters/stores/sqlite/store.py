@@ -245,6 +245,8 @@ class SqliteEventStore(EventStorePort):
         # first makes the read and the insert one step, which is the whole decision (ADR-D11).
         self._conn.execute("BEGIN IMMEDIATE")
         with self._conn:
+            last = self._select_last_lifecycle_of_run(ctx.namespace_key, ctx.run_id)
+            self._refuse_if_cancelled(status_of([Event.model_validate(json.loads(last))] if last else []), ctx)
             return self._stamp_and_insert(payloads, ctx, origin)
 
     def _stamp_and_insert(

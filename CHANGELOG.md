@@ -8,6 +8,24 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Changed
+
+- **A cancelled run's log is closed for good.** Appending to a run that already has its
+  `run.cancelled` raises `RunStateError` on every store instead of landing behind that event, which
+  is what a write already in flight when `Deck.aclose()` abandoned the run used to do. A takeover's
+  `run.failed` still seals nothing: it is written for a run only believed dead, and one that turns
+  out to be alive goes on writing and may reclaim its own session.
+
+### Fixed
+
+- **A cancelled `answer()` or `resume()` no longer leaves a run claimed but unplayed.** Both claim
+  the run before there is anything to hand back, and a cancellation in between left the log saying
+  the run was live with nothing playing it and its session held until the staleness window passed.
+  The run is closed with `run.cancelled` instead, so the record says what happened and the session
+  is free at once.
+- **Closing a run that has already ended says so.** The abandonment path returned silently after the
+  deck had logged that it closed the run; it now names the run and the status it found.
+
 ## [5.0.0] - 2026-08-22
 
 ### Added
