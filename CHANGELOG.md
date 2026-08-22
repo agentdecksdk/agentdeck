@@ -10,6 +10,10 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Added
 
+- **Lifecycle & Control docs now include a capability matrix.** A table on the
+  [Lifecycle & Control](/runs-and-control/lifecycle-and-control) page shows which of
+  `pause()`, `resume()`, `cancel()`, and `answer()` are legal from each run status, for quick
+  reference alongside the existing prose.
 - **Agents can select OpenAI, Anthropic, Gemini, Ollama, or OpenRouter by model prefix.** Each
   provider reads its own environment credential, and `Deck.build()` reports every missing
   requirement before execution. Runtime settings now come only from environment variables or
