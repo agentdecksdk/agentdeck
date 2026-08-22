@@ -56,18 +56,17 @@ class NeverYields(EventStorePort):
     def __init__(self, inner: EventStorePort) -> None:
         self._inner = inner
 
-    async def append(self, log_key: str, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
-        return _drive(self._inner.append(log_key, payloads, ctx, origin))
+    async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        return _drive(self._inner.append(payloads, ctx, origin))
 
-    async def read(self, log_key: str, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
-        return _drive(self._inner.read(log_key, ctx, offset, limit))
+    async def read_session(self, ctx: RunContext, offset: int = 0, limit: int | None = None) -> list[Event]:
+        return _drive(self._inner.read_session(ctx, offset, limit))
 
-    async def read_run(self, log_key: str, run_id: str, ctx: RunContext, from_seq: int = 0) -> list[Event]:
-        return _drive(self._inner.read_run(log_key, run_id, ctx, from_seq))
+    async def read_run(self, ctx: RunContext, from_seq: int = 0) -> list[Event]:
+        return _drive(self._inner.read_run(ctx, from_seq))
 
     async def claim_start(
         self,
-        log_key: str,
         opening: RunStarted,
         ctx: RunContext,
         origin: str,
@@ -75,12 +74,10 @@ class NeverYields(EventStorePort):
         *,
         dead: frozenset[str] = frozenset(),
     ) -> tuple[SessionClaim, Event | None]:
-        return _drive(self._inner.claim_start(log_key, opening, ctx, origin, stale_after, dead=dead))
+        return _drive(self._inner.claim_start(opening, ctx, origin, stale_after, dead=dead))
 
-    async def claim_resume(
-        self, log_key: str, run_id: str, resumed: RunResumed, ctx: RunContext, origin: str
-    ) -> Event | None:
-        return _drive(self._inner.claim_resume(log_key, run_id, resumed, ctx, origin))
+    async def claim_resume(self, resumed: RunResumed, ctx: RunContext, origin: str) -> Event | None:
+        return _drive(self._inner.claim_resume(resumed, ctx, origin))
 
     async def list_runs(self, ctx: RunContext, status: RunStatus | None = None) -> list[RunSummary]:
         return _drive(self._inner.list_runs(ctx, status))

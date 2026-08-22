@@ -3,6 +3,10 @@ title: How Jack is built
 description: What building a real application with AgentDeck looks like, and what AgentDeck provides around your application code.
 ---
 
+{/* docs_sources:
+  - "examples/jack/**"
+*/}
+
 # How Jack is built
 
 Jack is the AgentDeck documentation agent running on this site. The same application powers the
@@ -25,13 +29,13 @@ Question
 That shape is the whole application, and the code says the same thing:
 
 ```python
-from agentdeck import Agent, Context, Deck
+from agentdeck import Agent, ToolCtx, Deck
 
-def search_docs(query: str, docs: Context[DocsCorpus]) -> str:
+def search_docs(query: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Find AgentDeck documentation pages matching a query."""
     return docs.data.search(query)
 
-def read_doc(slug: str, docs: Context[DocsCorpus]) -> str:
+def read_doc(slug: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Read one AgentDeck documentation page in full, by its slug."""
     return docs.data.pages[slug]
 
@@ -44,7 +48,7 @@ jack = Agent(
 deck = Deck(agents=[jack], context=DocsCorpus)
 ```
 
-Three ordinary functions, one agent, one Deck. `Context[DocsCorpus]` is how a tool reaches the
+Three ordinary functions, one agent, one Deck. `ToolCtx[DocsCorpus]` is how a tool reaches the
 application's own data; the model is offered only `query` or `slug`.
 
 ## The application code stays application code
@@ -80,12 +84,16 @@ Jack did not assemble these. They are what a `Deck` gives an application the mom
 
 The live experience on this site is that model, exposed.
 
-```text
-Jack executes through AgentDeck
-   → the run emits canonical events
-   → a surface streams them
-   → the site renders the conversation and the tree beside it
+```mermaid
+flowchart TD
+    stream["Deck.stream()<br/>canonical Event"] --> filter["PUBLIC_KINDS filter<br/>run.started<br/>text.delta<br/>tool.call.started<br/>run.completed<br/>run.failed"]
+    filter -->|"canonical Event unchanged"| sse["SSE response<br/>data: event.model_dump_json()"]
+    sse --> browser{"Browser<br/>switch (event.kind)"}
+    browser -->|"text.delta"| transcript["Transcript"]
+    browser -->|"run.started<br/>tool.call.started<br/>run.completed<br/>run.failed"| tree["Execution tree"]
 ```
+
+The allowlist drops other event kinds without reshaping the canonical events it permits.
 
 The route is a few lines over `deck.stream()`, and the wire is the event log itself:
 
@@ -109,11 +117,3 @@ when he makes one, and the run resolves when it completes.
 - [`examples/jack`](https://github.com/agentdecksdk/agentdeck/tree/dev/examples/jack)  -  the agent, its tools, the corpus and the route
 - [Implementation notes](/jack/notes)  -  the decisions behind this build, and the alternatives they beat
 - [Examples](/examples)  -  smaller runnable projects, each exercising a single idea
-
-<Contribute
-  issue={350}
-  difficulty="small"
-  scope="diagram"
-  need="The path from a question to the rendered tree is drawn as a plain-text block, which does not show that the event object crosses every boundary unchanged."
-  because="A diagram makes the no-translation-layer claim visible in one glance."
-/>

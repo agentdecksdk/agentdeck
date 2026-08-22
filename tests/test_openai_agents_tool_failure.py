@@ -20,9 +20,9 @@ import pytest
 from agents import default_tool_error_function
 from agents.tool_context import ToolContext
 
-from agentdeck.adapters.engines.openai_agents.translate import translate
+from agentdeck.adapters.executors.openai_agents.translate import translate
 from agentdeck.authoring.tools import compile_tool
-from agentdeck.core.context import Context, RunContext
+from agentdeck.core.context import RunContext, ToolCtx
 from agentdeck.core.events import RESULT_PREVIEW_MAX, ToolCallCompleted
 
 
@@ -35,7 +35,7 @@ async def explode(reason: str) -> str:
     raise RuntimeError(f"boom: {reason}")
 
 
-async def explode_with_context(reason: str, environment: Context[Calendar]) -> str:
+async def explode_with_context(reason: str, environment: ToolCtx[Calendar]) -> str:
     """The same failure on the other compile branch, the one that goes through ``_bridge``."""
     raise RuntimeError(f"boom: {reason}")
 
@@ -62,7 +62,7 @@ def _result_item(call_id: str, output: str) -> Any:
 
 @pytest.mark.parametrize("target", [explode, explode_with_context], ids=["plain", "with-context"])
 async def test_a_raised_tool_records_its_exception_on_the_run_context(target: Any) -> None:
-    """Both branches of ``compile_tool`` pass the formatter. The one that declares ``Context[T]``
+    """Both branches of ``compile_tool`` pass the formatter. The one that declares ``ToolCtx[T]``
     is compiled through ``_bridge``, which forwards nothing else, so it is the branch that would
     silently lose this if the kwarg were passed on only one side.
     """

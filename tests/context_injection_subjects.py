@@ -7,12 +7,12 @@ the same result is what shows the analysis reads resolved hints rather than what
 ``__annotations__`` happens to hold.
 """
 
-from agentdeck.core.context import Context
+from agentdeck.core.context import ToolCtx
 
 
 class Calendar:
     """An application object, the sort a run is handed rather than told about."""
 
 
-def find_slots(date: str, environment: Context[Calendar]) -> str:
+def find_slots(date: str, environment: ToolCtx[Calendar]) -> str:
     return f"{date}:{environment.data}"

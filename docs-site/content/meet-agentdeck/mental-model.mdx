@@ -1,15 +1,82 @@
+---
+title: Mental Model
+description: The four primitives, what you declare versus what AgentDeck runs, and how one becomes the other.
+---
+
+{/* docs_sources:
+  - "agentdeck/composition.py"
+  - "agentdeck/deck.py"
+  - "agentdeck/core/events.py"
+  - "agentdeck/core/status.py"
+*/}
+
 # Mental Model
 
-AgentDeck separates **user intent** from **runtime machinery**.
+AgentDeck separates what you declare from what it runs. You own the intent. It owns the machinery.
 
-## User Intent vs. Machinery
+<MentalModel />
 
-* **You define:** Agents, tools, workflows, skills, and application context.
-* **AgentDeck manages:** Run identity, lifecycle state, persistence, event streams, cancellation, and concurrency.
+## What you declare
 
-## Core Primitives
+Four kinds of thing, each a plain Python declaration with no runtime attached.
 
-- **Deck:** The composition root holding all registered agents, workflows, and tools.
-- **Agent / Workflow:** The declarative definitions of your autonomous components.
-- **Run:** An executing instance with an isolated session and immutable event stream.
-- **Events:** The typed append-only record of everything that occurred during a run.
+| You write | With | It becomes |
+|---|---|---|
+| Agent | `Agent(name=..., instructions=...)` | a model that decides, optionally with tools, handoffs and subagents |
+| Tool | `@tool` | a leaf capability, called by a model or by a workflow |
+| Workflow | `@workflow` | ordinary Python that coordinates executions and can suspend in place |
+| Skill | a `SKILL.md` on disk, named by string in `Agent(skills=[...])` | prose the model reads on demand through a generated `load_skill` tool |
+
+A `@tool` and a `@workflow` execute nothing on their own: each stays inert until a `Deck` compiles
+it. An `Agent` also has `Agent.run()`, a one-shot headless call that skips the deck entirely and so
+gets no event log, no session and no controls. Everything below is about the path through a `Deck`,
+which is the one with the contract.
+
+## Deck: the composition root
+
+A `Deck` holds the catalog. It is where declarations become things that can be named and invoked,
+and it is the only object you construct to get a working system.
+
+```python
+deck = Deck(agents=[assistant], workflows=[approve])
+```
+
+`Deck.build()` resolves every name in that catalog before a run starts: handoffs, subagents,
+skills, MCP servers, model credentials. A missing provider key or an unresolvable name is an error
+you get at build time, not halfway through a user's turn.
+
+## Run: the thing with identity
+
+Invoking a catalog entry produces a **run**, and the run is what everything else hangs off. It has
+a durable id, a status, a log, and the session it belongs to if it belongs to one. It outlives the
+handle you got it from:
+`deck.runs.get(id)` picks the same run up again, in this process or another one.
+
+| A run has | Meaning |
+|---|---|
+| identity | a minted id, optionally a `(namespace, key)` you chose |
+| status | one of `running`, `paused`, `waiting_answer`, `completed`, `failed`, `cancelled` |
+| a session | the conversation it belongs to, or `None` when it stands alone |
+| a log | every event it produced, in order |
+
+## Control and Events: the two ways out
+
+A live run is not a black box. **Control** is what you send in: `pause()`, `resume()`,
+`cancel()`, `answer()`. **Events** are what comes out: an append-only, typed record of every
+token, tool call, report and state transition.
+
+The log is not a copy of the state, it *is* the state. A run's status is derived by folding its
+own events in order, so there is no second store to fall out of sync after a restart.
+
+## What AgentDeck manages, so you do not
+
+Run identity, lifecycle transitions, persistence, event dispatch, cancellation, concurrency, and
+the session a turn belongs to. You never construct a run id, write a status, or decide when a
+paused run may resume.
+
+## Next
+
+- [Quickstart](/meet-agentdeck/quickstart) - run the first agent.
+- [Runs](/runs-and-control/runs) - identity, handles, and picking a run up again.
+- [Lifecycle & Control](/runs-and-control/lifecycle-and-control) - the six states and what is legal in each.
+- [Events](/runs-and-control/events) - reading the stream.

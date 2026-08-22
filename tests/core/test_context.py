@@ -1,7 +1,7 @@
 """The carrier's application slot, and the public view over it.
 
 ``RunContext.data`` is the one field AgentDeck stores without ever interpreting, so the tests
-that matter are about what it is *not*: not copied, not converted, not in the repr. ``Context``
+that matter are about what it is *not*: not copied, not converted, not in the repr. ``ToolCtx``
 is the view a user callable will be handed, and its surface is deliberately smaller than the
 carrier's  -  a property that is only real if something asserts the missing names stay missing.
 """
@@ -13,7 +13,7 @@ import dataclasses
 import pytest
 
 from agentdeck.adapters.control.memory import MemoryControlPort
-from agentdeck.core.context import Context, RunContext
+from agentdeck.core.context import RunContext, ToolCtx
 from agentdeck.core.control import Gate, RunCancelledError, Signal
 
 
@@ -50,7 +50,7 @@ def test_application_data_cannot_be_swapped_mid_run() -> None:
 
 def test_the_public_view_exposes_the_application_object_and_the_run_identity() -> None:
     environment = Environment("t-1")
-    ctx: Context[Environment] = Context(RunContext(run_id="r-1", session_id="s-1", data=environment))
+    ctx: ToolCtx[Environment] = ToolCtx(RunContext(run_id="r-1", session_id="s-1", data=environment))
 
     assert ctx.data is environment
     assert ctx.run_id == "r-1"
@@ -59,13 +59,13 @@ def test_the_public_view_exposes_the_application_object_and_the_run_identity() -
 
 def test_the_public_view_shares_the_run_s_reporter_rather_than_a_second_channel() -> None:
     run = RunContext(run_id="r-1")
-    assert Context(run).reporter is run.reporter
+    assert ToolCtx(run).reporter is run.reporter
 
 
 def test_the_public_view_withholds_the_namespace_and_the_gate() -> None:
     """Both are deliberately out of the initial surface  -  an absence a later slice can add to,
     where a wrong meaning released once could not be taken back."""
-    ctx = Context(RunContext(run_id="r-1", namespace="acme"))
+    ctx = ToolCtx(RunContext(run_id="r-1", namespace="acme"))
 
     assert not hasattr(ctx, "namespace")
     assert not hasattr(ctx, "gate")
@@ -74,16 +74,16 @@ def test_the_public_view_withholds_the_namespace_and_the_gate() -> None:
 async def test_checkpoint_reaches_the_run_s_gate() -> None:
     control = MemoryControlPort()
     await control.signal("r-1", Signal.CANCEL)
-    ctx = Context(RunContext(run_id="r-1", gate=Gate(control, "r-1")))
+    ctx = ToolCtx(RunContext(run_id="r-1", gate=Gate(control, "r-1")))
 
     with pytest.raises(RunCancelledError):
-        await ctx.checkpoint()
+        await ctx.safepoint()
 
 
 async def test_checkpoint_on_an_unwired_run_is_a_no_op() -> None:
     """A callable holding a context built by hand still runs  -  the seam defaults to doing
     nothing rather than to needing a Runtime."""
-    await Context(RunContext(run_id="r-1")).checkpoint()
+    await ToolCtx(RunContext(run_id="r-1")).safepoint()
 
 
 # --- id: a carried value, not a computed one (#324) -------------------------------------
@@ -111,4 +111,4 @@ def test_key_defaults_to_none_and_plays_no_part_in_id_or_log_key() -> None:
 
     keyed = RunContext(run_id="r-1", session_id="s-1", key="order-1234")
     assert keyed.id == ctx.id
-    assert keyed.log_key == ctx.log_key
+    assert keyed.session_id == ctx.session_id

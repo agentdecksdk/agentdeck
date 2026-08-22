@@ -18,25 +18,24 @@ from agentdeck.core.events import (
     ControlRequested,
     Event,
     MessageCompleted,
-    ProgressReported,
+    Reported,
     RunCancelled,
     RunCompleted,
     RunFailed,
     RunStarted,
-    StatusReported,
     ToolCallCompleted,
     ToolCallStarted,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Mapping
 
     import httpx
 
 
 async def render(lines: AsyncIterator[str]) -> None:
     """Print one line per bubble: a user turn, a tool notice, a completed message, a control
-    notice, or the run's close. Everything else (deltas, ``custom``, ``node.updated``, ...)
+    notice, or the run's close. Everything else (deltas, ``custom``, ``usage.reported``, ...)
     is skipped by design, per this module's docstring  -  the ``case _`` default below."""
     async for line in lines:
         if not line.startswith("data: "):
@@ -50,10 +49,8 @@ async def render(lines: AsyncIterator[str]) -> None:
                 print(f"[tool] {tool} called")
             case ToolCallCompleted(tool=tool, result_preview=preview):
                 print(f"[tool] {tool} -> {preview}")
-            case StatusReported(message=message):
-                print(f"[status] {message}")
-            case ProgressReported(step=step, current=current, total=total):
-                print(f"[progress] {step}{_counted(current, total)}")
+            case Reported(level=level, message=message, fields=fields):
+                print(f"[{level}] {message}{_fields(fields)}")
             case MessageCompleted(message_id=message_id, text=text):
                 print(f"{event.origin} [{message_id}]: {text}")
             case ControlRequested(verb=verb, reason=reason):
@@ -68,12 +65,11 @@ async def render(lines: AsyncIterator[str]) -> None:
                 pass
 
 
-def _counted(current: int | None, total: int | None) -> str:
-    """``" (2/4)"`` when counted, ``""`` when the stage has no numbers  -  and never a
-    percentage, which a missing ``total`` would make up."""
-    if current is None and total is None:
+def _fields(fields: Mapping[str, object]) -> str:
+    """``" (score=0.91)"`` when a report carried fields, ``""`` when it was prose alone."""
+    if not fields:
         return ""
-    return f" ({'?' if current is None else current}/{'?' if total is None else total})"
+    return " (" + ", ".join(f"{name}={value!r}" for name, value in fields.items()) + ")"
 
 
 async def stream_chat(client: httpx.AsyncClient, name: str, session_id: str, message: str) -> None:

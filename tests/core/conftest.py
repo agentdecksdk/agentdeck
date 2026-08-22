@@ -11,6 +11,8 @@ from datetime import UTC, datetime
 import pytest
 
 from agentdeck.core import (
+    AgentChanged,
+    AnswerRefused,
     ArtifactCreated,
     AudioBlock,
     ControlObserved,
@@ -21,8 +23,7 @@ from agentdeck.core import (
     ImageBlock,
     InputAppended,
     MessageCompleted,
-    NodeUpdated,
-    ProgressReported,
+    Reported,
     ResourceBlock,
     RunCancelled,
     RunCompleted,
@@ -31,7 +32,6 @@ from agentdeck.core import (
     RunPaused,
     RunResumed,
     RunStarted,
-    StatusReported,
     TextBlock,
     TextDelta,
     ThoughtDelta,
@@ -76,6 +76,7 @@ PAYLOADS = (
     TextDelta(message_id="msg_1", text="Tuesday "),
     ThoughtDelta(message_id="msg_1", text="checking the calendar"),
     MessageCompleted(message_id="msg_1", text="Tuesday at 9am works."),
+    AgentChanged(previous_agent="Greeter", next_agent="Scheduler"),
     ToolCallStarted(call_id="call_1", tool="lookup_slot", args={"day": "tuesday"}),
     ToolCallCompleted(
         call_id="call_1",
@@ -86,18 +87,17 @@ PAYLOADS = (
         artifact_id=None,
         error=None,
     ),
-    NodeUpdated(node="shout", state_patch={"text": "HELLO"}),
     ArtifactCreated(artifact_id="art_1", media_type="text/csv", uri="file:///runs/run_1/art_1.csv", size=2048),
     UsageReported(model="fake-golden", usage=USAGE),
     InputAppended(
         input=[TextBlock(text="make it 10am"), ResourceBlock(uri="s3://cal/tue.ics", media_type="text/calendar")],
         source="operator",
     ),
-    Custom(name="langgraph.checkpoint_written", data={"thread_id": "t-1"}),
+    Custom(name="app.export_completed", data={"rows": 412, "destination": "s3://exports/tue.csv"}),
     ControlRequested(verb="cancel", reason="operator pressed cancel"),
     ControlObserved(verb="cancel", safe_point="tool_dispatch"),
-    StatusReported(message="Searching GitHub"),
-    ProgressReported(step="Reviewing issues", current=2, total=4),
+    Reported(level="info", message="Searching GitHub", fields={"source": "github"}),
+    AnswerRefused(reason="this run is waiting for one of [True, False] and got a str"),
 )
 
 

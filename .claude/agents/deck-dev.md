@@ -7,29 +7,14 @@ isolation: worktree
 
 You implement one agentdeck GitHub issue end-to-end in an isolated worktree and open a PR.
 
-## Rules
-1. **Engineering Standards & Guidance:**
-   - Read and follow `docs/engineering/` strictly:
-     - `principles.md` (Product Philosophy & North Star).
-     - `coding-standards.md` & `coding-agents.md` (front doors for code changes).
-     - Specialized standards (`architecture.md`, `runtime-contracts.md`, `testing.md`, `dependencies.md`, `repository-policy.md`, `import-boundaries.md`).
-   - User owns intent, AgentDeck owns machinery. Keep APIs minimal, elegant, and free of leaked internal plumbing.
-   - **Anti-verbosity:** Keep code, docstrings, comments, and PR text concise. If one sentence or line is enough, use one.
-2. **Implementation Discipline:**
-   - Read the issue (`gh issue view <n>`) as the authoritative spec.
-   - For bugs: write a failing regression test first, implement the minimal fix, confirm the test passes.
-   - Implement minimally: no speculative abstractions, no unrequested configuration surface.
-   - Tests must assert real behavior and invariants without live model calls. Stub only at the engine SDK boundary. Always set `timeout=` on subprocess tests.
-3. **Environment & Gate:**
-   - Seed worktree: copy `.env` if present, then `uv venv --python 3.12 && make install`.
-   - Gate of record: `make check`. Must be 100% green.
-4. **Git & PR:**
-   - Branch `feat/<n>-<slug>` or `fix/<n>-<slug>`.
-   - Open PR as a **draft on your first commit** (`gh pr create --draft`) targeting `dev`, body referencing `Closes #<n>`.
-   - Update `CHANGELOG.md` under `[Unreleased]` for user-visible changes.
-   - No attribution trailers in commit messages or PR bodies.
-   - When `make check` passes, mark ready (`gh pr ready`).
-5. **Output Style:**
-   - Keep text between tool calls to ≤25 words. Keep final responses to ≤100 words unless more detail is required.
+**Objective: implement the issue with the smallest coherent change.** Order of preference: reuse an existing abstraction, modify one, consolidate/delete, and only then create. Your PR will be evaluated on: reuse of existing abstractions, consistency with `docs/patterns/`, minimal new concepts, minimal public surface, no narrating comments, no structural regression.
 
-Return: PR URL, one-paragraph summary of changes, and `make check` status.
+**First action:** invoke the `ship-pr` skill and follow it. Every stage, the design gate, the self-review questions and the coverage question, the gate commands, live there. Do not rely on description-based auto-triggering here; call it explicitly.
+
+**Progress:** name each stage (Understand / Design / Implement / Self-review / Gate) as you enter it. A silent multi-stage run reads as a stall.
+
+**Subagents:** any agent you spawn passes an explicit `model: "sonnet"`. Never omit it, never fable, never opus.
+
+**Output style:** ≤25 words between tool calls; final response ≤100 words unless more detail is required.
+
+Return: PR URL, one-paragraph summary, `make check` status, and declared-vs-actual concept budget.

@@ -1,12 +1,13 @@
 # AgentDeck
 
-AgentDeck is a declarative runtime harness for multi-agent systems and workflows (OpenAI Agents SDK + LangGraph).
+AgentDeck is a declarative runtime harness for multi-agent systems and workflows (OpenAI Agents SDK, plus AgentDeck-native `@tool`/`@workflow`).
 
-**Core standards:** `docs/engineering/`  -  the linked suite of binding engineering law:
-1. [`docs/engineering/principles.md`](docs/engineering/principles.md)  -  Product philosophy & North Star.
-2. [`docs/engineering/coding-standards.md`](docs/engineering/coding-standards.md)  -  Binding front door for every code change.
-3. [`docs/engineering/coding-agents.md`](docs/engineering/coding-agents.md)  -  Mandatory rules for coding agents.
+**Core standards:** `docs/engineering/`: the linked suite of binding engineering law:
+1. [`docs/engineering/principles.md`](docs/engineering/principles.md): Product philosophy & North Star.
+2. [`docs/engineering/coding-standards.md`](docs/engineering/coding-standards.md): Binding front door for every code change.
+3. [`docs/engineering/coding-agents.md`](docs/engineering/coding-agents.md): Mandatory rules for coding agents.
 4. Specialized standards: [`architecture.md`](docs/engineering/architecture.md), [`runtime-contracts.md`](docs/engineering/runtime-contracts.md), [`testing.md`](docs/engineering/testing.md), [`dependencies.md`](docs/engineering/dependencies.md), [`repository-policy.md`](docs/engineering/repository-policy.md), [`import-boundaries.md`](docs/engineering/import-boundaries.md).
+5. [`docs/patterns/`](docs/patterns/README.md): the project's taste as real good/bad pairs. Read the file for your concern before writing; match the good side.
 
 ---
 
@@ -29,8 +30,8 @@ AgentDeck is a declarative runtime harness for multi-agent systems and workflows
 
 * **`agentdeck/core/`**: Pure domain model, event schema, content blocks, ports, error taxonomy. **Imports stdlib + pydantic only** (enforced by `import-linter`).
 * **`agentdeck/runtime/`**: Execution orchestration, lifecycle state machine, event dispatch. Imports `core/` only.
-* **`agentdeck/adapters/`**: Pluggable integrations (engines: `openai_agents`, `langgraph`; stores: `sqlite`, `postgres`, `redis`; `mcp`; `telemetry`). Each adapter imports `core/` plus exactly one external technology. Adapters never import other adapters.
-* **`agentdeck/authoring/`**: Declarations (`Agent`, `Workflow`, `Skill`) compiled to specs.
+* **`agentdeck/adapters/`**: Pluggable integrations (executors: `openai_agents`, `native`; stores: `sqlite`, `postgres`, `redis`; `mcp`; `telemetry`). Each adapter imports `core/` plus exactly one external technology. Adapters never import other adapters.
+* **`agentdeck/authoring/`**: Declarations (`Agent`, `@tool`, `@workflow`, `Skill`) compiled to specs.
 * **`agentdeck/surfaces/`**: Ingress surfaces (HTTP/SSE in `surfaces/serve/`, CLI).
 
 ---
@@ -39,9 +40,15 @@ AgentDeck is a declarative runtime harness for multi-agent systems and workflows
 
 * **Correctness before convenience:** Strict internal invariants, forgiving external APIs. Make invalid states impossible to express.
 * **Errors are part of the API:** Every error must state what happened, why it happened, and the exact code/action to resolve it.
+  * Good (real, `runtime/registry.py`): "No {self.label} named {name!r}. Available: {sorted(plugins)}." - a lookup failure names the alternatives.
+  * Bad: "invalid workflow state".
 * **Typing:** Python ≥3.12. Strict annotations everywhere. Pydantic v2 models at system boundaries; `@dataclass(frozen=True, slots=True)` for internal immutable value objects. No unprincipled `Any`.
 * **Zero unnecessary abstractions:** YAGNI. Delete dead code aggressively. Do not add configuration for things that never change.
+  * Good (real, `deck.py`): cancellation is `Run.cancel()`, a method on the existing handle.
+  * Bad: a new `CancellationManager` class for that same responsibility. Run `uv run scripts/repomap.py` before adding any public abstraction.
 * **Comments:** Extremely rare, max 1–2 lines explaining non-obvious *why*, never restating what the code does.
+  * Good (real, `core/control.py`): `# Before the raise, because the raise is what records the effect: an intent left pending behind an honored one would be honored a second time on the next resume.`
+  * Bad: `# Increment the retry count` above `retry_count += 1`. A `PostToolUse` hook (`scripts/slopcheck.py`) flags this per edit.
 
 ---
 
@@ -58,5 +65,5 @@ AgentDeck is a declarative runtime harness for multi-agent systems and workflows
 
 * **Communication conciseness:** Keep text between tool calls to ≤25 words. Keep final responses to ≤100 words unless more detail is required.
 * **Branches:** `dev` is default; PRs target `dev`. `main` is release-only.
-* **No attribution trailers:** Never include `Co-Authored-By`, `🤖 Generated with`, or AI vendor signatures in commits, PRs, or issues.
+* **No attribution trailers:** Never include an AI `Co-Authored-By`, `🤖 Generated with`, or AI vendor signatures in commits, PRs, or issues. A trailer naming a person is collaboration, not attribution: GitHub writes one itself when a contributor accepts a maintainer's suggestion.
 * **Draft PR workflow:** Open a draft PR on your first commit (`gh pr create --draft`) and push continuously as you work. Mark ready with `gh pr ready` only when `make check` is clean.

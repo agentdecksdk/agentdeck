@@ -2,12 +2,6 @@ name: Documentation checks
 
 on:
   pull_request:
-    branches:
-      - dev
-    paths:
-      - "docs-site/**"
-      - ".github/workflows/docs-check.yml"
-      - ".github/workflows/docs-pages.yml"
   workflow_dispatch:
 
 permissions:
@@ -21,6 +15,7 @@ jobs:
   build:
     name: Build documentation
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     defaults:
       run:
@@ -29,8 +24,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # A required check reporting *skipped* does not satisfy branch protection, so the job always
+      # runs and the build steps opt out instead. Every run of this gate has passed, because
+      # almost none of them touched the site it builds.
+      - name: Documentation sources changed?
+        id: changed
+        working-directory: .
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -z "$BASE_REF" ] || git diff --name-only "origin/$BASE_REF...HEAD" | grep -q '^docs-site/'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "No docs-site/ changes; the build has nothing new to prove."
+          fi
 
       - name: Set up Node.js
+        if: steps.changed.outputs.run == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -38,13 +52,17 @@ jobs:
           cache-dependency-path: docs-site/package-lock.json
 
       - name: Install dependencies
+        if: steps.changed.outputs.run == 'true'
         run: npm ci --no-audit --no-fund
 
       - name: Build static documentation
+        if: steps.changed.outputs.run == 'true'
         run: npm run build
 
       - name: Verify static export
+        if: steps.changed.outputs.run == 'true'
         run: test -f out/index.html
 
       - name: Verify search index
+        if: steps.changed.outputs.run == 'true'
         run: test -f out/_pagefind/pagefind.js

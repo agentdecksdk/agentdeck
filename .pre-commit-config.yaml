@@ -2,7 +2,7 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
-      # golden snapshots are byte-exact recordings — whitespace fixers would rewrite the baseline
+      # golden snapshots are byte-exact recordings: whitespace fixers would rewrite the baseline
       - id: trailing-whitespace
         exclude: ^tests/golden/snapshots/
       - id: end-of-file-fixer

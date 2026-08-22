@@ -10,7 +10,7 @@ import asyncio
 from agentdeck import cli
 from agentdeck.adapters.control.memory import MemoryControlPort
 from agentdeck.adapters.control.sqlite import SqliteControlPort
-from agentdeck.adapters.engines.stub import StubEngine, stub_spec
+from agentdeck.adapters.executors.stub import StubExecutor, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.control import ControlSignal, Signal
@@ -53,7 +53,7 @@ async def test_an_unnamespaced_cli_signal_does_not_reach_a_namespaced_run() -> N
         RunCompleted(output=coerce_input("hi"), usage=Usage(input_tokens=0, output_tokens=0)),
     )
     store = MemoryEventStore()
-    runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
+    runtime = Runtime([StubExecutor()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
 
     await control.signal("order-1234", Signal.CANCEL)  # what the CLI would have written
 

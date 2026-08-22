@@ -4,6 +4,29 @@ import sys
 
 import pytest
 
+from agentdeck.runtime import settings as runtime_settings
+from agentdeck.runtime.settings import reset_settings_cache
+
+
+@pytest.fixture(autouse=True)
+def _no_developer_env_file(monkeypatch, tmp_path):
+    """Settings come from the test's own environment, never from a `.env` on this machine.
+
+    `get_settings()` calls `load_dotenv(resolve_env_file())`, which writes the file back into
+    `os.environ`, so a real `.env` outlasted `monkeypatch.delenv` and handed the missing-credential
+    tests the very keys they assert are absent. The gate has to mean the same thing on a laptop as
+    it does in CI, which has no `.env` and so never saw this.
+    """
+    monkeypatch.setattr(runtime_settings, "resolve_env_file", lambda: tmp_path / "absent.env")
+
+
+@pytest.fixture(autouse=True)
+def _model_credentials(monkeypatch):
+    """Catalog tests use a deterministic placeholder unless they test missing credentials."""
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    reset_settings_cache()
+    yield
+
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):  # noqa: ARG001
     # `-q` (the Makefile's test target) prints nothing for passing tests, so the docs

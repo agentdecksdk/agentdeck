@@ -1,4 +1,0 @@
-HTTP 200
-content-type: application/json
-
-{"request":"tue 9am","decision":"yes","outcome":"booked"}

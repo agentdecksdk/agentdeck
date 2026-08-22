@@ -1,0 +1,18 @@
+{
+  "v": {
+    "major": 4,
+    "minor": 2
+  },
+  "kind": "agent.changed",
+  "seq": 0,
+  "run_id": "run_1",
+  "session_id": "sess_1",
+  "namespace": "acme",
+  "origin": "Greeter",
+  "ts": "2026-01-01T12:00:00Z",
+  "payload": {
+    "kind": "agent.changed",
+    "previous_agent": "Greeter",
+    "next_agent": "Scheduler"
+  }
+}

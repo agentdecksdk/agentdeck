@@ -4,7 +4,7 @@
 
 AgentDeck SDK is a production runtime around agents you already have  -  it supplies sessions,
 streaming, an event log, human approval and run control, and leaves execution to the OpenAI
-Agents SDK and LangGraph.
+Agents SDK.
 
 Before picking up an issue, run one of the projects in [`examples/`](examples/) as a user would
 (`pip install agentdeck-sdk`, then `python run.py`). Fifteen minutes there makes the rest of this
@@ -29,7 +29,7 @@ without asking you first.
 
 1. Bump `version` in `pyproject.toml` on `dev` and move the **Unreleased**
    CHANGELOG entries under the new version heading.
-2. Merge `dev` → `main`.
+2. Open a `dev` to `main` pull request and merge it after every required check passes.
 3. Tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 4. The release workflow verifies the tag matches `pyproject.toml`, runs the full
    gate, builds sdist + wheel, and publishes a GitHub Release.
@@ -38,7 +38,7 @@ without asking you first.
 
 ```bash
 git clone https://github.com/agentdecksdk/agentdeck.git && cd agentdeck
-uv venv && uv pip install -e ".[dev,serve]"
+uv venv --python 3.12 && make install
 pre-commit install          # ruff + ty + hygiene hooks on every commit
 ```
 
@@ -52,8 +52,11 @@ uninstall strips packages the other checkout still needs.
 ## Before you push
 
 ```bash
-make check                  # lint + typecheck + lint-imports + tests  -  CI runs exactly this
+make check                  # local core gate: lint + typecheck + import contracts + tests
 ```
+
+CI runs this core gate and adds repository, documentation, packaging, and
+skip-detection checks.
 
 ## Docs are part of the change, not a follow-up
 
@@ -76,7 +79,7 @@ The full standards live in **[`docs/engineering/`](docs/engineering/)**  -  read
 non-trivial change; this list is the two-minute version.
 
 - **agentdeck owns configuration, not execution.** Execution stays in the
-  OpenAI Agents SDK / LangGraph. If your change runs things, it belongs in a
+  OpenAI Agents SDK. If your change runs things, it belongs in a
   bundle or an app, not here.
 - **`Deck` is the one composition root.** `Deck(agents=…, workflows=…)` and
   `Deck.from_project()`, which discovers the same arguments from `./.agentdeck/`

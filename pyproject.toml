@@ -1,7 +1,7 @@
 [project]
 name = "agentdeck-sdk"
-version = "4.0.5"
-description = "Declarative harness over the OpenAI Agents SDK and LangGraph: settings, capabilities, skills, runners, graph compilation, plug-in discovery."
+version = "5.0.0"
+description = "Declarative harness over the OpenAI Agents SDK: settings, capabilities, skills, runners, plug-in discovery."
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
@@ -28,12 +28,6 @@ dependencies = [
     "openai==2.32.0",
     "httpx>=0.27",
     "pyyaml>=6.0",
-    "langgraph>=1.1.10",
-    "langchain-core>=0.3",
-    # the default checkpoint backend (AGENTDECK_CHECKPOINT=sqlite://...) needs this, so a
-    # plain install can run `durable=True` out of the box. Pulls in sqlite-vec (a langgraph
-    # vector-store dep unrelated to checkpointing)  -  ~164 KB on disk, accepted for that.
-    "langgraph-checkpoint-sqlite>=2.0",
 ]
 
 [project.scripts]
@@ -50,13 +44,9 @@ observability = [
     "openinference-instrumentation-openai-agents>=0.1",
     "opentelemetry-sdk>=1.27",
 ]
-durability = [
-    # the sqlite checkpointer is a base dependency now (the default backend needs it)  -
-    # this extra is Postgres only.
-    "langgraph-checkpoint-postgres>=2.0",
-    # the Postgres event log's driver. `[binary]` explicitly: the postgres checkpointer
-    # already pulls plain `psycopg` in, which needs a system libpq that a fresh CI runner
-    # or dev box does not have, so the transitive dependency imports and then fails.
+postgres = [
+    # the Postgres event log's driver. `[binary]` explicitly: a plain `psycopg` needs a system
+    # libpq that a fresh CI runner or dev box does not have.
     "psycopg[binary]>=3.2",
 ]
 redis = [
@@ -71,6 +61,11 @@ dev = [
     # per-module coverage as one evidence stream for "nothing imports and nothing
     # exercises this". No threshold  -  it is an audit instrument, not a gate.
     "pytest-cov>=5.0",
+    # an upper bound on a wedged test. The suite has deliberate infinite loops (StallingStore,
+    # concurrency_worker's file barriers) whose own guards live inside the worker subprocesses, so
+    # they never fire for the parent: a run found in 2026-08 had been hung for five days, orphaned
+    # to init and outliving the worktree it was started in.
+    "pytest-timeout>=2.3",
     # not exercised by any default path  -  installed here so the gate still covers the
     # redis session/event-log branches without making `[redis]` a base extra.
     "redis>=5.0",
@@ -79,6 +74,8 @@ dev = [
     "pre-commit>=4.0",
     # pinned: a contract that passes today must not start failing on a linter upgrade
     "import-linter==2.13",
+    # scripts/repomap.py only: the public-API map agents read before writing new code
+    "griffe>=1.6",
 ]
 
 [tool.ruff]
@@ -86,7 +83,11 @@ line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "SIM", "TC", "TID251"]
+# ERA, S110/S112, PIE790, PGH003/PGH004, T10/T20: the structural AI-slop set  -
+# commented-out code, swallowed exceptions, placeholder bodies, blanket
+# suppressions, and debug output in library code. RUF100 rejected: it deletes
+# noqa markers documenting deliberately non-enabled rules.
+select = ["E", "W", "F", "I", "B", "C4", "UP", "N", "SIM", "TC", "TID251", "ERA", "S110", "S112", "PIE790", "PGH003", "PGH004", "T10", "T20"]
 ignore = ["E501", "UP046", "UP047"]
 
 [tool.ruff.lint.isort]
@@ -97,10 +98,30 @@ known-first-party = ["agentdeck"]
 # so the ban lands where the SDK is actually named.
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "agents.mcp".msg = "the MCP client is adapters/tools/mcp's alone  -  take tools off a ToolSet instead"
+"asyncio.create_task".msg = "tasks belong to the runtime (docs/patterns/lifecycle.md): a task created elsewhere bypasses cancellation and drain"
 
 [tool.ruff.lint.per-file-ignores]
 "agentdeck/adapters/tools/mcp/*" = ["TID251"]
 "tests/test_mcp_tool_source.py" = ["TID251"]
+# print is the legitimate output mechanism everywhere except library code.
+"agentdeck/surfaces/cli/*" = ["T201"]
+"tests/*" = ["T201"]
+"scripts/*" = ["T201"]
+"examples/*" = ["T201"]
+# The runtime owns task creation (docs/patterns/lifecycle.md); tests drive it.
+# Enumerated rather than tests/*: a blanket TID251 ignore would also un-ban agents.mcp.
+"agentdeck/deck.py" = ["TID251"]
+"agentdeck/runtime/dispatch.py" = ["TID251"]
+"agentdeck/runtime/service.py" = ["TID251"]
+# The one executor that runs a body rather than bridging one: a native workflow parks mid-await,
+# so its coroutine has to outlive the call that started it. Owned, not loose  -  the executor holds
+# every parked body and `Executor.aclose()` cancels them (docs/patterns/lifecycle.md).
+"agentdeck/adapters/executors/native/executor.py" = ["TID251"]
+"tests/contract/test_store.py" = ["TID251"]
+"tests/test_deck.py" = ["TID251"]
+"tests/test_run_control.py" = ["TID251"]
+"tests/test_runtime_service.py" = ["TID251"]
+"tests/test_serve_compat.py" = ["TID251"]
 
 [tool.ruff.lint.flake8-type-checking]
 runtime-evaluated-base-classes = [
@@ -111,6 +132,11 @@ runtime-evaluated-base-classes = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Generous on purpose: a wedge detector, not a performance budget. Above the multiprocess suite's
+# own 180s WORKER_TIMEOUT so a slow race never trips it, and `thread` rather than `signal` because
+# what hangs here is a blocked `await`, which a signal handler never gets to interrupt.
+timeout = 300
+timeout_method = "thread"
 # tests/golden/conftest.py imports fake_model by name, tests/contract imports contract_cases,
 # tests/ imports concurrency_worker, and tests/test_generated_reference.py imports
 # generate_docs_reference from scripts/; all four basenames are unique across these dirs,

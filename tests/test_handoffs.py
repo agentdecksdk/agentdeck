@@ -57,10 +57,10 @@ def ghost_project(tmp_path, monkeypatch):
 
 
 def test_mutual_string_handoffs_both_build(mutual_project):
-    from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
+    from agentdeck.adapters.executors.openai_agents import OpenAIAgentsExecutor
     from agentdeck.runtime.discovery import InvocableRegistry
 
-    specs = InvocableRegistry([OpenAIAgentsEngine()]).load()
+    specs = InvocableRegistry([OpenAIAgentsExecutor()]).load()
     booking = specs["BookingAgent"].native
     cancel = specs["CancelAgent"].native
 

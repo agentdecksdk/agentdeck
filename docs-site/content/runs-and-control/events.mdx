@@ -3,6 +3,13 @@ title: Events
 description: One ordered log per run, how to stream it live, and how to read it back afterwards.
 ---
 
+{/* docs_sources:
+  - "agentdeck/core/events.py"
+  - "agentdeck/runtime/capture.py"
+  - "agentdeck/runtime/dispatch.py"
+  - "agentdeck/adapters/stores/**"
+*/}
+
 # Events
 
 Every run produces one ordered, typed log. Every managed invocation appends to it, whatever
@@ -28,7 +35,9 @@ run.completed
 holds and stops, which for a run that has just started is a single event. That is the right default
 for reading a finished run back and the wrong one for watching a live one.
 
-The loop ends on a terminal event: `run.completed`, `run.failed` or `run.cancelled`.
+The loop ends at the segment's own boundary: a terminal event (`run.completed`, `run.failed`,
+`run.cancelled`) or a suspension (`run.paused`, `run.interrupted`). Call it again after a resume
+to see what came next.
 
 ## Reading one back afterwards
 
@@ -43,7 +52,7 @@ async for event in run.events(from_seq=120):   # only what is new to you
 ```
 
 `from_seq` resumes from a position you already have, so a consumer that crashed does not replay
-what it already processed. `seq` is assigned by the store, not the producer, and counts from 1
+what it already processed. `seq` is assigned by the store, not the producer, and counts from 0
 within a run.
 
 ## Streaming without a handle
@@ -68,10 +77,10 @@ elif event.kind == "text.delta":
 ```
 
 An unknown kind is carried rather than rejected, so a reader written today keeps working against a
-log written by a newer release.
+log written by a newer release of the same schema major.
 
 ## Related
 
-- [Event types](/reference/events) - all 21 kinds, their payloads, and the envelope
+- [Event types](/reference/events) - all 22 kinds, their payloads, and the envelope
 - [Runs](/runs-and-control/runs) - starting a run and rehydrating its handle
 - [Lifecycle & Control](/runs-and-control/lifecycle-and-control) - which events set which status

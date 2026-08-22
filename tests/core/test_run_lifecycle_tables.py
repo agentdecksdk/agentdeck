@@ -18,9 +18,11 @@ from agentdeck.core.status import (
     POLICY,
     PRECONDITIONS,
     Action,
+    Controls,
     Operation,
     RunStatus,
     Verdict,
+    can_of,
     decide,
     status_of,
 )
@@ -56,9 +58,32 @@ LEGALITY: dict[tuple[RunStatus, Operation], Verdict] = {
     (RunStatus.WAITING_ANSWER, Operation.RUN): Verdict.REFUSED,
     (RunStatus.WAITING_ANSWER, Operation.ANSWER): Verdict.LEGAL,
     (RunStatus.WAITING_ANSWER, Operation.RESUME): Verdict.REFUSED,
+    (RunStatus.RUNNING, Operation.PAUSE): Verdict.LEGAL,
+    (RunStatus.RUNNING, Operation.CANCEL): Verdict.LEGAL,
+    (RunStatus.PAUSED, Operation.PAUSE): Verdict.NO_OP,
+    (RunStatus.PAUSED, Operation.CANCEL): Verdict.LEGAL,
+    # Legal, and not a pause of running work: it is the veto the routing table honours, holding
+    # the answer back until somebody lifts it.
+    (RunStatus.WAITING_ANSWER, Operation.PAUSE): Verdict.LEGAL,
+    (RunStatus.WAITING_ANSWER, Operation.CANCEL): Verdict.LEGAL,
     **{(state, Operation.RUN): Verdict.LEGAL for state in _TERMINAL},
     **{(state, Operation.ANSWER): Verdict.NO_OP for state in _TERMINAL},
     **{(state, Operation.RESUME): Verdict.NO_OP for state in _TERMINAL},
+    **{(state, Operation.PAUSE): Verdict.NO_OP for state in _TERMINAL},
+    **{(state, Operation.CANCEL): Verdict.NO_OP for state in _TERMINAL},
+}
+
+# What ``run.can`` says for each (engine capability x state), written out the same way. The
+# `suspendable=False` column is not a hypothetical: it is what a target with no safe point to
+# reach gets, and the whole point of deriving `can` from two inputs rather than one.
+CONTROLS: dict[tuple[bool, RunStatus], tuple[bool, bool, bool]] = {
+    (True, RunStatus.RUNNING): (True, False, True),
+    (True, RunStatus.PAUSED): (False, True, True),
+    (True, RunStatus.WAITING_ANSWER): (True, False, True),
+    (False, RunStatus.RUNNING): (False, False, True),
+    (False, RunStatus.PAUSED): (False, False, True),
+    (False, RunStatus.WAITING_ANSWER): (False, False, True),
+    **{(suspendable, state): (False, False, False) for suspendable in (True, False) for state in _TERMINAL},
 }
 
 
@@ -76,6 +101,21 @@ def test_each_precondition_cell_says_what_the_design_says_it_says(
     cell: tuple[RunStatus, Operation], expected: Verdict
 ) -> None:
     assert PRECONDITIONS[cell].verdict is expected
+
+
+@pytest.mark.parametrize(("cell", "expected"), sorted(CONTROLS.items(), key=repr))
+def test_each_control_cell_says_what_the_design_says_it_says(
+    cell: tuple[bool, RunStatus], expected: tuple[bool, bool, bool]
+) -> None:
+    suspendable, state = cell
+    controls = can_of(state, suspendable=suspendable)
+    assert (controls.pause, controls.resume, controls.cancel) == expected
+
+
+def test_a_run_that_cannot_suspend_can_still_be_cancelled() -> None:
+    """The reason cancel asks only the state: ending a run needs no safe point to come back
+    from, so the lowest-capability target still gets the one control that stops it."""
+    assert can_of(RunStatus.RUNNING, suspendable=False) == Controls(pause=False, resume=False, cancel=True)
 
 
 def test_no_ruling_is_silent() -> None:

@@ -18,9 +18,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from agentdeck.core.events import TERMINAL_KINDS
+from agentdeck.core.content import answer_of
+from agentdeck.core.events import TERMINAL_KINDS, RunInterrupted, RunResumed
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -49,14 +50,16 @@ class Operation(StrEnum):
     """What a caller *invokes*, which is a different question from what is *pending*.
 
     ``run`` opens a run, ``answer`` supplies the value an interrupt is waiting for, ``resume``
-    lifts a pause. Legality is a property of these; :data:`POLICY`'s columns are the signals
-    found in the port at the moment of a read, and conflating the two is what made a pause
-    against a waiting run look liftable.
+    lifts a pause, ``pause`` and ``cancel`` ask it to stop. Legality is a property of these;
+    :data:`POLICY`'s columns are the signals found in the port at the moment of a read, and
+    conflating the two is what made a pause against a waiting run look liftable.
     """
 
     RUN = "run"
     ANSWER = "answer"
     RESUME = "resume"
+    PAUSE = "pause"
+    CANCEL = "cancel"
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,7 +83,7 @@ STATES: Mapping[RunStatus, StateFacts] = {
 value is ``WAITING_ANSWER``, with nothing is ``PAUSED``. So code pausing itself is ``PAUSED``
 rather than a seventh state."""
 
-# Only these kinds move the needle; everything else (deltas, tool calls, node.updated, ...)
+# Only these kinds move the needle; everything else (deltas, tool calls, reports, ...)
 # leaves status exactly where it was.
 TRANSITIONS: dict[str, RunStatus] = {
     "run.started": RunStatus.RUNNING,
@@ -129,12 +132,15 @@ class Precondition:
 
 _LEGAL = Precondition(Verdict.LEGAL, "the operation is what this state is waiting for")
 _BUSY = Precondition(Verdict.REFUSED, "the session already has a run in flight")
+_STOPPABLE = Precondition(Verdict.LEGAL, "the run has not ended, so it can still be told to stop")
 
 _LEGALITY: Mapping[RunStatus, Mapping[Operation, Precondition]] = {
     RunStatus.RUNNING: {
         Operation.RUN: _BUSY,
         Operation.ANSWER: Precondition(Verdict.REFUSED, "the run is still running and nothing awaits an answer"),
         Operation.RESUME: Precondition(Verdict.NO_OP, "the run is already running, so there is no pause to lift"),
+        Operation.PAUSE: _STOPPABLE,
+        Operation.CANCEL: _STOPPABLE,
     },
     RunStatus.PAUSED: {
         Operation.RUN: _BUSY,
@@ -142,6 +148,8 @@ _LEGALITY: Mapping[RunStatus, Mapping[Operation, Precondition]] = {
             Verdict.REFUSED, "the run is paused, not waiting for a value: lift it with run.resume()"
         ),
         Operation.RESUME: _LEGAL,
+        Operation.PAUSE: Precondition(Verdict.NO_OP, "the run is already paused"),
+        Operation.CANCEL: _STOPPABLE,
     },
     RunStatus.WAITING_ANSWER: {
         Operation.RUN: _BUSY,
@@ -150,6 +158,10 @@ _LEGALITY: Mapping[RunStatus, Mapping[Operation, Precondition]] = {
             Verdict.REFUSED,
             "the run is waiting for a value, not for a pause to be lifted: supply it with run.answer(...)",
         ),
+        # Legal, and it is not a pause of the running work  -  there is none. It is the veto
+        # `_WAITING_ANSWER_ROW` honours: the answer is held back until somebody lifts it.
+        Operation.PAUSE: _STOPPABLE,
+        Operation.CANCEL: _STOPPABLE,
     },
 } | dict.fromkeys(
     TERMINAL_STATUSES,
@@ -157,6 +169,8 @@ _LEGALITY: Mapping[RunStatus, Mapping[Operation, Precondition]] = {
         Operation.RUN: _LEGAL,
         Operation.ANSWER: Precondition(Verdict.NO_OP, "the run has already ended, so there is nothing to answer"),
         Operation.RESUME: Precondition(Verdict.NO_OP, "the run has already ended, so there is no pause to lift"),
+        Operation.PAUSE: Precondition(Verdict.NO_OP, "the run has already ended, so there is nothing to pause"),
+        Operation.CANCEL: Precondition(Verdict.NO_OP, "the run has already ended, so there is nothing to cancel"),
     },
 )
 
@@ -284,6 +298,55 @@ def status_of(events: Sequence[Event]) -> RunStatus | None:
     return status
 
 
+class Play(StrEnum):
+    """Which of the three ways an executor is being entered."""
+
+    FRESH = "fresh"
+    REPLAY = "replay"
+    ANSWER = "answer"
+
+
+@dataclass(frozen=True, slots=True)
+class Continuation:
+    """What the log says an :meth:`~agentdeck.core.ports.Executor.execute` call is.
+
+    Read off the log rather than passed as arguments: the Runtime writes the transition that
+    decides all three before it calls, so a parameter saying the same thing could only ever
+    disagree with the record. ``answer`` and ``thread_id`` are set for :attr:`Play.ANSWER`
+    alone  -  the value the interrupt was answered with, and the thread the executor itself
+    wrote onto that interrupt.
+    """
+
+    play: Play
+    answer: Any = None
+    thread_id: str | None = None
+
+
+def continuation_of(history: Sequence[Event], run_id: str) -> Continuation:
+    """Which play this is, for the run ``run_id``, and what it carries.
+
+    A ``run.resumed`` is always the last lifecycle event of a continuation, because the claim
+    that opens one is what wrote it. What precedes it says which continuation: a lifted pause
+    replays the run from its own input, an answered interrupt carries a value.
+
+    Filtered to this run, never merely to the kinds: ``history`` is the whole *session* log, so
+    an abandoned run's stale ``[run.paused, run.resumed]`` tail is still sitting in it when a
+    genuinely new run starts on the same session. Unfiltered, that stranger's tail reads as this
+    run continuing, and the fresh run's own input is silently discarded.
+    """
+    mine = [event for event in history if event.run_id == run_id and event.kind in LIFECYCLE_KINDS]
+    if len(mine) < 2 or mine[-1].kind != "run.resumed":
+        return Continuation(Play.FRESH)
+    if mine[-2].kind != "run.interrupted":
+        return Continuation(Play.REPLAY)
+    resumed, interrupted = mine[-1].payload, mine[-2].payload
+    return Continuation(
+        Play.ANSWER,
+        answer=answer_of(resumed.value) if isinstance(resumed, RunResumed) else None,
+        thread_id=interrupted.thread_id if isinstance(interrupted, RunInterrupted) else None,
+    )
+
+
 def can_resume(status: RunStatus | None) -> bool:
     """A run is resumable while suspended: waiting on an answer, or paused by an operator.
     Both continue under the same ``run_id``; what differs is what the resume carries.
@@ -292,6 +355,32 @@ def can_resume(status: RunStatus | None) -> bool:
     never heard of  -  makes a resume a no-op rather than an error, which is why callers check
     this instead of raising."""
     return status in RESUMABLE_STATUSES
+
+
+@dataclass(frozen=True, slots=True)
+class Controls:
+    """Which lifecycle controls are available on a run: what ``run.can`` is."""
+
+    pause: bool
+    resume: bool
+    cancel: bool
+
+
+def can_of(status: RunStatus, *, suspendable: bool) -> Controls:
+    """The controls available to a run in ``status`` whose engine is (or is not) ``suspendable``.
+
+    Two halves, and neither alone is the answer: an engine that cannot suspend never offers pause
+    or resume whatever its state, and one that can still offers neither once the run is over. The
+    state half is :data:`PRECONDITIONS`, so this adds no lifecycle rule of its own.
+
+    Cancel asks only the state: every engine's run can be ended, whether by a safe point it
+    reaches or by the terminal event a suspended run gets instead.
+    """
+    return Controls(
+        pause=suspendable and PRECONDITIONS[status, Operation.PAUSE].verdict is Verdict.LEGAL,
+        resume=suspendable and PRECONDITIONS[status, Operation.RESUME].verdict is Verdict.LEGAL,
+        cancel=PRECONDITIONS[status, Operation.CANCEL].verdict is Verdict.LEGAL,
+    )
 
 
 def decide(status: RunStatus, pending: str | None) -> Ruling:

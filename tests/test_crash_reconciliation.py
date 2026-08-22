@@ -22,6 +22,7 @@ import os
 import signal
 import subprocess
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -29,8 +30,8 @@ import crash_worker as worker
 import pytest
 from agents import SQLiteSession
 
-from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
-from agentdeck.adapters.engines.openai_agents.reconcile import DIVERGED
+from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
+from agentdeck.adapters.executors.openai_agents.reconcile import DIVERGED
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import TextBlock, coerce_input
 from agentdeck.core.events import MessageCompleted, RunStarted
@@ -118,7 +119,7 @@ class _CrashingSessions(ExecutionStore):
 
 def _build(model: worker.ScriptedModel, sessions: ExecutionStore) -> tuple[Runtime, SqliteEventStore]:
     store = SqliteEventStore()
-    return Runtime([OpenAIAgentsEngine(sessions)], store, {worker.AGENT: worker.spec(model)}), store
+    return Runtime([OpenAIAgentsExecutor(sessions)], store, {worker.AGENT: worker.spec(model)}), store
 
 
 async def _play(runtime: Runtime, question: str, label: str) -> list[Event]:
@@ -170,7 +171,7 @@ async def test_an_input_the_session_write_lost_reaches_the_model_on_the_next_tur
 
     # The gap is real before anything repairs it: the log is one question ahead.
     reader = worker.context("reader")
-    logged = _log_transcript(await store.read(worker.SESSION_ID, reader))
+    logged = _log_transcript(await store.read_session(replace(reader, session_id=worker.SESSION_ID)))
     assert logged == [*FIRST_EXCHANGE, ["user", worker.QUESTION_2]]
     assert worker.transcript_of(await sessions.session.get_items()) == FIRST_EXCHANGE
     assert len(model.inputs) == 1, "turn 2 died before the model was called"
@@ -184,7 +185,7 @@ async def test_an_input_the_session_write_lost_reaches_the_model_on_the_next_tur
     ]
 
     # And the two stores agree again afterwards, which is the invariant the gap broke.
-    repaired = await store.read(worker.SESSION_ID, reader)
+    repaired = await store.read_session(replace(reader, session_id=worker.SESSION_ID))
     assert worker.transcript_of(await sessions.session.get_items()) == _log_transcript(repaired)
 
     # A repair is a one-off, not a per-turn habit: the turn after it must see the same
@@ -221,7 +222,10 @@ async def test_a_question_the_consumer_abandoned_is_not_replayed_in_front_of_its
     assert (await anext(stream)).kind == "run.started"
     await stream.aclose()
 
-    abandoned = [event.kind for event in await store.read(worker.SESSION_ID, worker.context("reader"))]
+    abandoned = [
+        event.kind
+        for event in await store.read_session(replace(worker.context("reader"), session_id=worker.SESSION_ID))
+    ]
     assert abandoned[-1] == "run.cancelled", abandoned
 
     await _play(runtime, worker.QUESTION_2, "retry")
@@ -257,7 +261,10 @@ async def test_a_turn_cancelled_after_its_answer_keeps_both_of_its_messages() ->
             await asyncio.sleep(0.01)
     await stream.aclose()
 
-    kinds = [event.kind for event in await store.read(worker.SESSION_ID, worker.context("reader"))]
+    kinds = [
+        event.kind
+        for event in await store.read_session(replace(worker.context("reader"), session_id=worker.SESSION_ID))
+    ]
     assert kinds[-1] == "run.cancelled", kinds
     second_turn = [*FIRST_EXCHANGE, ["user", worker.QUESTION_2], ["assistant", worker.ANSWER_1]]
     assert worker.transcript_of(await sessions.session.get_items()) == second_turn
@@ -305,7 +312,7 @@ async def test_a_session_that_diverged_from_the_log_is_left_alone_and_says_so() 
         ["user", worker.QUESTION_2],
     ]
 
-    stored = await store.read(worker.SESSION_ID, worker.context("reader"))
+    stored = await store.read_session(replace(worker.context("reader"), session_id=worker.SESSION_ID))
     assert [event.kind for event in stored if event.kind == "custom"] == ["custom"], "reported once, in the record"
 
 
@@ -321,7 +328,7 @@ async def test_two_turns_racing_on_one_session_apply_the_repair_once() -> None:
     """
     model = worker.ScriptedModel(worker.ANSWER_1)
     sessions = _CrashingSessions("racing-turns", slow_reads=True)
-    engine = OpenAIAgentsEngine(sessions)
+    engine = OpenAIAgentsExecutor(sessions)
     spec = worker.spec(model)
     store = SqliteEventStore()
     runtime = Runtime([engine], store, {worker.AGENT: spec})
@@ -332,11 +339,11 @@ async def test_two_turns_racing_on_one_session_apply_the_repair_once() -> None:
         await _play(runtime, worker.QUESTION_2, "turn-2")
     sessions.session.writes_fail = False
 
-    history = await store.read(worker.SESSION_ID, worker.context("reader"))
+    history = await store.read_session(replace(worker.context("reader"), session_id=worker.SESSION_ID))
     sessions.session.hold_reads_for_a_second_reader()
     raced = await asyncio.gather(
-        _drain(engine.start(spec, coerce_input(worker.QUESTION_3), history, worker.context("racer-a"))),
-        _drain(engine.start(spec, coerce_input(QUESTION_5), history, worker.context("racer-b"))),
+        _drain(engine.execute(spec, coerce_input(worker.QUESTION_3), history, worker.context("racer-a"))),
+        _drain(engine.execute(spec, coerce_input(QUESTION_5), history, worker.context("racer-b"))),
     )
 
     session_transcript = worker.transcript_of(await sessions.session.get_items())
@@ -355,7 +362,7 @@ async def test_a_session_lost_entirely_is_refilled_from_the_log() -> None:
 
     # Same log, execution state the process no longer has.
     second_model = worker.ScriptedModel(worker.ANSWER_3)
-    restarted = Runtime([OpenAIAgentsEngine(ExecutionStore())], store, {worker.AGENT: worker.spec(second_model)})
+    restarted = Runtime([OpenAIAgentsExecutor(ExecutionStore())], store, {worker.AGENT: worker.spec(second_model)})
     await _play(restarted, worker.QUESTION_2, "turn-2")
 
     assert worker.transcript_of(second_model.inputs[-1]) == [*FIRST_EXCHANGE, ["user", worker.QUESTION_2]]
@@ -386,7 +393,7 @@ async def test_a_turn_a_killed_process_never_wrote_to_its_session_survives_the_r
     # first exchange. Without this the kill could be decorative and the test would not know.
     store = SqliteEventStore(worker.events_db(tmp_path))
     reader = worker.context("reader")
-    log = await store.read(worker.SESSION_ID, reader)
+    log = await store.read_session(replace(reader, session_id=worker.SESSION_ID))
     assert _log_transcript(log) == [*FIRST_EXCHANGE, ["user", worker.QUESTION_2]], _kinds(log)
     # The killed run's own id is minted (#324), never predictable  -  it is whichever run_id
     # owns the log's last row, and it must hold nothing beyond its own opening event.
@@ -414,7 +421,7 @@ async def test_a_turn_a_killed_process_never_wrote_to_its_session_survives_the_r
         ["user", worker.QUESTION_3],
     ], successor.stdout
 
-    after = await store.read(worker.SESSION_ID, reader)
+    after = await store.read_session(replace(reader, session_id=worker.SESSION_ID))
     assert [event.kind for event in after if event.kind == "custom"] == [], "a plain gap is not a divergence"
 
     # Only the missing question was replayed, not the conversation around it: turn 1's answer is

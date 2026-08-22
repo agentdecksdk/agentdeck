@@ -16,8 +16,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentdeck.core.events import Event, TextDelta
-from agentdeck.core.ports import EventSinkPort
+from agentdeck import views
+from agentdeck.core.events import Event, Reported, TextDelta
+from agentdeck.core.ports import Observer
 from agentdeck.runtime.dispatch import BREAKER_COOLDOWN, LOG_INTERVAL, LOG_WINDOW, SinkDispatch
 
 TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -49,7 +50,7 @@ def _event(seq: int) -> Event:
     )
 
 
-class Recorder(EventSinkPort):
+class Recorder(Observer):
     """Takes every event without complaint  -  the baseline the failure cases are measured against."""
 
     def __init__(self) -> None:
@@ -61,6 +62,21 @@ class Recorder(EventSinkPort):
 
     def seqs(self) -> list[int]:
         return [event.seq for event in self.events]
+
+
+class Viewed(Recorder):
+    """A caller's own observer carrying ``view``, the attribute a built-in's ``view=`` sets."""
+
+    def __init__(self, view: views.View) -> None:
+        super().__init__()
+        self.view = view
+
+
+class ExplodingView:
+    """A custom ``View`` whose ``matches`` raises, the way a buggy predicate does."""
+
+    def matches(self, event: Event) -> bool:
+        raise ValueError("boom from a buggy custom view")
 
 
 class Gated(Recorder):
@@ -75,7 +91,7 @@ class Gated(Recorder):
         self.events.append(event)
 
 
-class Broken(EventSinkPort):
+class Broken(Observer):
     """Fails every time, and counts how many times it was given the chance."""
 
     def __init__(self) -> None:
@@ -86,7 +102,7 @@ class Broken(EventSinkPort):
         raise RuntimeError("sink is down")
 
 
-class Flaky(EventSinkPort):
+class Flaky(Observer):
     """Fails every other event: never twice in a row, so never broken."""
 
     def __init__(self) -> None:
@@ -98,7 +114,7 @@ class Flaky(EventSinkPort):
             raise RuntimeError("transient")
 
 
-class Unyielding(EventSinkPort):
+class Unyielding(Observer):
     """Down until ``healthy`` is set, and never suspends either way  -  no turn comes from this sink.
 
     The sink counterpart of the ``NeverYields`` store wrapper (#87): a dispatch's own progress may
@@ -118,7 +134,7 @@ class Unyielding(EventSinkPort):
         self.taken.append(event.seq)
 
 
-class WedgesAfterFailing(EventSinkPort):
+class WedgesAfterFailing(Observer):
     """Refuses its first two events, then stops answering altogether inside ``emit``.
 
     The state the probe path is most exposed in: a breaker that has just opened its gate for one
@@ -192,7 +208,7 @@ class SelfCancelOnce(Recorder):
         await super().emit(event)
 
 
-class Buffering(EventSinkPort):
+class Buffering(Observer):
     """Holds every event and writes the lot out only when closed.
 
     The shape the emit contract pushes a real sink into: ``emit`` does in-memory work, and the
@@ -327,6 +343,46 @@ async def test_a_sink_that_keeps_up_loses_nothing_however_fast_the_producer_is()
 
     assert dispatch.dropped == 0
     assert sink.seqs() == list(range(1000))
+
+
+async def test_a_view_that_refuses_an_event_is_never_delivered_or_counted_dropped() -> None:
+    """The filter runs in the consumer, after the queue, so a slow or raising view costs this
+    sink's own backlog rather than the run. A refused event still reaches neither the sink nor
+    the drop count  -  it was never addressed to it, which is a different fact from losing one."""
+    sink = Viewed(views.chat)
+    dispatch = SinkDispatch(sink)
+    report = Event(
+        kind="report",
+        seq=1,
+        run_id="r-1",
+        session_id="s-1",
+        namespace="acme",
+        origin="Greeter",
+        ts=TS,
+        payload=Reported(message="hi"),
+    )
+    await dispatch.submit(_event(0))  # text.delta: matches views.chat
+    await dispatch.submit(report)  # report: does not
+    await dispatch.close()
+
+    assert sink.seqs() == [0]
+    assert (dispatch.dropped, dispatch.failed, dispatch.depth) == (0, 0, 0)
+
+
+async def test_a_view_that_raises_never_reaches_the_run_or_floods_the_sink() -> None:
+    """A raising ``matches`` must not fail the run: ``submit`` never sees it, since the check
+    now runs in the consumer. It is counted through the same breaker as a raising ``emit``,
+    so a broken filter is disabled and logged rather than either hidden or flooding the sink."""
+    sink = Viewed(ExplodingView())
+    dispatch = SinkDispatch(sink, failure_limit=3)
+    async with asyncio.timeout(10):  # a hang guard, not a measurement
+        for seq in range(3):
+            await dispatch.submit(_event(seq))  # must not raise
+        await dispatch.flush()
+        await dispatch.close()
+
+    assert sink.events == []  # never delivered: a raising filter must not flood the sink
+    assert (dispatch.failed, dispatch.dropped, dispatch.disabled) == (3, 0, True)
 
 
 async def test_a_full_queue_drops_the_oldest_events_and_keeps_the_newest() -> None:
@@ -923,7 +979,7 @@ async def test_a_sink_that_defines_no_close_is_closed_without_one() -> None:
     """The hook is optional: every sink written before it existed goes on working untouched, which
     is what the port's default is for."""
     sink = Recorder()
-    assert type(sink).close is EventSinkPort.close  # nothing in its MRO overrides it
+    assert type(sink).close is Observer.close  # nothing in its MRO overrides it
 
     dispatch = SinkDispatch(sink)
     async with asyncio.timeout(10):

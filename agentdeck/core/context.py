@@ -11,17 +11,31 @@ application that has those concepts keeps them, and may project one of them onto
 not a counter-example: it is application-*owned*, an environment the application hands the run,
 and AgentDeck reads it only to hand it back. Owning a value is not being identified by it.
 
-:class:`Context` is the public half of the same subject  -  the restricted view application code
+:class:`ToolCtx` is the public half of the same subject  -  the restricted view application code
 receives, so a tool signature names one AgentDeck type instead of an engine's.
 """
 
 from __future__ import annotations
 
+import asyncio
+import inspect
+import logging
 from dataclasses import dataclass, field
-from typing import cast
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+from uuid import uuid4
 
-from agentdeck.core.control import Gate
+from agentdeck.core.control import Gate, RunPausedError
+from agentdeck.core.events import KnownPayload, RunInterrupted
 from agentdeck.core.reporting import Reporter
+from agentdeck.core.status import RunStatus
+
+logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from agentdeck.core.base import JsonData
+    from agentdeck.core.invocable import AgentInstance
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,15 +58,27 @@ class RunContext:
     first place, and there is nothing left to derive.
 
     ``key`` is the caller's optional stable application identifier  -  for lookup and
-    idempotency, never for addressing. It plays no part in :attr:`id` or :attr:`log_key`, and
+    idempotency, never for addressing. It plays no part in :attr:`id`, and
     a store indexes ``(namespace, key)`` as a separate, permanent claim.
 
-    Four values and three seams, and nothing else: a field AgentDeck's own machinery never
-    reads is not infrastructure, it is a guess about a mechanism that does not exist yet.
-    ``trace_id``, ``budget``, ``triggered_by``, ``parent_run_id``, ``deadline`` and
-    ``idempotency_key`` were all of that, and each comes back with the thing that enforces it.
+    Four values and three seams, and nothing else. The four are the whole of a run's identity:
+    :attr:`run_id` is which run, :attr:`key` is what the application calls it, :attr:`namespace`
+    is what it is kept apart from, and :attr:`session_id` is the conversation it belongs to. There
+    was a fifth, derived one (``log_key``, ``session_id or run_id``): it answered "which stream do
+    these events go in", and a store handed it could no longer tell a session named after a run
+    from that run itself. Beyond identity, a field AgentDeck's own machinery never reads is not
+    infrastructure, it is a guess about a mechanism that does not exist yet. ``trace_id``,
+    ``budget``, ``triggered_by``, ``parent_run_id``, ``deadline`` and ``idempotency_key`` were all
+    of that, and each comes back with the thing that enforces it. The delegation edge (#236) is
+    not a counter-example: it is carried on ``run.started`` and, while a run is live, in the
+    Runtime's own tree  -  a copy here would be a third place to disagree with those two.
     ``data`` is the fourth value because it arrives with that thing: the engine bridges read it
-    on every injected call to build the :class:`Context` a user callable declared.
+    on every injected call to build the :class:`ToolCtx` a user callable declared.
+
+    ``agent`` is which agent this run is playing, or ``None`` for a workflow. Read off the
+    resolved spec every time a run is played, so a turn picked up after a pause carries the same
+    one rather than the one whoever resumed it happened to pass. Opaque for ``data``'s reason:
+    what it wraps is an authoring declaration, and core may not name that.
 
     ``data`` is opaque by construction  -  ``object``, never inspected, never copied, never
     serialized into an event, and left out of the repr so a logged context cannot leak a DB
@@ -77,6 +103,7 @@ class RunContext:
     session_id: str | None = None
     namespace: str | None = None
     key: str | None = None
+    agent: object = field(default=None, repr=False)
     data: object = field(default=None, repr=False)
     gate: Gate = field(default_factory=Gate)
     reporter: Reporter = field(default_factory=Reporter)
@@ -99,12 +126,6 @@ class RunContext:
         return self.namespace or ""
 
     @property
-    def log_key(self) -> str:
-        """Where this run's events are written  -  a run without a session is its own log,
-        so persist-before-yield holds for it too."""
-        return self.session_id or self.run_id
-
-    @property
     def id(self) -> str:
         """This run's durable address  -  what the control plane addresses it by, everywhere.
 
@@ -117,24 +138,34 @@ class RunContext:
 
 
 @dataclass(frozen=True, slots=True)
-class Context[T]:
-    """The only public context type: what a user callable declaring ``Context[T]`` receives.
+class ToolCtx[T]:
+    """The only public context type: what a user callable declaring ``ToolCtx[T]`` receives.
 
-    One portable type above two engines. The OpenAI SDK hands a tool its own
-    ``RunContextWrapper`` and LangGraph hands a node its own ``Runtime``; each engine bridge
-    unwraps its native carrier to the :class:`RunContext` travelling inside and presents this
-    view, so a tool signature does not change when the engine does.
+    One portable type above every executor. The OpenAI SDK hands a tool its own
+    ``RunContextWrapper``; each bridge unwraps its native carrier to the :class:`RunContext`
+    travelling inside and presents this view, so a tool signature does not change when the
+    engine does.
 
     A view, not a copy  -  ``data`` is the very object the caller supplied, by reference. Access
     to it is access for *application* code only: nothing here is ever serialized into a prompt,
     and a dynamic-instructions callable contributes only its return value to what the model sees.
 
     Narrower than the carrier on purpose. ``namespace`` is absent because no injection site has
-    needed to read it, and ``gate`` is absent because :meth:`checkpoint` is the whole of what a
+    needed to read it, and ``gate`` is absent because :meth:`safepoint` is the whole of what a
     callable may do with it  -  adding a property later is cheaper than changing one after release.
+
+    ``_channel`` is present when the executor playing this body can stop it in place, and absent
+    when it cannot: a tool inside an Agents SDK turn has no way to park, because the SDK owns the
+    stack and the turn is replayed from the log on resume.
+
+    A tool is a leaf capability, so this is where the surface stops: orchestration
+    (``invoke``, ``parallel``, ``ask``, ``approve``) is :class:`WorkflowCtx`'s, and a tool that
+    declared it would silently acquire the ability to coordinate other executions
+    (``docs/design/execution-api.md``).
     """
 
     _run: RunContext
+    _channel: Suspender | None = None
 
     @property
     def data(self) -> T:
@@ -145,6 +176,13 @@ class Context[T]:
         than re-checked on every read.
         """
         return cast("T", self._run.data)
+
+    @property
+    def agent(self) -> AgentInstance | None:
+        """Which agent is playing this body, or ``None`` when no agent is: a workflow, a tool
+        invoked as a run of its own. A tool inside an agent turn reads the agent that called it.
+        """
+        return cast("AgentInstance | None", self._run.agent)
 
     @property
     def reporter(self) -> Reporter:
@@ -158,11 +196,276 @@ class Context[T]:
     def session_id(self) -> str | None:
         return self._run.session_id
 
-    async def checkpoint(self) -> None:
-        """Offer a safe point: returns, or raises if the run was signaled to stop or pause.
+    async def safepoint(self) -> None:
+        """Offer a safe point: returns, or stops the run here if one was signaled.
+
+        How it stops depends on what is playing this body, and that is the whole difference:
+        where the body can be parked it waits in place with its locals intact, and where it
+        cannot it unwinds and the run is replayed from the log on resume. A cancel always
+        unwinds, because the run is over and there is nothing left to preserve.
 
         Deliberately takes no safe-point argument. The kinds of safe point are a recorded
-        contract engine adapters share, and a user callable naming a new one would change what
-        the event log means from outside the engines.
+        contract executor adapters share, and a user callable naming a new one would change what
+        the event log means from outside the executors.
         """
-        await self._run.gate.checkpoint()
+        try:
+            await self._run.gate.checkpoint()
+        except RunPausedError as paused:
+            if self._channel is None:
+                raise
+            # The request and the observation are records; the ``run.paused`` they end in is what
+            # the run is actually suspended by, so it is the only one that waits.
+            *recorded, suspending = paused.payloads
+            for payload in recorded:
+                await self._channel.emit(payload)
+            await self._channel.suspend(suspending)
+
+
+class Suspender(Protocol):
+    """How a native body reaches the run it is inside: record something, or stop and wait.
+
+    Bound by the native executor, which is the only thing that can honour the waiting half  -  the
+    body is a live coroutine, so a suspension is a real wait rather than an unwind
+    (``docs/design/execution-api.md``).
+    """
+
+    async def emit(self, payload: KnownPayload) -> None:
+        """Record a payload on the run and keep going."""
+        ...
+
+    async def suspend(self, payload: KnownPayload) -> Any:
+        """Record a suspending payload, park here, and return whatever answers it."""
+        ...
+
+
+type Invoker = Callable[..., Any]
+"""The reach the other way: from a body out to the Deck that holds the catalog, called as
+``invoker(parent_context, target, *args, **kwargs)`` and returning the child ``Run``.
+
+A callable rather than a protocol, because one method is not an interface and a protocol would
+put a public ``invoke`` on the one object that can satisfy it. Loosely typed for the reason core
+cannot say more: a ``Run`` is ``agentdeck.deck``'s, which is outside this ring (``.importlinter``).
+"""
+
+
+class Agents(Protocol):
+    """Where a body mints an agent the catalog does not hold: ``ctx.agents``.
+
+    A protocol rather than :data:`Invoker`'s bare callable, because two operations are an
+    interface where one is not; loosely typed for :data:`Invoker`'s reason, since what a
+    declaration is made of is ``agentdeck.authoring``'s and this ring may not name it.
+
+    Minting only. Running what was minted is still :meth:`WorkflowCtx.invoke`, so there is one
+    way a run starts however its target came to exist.
+    """
+
+    def create(self, **declaration: Any) -> AgentInstance:
+        """Declare an agent for this deck to hold, and hand back what invokes it."""
+        ...
+
+    def fork(self, source: Any, /, **overrides: Any) -> AgentInstance:
+        """Copy ``source`` with ``overrides`` applied, as a new instance."""
+        ...
+
+
+@runtime_checkable
+class ChildRun(Protocol):
+    """What :meth:`WorkflowCtx.parallel` needs of the run :meth:`WorkflowCtx.invoke` handed back.
+
+    A protocol rather than that handle, for :class:`~agentdeck.core.invocable.NativeInvocable`'s
+    reason: the handle is ``agentdeck.deck``'s and core may not import it. Three members, and all
+    three are used  -  which is also what tells a run from an ``asyncio.Task``, whose ``cancel``
+    alone would pass for one and then break the giving-up path.
+    """
+
+    id: str
+    """Which run, for the one line :meth:`WorkflowCtx._abandon` logs when it cannot end one."""
+
+    async def status(self) -> RunStatus:
+        """This run's current status."""
+        ...
+
+    async def cancel(self, reason: str | None = None) -> None:
+        """Ask this run to stop at its next safe point."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowCtx[T](ToolCtx[T]):
+    """What an imperative ``@workflow`` body receives: :class:`ToolCtx` plus orchestration.
+
+    The split is the semantic rule, not a convenience: a tool performs a capability, a workflow
+    coordinates executions, and a tool that could ``ask`` a person or start another run is no
+    longer a leaf. Declaring the wrong one is a ``build()`` error.
+
+    Seams, because the halves point opposite ways: ``ask`` and ``safepoint`` suspend this branch
+    through the ``_channel`` the executor playing it owns, while ``invoke`` and ``agents`` reach
+    back out to the deck holding the catalog  -  one to start an execution, one to add to what can
+    be started.
+
+    There is no ``approve()``: an approval is a question with two options, and one mechanism that
+    takes any option set beats two that overlap. It also keeps AgentDeck out of the business of
+    deciding what counts as a yes  -  an answer equals one of the options the asker wrote, or it
+    is refused.
+    """
+
+    _invoker: Invoker | None = None
+    _agents: Agents | None = None
+
+    @property
+    def agents(self) -> Agents:
+        """Mint an agent this deck's catalog does not hold, and invoke it like any other target.
+
+            helper = ctx.agents.create(name="triage", instructions="Rank these by urgency.")
+            ranked = await ctx.invoke(helper, tickets)
+
+            stricter = ctx.agents.fork("Writer", instructions="Draft it in under 100 words.")
+
+        ``create`` declares one from scratch; ``fork`` copies an existing agent with overrides and
+        names which. Either way the deck holds the result for the rest of its life, which is what
+        makes a child run of it answerable, resumable and cancellable by the name its log records.
+        """
+        if self._agents is None:
+            raise RuntimeError(
+                "this WorkflowCtx has no deck to mint an agent into, so agents.create() has "
+                "nowhere to register one. A workflow context is built by the executor playing it, "
+                "which the Deck hands its catalog; one constructed by hand has no deck to reach."
+            )
+        return self._agents
+
+    def invoke(self, target: Any, *args: Any, **kwargs: Any) -> Any:
+        """Start ``target`` as a child run and hand back its ``Run``, without waiting for it.
+
+        ``target`` is a catalog name, a ``@tool``/``@workflow``, or an :class:`AgentInstance`  -
+        anything this deck holds  -  and ``*args``/``**kwargs`` bind to that target's own signature
+        exactly as calling it would. Anything else waits for the invocation resolver, so there is
+        one rule and no special case.
+
+            result = await ctx.invoke(load_customer, ticket.customer_id)   # the short path
+
+            child = ctx.invoke(research, topic=subject)                    # the same call, held
+            if child.can.pause:
+                await child.pause()
+            result = await child
+
+        The child is a run in its own right: its own id, its own log, its own ``can.*`` and
+        lifecycle methods. It runs in its own deck-owned task from this call, whether or not the
+        handle is ever awaited, and awaiting it is what gives back the body's return value.
+
+        A child that stops on a question of its own is not this body's to wait out: ``await
+        child`` raises ``RunSuspendedError`` naming it rather than blocking on somebody eventually
+        answering. It stays ``WAITING_ANSWER`` and answerable  -  through ``deck.runs.get(child.id)``
+        from outside, and through :meth:`parallel`, which leaves a waiting child alone when it
+        gives the rest up.
+        """
+        return self._invoking(self._run, target, *args, **kwargs)
+
+    async def parallel(self, *runs: Any) -> list[Any]:
+        """Await several child runs at once and return their results in the order given.
+
+        All-or-nothing: the first failure cancels the siblings and propagates, the way
+        ``asyncio.TaskGroup`` does, so no child is left running behind a parent that already gave
+        up. A workflow body is ordinary Python, so an exception is an exception  -  there is no
+        list of outcomes to forget to inspect.
+
+            first, second = await ctx.parallel(ctx.invoke(a, x), ctx.invoke(b, y))
+
+        A child waiting for an answer is the one thing not cancelled: see :meth:`_abandon`. The
+        refusal below gives its children up the same way, because ``ctx.invoke`` has already
+        started every one of them by the time this call can look at them.
+        """
+        if (refused := next((run for run in runs if not isinstance(run, ChildRun)), None)) is not None:
+            for run in runs:
+                # Closed rather than dropped: nothing will ever await what this refuses, and a
+                # coroutine collected unawaited costs the author a second, vaguer warning about it.
+                if inspect.iscoroutine(run):
+                    run.close()
+            await self._abandon(runs)
+            raise TypeError(
+                f"ctx.parallel() takes the child runs ctx.invoke() returns; got a "
+                f"{type(refused).__name__}. Several ctx.ask(...) calls are not among them: one run "
+                f"parks on one question at a time, so a second concurrent ask would replace the "
+                f"first and never be answered (agentdeck #414). Ask in sequence, or give each "
+                f"question a child run of its own."
+            )
+        gathered = asyncio.gather(*runs)
+        try:
+            return list(await gathered)
+        except BaseException:
+            gathered.cancel()
+            await self._abandon(runs)
+            raise
+
+    async def _abandon(self, runs: tuple[Any, ...]) -> None:
+        """Give up the children of a :meth:`parallel` that is not going to return.
+
+        A child ``WAITING_ANSWER`` is left alone, and only that one. It is not running behind
+        anything, and the approval inbox holds it: ``deck.runs.list(namespace=..., status=
+        WAITING_ANSWER)`` finds it and ``run.answer(...)`` continues it, whether or not the
+        exception unwinding past here happens to name it. The namespace is the parent's, which the
+        child inherited, and naming it is not optional: that listing is single-namespace by design.
+        A ``PAUSED`` child is cancelled with the rest, because nobody is left holding a reason to
+        resume it and sparing it would leave a run only a staleness sweep ends.
+
+        Cancelling is recorded rather than waited out, as everywhere: the run stops at its own next
+        safe point, and this body has already given up.
+        """
+        for run in runs:
+            try:
+                if isinstance(run, ChildRun) and await run.status() is not RunStatus.WAITING_ANSWER:
+                    await run.cancel("the ctx.parallel() that started it gave up, and it is all-or-nothing")
+            except Exception:
+                # Teardown may not outrank the diagnosis it is tearing down for: raising here would
+                # replace the exception this is unwinding past, which on the refusal path is the
+                # message naming #414. Logged rather than swallowed, because a child that could not
+                # be told to stop is still running and nothing else is left to say so.
+                logger.warning("could not give up child run %s of a ctx.parallel()", run.id, exc_info=True)
+
+    @property
+    def _invoking(self) -> Invoker:
+        """The seam this body starts other runs through. Absent only on a context built by hand:
+        an executor that plays a workflow is one the deck handed its catalog to."""
+        if self._invoker is None:
+            raise RuntimeError(
+                "this WorkflowCtx has no way to start another run, so invoke() has nothing to "
+                "invoke against. A workflow context is built by the executor playing it, which the "
+                "Deck hands its catalog; one constructed by hand has no deck to reach."
+            )
+        return self._invoker
+
+    async def ask(self, question: str, *, options: list[JsonData] | None = None, **fields: JsonData) -> Any:
+        """Suspend this branch until somebody answers ``question``, and return their answer.
+
+        The run becomes ``WAITING_ANSWER`` and shows up in ``deck.runs.list(status=...)`` and the
+        approval inbox; ``run.answer(value)`` is what continues it. The body is not unwound  -  it
+        waits where it stands, locals intact  -  which is why an answer resumes the next line
+        rather than replaying the workflow.
+
+            approved = await ctx.ask("deploy to prod?", options=[True, False])
+            env = await ctx.ask("which environment?", options=["dev", "prod"])
+
+        ``options`` is what turns a question into a choice. They travel on the interrupt, so
+        every surface that lists pending runs can render them, and an answer that is not one of
+        them is refused before it is recorded  -  the answerer is told, and the run stays waiting.
+        Without them any value is an answer, and the body is the only thing that can judge it.
+        """
+        asked = _asked(question, fields if options is None else {"options": options, **fields})
+        return await self._waiting.suspend(asked)
+
+    @property
+    def _waiting(self) -> Suspender:
+        """The channel this body parks on. Absent only on a context built by hand: an executor
+        that plays a workflow is one that can suspend it."""
+        if self._channel is None:
+            raise RuntimeError(
+                "this WorkflowCtx has no way to suspend its run, so ask()/approve() cannot wait "
+                "for an answer. A workflow context is built by the executor playing it; one "
+                "constructed by hand has no run to park."
+            )
+        return self._channel
+
+
+def _asked(question: str, fields: dict[str, JsonData]) -> RunInterrupted:
+    if not question:
+        raise ValueError("ask() needs a question; an empty one has no answer to wait for.")
+    return RunInterrupted(interrupt_id=uuid4().hex, reason="human", payload={"question": question, **fields})

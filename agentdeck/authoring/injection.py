@@ -1,17 +1,17 @@
-"""What a user callable declares: whether it wants a :class:`~agentdeck.core.context.Context`,
+"""What a user callable declares: whether it wants a :class:`~agentdeck.core.context.ToolCtx`,
 which ``T`` it requires, what is left for the model to fill in, and whether any of that could be
 established at all.
 
-Engine-independent on purpose. Both engine bridges compile the same declaration  -  a plain
-callable  -  into their own native shape, and two copies of "is this parameter a ``Context``" is
-how the OpenAI and LangGraph paths would quietly stop agreeing. This module is the one answer
-both compile against; it builds nothing and calls nothing.
+Engine-independent on purpose. Every executor compiles the same declaration  -  a plain
+callable  -  into its own native shape, and two copies of "is this parameter a ``ToolCtx``" is
+how those paths would quietly stop agreeing. This module is the one answer they all compile
+against; it builds nothing and calls nothing.
 
 It lives here rather than in ``core/`` because it raises :class:`ConfigError`, and the error
-taxonomy is not core's yet  -  while every consumer it has (agent compilation, workflow
-compilation, and the graph walk behind ``Deck.build()``) is already in ``authoring``.
+taxonomy is not core's yet  -  while every consumer it has (tool, agent and native definition
+compilation) is already in ``authoring``.
 
-A parameter is injected because of its annotation, never its name: exactly one ``Context[...]``
+A parameter is injected because of its annotation, never its name: exactly one ``ToolCtx[...]``
 parameter is injected whatever it is called, zero means an ordinary callable, and two is a
 configuration error rather than a choice AgentDeck makes for the author.
 
@@ -31,7 +31,7 @@ import types
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Union, get_args, get_origin, get_type_hints
 
-from agentdeck.core.context import Context
+from agentdeck.core.context import ToolCtx, WorkflowCtx
 from agentdeck.errors import ConfigError, ContextTypeError
 
 if TYPE_CHECKING:
@@ -45,8 +45,10 @@ and two before it, and the older one is *itself a class*  -  so falling through 
 would compare a context type against ``UnionType`` and refuse every union that is in fact fine.
 """
 
-_NOT_A_CONTEXT = object()
-"""Distinguishes "this parameter is not a ``Context``" from a genuine ``Context[None]``."""
+_CONTEXT_CLASSES = (WorkflowCtx, ToolCtx)
+"""The context types a parameter may be annotated with, widest first: ``WorkflowCtx`` is a
+``ToolCtx``, so a subclass has to be recognised before its base or every workflow body would
+read as a tool's."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +56,7 @@ class CallableAnalysis:
     """What static inspection could establish about one callable.
 
     ``reliable`` is the field to read first. When it is ``False`` nothing else here is a finding:
-    the signature could not be recovered, so no ``Context`` parameter was seen *and none was ruled
+    the signature could not be recovered, so no ``ToolCtx`` parameter was seen *and none was ruled
     out*, and an unanalyzable callable is indistinguishable from a zero-argument one. Such a
     callable is the invocation-time safety net's problem, not a guess to make at build time.
 
@@ -68,10 +70,14 @@ class CallableAnalysis:
     context_type: object | None
     visible_parameters: tuple[inspect.Parameter, ...]
     reliable: bool
+    context_class: type | None = None
+    """Which context the parameter asked for  -  :class:`ToolCtx` or :class:`WorkflowCtx`. What a
+    ``@tool`` and a ``@workflow`` check, since the difference between them is exactly which
+    surface the body is handed."""
 
 
 def analyze_callable(target: Callable[..., object]) -> CallableAnalysis:
-    """Inspect ``target`` for the one ``Context[...]`` parameter it may declare.
+    """Inspect ``target`` for the one ``ToolCtx[...]`` parameter it may declare.
 
     Raises :class:`ConfigError` naming the callable when it declares more than one.
     """
@@ -93,40 +99,44 @@ def analyze_callable(target: Callable[..., object]) -> CallableAnalysis:
         return _unanalyzable(target)
 
     declared = [
-        (parameter.name, required)
+        (parameter.name, found)
         for parameter in parameters
-        if (required := _required_type(hints.get(parameter.name))) is not _NOT_A_CONTEXT
+        if (found := _declared_context(hints.get(parameter.name))) is not None
     ]
     if len(declared) > 1:
         names = ", ".join(name for name, _ in declared)
         raise ConfigError(
-            f"{describe_callable(target)} declares multiple Context[...] parameters ({names}); at most one is allowed."
+            f"{describe_callable(target)} declares multiple ToolCtx[...] parameters ({names}); at most one is allowed."
         )
     if not declared:
         return CallableAnalysis(target, None, None, tuple(_resolved(parameters, hints)), reliable=True)
 
-    name, required = declared[0]
+    name, (context_class, required) = declared[0]
     visible = [parameter for parameter in parameters if parameter.name != name]
-    return CallableAnalysis(target, name, required, tuple(_resolved(visible, hints)), reliable=True)
+    return CallableAnalysis(
+        target, name, required, tuple(_resolved(visible, hints)), reliable=True, context_class=context_class
+    )
 
 
 def _unanalyzable(target: Callable[..., object]) -> CallableAnalysis:
     return CallableAnalysis(target, None, None, (), reliable=False)
 
 
-def _required_type(hint: object) -> object:
-    """The ``T`` a ``Context[T]`` annotation requires, or :data:`_NOT_A_CONTEXT`.
+def _declared_context(hint: object) -> tuple[type, object] | None:
+    """Which context class this annotation asks for and the ``T`` it requires, or ``None``.
 
-    A bare ``Context`` reads as ``Context[Any]``. Treating it as an ordinary parameter instead
+    A bare ``ToolCtx`` reads as ``ToolCtx[Any]``. Treating it as an ordinary parameter instead
     would put an AgentDeck internal in a model-visible tool schema, which is the one thing the
     context rule forbids  -  and the author plainly meant to be injected.
     """
-    if hint is Context:
-        return Any
-    if get_origin(hint) is Context:
-        args = get_args(hint)
-        return args[0] if args else Any
-    return _NOT_A_CONTEXT
+    origin = get_origin(hint)
+    for context_class in _CONTEXT_CLASSES:
+        if hint is context_class:
+            return context_class, Any
+        if origin is context_class:
+            args = get_args(hint)
+            return context_class, (args[0] if args else Any)
+    return None
 
 
 def _resolved(parameters: Iterable[inspect.Parameter], hints: Mapping[str, object]) -> Iterator[inspect.Parameter]:
@@ -166,11 +176,11 @@ def declared_context_type(value: object) -> object | None:
 
 
 def check_context_type(analysis: CallableAnalysis, declared: object | None) -> None:
-    """Refuse ``analysis``'s ``Context[T]`` requirement when a deck's declared type cannot meet it.
+    """Refuse ``analysis``'s ``ToolCtx[T]`` requirement when a deck's declared type cannot meet it.
 
     A no-op unless both halves are present: a deck that declares no ``context=`` keeps every
     requirement unchecked at build time, exactly as it was before the declaration existed, and a
-    callable declaring no ``Context[...]`` has nothing to check.
+    callable declaring no ``ToolCtx[...]`` has nothing to check.
 
     Deliberately not a type checker. Only what the runtime can actually answer is answered  -
     an exact type, a subtype, ``Any``, a runtime ABC, a protocol ``issubclass`` will decide on.

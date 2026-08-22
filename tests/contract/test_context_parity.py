@@ -1,28 +1,20 @@
-"""One contract, two bridges: the ``Context[T]`` a user callable receives must be the same
-thing whether the OpenAI Agents SDK or langgraph carried it there.
-
-**One test body per property, parametrized over both engines**  -  not two similar suites. The
-uniformity a user is promised is produced by two adapters that must agree, and two hand-written
-suites drift toward whatever each engine happens to do: one bridge handing back a copy, or a
-projection, or the internal ``RunContext`` instead of the public view, would keep passing its
-own test forever. Here the identical assertion runs against both, so the first bridge to
-diverge fails on the other's terms.
+"""The ``ToolCtx[T]`` contract a user callable receives, carried by the OpenAI Agents SDK bridge.
 
 ``tests/contract/context_subjects.py`` holds everything engine-shaped; nothing below names an
-SDK type or a ``StateGraph``. No live model: the openai subject's model is scripted and the
-langgraph subject calls no model at all.
+SDK type. No live model: the subject's model is scripted.
 """
 
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pytest
 from context_subjects import ANSWER, SUBJECTS, Environment, Subject
 
 from agentdeck.adapters.stores.memory import MemoryEventStore
-from agentdeck.core.context import Context, RunContext
+from agentdeck.core.context import RunContext, ToolCtx
 from agentdeck.runtime.service import Runtime
 
 if TYPE_CHECKING:
@@ -50,7 +42,7 @@ def store() -> MemoryEventStore:
 
 @pytest.fixture
 def runtime(subject: Subject, store: MemoryEventStore) -> Runtime:
-    return Runtime([subject.engine], store, {subject.spec.name: subject.spec})
+    return Runtime([subject.executor], store, {subject.spec.name: subject.spec})
 
 
 async def _play(runtime: Runtime, subject: Subject, context: object) -> list[Event]:
@@ -68,7 +60,7 @@ async def test_the_callable_receives_the_public_context_and_not_the_internal_car
     tool signature in the application to an AgentDeck internal."""
     await _play(runtime, subject, environment)
 
-    assert [type(seen) for seen in subject.seen] == [Context]
+    assert [type(seen) for seen in subject.seen] == [ToolCtx]
 
 
 async def test_the_context_data_is_the_callers_own_object_by_reference(
@@ -103,12 +95,12 @@ async def test_a_run_given_no_context_reaches_the_callable_with_none(runtime: Ru
 async def test_the_context_carries_a_working_reporter_and_gate(
     runtime: Runtime, subject: Subject, environment: Environment
 ) -> None:
-    """``ctx.reporter`` and ``ctx.checkpoint()`` are AgentDeck concepts rather than either
+    """``ctx.reporter`` and ``ctx.safepoint()`` are AgentDeck concepts rather than either
     engine's, so both bridges owe them. The subject awaits the gate *before* it reports, so a
     context whose gate was missing never reaches the report this asserts."""
     events = await _play(runtime, subject, environment)
 
-    reported = [event for event in events if event.kind == "status.reported"]
+    reported = [event for event in events if event.kind == "report"]
     assert [event.payload.message for event in reported] == [ANSWER]  # ty: ignore[unresolved-attribute]
 
 
@@ -134,6 +126,6 @@ async def test_the_stored_log_holds_no_trace_of_the_context_either(
     replay gets, and it is the one a leak would survive in."""
     events = await _play(runtime, subject, environment)
 
-    stored = await store.read_run("s-1", events[0].run_id, _READER)
+    stored = await store.read_run(replace(_READER, run_id=events[0].run_id))
     dumped = json.dumps([event.model_dump(mode="json") for event in stored])
     assert environment.secret not in dumped

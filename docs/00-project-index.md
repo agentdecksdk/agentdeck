@@ -40,6 +40,8 @@ Date: 2026-08-04. Amended 2026-08-11, 2026-08-14.
 | 14 | `design/sink-dispatch.md` | `runtime/dispatch.py`'s operational contract: bounded fan-out, the breaker, the flush/close lifecycle. **Supersedes** doc #3 §4.6 on the dispatch | engineers |
 | 15 | `design/run-operations.md` | The surface that acts on an existing run: the `deck.runs.*` namespace, its eight ops, and the internal deadline sweep that replaces public `tick`/`due`. **Amends** `delivery/decision-v3-entry-point.md` ruling 2 and its no-daemon note. Semantics stay in doc #12. **Its "there is no per-run object" ruling is superseded by doc #16**; the deadline sweep is not | engineers |
 | 16 | `design/run-identity.md` | Run identity (`id`, `namespace`, `key`), the `Run` object, session ownership, execution ownership, and the control plane's cross-tenant defect. **Supersedes** doc #15's surface ruling: lifecycle ops move onto `Run` and `deck.runs` keeps `start`/`get`/`list`. Semantics stay in doc #12 | engineers |
+| 17 | `design/execution-api.md` | The v5 execution API: `ctx`, `Run`, `run.can.*`, `Reporter`, and the one `Executor.execute()` that any target becomes a Run through. Rules #336 and #337. Lifecycle semantics stay in doc #12, identity in doc #16 | engineers |
+| 18 | `design/execution-api-source.md` | The architecture draft doc #17 was written from, kept for what #17 does not restate: Appendix A's decorator and context contracts, and Appendix B's `Event -> View -> Observer` pipeline. **Doc #17 wins wherever the two disagree** (`ctx.approve`, the `Suspendable`/`Cancelable` protocols and `Workflow(graph=...)` are all rejected there) | engineers |
 
 ## 1b. The v3 cutover set (added 2026-08-11)
 
@@ -171,7 +173,7 @@ skeleton's adapters and Runtime rather than starting fresh (M0's keep/harden/dis
 |---|---|
 | **D1–D8**  -  engine boundary, no DSL, content blocks, caller-injected capabilities, two-store rule *(as revised by ADR-D5)*, cooperative cancel, ctx everywhere, event versioning | design doc §12 |
 | **D9**  -  the envelope is closed (8 fields); new needs go in payloads or `run.started` | PR #1 prompt |
-| **D10**  -  kinds are minted only in core; engines translate or use namespaced `custom`, and a recurring `custom` is a promotion signal. *Fired once, 2026-08-06, #101: two engines routing structured data around the schema promoted `DataBlock` into `core/content.py`  -  design doc §4.1/§4.2, additive under D8* | PR #1 prompt |
+| **D10**  -  kinds are minted only in core; engines translate or use namespaced `custom`, and a recurring `custom` is a promotion signal. *Fired 2026-08-06, #101: two engines routing structured data around the schema promoted `DataBlock` into `core/content.py`  -  design doc §4.1/§4.2, additive under D8. Fired again, 2026-08-21, #249: `openai_agents.handoff` promoted `agent.changed` into `core/events.py`, `major=4, minor=1`* | PR #1 prompt |
 | **Schema review decisions 1–9 + A + B**  -  nested envelope, `UnknownEvent`, contiguous Runtime-assigned seq, `origin`, `message_id`, usage per-call + aggregate, preview + hash results, structured `run.failed`, naming; A=contiguous, B=full text | PR #1 prompt |
 | **Standing refusals**  -  changing the list requires design review | PRD §8 / design doc §12 |
 

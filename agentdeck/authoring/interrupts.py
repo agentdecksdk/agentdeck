@@ -1,27 +1,26 @@
-"""Human-in-the-loop: LangGraph ``interrupt()`` pauses as a typed result.
+"""Human-in-the-loop: a run paused for an answer, as a typed result.
 
-A node calling ``langgraph.types.interrupt(payload)`` checkpoints the whole run and
-hands control back to the caller. Resuming re-runs that node **from its start**, so
-everything before the ``interrupt()`` call executes a second time: interrupt nodes
-must be pure, and side effects (external mutations, sent messages) belong in
-earlier nodes.
+A ``@workflow`` body calling ``ctx.ask(...)`` suspends where it stands and hands control back to
+the caller. Answering it continues the body on its next line: its own locals are the checkpoint,
+so nothing before the ``ask`` runs a second time.
 """
 
 from __future__ import annotations
 
 from typing import Any, Literal, NotRequired, TypedDict
 
-INTERRUPT_KEY = "__interrupt__"
-
 
 class InterruptResult(TypedDict):
     """A paused run: what the human is asked (``payload``) and which thread answers it.
 
     ``id`` is the canonical run id (docs/design/run-identity.md §8)  -  present whenever this
-    came from a run the Runtime is tracking (``Deck.run``/``Deck.stream``), and absent when a
-    :class:`~agentdeck.authoring.workflow.Workflow` is played directly with no Runtime in
-    reach to mint or carry one. ``thread_id`` stays internal to the engine and is never the
-    address a caller holding this dict addresses the run by.
+    came from a run the Runtime is tracking (``Deck.run``/``Deck.stream``).
+
+    ``thread_id`` is vestigial: no executor produces one now that the graph engine is gone, so
+    what reaches a caller is whichever fallback its path applies  -  ``""`` from ``Deck.run``,
+    ``Deck.stream`` and ``await run``, the run id from :meth:`~agentdeck.Run.pending`. Kept
+    rather than dropped because reshaping the human-input contract is #392/#236's subject, not a
+    side effect of deleting an engine. Address a run by ``id``, never by this.
     """
 
     type: Literal["interrupt"]
@@ -37,12 +36,4 @@ def interrupt_result(payload: Any, thread_id: str, id: str | None = None) -> Int
     return result
 
 
-def as_interrupt(result: Any, thread_id: str) -> InterruptResult | None:
-    """``result`` as an :class:`InterruptResult`, or ``None`` if the run reached its end."""
-    interrupts = result.get(INTERRUPT_KEY) if isinstance(result, dict) else None
-    if not interrupts:
-        return None
-    return interrupt_result(interrupts[0].value, thread_id)
-
-
-__all__ = ["INTERRUPT_KEY", "InterruptResult", "as_interrupt", "interrupt_result"]
+__all__ = ["InterruptResult", "interrupt_result"]

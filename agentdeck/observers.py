@@ -1,25 +1,30 @@
 """The observers a ``Deck`` can be given  -  read-only taps on its event stream.
 
-``Deck(observers=[...])`` takes any :class:`~agentdeck.core.ports.EventSinkPort`; this module
-holds the one agentdeck ships. :class:`Langfuse` renders each run as a Langfuse trace, built
-from the canonical event log rather than from anything the engines do, which is why an agent
-turn and a workflow run are traced by the same code.
+``Deck(observers=[...])`` takes any :class:`~agentdeck.core.ports.Observer`; this module holds
+the ones agentdeck ships. Each accepts ``view=`` (see :mod:`agentdeck.views`) to narrow what it
+receives; the filter itself lives in ``runtime/dispatch.py``'s fan-out, not in any one observer.
 
-Configuration is ``AGENTDECK_LANGFUSE_*`` and nothing else  -  the settings model already layers
-init/env/YAML for every knob (endpoint, environment, sample rate, service name), and a second
-spelling here would only be a second place to look.
+:class:`ConsoleObserver` and :class:`FileObserver` are deliberately minimal: one line printed,
+one JSON line appended, no formatting, no rotation, no buffering. :class:`LangfuseObserver`
+renders each run as a Langfuse trace, built from the canonical event log rather than from
+anything the engines do, which is why an agent turn and a workflow run are traced by the same
+code. Its configuration is ``AGENTDECK_LANGFUSE_*`` and nothing else  -  the settings model
+already layers init/env/YAML for every knob (endpoint, environment, sample rate, service name),
+and a second spelling here would only be a second place to look.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from agentdeck.core.ports import EventSinkPort
+from agentdeck.core.ports import Observer
 from agentdeck.errors import ConfigError
 from agentdeck.runtime.settings import get_settings
 
 if TYPE_CHECKING:
     from agentdeck.core.events import Event
+    from agentdeck.views import View
 
 
 def instrument_agents_sdk() -> None:
@@ -44,7 +49,32 @@ def instrument_agents_sdk() -> None:
     OpenAIAgentsInstrumentor().instrument(exclusive_processor=False)
 
 
-class Langfuse(EventSinkPort):
+class ConsoleObserver(Observer):
+    """Prints one line per event. No formatting options: a caller who wants a shape writes an
+    ``Observer`` of their own, which is the whole point of the port being one method."""
+
+    def __init__(self, *, view: View | None = None) -> None:
+        self.view = view
+
+    async def emit(self, event: Event) -> None:
+        print(f"{event.kind} run={event.run_id} seq={event.seq}")  # noqa: T201  -  the point of this observer
+
+
+class FileObserver(Observer):
+    """Appends one JSON line per event to ``path``. No rotation, no buffering: every event is
+    its own open-write-close, so nothing is lost that this observer ever saw."""
+
+    def __init__(self, path: str | Path, *, view: View | None = None) -> None:
+        self._path = Path(path)
+        self.view = view
+
+    async def emit(self, event: Event) -> None:
+        with self._path.open("a", encoding="utf-8") as f:
+            f.write(event.model_dump_json())
+            f.write("\n")
+
+
+class LangfuseObserver(Observer):
     """Langfuse tracing for one ``Deck``, configured by ``AGENTDECK_LANGFUSE_*``.
 
     Two layers, and only the first is on by default. The **semantic** layer renders each run
@@ -66,16 +96,17 @@ class Langfuse(EventSinkPort):
     construction sites cannot say which one's configuration is live. Here there is only one.
     """
 
-    def __init__(self, *, sdk_spans: bool = False) -> None:
-        self._sink: EventSinkPort | None = None
+    def __init__(self, *, sdk_spans: bool = False, view: View | None = None) -> None:
+        self._sink: Observer | None = None
         self._sdk_spans = sdk_spans
+        self.view = view
 
     async def start(self) -> None:
         """Build the client and the sink over it. Raises if Langfuse is not configured.
 
         Naming this observer and getting silence back is the ghost declaration this project
-        refuses everywhere else  -  a Deck that accepted ``observers=[Langfuse()]`` and then
-        exported nothing would be worse than one that said so. A Deck that should not trace
+        refuses everywhere else  -  a Deck that accepted ``observers=[LangfuseObserver()]`` and
+        then exported nothing would be worse than one that said so. A Deck that should not trace
         leaves the observer out.
 
         With ``sdk_spans=True`` the Agents SDK is instrumented afterwards, in that order: the
@@ -87,10 +118,10 @@ class Langfuse(EventSinkPort):
         settings = get_settings().langfuse
         if not settings.enabled:
             raise ConfigError(
-                "observers=[Langfuse()] was declared, but no Langfuse keys are configured  -  set "
-                "AGENTDECK_LANGFUSE_PUBLIC_KEY and AGENTDECK_LANGFUSE_SECRET_KEY (see "
-                "AGENTDECK_LANGFUSE_* for the endpoint, environment and sample rate). Leave the "
-                "observer out to run without tracing."
+                "observers=[LangfuseObserver()] was declared, but no Langfuse keys are "
+                "configured  -  set AGENTDECK_LANGFUSE_PUBLIC_KEY and AGENTDECK_LANGFUSE_SECRET_KEY "
+                "(see AGENTDECK_LANGFUSE_* for the endpoint, environment and sample rate). Leave "
+                "the observer out to run without tracing."
             )
         self._sink = langfuse_sink(settings)
         if self._sdk_spans:
@@ -108,4 +139,4 @@ class Langfuse(EventSinkPort):
             await self._sink.close()
 
 
-__all__ = ["Langfuse"]
+__all__ = ["ConsoleObserver", "FileObserver", "LangfuseObserver"]

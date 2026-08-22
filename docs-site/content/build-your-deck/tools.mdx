@@ -1,3 +1,10 @@
+{/* docs_sources:
+  - "agentdeck/authoring/tools.py"
+  - "agentdeck/authoring/injection.py"
+  - "agentdeck/authoring/compile.py"
+  - "agentdeck/adapters/tools/**"
+*/}
+
 # Tools
 
 Tools allow agents to perform actions and fetch external information.
@@ -5,8 +12,12 @@ Tools allow agents to perform actions and fetch external information.
 ## Defining a Tool
 
 ```python
+from agents import function_tool
+
 from agentdeck import Agent
 
+
+@function_tool
 def lookup_order(order_id: str) -> str:
     """Fetch status for an order."""
     return f"Order {order_id} is in transit."
@@ -17,3 +28,33 @@ agent = Agent(
     tools=[lookup_order],
 )
 ```
+
+`function_tool` comes from the OpenAI Agents SDK (`agents`), which `agentdeck` installs and
+passes through unchanged. Tools are the SDK's execution primitive, not an `agentdeck` wrapper type.
+
+## Handling Failures
+
+A tool can return a user-facing failure like any other result. Do that when the model can recover
+and continue the conversation:
+
+```python
+@function_tool
+def lookup_shift(date: str) -> str:
+    """Return the nurse on duty for a date."""
+    row = SHIFTS.get(date)
+    if row is None:
+        return f"no shift on record for {date}"
+    return row
+```
+
+If a tool raises instead, the Agents SDK catches the exception and gives the model its standard
+tool-error string. `agentdeck` records the call as `tool.call.completed`, not `run.failed`, and the
+run can still complete. In that case `Deck.run()` returns the model's final answer, the
+non-streamed HTTP route returns `200 {"output": ...}`, and the streamed HTTP route ends with
+`done` if the model completes.
+
+That is different from an exception that escapes the SDK runner, for example custom tool failure
+handling that re-raises. Then the log records `run.failed` with `error_code="engine_error"`,
+`Deck.run()` raises the exception, `Deck.stream()` yields `run.failed` and then raises, the
+non-streamed HTTP route returns `500 {"detail": "internal error"}`, and the streamed HTTP route
+sends an `error` event with the exception type.

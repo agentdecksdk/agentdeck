@@ -15,19 +15,16 @@ from contextlib import ExitStack
 import pytest
 from event_log_checks import check_terminal
 from fastapi.testclient import TestClient
-from project_engines import project_engines
+from project_executors import project_executors
 
-from agentdeck.adapters.engines.langgraph import engine as langgraph_engine
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.composition import build_runtime
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
-from agentdeck.runtime.service import PendingRun
 from agentdeck.runtime.settings import reset_settings_cache
 from agentdeck.serve import create_app
-from agentdeck.surfaces.serve import compat as surface_compat
-from agentdeck.surfaces.serve.compat import chat_frames, chat_result, interrupt_inbox
+from agentdeck.surfaces.serve.compat import chat_frames, chat_result
 from agentdeck.testing import ScriptedModel, patch_model
 
 AGENT_PY = """
@@ -45,26 +42,12 @@ structured = Agent(name="Structured", instructions="Answer as JSON.", output_typ
 """
 
 WORKFLOW_PY = """
-from typing import TypedDict
-
-from langgraph.graph import END, StateGraph
-
-from agentdeck.authoring import Workflow
+from agentdeck import WorkflowCtx, workflow
 
 
-class State(TypedDict, total=False):
-    input: str
-
-
-def _build_graph():
-    g = StateGraph(State)
-    g.add_node("shout", lambda s: {"input": s["input"].upper()})
-    g.set_entry_point("shout")
-    g.add_edge("shout", END)
-    return g
-
-
-shout = Workflow(name="Shout", state=State, graph=_build_graph)
+@workflow(name="Shout")
+async def shout(ctx: WorkflowCtx, input: str) -> str:
+    return input.upper()
 """
 
 
@@ -99,32 +82,9 @@ def scripted():
             model = model or ScriptedModel(deltas=("Hello",))
             stack.enter_context(patch_model(model))
             store = MemoryEventStore()
-            return build_runtime(engines=project_engines(), store=store), store, model
+            return build_runtime(executors=project_executors(), store=store), store, model
 
         yield _build
-
-
-def test_the_surface_and_the_langgraph_engine_agree_on_the_stream_write_carrier():
-    """Same duplicated-constant bargain, same guard: v1's ``custom`` frame carries a
-    ``get_stream_writer()`` write, and the surface names that carrier itself rather than
-    importing the adapter that mints it."""
-    assert (surface_compat.STREAM_WRITE, surface_compat.STREAM_WRITE_KEY) == (
-        langgraph_engine.STREAM_WRITE,
-        langgraph_engine.STREAM_WRITE_KEY,
-    )
-
-
-def test_the_interrupt_inbox_comes_back_sorted_by_thread_id():
-    """v1 walked the checkpointer's threads sorted, and a client rendering an approval inbox
-    must not see it reshuffle between polls  -  so the order is asserted, not incidental."""
-    runs = [
-        PendingRun(run_id="r3", session_id="t-c", invocable="Approve", thread_id="t-c", payload={"n": 3}),
-        PendingRun(run_id="r1", session_id="t-a", invocable="Approve", thread_id="t-a", payload={"n": 1}),
-        PendingRun(run_id="r9", session_id="t-z", invocable="Other", thread_id="t-z", payload={"n": 9}),
-        PendingRun(run_id="r2", session_id="t-b", invocable="Approve", thread_id="t-b", payload={"n": 2}),
-    ]
-
-    assert [entry["thread_id"] for entry in interrupt_inbox(runs, "Approve")] == ["t-a", "t-b", "t-c"]
 
 
 async def test_chat_frames_render_deltas_then_done_from_canonical_events(project, scripted):
@@ -150,7 +110,7 @@ async def test_chat_frames_render_deltas_then_done_from_canonical_events(project
         '{"requests": 1, "input_tokens": 11, "output_tokens": 5, "total_tokens": 16}}\n\n',
     ]
     # The wire is v1's; the log is canonical  -  the whole point of translating at the surface.
-    logged = [event.kind for event in await store.read("s1", ctx)]
+    logged = [event.kind for event in await store.read_session(ctx)]
     assert logged == [
         "run.started",
         "text.delta",
@@ -181,7 +141,7 @@ async def test_a_failed_turn_ends_with_an_error_frame_while_the_log_keeps_the_fa
     assert frames[-1] == 'event: error\ndata: {"error": "RuntimeError"}\n\n'
     assert "secret detail" not in "".join(frames)
     # v1's wire has no frame for a recorded failure, but the log must still hold one.
-    assert [event.kind for event in await store.read("s1", ctx)][-1] == "run.failed"
+    assert [event.kind for event in await store.read_session(ctx)][-1] == "run.failed"
 
 
 async def test_a_disconnect_closes_its_run_in_the_log(project, scripted):
@@ -218,7 +178,7 @@ async def test_a_disconnect_closes_its_run_in_the_log(project, scripted):
         await consumer
 
     assert frames == ['data: {"delta": "one"}\n\n']
-    logged = await store.read("s1", ctx)
+    logged = await store.read_session(ctx)
     assert [event.kind for event in logged][-1] == "run.cancelled", [event.kind for event in logged]
     assert check_terminal(logged) is None
 
@@ -257,7 +217,7 @@ async def test_a_structured_output_survives_the_canonical_stream(project, script
     )
 
     assert body == {"output": {"greeting": "Hello"}}
-    assert "custom" not in [event.kind for event in await store.read("s1", ctx)]
+    assert "custom" not in [event.kind for event in await store.read_session(ctx)]
 
 
 async def test_a_structured_output_reaches_the_streamed_done_frame(project, scripted):
@@ -298,41 +258,10 @@ def test_the_endpoint_logs_its_run_to_the_configured_event_store(project, monkey
 
     store = SqliteEventStore(str(db))
     ctx = run_context("s1")
-    kinds = [event.kind for event in asyncio.run(store.read("s1", ctx))]
+    kinds = [event.kind for event in asyncio.run(store.read_session(ctx))]
     store.close()
     assert kinds[0] == "run.started"
     assert kinds[-1] == "run.completed"
-
-
-@pytest.mark.parametrize("query", ["", "&stream=true"], ids=["body", "streamed"])
-def test_the_workflow_endpoint_logs_its_run_to_the_configured_event_store(project, monkeypatch, tmp_path, query):
-    """The whole point of rerouting the workflow endpoints, and the one thing no frame assertion
-    can show: a workflow turn now leaves a canonical event log behind. Read back out of the store
-    the composition root resolved, so a bridge that rendered v1's frames while recording nothing
-    fails here and nowhere else.
-
-    The log carries the graph's own shape rather than v1's frame  -  the node's name and its state
-    patch, and the final state as a data block  -  which is what makes it replayable.
-    """
-    db = tmp_path / "events.sqlite3"
-    monkeypatch.setenv("AGENTDECK_EVENTS", f"sqlite://{db}")
-    reset_settings_cache()
-    try:
-        with patch_model(ScriptedModel()), TestClient(create_app()) as client:
-            # A named thread, because that is the workflow endpoint's session id and therefore
-            # the log this run is written to.
-            response = client.post(f"/workflows/Shout?thread_id=t1{query}", json={"input": "hi"})
-            assert response.status_code == 200
-            assert response.text  # the streamed body is only produced while the client reads it
-    finally:
-        reset_settings_cache()
-
-    store = SqliteEventStore(str(db))
-    logged = asyncio.run(store.read("t1", run_context("t1")))
-    store.close()
-    assert [event.kind for event in logged] == ["run.started", "node.updated", "run.completed"]
-    assert (logged[1].payload.node, logged[1].payload.state_patch) == ("shout", {"input": "HI"})
-    assert [block.data for block in logged[-1].payload.output] == [{"input": "HI"}]
 
 
 @pytest.mark.parametrize("query", ["", "?stream=true"], ids=["body", "streamed"])

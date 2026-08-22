@@ -8,13 +8,13 @@ agent in a catalog has a bare compiled form, and mutates ``.handoffs`` in place 
 ``Agent`` is mutable, so this is the same shape v1's recursive handoff resolution used.
 
 MCP status stays wired straight to the process-wide :class:`MCPLifecycle`, unchanged from v1:
-resolving servers has never needed a catalog, only the lifecycle's own state. Skills and
-workflow-as-tool *do* need one  -  a root to scan, a graph to call  -  so both arrive as optional
-resolver callbacks a ``Deck`` supplies; an ``Agent`` built with neither configured raises a
-clear ``ConfigError`` naming what is missing, instead of silently dropping what it declared.
+resolving servers has never needed a catalog, only the lifecycle's own state. Skills *do* need
+one  -  a root to scan  -  so it arrives as an optional resolver callback a ``Deck`` supplies; an
+``Agent`` built without it raises a clear ``ConfigError`` naming what is missing, instead of
+silently dropping what it declared.
 
 A bare callable in ``tools=`` is **compiled** here, by ``tools.compile_tool``  -  a plain function
-is the canonical way to declare a tool, and a function annotated ``Context[...]`` can only be
+is the canonical way to declare a tool, and a function annotated ``ToolCtx[...]`` can only be
 declared that way, since ``@function_tool`` applied by the author would put the context parameter
 in the model-visible schema. This used to be a rejection ("wrap it with ``@function_tool``"), for
 the good reason that an uncompiled callable reached the SDK and failed mid-run with a ``UserError``
@@ -28,7 +28,7 @@ buys, which is the same trade the sentence above names, not a second one.
 
 ``instructions=`` and ``hooks=`` go through that same compiler rather than a mechanism each:
 a callable in ``instructions=`` becomes the SDK's dynamic-instructions shape, and a hooks object
-whose methods declare ``Context[...]`` has those methods bridged. Both are no-ops for what was
+whose methods declare ``ToolCtx[...]`` has those methods bridged. Both are no-ops for what was
 already accepted  -  a plain string, and hooks that name the SDK's own wrapper.
 
 ``refresh_mcp_status`` is a second pass over MCP status specifically, the same shape as
@@ -38,28 +38,37 @@ ever connects a server, so the first resolution is always stale by the time anyt
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any, get_args, get_origin
 
 from agents import Agent as SDKAgent
 from agents import ModelSettings
 from agents import Tool as SDKTool
 
-from agentdeck.adapters.engines.langgraph.checkpointer import resolve_checkpointer
 from agentdeck.adapters.tools.mcp.wiring import mcp_status_banner, resolve_agent_mcp_status
 from agentdeck.authoring.hooks import compile_hooks
 from agentdeck.authoring.instructions import compile_instructions
+from agentdeck.authoring.native import NativeDefinition
 from agentdeck.authoring.tools import compile_tool
+from agentdeck.core.context import ToolCtx  # noqa: TC001  -  a subagent tool's own annotation, resolved at runtime
 from agentdeck.errors import ConfigError, NotFoundError
-from agentdeck.runtime.settings import get_settings, parse_backend_url
+from agentdeck.runtime.settings import get_settings
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
 
     from agents.tool import FunctionTool
-    from langgraph.graph.state import CompiledStateGraph
 
     from agentdeck.authoring.agent import Agent
-    from agentdeck.authoring.workflow import Workflow
+    from agentdeck.core.context import RunContext
+
+type Delegate = Callable[["RunContext", str, str], "Awaitable[Any]"]
+"""How a subagent tool reaches the deck: ``delegate(parent_context, subagent_name, task)``, run as
+a child of the turn that called it and awaited for its final output.
+
+A callable rather than a protocol, for :data:`~agentdeck.core.context.Invoker`'s reason  -  one
+method is not an interface  -  and the deck's own ``ctx.invoke`` underneath, so there is no second
+execution path for a delegation to take."""
 
 # `agents.Tool` is a `Union` of concrete SDK tool classes (`FunctionTool`, `WebSearchTool`, a
 # hosted computer/shell tool, ...) rather than a class of its own, so `isinstance(x, SDKTool)`
@@ -70,43 +79,29 @@ if TYPE_CHECKING:
 _SDK_TOOL_TYPES: tuple[type[Any], ...] = tuple(get_origin(a) or a for a in get_args(SDKTool))
 
 
-def compile_workflow(workflow: Workflow) -> CompiledStateGraph[Any]:
-    """Compile ``workflow``'s graph, with a checkpointer if it is ``durable``.
-
-    Every call recompiles rather than caching: unlike v1's ``BaseWorkflow.build()`` (a
-    ``ClassVar`` cache on the declaring class), an immutable ``Workflow`` instance has nowhere
-    to stash one without breaking the freeze guarantee, and compiling a graph is cheap next to
-    opening the checkpointer connection it wraps.
-    """
-    graph = workflow.build_graph()
-    if not workflow.durable:
-        return graph.compile()
-    checkpoint = get_settings().checkpoint
-    scheme, rest = parse_backend_url(checkpoint.url)
-    backend = "postgres" if scheme == "postgresql" else scheme
-    path_or_dsn = rest if backend == "sqlite" else checkpoint.url
-    return graph.compile(checkpointer=resolve_checkpointer(backend, path_or_dsn))
-
-
 def compile_agent(
     agent: Agent,
     *,
     resolve_skills: Callable[[Sequence[str]], tuple[str, Sequence[FunctionTool]]] | None = None,
-    resolve_workflow_tool: Callable[[Workflow], FunctionTool] | None = None,
     context_type: object | None = None,
+    catalog: Mapping[str, Agent] | None = None,
+    delegate: Delegate | None = None,
 ) -> SDKAgent:
     """Build the SDK ``Agent`` for ``agent``, minus handoffs (see module docstring).
 
-    Raises :class:`ConfigError` rather than silently dropping ``skills=``/a workflow tool when
-    no resolver was supplied  -  the caller (``Deck.build()``, or a bare compile with neither
-    configured) must be the one to say why, not the compiled agent by omission.
+    Raises :class:`ConfigError` rather than silently dropping ``skills=`` when no resolver was
+    supplied  -  the caller (``Deck.build()``, or a bare compile with none configured) must be the
+    one to say why, not the compiled agent by omission.
 
     ``context_type`` is the owning deck's ``Deck(context=...)`` declaration, checked against
-    every ``Context[...]`` this agent's tools, instructions and hooks require.
+    every ``ToolCtx[...]`` this agent's tools, instructions and hooks require.
+
+    ``catalog`` and ``delegate`` are what ``subagents=`` needs and a standalone compile has
+    neither of: the agents a name may resolve to, and the deck's own way of starting a child run.
     """
     banner, mcp_servers = _resolve_mcp(agent)
     disclosure = ""
-    tools = list(agent.tools)
+    tools = [*agent.tools, *_subagent_tools(agent, catalog, delegate)]
     if agent.skills:
         if resolve_skills is None:
             raise ConfigError(
@@ -115,17 +110,13 @@ def compile_agent(
             )
         disclosure, skill_tools = resolve_skills(agent.skills)
         tools.extend(skill_tools)
-    from agentdeck.authoring.workflow import Workflow
-
     resolved_tools: list[Any] = []
     for tool in tools:
-        if isinstance(tool, Workflow):
-            if resolve_workflow_tool is None:
-                raise ConfigError(
-                    f"agent {agent.name!r} uses workflow {tool.name!r} as a tool, but no workflow "
-                    "catalog is configured  -  pass workflows=... to Deck(...)."
-                )
-            resolved_tools.append(resolve_workflow_tool(tool))
+        if isinstance(tool, NativeDefinition):
+            # A ``@tool`` is compiled from the function it was declared over: the definition is
+            # what the catalog holds and what makes it invocable in its own right, and the SDK
+            # only ever needed the callable underneath.
+            resolved_tools.append(compile_tool(tool.call, context_type=context_type))
         elif isinstance(tool, _SDK_TOOL_TYPES):
             resolved_tools.append(tool)
         elif callable(tool):
@@ -147,7 +138,7 @@ def compile_agent(
         "instructions": _instructions(agent, banner, disclosure, context_type),
         "handoff_description": agent.handoff_description,
         # An agent that names no model still needs one: `RunConfig.model` is never set
-        # (`adapters/engines/openai_agents/runconfig.py`), since the SDK treats that field as
+        # (`adapters/executors/openai_agents/runconfig.py`), since the SDK treats that field as
         # an override of every agent's own model, declared or not. Resolving the default here
         # instead means an agent's own `model=` always wins, whatever else the run is playing.
         "model": agent.model if agent.model is not None else get_settings().openai.model,
@@ -160,6 +151,55 @@ def compile_agent(
     sdk_agent = SDKAgent(**{k: v for k, v in fields.items() if v is not None})
     sdk_agent.handoffs = []
     return sdk_agent
+
+
+def _subagent_tools(agent: Agent, catalog: Mapping[str, Agent] | None, delegate: Delegate | None) -> list[Any]:
+    """One callable per declared subagent, for the loop above to compile like any other tool.
+
+    Resolved against the catalog here rather than validated somewhere else and resolved here: the
+    schema the model is shown names the subagent, so an unknown name has no tool to build and
+    :func:`link_handoffs`'s own lookup failure is the shape it is reported in.
+    """
+    if not agent.subagents:
+        return []
+    if catalog is None or delegate is None:
+        raise ConfigError(
+            f"agent {agent.name!r} declares subagents={list(agent.subagents)!r}, which resolve "
+            f"against a catalog and run as child runs of this one; a standalone compile has "
+            f"neither. Put it in Deck(agents=[...]) and build that."
+        )
+    return [_delegation(_lookup_agent(catalog, name), delegate) for name in agent.subagents]
+
+
+def _delegation(subagent: Agent, delegate: Delegate) -> Callable[..., Any]:
+    """The tool the model calls to hand ``subagent`` a task and wait for what it comes back with.
+
+    A plain callable declaring ``ToolCtx[...]``, so it is compiled by the one tool compiler and
+    the run it is inside reaches the deck through the seam ``ctx.invoke`` already uses  -  a
+    delegation is a child run, not a second way to execute something.
+    """
+
+    async def delegated(ctx: ToolCtx[Any], task: str) -> Any:
+        return await delegate(ctx._run, subagent.name, task)  # noqa: SLF001  -  the carrier this view is of
+
+    delegated.__name__ = f"delegate_to_{_identifier(subagent.name)}"
+    delegated.__doc__ = subagent.handoff_description or (
+        f"Delegate one self-contained task to the {subagent.name} agent and wait for its result."
+    )
+    return delegated
+
+
+def _identifier(name: str) -> str:
+    """An agent name as a tool name can carry it: the SDK's schema names are identifiers and an
+    agent's is free text."""
+    return re.sub(r"\W+", "_", name).strip("_") or "subagent"
+
+
+def _lookup_agent(catalog: Mapping[str, Agent], name: str) -> Agent:
+    try:
+        return catalog[name]
+    except KeyError:
+        raise NotFoundError(f"No agent named {name!r}. Available: {sorted(catalog)}.") from None
 
 
 def link_handoffs(compiled: Mapping[str, SDKAgent], agents: Sequence[Agent]) -> None:
@@ -251,4 +291,4 @@ def _resolve_mcp(agent: Agent) -> tuple[str, list[Any]]:
     return mcp_status_banner(missing), list(available)
 
 
-__all__ = ["compile_agent", "compile_workflow", "link_handoffs", "refresh_mcp_status"]
+__all__ = ["Delegate", "compile_agent", "link_handoffs", "refresh_mcp_status"]

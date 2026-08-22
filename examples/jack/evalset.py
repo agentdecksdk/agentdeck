@@ -50,7 +50,7 @@ GOLDEN: tuple[Case, ...] = (
     Case("prim-workflow", "primitives", "How do I define a workflow?", "answer", ("Workflow",)),
     Case("prim-deck", "primitives", "What is a Deck responsible for?", "answer", ("Deck",)),
     Case(
-        "prim-context", "primitives", "How does Context work and why does the model not see it?", "answer", ("Context",)
+        "prim-context", "primitives", "How does ToolCtx work and why does the model not see it?", "answer", ("ToolCtx",)
     ),
     Case("prim-project", "primitives", "Where do my agents and workflows live on disk?", "answer", (".agentdeck",)),
     Case("prim-frompro", "primitives", "What does Deck.from_project() do?", "answer", ("from_project",)),
@@ -87,7 +87,7 @@ GOLDEN: tuple[Case, ...] = (
         "answer",
         ("run.completed", "run.failed"),
     ),
-    Case("ev-progress", "events", "How does a tool report progress while it works?", "answer", ("progress.reported",)),
+    Case("ev-progress", "events", "How does a tool report progress while it works?", "answer", ("report",)),
     # -- operating it ----------------------------------------------------------------------
     Case("ops-events-cfg", "operations", "What is the default value of AGENTDECK_EVENTS?", "answer", ("memory://",)),
     Case("ops-durable", "operations", "How do I make my run log survive a restart?", "answer", ("sqlite",)),
@@ -96,7 +96,6 @@ GOLDEN: tuple[Case, ...] = (
     Case("ops-env", "operations", "What environment variables does AgentDeck read?", "answer", ("AGENTDECK_",)),
     Case("ops-cli", "operations", "What can the CLI do?", "answer", ("agentdeck",)),
     # -- integrations ------------------------------------------------------------------------
-    Case("int-langgraph", "integrations", "Can I use an existing LangGraph graph?", "answer", ("LangGraph",)),
     Case(
         "int-oai", "integrations", "How does AgentDeck relate to the OpenAI Agents SDK?", "answer", ("OpenAI Agents",)
     ),
@@ -105,7 +104,7 @@ GOLDEN: tuple[Case, ...] = (
     Case("ver-latest", "versions", "What changed in the latest release?", "changelog"),
     Case("ver-diff", "versions", "What's the diff from the latest version?", "changelog"),
     Case("ver-breaking", "versions", "Was there a breaking change in 4.0.0?", "changelog"),
-    Case("ver-when", "versions", "When did Context arrive?", "changelog"),
+    Case("ver-when", "versions", "When did ToolCtx arrive?", "changelog"),
     # -- multi-turn: the question is unanswerable without the turn before it -------------------
     Case("mt-1-open", "multi-turn", "What is a Run?", "answer", ("Run",)),
     Case("mt-2-pause", "multi-turn", "How do I pause it?", "answer", ("pause",), follows="mt-1-open"),

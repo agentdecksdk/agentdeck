@@ -25,12 +25,12 @@ from never_yields import NeverYields
 from openai_agents_cases import TailScriptedModel
 
 from agentdeck.adapters.control.memory import MemoryControlPort
-from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
-from agentdeck.adapters.engines.stub import StubEngine, stub_spec
+from agentdeck.adapters.executors.openai_agents import OpenAIAgentsExecutor
+from agentdeck.adapters.executors.stub import StubExecutor, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.authoring.tools import compile_tool
 from agentdeck.core.content import coerce_input
-from agentdeck.core.context import Context, RunContext  # noqa: TC001  -  ``peek`` resolves it at runtime
+from agentdeck.core.context import RunContext, ToolCtx  # noqa: TC001  -  ``peek`` resolves it at runtime
 from agentdeck.core.control import CONTROL_POLL_INTERVAL, ControlSignal, Gate, RunPausedError, Signal
 from agentdeck.core.events import RunCompleted, TextDelta, Usage
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
@@ -246,9 +246,9 @@ def _agent_runtime(
     model: ScriptedModel, control: ControlPort, *, tools: list[Any] | None = None, store: EventStorePort | None = None
 ) -> tuple[Runtime, EventStorePort]:
     agent = Agent(name="Chatty", instructions="reply", model=model, tools=tools or [])
-    spec = InvocableSpec(name="Chatty", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
+    spec = InvocableSpec(name="Chatty", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=agent)
     store = store or MemoryEventStore()
-    runtime = Runtime([OpenAIAgentsEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
+    runtime = Runtime([OpenAIAgentsExecutor()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
     return runtime, store
 
 
@@ -289,7 +289,7 @@ async def test_a_pause_signalled_mid_stream_lands_after_the_chunk_that_was_in_fl
     ], _kinds(events)
     assert [event.payload.text for event in events if event.kind == "text.delta"] == ["one "]
     assert model.calls == 1  # no further model step was taken
-    assert status_of(await store.read(ctx.log_key, ctx)) is RunStatus.PAUSED
+    assert status_of(await store.read_session(ctx)) is RunStatus.PAUSED
 
 
 async def test_a_pause_during_a_tool_call_waits_for_the_call_to_return() -> None:
@@ -339,7 +339,7 @@ async def test_a_pause_during_a_tool_call_waits_for_the_call_to_return() -> None
     # tool authors to tolerate it, and why `ctx.idempotency_key` exists.
     assert calls == ["slow_lookup", "slow_lookup"]
     assert _kinds(resumed)[-1] == "run.completed"
-    assert check_contiguous(await store.read(ctx.log_key, ctx)) == []
+    assert check_contiguous(await store.read_session(ctx)) == []
 
 
 async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None:
@@ -370,7 +370,7 @@ async def test_resuming_a_paused_turn_replays_it_and_completes_the_run() -> None
 
     hold.set()  # the replayed turn must not stall on the pause fixture's own gate
     resumed = [event async for event in runtime.resume_run(started.run_id, namespace=ctx.namespace)]
-    log = await store.read(ctx.log_key, ctx)
+    log = await store.read_session(ctx)
 
     assert _kinds(paused)[-1] == "run.paused"
     assert _kinds(resumed)[0] == "run.resumed"
@@ -398,7 +398,7 @@ async def test_lifting_a_pause_resupplies_the_run_s_application_context() -> Non
     control = MemoryControlPort()
     ctx = _ctx()
 
-    async def peek(environment: Context[Calendar]) -> str:
+    async def peek(environment: ToolCtx[Calendar]) -> str:
         """Look at the run's environment."""
         seen.append(environment.data)
         if len(seen) == 1:
@@ -437,7 +437,7 @@ async def test_lifting_a_pause_without_a_context_replays_with_none() -> None:
     control = MemoryControlPort()
     ctx = _ctx()
 
-    async def peek(environment: Context[Calendar]) -> str:
+    async def peek(environment: ToolCtx[Calendar]) -> str:
         """Look at the run's environment."""
         seen.append(environment.data)
         if len(seen) == 1:
@@ -479,7 +479,7 @@ async def test_a_signal_is_honored_with_a_store_that_never_yields() -> None:
         RunCompleted(output=coerce_input("one two"), usage=Usage(input_tokens=0, output_tokens=0)),
     )
     store = NeverYields(MemoryEventStore())
-    runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
+    runtime = Runtime([StubExecutor()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
 
     # The real id is read off ``run.started``, then the cancel is recorded before the stream is
     # asked for anything else  -  still ahead of the engine's first checkpoint, which is what used
@@ -496,7 +496,7 @@ async def test_a_signal_is_honored_with_a_store_that_never_yields() -> None:
 async def test_a_signal_without_a_control_port_says_it_was_not_recorded() -> None:
     """The one answer a caller has to act on: this Runtime cannot control anything, so the
     request went nowhere. Silence here would be a pause button that does nothing."""
-    runtime = Runtime([StubEngine()], MemoryEventStore(), {})
+    runtime = Runtime([StubExecutor()], MemoryEventStore(), {})
 
     assert await runtime.signal("r-1", Signal.PAUSE) is False
 
@@ -507,7 +507,7 @@ async def test_resuming_a_run_that_is_not_paused_is_a_noop() -> None:
     control = MemoryControlPort()
     spec = stub_spec("Chatty", RunCompleted(output=coerce_input("done"), usage=Usage(input_tokens=0, output_tokens=0)))
     store = MemoryEventStore()
-    runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
+    runtime = Runtime([StubExecutor()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
     ctx = _ctx()
 
     completed = [
@@ -515,11 +515,11 @@ async def test_resuming_a_run_that_is_not_paused_is_a_noop() -> None:
         async for event in runtime.run("Chatty", coerce_input("hi"), session_id=ctx.session_id, namespace=ctx.namespace)
     ]
     run_id = completed[0].run_id
-    before = await store.read(ctx.log_key, ctx)
+    before = await store.read_session(ctx)
 
     assert [event async for event in runtime.resume_run(run_id, namespace=ctx.namespace)] == []
     assert [event async for event in runtime.resume_run("never-heard-of-it", namespace=ctx.namespace)] == []
-    assert await store.read(ctx.log_key, ctx) == before
+    assert await store.read_session(ctx) == before
     assert _kinds(completed)[-1] == "run.completed"
 
 
@@ -533,7 +533,7 @@ async def test_a_paused_run_keeps_holding_its_session_so_no_second_turn_starts_o
         RunCompleted(output=coerce_input("one"), usage=Usage(input_tokens=0, output_tokens=0)),
     )
     store = MemoryEventStore()
-    runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
+    runtime = Runtime([StubExecutor()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
     ctx = _ctx()
 
     # Signalled right after the real id is known and before the stream is asked for anything
@@ -575,7 +575,7 @@ async def test_two_namespaces_sharing_one_key_pause_and_resume_independently() -
         RunCompleted(output=coerce_input("hi"), usage=Usage(input_tokens=0, output_tokens=0)),
     )
     store = MemoryEventStore()
-    runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
+    runtime = Runtime([StubExecutor()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
 
     globex_stream = runtime.run("Chatty", coerce_input("hi"), key="order-1234", namespace="globex")
     globex_started = await anext(globex_stream)
@@ -612,7 +612,7 @@ async def test_two_namespaces_sharing_one_key_do_not_clobber_each_other_s_signal
         RunCompleted(output=coerce_input("hi"), usage=Usage(input_tokens=0, output_tokens=0)),
     )
     store = MemoryEventStore()
-    runtime = Runtime([StubEngine()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
+    runtime = Runtime([StubExecutor()], store, {"Chatty": spec}, control=control, control_poll_interval=0.0)
 
     globex_stream = runtime.run("Chatty", coerce_input("hi"), key="order-1234", namespace="globex")
     globex_started = await anext(globex_stream)

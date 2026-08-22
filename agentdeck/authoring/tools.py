@@ -2,7 +2,7 @@
 
 The bridge half of :mod:`agentdeck.authoring.injection`: that module answers what a callable
 declares, this one turns the answer into a ``FunctionTool``. A callable annotated
-``Context[T]`` cannot be pre-decorated with ``@function_tool``  -  the decorator would put the
+``ToolCtx[T]`` cannot be pre-decorated with ``@function_tool``  -  the decorator would put the
 context parameter in the model-visible schema  -  so compiling it here is the only way the
 annotation can mean anything at all.
 
@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any
 from agents import RunContextWrapper, default_tool_error_function, function_tool
 
 from agentdeck.authoring.injection import analyze_callable, check_context_type, describe_callable
-from agentdeck.core.context import Context, RunContext
+from agentdeck.core.context import RunContext, ToolCtx
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
@@ -38,11 +38,11 @@ if TYPE_CHECKING:
 
 
 def compile_tool(target: Callable[..., Any], *, context_type: object | None = None) -> FunctionTool:
-    """Build the SDK tool for ``target``, injecting its ``Context[...]`` parameter if it has one.
+    """Build the SDK tool for ``target``, injecting its ``ToolCtx[...]`` parameter if it has one.
 
     A callable whose signature could not be recovered is refused rather than compiled. The
     schema the model is shown has to exist at build time, so an unreadable signature has no
-    honest one to offer  -  and "no ``Context`` parameter was found" is not a finding about such a
+    honest one to offer  -  and "no ``ToolCtx`` parameter was found" is not a finding about such a
     callable, it is the absence of one. Guessing there is nothing to inject would drop the
     argument at the first call, silently.
 
@@ -54,14 +54,14 @@ def compile_tool(target: Callable[..., Any], *, context_type: object | None = No
     if not analysis.reliable:
         raise ConfigError(
             f"{describe_callable(target)} cannot be compiled as a tool: its signature could not be read, "
-            "so neither the schema shown to the model nor the presence of a Context[...] parameter "
+            "so neither the schema shown to the model nor the presence of a ToolCtx[...] parameter "
             "can be established. A decorator that does not use functools.wraps is the usual cause  -  "
             "fix the decorator, or pass a pre-built Agents SDK tool object instead (engine-native: "
             "it gets no portability guarantee)."
         )
     check_context_type(analysis, context_type)
     # `failure_error_function=_tool_failure` is passed on both branches so a raised tool still
-    # lands on `tool.call.completed.error`, whether or not it declares `Context[...]`. Any other
+    # lands on `tool.call.completed.error`, whether or not it declares `ToolCtx[...]`. Any other
     # `@function_tool` kwarg (`name_override`, `is_enabled`, ...) belongs right here too, once
     # something needs to forward it; nothing about this split is what stops that today.
     if analysis.context_parameter is None:
@@ -116,7 +116,7 @@ def _bridge(analysis: CallableAnalysis) -> Callable[..., Any]:
             # being played by something else, so there is no context to inject and calling the
             # original with one argument missing would fail somewhere less legible than here.
             raise ConfigError(
-                f"{describe_callable(target)} declares a Context[...] parameter, but this run carries "
+                f"{describe_callable(target)} declares a ToolCtx[...] parameter, but this run carries "
                 f"{type(run).__name__} rather than an AgentDeck run context  -  a tool compiled by "
                 "AgentDeck has to be played by an AgentDeck run."
             )
@@ -127,7 +127,7 @@ def _bridge(analysis: CallableAnalysis) -> Callable[..., Any]:
         call = original.bind_partial()
         call.arguments.update(
             {
-                parameter.name: (Context(run) if parameter.name == context_parameter else bound.arguments[name])
+                parameter.name: (ToolCtx(run) if parameter.name == context_parameter else bound.arguments[name])
                 for parameter in original.parameters.values()
                 if (name := parameter.name) == context_parameter or name in bound.arguments
             }

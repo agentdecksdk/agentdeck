@@ -25,7 +25,7 @@ from agents.exceptions import MaxTurnsExceeded
 
 from agentdeck.authoring import Agent
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import Custom, RunCompleted, RunFailed
+from agentdeck.core.events import AgentChanged, RunCompleted, RunFailed
 from agentdeck.deck import Deck
 from agentdeck.runtime.settings import get_settings
 from agentdeck.testing import scripted_model_server
@@ -76,9 +76,9 @@ def _tool_names(request: dict[str, Any]) -> set[str]:
 
 def _handoffs(events: list[Any]) -> list[tuple[str, str]]:
     return [
-        (event.payload.data["from"], event.payload.data["to"])
+        (event.payload.previous_agent, event.payload.next_agent)
         for event in events
-        if isinstance(event.payload, Custom) and event.payload.name == "openai_agents.handoff"
+        if isinstance(event.payload, AgentChanged)
     ]
 
 
@@ -94,7 +94,7 @@ async def test_a_handoff_cycle_returns_control_and_completes_with_the_final_agen
         deck.build()
         async with deck:
             events = [event async for event in deck.stream("Alpha", "start the cycle", session_id="s1")]
-            stored = await deck._runtime.store.read("s1", _reader_ctx("s1"))
+            stored = await deck._runtime.store.read_session(_reader_ctx("s1"))
 
     # --- each agent was offered its own transfer tool, and only its own -------------------
     assert _tool_names(received[0]) == {"transfer_to_beta"}  # Alpha's turn: only Beta to hand to

@@ -2,7 +2,7 @@
 agent's lifecycle hooks.
 
 Both go through the same analysis a tool does, which is the point  -  a second mechanism here
-would be a second set of rules about what ``Context[...]`` means, and the two would drift.
+would be a second set of rules about what ``ToolCtx[...]`` means, and the two would drift.
 
 The property these tests are shaped around is the design's strongest rule, at the one site
 where breaking it would be invisible: **only what an instructions callable returns reaches the
@@ -23,7 +23,7 @@ from agents.lifecycle import AgentHooks
 from agentdeck.authoring import Agent
 from agentdeck.authoring.hooks import compile_hooks
 from agentdeck.authoring.instructions import compile_instructions
-from agentdeck.core.context import Context, RunContext  # noqa: TC001  -  the subjects resolve it at runtime
+from agentdeck.core.context import RunContext, ToolCtx  # noqa: TC001  -  the subjects resolve it at runtime
 from agentdeck.deck import Deck
 from agentdeck.errors import ConfigError
 from agentdeck.testing import ScriptedModel, patch_model
@@ -68,7 +68,7 @@ def no_project(tmp_path, monkeypatch):
 
 
 async def test_an_instructions_callable_receives_the_context_and_returns_the_prompt() -> None:
-    def instructions(environment: Context[Business]) -> str:
+    def instructions(environment: ToolCtx[Business]) -> str:
         return f"Business: {environment.data.name}"
 
     compiled = compile_instructions(instructions)
@@ -77,10 +77,10 @@ async def test_an_instructions_callable_receives_the_context_and_returns_the_pro
 
 
 async def test_a_synchronous_and_an_async_instructions_callable_behave_the_same() -> None:
-    async def eventually(environment: Context[Business]) -> str:
+    async def eventually(environment: ToolCtx[Business]) -> str:
         return environment.data.name
 
-    def immediately(environment: Context[Business]) -> str:
+    def immediately(environment: ToolCtx[Business]) -> str:
         return environment.data.name
 
     wrapper = _Wrapper(RunContext(run_id="r", data=Business()))
@@ -90,7 +90,7 @@ async def test_a_synchronous_and_an_async_instructions_callable_behave_the_same(
 
 
 async def test_an_instructions_callable_that_declares_no_context_is_still_compiled() -> None:
-    """Zero ``Context[...]`` parameters is an ordinary callable everywhere else too."""
+    """Zero ``ToolCtx[...]`` parameters is an ordinary callable everywhere else too."""
 
     def instructions() -> str:
         return "static, but computed"
@@ -109,7 +109,7 @@ async def test_a_wraps_decorated_instructions_callable_is_analyzed_as_what_it_wr
         return wrapper
 
     @logged
-    async def instructions(environment: Context[Business]) -> str:
+    async def instructions(environment: ToolCtx[Business]) -> str:
         return environment.data.name
 
     compiled = compile_instructions(instructions)
@@ -121,14 +121,14 @@ def test_an_instructions_callable_with_a_parameter_nothing_supplies_is_refused()
     """Unlike a tool, an instructions callable has no model-supplied arguments to leave room
     for  -  so a leftover parameter has no reading under which it would ever be filled."""
 
-    def instructions(tone: str, environment: Context[Business]) -> str:
+    def instructions(tone: str, environment: ToolCtx[Business]) -> str:
         return tone
 
     with pytest.raises(ConfigError) as raised:
         compile_instructions(instructions)
 
     assert "tone" in str(raised.value)
-    assert "at most one Context" in str(raised.value)
+    assert "at most one ToolCtx" in str(raised.value)
 
 
 def test_instructions_whose_signature_cannot_be_read_are_refused() -> None:
@@ -139,7 +139,7 @@ def test_instructions_whose_signature_cannot_be_read_are_refused() -> None:
         return wrapper
 
     @destroying
-    def instructions(environment: Context[Business]) -> str:
+    def instructions(environment: ToolCtx[Business]) -> str:
         return "never"
 
     with pytest.raises(ConfigError, match="signature could not be read"):
@@ -147,7 +147,7 @@ def test_instructions_whose_signature_cannot_be_read_are_refused() -> None:
 
 
 def test_two_context_parameters_in_instructions_are_a_configuration_error() -> None:
-    def instructions(here: Context[Business], also: Context[Business]) -> str:
+    def instructions(here: ToolCtx[Business], also: ToolCtx[Business]) -> str:
         return "never"
 
     with pytest.raises(ConfigError, match="at most one"):
@@ -155,7 +155,7 @@ def test_two_context_parameters_in_instructions_are_a_configuration_error() -> N
 
 
 async def test_instructions_played_by_a_foreign_run_say_so() -> None:
-    def instructions(environment: Context[Business]) -> str:
+    def instructions(environment: ToolCtx[Business]) -> str:
         return "never"
 
     with pytest.raises(ConfigError, match="AgentDeck run context"):
@@ -171,7 +171,7 @@ async def test_only_the_return_value_of_an_instructions_callable_reaches_the_pro
     callable holds the whole environment and names one field of it; nothing else may travel."""
     seen: list[Any] = []
 
-    def instructions(environment: Context[Business]) -> str:
+    def instructions(environment: ToolCtx[Business]) -> str:
         seen.append(environment.data)
         return f"You work for {environment.data.name}."
 
@@ -217,7 +217,7 @@ def test_an_instructions_callable_that_cannot_be_compiled_fails_at_build(no_proj
 
 
 class _PlainHooks(AgentHooks[Any]):
-    """Engine-native: names the SDK's own wrapper, declares no ``Context``."""
+    """Engine-native: names the SDK's own wrapper, declares no ``ToolCtx``."""
 
     def __init__(self) -> None:
         self.started: list[Any] = []
@@ -233,7 +233,7 @@ class _ContextHooks(AgentHooks[Any]):
         self.started: list[Any] = []
         self.ended: list[Any] = []
 
-    async def on_start(self, environment: Context[Business], agent: Any) -> None:
+    async def on_start(self, environment: ToolCtx[Business], agent: Any) -> None:
         self.started.append((environment, agent))
 
     async def on_end(self, context: Any, agent: Any, output: Any) -> None:
@@ -251,7 +251,7 @@ def test_hooks_declaring_no_context_are_passed_straight_through() -> None:
 
 def test_a_hook_declaring_its_context_anywhere_but_first_is_refused() -> None:
     class Misplaced(AgentHooks[Any]):
-        async def on_start(self, agent: Any, environment: Context[Business]) -> None: ...
+        async def on_start(self, agent: Any, environment: ToolCtx[Business]) -> None: ...
 
     with pytest.raises(ConfigError) as raised:
         compile_hooks(Misplaced())
@@ -274,7 +274,7 @@ async def test_a_hook_declaring_a_context_receives_it_during_a_real_run(no_proje
 
     (environment, agent), *rest = hooks.started
     assert rest == []
-    assert isinstance(environment, Context)
+    assert isinstance(environment, ToolCtx)
     assert environment.data is business
     assert agent.name == "Front"
 

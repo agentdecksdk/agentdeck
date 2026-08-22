@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -34,7 +35,7 @@ from openai.types.responses import (
 )
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
-from agentdeck.adapters.engines.openai_agents import ExecutionStore, OpenAIAgentsEngine
+from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.context import RunContext
 from agentdeck.core.events import RESULT_PREVIEW_MAX, Event
@@ -193,11 +194,11 @@ def _build() -> tuple[Runtime, ExecutionStore, SqliteEventStore]:
         name="FrontDesk", instructions="route to claims", handoffs=[claims_agent], model=FrontModel(handoff_tool)
     )
     spec = InvocableSpec(
-        name="FrontDesk", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=front_agent
+        name="FrontDesk", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=front_agent
     )
     sessions = ExecutionStore()
     store = SqliteEventStore()
-    runtime = Runtime([OpenAIAgentsEngine(sessions)], store, {"FrontDesk": spec})
+    runtime = Runtime([OpenAIAgentsExecutor(sessions)], store, {"FrontDesk": spec})
     return runtime, sessions, store
 
 
@@ -233,7 +234,7 @@ async def test_uc1_handoff_chat_end_to_end(capsys: pytest.CaptureFixture[str]) -
 
     # --- step 3: read the transcript back from the store only, no live stream --------
     ctx = _read_ctx()
-    log = await store.read(SESSION_ID, ctx)
+    log = await store.read_session(replace(ctx, session_id=SESSION_ID))
     completed_texts = [event.payload.text for event in log if event.kind == "message.completed"]
     assert completed_texts == [
         "Connecting you to a claims specialist.",

@@ -3,6 +3,13 @@ title: Lifecycle & Control
 description: The six states a run can be in, what moves it between them, and which ones you can act on.
 ---
 
+{/* docs_sources:
+  - "agentdeck/core/status.py"
+  - "agentdeck/core/control.py"
+  - "agentdeck/runtime/service.py"
+  - "agentdeck/adapters/control/**"
+*/}
+
 # Lifecycle & Control
 
 A run is in exactly one of six states. Status is folded from the event log rather than stored
@@ -45,8 +52,9 @@ disagree.
 
 ## What you can act on
 
-`paused` and `waiting_answer` are the two resumable states. The three terminal states accept
-nothing: a completed run cannot be paused, and a cancelled run cannot be resumed.
+`paused` and `waiting_answer` are the two suspended states, and each refuses the other's
+operation: lift a pause with `resume()`, answer an interrupt with `answer(value)`. The three
+terminal states accept nothing, and asking anyway returns quietly rather than raising.
 
 ```python
 run = await deck.runs.start("Jack", question)
@@ -64,6 +72,21 @@ when it next reaches a safe point: between stream items, before dispatching a to
 boundary. Two events make that visible, `control.requested` when the signal is recorded and
 `control.observed` when the run picks it up, so a control that has not taken effect yet is
 distinguishable from one that was never seen.
+
+### Capability matrix
+
+Which operations are legal from each state:
+
+| State | `pause()` | `resume()` | `cancel()` | `answer()` |
+|---|---|---|---|---|
+| `running` | ✓ | -- | ✓ | -- |
+| `paused` | -- | ✓ | ✓ | -- |
+| `waiting_answer` | ✓ | -- | ✓ | ✓ |
+| `completed` / `failed` / `cancelled` | -- | -- | -- | -- |
+
+`✓` is legal; `--` is not, and covers both a refusal that raises and a call that quietly does
+nothing. `PRECONDITIONS` in `agentdeck/core/status.py` carries the exact verdict and reason
+attached to each cell.
 
 ## Related
 

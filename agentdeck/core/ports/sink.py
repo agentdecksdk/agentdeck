@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from agentdeck.core.events import Event
 
 
-class EventSinkPort(ABC):
+class Observer(ABC):
     """One consumer of the stream. Errors and slowness are the sink's problem, not the run's.
 
     A sink that blocks or raises too often is disabled, then offered one event again after a

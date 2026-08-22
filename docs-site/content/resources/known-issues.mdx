@@ -3,6 +3,15 @@ title: Known Issues
 description: Defects in the current release that will surprise you, what happens, and what to do until each is fixed.
 ---
 
+{/* docs_sources:
+  - "agentdeck/authoring/interrupts.py"
+  - "agentdeck/authoring/runners/**"
+  - "agentdeck/adapters/executors/openai_agents/translate.py"
+  - "agentdeck/cli.py"
+  - "agentdeck/deck.py"
+  - "agentdeck/surfaces/serve/**"
+*/}
+
 # Known Issues
 
 Everything here is real, reproduced, and open against **v4.0.0**. It is published rather than
@@ -57,9 +66,9 @@ Not silent, not traps  -  just things that will cost you a few minutes.
 | What | Issue |
 |---|---|
 | `run()`'s return type makes the documented interrupt idiom fail a type checker | [#231](https://github.com/agentdecksdk/agentdeck/issues/231) |
-| `answer()` accepts any value with no validation, and the node owns interpreting it | [#235](https://github.com/agentdecksdk/agentdeck/issues/235) |
+| A graph `interrupt()` names no options, so `answer()` takes whatever it is given and the node owns interpreting it. A native `ctx.ask(options=...)` is validated instead | [#235](https://github.com/agentdecksdk/agentdeck/issues/235) |
 | The CLI can send signals but cannot read anything  -  no inbox, no run view | [#256](https://github.com/agentdecksdk/agentdeck/issues/256) |
-| `Deck.asgi()` cannot serve an agent whose tools declare a `Context` | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
+| `Deck.asgi()` cannot serve an agent whose tools declare a `ToolCtx` | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
 
 ## Fixed in v3.1.0
 

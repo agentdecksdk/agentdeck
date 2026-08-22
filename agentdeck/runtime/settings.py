@@ -1,15 +1,11 @@
-"""Layered runtime settings (OpenAI, Runner, ...) backed by env + shared YAML.
+"""Runtime settings backed by environment variables and the project's ``.env``.
 
-A single ``config.yaml`` (resolved via ``AGENTDECK_CONFIG_PATH`` → cwd →
-packaged default) hosts every settings group keyed by section: ``openai:``,
-``runner:``, ``session:``, ``shell:``. Each :class:`BaseSettings` subclass reads only its section; shell
-env vars (prefix-bound, e.g. ``OPENAI_BASE_URL``) override the file. The
-project's ``.env`` (found from ``Path.cwd()``, never from this module's own
-location) is loaded the first time :func:`get_settings` builds a
-:class:`Settings`  -  not at import  -  so a ``chdir`` between ``import agentdeck``
-and first use still lands on the right project (process env wins either way).
+The ``.env`` is found from ``Path.cwd()``, never from this module's own location,
+and loaded the first time :func:`get_settings` builds :class:`Settings`. A
+``chdir`` between importing AgentDeck and first use therefore still lands on the
+right project; process environment variables win either way.
 
-``EVENTS``/``CONTROL``/``CHECKPOINT``/``SESSION`` each read one URL-shaped env var
+``EVENTS``/``CONTROL``/``SESSION`` each read one URL-shaped env var
 (``AGENTDECK_EVENTS``, not a ``_BACKEND``/``_URL`` pair)  -  the scheme names the backend, so
 there is no second decision left to disagree with it. See :func:`parse_backend_url`.
 """
@@ -27,16 +23,11 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic_settings.sources import YamlConfigSettingsSource
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from importlib.resources.abc import Traversable
 
 logger = logging.getLogger(__name__)
-
-PACKAGED_DEFAULT_YAML = Path(__file__).resolve().parent / "config.default.yaml"
-_CONFIG_PATH_ENV = "AGENTDECK_CONFIG_PATH"
 
 
 def resolve_env_file() -> Path:
@@ -55,54 +46,6 @@ def resolve_env_file() -> Path:
     return Path.cwd() / ".env"
 
 
-def resolve_config_path(explicit: str | Path | None = None) -> Path:
-    """Resolve the shared YAML: explicit arg → ``AGENTDECK_CONFIG_PATH`` → cwd → packaged default.
-
-    Returning a path that doesn't exist is fine  -  the YAML source treats a
-    missing file as empty, which lets env vars alone drive a fully-defaulted
-    config. Resolved from ``Path.cwd()`` on every call, matching
-    :func:`resolve_env_file` and how ``App`` locates ``./.agentdeck``  -  never
-    module-relative (issue #16).
-    """
-    chosen = explicit or os.environ.get(_CONFIG_PATH_ENV)
-    if chosen:
-        return Path(str(chosen)).expanduser()
-    local = Path.cwd() / "config.yaml"
-    return local if local.is_file() else PACKAGED_DEFAULT_YAML
-
-
-class SectionedYamlSource(YamlConfigSettingsSource):
-    """Read a single ``yaml[section]`` mapping so one config.yaml hosts many settings models.
-
-    Permissive on missing files / sections: returns ``{}`` instead of raising,
-    so an operator can omit a section entirely and rely on field defaults.
-    """
-
-    def __init__(self, settings_cls: type[BaseSettings], section: str | None):
-        self._section = section
-        super().__init__(settings_cls, yaml_file=resolve_config_path())
-
-    # ``Path | Traversable`` because pydantic-settings widened this parameter and an override
-    # may not narrow one (Liskov)  -  CI, resolving fresh, reads the widened base and rejected the
-    # old signature. The dependency is unpinned (`>=2.4`), so both are in the field: the wide
-    # annotation is the one that satisfies either base, and the body only needs ``is_file()``,
-    # which both types provide.
-    def _read_file(self, file_path: Path | Traversable) -> dict[str, Any]:
-        if not file_path.is_file():
-            return {}
-        # ty: ignore[invalid-argument-type]  -  the same two-version split, seen from the other
-        # side: against a `Path`-only base this argument is too wide. It is a `Path` at runtime
-        # (the caller is pydantic-settings, resolving our own `yaml_file`), and the widened base
-        # accepts both. Drop the ignore once `pydantic-settings` is pinned past the widening.
-        data: Any = super()._read_file(file_path) or {}  # ty: ignore[invalid-argument-type]
-        if not isinstance(data, Mapping):
-            return {}
-        if self._section is None:
-            return dict(data)
-        sub = data.get(self._section, {})
-        return dict(sub) if isinstance(sub, Mapping) else {}
-
-
 def default_use_responses() -> bool:
     """Default to the SDK's Responses transport, overridable via env.
 
@@ -116,23 +59,11 @@ def default_use_responses() -> bool:
     return raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
-def _yaml_section_for_prefix(prefix: str) -> str:
-    """Map an env_prefix to its YAML section name.
-
-    ``OPENAI_`` → ``openai``, ``AGENTDECK_RUNNER_`` → ``runner``,
-    ``AGENTDECK_SESSION_`` → ``session``, ``AGENTDECK_SHELL_`` → ``shell``.
-    """
-    name = prefix.strip().rstrip("_").lower()
-    if name.startswith("agentdeck_"):
-        name = name[len("agentdeck_") :]
-    return name
-
-
 def settings_config(prefix: str, **overrides: Any) -> SettingsConfigDict:
     """Build a ``model_config`` for any :class:`LayeredSettings` subclass.
 
-    Every subclass binds its env prefix and YAML section through this helper;
-    pass ``**overrides`` to extend (``protected_namespaces=()``, ``extra="allow"`` …).
+    Every subclass binds its env prefix through this helper; pass ``**overrides``
+    to extend it.
     """
     base: dict[str, Any] = {
         "env_prefix": prefix,
@@ -171,13 +102,7 @@ def _bare_env_source(names: Mapping[str, str]) -> Callable[[], dict[str, str]]:
 
 
 class LayeredSettings(BaseSettings):
-    """``BaseSettings`` with two additions: ``with_overrides`` for CLI flag layering
-    and a YAML section source keyed off ``env_prefix`` (so one ``config.yaml`` can
-    host every subgroup  -  ``openai:``, ``runner:``, …).
-
-    Used by both runtime settings (``OpenAISettings`` etc.) and backend settings
-    (``PolarionSettings`` etc.). One base class, one resolution algorithm.
-    """
+    """Environment-backed settings with explicit-call overrides."""
 
     _bare_env_names: ClassVar[Mapping[str, str]] = {}
     """Fields read from an exact, unprefixed env var name instead of ``env_prefix + field_name``
@@ -197,8 +122,6 @@ class LayeredSettings(BaseSettings):
         dotenv_settings: Any,
         file_secret_settings: Any,
     ) -> tuple[Any, ...]:
-        prefix = settings_cls.model_config.get("env_prefix", "")
-        section = _yaml_section_for_prefix(prefix) if prefix else None
         bare_names = cls._bare_env_names
         if bare_names and set(bare_names) >= set(settings_cls.model_fields):
             sources: tuple[Any, ...] = (init_settings, _bare_env_source(bare_names))
@@ -206,7 +129,7 @@ class LayeredSettings(BaseSettings):
             sources = (init_settings, _bare_env_source(bare_names), env_settings)
         else:
             sources = (init_settings, env_settings)
-        return (*sources, SectionedYamlSource(settings_cls, section))
+        return sources
 
 
 class OpenAISettings(LayeredSettings):
@@ -217,14 +140,13 @@ class OpenAISettings(LayeredSettings):
     """
 
     model_config = settings_config("OPENAI_", protected_namespaces=())
-    model: str = Field(description="Model name passed to the host Agents SDK runner. No default  -  always required.")
+    model: str = Field(
+        default="gpt-4.1-mini",
+        description="Default model for agents that do not declare `model=`.",
+    )
     api_key: str = Field(
         default="",
-        description="API key for the endpoint. What empty does depends on `ca_bundle`: unset (the common "
-        "case), the OpenAI client falls through to its own `OPENAI_API_KEY` process-env lookup and errors on "
-        "the first model call if that's empty too; with `ca_bundle` set, the empty value is passed straight "
-        "through instead and just sends no Authorization header  -  the self-hosted/corporate-CA case doesn't "
-        "need a placeholder value the way the common path does.",
+        description="API key for OpenAI. A custom `OPENAI_BASE_URL` may omit it when the endpoint needs no auth.",
     )
     base_url: str = Field(
         default="", description="OpenAI-compatible endpoint base URL. Empty uses the SDK default, api.openai.com."
@@ -248,6 +170,23 @@ class OpenAISettings(LayeredSettings):
         # Unset values stay unset in the sandbox  -  an empty OPENAI_BASE_URL would
         # override the OpenAI client's default endpoint resolution.
         return {k: v for k, v in env.items() if v}
+
+
+class ModelProviderSettings(LayeredSettings):
+    """Credentials for prefixed model providers."""
+
+    _bare_env_names: ClassVar[Mapping[str, str]] = {
+        "anthropic_api_key": "ANTHROPIC_API_KEY",
+        "gemini_api_key": "GEMINI_API_KEY",
+        "ollama_base_url": "OLLAMA_BASE_URL",
+        "openrouter_api_key": "OPENROUTER_API_KEY",
+    }
+    model_config = settings_config("AGENTDECK_PROVIDER_")
+
+    anthropic_api_key: str = Field(default="", description="API key for `anthropic/...` models.")
+    gemini_api_key: str = Field(default="", description="API key for `gemini/...` models.")
+    ollama_base_url: str = Field(default="", description="Endpoint for `ollama/...` models.")
+    openrouter_api_key: str = Field(default="", description="API key for `openrouter/...` models.")
 
 
 class RunnerSettings(LayeredSettings):
@@ -331,15 +270,6 @@ class RuntimeSettings(LayeredSettings):
     worker running more than a window fast takes over live sessions on sight  -  the same lost
     guarantee, arrived at by skew instead of configuration. Keep the fleet on NTP and treat the
     window as a budget skew eats into.
-
-    ``sweep_interval_seconds`` is how often an open Deck wakes a due ``sleep_until`` timer on its
-    own, with no cron or scheduler wired in. **On by default**  -  the interval only trades off wake
-    latency against one cheap checkpointer listing per tick; there is no deployment for which
-    disabling it is the safer choice. **30 seconds** by default: near-immediate next to any timer a
-    workflow would actually set (minutes to days), and light enough that a catalog with no timers
-    at all costs nothing more than an idle sleep. A process that opens the Deck, takes a turn and
-    closes within one interval never sweeps at all; a due timer then wakes on whoever next holds
-    the Deck open past that.
     """
 
     model_config = settings_config("AGENTDECK_RUNTIME_")
@@ -362,14 +292,6 @@ class RuntimeSettings(LayeredSettings):
         "across processes (`AGENTDECK_CONTROL=sqlite:///<path>`); with the in-memory default nothing is ever "
         "reported dead and the staleness timer remains the only backstop. Must be positive; set it above the "
         "longest the event loop can be blocked in one go.",
-    )
-
-    sweep_interval_seconds: float = Field(
-        default=30.0,
-        gt=0,
-        description="How often, in seconds, an open Deck sweeps for a `sleep_until` timer whose wake moment "
-        "has passed and resumes it, with no cron or scheduler required. Must be positive; runs for the Deck's "
-        "own lifetime, started when it opens and cancelled when it closes.",
     )
 
     @property
@@ -418,7 +340,7 @@ class LangfuseSettings(LayeredSettings):
 
 
 class TavilySettings(LayeredSettings):
-    """Tavily web-search API. One knob: ``TAVILY_API_KEY`` env var (or YAML ``tavily: api_key:``)."""
+    """Tavily web-search API. One knob: ``TAVILY_API_KEY``."""
 
     model_config = settings_config("TAVILY_")
 
@@ -426,28 +348,6 @@ class TavilySettings(LayeredSettings):
         default="",
         description="Tavily web-search API key. Empty makes the `web_search` tool return an `error:` string "
         "instead of raising  -  it degrades the same way an unavailable MCP server does, rather than disappearing.",
-    )
-
-
-class CheckpointSettings(LayeredSettings):
-    """LangGraph checkpointer backend for ``durable=True`` workflows, as one scheme-shaped URL.
-
-    ``sqlite://<path>`` for dev (relative or absolute  -  see :func:`parse_backend_url`;
-    ``sqlite://.agentdeck/checkpoints.sqlite3`` is the default), ``postgresql://<dsn>`` for
-    prod, ``memory://`` for tests (never persists past the process). Resolving the saver
-    classes lives in ``agentdeck.adapters.engines.langgraph.checkpointer``  -  sqlite ships in
-    base (the default needs it), postgres in the optional ``[durability]`` extra  -  but this
-    settings model stays import-free of either.
-    """
-
-    _bare_env_names: ClassVar[Mapping[str, str]] = {"url": "AGENTDECK_CHECKPOINT"}
-    model_config = settings_config("AGENTDECK_CHECKPOINT_")
-
-    url: str = Field(
-        default="sqlite://.agentdeck/checkpoints.sqlite3",
-        description="LangGraph checkpointer for `durable=True` workflows: `sqlite://<path>` for dev "
-        "(this default), `postgresql://<dsn>` for prod, or `memory://` for tests (never persists past the "
-        "process). The scheme names the backend.",
     )
 
 
@@ -460,10 +360,10 @@ class EventsSettings(LayeredSettings):
     log that survives a restart.
 
     ``redis://``/``rediss://`` (needs the ``[redis]`` extra) and ``postgresql://`` (needs the
-    ``[durability]`` extra) are the two that several workers can share: SQLite's durability
+    ``[postgres]`` extra) are the two that several workers can share: SQLite's durability
     rests on cross-process shared memory, so one file behind more than one machine is
-    unsupported. Each keeps to its own keyspace, so an instance already holding LangGraph
-    checkpoints or agent conversations is fine to reuse. A Redis instance used as the record
+    unsupported. Each keeps to its own keyspace, so an instance already holding agent
+    conversations is fine to reuse. A Redis instance used as the record
     wants ``appendonly yes`` and ``maxmemory-policy noeviction``  -  this is a log, not a cache.
     """
 
@@ -474,7 +374,7 @@ class EventsSettings(LayeredSettings):
         default="memory://",
         description="Where the Runtime's canonical event log is written: `memory://` (default, in-process, "
         "gone when the process exits), `sqlite://<path>`, `redis://<url>`/`rediss://<url>` (needs the `[redis]` "
-        "extra), or `postgresql://<dsn>` (needs the `[durability]` extra). The scheme names the backend.",
+        "extra), or `postgresql://<dsn>` (needs the `[postgres]` extra). The scheme names the backend.",
     )
 
 
@@ -526,7 +426,7 @@ class SessionSettings(LayeredSettings):
     url: str | None = Field(
         default=None,
         description="Redis URL for `RedisSession`-backed agent conversation memory "
-        "(`agentdeck.adapters.engines.openai_agents.sessions.SessionFactory`), needing the `[redis]` extra. "
+        "(`agentdeck.adapters.executors.openai_agents.sessions.SessionFactory`), needing the `[redis]` extra. "
         "`None` falls back to one in-process `SQLiteSession` per session key  -  no persistence across a restart, "
         "no sharing across workers.",
     )
@@ -551,9 +451,9 @@ class Settings(BaseModel):
     # in untyped lambdas so the required-field check on env-backed models
     # doesn't block strict typing.
     openai: OpenAISettings = Field(default_factory=lambda: OpenAISettings.model_validate({}))
+    providers: ModelProviderSettings = Field(default_factory=lambda: ModelProviderSettings.model_validate({}))
     runner: RunnerSettings = Field(default_factory=lambda: RunnerSettings.model_validate({}))
     runtime: RuntimeSettings = Field(default_factory=lambda: RuntimeSettings.model_validate({}))
-    checkpoint: CheckpointSettings = Field(default_factory=lambda: CheckpointSettings.model_validate({}))
     events: EventsSettings = Field(default_factory=lambda: EventsSettings.model_validate({}))
     control: ControlSettings = Field(default_factory=lambda: ControlSettings.model_validate({}))
     session: SessionSettings = Field(default_factory=lambda: SessionSettings.model_validate({}))
@@ -570,11 +470,8 @@ _RETIRED_ENV_NAMES: Mapping[str, str] = {
     "AGENTDECK_EVENTS_URL": "AGENTDECK_EVENTS",
     "AGENTDECK_CONTROL_BACKEND": "AGENTDECK_CONTROL",
     "AGENTDECK_CONTROL_URL": "AGENTDECK_CONTROL",
-    "AGENTDECK_CHECKPOINT_BACKEND": "AGENTDECK_CHECKPOINT",
-    "AGENTDECK_CHECKPOINT_URL": "AGENTDECK_CHECKPOINT",
     "AGENTDECK_SESSION_REDIS_URL": "AGENTDECK_SESSION",
     "AGENTDECK_LANGFUSE_HOST": "AGENTDECK_LANGFUSE_BASE_URL",
-    "APP_CONFIG_PATH": "AGENTDECK_CONFIG_PATH",
 }
 
 
@@ -603,8 +500,7 @@ def _refuse_retired_env_names() -> None:
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    # Existing process env wins (override=False) so docker-compose / CI exports keep
-    # priority over the file; a missing file is a silent no-op.
+    # Existing process env wins so docker-compose and CI exports outrank the project .env.
     load_dotenv(resolve_env_file(), override=False)
     _refuse_retired_env_names()
     return Settings()
@@ -615,15 +511,13 @@ def reset_settings_cache() -> None:
 
 
 __all__ = [
-    "PACKAGED_DEFAULT_YAML",
-    "CheckpointSettings",
     "ControlSettings",
     "EventsSettings",
     "LangfuseSettings",
+    "ModelProviderSettings",
     "OpenAISettings",
     "RunnerSettings",
     "RuntimeSettings",
-    "SectionedYamlSource",
     "SessionSettings",
     "Settings",
     "TavilySettings",
@@ -631,6 +525,5 @@ __all__ = [
     "get_settings",
     "parse_backend_url",
     "reset_settings_cache",
-    "resolve_config_path",
     "resolve_env_file",
 ]

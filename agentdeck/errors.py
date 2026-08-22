@@ -38,7 +38,7 @@ class ConfigError(AgentdeckError):
 
 
 class ContextTypeError(ConfigError):
-    """A callable requires a ``Context[T]`` this deck's declared context type cannot satisfy.
+    """A callable requires a ``ToolCtx[T]`` this deck's declared context type cannot satisfy.
 
     A configuration error rather than a kind of its own: it is raised at ``Deck.build()``,
     alongside every other "this catalog does not hold together" refusal, and a caller already
@@ -66,6 +66,17 @@ class RunStateError(AgentdeckError):
     ``run_id`` off a stream it was watching has no other way to find out which one that is. A
     refusal that came from a pending signal names none, deliberately: with a pause outstanding
     every verb is refused, so there is no path to point at (``docs/design/run-lifecycle.md``).
+    """
+
+
+class UnsupportedControlError(AgentdeckError):
+    """A lifecycle control this run can never be given, as opposed to one its state refuses now.
+
+    Two causes, one meaning for a caller: the engine behind the run does not suspend, or this
+    deck has no control backend to record a signal in. Neither is a race to retry  -  the same
+    call in the same deployment will refuse again, so what has to change is the target or the
+    configuration, which the message names. A refusal that *is* about the state is
+    :class:`RunStateError`, and ``run.can`` is how a caller avoids both.
     """
 
 
@@ -117,4 +128,5 @@ __all__ = [
     "SessionBusyError",
     "SkillError",
     "StoreError",
+    "UnsupportedControlError",
 ]

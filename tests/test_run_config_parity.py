@@ -22,9 +22,12 @@ from typing import TYPE_CHECKING, Any
 import certifi
 import httpx
 import pytest
-from agents import Agent, OpenAIProvider
+from agents import Agent, MultiProvider
 
-from agentdeck.adapters.engines.openai_agents.runconfig import build_handoff_ends_on_user_turn_mapper, build_run_config
+from agentdeck.adapters.executors.openai_agents.runconfig import (
+    build_handoff_ends_on_user_turn_mapper,
+    build_run_config,
+)
 from agentdeck.authoring.runners.agent import HeadlessRunner
 from agentdeck.composition import resolve_run_settings
 from agentdeck.runtime.settings import reset_settings_cache
@@ -45,6 +48,10 @@ _SETTINGS_ENV = {
     "OPENAI_BASE_URL": "https://gateway.invalid/v1",
     "OPENAI_CA_BUNDLE": "",
     "OPENAI_USE_RESPONSES": "true",
+    "ANTHROPIC_API_KEY": "anthropic-parity-key",
+    "GEMINI_API_KEY": "gemini-parity-key",
+    "OLLAMA_BASE_URL": "http://ollama.invalid/v1",
+    "OPENROUTER_API_KEY": "openrouter-parity-key",
     "AGENTDECK_RUNNER_WORKFLOW_NAME": "parity-flow",
     "AGENTDECK_RUNNER_TEMPERATURE": "0.25",
     "AGENTDECK_RUNNER_MAX_TURNS": "7",
@@ -109,8 +116,9 @@ def _mapper_output(config: RunConfig) -> list[object] | None:
 def _fingerprint(config: RunConfig, max_turns: int) -> dict[str, object]:
     """A resolved run config as plain comparable values, SDK client objects excluded."""
     provider = config.model_provider
-    assert isinstance(provider, OpenAIProvider)
-    client = provider._get_client()
+    assert isinstance(provider, MultiProvider)
+    openai = provider.openai_provider
+    client = openai._get_client()
     return {
         "workflow_name": config.workflow_name,
         "model": config.model,
@@ -122,7 +130,7 @@ def _fingerprint(config: RunConfig, max_turns: int) -> dict[str, object]:
         "include_usage": config.model_settings.include_usage,
         "max_turns": max_turns,
         "model_provider": type(provider).__name__,
-        "use_responses": provider._use_responses,
+        "use_responses": openai._use_responses,
         "base_url": str(client.base_url),
         "api_key": client.api_key,
         "trusted_cas": _trusted_cas(client),
@@ -144,7 +152,7 @@ def _expected(**overrides: object) -> dict[str, object]:
         "max_tokens": 512,
         "include_usage": True,
         "max_turns": 7,
-        "model_provider": "OpenAIProvider",
+        "model_provider": "MultiProvider",
         "use_responses": True,
         "base_url": "https://gateway.invalid/v1/",
         "api_key": "parity-key",

@@ -164,3 +164,56 @@ def coerce_input(value: str | Input) -> Input:
     if isinstance(value, list) and all(isinstance(block, _BLOCK_TYPES) for block in value):
         return list(value)
     raise TypeError(f"expected str or list[ContentBlock], got {type(value).__name__}")
+
+
+def as_answer(value: Any) -> Input | None:
+    """A resume answer as content blocks, so the log holds the answer and not merely the fact
+    that one arrived.
+
+    Content stays content  -  the field's own type, so an approval typed at an inbox is the
+    ``TextBlock`` it was sent as rather than a data block wrapping one. Everything else is JSON
+    data, which is what a caller answering over HTTP or resuming with a structured object
+    actually sends.
+
+    A value JSON cannot carry raises. The log is what the executor reads the answer back from
+    (``docs/design/execution-api.md``), so a value the log cannot hold is not an answer that
+    merely goes unrecorded: it is an answer nothing can act on.
+    """
+    if value is None:
+        return None
+    # `[]` reaches coerce_input's list branch vacuously, and recording it as content with no
+    # blocks would say an answer arrived and was blank. It is the empty JSON array: an answer.
+    # A type check, not a comparison: `!=` runs the caller's own `__ne__`, and an array-like
+    # answer (ndarray, Series) returns elementwise and then raises on `bool()`.
+    if not (isinstance(value, list) and not value):
+        try:
+            return coerce_input(value)
+        except TypeError:
+            pass
+    try:
+        return [DataBlock(data=value)]
+    except ValidationError as invalid:
+        raise ValueError(
+            f"an answer of type {type(value).__name__} cannot be recorded, and an answer the log "
+            "cannot hold is one no resume can read back. Pass something JSON can carry: a string, "
+            "a number, a bool, a list or a dict."
+        ) from invalid
+
+
+def answer_of(blocks: Input | None) -> Any:
+    """The inverse of :func:`as_answer`: what the caller passed, read back off the log.
+
+    One block decides it, because that is what :func:`as_answer` produces for every value that
+    is not already content: a data block is its own data, and a lone text block is the string
+    it was made from. Anything else is content a caller handed in as content, and comes back as
+    the blocks it was.
+    """
+    if not blocks:
+        return None
+    if len(blocks) == 1:
+        match blocks[0]:
+            case DataBlock(data=data):
+                return data
+            case TextBlock(text=text):
+                return text
+    return blocks

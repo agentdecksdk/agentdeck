@@ -16,7 +16,6 @@ module alias, so two live decks in one process read each other's bundles.
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 import pytest
@@ -35,8 +34,6 @@ def test_the_examples_directory_has_not_moved() -> None:
     assert [p.name for p in DECKS] == [
         "agent-with-a-skill",
         "chat-agent-with-a-tool",
-        "existing-langgraph-agent",
-        "workflow-with-an-approval",
     ]
 
 
@@ -63,42 +60,6 @@ def test_the_skill_example_declares_an_agent_holding_its_skill() -> None:
     assert deck.agents["HandoverDesk"].skills == ("shift-notes",)
     assert deck.skills is not None, "the example declares a skill, so discovery must have found a root"
     assert sorted(deck.skills.build()) == ["shift-notes"]
-
-
-def test_the_approval_example_declares_a_durable_workflow() -> None:
-    """``durable=True`` is what gives the workflow a checkpointer, and without one ``interrupt()``
-    raises instead of parking the run  -  the example's whole subject.
-    """
-    deck = Deck.from_project(EXAMPLES / "workflow-with-an-approval" / ".agentdeck").build()
-    assert sorted(deck.workflows) == ["RefundApproval"]
-    assert deck.workflows["RefundApproval"].durable is True
-
-
-def test_the_wrapping_example_declares_a_workflow_over_a_graph_it_did_not_write() -> None:
-    """The example's whole claim is that the graph module stays agentdeck-free, so assert that
-    rather than only that the deck builds: an import added to ``pipeline.py`` would leave every
-    other check here green while making the README false.
-    """
-    example = EXAMPLES / "existing-langgraph-agent"
-    deck = Deck.from_project(example / ".agentdeck").build()
-    assert sorted(deck.workflows) == ["Triage"]
-    assert deck.workflows["Triage"].durable is False
-
-    # Imports, not a substring search: the module's own docstring names AgentDeck to say it does
-    # not depend on it, and that sentence is not the dependency the README promises is absent.
-    pipeline = ast.parse((example / ".agentdeck/workflows/triage/pipeline.py").read_text())
-    imported = {
-        name.split(".")[0]
-        for node in ast.walk(pipeline)
-        for name in (
-            [node.module or ""]
-            if isinstance(node, ast.ImportFrom)
-            else [a.name for a in node.names]
-            if isinstance(node, ast.Import)
-            else []
-        )
-    }
-    assert "agentdeck" not in imported, f"the example's 'existing' graph imports agentdeck: {sorted(imported)}"
 
 
 @pytest.mark.parametrize("example", DECKS, ids=lambda p: p.name)

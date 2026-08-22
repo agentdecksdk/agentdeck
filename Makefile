@@ -1,38 +1,61 @@
-.PHONY: install build test lint typecheck lint-imports coverage golden docs-reference roadmap-sync fmt clean check
+.PHONY: install build test lint typecheck lint-imports slop coverage golden docs-reference docs-impact roadmap-sync fmt clean check
+
+# An agent reads this gate's output, so a passing step says nothing and a failing one says only
+# what failed. 1,700 progress dots and 10 kept import contracts cost more attention than they
+# carry, and pytest's default traceback buries the assertion under frames nobody reads.
+# `make check V=1` restores every tool's own full output.
+V ?= 0
+LOG = $${TMPDIR:-/tmp}/agentdeck-$@.log
+ifeq ($(V),0)
+  E = @
+  PYTEST_ARGS = -q --no-header --tb=line -rf
+  QUIET = > $(LOG) 2>&1 && tail -2 $(LOG) | sed "/^[[:space:]]*$$/d; s/^/$@: /" \
+          || { tail -40 $(LOG); echo "(full output: make $@ V=1)"; exit 1; }
+else
+  E =
+  PYTEST_ARGS = -v --tb=short -ra
+  QUIET =
+endif
 
 install:        ## editable install with every extra the gate needs
 	# Every extra ci.yml installs, so `make check` locally runs the same tests CI does.
-	# `.[dev]` alone silently skipped serve, durability and observability — the whole
+	# `.[dev]` alone silently skipped serve, postgres and observability. The whole
 	# point of #142: a narrower install reads as a pass instead of as untested.
-	uv pip install -e ".[dev,serve,durability,observability]"
+	uv pip install -e ".[dev,serve,postgres,observability]"
 
 build:          ## sdist + wheel into dist/
 	uv build
 
 test:           ## run the test suite (includes the golden replay suite)
-	.venv/bin/pytest tests/ -q
+	$(E).venv/bin/pytest tests/ $(PYTEST_ARGS) $(QUIET)
 
+# examples/ too: they are code a reader copies, and nothing else in the gate reads them.
 lint:           ## ruff check
-	# examples/ too: they are code a reader copies, and nothing else in the gate reads them.
-	.venv/bin/ruff check agentdeck/ tests/ examples/
+	$(E).venv/bin/ruff check agentdeck/ tests/ examples/ $(QUIET)
 
 typecheck:      ## ty type check
-	.venv/bin/ty check agentdeck
+	$(E).venv/bin/ty check agentdeck $(QUIET)
 
 lint-imports:   ## import-linter contracts (.importlinter)
-	.venv/bin/lint-imports
+	$(E).venv/bin/lint-imports $(QUIET)
 
-coverage:       ## per-module coverage — audit input for #71/#131, not part of `make check`
+slop:           ## anti-slop gate on lines this branch adds vs origin/dev
+	$(E).venv/bin/python scripts/slopcheck.py --changed --base origin/dev $(QUIET)
+
+coverage:       ## per-module coverage: audit input for #71/#131, not part of `make check`
 	# Zero coverage is evidence a module *may* be dead, never proof: skill_runtime is
 	# copied into sandbox venvs and the crossrun tests run out-of-process, so both read
 	# as uncovered while being load-bearing. Corroborate with grep + the import graph.
 	.venv/bin/pytest tests/ -q --cov=agentdeck --cov-report=term-missing:skip-covered
 
-golden:         ## re-record the wire + schema snapshots — deliberate, never automatic
+golden:         ## re-record the wire + schema snapshots: deliberate, never automatic
 	AGENTDECK_GOLDEN_UPDATE=1 .venv/bin/pytest tests/golden tests/core -q
 
 docs-reference: ## regenerate the five generated docs-site files from the code
 	.venv/bin/python scripts/generate_docs_reference.py
+
+docs-impact: ## report which documentation pages this branch's source changes affect
+	$(E).venv/bin/python scripts/check_docs_impact.py --report
 
 roadmap-sync:   ## refresh the live-status tables in docs/delivery/ from GitHub (gh required)
 	.venv/bin/python scripts/sync_roadmap.py
@@ -45,7 +68,9 @@ eval-jack:      ## Jack, judged: relevancy and faithfulness beside the exact che
 	cd examples/jack && DEEPEVAL_TELEMETRY_OPT_OUT=YES \
 	  uv run --quiet --with deepeval --python 3.12 python -m evals.run $(ARGS)
 
-check: lint typecheck lint-imports test   ## full gate
+# docs-impact runs last and never fails: it is the one output of this gate that asks the reader
+# to go read something, so it has to be the last thing on screen rather than pytest's scrollback.
+check: lint typecheck lint-imports test slop docs-impact   ## full gate
 
 fmt:            ## ruff format + autofix
 	.venv/bin/ruff format agentdeck/ && .venv/bin/ruff check --fix agentdeck/

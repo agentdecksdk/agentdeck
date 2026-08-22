@@ -9,7 +9,7 @@ import subprocess
 import sys
 import textwrap
 
-from agentdeck.adapters.engines.openai_agents.sessions import ExecutionStore, SessionFactory
+from agentdeck.adapters.executors.openai_agents.sessions import ExecutionStore, SessionFactory
 from agentdeck.runtime.settings import SessionSettings
 
 
@@ -68,7 +68,7 @@ def test_importing_the_openai_agents_adapter_never_imports_redis():
         """
         import sys
         sys.modules["redis"] = None
-        import agentdeck.adapters.engines.openai_agents
+        import agentdeck.adapters.executors.openai_agents
         assert "agents.extensions.memory.redis_session" not in sys.modules
         print("imported without redis")
         """
@@ -82,12 +82,12 @@ def test_importing_the_openai_agents_adapter_never_imports_redis():
 def test_a_redis_session_without_the_extra_names_the_install_command():
     """Selecting `AGENTDECK_SESSION=redis://...` without the `[redis]` extra must fail with an
     agentdeck error naming the install command, not a raw `ModuleNotFoundError`  -  the same
-    contract the durability extras already give a missing sqlite/postgres saver."""
+    contract the postgres extra already gives a missing saver."""
     probe = textwrap.dedent(
         """
         import sys
         sys.modules["redis"] = None
-        from agentdeck.adapters.engines.openai_agents.sessions import SessionFactory
+        from agentdeck.adapters.executors.openai_agents.sessions import SessionFactory
         from agentdeck.runtime.settings import SessionSettings
         try:
             SessionFactory.from_settings(SessionSettings(url="redis://localhost:6379/0"))

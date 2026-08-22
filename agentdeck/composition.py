@@ -7,7 +7,7 @@ everywhere instead of hand-wired per caller. A second front door (a code-first `
 becomes another caller of this function rather than a second assembly.
 
 Only the parts a caller actually varies are arguments; the rest resolve from settings. That
-resolution happens *here*, never inside an adapter: an engine that reached for
+resolution happens *here*, never inside an adapter: an executor that reached for
 ``get_settings()`` itself could not be handed a different endpoint by a caller, and a second
 front door would have to mutate process state to get one. The ``resolve_*`` functions below
 are what an entry point calls to fill an adapter's constructor in.
@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 from agentdeck.adapters.control.memory import MemoryControlPort
 from agentdeck.adapters.control.sqlite import SqliteControlPort
-from agentdeck.adapters.engines.openai_agents.runconfig import RunSettings
+from agentdeck.adapters.executors.openai_agents.runconfig import RunSettings
 from agentdeck.adapters.leases.memory import MemoryLeasePort
 from agentdeck.adapters.leases.sqlite import SqliteLeasePort
 from agentdeck.adapters.stores.memory import MemoryEventStore
@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from datetime import timedelta
 
     from agentdeck.core.invocable import InvocableSpec
-    from agentdeck.core.ports import ControlPort, EnginePort, EventSinkPort, EventStorePort, LeasePort
+    from agentdeck.core.ports import ControlPort, EventStorePort, Executor, LeasePort, Observer
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +51,14 @@ _STORE_DOCS = f"{DOCS_URL}/reference/settings"
 
 def build_runtime(
     *,
-    engines: Sequence[EnginePort],
+    executors: Sequence[Executor],
     invocables: Mapping[str, InvocableSpec] | None = None,
     store: EventStorePort | None = None,
-    sinks: Sequence[EventSinkPort] = (),
+    sinks: Sequence[Observer] = (),
     control: ControlPort | None = None,
     stale_run_after: timedelta | None = None,
 ) -> Runtime:
-    """Wire ``engines`` into a Runtime over the project's invocables.
+    """Wire ``executors`` into a Runtime over the project's invocables.
 
     ``invocables`` defaults to discovery over ``./.agentdeck``  -  pass a mapping to run
     specs built in code instead. ``store`` defaults to the configured event store,
@@ -79,14 +79,14 @@ def build_runtime(
     read their backend's clock so that N workers on one database compare one clock rather
     than N.
     """
-    engines = tuple(engines)
-    specs = InvocableRegistry(engines).load() if invocables is None else invocables
+    executors = tuple(executors)
+    specs = InvocableRegistry(executors).load() if invocables is None else invocables
     store = store or resolve_event_store()
     control = control or resolve_control_port()
     if stale_run_after is None:
         stale_run_after = get_settings().runtime.stale_run_after
     return Runtime(
-        engines,
+        executors,
         store,
         specs,
         sinks=sinks,
@@ -97,21 +97,21 @@ def build_runtime(
     )
 
 
-def resolve_observers() -> tuple[EventSinkPort, ...]:
+def resolve_observers() -> tuple[Observer, ...]:
     """The observers a Deck opens when its caller named none: Langfuse, if configured.
 
-    Nothing is built here either  -  :class:`~agentdeck.observers.Langfuse` reads its settings
-    and constructs its client in ``start()``, which the Deck calls as it opens. This function
-    only answers "did the environment ask for one?", so it stays as free of network and of the
-    optional ``[observability]`` extra as the rest of ``build()``'s path.
+    Nothing is built here either  -  :class:`~agentdeck.observers.LangfuseObserver` reads its
+    settings and constructs its client in ``start()``, which the Deck calls as it opens. This
+    function only answers "did the environment ask for one?", so it stays as free of network and
+    of the optional ``[observability]`` extra as the rest of ``build()``'s path.
 
     One observer today, and the shape stays plural: the Runtime already fans out to as many
     taps as it is given, and a caller with a cost or audit observer of its own passes
     ``observers=`` to ``Deck`` instead of coming through here.
     """
-    from agentdeck.observers import Langfuse
+    from agentdeck.observers import LangfuseObserver
 
-    return (Langfuse(),) if get_settings().langfuse.enabled else ()
+    return (LangfuseObserver(),) if get_settings().langfuse.enabled else ()
 
 
 def resolve_run_settings(settings: Settings | None = None) -> RunSettings:
@@ -128,6 +128,10 @@ def resolve_run_settings(settings: Settings | None = None) -> RunSettings:
         api_key=resolved.openai.api_key,
         base_url=resolved.openai.base_url,
         ca_bundle=resolved.openai.ca_bundle,
+        anthropic_api_key=resolved.providers.anthropic_api_key,
+        gemini_api_key=resolved.providers.gemini_api_key,
+        ollama_base_url=resolved.providers.ollama_base_url,
+        openrouter_api_key=resolved.providers.openrouter_api_key,
         use_responses=default_use_responses(),
         workflow_name=resolved.runner.workflow_name,
         nest_handoff_history=True,
@@ -137,22 +141,6 @@ def resolve_run_settings(settings: Settings | None = None) -> RunSettings:
         max_tokens=resolved.runner.max_tokens,
         max_turns=resolved.runner.max_turns,
     )
-
-
-def resolve_checkpoint(settings: Settings | None = None) -> tuple[str, str]:
-    """The ``(backend, path_or_dsn)`` a durable workflow checkpoints to, derived from
-    ``AGENTDECK_CHECKPOINT``'s scheme.
-
-    A pair of strings, not a saver: the postgres saver lives in the ``[durability]`` extra, so
-    naming a backend here must not import one  -  the langgraph adapter builds it at the first
-    durable run and not before. ``postgresql`` normalizes to the backend name
-    ``resolve_checkpointer`` expects (``postgres``); sqlite's own value is the bare path after
-    the scheme, since the saver takes a filesystem path, not a URL.
-    """
-    checkpoint = (settings if settings is not None else get_settings()).checkpoint
-    scheme, rest = parse_backend_url(checkpoint.url)
-    backend = "postgres" if scheme == "postgresql" else scheme
-    return backend, rest if backend == "sqlite" else checkpoint.url
 
 
 def resolve_control_port(settings: ControlSettings | None = None) -> ControlPort:
@@ -218,7 +206,7 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
     ``sqlite://<path>``, ``redis://``/``rediss://<url>``, or ``postgresql://<dsn>``.
 
     The last two are imported inside their own branch, not at module scope: this module is on
-    the import path of every entry point, and Postgres needs the ``[durability]`` extra and
+    the import path of every entry point, and Postgres needs the ``[postgres]`` extra and
     Redis the ``[redis]`` extra, so a top-level import would make either mandatory for anyone
     who only chats.
     """
@@ -249,8 +237,8 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
             from agentdeck.adapters.stores.postgres import PostgresEventStore
         except ImportError as exc:
             raise ImportError(
-                'the postgres event store needs psycopg  -  install the "durability" extra: '
-                f'pip install "agentdeck-sdk[durability]"  -  see {_STORE_DOCS}'
+                'the postgres event store needs psycopg  -  install the "postgres" extra: '
+                f'pip install "agentdeck-sdk[postgres]"  -  see {_STORE_DOCS}'
             ) from exc
         return PostgresEventStore(events.url)
     raise ValueError(
@@ -261,7 +249,6 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
 
 __all__ = [
     "build_runtime",
-    "resolve_checkpoint",
     "resolve_control_port",
     "resolve_event_store",
     "resolve_lease_port",

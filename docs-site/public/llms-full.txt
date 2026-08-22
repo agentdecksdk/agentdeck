@@ -2,13 +2,12 @@
 
 AgentDeck SDK is a Python harness for agents you have to operate. You write agents, workflows and
 skills as small declarations in a `.agentdeck/` directory; AgentDeck supplies everything around
-them  -  discovery, layered settings, sessions, streaming, MCP servers, durable human-in-the-loop
+them: discovery, layered settings, sessions, streaming, MCP servers, human-in-the-loop
 approvals, run control, and one ordered event log per run.
 
-It wraps the OpenAI Agents SDK and LangGraph rather than replacing them: an `Agent` compiles to an
-SDK agent, a `Workflow` compiles to a LangGraph graph, and each is executed by its own engine.
-AgentDeck owns configuration; the engines own execution. There is no agent loop here and no graph
-engine of its own.
+It executes native `@workflow` and `@tool` targets alongside the OpenAI Agents SDK for agents:
+an `Agent` compiles to an SDK agent, and a `@workflow` is ordinary Python awaited by AgentDeck's
+own executor. AgentDeck owns configuration and orchestration, and there is no agent loop here.
 
 Use it when the wiring around an agent has become the work: several agents and workflows in one
 project, a chat surface and a batch path over the same definitions, runs you must inspect
@@ -102,13 +101,14 @@ options:
 
 # Deck
 
-*The composition root  -  builds a catalog from Agent/Workflow objects or a project directory, and runs every turn on it.*
+*The composition root  -  builds a catalog from Agent objects and @workflow definitions or a project directory, and runs every turn on it.*
 Source: https://agentdecksdk.com/reference/deck
 
 # Deck
 
-`Deck` is the one object a project talks to. Build it directly from `Agent`/`Workflow` objects,
-or discover the same catalog from a project directory with `Deck.from_project()`  -  either way it
+`Deck` is the one object a project talks to. Build it directly from `Agent` objects and
+`@workflow` definitions, or discover the same catalog from a project directory with
+`Deck.from_project()`  -  either way it
 is the composition root: every turn started through it plays on the same
 [Runtime](/runs-and-control/events) the HTTP surface runs chats on, and is recorded the
 same way.
@@ -138,14 +138,14 @@ asyncio.run(main())
 
 ## Construction and lifecycle
 
-```python
+```python illustrative reason="a signature sketch, not a runnable call"
 Deck(
     agents=[...],                   # Agent instances
-    workflows=[...],                # Workflow instances
+    workflows=[...],                # @workflow definitions
     skills="./skills",              # a path, a sequence of paths, or a Skills(...) object
     mcp=".mcp.json",                # a path, or an MCP(...) object
     context=Calendar,               # the *type* of the per-run context, if this catalog wants one
-    observers=[Langfuse()],         # taps on the event stream; None reads settings, () means none
+    observers=[LangfuseObserver()],         # taps on the event stream; None reads settings, () means none
 )
 ```
 
@@ -156,8 +156,8 @@ there is one catalog mechanism underneath either front door.
 
 The lifecycle is `NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED`:
 
-- **`build()`** validates every name the catalog references (an unknown skill, MCP server, or
-  workflow-as-tool name; an agent and a workflow sharing a root name) and compiles every
+- **`build()`** validates every name the catalog references (an unknown skill or MCP server name;
+  an agent and a workflow sharing a root name) and compiles every
   agent/workflow to an `InvocableSpec`. It reads local files only  -  no network call, no MCP
   server started  -  and is idempotent, so it doubles as a CI check. Calling a turn-starting method
   without an explicit `build()` still works  -  `async with deck:` calls it for you.
@@ -197,11 +197,11 @@ a process per tenant.
 
 `context=` on the constructor is the **type** of the application context this catalog's callables
 receive. The value itself never goes here  -  it arrives per run, on `run`/`stream`/`answer`/`resume`
-below. Declaring the type is what lets `build()` check it against every `Context[...]` parameter in
+below. Declaring the type is what lets `build()` check it against every `ToolCtx[...]` parameter in
 the catalog before anything runs:
 
 ```python run
-from agentdeck import Agent, Context, ContextTypeError, Deck
+from agentdeck import Agent, ToolCtx, ContextTypeError, Deck
 
 
 class Calendar:
@@ -213,7 +213,7 @@ class Warehouse:
     """A different application environment entirely."""
 
 
-def find_slots(day: str, environment: Context[Calendar]) -> str:
+def find_slots(day: str, environment: ToolCtx[Calendar]) -> str:
     """Find free appointment slots on a given day."""
     return environment.data.find(day)
 
@@ -226,9 +226,10 @@ except ContextTypeError as refused:
     print(refused)
 ```
 
-Every injection site is walked: an agent's tools, its `instructions=` callable, its `hooks=`
-methods, and every node of every workflow. The message names the callable (or the node, or the
-hook method), what it requires, and what the deck provides.
+Every injection site an agent compiles through is walked: its tools, its `instructions=`
+callable, and its `hooks=` methods. The message names the callable (or the hook method), what it
+requires, and what the deck provides. A `@workflow` body is not among them: it compiles without
+this check, so its own `WorkflowCtx[...]` requirement stands or falls when the body runs.
 
 What counts as compatible is what the *runtime* can decide, and nothing more:
 
@@ -236,12 +237,12 @@ What counts as compatible is what the *runtime* can decide, and nothing more:
 |---|---|
 | the exact declared type | compatible |
 | a supertype of it (the deck declares a subclass) | compatible |
-| `Context[Any]`, or a bare `Context` | compatible with anything |
+| `ToolCtx[Any]`, or a bare `ToolCtx` | compatible with anything |
 | a runtime ABC  -  `Mapping[str, Any]`, `Sequence[str]` | checked against the ABC, ignoring its parameters |
 | a `@runtime_checkable` protocol with only methods | checked structurally |
-| a union  -  `Context[Calendar \| None]` | compatible if any arm is |
+| a union  -  `ToolCtx[Calendar \| None]` | compatible if any arm is |
 | a protocol `issubclass` refuses to rule on, a `TypeVar` | **deferred**  -  accepted here, decided at invocation |
-| an already-built SDK tool object, a node whose signature cannot be read | **deferred**  -  nothing to introspect |
+| an already-built SDK tool object, a callable whose signature cannot be read | **deferred**  -  nothing to introspect |
 
 `build()` is not a partial type checker and does not try to become one. Where no runtime answer
 exists it accepts and lets the requirement stand or fall when the callable actually runs  -
@@ -259,22 +260,22 @@ defer and the parameter would promise something it never delivered.
 
 | Method | Signature | Returns |
 |---|---|---|
-| `run` | `(name, input, *, context=None, session_id=None, namespace=None, key=None)` | `TurnResult` for an agent; the final state (or an `InterruptResult`) for a workflow |
+| `run` | `(name, input, *, context=None, session_id=None, namespace=None, key=None)` | `TurnResult` for an agent; the workflow's own result (or an `InterruptResult`) for a workflow |
 | `stream` | `(name, input, *, context=None, session_id=None, namespace=None, key=None)` | `AsyncGenerator[Event]`  -  the run's own canonical events, live |
 | `runs.start` | `(name, input, *, context=None, session_id=None, namespace=None, key=None)` | a [`Run`](#run) handle  -  the same admission as `run`/`stream`, without waiting for or reading it |
 
 `run`/`stream`/`runs.start` resolve `name` against whichever catalog holds it  -  an agent or a
 workflow  -  and play it on the Runtime, recorded exactly as `POST /agents/{name}/chat` or
-`POST /workflows/{name}` would record it. Pass `session_id=` for a conversational agent turn (same
-id, same history across calls) or a durable workflow's `thread_id` (required when that workflow is
-`durable = True`, so a later call with the same id resumes it). `key=` is an optional stable
+`POST /workflows/{name}` would record it. Pass `session_id=` for a conversational agent turn: the
+same id means the same history across calls. `key=` is an optional stable
 application identifier  -  for lookup (`runs.get(namespace=, key=)`) and idempotency, never the
 run's address: the run's own `id` is always minted, never derived from it, and reusing a
 `(namespace, key)` pair whose run already started raises `DuplicateKeyError` naming the run that
-holds it, rather than replaying that run. A node that calls `interrupt()` makes a workflow's `run`
-return an `InterruptResult`  -  `{"type": "interrupt", "payload": ..., "thread_id": ..., "id": ...}`
- -  instead of a final state; see [Workflows](/build-your-deck/workflows) for what that means for the node
-that paused, and answer it with the handle its own `id` names, [below](#run).
+holds it, rather than replaying that run. A body that calls `ctx.ask(...)` makes a workflow's `run`
+return an `InterruptResult`  -  `{"type": "interrupt", "payload": ..., "thread_id": "", "id": ...}`
+ -  instead of its return value; see [Workflows](/build-your-deck/workflows) for what that means for
+the body that paused, and answer it with the handle its own `id` names, [below](#run). Address the
+run by `id`: `thread_id` is vestigial, and no executor produces one.
 
 ### What `input` accepts
 
@@ -282,9 +283,11 @@ For an **agent** turn: a `str`  -  the common case, and unchanged  -  or a **lis
 which is how a turn carries anything that is not text. A string is coerced to one `text` block on
 the way in, so the two forms meet as the same thing before any engine sees them.
 
-For a **workflow**, `input` is its initial state  -  the mapping its first node reads, e.g.
-`deck.run("RefundApproval", {"order_id": "A-1003"})`. It is JSON data, not content, and the log
-records it as one `data` block; see [Workflows](/build-your-deck/workflows) for what a node does with it.
+For a **workflow**, `input` binds to the body's own parameters the way calling it would: a mapping
+binds by name and must name exactly them, e.g.
+`deck.run("RefundApproval", {"order_id": "A-1003"})`, while a body declaring one parameter takes
+whatever it was given whole. It is JSON data, not content, and the log records it as one `data`
+block; see [Workflows](/build-your-deck/workflows) for what a body does with it.
 
 | Block | Fields | For |
 |---|---|---|
@@ -313,29 +316,31 @@ for the life of that run. Anything larger belongs in a `ResourceBlock`.
 An engine that cannot express a block raises `ConfigError` naming the block type, rather than
 dropping it  -  a turn that silently loses its image is worse than one that refuses. Two known
 limits on the openai-agents engine at the pinned `openai-agents==0.17.0`: `AudioBlock` needs the
-Chat-Completions path (`OPENAI_USE_RESPONSES=false`), and `ResourceBlock` is not sent to the model
-at all  -  a `uri` is a pointer, not content, and the engine never fetches it. `DataBlock` **is**
+Chat-Completions path (`OPENAI_USE_RESPONSES=false`), and `ResourceBlock` is refused rather than
+sent  -  a `uri` is a pointer, not content, and the engine never fetches it, so sending the URI
+alone would risk a caller believing the model saw bytes it never received. Read the resource and
+send its bytes as a text, image, audio or data block instead. `DataBlock` **is**
 sent: it renders as its own part, `json.dumps(data, ensure_ascii=False)` with nothing wrapped
 around it, since it is already a separate entry in the model's content list rather than text
 concatenated into a caller's own prompt.
 
 `stream` yields the same `Event` objects a run's log would hand back after the fact  -  `text.delta`
-per token for an agent, `node.updated` per completed node for a workflow, a terminal event last  -
+per token for an agent, a terminal event last  -
 not a rendered wire format. This is the one method here that does not return a `TurnResult`,
 because a caller that wants the final answer out of a stream has to fold it from the events, the
 same way any other consumer of the log would.
 
 `context=` supplies the application's own environment for one run  -  a database handle, a client,
 whatever the code the run reaches needs. A tool, a dynamic-instructions callable, an agent hook
-or a workflow node that declares an `agentdeck.Context` parameter receives it as `ctx.data`, by
+or a `@workflow` body that declares an `agentdeck.ToolCtx` parameter receives it as `ctx.data`, by
 reference; see [Definitions](/reference/python-api) for how each declares one. Both engines
 carry it, through their own native runtime-context channel rather than anything agentdeck
 invented. Three things it deliberately is not: the model never sees it (the context parameter is
 absent from the tool schema), it is never written to the event log, and it cannot cross the HTTP
 surface  -  a live Python object has no wire form, so a context-requiring root is reachable from an
-embedded Python caller and not from `asgi()`. That boundary and three others are set out under
+embedded Python caller and not from `asgi()`. That boundary and two others are set out under
 [Where a context does not reach](#where-a-context-does-not-reach) below; read it before you build
-one into a served or timer-driven path.
+one into a served path.
 
 `type(event)` is always `Event`  -  it is the envelope, not the discriminator. Switch on
 `event.payload` (a `match` narrows it to `TextDelta`, `MessageCompleted`, `RunCompleted`, …, see
@@ -408,13 +413,14 @@ two handles on one run always agree: the durable store is the only thing either 
 | Method | Signature | Behavior |
 |---|---|---|
 | `status` | `() -> RunStatus` | this run's current status, folded from its own events |
-| `pause` | `(reason=None) -> bool` | ask it to stop at its next safe point; `False` means no control backend is configured |
-| `resume` | `() -> None` | continue a paused run; a no-op if it is not, in fact, paused |
-| `cancel` | `(reason=None) -> bool` | ask it to stop for good; a suspended run ends immediately rather than waiting for a safe point |
+| `can` | `Controls` | `can.pause`, `can.resume`, `can.cancel`  -  a plain attribute, read off the status this handle last saw |
+| `pause` | `(reason=None) -> None` | ask it to stop at its next safe point; `UnsupportedControlError` when no control backend is configured |
+| `resume` | `() -> None` | continue a paused run; `RunStateError` when it is waiting for an answer instead |
+| `cancel` | `(reason=None) -> None` | ask it to stop for good; a suspended run ends immediately rather than waiting for a safe point |
 | `pending` | `() -> InterruptResult \| None` | what it is waiting to be answered about, or `None` if it is not `WAITING_ANSWER` |
 | `answer` | `(value) -> None` | answer the interrupt it is paused on |
 | `events` | `(*, from_seq=0, follow=False) -> AsyncIterator[Event]` | this run's own events  -  a snapshot by default, tailed live with `follow=True` |
-| `await run` | | the result: a `TurnResult` for an agent, the graph's own state for a workflow |
+| `await run` | | the result: a `TurnResult` for an agent, the body's own return value for a workflow |
 
 ```python no-test reason="needs a live Run from runs.start/get"
 await run.pause("operator stepped away")
@@ -453,22 +459,9 @@ A caller who wants to wait polls `status()`/`pending()` instead of awaiting.
 `context=` is retained on the handle `runs.start()` returned, for that handle's whole life  -
 `resume()` and `answer()` reuse it rather than taking one again. A handle recovered through
 `runs.get()` carries no context at all, since it was never written to the log, so `resume()`/
-`answer()` on it always resupply `None`  -  a node that read `ctx.data` before the pause or
-interrupt reads `None` on that replay.
-
-**The timer sweep (`sleep_until`'s wake-up) is internal, but it runs on its own  -  no cron or
-scheduler required.** An open `Deck` sweeps for its own lifetime: started in `__aenter__`,
-cancelled in `__aexit__`, on an interval set by `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS`
-(30 seconds by default). It reads each workflow's own checkpointer rather than the Runtime's log,
-deliberately: the checkpoint backend defaults to durable (`sqlite`) while the event store
-defaults to `memory`, and listing off the log alone would stop surviving a process restart under
-that default pairing. Its resume goes through the Runtime whenever a due thread matches a run
-`deck.runs.list(status=RunStatus.WAITING_ANSWER)` already knows about  -  closing that run's log
-entry and freeing its session claim, the same as `Run.answer()` does  -  and carries no context,
-for the same reason a handle from `runs.get()` has none: see
-[below](#where-a-context-does-not-reach). A process that opens the deck, takes a turn and closes
-within one interval never sweeps at all  -  the deadline fires on whoever next holds the deck open
-past that.
+`answer()` on it always resupply `None`. A suspended `@workflow` body is unaffected by that: it
+is parked in memory with the `ctx` it already holds, so it reads the original value when it
+continues on its next line.
 
 ## Serving over HTTP
 
@@ -498,25 +491,35 @@ A context is a live Python object with no wire form, so an HTTP-started run alwa
 
 The event log is the hub. An **observer** is a read-only tap on it  -  telemetry, cost accounting,
 audit  -  and a deck can have as many as it likes. `observers=` is where they are declared, and
-they start with the deck.
+they start with the deck. `agentdeck.observers` ships three: `LangfuseObserver`, and two
+deliberately plain ones for local development, `ConsoleObserver` (one line printed per event) and
+`FileObserver` (one JSON line appended per event)  -  neither takes any formatting or rotation
+option, so reach for your own observer once you need one.
 
 ```python
-from agentdeck import Deck
-from agentdeck.observers import Langfuse
+from agentdeck import Deck, views
+from agentdeck.observers import ConsoleObserver, LangfuseObserver
 
-deck = Deck(agents=[booking], observers=[Langfuse()])
+deck = Deck(
+    agents=[booking],
+    observers=[ConsoleObserver(view=views.chat | views.reports), LangfuseObserver()],
+)
 
 async with deck:                      # every observer starts here, once, before any run
     await deck.run("booking", "hi")   # never mid-run
 ```
 
+`view=` narrows what an observer receives to a subset of the stream. `agentdeck.views` has one
+predicate per concern  -  `chat`, `tools`, `reports`, `lifecycle`, `errors`, `usage`  -  plus `all`,
+composable with `|`, `&` and `~`. An observer given no `view=` sees everything.
+
 | `observers=` | What starts |
 |---|---|
-| *(omitted, or `None`)* | The configured `Langfuse()` observer if `AGENTDECK_LANGFUSE_PUBLIC_KEY` and `AGENTDECK_LANGFUSE_SECRET_KEY` are both set (see [Settings](/reference/settings)); nothing otherwise, with no warning. |
-| `[observer, …]` | Exactly these, in order. Naming any observer suppresses the settings-derived `Langfuse()`  -  a deck told which taps to open does not open another behind your back, so include it explicitly if you want it alongside your own. |
+| *(omitted, or `None`)* | The configured `LangfuseObserver()` observer if `AGENTDECK_LANGFUSE_PUBLIC_KEY` and `AGENTDECK_LANGFUSE_SECRET_KEY` are both set (see [Settings](/reference/settings)); nothing otherwise, with no warning. |
+| `[observer, …]` | Exactly these, in order. Naming any observer suppresses the settings-derived `LangfuseObserver()`  -  a deck told which taps to open does not open another behind your back, so include it explicitly if you want it alongside your own. |
 | `()` | None at all, even where the environment configures Langfuse. |
 
-`Langfuse()` is configured entirely by `AGENTDECK_LANGFUSE_*`, so there is one place to set the
+`LangfuseObserver()` is configured entirely by `AGENTDECK_LANGFUSE_*`, so there is one place to set the
 endpoint, environment, sample rate and service name rather than two. Naming it with no keys
 configured raises `ConfigError` at open, rather than tracing nothing quietly.
 
@@ -528,7 +531,7 @@ configured raises `ConfigError` at open, rather than tracing nothing quietly.
 | **raw** (`sdk_spans=True`) | OpenInference maps every agent, generation and tool call the Agents SDK makes, with its input and output  -  detail the event log does not record. |
 
 ```python
-deck = Deck(agents=[booking], observers=[Langfuse(sdk_spans=True)])
+deck = Deck(agents=[booking], observers=[LangfuseObserver(sdk_spans=True)])
 ```
 
 **The raw layer arrives as a second, separate trace per run  -  it is not nested under the first.**
@@ -541,13 +544,13 @@ what a tool actually received  -  and leave it off when you want one clean trace
 
 ### Writing your own
 
-An observer implements `EventSinkPort`  -  one required method, two optional lifecycle hooks:
+An observer implements `Observer`  -  one required method, two optional lifecycle hooks:
 
 ```python
-from agentdeck.core.ports import EventSinkPort
+from agentdeck.core.ports import Observer
 
 
-class CostObserver(EventSinkPort):
+class CostObserver(Observer):
     async def start(self) -> None:
         ...   # open a client or a file; called once, at deck open, before any run
 
@@ -564,7 +567,7 @@ an observer which silently never worked.
 
 The lifecycle is the one the rest of the deck follows:
 
-- **`build()`** checks that everything in `observers=` is an `EventSinkPort` and does nothing
+- **`build()`** checks that everything in `observers=` is an `Observer` and does nothing
   else. Nothing is started, no telemetry client is constructed, no exporter contacted  -  so a deck
   with Langfuse configured still validates in CI with nothing reachable.
 - **Opening** calls each `start()` in order and registers every observer before the Runtime
@@ -580,14 +583,14 @@ retried. An observer that cannot afford to lose an event reads the store instead
 One run is one trace. Traces are rendered from the [canonical event
 stream](/runs-and-control/events), which is why an agent turn and a workflow run are
 traced by the same code and both carry their `session_id`  -  nothing instruments the OpenAI
-Agents SDK, and nothing opens a span outside an observer. A direct `Workflow.run()`, which
+Agents SDK, and nothing opens a span outside an observer. A direct `Agent.run()`, which
 bypasses the Runtime, therefore bypasses the observers too.
 
 There is no `deck.observers` property, for the same reason there is no `runtime` or `store`:
 nothing needs one, and adding a property later is additive while removing one is not.
 
 <Callout type="info">
-  `Langfuse()` needs the `observability` extra: `pip install "agentdeck-sdk[observability]"`. Without
+  `LangfuseObserver()` needs the `observability` extra: `pip install "agentdeck-sdk[observability]"`. Without
   it, a deck with no Langfuse keys is unaffected  -  the SDK is imported when the observer starts,
   not when it is constructed.
 </Callout>
@@ -597,7 +600,7 @@ nothing needs one, and adding a property later is additive while removing one is
 `session_for(session_id)` returns the SDK conversation-memory session `run`/`stream` use for that
 id: Redis-backed when `AGENTDECK_SESSION` is set, an in-process SQLite session otherwise
 (lost on process exit). Pass `session_factory=` to `Deck(...)` to inject one  -  the seam tests use
-to swap in a fake wrapping `fakeredis` without a real Redis server.
+to swap in a fake without a real Redis server.
 
 <Callout type="info">
   A Redis-backed session needs the `redis` extra: `pip install "agentdeck-sdk[redis]"`. Without
@@ -607,7 +610,7 @@ to swap in a fake wrapping `fakeredis` without a real Redis server.
 
 ## Where a context does not reach
 
-Four boundaries, all of them consequences of the same fact: a context is a live Python object that
+Three boundaries, all of them consequences of the same fact: a context is a live Python object that
 is never serialized, so it exists only for as long as some caller is holding it.
 
 **A context cannot cross the HTTP surface at all.** There is no wire form for a live object, and
@@ -617,37 +620,25 @@ reachable from an embedded Python caller  -  `deck.run(...)`, a `Run` from `runs
 `None`. If a root needs a context, do not serve it; drive it from the process that holds the
 object.
 
-**The internal timer sweep cannot resume a context-requiring workflow.** The unsupported
-combination is specifically *`durable = True`* + a node that pauses on `sleep_until` + any node in
-that graph declaring `Context[T]`. The sweep's resume supplies no context  -  an autonomous resume
-has nobody present to supply one, and the original value was never written to the log or the
-checkpoint, so there is nothing to recover either. What actually happens is not an error: the
-thread resumes and the graph replays with `ctx.data` set to `None`. That surfaces wherever the
-node first touches it  -  an `AttributeError` on `None` if it reaches for an attribute, or, for a
-node written defensively as `if ctx.data:`, a plausible wrong answer and no failure at all. This is
-a real limitation, stated rather than worked around: there is no deck-level context
-provider and no way to supply one to the timer inbox. A `Run`'s own `resume()`/`answer()` are the
-only continuations that carry a context, and only because the handle that started it retained one
-([above](#run)).
-
-**The headless runners pass no context.** `Agent.run()` calls the SDK's own `Runner.run` with no
+**The headless runner passes no context.** `Agent.run()` calls the SDK's own `Runner.run` with no
 context object, so a tool that declares one fails when the model calls it  -  the compiled tool
-refuses rather than running short an argument, saying the run "carries NoneType rather than an
-AgentDeck run context". `Workflow.run()`, `Workflow.resume()` and `as_tool()` are further out
-still: the bridge that injects a context into a node is installed when a `Deck` builds its
-catalog, and those paths never install it, so a `Context[...]` node reached that way dies with
-LangGraph's own `TypeError: <node>() missing 1 required positional argument`. Both are the price
-of leaving a deliberately log-free convenience alone; `Deck.run()` is the path with the contract.
+refuses rather than running short an argument, saying the run carries something "rather than an
+AgentDeck run context". That is the price of leaving a deliberately log-free convenience alone;
+`Deck.run()` is the path with the contract.
 
 **Skills never receive a context.** A skill is progressive disclosure of prose  -  a `SKILL.md` an
 agent reads through the generated `load_skill` tool  -  not a program agentdeck runs. There is no
 callable to inject into, so there is nothing here that a future release would "add": a skill that
-needs application state is an ordinary tool with a `Context[...]` parameter.
+needs application state is an ordinary tool with a `ToolCtx[...]` parameter.
 
 ## What else this does not cover
 
-[Run Control](/runs-and-control/lifecycle-and-control) reaches agent runs today; a workflow (LangGraph)
-run has no safe point yet, so `pause`/`cancel` record the request but nothing acts on it.
+[Run Control](/runs-and-control/lifecycle-and-control) reaches every executor: an agent run stops
+between stream items or before a tool is dispatched, a workflow at its own `ctx.safepoint()`.
+One limit is left on the workflow path  -  a suspended `@workflow` body is parked in memory, in the
+process that started it, so a restart or a second worker loses it and the resume raises
+`ConfigError` saying so. Durable replay of an imperative workflow is not built yet: keep the
+process that started the run alive until it is answered.
 
 ---
 
@@ -669,7 +660,7 @@ Every event carries the same envelope, whatever its kind:
 |---|---|
 | `v` | Schema version |
 | `kind` | One of the kinds below |
-| `seq` | Position in this run's log, monotonic from 1 |
+| `seq` | Position in this run's log, monotonic from 0 |
 | `run_id` | The run this belongs to |
 | `session_id` | The session, when the run has one |
 | `namespace` | The run's namespace label |
@@ -679,6 +670,10 @@ Every event carries the same envelope, whatever its kind:
 
 `seq` and `ts` are assigned by the store, not the producer, so ordering is the store's to
 guarantee rather than a caller's to get right.
+
+`v` is `{major: 4, minor: 0}`. A reader refuses any other major outright rather than guessing at a
+wire shape it was never taught, so a log written by another major is read with the release that
+wrote it or replayed into a new store. There is no migration.
 
 ## Lifecycle
 
@@ -710,6 +705,12 @@ Each of these sets the run's status. See [Lifecycle & Control](/runs-and-control
 | `message.completed` | `message_id`, `text` | The record. Deltas are streaming UX |
 | `artifact.created` | `artifact_id`, `media_type`, `uri`, `size` | A reference to bytes stored elsewhere |
 
+## Agents
+
+| Kind | Payload | Notes |
+|---|---|---|
+| `agent.changed` | `previous_agent`, `next_agent` | The active agent changed, after a handoff completed. Never emitted for one requested but failed or refused |
+
 ## Tools and nodes
 
 | Kind | Payload | Notes |
@@ -724,8 +725,7 @@ Advisory. These describe progress; they never change status.
 
 | Kind | Payload | Notes |
 |---|---|---|
-| `status.reported` | `message` | What the run is doing now, in words a person can read |
-| `progress.reported` | `step`, `current`, `total` | Which named stage, optionally counted |
+| `report` | `level`, `message`, `fields` | What the running code said about itself: `info`, `warning` and `error` are prose a person reads, `record` is a named fact a consumer filters |
 | `usage.reported` | `model`, `usage` | One model call. The total on `run.completed` wins |
 
 ## Other
@@ -733,6 +733,7 @@ Advisory. These describe progress; they never change status.
 | Kind | Payload | Notes |
 |---|---|---|
 | `input.appended` | `input`, `source` | Mid-turn steering |
+| `answer.refused` | `reason` | An answer that was not one of the options the run asked for. The run is still `waiting_answer`, and the next answer can still land |
 | `custom` | `name`, `data` | Engine-specific. `name` must be namespaced |
 
 ## Reading them
@@ -743,7 +744,7 @@ async for event in run.events(from_seq=0, follow=True):
 ```
 
 An unknown kind is carried rather than rejected, so a reader written today does not break against
-a log written by a newer release.
+a log written by a newer release of the same schema major.
 
 ```python
 from agentdeck.core.events import KNOWN_KINDS, TERMINAL_KINDS
@@ -768,6 +769,10 @@ Core types and public classes exported from `agentdeck`.
 - `Deck`: Unified composition root.
 - `Agent`: Declarative agent specification.
 - `Workflow`: Declarative workflow specification.
+- `tool`: Decorator declaring a leaf capability.
+- `workflow`: Decorator declaring orchestration as an async function.
+- `ToolCtx`: The context a tool receives.
+- `WorkflowCtx`: `ToolCtx` plus orchestration, for a `@workflow` body.
 
 ---
 
@@ -789,16 +794,35 @@ API reference for `Run` instances and execution controls.
 - `await run.answer(value)`: Supply input to a waiting run.
 - `await run.cancel()`: Cancel execution.
 
+The three control methods are strict. They raise `RunStateError` when the run's state refuses the
+operation (resuming a run that is waiting for an answer), and `UnsupportedControlError` when the
+control can never be applied here (no control backend configured). An operation with nothing left
+to do, such as cancelling a run that already finished, returns quietly.
+
+## Availability
+
+- `run.can.pause`, `run.can.resume`, `run.can.cancel`: whether each control is available, combining
+  the engine's own capability with the run's current state.
+
+```python
+if run.can.pause:
+    await run.pause()
+```
+
+`can` reads the status this handle last saw, so it is for enabling buttons and branching, not for
+guaranteeing the next call succeeds. The run can end in between, which is what the strict methods
+above report.
+
 ---
 
 # Settings
 
-*Every AGENTDECK_* (and OPENAI_*/TAVILY_*) environment variable, generated from agentdeck/runtime/settings.py.*
+*Every AGENTDECK_*, OPENAI_*, ANTHROPIC_*, GEMINI_*, OLLAMA_*, OPENROUTER_*, and TAVILY_* environment variable, generated from agentdeck/runtime/settings.py.*
 Source: https://agentdecksdk.com/reference/settings
 
 # Settings
 
-Generated from [`agentdeck/runtime/settings.py`](https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/runtime/settings.py)'s `LayeredSettings` subclasses  -  this page cannot drift from the code because `make check` regenerates it and fails if the result differs (`scripts/generate_docs_reference.py`). Every variable is also settable in the shared `config.yaml`, under the section derived from its env-var prefix (`openai:`, `runner:`, …); an env var wins over the file.
+Generated from [`agentdeck/runtime/settings.py`](https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/runtime/settings.py)'s `LayeredSettings` subclasses  -  this page cannot drift from the code because `make check` regenerates it and fails if the result differs (`scripts/generate_docs_reference.py`). Values come from process environment variables or the project-root `.env`; process values win.
 
 ## `OpenAISettings`
 
@@ -806,10 +830,21 @@ OpenAI-compatible endpoint configuration.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `OPENAI_MODEL` | `str` | *required* | Model name passed to the host Agents SDK runner. No default  -  always required. |
-| `OPENAI_API_KEY` | `str` | `''` | API key for the endpoint. What empty does depends on `ca_bundle`: unset (the common case), the OpenAI client falls through to its own `OPENAI_API_KEY` process-env lookup and errors on the first model call if that's empty too; with `ca_bundle` set, the empty value is passed straight through instead and just sends no Authorization header  -  the self-hosted/corporate-CA case doesn't need a placeholder value the way the common path does. |
+| `OPENAI_MODEL` | `str` | `'gpt-4.1-mini'` | Default model for agents that do not declare `model=`. |
+| `OPENAI_API_KEY` | `str` | `''` | API key for OpenAI. A custom `OPENAI_BASE_URL` may omit it when the endpoint needs no auth. |
 | `OPENAI_BASE_URL` | `str` | `''` | OpenAI-compatible endpoint base URL. Empty uses the SDK default, api.openai.com. |
 | `OPENAI_CA_BUNDLE` | `str` | `''` | Path to a CA/certificate bundle for verifying the endpoint's TLS certificate. Empty uses the system's default trust store. |
+
+## `ModelProviderSettings`
+
+Credentials for prefixed model providers.
+
+| Env var | Type | Default | Description |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | `str` | `''` | API key for `anthropic/...` models. |
+| `GEMINI_API_KEY` | `str` | `''` | API key for `gemini/...` models. |
+| `OLLAMA_BASE_URL` | `str` | `''` | Endpoint for `ollama/...` models. |
+| `OPENROUTER_API_KEY` | `str` | `''` | API key for `openrouter/...` models. |
 
 ## `RunnerSettings`
 
@@ -832,7 +867,6 @@ Knobs the Runtime itself reads.
 |---|---|---|---|
 | `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` | `float` | `3600.0` | How long, in seconds, a running open run may go without writing an event before it is treated as abandoned and its session ownership is released for another worker to claim. Never applies to a run paused or waiting on an answer  -  those hold their session until resumed, answered, or cancelled. Must be positive; set it above the longest gap a healthy turn can go quiet. |
 | `AGENTDECK_RUNTIME_LEASE_TTL_SECONDS` | `float` | `90.0` | How long, in seconds, a run's lease stays valid without renewal. A worker renews its lease six times per TTL while it plays a run, so a process killed outright frees its session within one TTL instead of one `stale_run_after_seconds`. Only takes effect with a lease backend shared across processes (`AGENTDECK_CONTROL=sqlite:///<path>`); with the in-memory default nothing is ever reported dead and the staleness timer remains the only backstop. Must be positive; set it above the longest the event loop can be blocked in one go. |
-| `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` | `float` | `30.0` | How often, in seconds, an open Deck sweeps for a `sleep_until` timer whose wake moment has passed and resumes it, with no cron or scheduler required. Must be positive; runs for the Deck's own lifetime, started when it opens and cancelled when it closes. |
 
 ## `LangfuseSettings`
 
@@ -850,19 +884,11 @@ Langfuse LLM-observability export config.
 
 ## `TavilySettings`
 
-Tavily web-search API. One knob: `TAVILY_API_KEY` env var (or YAML `tavily: api_key:`).
+Tavily web-search API. One knob: `TAVILY_API_KEY`.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
 | `TAVILY_API_KEY` | `str` | `''` | Tavily web-search API key. Empty makes the `web_search` tool return an `error:` string instead of raising  -  it degrades the same way an unavailable MCP server does, rather than disappearing. |
-
-## `CheckpointSettings`
-
-LangGraph checkpointer backend for `durable=True` workflows, as one scheme-shaped URL.
-
-| Env var | Type | Default | Description |
-|---|---|---|---|
-| `AGENTDECK_CHECKPOINT` | `str` | `'sqlite://.agentdeck/checkpoints.sqlite3'` | LangGraph checkpointer for `durable=True` workflows: `sqlite://<path>` for dev (this default), `postgresql://<dsn>` for prod, or `memory://` for tests (never persists past the process). The scheme names the backend. |
 
 ## `EventsSettings`
 
@@ -870,7 +896,7 @@ Where the Runtime's canonical event log is written, as one scheme-shaped URL.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_EVENTS` | `str` | `'memory://'` | Where the Runtime's canonical event log is written: `memory://` (default, in-process, gone when the process exits), `sqlite://<path>`, `redis://<url>`/`rediss://<url>` (needs the `[redis]` extra), or `postgresql://<dsn>` (needs the `[durability]` extra). The scheme names the backend. |
+| `AGENTDECK_EVENTS` | `str` | `'memory://'` | Where the Runtime's canonical event log is written: `memory://` (default, in-process, gone when the process exits), `sqlite://<path>`, `redis://<url>`/`rediss://<url>` (needs the `[redis]` extra), or `postgresql://<dsn>` (needs the `[postgres]` extra). The scheme names the backend. |
 
 ## `ControlSettings`
 
@@ -886,7 +912,7 @@ Configuration for Redis-backed agent conversation memory.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_SESSION` | `str` or `None` | `None` | Redis URL for `RedisSession`-backed agent conversation memory (`agentdeck.adapters.engines.openai_agents.sessions.SessionFactory`), needing the `[redis]` extra. `None` falls back to one in-process `SQLiteSession` per session key  -  no persistence across a restart, no sharing across workers. |
+| `AGENTDECK_SESSION` | `str` or `None` | `None` | Redis URL for `RedisSession`-backed agent conversation memory (`agentdeck.adapters.executors.openai_agents.sessions.SessionFactory`), needing the `[redis]` extra. `None` falls back to one in-process `SQLiteSession` per session key  -  no persistence across a restart, no sharing across workers. |
 | `AGENTDECK_SESSION_REDIS_KEY_PREFIX` | `str` | `'agents:session'` | Key prefix under which `RedisSession` stores conversations in Redis. |
 | `AGENTDECK_SESSION_REDIS_TTL` | `int` or `None` | `None` | Per-session TTL in seconds for Redis-backed conversations. `None` means sessions persist indefinitely. |
 
@@ -913,20 +939,138 @@ support_agent = Agent(
 )
 ```
 
+## Choose a model provider
+
+Prefix `model=` to select a provider. `Deck.build()` checks every required credential before any model call.
+
+```python
+openai_agent = Agent(name="openai", model="openai/gpt-4o")
+anthropic_agent = Agent(name="anthropic", model="anthropic/claude-3-7-sonnet")
+gemini_agent = Agent(name="gemini", model="gemini/gemini-2.5-flash")
+ollama_agent = Agent(name="ollama", model="ollama/llama3.2")
+openrouter_agent = Agent(name="openrouter", model="openrouter/openai/gpt-4o")
+```
+
+Configure only the providers your deck uses:
+
+```dotenv
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=...
+OLLAMA_BASE_URL=http://localhost:11434/v1
+OPENROUTER_API_KEY=sk-or-...
+```
+
+An agent without `model=` uses `OPENAI_MODEL`. Bare model names use OpenAI, while namespaced IDs
+such as `vendor/model` remain available for an endpoint configured with `OPENAI_BASE_URL`.
+## SDK-native Options
+
+Some agent options come directly from the OpenAI Agents SDK. For example, structured output can use
+`AgentOutputSchema` from the SDK's `agents` package:
+
+```python
+from agents import AgentOutputSchema
+from pydantic import BaseModel
+
+from agentdeck import Agent
+
+
+class Verdict(BaseModel):
+    approved: bool
+    reason: str
+
+
+reviewer = Agent(
+    name="reviewer",
+    instructions="Approve or reject the request.",
+    output_type=AgentOutputSchema(Verdict, strict_json_schema=False),
+)
+```
+
+`AgentOutputSchema` comes from the OpenAI Agents SDK (`agents`). `agentdeck` keeps that boundary
+visible: it discovers and configures your agent, then passes SDK-native options through to the SDK
+runner rather than wrapping them in a second `agentdeck` type.
+
 ---
 
-# context
+# Context
 
-
+*Typed, request-scoped access to your own application state, for tools and workflows.*
 Source: https://agentdecksdk.com/build-your-deck/context
 
 # Context
 
-Context provides strongly-typed runtime dependencies and request-scoped state to agents and tools.
+`ToolCtx[T]` and `WorkflowCtx[T]` give a `@tool` or `@workflow` typed, request-scoped access to
+your own application state: a database client, a config object, whatever the run needs. AgentDeck
+never inspects the value, it holds it by reference and hands it to whichever callable declared it.
 
-## Using Context
+## Declare it, pass it, use it
 
-Pass application context during run initialization to safely inject dependencies.
+Declare the type once on `Deck(context=...)`. Pass the object once per run, on
+`deck.run(context=...)`. A callable reaches it through `ctx.data`.
+
+```python run
+import asyncio
+
+from agentdeck import Agent, Deck, ToolCtx
+
+
+class Billing:
+    def status(self, order_id: str) -> str:
+        return f"{order_id}: shipped"
+
+
+def order_status(order_id: str, billing: ToolCtx[Billing]) -> str:
+    """Look up the shipping status of an order."""
+    return billing.data.status(order_id)
+
+
+agent = Agent(name="support", instructions="Help with order questions.", tools=[order_status])
+deck = Deck(agents=[agent], context=Billing)
+
+
+async def main() -> None:
+    async with deck:
+        result = await deck.run("support", "hi", context=Billing())
+        print(result.output)
+
+
+asyncio.run(main())
+```
+
+`billing.data` is the exact `Billing()` instance passed to `context=`, not a copy. `Deck.build`
+checks every `ToolCtx[...]`/`WorkflowCtx[...]` parameter in the catalog against the declared type
+before any run starts, so a mismatched context fails at build time, not mid-run. See
+[Deck: declaring the context type](/reference/deck#declaring-the-context-type) for the full
+compatibility rules.
+
+## What each context can do
+
+A `@tool` takes `ToolCtx` and is a leaf capability. A `@workflow` takes `WorkflowCtx`, which is
+`ToolCtx` plus orchestration. Declaring the wrong one is a `build()` error: a tool that could ask a
+person or start another run would no longer be a leaf.
+
+| Capability | `ToolCtx` (`@tool`) | `WorkflowCtx` (`@workflow`) |
+|---|---|---|
+| `ctx.data`, the context object | yes | yes |
+| `ctx.agent`, `ctx.run_id`, `ctx.session_id` | yes | yes |
+| `ctx.reporter`, report progress out of band | yes | yes |
+| `await ctx.safepoint()`, offer a pause/cancel point | yes | yes |
+| `await ctx.ask(question, options=...)`, suspend for an answer | no | yes |
+| `ctx.invoke(target, ...)`, `await ctx.parallel(...)`, start child runs | no | yes |
+| `ctx.agents.create()`, `ctx.agents.fork()`, mint an agent not in the catalog | no | yes |
+
+## Where it does not reach
+
+A context is a live Python object, never serialized, and it cannot cross the HTTP surface. See
+[Where a context does not reach](/reference/deck#where-a-context-does-not-reach) for the full list.
+
+## Related
+
+- [Workflows](/build-your-deck/workflows) - `ctx.ask()` and `ctx.safepoint()` in practice
+- [Deck](/reference/deck) - `context=` construction and every compatibility rule
+- [Runs](/runs-and-control/runs) - starting and rehydrating the runs a context rides on
 
 ---
 
@@ -954,6 +1098,22 @@ Or discover components automatically from `./.agentdeck/`:
 ```python
 deck = Deck.from_project()
 ```
+
+## What Deck is responsible for
+
+You own intent: which agents, tools, workflows and skills exist, and what they do. `Deck` owns the
+machinery underneath them.
+
+| Deck is responsible for | you never wire it yourself |
+|---|---|
+| run identity | every run gets a durable id, a namespace, and an optional key of your choosing |
+| execution lifecycle | starting, suspending, resuming and cancelling, and the rules for which of those a run will accept right now |
+| persistence | the event log, and the session a conversation accumulates in |
+| event streams | one canonical stream per run, replayable and tailable, whichever process is executing it |
+| concurrency | one turn per session, settled atomically, so two servers cannot both answer the same conversation |
+
+That split is the reason a `Deck` takes declarations rather than infrastructure: an agent says what
+it does, and nothing in it knows which store, executor or surface it will run under.
 
 ---
 
@@ -984,8 +1144,12 @@ Tools allow agents to perform actions and fetch external information.
 ## Defining a Tool
 
 ```python
+from agents import function_tool
+
 from agentdeck import Agent
 
+
+@function_tool
 def lookup_order(order_id: str) -> str:
     """Fetch status for an order."""
     return f"Order {order_id} is in transit."
@@ -997,6 +1161,36 @@ agent = Agent(
 )
 ```
 
+`function_tool` comes from the OpenAI Agents SDK (`agents`), which `agentdeck` installs and
+passes through unchanged. Tools are the SDK's execution primitive, not an `agentdeck` wrapper type.
+
+## Handling Failures
+
+A tool can return a user-facing failure like any other result. Do that when the model can recover
+and continue the conversation:
+
+```python
+@function_tool
+def lookup_shift(date: str) -> str:
+    """Return the nurse on duty for a date."""
+    row = SHIFTS.get(date)
+    if row is None:
+        return f"no shift on record for {date}"
+    return row
+```
+
+If a tool raises instead, the Agents SDK catches the exception and gives the model its standard
+tool-error string. `agentdeck` records the call as `tool.call.completed`, not `run.failed`, and the
+run can still complete. In that case `Deck.run()` returns the model's final answer, the
+non-streamed HTTP route returns `200 {"output": ...}`, and the streamed HTTP route ends with
+`done` if the model completes.
+
+That is different from an exception that escapes the SDK runner, for example custom tool failure
+handling that re-raises. Then the log records `run.failed` with `error_code="engine_error"`,
+`Deck.run()` raises the exception, `Deck.stream()` yields `run.failed` and then raises, the
+non-streamed HTTP route returns `500 {"detail": "internal error"}`, and the streamed HTTP route
+sends an `error` event with the exception type.
+
 ---
 
 # workflows
@@ -1006,17 +1200,83 @@ Source: https://agentdecksdk.com/build-your-deck/workflows
 
 # Workflows
 
-Workflows orchestrate multi-step graphs and deterministic state transitions.
-
-## Declaring a Workflow
+A workflow coordinates other executions. Write one as an ordinary async function.
 
 ```python
-from agentdeck import Workflow
+from agentdeck import Deck, WorkflowCtx, workflow
 
-workflow = Workflow(
-    name="approval_pipeline",
-)
+@workflow
+async def resolve(ctx: WorkflowCtx, ticket: dict) -> str:
+    """Refund a ticket, once a person says so."""
+    if not await ctx.ask(f"refund {ticket['id']}?", options=[True, False]):
+        return "declined"
+    return "refunded"
+
+deck = Deck(workflows=[resolve])
 ```
+
+## It suspends where it stands
+
+`ctx.ask(...)` stops the run and waits. The body is not unwound: its local variables are still
+there, so the answer continues on the next line rather than replaying the workflow from the top.
+
+```python
+run = await deck.runs.start("resolve", {"id": "T-1"})
+# ... the run is now `waiting_answer`, and shows up in deck.runs.list(status=...)
+await run.answer(True)
+print(await run)   # "refunded"
+```
+
+### Options make it a choice
+
+```python
+env = await ctx.ask("which environment?", options=["dev", "prod"])
+```
+
+The options travel with the question, so anything listing pending runs can render them:
+
+```python
+pending = await run.pending()
+pending["payload"]["options"]   # ["dev", "prod"]
+```
+
+An answer that is not one of them is refused before it is recorded. The answerer gets the error,
+an `answer.refused` event lands in the log, and the run is still waiting for a real answer.
+
+```python
+await run.answer("staging")   # ValueError, nothing resumed
+await run.answer("prod")      # lands
+```
+
+A question with no options takes whatever it is given: nothing outside the body can judge a
+free-form answer better than the body can.
+
+An operator's pause behaves the same way at a safepoint, and a cancel ends the run instead.
+
+```python
+@workflow
+async def batch(ctx: WorkflowCtx, items: list[str]) -> int:
+    done = 0
+    for item in items:
+        await process(item)
+        await ctx.safepoint()   # a pause parks here; a cancel stops the run here
+        done += 1
+    return done
+```
+
+A parked body lives in the process that started the run. If that process restarts, the run is
+still `waiting_answer` in the log but the body is gone, and answering it says so rather than
+silently re-running the workflow.
+
+## Input binds like a call
+
+| the run's input | the body |
+|---|---|
+| `deck.run("research", "kites")` | `research(ctx, topic)` gets `topic="kites"` |
+| `deck.run("resolve", {"ticket": t, "urgent": True})` | `resolve(ctx, ticket, urgent)` gets both |
+| `deck.run("summarize", {"a": 1})` | `summarize(ctx, payload)` gets the mapping whole |
+
+One parameter is one value, a mapping included. Several parameters bind by name.
 
 ---
 
@@ -1032,9 +1292,7 @@ Explore real-world runnable examples built with AgentDeck.
 ## Available Examples
 
 - **Chat Agent with a Tool:** Basic tool execution and streaming.
-- **Workflow with Human Approval:** Pausing for approval before high-stakes actions.
 - **Agent with a Skill:** Extending agent capability using domain skills.
-- **Existing LangGraph Agent:** Wrapping a LangGraph graph in AgentDeck.
 The reference application, [Jack](/jack), is documented separately: he is the agent answering
 questions on this site, and his page records the reasoning behind each decision in him.
 
@@ -1052,21 +1310,6 @@ Wrap existing agents without requiring a rewrite.
 ## Wrapping Agents
 
 Bring your custom agent implementations and wrap them with AgentDeck's runtime.
-
----
-
-# langgraph
-
-
-Source: https://agentdecksdk.com/integrations/langgraph
-
-# LangGraph
-
-Wrap and run LangGraph state graphs with AgentDeck.
-
-## Running LangGraph
-
-Compile LangGraph graphs into workflows with unified event streams and run control.
 
 ---
 
@@ -1127,13 +1370,13 @@ Question
 That shape is the whole application, and the code says the same thing:
 
 ```python
-from agentdeck import Agent, Context, Deck
+from agentdeck import Agent, ToolCtx, Deck
 
-def search_docs(query: str, docs: Context[DocsCorpus]) -> str:
+def search_docs(query: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Find AgentDeck documentation pages matching a query."""
     return docs.data.search(query)
 
-def read_doc(slug: str, docs: Context[DocsCorpus]) -> str:
+def read_doc(slug: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Read one AgentDeck documentation page in full, by its slug."""
     return docs.data.pages[slug]
 
@@ -1146,7 +1389,7 @@ jack = Agent(
 deck = Deck(agents=[jack], context=DocsCorpus)
 ```
 
-Three ordinary functions, one agent, one Deck. `Context[DocsCorpus]` is how a tool reaches the
+Three ordinary functions, one agent, one Deck. `ToolCtx[DocsCorpus]` is how a tool reaches the
 application's own data; the model is offered only `query` or `slug`.
 
 ## The application code stays application code
@@ -1182,12 +1425,16 @@ Jack did not assemble these. They are what a `Deck` gives an application the mom
 
 The live experience on this site is that model, exposed.
 
-```text
-Jack executes through AgentDeck
-   → the run emits canonical events
-   → a surface streams them
-   → the site renders the conversation and the tree beside it
+```mermaid
+flowchart TD
+    stream["Deck.stream()<br/>canonical Event"] --> filter["PUBLIC_KINDS filter<br/>run.started<br/>text.delta<br/>tool.call.started<br/>run.completed<br/>run.failed"]
+    filter -->|"canonical Event unchanged"| sse["SSE response<br/>data: event.model_dump_json()"]
+    sse --> browser{"Browser<br/>switch (event.kind)"}
+    browser -->|"text.delta"| transcript["Transcript"]
+    browser -->|"run.started<br/>tool.call.started<br/>run.completed<br/>run.failed"| tree["Execution tree"]
 ```
+
+The allowlist drops other event kinds without reshaping the canonical events it permits.
 
 The route is a few lines over `deck.stream()`, and the wire is the event log itself:
 
@@ -1226,7 +1473,7 @@ alternative, and the reason that alternative lost.
 
 ## The tools are undecorated
 
-A tool that declares a `Context` parameter stays a plain function. `@function_tool` puts every
+A tool that declares a `ToolCtx` parameter stays a plain function. `@function_tool` puts every
 parameter into the schema the model sees, and the model has no `DocsCorpus` to pass. `build()`
 compiles the function instead, so the model is offered only `query` or `slug`.
 
@@ -1239,7 +1486,7 @@ deck = Deck(agents=[jack], context=DocsCorpus)
 ```
 
 `context=DocsCorpus` is the *type*; the instance goes in per run. Declaring it makes `build()`
-check every `Context[...]` in the catalog, tools and the instructions callable alike, before a
+check every `ToolCtx[...]` in the catalog, tools and the instructions callable alike, before a
 question is ever asked. The wrong type raises `ContextTypeError` naming both, at startup rather
 than mid-answer.
 
@@ -1305,72 +1552,128 @@ The full accounting is in the
 
 ---
 
-# mental-model
+# Mental Model
 
-
+*The four primitives, what you declare versus what AgentDeck runs, and how one becomes the other.*
 Source: https://agentdecksdk.com/meet-agentdeck/mental-model
 
 # Mental Model
 
-AgentDeck separates **user intent** from **runtime machinery**.
+AgentDeck separates what you declare from what it runs. You own the intent. It owns the machinery.
 
-## User Intent vs. Machinery
 
-* **You define:** Agents, tools, workflows, skills, and application context.
-* **AgentDeck manages:** Run identity, lifecycle state, persistence, event streams, cancellation, and concurrency.
+## What you declare
 
-## Core Primitives
+Four kinds of thing, each a plain Python declaration with no runtime attached.
 
-- **Deck:** The composition root holding all registered agents, workflows, and tools.
-- **Agent / Workflow:** The declarative definitions of your autonomous components.
-- **Run:** An executing instance with an isolated session and immutable event stream.
-- **Events:** The typed append-only record of everything that occurred during a run.
+| You write | With | It becomes |
+|---|---|---|
+| Agent | `Agent(name=..., instructions=...)` | a model that decides, optionally with tools, handoffs and subagents |
+| Tool | `@tool` | a leaf capability, called by a model or by a workflow |
+| Workflow | `@workflow` | ordinary Python that coordinates executions and can suspend in place |
+| Skill | a `SKILL.md` on disk, named by string in `Agent(skills=[...])` | prose the model reads on demand through a generated `load_skill` tool |
+
+A `@tool` and a `@workflow` execute nothing on their own: each stays inert until a `Deck` compiles
+it. An `Agent` also has `Agent.run()`, a one-shot headless call that skips the deck entirely and so
+gets no event log, no session and no controls. Everything below is about the path through a `Deck`,
+which is the one with the contract.
+
+## Deck: the composition root
+
+A `Deck` holds the catalog. It is where declarations become things that can be named and invoked,
+and it is the only object you construct to get a working system.
+
+```python
+deck = Deck(agents=[assistant], workflows=[approve])
+```
+
+`Deck.build()` resolves every name in that catalog before a run starts: handoffs, subagents,
+skills, MCP servers, model credentials. A missing provider key or an unresolvable name is an error
+you get at build time, not halfway through a user's turn.
+
+## Run: the thing with identity
+
+Invoking a catalog entry produces a **run**, and the run is what everything else hangs off. It has
+a durable id, a status, a log, and the session it belongs to if it belongs to one. It outlives the
+handle you got it from:
+`deck.runs.get(id)` picks the same run up again, in this process or another one.
+
+| A run has | Meaning |
+|---|---|
+| identity | a minted id, optionally a `(namespace, key)` you chose |
+| status | one of `running`, `paused`, `waiting_answer`, `completed`, `failed`, `cancelled` |
+| a session | the conversation it belongs to, or `None` when it stands alone |
+| a log | every event it produced, in order |
+
+## Control and Events: the two ways out
+
+A live run is not a black box. **Control** is what you send in: `pause()`, `resume()`,
+`cancel()`, `answer()`. **Events** are what comes out: an append-only, typed record of every
+token, tool call, report and state transition.
+
+The log is not a copy of the state, it *is* the state. A run's status is derived by folding its
+own events in order, so there is no second store to fall out of sync after a restart.
+
+## What AgentDeck manages, so you do not
+
+Run identity, lifecycle transitions, persistence, event dispatch, cancellation, concurrency, and
+the session a turn belongs to. You never construct a run id, write a status, or decide when a
+paused run may resume.
+
+## Next
+
+- [Quickstart](/meet-agentdeck/quickstart) - run the first agent.
+- [Runs](/runs-and-control/runs) - identity, handles, and picking a run up again.
+- [Lifecycle & Control](/runs-and-control/lifecycle-and-control) - the six states and what is legal in each.
+- [Events](/runs-and-control/events) - reading the stream.
 
 ---
 
 # Overview
 
-*What AgentDeck is, why it exists, and how it works.*
+*What AgentDeck is, the problem it solves, and what you keep when you adopt it.*
 Source: https://agentdecksdk.com/meet-agentdeck/overview
 
 # Overview
 
 AgentDeck is a production runtime and harness for AI agents and multi-agent workflows.
 
-## What AgentDeck Does
+Writing the prompt is the short part. Everything after it is infrastructure you did not set out to
+build, and AgentDeck is that infrastructure.
 
-When building agentic applications, writing model prompts is only the first step. Operating them in production requires runtime infrastructure:
+## The problem it solves
 
-- **State & Sessions:** Managing conversation history and memory across turns.
-- **Run Lifecycle:** Pausing for human approval, resuming safely, and handling cancellation.
-- **Event Logging:** Capturing every token, tool call, and state transition in an immutable stream.
-- **Interoperability:** Running OpenAI Agents and LangGraph without lock-in or forced rewrites.
+| What you hit | What AgentDeck gives you |
+|---|---|
+| The agent forgets the last turn | sessions that carry history across runs |
+| A run needs a human to approve something | pause, resume and answer on a live handle |
+| The process died mid-run | durable run identity you can pick up again, in another process |
+| "What did it actually do?" | an append-only log of every token, tool call and state transition |
+| A tool needs your database | typed, request-scoped context injected into tools and workflows |
 
----
+None of that is model work, and all of it stands between a prototype that runs and something you
+can operate.
 
-## Architecture at a Glance
+## What you keep
 
+- **Your model provider.** An agent selects OpenAI, Anthropic, Gemini, Ollama or OpenRouter by
+  model prefix, and each reads its own credential.
+- **Your tools.** MCP servers attach to a `Deck` directly, and an OpenAI Agents SDK tool you
+  already built passes through uncompiled. An SDK agent passes through as a handoff target.
+- **Your execution.** The agent loop stays in the SDK, or in a `@workflow`, which is ordinary
+  Python with no engine underneath it. AgentDeck owns configuration and orchestration, not the loop.
 
-- **Agents & Workflows:** Declarative Python definitions of your agents and graphs.
-- **Deck:** The single interface holding your catalog of agents, tools, workflows, and skills.
-- **Run:** An active execution instance managing lifecycle, storage, and event dispatch.
-- **Control & Events:** Real-time steering (pause, resume, answer) and typed observability.
+## What it asks of you
 
----
+One composition root. Declare agents, tools, workflows and skills, hand them to a `Deck`, and run
+them. AgentDeck takes over run identity, lifecycle, persistence, event dispatch, cancellation and
+concurrency, and does not ask you about any of it again.
 
-## Three Key Principles
-
-1. **Compose cleanly:** Assemble components into a `Deck` with simple declarations.
-2. **Bring your stack:** Keep existing framework agents and MCP tools intact.
-3. **Control runtime execution:** Gain full control over running executions with reliable persistence.
-
----
-
-## Start Building
+## Next
 
 - [Quickstart](/meet-agentdeck/quickstart) - install the SDK and run your first agent.
-- [Mental Model](/meet-agentdeck/mental-model) - understand user intent versus runtime machinery.
-- [Build Your Deck](/build-your-deck/agents) - explore agents, tools, and workflows.
+- [Mental Model](/meet-agentdeck/mental-model) - the four primitives and how they fit together.
+- [Build Your Deck](/build-your-deck/agents) - agents, tools, workflows and context in depth.
 
 ---
 
@@ -1466,7 +1769,7 @@ await run.cancel()
 - [Define Agents](/build-your-deck/agents) -> Build decision-making LLM agents.
 - [Workflows](/build-your-deck/workflows) -> Build multi-step deterministic graphs.
 - [Understand Runs & Control](/runs-and-control/runs) -> Learn lifecycle, streaming, and inspection.
-- [Bring an Existing Agent](/integrations/existing-agents) -> Wrap LangGraph or OpenAI SDK workflows into a Deck.
+- [Bring an Existing Agent](/integrations/existing-agents) -> Wrap OpenAI Agents SDK agents into a Deck.
 - [API Reference](/reference/deck) -> Full reference for Deck and Run.
 
 ---
@@ -1483,23 +1786,153 @@ Source: https://agentdecksdk.com/resources/changelog
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v4.0.5**. Earlier releases are listed at the bottom.
+The current release is **v5.0.0**. Earlier releases are listed at the bottom.
 
-## v4.0.5
+## v5.0.0
 
-*Released 2026-08-19.*
+*Released 2026-08-22.*
 
 ### Added
 
-- **Jack's citations are links.** He names the pages he used at the end of an answer in several
-  shapes (bare slug, backticked, `[slug]`, a markdown link, sometimes on the wrong host); every
-  shape that names a real documentation page now links to it. An invented or misspelled slug
-  still renders as plain text.
+- **Lifecycle & Control docs now include a capability matrix.** A table on the
+  [Lifecycle & Control](/runs-and-control/lifecycle-and-control) page shows which of
+  `pause()`, `resume()`, `cancel()`, and `answer()` are legal from each run status, for quick
+  reference alongside the existing prose.
+- **Agents can select OpenAI, Anthropic, Gemini, Ollama, or OpenRouter by model prefix.** Each
+  provider reads its own environment credential, and `Deck.build()` reports every missing
+  requirement before execution. Runtime settings now come only from environment variables or
+  the project `.env`; the undocumented `config.yaml` source is removed.
+- **`run.can` says which lifecycle controls are available before you call one.** `run.can.pause`,
+  `run.can.resume` and `run.can.cancel` combine the engine's own capability with the run's current
+  state, so a UI can enable its buttons and a workflow can branch without guessing. Informational
+  by design: it reads the status the handle last saw, and the lifecycle methods stay the
+  authoritative answer.
+- **`@tool` and `@workflow` declare AgentDeck-native code: ordinary Python, no engine.** A
+  `@workflow` body takes `WorkflowCtx` and runs as a coroutine that suspends in place  -  at
+  `ctx.safepoint()`, or at `ctx.ask(question, options=...)`  -  and continues on the next line
+  rather than replaying, because its own locals are the checkpoint. A `@tool` takes `ToolCtx` and
+  is a leaf capability: it can report and safepoint, but not `ask` or start other runs. Both are
+  played by a new native executor that parks a suspended body's coroutine in memory and cancels
+  it on `Deck.aclose()`.
+- **`ctx.invoke()` starts a child run from inside a `@workflow`, and `ctx.parallel()` composes
+  several.** `ctx.invoke(target, *args, **kwargs)` binds to the target's own signature and hands
+  back a `Run`: `await ctx.invoke(...)` is the result, `child = ctx.invoke(...)` is the handle,
+  with its own id, its own log and its own `child.can.*` / `pause` / `resume` / `cancel`. It takes
+  a catalog name or a `@tool` / `@workflow` definition the deck holds; any other object waits for
+  the invocation resolver. `ctx.parallel(*runs)` is all-or-nothing: the first failure cancels its
+  siblings and propagates, so no child is left running behind a parent that gave up.
+- **`Agent(subagents=[...])` lets an agent delegate a bounded task to another agent.** Names
+  resolve against the catalog at `build()`, like `handoffs=`, and each becomes one tool the model
+  may call with a task; calling it runs that agent as a child run and hands its final output back.
+  Not a handoff: the conversation stays with the parent, and the child sees only the task.
+- **`ctx.agents.create()` and `ctx.agents.fork()` mint an agent the catalog does not hold.**
+  `create(**declaration)` takes the keywords `Agent(...)` takes, `fork(source, **overrides)` copies
+  a catalog name, an `Agent` or another instance, and either is invoked with `ctx.invoke` like any
+  other target. The deck holds what it minted, which is what makes a child run of it answerable,
+  resumable and cancellable. `ctx.agent` is the agent whose turn is running, or `None`.
+- **`run.started` carries `parent_run_id`.** A delegated turn's cost rolls up into its parent's
+  `run.completed.usage`, cancelling a parent cancels the children it started, and a reader of the
+  log follows the same edge afterwards. Delegation is bounded at depth 3 and fan-out 8, with an
+  error naming which bound was hit and who hit it; there is no setting for either.
+
+### Changed
+
+- **`EventSinkPort` is renamed `Observer`, and it gains `agentdeck.views`.** `views.all`,
+  `views.chat`, `views.tools`, `views.reports`, `views.lifecycle`, `views.errors` and
+  `views.usage` are composable predicates over the event stream (`|`, `&`, `~`); pass
+  `view=` to any observer to filter what it receives. `agentdeck.observers.Langfuse` is
+  renamed `LangfuseObserver`, and `ConsoleObserver` / `FileObserver` join it: one prints a
+  line per event, the other appends one JSONL line per event, both with no configuration.
+- **The event schema is `major=4`, and v5.0.0 does not read a log 4.x wrote.** The payload
+  vocabulary moved (see the reporter entry below, and `RunStarted.kind_of_invocable` gaining
+  `"tool"`), so the major bumps, and this release does not carry a compatibility window: `Event`
+  refuses any major but its own, by name, saying that the log has to be replayed into a new store
+  or read with the version that wrote it. Every store behaves the same way, so there is one rule to
+  know rather than one per backend.
+- **One executor method: `execute`.** `start` and `resume` are one call. `resume` was never the
+  pause's resume  -  lifting a pause already re-entered `start` with the log as history  -  so it
+  existed only to answer an interrupt, which the log already records: the answer rides on
+  `run.resumed` and the thread on `run.interrupted`. An executor now reads which of the three
+  plays it is (fresh, a replayed pause, an answered interrupt) off `history`, and
+  `Runtime.resume(...)` no longer takes a `thread_id`. A custom executor implements one method,
+  and a target that never suspends implements nothing extra.
+- **An answer the log cannot hold is refused.** `run.answer(...)` with a value JSON cannot carry
+  used to log a warning, record nothing, and hand the value to the engine in memory anyway  -  a
+  run resumed on an answer no replay and no other process could reproduce. It raises `ValueError`
+  now, before anything is claimed, and the run stays answerable.
+- **The engine port is `Executor`.** `agentdeck.core.ports.EnginePort` becomes `Executor`,
+  `adapters/engines/` becomes `adapters/executors/`, `LangGraphEngine`/`OpenAIAgentsEngine`/
+  `StubEngine` become `LangGraphExecutor`/`OpenAIAgentsExecutor`/`StubExecutor`, and
+  `InvocableSpec.engine` becomes `InvocableSpec.executor`. One word for the thing that executes a
+  target, in the type, the module path and the spec. Wire values are untouched: an executor is
+  still named `"langgraph"`, `"openai-agents"` or `"stub"`, and `run.failed` still carries
+  `error_code="engine_error"`.
+
+- **The reporter has four methods and one event kind.** `ctx.reporter.status(...)` and
+  `ctx.reporter.progress(...)` are replaced by `info`, `warning`, `error` and `report`, each taking
+  arbitrary keyword fields: `ctx.reporter.warning("Primary source unavailable", source="drive")`,
+  `ctx.reporter.report("candidate_found", score=0.91)`. The `status.reported` and
+  `progress.reported` events become one `report` event carrying `level`, `message` and `fields`.
+  A stage count is now `report("reviewing", current=2, total=4)`, and nothing validates the pair.
+- **`Context[T]` is `ToolCtx[T]`, and `ctx.checkpoint()` is `ctx.safepoint()`.** A tool declares
+  `ToolCtx[T]`; the orchestration surface an imperative workflow gets is `WorkflowCtx[T]`, so one
+  type no longer has to mean both. The method rename follows the concept the docstrings already
+  used: a safe point is where a run can be stopped.
+- **`run.pause()` and `run.cancel()` refuse loudly instead of returning `False`.** Both used to
+  answer `bool`, where `False` meant "this deck has no control backend" and was indistinguishable
+  from "the run had already ended". They now return `None`, raise `RunStateError` when the run's
+  state refuses the operation, and raise the new `UnsupportedControlError` when the control can
+  never be applied. An operation with nothing to do (pausing a paused run, cancelling a finished
+  one) still returns quietly. `run.resume()` is strict on the same terms and no longer ignores a
+  run that is waiting for an answer.
+- **A run that belongs to no conversation now belongs to no session.** `RunContext.log_key`
+  (`session_id or run_id`) is gone. It answered "which stream do these events go in" by encoding
+  two different things as one string, and a store handed it could not tell a session named after a
+  run from that run itself. Event stores hold a nullable `session_id` instead, and every
+  `EventStorePort` method takes `ctx` plus only what is genuinely not identity: `read(log_key, ctx)`
+  is `read_session(ctx)`, `read_run(log_key, run_id, ctx)` is `read_run(ctx)`,
+  `claim_resume(log_key, run_id, resumed, ctx, origin)` is `claim_resume(resumed, ctx, origin)`, and
+  `RunSummary.log_key` is `RunSummary.session_id`. A caller reading another run builds the context
+  for it (`replace(ctx, run_id=...)`). **No migration**: 5.0 does not read a log 4.x wrote, on any
+  store. Opening a SQLite or Postgres log 4.x wrote raises a clear `StoreError`; a Redis log
+  written by 4.x reads as empty, since its keys were shaped by the old encoding. Drain or discard
+  a 4.x log, or replay it into a new store, before upgrading.
+- **A completed handoff is the core event `agent.changed`, not a namespaced `custom` one.** The
+  OpenAI Agents executor stopped emitting `custom` named `openai_agents.handoff`; a handoff between
+  agents in the same run and conversation now lands as `agent.changed`, carrying `previous_agent`
+  and `next_agent`, and only once the handoff has actually happened. A handoff that was requested
+  but failed or was refused still emits nothing. The schema is `major=4, minor=1`.
+
+### Removed
+
+- **LangGraph is gone: `Workflow`, `WorkflowDeclaration`, `graph=`, `durable=`, the executor, the
+  checkpointer and `AGENTDECK_CHECKPOINT`.** What hung off them goes too: `sleep_until` and the
+  timer sweep (`AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS`), `Workflow.pending()`, `as_tool()`, the
+  `AgentNode`/`LoadFileNode` graph nodes, the `node.updated` event, and the HTTP surface's
+  `/workflows/*` routes. A fresh install pulls no `langgraph`, `langchain-core` or
+  `langgraph-checkpoint-sqlite`. A 4.x graph user stays on 4.x, or ports the graph to an
+  imperative `@workflow`.
+- **The `durability` extra is now `postgres`.** Install `agentdeck-sdk[postgres]`: what remains in
+  it is the Postgres event log's driver, and the checkpointer the old name meant is gone.
+
+### Fixed
+
+- **`deck.runs.get` no longer corrupts a session id that happens to equal a run id.** It recovered
+  the session by comparing the stored key against the run id, so a caller-chosen `session_id` that
+  matched came back as `None`.
+- **A busy standalone run no longer names a session that does not exist.** The refusal read
+  `session '<the run's own id>' is held by run '<the same id>'`; a run in no session now says so.
+- **`Deck.aclose()` always returns.** A run whose task never took the cancellation `aclose()` sent
+  it held the close open forever, wedging a shutting-down server. The close now asks twice, a
+  second apart, and then stops waiting: it logs the run id and records the run's own
+  `run.cancelled`, so an abandoned run does not stay open in the log with nothing playing it. The
+  run's own later writes are refused rather than appended past that event.
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v4.0.5](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.5) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.5) |
 | [v4.0.4](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.4) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.4) |
 | [v4.0.3](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.3) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.3) |
 | [v4.0.2](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.2) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.2) |
@@ -1582,9 +2015,9 @@ Not silent, not traps  -  just things that will cost you a few minutes.
 | What | Issue |
 |---|---|
 | `run()`'s return type makes the documented interrupt idiom fail a type checker | [#231](https://github.com/agentdecksdk/agentdeck/issues/231) |
-| `answer()` accepts any value with no validation, and the node owns interpreting it | [#235](https://github.com/agentdecksdk/agentdeck/issues/235) |
+| A graph `interrupt()` names no options, so `answer()` takes whatever it is given and the node owns interpreting it. A native `ctx.ask(options=...)` is validated instead | [#235](https://github.com/agentdecksdk/agentdeck/issues/235) |
 | The CLI can send signals but cannot read anything  -  no inbox, no run view | [#256](https://github.com/agentdecksdk/agentdeck/issues/256) |
-| `Deck.asgi()` cannot serve an agent whose tools declare a `Context` | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
+| `Deck.asgi()` cannot serve an agent whose tools declare a `ToolCtx` | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
 
 ## Fixed in v3.1.0
 
@@ -1643,12 +2076,103 @@ Source: https://agentdecksdk.com/resources/migration-guides
 
 # Migration Guides
 
-Guidance for upgrading across major AgentDeck releases.
+## v4 to v5.0.0
 
-## Upgrading to Current Release
+v5.0.0 is a breaking release: a v5 build cannot read an event log v4 wrote, and several public
+names moved. There is no compatibility shim for any of these. Read every section before
+upgrading a running deployment.
 
-- `Deck` is the single composition root.
-- Ensure all environment variables use the `AGENTDECK_*` prefix.
+### Event log: v5 refuses a v4 log
+
+The envelope's schema version bumped from `major=3` to `major=4`. SQLite and Postgres refuse a
+4.x log outright, before parsing a single event:
+
+| Store | On a 4.x log |
+|---|---|
+| SQLite | `Deck` opening it raises `StoreError` |
+| Postgres | Same: `StoreError` |
+| Redis | No such check. Its keys were shaped differently under 4.x; do not point a v5 process at 4.x Redis data |
+
+```python illustrative reason="requires a project pointed at a 4.x SQLite event log"
+from agentdeck import Deck, StoreError
+
+try:
+    async with Deck.from_project() as deck:
+        pass
+except StoreError as exc:
+    print(exc)
+```
+
+The message names exactly why:
+
+```
+the event log at '<path>' was written by agentdeck 4.x (its 'events' table still has the
+'log_key' column 5.0 replaced with 'session_id'). agentdeck 5.0 does not migrate a 4.x log:
+replay it into a new store, or reopen it with the 4.x version that wrote it.
+```
+
+Underneath that guard is a second, unconditional one: `Event` itself refuses any schema major
+but its own, so even a hand-rolled reader cannot mix the two.
+
+**What to do:** drain a 4.x deployment (let every open run finish under v4) before pointing a v5
+process at its store, or keep the v4 build around to read that log. There is no migration path
+and no store that reads across the boundary.
+
+### `EnginePort` is `Executor`, and `start`/`resume` become one `execute`
+
+| v4 | v5 |
+|---|---|
+| `EnginePort` (in `agentdeck.core.ports`) | `Executor` |
+| `agentdeck/adapters/engines/` | `agentdeck/adapters/executors/` |
+| `InvocableSpec.engine` | `InvocableSpec.executor` |
+| `EnginePort.start(...)` and `EnginePort.resume(...)`, two methods | `Executor.execute(...)`, one method |
+
+This is a restructuring, not a rename. `execute` takes the same `history` a resumed run always
+carried, and reads off it whether this play is fresh, a replayed pause, or an answered interrupt;
+there is no separate `resume` left to implement. `Executor.aclose()` is new and optional (default:
+no-op) for an executor that holds something to release when the deck closes.
+
+**What to do:** fold a custom `EnginePort.start`/`resume` pair into one `Executor.execute`. Wire
+values are unchanged: an executor is still selected by the name it always used (`"native"`,
+`"openai-agents"`, `"stub"`), and `run.failed` still carries `error_code="engine_error"`.
+
+### LangGraph is removed, not deprecated
+
+`agentdeck/adapters/engines/langgraph/` and the `langgraph` dependency are gone. There is no
+drop-in replacement.
+
+**What to do:** rewrite a LangGraph-backed workflow as a native
+[`@workflow`](/build-your-deck/workflows), which needs no engine at all.
+
+### `EventSinkPort` is `Observer`
+
+```python run
+from agentdeck.core.ports import Executor, Observer
+from agentdeck.observers import ConsoleObserver, FileObserver, LangfuseObserver
+
+print(Executor.__name__, Observer.__name__, LangfuseObserver.__name__)
+```
+
+| v4 | v5 |
+|---|---|
+| `EventSinkPort` | `Observer` |
+| `agentdeck.observers.Langfuse` | `agentdeck.observers.LangfuseObserver` |
+
+`ConsoleObserver` and `FileObserver` are new in v5, alongside the rename.
+
+**What to do:** rename `Langfuse(...)` to `LangfuseObserver(...)` wherever it is constructed, and
+`EventSinkPort` to `Observer` in any custom implementation.
+
+### Runtime settings: no `config.yaml`
+
+v4 read settings from environment variables, a project `.env`, and a shared `config.yaml`
+(resolved via `AGENTDECK_CONFIG_PATH` → cwd → a packaged default). v5 removes the YAML source
+entirely: every setting comes from a process environment variable or the project's `.env`, and
+nothing else.
+
+**What to do:** move every key a `config.yaml` held into `AGENTDECK_*` environment variables (see
+the full list on the [Settings reference](/reference/settings)), and delete the file. A
+`config.yaml` left behind is not read.
 
 ---
 
@@ -1698,7 +2222,9 @@ run.completed
 holds and stops, which for a run that has just started is a single event. That is the right default
 for reading a finished run back and the wrong one for watching a live one.
 
-The loop ends on a terminal event: `run.completed`, `run.failed` or `run.cancelled`.
+The loop ends at the segment's own boundary: a terminal event (`run.completed`, `run.failed`,
+`run.cancelled`) or a suspension (`run.paused`, `run.interrupted`). Call it again after a resume
+to see what came next.
 
 ## Reading one back afterwards
 
@@ -1713,7 +2239,7 @@ async for event in run.events(from_seq=120):   # only what is new to you
 ```
 
 `from_seq` resumes from a position you already have, so a consumer that crashed does not replay
-what it already processed. `seq` is assigned by the store, not the producer, and counts from 1
+what it already processed. `seq` is assigned by the store, not the producer, and counts from 0
 within a run.
 
 ## Streaming without a handle
@@ -1738,11 +2264,11 @@ elif event.kind == "text.delta":
 ```
 
 An unknown kind is carried rather than rejected, so a reader written today keeps working against a
-log written by a newer release.
+log written by a newer release of the same schema major.
 
 ## Related
 
-- [Event types](/reference/events) - all 21 kinds, their payloads, and the envelope
+- [Event types](/reference/events) - all 22 kinds, their payloads, and the envelope
 - [Runs](/runs-and-control/runs) - starting a run and rehydrating its handle
 - [Lifecycle & Control](/runs-and-control/lifecycle-and-control) - which events set which status
 
@@ -1759,7 +2285,7 @@ Suspend execution for human approval or additional inputs.
 
 ## Answering Prompts
 
-When a run enters `WAITING`, supply input with `run.answer()`:
+When a run enters `waiting_answer`, supply input with `run.answer()`:
 
 ```python
 await run.answer({"approved": True})
@@ -1814,8 +2340,9 @@ disagree.
 
 ## What you can act on
 
-`paused` and `waiting_answer` are the two resumable states. The three terminal states accept
-nothing: a completed run cannot be paused, and a cancelled run cannot be resumed.
+`paused` and `waiting_answer` are the two suspended states, and each refuses the other's
+operation: lift a pause with `resume()`, answer an interrupt with `answer(value)`. The three
+terminal states accept nothing, and asking anyway returns quietly rather than raising.
 
 ```python
 run = await deck.runs.start("Jack", question)
@@ -1833,6 +2360,21 @@ when it next reaches a safe point: between stream items, before dispatching a to
 boundary. Two events make that visible, `control.requested` when the signal is recorded and
 `control.observed` when the run picks it up, so a control that has not taken effect yet is
 distinguishable from one that was never seen.
+
+### Capability matrix
+
+Which operations are legal from each state:
+
+| State | `pause()` | `resume()` | `cancel()` | `answer()` |
+|---|---|---|---|---|
+| `running` | ✓ | -- | ✓ | -- |
+| `paused` | -- | ✓ | ✓ | -- |
+| `waiting_answer` | ✓ | -- | ✓ | ✓ |
+| `completed` / `failed` / `cancelled` | -- | -- | -- | -- |
+
+`✓` is legal; `--` is not, and covers both a refusal that raises and a call that quietly does
+nothing. `PRECONDITIONS` in `agentdeck/core/status.py` carries the exact verdict and reason
+attached to each cell.
 
 ## Related
 
@@ -1880,7 +2422,8 @@ async with deck:
 ```
 
 `start` returns the handle immediately; `await run` waits for the result. A `TurnResult` for an
-agent, the graph's own state for a workflow.
+agent, the workflow's own result for a workflow  -  a native body's return value, a graph's final
+state.
 
 ## Its identity
 
@@ -1936,6 +2479,20 @@ async for event in run.events(follow=True):
 Without `follow=True` you get only what the log already holds, which for a run that just started
 is one event. See [Events](/runs-and-control/events).
 
+## Handoffs
+
+A run's active agent can change mid-conversation: one agent hands off to another, and the same
+run keeps going under the new one. `run.id` and `run.session_id` do not change; the log records
+only that the agent did:
+
+```python
+async for event in run.events():
+    if event.kind == "agent.changed":
+        print(event.payload.previous_agent, "->", event.payload.next_agent)
+```
+
+A handoff that was requested but failed or was refused leaves no `agent.changed` behind.
+
 ## Related
 
 - [Sessions](/runs-and-control/sessions) - conversation history across runs
@@ -1944,17 +2501,98 @@ is one event. See [Events](/runs-and-control/events).
 
 ---
 
-# sessions
+# Sessions
 
-
+*Keep an agent's message history across multiple runs, and what happens when two runs reach for the same one at once.*
 Source: https://agentdecksdk.com/runs-and-control/sessions
 
 # Sessions
 
-Sessions maintain conversation history and state across multiple runs.
+A session is a conversation's identity across multiple runs. Pass the same `session_id` to
+`deck.run()` (or `stream`/`runs.start()`) and the agent sees every earlier turn in that
+conversation; pass a different one, or none, and the run starts with no memory of any other.
 
-## Session Continuity
+## Continuing a conversation
 
-Specify `session_id` to continue a multi-turn conversation with memory intact.
+```python run
+import asyncio
+
+from agentdeck import Agent, Deck
+
+assistant = Agent(name="Assistant", instructions="Keep replies to one short sentence.")
+
+
+async def main() -> None:
+    async with Deck(agents=[assistant]) as deck:
+        first = await deck.run("Assistant", "My name is Ada.", session_id="conversation-1")
+        second = await deck.run("Assistant", "What's my name?", session_id="conversation-1")
+        assert first.session_id == second.session_id == "conversation-1"
+
+
+asyncio.run(main())
+```
+
+Both runs share `session_id="conversation-1"`, so the second run's model call carries the first
+run's messages along with its own. Every run gets a session either way: leave `session_id` out and
+it is scoped to that run's own `run.id`, so nothing carries into the next call.
+
+## One turn per session at a time
+
+A session's history changes while a run is using it, so only one run may hold a session at a time.
+Starting a second run against a session that already has one open raises `SessionBusyError`
+instead of running against a conversation still being written:
+
+```python run
+import asyncio
+
+from agentdeck import Agent, Deck, SessionBusyError
+
+assistant = Agent(name="Assistant", instructions="Keep replies to one short sentence.")
+
+
+async def main() -> None:
+    async with Deck(agents=[assistant]) as deck:
+        first = await deck.runs.start("Assistant", "hello", session_id="conversation-2")
+        try:
+            await deck.runs.start("Assistant", "hello again", session_id="conversation-2")
+        except SessionBusyError as busy:
+            print(busy)
+        await first
+
+
+asyncio.run(main())
+```
+
+The message names the run holding the session and, when that run is not actually executing, the
+call that frees it:
+
+| Holding run's state | Message says | Fix |
+|---|---|---|
+| Running | session already has a run in flight | wait for it to finish, or give the new turn a different `session_id` |
+| Paused | held by run `<id>`, paused | `run.resume()` or `run.cancel()` on that run |
+| Waiting for an answer | held by run `<id>`, parked waiting for an answer | `run.answer(...)` or `run.cancel()` on that run |
+
+A run whose process was killed outright never reaches an ending, so without a fix it would hold
+its session forever. AgentDeck frees it two ways: a worker sharing `AGENTDECK_CONTROL=sqlite://...`
+notices the dead run's lease has lapsed and takes over immediately; failing that, any worker frees
+it once the run has gone silent for `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` (one hour by
+default). A **paused** or **waiting-for-answer** run is never freed this way: it holds its session
+until something resumes, answers, or cancels it, however long that takes.
+
+## Where the history lives
+
+| `AGENTDECK_SESSION` | Backend | Notes |
+|---|---|---|
+| unset (default) | in-process, per session key | lost when the process exits; not shared across workers |
+| `redis://...` | Redis | needs `pip install "agentdeck-sdk[redis]"`; shared across processes and workers; survives a restart |
+
+`AGENTDECK_SESSION_REDIS_KEY_PREFIX` and `AGENTDECK_SESSION_REDIS_TTL` tune the Redis backend's key
+prefix and per-session expiry; see [Settings](/reference/settings).
+
+## Related
+
+- [Runs](/runs-and-control/runs) - starting a run and rehydrating its handle
+- [Lifecycle & Control](/runs-and-control/lifecycle-and-control) - pausing, resuming, and cancelling
+- [Deck](/reference/deck) - `session_for()` and injecting a `session_factory`
 
 ---

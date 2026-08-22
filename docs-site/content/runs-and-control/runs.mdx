@@ -3,6 +3,13 @@ title: Runs
 description: A run is a first-class execution with a durable identity you can pick up again, in this process or another one.
 ---
 
+{/* docs_sources:
+  - "agentdeck/deck.py"
+  - "agentdeck/core/invocable.py"
+  - "agentdeck/runtime/service.py"
+  - "agentdeck/runtime/capture.py"
+*/}
+
 # Runs
 
 A `Run` is one execution of an agent or workflow. It is not a return value you either catch or
@@ -17,7 +24,8 @@ async with deck:
 ```
 
 `start` returns the handle immediately; `await run` waits for the result. A `TurnResult` for an
-agent, the graph's own state for a workflow.
+agent, the workflow's own result for a workflow  -  a native body's return value, a graph's final
+state.
 
 ## Its identity
 
@@ -72,6 +80,20 @@ async for event in run.events(follow=True):
 
 Without `follow=True` you get only what the log already holds, which for a run that just started
 is one event. See [Events](/runs-and-control/events).
+
+## Handoffs
+
+A run's active agent can change mid-conversation: one agent hands off to another, and the same
+run keeps going under the new one. `run.id` and `run.session_id` do not change; the log records
+only that the agent did:
+
+```python
+async for event in run.events():
+    if event.kind == "agent.changed":
+        print(event.payload.previous_agent, "->", event.payload.next_agent)
+```
+
+A handoff that was requested but failed or was refused leaves no `agent.changed` behind.
 
 ## Related
 

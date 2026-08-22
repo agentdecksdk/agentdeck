@@ -41,14 +41,7 @@ if TYPE_CHECKING:
 _MODEL_NAME = "fake-scripted"
 _CHAT_USAGE = {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
 
-# Two places still resolve a run config: the Runtime plays a turn through the openai-agents
-# adapter, while a workflow node driving an agent of its own still goes through the
-# direct-call runner. Patching only one would pass a test while the other reached for a
-# real endpoint.
-_PROVIDER_TARGETS = (
-    "agentdeck.authoring.runners.agent.OpenAIProvider",
-    "agentdeck.adapters.engines.openai_agents.runconfig.OpenAIProvider",
-)
+_PROVIDER_TARGET = "agentdeck.adapters.executors.openai_agents.runconfig._build_model_provider"
 
 
 def _usage(input_tokens: int, output_tokens: int) -> ResponseUsage:
@@ -75,6 +68,7 @@ class ScriptedModel(Model):
         *,
         final_text: str | None = None,
         tool_name: str | None = None,
+        tool_arguments: str = "{}",
         raises: BaseException | None = None,
         hold: asyncio.Event | None = None,
         input_tokens: int = 3,
@@ -85,6 +79,7 @@ class ScriptedModel(Model):
         # test tells "the SDK's final_output" apart from "the deltas, re-joined".
         self.final_text = final_text
         self.tool_name = tool_name
+        self.tool_arguments = tool_arguments
         self.raises = raises
         # Stall the turn after its first delta until `hold` is set, announcing it on `holding`.
         # A test that has to catch a consumer *inside* its next-event await needs the run to
@@ -120,7 +115,7 @@ class ScriptedModel(Model):
                             id="fc_scripted_1",
                             call_id="call_scripted_1",
                             name=self.tool_name,
-                            arguments="{}",
+                            arguments=self.tool_arguments,
                             type="function_call",
                         )
                     ]
@@ -205,7 +200,7 @@ class ScriptedModel(Model):
 
 
 def _provider_class(model: Model | Callable[[], Model]) -> type:
-    """A drop-in ``OpenAIProvider``: a fixed ``model`` hands every lookup the same object,
+    """A drop-in model provider: a fixed ``model`` hands every lookup the same object,
     which is what lets a test read ``model.calls``/``model.inputs`` across turns. A zero-arg
     callable is invoked fresh each time a provider is constructed instead  -  the shape a
     per-turn reset (a fresh model, starting at turn one, for every ``RunConfig`` built) needs.
@@ -227,7 +222,7 @@ def patch_model(model: Model | Callable[[], Model]) -> Iterator[None]:
     duration of the block.
     """
     provider = _provider_class(model)
-    with patch(_PROVIDER_TARGETS[0], provider), patch(_PROVIDER_TARGETS[1], provider):
+    with patch(_PROVIDER_TARGET, lambda _settings: provider()):
         yield
 
 
@@ -325,7 +320,7 @@ class _ScriptedChatHandler(BaseHTTPRequestHandler):
             self.wfile.write(f"data: {json.dumps(payload)}\n\n".encode())
         self.wfile.write(b"data: [DONE]\n\n")
 
-    def log_message(self, format: str, *args: Any) -> None:  # silence the default access log
+    def log_message(self, format: str, *args: Any) -> None:  # silence the default access log (slopcheck: allow SLOP004)
         pass
 
 

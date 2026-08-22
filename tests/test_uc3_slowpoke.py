@@ -21,6 +21,7 @@ import asyncio
 import subprocess
 import sys
 import textwrap
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from agents import Agent, Model
@@ -36,7 +37,7 @@ from openai.types.responses import (
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
 from agentdeck.adapters.control.memory import MemoryControlPort
-from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
+from agentdeck.adapters.executors.openai_agents import OpenAIAgentsExecutor
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import coerce_input
@@ -118,7 +119,7 @@ class SlowPokeModel(Model):
 
 def _spec() -> InvocableSpec:
     agent = Agent(name="SlowPoke", instructions="stall", model=SlowPokeModel())
-    return InvocableSpec(name="SlowPoke", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
+    return InvocableSpec(name="SlowPoke", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=agent)
 
 
 def _build(control: ControlPort) -> tuple[Runtime, EventStorePort]:
@@ -133,12 +134,14 @@ def _build(control: ControlPort) -> tuple[Runtime, EventStorePort]:
     streams for six seconds.
     """
     store = MemoryEventStore()
-    runtime = Runtime([OpenAIAgentsEngine()], store, {"SlowPoke": _spec()}, control=control, control_poll_interval=0.0)
+    runtime = Runtime(
+        [OpenAIAgentsExecutor()], store, {"SlowPoke": _spec()}, control=control, control_poll_interval=0.0
+    )
     return runtime, store
 
 
 async def _gap_recovering_consumer(
-    source: AsyncIterator[Event], store: EventStorePort, log_key: str, ctx: RunContext
+    source: AsyncIterator[Event], store: EventStorePort, session_id: str, ctx: RunContext
 ) -> list[Event]:
     """A minimal consumer that trusts the seq invariant: a gap in the live stream is
     detected the moment it arrives and closed by refetching the missing range from the
@@ -147,7 +150,7 @@ async def _gap_recovering_consumer(
     next_expected = 0
     async for event in source:
         if event.seq > next_expected:
-            for missing in await store.read_run(log_key, event.run_id, ctx, from_seq=next_expected):
+            for missing in await store.read_run(replace(ctx, run_id=event.run_id), from_seq=next_expected):
                 seen[missing.seq] = missing
         seen[event.seq] = event
         next_expected = event.seq + 1
@@ -195,15 +198,15 @@ async def test_uc3_run_cancelled_is_terminal_and_a_followup_signal_is_a_noop() -
     assert real_id is not None
 
     assert status_of(events) is RunStatus.CANCELLED
-    # A sessionless run's log_key is its own id (RunContext.log_key), which is real_id here,
+    # A sessionless run has no session at all, so its events are read by its own id,
     # not anything this test could have picked in advance.
-    before = await store.read(real_id, ctx)
+    before = await store.read_session(replace(ctx, session_id=real_id))
 
     # Nobody polls the gate once the run is over; a signal against a finished run is a
     # no-op precisely because there is no more checkpoint left to raise on, not because
     # this test re-derives the status machine's rule.
     await control.signal(real_id, Signal.CANCEL)
-    after = await store.read(real_id, ctx)
+    after = await store.read_session(replace(ctx, session_id=real_id))
     assert after == before
 
 
@@ -225,7 +228,7 @@ async def test_uc3_replay_is_truncated_but_coherent_and_the_renderer_copes(
                 assert real_id is not None
                 await control.signal(real_id, Signal.CANCEL)
 
-    log = await store.read(ctx.log_key, ctx)
+    log = await store.read_session(ctx)
     assert check_terminal(log) is None
     assert log[-1].kind == "run.cancelled"
     assert sum(1 for event in log if event.kind == "text.delta") > 0
@@ -263,7 +266,7 @@ async def test_uc3_chaos_gap_detection_recovers_from_store() -> None:
                 continue  # the transport silently loses exactly this one event
             yield event
 
-    recovered = await _gap_recovering_consumer(lossy_stream(), store, ctx.log_key, ctx)
+    recovered = await _gap_recovering_consumer(lossy_stream(), store, ctx.session_id, ctx)
     assert recovered == full_run
     assert check_contiguous(recovered) == []
 
@@ -277,7 +280,7 @@ from openai.types.responses import (
 )
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 from agentdeck.adapters.control.sqlite import SqliteControlPort
-from agentdeck.adapters.engines.openai_agents import OpenAIAgentsEngine
+from agentdeck.adapters.executors.openai_agents import OpenAIAgentsExecutor
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
@@ -321,8 +324,8 @@ async def main():
     control = SqliteControlPort(sys.argv[1])
     store = SqliteEventStore(sys.argv[2])
     agent = Agent(name="SlowPoke", instructions="stall", model=SlowPokeModel())
-    spec = InvocableSpec(name="SlowPoke", kind=InvocableKind.AGENT, engine=OpenAIAgentsEngine.engine, native=agent)
-    runtime = Runtime([OpenAIAgentsEngine()], store, {"SlowPoke": spec}, control=control)
+    spec = InvocableSpec(name="SlowPoke", kind=InvocableKind.AGENT, executor=OpenAIAgentsExecutor.name, native=agent)
+    runtime = Runtime([OpenAIAgentsExecutor()], store, {"SlowPoke": spec}, control=control)
     async for event in runtime.run("SlowPoke", coerce_input("go slow"), key=sys.argv[3]):
         print(event.kind, event.run_id, event.seq, flush=True)
 
@@ -381,7 +384,7 @@ def test_uc3_cross_process_cancel(tmp_path: Any) -> None:
     ctx = RunContext(run_id="reader")  # a lookup-only context; never the run's own
 
     async def _read_back() -> list[Event]:
-        return await store.read_run(run_id, run_id, ctx)
+        return await store.read_run(replace(ctx, run_id=run_id))
 
     logged = asyncio.run(_read_back())
     assert check_terminal(logged) is None

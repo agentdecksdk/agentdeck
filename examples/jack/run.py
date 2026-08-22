@@ -20,7 +20,7 @@ from agentdeck import Deck
 async def main(question: str) -> None:
     corpus = DocsCorpus()
     # The *type* here, the instance below. Declaring it is what makes build() check every
-    # Context[...] in the catalog  -  both tools  -  before a single question is asked.
+    # ToolCtx[...] in the catalog  -  both tools  -  before a single question is asked.
     async with Deck(agents=[jack], context=DocsCorpus) as deck:
         result = await deck.run("Jack", question, context=corpus)
         print(result.output)

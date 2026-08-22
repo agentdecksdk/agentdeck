@@ -9,20 +9,23 @@ counting constructions is how these tests can tell.
 
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 import sys
 import textwrap
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 
-from agentdeck import observers
+from agentdeck import observers, views
 from agentdeck.adapters.telemetry.langfuse import client as langfuse_client
-from agentdeck.core.ports import EventSinkPort
+from agentdeck.core.events import Event, Reported
+from agentdeck.core.ports import Observer
 from agentdeck.errors import ConfigError
-from agentdeck.observers import Langfuse
+from agentdeck.observers import ConsoleObserver, FileObserver, LangfuseObserver
 from agentdeck.runtime.settings import LangfuseSettings, reset_settings_cache
 from agentdeck.testing import ScriptedModel, patch_model
 
@@ -30,32 +33,6 @@ AGENT_PY = """
 from agentdeck.authoring import Agent
 
 greeter = Agent(name="Greeter", instructions="Greet the user.")
-"""
-
-# A workflow whose node drives an agent of its own  -  the shape that used to export two trace
-# trees, because the node's runner started the Agents-SDK instrumentation on its way past.
-AGENT_FLOW_WORKFLOW_PY = """
-from langgraph.graph import END, StateGraph
-from pydantic import BaseModel
-
-from agentdeck.authoring import AgentNode, Workflow
-from agentdeck_project.agents.greeter.agent import greeter
-
-
-class State(BaseModel):
-    input: str = ""
-    output: str = ""
-
-
-def _build_graph():
-    g = StateGraph(State)
-    g.add_node("greet", AgentNode(greeter, input_key="input", output_key="output"))
-    g.set_entry_point("greet")
-    g.add_edge("greet", END)
-    return g
-
-
-chat_flow = Workflow(name="ChatFlow", state=State, graph=_build_graph)
 """
 
 
@@ -93,7 +70,7 @@ class RecordingTracer:
         self.flushes += 1
 
 
-class Recorder(EventSinkPort):
+class Recorder(Observer):
     """A caller's own observer: what it saw, and the lifecycle calls it was given."""
 
     def __init__(self) -> None:
@@ -111,7 +88,7 @@ class Recorder(EventSinkPort):
         self.closes += 1
 
 
-class Bare(EventSinkPort):
+class Bare(Observer):
     """An observer written before ``start()`` existed: only the abstract method."""
 
     def __init__(self) -> None:
@@ -121,7 +98,7 @@ class Bare(EventSinkPort):
         self.kinds.append(event.kind)
 
 
-class Exploding(EventSinkPort):
+class Exploding(Observer):
     """A caller's observer that fails on every event. The run must not notice."""
 
     def __init__(self) -> None:
@@ -183,8 +160,6 @@ def project(tmp_path, monkeypatch):
     root = tmp_path / ".agentdeck"
     (root / "agents" / "greeter").mkdir(parents=True)
     (root / "agents" / "greeter" / "agent.py").write_text(textwrap.dedent(AGENT_PY))
-    (root / "workflows" / "agent_flow").mkdir(parents=True)
-    (root / "workflows" / "agent_flow" / "workflow.py").write_text(textwrap.dedent(AGENT_FLOW_WORKFLOW_PY))
     monkeypatch.chdir(tmp_path)
     for mod in [m for m in sys.modules if m.startswith("agentdeck_project")]:
         del sys.modules[mod]
@@ -235,7 +210,7 @@ async def test_build_refuses_something_that_is_not_an_observer(project):  # noqa
 
     deck = Deck.from_project(observers=[object()])
 
-    with pytest.raises(ConfigError, match="observers= takes EventSinkPort instances"):
+    with pytest.raises(ConfigError, match="observers= takes Observer instances"):
         deck.build()
     await deck.aclose()
 
@@ -254,9 +229,9 @@ def test_build_runtime_wires_no_telemetry_of_its_own():
 
     probe = (
         "import sys;"
-        "from agentdeck.adapters.engines.stub import StubEngine;"
+        "from agentdeck.adapters.executors.stub import StubExecutor;"
         "from agentdeck.composition import build_runtime;"
-        "runtime = build_runtime(engines=[StubEngine()], invocables={});"
+        "runtime = build_runtime(executors=[StubExecutor()], invocables={});"
         "assert runtime._sinks == (), runtime._sinks;"
         "assert 'langfuse' not in sys.modules, sorted(m for m in sys.modules if 'langfuse' in m);"
         "print('configured, and still no client')"
@@ -424,7 +399,7 @@ async def test_an_observer_that_refuses_to_start_refuses_the_open(
 
     langfuse_keys("", "")
     first = Recorder()
-    deck = Deck.from_project(observers=[first, Langfuse()])
+    deck = Deck.from_project(observers=[first, LangfuseObserver()])
 
     with pytest.raises(ConfigError, match="no Langfuse keys are configured"):
         await deck.__aenter__()
@@ -440,14 +415,14 @@ async def test_the_langfuse_observer_named_explicitly_traces_the_run(
     langfuse_keys,
     scripted,  # noqa: ARG001  -  points the run at a fake model
 ):
-    """``observers=[Langfuse()]`` is the same object the settings path resolves to, so naming it
+    """``observers=[LangfuseObserver()]`` is the same object the settings path resolves to, so naming it
     beside an observer of your own gets you both rather than a choice between them."""
     from agentdeck.deck import Deck
 
     langfuse_keys()
     audit = Recorder()
 
-    async with Deck.from_project(observers=[Langfuse(), audit]) as deck:
+    async with Deck.from_project(observers=[LangfuseObserver(), audit]) as deck:
         await deck.run("Greeter", "hello", session_id="s-11")
 
     assert len(telemetry.clients) == 1
@@ -457,11 +432,11 @@ async def test_the_langfuse_observer_named_explicitly_traces_the_run(
 
 def test_constructing_the_langfuse_observer_reads_and_builds_nothing():
     """It is constructible where Langfuse is neither configured nor installed  -  which is what
-    lets ``resolve_observers()`` and a user's own module-level ``Langfuse()`` stay network-free."""
+    lets ``resolve_observers()`` and a user's own module-level ``LangfuseObserver()`` stay network-free."""
     probe = (
         "import sys;"
-        "from agentdeck.observers import Langfuse;"
-        "Langfuse();"
+        "from agentdeck.observers import LangfuseObserver;"
+        "LangfuseObserver();"
         "assert 'langfuse' not in sys.modules, sorted(m for m in sys.modules if 'langfuse' in m);"
         "print('constructed, and still no sdk')"
     )
@@ -553,40 +528,12 @@ async def test_a_broken_sink_never_breaks_a_run(
     assert "run.completed" in healthy.kinds
 
 
-# --- #162's second defect: no orphan trees ------------------------------------------------------
-
-
-async def test_a_workflow_turn_driving_an_agent_exports_exactly_one_trace_root(
-    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
-    telemetry,
-    langfuse_keys,
-    scripted,  # noqa: ARG001  -  points the run at a fake model
-):
-    """One run, one trace  -  the count #162's second defect broke.
-
-    A workflow node that drives an agent goes through ``authoring``'s direct-call runner, which
-    used to start the Agents-SDK instrumentation and open a root observation of its own. With
-    Langfuse on, that exported a second, sessionless tree beside the sink's: one good trace plus
-    one orphan. The runner opens nothing now, so the sink's root is the only one, and the
-    instrumentation that produced the orphan's spans is never installed.
-    """
-    from agentdeck.deck import Deck
-
-    langfuse_keys()
-
-    async with Deck.from_project() as deck:
-        await deck.run("ChatFlow", {"input": "hello"}, session_id="s-7")
-
-    assert [(root.name, root.kind, root.session_id) for root in telemetry.roots] == [("ChatFlow", "chain", "s-7")]
-    assert "openinference.instrumentation.openai_agents" not in sys.modules
-
-
 def test_only_the_opt_in_observer_instruments_the_agents_sdk():
     """The other half of the orphan fix, pinned by name rather than by count.
 
     ``OpenAIAgentsInstrumentor().instrument()`` is what put OpenInference spans on the global
     tracer provider with no root to hang off. It is reachable again, but only through
-    ``Langfuse(sdk_spans=True)``  -  a caller who asked for the raw layer and was told in the
+    ``LangfuseObserver(sdk_spans=True)``  -  a caller who asked for the raw layer and was told in the
     reference that it arrives as a separate trace.
 
     What must not come back is a *second* caller: instrumentation is process-global and
@@ -605,7 +552,7 @@ def test_only_the_opt_in_observer_instruments_the_agents_sdk():
 
     assert found.stdout.split() == ["agentdeck/observers.py"], (
         f"the Agents-SDK instrumentor is reachable from {found.stdout.split()}; it belongs to "
-        "Langfuse(sdk_spans=True) alone"
+        "LangfuseObserver(sdk_spans=True) alone"
     )
 
 
@@ -616,7 +563,7 @@ def test_the_sdk_client_is_constructed_in_exactly_one_place():
     """#162's first defect, as a rule instead of a symptom.
 
     The Langfuse SDK caches one resource manager per public key and discards every later
-    constructor's arguments, so a second ``Langfuse(...)`` anywhere in the package is not a
+    constructor's arguments, so a second ``LangfuseObserver(...)`` anywhere in the package is not a
     second client and cannot change how the first one filters or exports  -  which is exactly how
     the ``should_export_span`` filter came to never apply. One construction site, checked by
     name so a second one cannot be added quietly.
@@ -668,7 +615,7 @@ async def test_sdk_spans_are_off_unless_asked_for(telemetry, langfuse_keys, monk
     instrumented = []
     monkeypatch.setattr(observers, "instrument_agents_sdk", lambda: instrumented.append(True))
 
-    await observers.Langfuse().start()
+    await observers.LangfuseObserver().start()
 
     assert instrumented == [], "the default observer instrumented the SDK without being asked"
 
@@ -692,6 +639,63 @@ async def test_sdk_spans_true_instruments_after_the_client_exists(telemetry, lan
 
     monkeypatch.setattr(langfuse_client, "langfuse_sink", _spy)
 
-    await observers.Langfuse(sdk_spans=True).start()
+    await observers.LangfuseObserver(sdk_spans=True).start()
 
     assert order == ["client", "instrument"]
+
+
+# --- the built-in dev observers: Console, File ---------------------------------------------------
+
+
+def _report_event(run_id: str = "run-1", seq: int = 0) -> Event:
+    return Event(
+        kind="report",
+        seq=seq,
+        run_id=run_id,
+        session_id=None,
+        namespace=None,
+        origin="Greeter",
+        ts=datetime.now(UTC),
+        payload=Reported(message="hi"),
+    )
+
+
+async def test_console_observer_prints_one_line_per_event(
+    project,  # noqa: ARG001  -  the project dir is what `from_project()` discovers
+    scripted,  # noqa: ARG001  -  points the run at a fake model
+    capsys: pytest.CaptureFixture[str],
+):
+    from agentdeck.deck import Deck
+
+    async with Deck.from_project(observers=[ConsoleObserver()]) as deck:
+        await deck.run("Greeter", "hello")
+
+    out = capsys.readouterr().out
+    assert "run.started" in out
+    assert "run.completed" in out
+
+
+async def test_console_observer_prints_no_more_than_kind_and_ids(capsys: pytest.CaptureFixture[str]):
+    """Deliberately plain: kind and the ids that place it in the log, nothing formatted."""
+    await ConsoleObserver().emit(_report_event())
+
+    assert capsys.readouterr().out.strip() == "report run=run-1 seq=0"
+
+
+async def test_file_observer_appends_one_json_line_per_event(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    observer = FileObserver(path)
+    await observer.emit(_report_event(seq=0))
+    await observer.emit(_report_event(seq=1))
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line)["seq"] for line in lines] == [0, 1]
+
+
+def test_console_and_file_observers_default_to_no_view():
+    assert ConsoleObserver().view is None
+
+
+def test_console_and_file_observers_carry_the_view_they_were_given(tmp_path):
+    assert ConsoleObserver(view=views.chat).view is views.chat
+    assert FileObserver(tmp_path / "a.jsonl", view=views.errors).view is views.errors

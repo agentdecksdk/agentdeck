@@ -24,12 +24,10 @@ from typing import Any, Protocol, TypeVar, runtime_checkable
 
 import pytest
 from agents import AgentHooks, WebSearchTool
-from langgraph.graph import END, StateGraph
-from pydantic import BaseModel
 
 import agentdeck
-from agentdeck.authoring import Agent, Workflow
-from agentdeck.core.context import Context  # noqa: TC001  -  the subjects below must resolve it at runtime
+from agentdeck.authoring import Agent
+from agentdeck.core.context import ToolCtx  # noqa: TC001  -  the subjects below must resolve it at runtime
 from agentdeck.deck import Deck
 from agentdeck.errors import ConfigError, ContextTypeError
 
@@ -82,11 +80,6 @@ T = TypeVar("T")
 would be reported unanalyzable long before the compatibility check saw it."""
 
 
-class _State(BaseModel):
-    request: str = ""
-    out: str = ""
-
-
 @pytest.fixture
 def no_project(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
@@ -94,17 +87,6 @@ def no_project(tmp_path, monkeypatch):
 
 def _agent_with_tool(tool: Any) -> Agent:
     return Agent(name="Booker", instructions="Book things.", tools=[tool])
-
-
-def _workflow_with_node(node: Any, *, name: str = "Book") -> Workflow:
-    def build() -> StateGraph:
-        graph = StateGraph(_State)
-        graph.add_node("book", node)
-        graph.set_entry_point("book")
-        graph.add_edge("book", END)
-        return graph
-
-    return Workflow(name=name, state=_State, graph=build)
 
 
 def _build(**kwargs: Any) -> Deck:
@@ -115,7 +97,7 @@ def _build(**kwargs: Any) -> Deck:
 
 
 def test_the_exact_declared_type_satisfies_a_requirement_for_it(no_project) -> None:
-    async def find_slots(day: str, environment: Context[MiddleContext]) -> str:
+    async def find_slots(day: str, environment: ToolCtx[MiddleContext]) -> str:
         """Find free slots."""
         return day
 
@@ -125,7 +107,7 @@ def test_the_exact_declared_type_satisfies_a_requirement_for_it(no_project) -> N
 def test_a_subtype_satisfies_a_requirement_for_its_supertype(no_project) -> None:
     """The deck provides the narrower thing; the callable asked for the wider one and gets it."""
 
-    async def find_slots(day: str, environment: Context[BaseContext]) -> str:
+    async def find_slots(day: str, environment: ToolCtx[BaseContext]) -> str:
         """Find free slots."""
         return day
 
@@ -136,7 +118,7 @@ def test_a_supertype_does_not_satisfy_a_requirement_for_a_subtype(no_project) ->
     """The other direction is exactly the mistake worth catching: the callable will reach for
     something the declared type does not have."""
 
-    async def find_slots(day: str, environment: Context[MiddleContext]) -> str:
+    async def find_slots(day: str, environment: ToolCtx[MiddleContext]) -> str:
         """Find free slots."""
         return day
 
@@ -149,7 +131,7 @@ def test_a_supertype_does_not_satisfy_a_requirement_for_a_subtype(no_project) ->
 
 
 def test_an_unrelated_declared_type_is_refused_naming_both_types(no_project) -> None:
-    async def find_slots(day: str, environment: Context[MiddleContext]) -> str:
+    async def find_slots(day: str, environment: ToolCtx[MiddleContext]) -> str:
         """Find free slots."""
         return day
 
@@ -161,7 +143,7 @@ def test_an_unrelated_declared_type_is_refused_naming_both_types(no_project) -> 
 
 
 def test_context_any_is_satisfied_by_anything(no_project) -> None:
-    async def anything(environment: Context[Any]) -> str:
+    async def anything(environment: ToolCtx[Any]) -> str:
         """Take whatever is going."""
         return "ok"
 
@@ -169,17 +151,17 @@ def test_context_any_is_satisfied_by_anything(no_project) -> None:
 
 
 def test_a_bare_context_annotation_is_satisfied_by_anything(no_project) -> None:
-    """A bare ``Context`` reads as ``Context[Any]`` everywhere else; it must here too, or the
+    """A bare ``ToolCtx`` reads as ``ToolCtx[Any]`` everywhere else; it must here too, or the
     same annotation would mean two things."""
 
-    async def anything(environment: Context) -> str:
+    async def anything(environment: ToolCtx) -> str:
         """Take whatever is going."""
         return "ok"
 
     _build(agents=[_agent_with_tool(anything)], context=GitHubContext)
 
 
-async def _peek_mapping(environment: Context[Mapping[str, Any]]) -> str:
+async def _peek_mapping(environment: ToolCtx[Mapping[str, Any]]) -> str:
     """Read the environment."""
     return "ok"
 
@@ -200,7 +182,7 @@ def test_a_union_requirement_is_satisfied_by_any_arm(no_project) -> None:
     class on some Python versions, so falling through to ``issubclass`` would compare the
     declared type against ``UnionType`` itself and refuse a perfectly compatible deck."""
 
-    async def peek(environment: Context[MiddleContext | None]) -> str:
+    async def peek(environment: ToolCtx[MiddleContext | None]) -> str:
         """Read the environment."""
         return "ok"
 
@@ -208,7 +190,7 @@ def test_a_union_requirement_is_satisfied_by_any_arm(no_project) -> None:
 
 
 def test_a_union_requirement_no_arm_satisfies_is_still_refused(no_project) -> None:
-    async def peek(environment: Context[MiddleContext | GitHubContext]) -> str:
+    async def peek(environment: ToolCtx[MiddleContext | GitHubContext]) -> str:
         """Read the environment."""
         return "ok"
 
@@ -216,7 +198,7 @@ def test_a_union_requirement_no_arm_satisfies_is_still_refused(no_project) -> No
         _build(agents=[_agent_with_tool(peek)], context=Calendar)
 
 
-async def _peek_findable(environment: Context[Findable]) -> str:
+async def _peek_findable(environment: ToolCtx[Findable]) -> str:
     """Read the environment."""
     return "ok"
 
@@ -238,7 +220,7 @@ def test_a_protocol_that_is_not_runtime_checkable_defers_rather_than_refusing(no
     """``issubclass`` raises for this one. Refusing on that would reject a build that a static
     checker would pass, which is the line ``build()`` does not cross."""
 
-    async def peek(environment: Context[Structural]) -> str:
+    async def peek(environment: ToolCtx[Structural]) -> str:
         """Read the environment."""
         return "ok"
 
@@ -249,7 +231,7 @@ def test_a_protocol_with_data_members_defers_rather_than_refusing(no_project) ->
     """``runtime_checkable`` is not enough  -  ``issubclass`` still refuses to rule on a protocol
     with a non-method member, and a refusal here would be a guess."""
 
-    async def peek(environment: Context[HasSlot]) -> str:
+    async def peek(environment: ToolCtx[HasSlot]) -> str:
         """Read the environment."""
         return "ok"
 
@@ -257,7 +239,7 @@ def test_a_protocol_with_data_members_defers_rather_than_refusing(no_project) ->
 
 
 def test_a_type_variable_requirement_defers(no_project) -> None:
-    async def peek(environment: Context[T]) -> str:
+    async def peek(environment: ToolCtx[T]) -> str:
         """Read the environment."""
         return "ok"
 
@@ -270,39 +252,11 @@ def test_an_engine_native_tool_object_is_not_introspected(no_project) -> None:
     _build(agents=[_agent_with_tool(WebSearchTool())], context=GitHubContext)
 
 
-def test_a_node_whose_signature_cannot_be_read_is_still_left_alone(no_project) -> None:
-    """Unanalyzable stays unanalyzable: declaring a context type must not turn a node the
-    analysis reports nothing about into a refusal."""
-
-    def destroying(fn):
-        def wrapper(*args, **kwargs):
-            return fn(*args, **kwargs)
-
-        return wrapper
-
-    @destroying
-    async def book(state: _State, environment: Context[MiddleContext]) -> dict[str, Any]:
-        return {"out": "ok"}
-
-    _build(workflows=[_workflow_with_node(book)], context=GitHubContext)
-
-
 # --- every injection site, not just tools ----------------------------------------------------------
 
 
-def test_a_workflow_node_requirement_is_checked_and_names_the_node(no_project) -> None:
-    async def book(state: _State, environment: Context[MiddleContext]) -> dict[str, Any]:
-        return {"out": "ok"}
-
-    with pytest.raises(ContextTypeError) as raised:
-        _build(workflows=[_workflow_with_node(book)], context=GitHubContext)
-
-    assert "node 'book'" in str(raised.value)
-    assert "requires MiddleContext" in str(raised.value)
-
-
 def test_an_instructions_callable_requirement_is_checked(no_project) -> None:
-    def instructions(environment: Context[MiddleContext]) -> str:
+    def instructions(environment: ToolCtx[MiddleContext]) -> str:
         return "Book things."
 
     with pytest.raises(ContextTypeError) as raised:
@@ -313,7 +267,7 @@ def test_an_instructions_callable_requirement_is_checked(no_project) -> None:
 
 def test_a_hook_requirement_is_checked_and_names_the_method(no_project) -> None:
     class Hooks(AgentHooks[Any]):
-        async def on_start(self, environment: Context[MiddleContext], agent: Any) -> None: ...
+        async def on_start(self, environment: ToolCtx[MiddleContext], agent: Any) -> None: ...
 
     with pytest.raises(ContextTypeError) as raised:
         _build(agents=[Agent(name="Booker", instructions="Book.", hooks=Hooks())], context=GitHubContext)
@@ -330,7 +284,7 @@ def test_the_refusal_arrives_as_a_context_type_error_not_its_supertype(no_projec
     node, the hook method, the bundle file). Each one is a chance to flatten the class the API
     promises into the ``ConfigError`` it inherits from."""
 
-    async def find_slots(day: str, environment: Context[MiddleContext]) -> str:
+    async def find_slots(day: str, environment: ToolCtx[MiddleContext]) -> str:
         """Find free slots."""
         return day
 
@@ -346,10 +300,10 @@ def test_the_refusal_survives_the_bundle_wrap_of_a_discovered_project(tmp_path, 
     project = tmp_path / ".agentdeck" / "agents" / "booker"
     project.mkdir(parents=True)
     (project / "agent.py").write_text(
-        "from agentdeck import Agent, Context\n"
+        "from agentdeck import Agent, ToolCtx\n"
         "from test_context_validation import MiddleContext\n"
         "\n"
-        "async def find_slots(day: str, environment: Context[MiddleContext]) -> str:\n"
+        "async def find_slots(day: str, environment: ToolCtx[MiddleContext]) -> str:\n"
         '    """Find free slots."""\n'
         "    return day\n"
         "\n"
@@ -388,7 +342,7 @@ def test_declaring_a_union_is_refused_rather_than_deferring_everywhere(no_projec
 
 
 def test_a_parameterised_generic_may_be_declared(no_project) -> None:
-    async def peek(environment: Context[Mapping[str, Any]]) -> str:
+    async def peek(environment: ToolCtx[Mapping[str, Any]]) -> str:
         """Read the environment."""
         return "ok"
 
@@ -399,11 +353,8 @@ def test_a_deck_declaring_no_context_checks_nothing(no_project) -> None:
     """The behavior every deck built before this parameter existed relies on: a requirement is
     compiled and left to the run, not refused for want of a declaration."""
 
-    async def find_slots(day: str, environment: Context[MiddleContext]) -> str:
+    async def find_slots(day: str, environment: ToolCtx[MiddleContext]) -> str:
         """Find free slots."""
         return day
 
-    async def book(state: _State, environment: Context[GitHubContext]) -> dict[str, Any]:
-        return {"out": "ok"}
-
-    _build(agents=[_agent_with_tool(find_slots)], workflows=[_workflow_with_node(book)])
+    _build(agents=[_agent_with_tool(find_slots)])

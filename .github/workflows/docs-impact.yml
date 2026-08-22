@@ -1,0 +1,31 @@
+name: Documentation impact
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+concurrency:
+  group: docs-impact-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check affected documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # The acknowledgement names its pages, so it survives a push that affects nothing new and
+      # expires the moment one does. Parsed in Python, not by `contains()`: the check is a set
+      # difference, and a push is not evidence a page changed meaning.
+      - name: Check documentation impact
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python scripts/check_docs_impact.py --base "$BASE_SHA" --head "$HEAD_SHA"

@@ -1,11 +1,15 @@
 ---
 title: Settings
-description: Every AGENTDECK_* (and OPENAI_*/TAVILY_*) environment variable, generated from agentdeck/runtime/settings.py.
+description: Every AGENTDECK_*, OPENAI_*, ANTHROPIC_*, GEMINI_*, OLLAMA_*, OPENROUTER_*, and TAVILY_* environment variable, generated from agentdeck/runtime/settings.py.
 ---
+
+{/* docs_sources:
+  - "agentdeck/runtime/settings.py"
+*/}
 
 # Settings
 
-Generated from [`agentdeck/runtime/settings.py`](https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/runtime/settings.py)'s `LayeredSettings` subclasses  -  this page cannot drift from the code because `make check` regenerates it and fails if the result differs (`scripts/generate_docs_reference.py`). Every variable is also settable in the shared `config.yaml`, under the section derived from its env-var prefix (`openai:`, `runner:`, …); an env var wins over the file.
+Generated from [`agentdeck/runtime/settings.py`](https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/runtime/settings.py)'s `LayeredSettings` subclasses  -  this page cannot drift from the code because `make check` regenerates it and fails if the result differs (`scripts/generate_docs_reference.py`). Values come from process environment variables or the project-root `.env`; process values win.
 
 ## `OpenAISettings`
 
@@ -13,10 +17,21 @@ OpenAI-compatible endpoint configuration.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `OPENAI_MODEL` | `str` | *required* | Model name passed to the host Agents SDK runner. No default  -  always required. |
-| `OPENAI_API_KEY` | `str` | `''` | API key for the endpoint. What empty does depends on `ca_bundle`: unset (the common case), the OpenAI client falls through to its own `OPENAI_API_KEY` process-env lookup and errors on the first model call if that's empty too; with `ca_bundle` set, the empty value is passed straight through instead and just sends no Authorization header  -  the self-hosted/corporate-CA case doesn't need a placeholder value the way the common path does. |
+| `OPENAI_MODEL` | `str` | `'gpt-4.1-mini'` | Default model for agents that do not declare `model=`. |
+| `OPENAI_API_KEY` | `str` | `''` | API key for OpenAI. A custom `OPENAI_BASE_URL` may omit it when the endpoint needs no auth. |
 | `OPENAI_BASE_URL` | `str` | `''` | OpenAI-compatible endpoint base URL. Empty uses the SDK default, api.openai.com. |
 | `OPENAI_CA_BUNDLE` | `str` | `''` | Path to a CA/certificate bundle for verifying the endpoint's TLS certificate. Empty uses the system's default trust store. |
+
+## `ModelProviderSettings`
+
+Credentials for prefixed model providers.
+
+| Env var | Type | Default | Description |
+|---|---|---|---|
+| `ANTHROPIC_API_KEY` | `str` | `''` | API key for `anthropic/...` models. |
+| `GEMINI_API_KEY` | `str` | `''` | API key for `gemini/...` models. |
+| `OLLAMA_BASE_URL` | `str` | `''` | Endpoint for `ollama/...` models. |
+| `OPENROUTER_API_KEY` | `str` | `''` | API key for `openrouter/...` models. |
 
 ## `RunnerSettings`
 
@@ -39,7 +54,6 @@ Knobs the Runtime itself reads.
 |---|---|---|---|
 | `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` | `float` | `3600.0` | How long, in seconds, a running open run may go without writing an event before it is treated as abandoned and its session ownership is released for another worker to claim. Never applies to a run paused or waiting on an answer  -  those hold their session until resumed, answered, or cancelled. Must be positive; set it above the longest gap a healthy turn can go quiet. |
 | `AGENTDECK_RUNTIME_LEASE_TTL_SECONDS` | `float` | `90.0` | How long, in seconds, a run's lease stays valid without renewal. A worker renews its lease six times per TTL while it plays a run, so a process killed outright frees its session within one TTL instead of one `stale_run_after_seconds`. Only takes effect with a lease backend shared across processes (`AGENTDECK_CONTROL=sqlite:///<path>`); with the in-memory default nothing is ever reported dead and the staleness timer remains the only backstop. Must be positive; set it above the longest the event loop can be blocked in one go. |
-| `AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS` | `float` | `30.0` | How often, in seconds, an open Deck sweeps for a `sleep_until` timer whose wake moment has passed and resumes it, with no cron or scheduler required. Must be positive; runs for the Deck's own lifetime, started when it opens and cancelled when it closes. |
 
 ## `LangfuseSettings`
 
@@ -57,19 +71,11 @@ Langfuse LLM-observability export config.
 
 ## `TavilySettings`
 
-Tavily web-search API. One knob: `TAVILY_API_KEY` env var (or YAML `tavily: api_key:`).
+Tavily web-search API. One knob: `TAVILY_API_KEY`.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
 | `TAVILY_API_KEY` | `str` | `''` | Tavily web-search API key. Empty makes the `web_search` tool return an `error:` string instead of raising  -  it degrades the same way an unavailable MCP server does, rather than disappearing. |
-
-## `CheckpointSettings`
-
-LangGraph checkpointer backend for `durable=True` workflows, as one scheme-shaped URL.
-
-| Env var | Type | Default | Description |
-|---|---|---|---|
-| `AGENTDECK_CHECKPOINT` | `str` | `'sqlite://.agentdeck/checkpoints.sqlite3'` | LangGraph checkpointer for `durable=True` workflows: `sqlite://<path>` for dev (this default), `postgresql://<dsn>` for prod, or `memory://` for tests (never persists past the process). The scheme names the backend. |
 
 ## `EventsSettings`
 
@@ -77,7 +83,7 @@ Where the Runtime's canonical event log is written, as one scheme-shaped URL.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_EVENTS` | `str` | `'memory://'` | Where the Runtime's canonical event log is written: `memory://` (default, in-process, gone when the process exits), `sqlite://<path>`, `redis://<url>`/`rediss://<url>` (needs the `[redis]` extra), or `postgresql://<dsn>` (needs the `[durability]` extra). The scheme names the backend. |
+| `AGENTDECK_EVENTS` | `str` | `'memory://'` | Where the Runtime's canonical event log is written: `memory://` (default, in-process, gone when the process exits), `sqlite://<path>`, `redis://<url>`/`rediss://<url>` (needs the `[redis]` extra), or `postgresql://<dsn>` (needs the `[postgres]` extra). The scheme names the backend. |
 
 ## `ControlSettings`
 
@@ -93,6 +99,6 @@ Configuration for Redis-backed agent conversation memory.
 
 | Env var | Type | Default | Description |
 |---|---|---|---|
-| `AGENTDECK_SESSION` | `str` or `None` | `None` | Redis URL for `RedisSession`-backed agent conversation memory (`agentdeck.adapters.engines.openai_agents.sessions.SessionFactory`), needing the `[redis]` extra. `None` falls back to one in-process `SQLiteSession` per session key  -  no persistence across a restart, no sharing across workers. |
+| `AGENTDECK_SESSION` | `str` or `None` | `None` | Redis URL for `RedisSession`-backed agent conversation memory (`agentdeck.adapters.executors.openai_agents.sessions.SessionFactory`), needing the `[redis]` extra. `None` falls back to one in-process `SQLiteSession` per session key  -  no persistence across a restart, no sharing across workers. |
 | `AGENTDECK_SESSION_REDIS_KEY_PREFIX` | `str` | `'agents:session'` | Key prefix under which `RedisSession` stores conversations in Redis. |
 | `AGENTDECK_SESSION_REDIS_TTL` | `int` or `None` | `None` | Per-session TTL in seconds for Redis-backed conversations. `None` means sessions persist indefinitely. |

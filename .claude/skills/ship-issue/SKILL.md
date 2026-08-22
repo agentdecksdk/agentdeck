@@ -1,6 +1,6 @@
 ---
 name: ship-issue
-description: Run one agentdeck issue through the full pipeline  -  brief the user, deck-dev implements it, deck-reviewer gates it, findings get fixed, PR merges to dev, board updated.
+description: "Run one agentdeck issue through the full pipeline: brief the user, deck-dev implements it, deck-reviewer gates it, findings get fixed, PR merges to dev, board updated."
 ---
 
 # Ship an issue
@@ -8,7 +8,7 @@ description: Run one agentdeck issue through the full pipeline  -  brief the use
 Orchestrate the end-to-end delivery of an issue.
 
 ## 0. Brief Before Launching
-Read the issue and verify its claims against the tree. Output a concise 5-point brief (1–2 lines each):
+Read the issue and verify its claims against the tree. **Spec gate first:** if the issue lacks `Done when` outcomes or scope bounds (what must NOT be added), fix the issue body or ask the user; do not spawn deck-dev against an unbounded spec. Then output a concise 5-point brief (1–2 lines each):
 > **The claim:** What the issue asks for.
 > **What's true now:** Current behavior in the codebase (file:line).
 > **The shape:** Implementation plan in 3–4 concise bullets.
@@ -19,19 +19,46 @@ Read the issue and verify its claims against the tree. Output a concise 5-point 
 Update GitHub Project (`PVT_kwHOBHijkM4BgHFZ`): Set **Status = In progress**, record Start Date, comment with start timestamp.
 
 ## 2. Implement
-Spawn `deck-dev` with the issue number and brief.
+Spawn `deck-dev` with the issue number and brief. It runs Stage 0 (Understand) then Stage 1
+(Design, posted to the draft PR body), then stops there and reports back rather than continuing
+into Stage 2.
+
+If it stops at its own spec gate despite step 0, the issue needs a human decision: set the board
+back to **Todo**, surface what is missing, stop the pipeline.
+
+**Design gate:** compare the reported design against this step's own brief. A design is never
+blocked for being larger; it is blocked only for a *named* problem: a duplication of something
+already in `scripts/repomap.py`'s output, an abstraction with one caller, a divergence from its
+own declared `## Analog`, configuration for a value that never changes. No such problem: send
+`deck-dev` a message to proceed to Stage 2. A problem found: send it back naming the problem, not
+a target size; `deck-dev` revises Stage 1 and reports again before Stage 2 starts.
+
+Once past the gate, `deck-dev` continues through Implement, Self-review, and Gate, posting task
+progress; poll for stalls.
 
 ## 3. Attach PR
-Verify draft PR targets `dev` and includes `Closes #<n>`. Set **Status = In review** when marked ready.
+Verify the draft PR targets `dev`, includes `Closes #<n>`, and its body carries the design sections (`## Reuse analysis`, `## Analog`, `## Concept budget`, `## Expected delta`). Missing sections go back to deck-dev before any review is spent. Set **Status = In review** when marked ready.
 
 ## 4. Review
-Spawn `deck-reviewer` on the PR.
+Spawn `deck-reviewer` on the PR. The reviewer must post a COMMENTED GitHub review; a session-only verdict does not count.
 
 ## 5. Address Findings
-Route blocking findings to `deck-dev` to fix on the branch.
+The review lands on the PR itself (GitHub review + inline comments); read it there. Route by class: **BLOCK** goes to `deck-dev` to fix on the branch. **DISCUSS** is answered in the thread by the author; if the reviewer and author still disagree once answered, escalate to the user rather than letting either side rule. **DEFER** is already a `finding:`-titled issue the reviewer filed and linked; schedule it as its own harness PR, never implemented by the reviewer. **NIT** needs no action unless the author wants it.
 
 ## 6. Merge
-When approved and `make check` is green: `gh pr merge --squash --delete-branch`.
+Merge when every required check is green **and every review thread is resolved**: `gh pr merge --squash --delete-branch`.
+
+Green checks are not sufficient. One open thread holds the PR at `BLOCKED` with nothing in `gh pr checks` to explain it, and `--admin` cannot force it: `enforce_admins` is on and the ruleset has no bypass actors. Two independent mechanisms enforce it under two different names, and both are live, so read both rather than assuming one mirrors the other:
+
+```bash
+gh api repos/{owner}/{repo}/branches/dev/protection    # required_conversation_resolution
+gh api repos/{owner}/{repo}/rules/branches/dev         # required_review_thread_resolution
+gh api graphql -f query='{repository(owner:"{owner}",name:"{repo}"){pullRequest(number:<n>){reviewThreads(first:20){nodes{id isResolved}}}}}'
+```
+
+Read those payloads whole. Filtering the protection endpoint down to the fields you expected is how this rule got missed in the first place: absence from a `--jq` selection is not absence from the data.
+
+Step 6 detects; it does not resolve. The author resolves each thread, and `ship-pr` carries the mutation. When the orchestrator authored the PR itself, it is the author.
 
 ## 7. Complete
 Set **Status = Done**, record Target Date, comment with completion summary and PR link.

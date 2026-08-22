@@ -1,18 +1,18 @@
 """Jack  -  the assistant that answers questions about AgentDeck, built on AgentDeck.
 
 Three tools over one context. None is wrapped in ``@function_tool``: a tool that declares a
-``Context`` parameter must stay a plain function, because the decorator would put that parameter
+``ToolCtx`` parameter must stay a plain function, because the decorator would put that parameter
 into the schema the model sees. ``build()`` compiles it instead, and the context argument is
 absent from what the model is offered  -  it only ever chooses ``query``, ``slug`` or ``subject``.
 """
 
 from __future__ import annotations
 
-from agentdeck import Agent, Context
-from jack.corpus import DocsCorpus  # noqa: TC001  -  Context[DocsCorpus] is resolved at runtime
+from agentdeck import Agent, ToolCtx
+from jack.corpus import DocsCorpus  # noqa: TC001  -  ToolCtx[DocsCorpus] is resolved at runtime
 
 
-def search_docs(query: str, docs: Context[DocsCorpus]) -> str:
+def search_docs(query: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Find AgentDeck documentation pages matching a query. Returns slugs with a matching line
     from each; call read_doc on a slug to get the full page."""
     hits = docs.data.search(query)
@@ -21,7 +21,7 @@ def search_docs(query: str, docs: Context[DocsCorpus]) -> str:
     return "\n".join(f"{slug}: {excerpt}" for slug, excerpt in hits)
 
 
-def read_doc(slug: str, docs: Context[DocsCorpus]) -> str:
+def read_doc(slug: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Read one AgentDeck documentation page in full, by its slug (e.g. 'concepts/agents')."""
     page = docs.data.pages.get(slug)
     if page is None:
@@ -29,13 +29,13 @@ def read_doc(slug: str, docs: Context[DocsCorpus]) -> str:
     return page
 
 
-def read_changelog(subject: str, docs: Context[DocsCorpus]) -> str:
+def read_changelog(subject: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Read AgentDeck's release history. Pass a version ('3.0.0', 'latest') for that release's
-    notes, or a topic ('Context', 'AudioBlock') to find which releases changed it."""
+    notes, or a topic ('ToolCtx', 'AudioBlock') to find which releases changed it."""
     return docs.data.changelog(subject)
 
 
-def instructions(docs: Context[DocsCorpus]) -> str:
+def instructions(docs: ToolCtx[DocsCorpus]) -> str:
     """The prompt, with the site's own page list folded in.
 
     A callable rather than a string so the page index is read from the corpus that is actually
@@ -51,7 +51,7 @@ def instructions(docs: Context[DocsCorpus]) -> str:
 
 INSTRUCTIONS = """\
 You are Jack, the AgentDeck developer agent. You answer questions about AgentDeck, a
-declarative harness over the OpenAI Agents SDK and LangGraph, and you are embedded in
+declarative harness over the OpenAI Agents SDK, and you are embedded in
 AgentDeck's own documentation site.
 
 Ground every answer in the documentation, not in what you remember about AgentDeck or about

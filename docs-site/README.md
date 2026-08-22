@@ -59,4 +59,17 @@ argparse tree. `tests/test_generated_reference.py` (part of `make check`) regene
 in memory and fails if they differ from the committed pages; run `make docs-reference` to
 refresh them after a settings or CLI change.
 
+Each page's `docs_sources` metadata block maps it to source paths that can change its claims:
+
+```mdx
+{/* docs_sources:
+  - "agentdeck/deck.py"
+  - "agentdeck/runtime/discovery.py"
+*/}
+```
+
+Pull requests must update each affected page or check the review acknowledgement item after
+reviewing the unchanged pages reported by CI. New pages fail the check until they declare this
+metadata. Run `make docs-impact` to perform the same check against `origin/dev`.
+
 Plan and phases: `docs/delivery/docs-site-plan.md`.
