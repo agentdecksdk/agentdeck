@@ -39,9 +39,6 @@ Both runs share `session_id="conversation-1"`, so the second run's model call ca
 run's messages along with its own. Every run gets a session either way: leave `session_id` out and
 it is scoped to that run's own `run.id`, so nothing carries into the next call.
 
-`session_id` means something different for a durable workflow (a `thread_id` it resumes by); see
-[Workflows](/build-your-deck/workflows).
-
 ## One turn per session at a time
 
 A session's history changes while a run is using it, so only one run may hold a session at a time.
