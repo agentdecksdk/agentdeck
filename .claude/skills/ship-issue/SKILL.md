@@ -46,7 +46,14 @@ Spawn `deck-reviewer` on the PR. The reviewer must post a COMMENTED GitHub revie
 The review lands on the PR itself (GitHub review + inline comments); read it there. Route by class: **BLOCK** goes to `deck-dev` to fix on the branch. **DISCUSS** is answered in the thread by the author; if the reviewer and author still disagree once answered, escalate to the user rather than letting either side rule. **DEFER** is already a `finding:`-titled issue the reviewer filed and linked; schedule it as its own harness PR, never implemented by the reviewer. **NIT** needs no action unless the author wants it.
 
 ## 6. Merge
-Merge only when `Agent review` and every other required check are green: `gh pr merge --squash --delete-branch`.
+Merge when every required check is green **and every review thread is resolved**: `gh pr merge --squash --delete-branch`.
+
+Green checks are not sufficient. `dev`'s ruleset sets `required_review_thread_resolution`, so one open thread holds the PR at `BLOCKED` with nothing in `gh pr checks` to explain it, and `--admin` will not force it past `enforce_admins: true`. When a merge is refused and the checks look fine, read the ruleset rather than the protection endpoint, which does not report this:
+
+```bash
+gh api repos/{owner}/{repo}/rules/branches/dev
+gh api graphql -f query='{repository(owner:"{owner}",name:"{repo}"){pullRequest(number:<n>){reviewThreads(first:20){nodes{id isResolved}}}}}'
+```
 
 ## 7. Complete
 Set **Status = Done**, record Target Date, comment with completion summary and PR link.

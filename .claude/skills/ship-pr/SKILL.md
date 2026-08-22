@@ -107,6 +107,18 @@ Reply in the review thread and resolve it. Never grow the PR body to answer a fi
 collapses once addressed, a body is what the next reader wades through to learn what the change
 does. The body only changes when the change does.
 
+**CONSTRAINT: resolve every thread, or the PR cannot merge.** `dev`'s ruleset sets
+`required_review_thread_resolution`, so one open thread holds the PR at `BLOCKED` with every check
+green, zero required approvals, and nothing in `gh pr checks` to explain it. Fixing the code is not
+answering the finding; the thread is.
+
+```bash
+gh api graphql -f query='mutation($t:ID!){resolveReviewThread(input:{threadId:$t}){thread{isResolved}}}' -f t="<thread-id>"
+```
+
+Thread ids come from `reviewThreads` on the pull request. Reply first, then resolve: a resolved
+thread with no reply tells the next reader nothing about what changed.
+
 ## Measured by
 
 Neither agent scores itself. What the dev side of this skill is measured on, from #431:

@@ -105,6 +105,12 @@ sibling comparison, `make check` result, probe limits. Raw data, no prose.
 Fixed order: verdict, `make check` result, counts per class, links to the review and any issues
 filed, then the evidence.
 
+**Report a mutation as its result, never as a file you touched.** Mutation edits are local to your
+own worktree and restored before you finish; you push nothing, ever. Write "reverting
+`deck.py:214` leaves 14 tests green", not "files touched during review". The second phrasing reads
+as a reviewer editing the PR, which is the one thing this role forbids, and it costs the reader a
+`git log` to disprove.
+
 ## Style, applies to all three templates
 
 1. No em dashes anywhere.
