@@ -16,7 +16,7 @@ forbidden_modules =
     psycopg
 
 # Activated by PR #1 (the events schema). core is the innermost ring: stdlib and
-# pydantic only, so the outer rings are also forbidden — importing one would invert the
+# pydantic only, so the outer rings are also forbidden: importing one would invert the
 # dependency direction the whole refactor rests on.
 [importlinter:contract:core-is-engine-free]
 name = core imports no engine, surface or outer ring
@@ -37,7 +37,7 @@ forbidden_modules =
     agentdeck.testing
 
 # The Runtime is the use-case layer: it orchestrates through ports and must never reach for
-# an engine, a store or a surface directly — those arrive from the composition root.
+# an engine, a store or a surface directly: those arrive from the composition root.
 # Narrower than it looks: importing agentdeck.runtime.service still executes the v1
 # agentdeck/runtime/__init__.py, which pulls in settings and workspace. Story 2 empties that.
 [importlinter:contract:runtime-service-is-adapter-free]
@@ -88,7 +88,7 @@ forbidden_modules =
     agentdeck.deck
 
 # Ring 3 (#52): surfaces render events for a Runtime handed to them by the composition
-# root — they never mint an engine or a store themselves.
+# root: they never mint an engine or a store themselves.
 [importlinter:contract:surfaces-are-adapter-free]
 name = surfaces import runtime and core only, never an adapter or an engine SDK
 type = forbidden
@@ -102,7 +102,7 @@ forbidden_modules =
 
 # Redis and Postgres event logs (#75): one external system each, which is the rule that
 # keeps "delete any adapter directory and nothing outside it breaks" true. Two contracts
-# rather than one because each store's own driver is the only one it may name — the pair
+# rather than one because each store's own driver is the only one it may name: the pair
 # forbids the other's, so a shared helper reaching for both would have to be a third
 # module somewhere neither contract covers, and there is no such place.
 [importlinter:contract:redis-store-takes-only-redis]
@@ -139,11 +139,11 @@ forbidden_modules =
 
 # MCP relocation (#78): the raw MCP protocol SDK is the tool adapter's alone, so a second
 # client can't quietly appear next to an engine or a surface. The list is everything except
-# `agentdeck.adapters.tools.mcp` — including the openai-agents engine, which may import
+# `agentdeck.adapters.tools.mcp`, including the openai-agents engine, which may import
 # `agents` but gets its MCP servers as opaque handles off a `ToolSet`.
 # This contract covers the `mcp` distribution ONLY. The SDK surface the adapter actually
 # uses is `agents.mcp`, which import-linter cannot express (subpackages of external packages
-# aren't valid contract targets) — ruff's TID251 banned-api bans that one, see pyproject.
+# aren't valid contract targets): ruff's TID251 banned-api bans that one, see pyproject.
 [importlinter:contract:mcp-protocol-sdk-is-tool-adapter-private]
 name = only the MCP tool adapter imports the MCP protocol SDK
 type = forbidden
@@ -163,12 +163,12 @@ forbidden_modules =
     mcp
 
 # Langfuse as a sink (#77): tracing is a reader of the event stream, so the Langfuse SDK
-# belongs to the telemetry adapter alone — an engine or a surface opening a span itself is
+# belongs to the telemetry adapter alone: an engine or a surface opening a span itself is
 # what left workflows untraced in the first place, and a *second* module constructing a client
 # is what made #162's span filter never apply. `langfuse` is a top-level distribution, so
 # import-linter can name it directly; the MCP ban above needed ruff only because `agents.mcp`
-# is a subpackage. `agentdeck.runtime` is listed whole now that `runtime/observability.py` —
-# the second altitude this contract had to carve an exception for — is gone, and
+# is a subpackage. `agentdeck.runtime` is listed whole now that `runtime/observability.py`
+# (the second altitude this contract had to carve an exception for) is gone, and
 # `agentdeck.authoring` joins it, since a direct-call runner opening spans of its own is what
 # left #162's orphan trees. `agentdeck.composition` and `agentdeck.deck` cannot be listed: the
 # composition root resolves the sink on purpose (`resolve_sinks`), so every path from them

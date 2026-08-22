@@ -1,5 +1,5 @@
 name: Finding
-description: Something observed that needs attention and a deeper look — not yet a bug, not yet a plan
+description: Something observed that needs attention and a deeper look, not yet a bug, not yet a plan
 labels: [finding]
 body:
   - type: markdown
@@ -18,7 +18,7 @@ body:
            solution instead of as the observation, and the observation is the valuable part. If
            you already know the fix and it is clearly right, file a bug report or a feature
            request instead.
-        2. **Anchor it to something checkable** — a commit or version, plus a reproduction, a
+        2. **Anchor it to something checkable**: a commit or version, plus a reproduction, a
            test, a CI run, or a `file:line`. A finding nobody else can get back to is an opinion.
            If you cannot reproduce it, say so explicitly in "What is not yet known"; that is a
            legitimate finding, but it must be stated rather than implied.
@@ -48,7 +48,7 @@ body:
       label: What was observed
       description: |
         The plain fact, as neutrally as you can state it: what you did, and what happened.
-        Resist explaining what it means — that goes further down.
+        Resist explaining what it means: that goes further down.
       placeholder: |
         Passing a plain function to `Agent(tools=[...])` builds without complaint, then fails
         at run time inside the SDK.
@@ -59,7 +59,7 @@ body:
     attributes:
       label: Reproduction
       description: |
-        The smallest thing someone else can run to see it — a snippet, a command, a test
+        The smallest thing someone else can run to see it: a snippet, a command, a test
         invocation, or the steps in order. If it is not reproducible, write "not reproducible"
         here and explain the circumstances in "What is not yet known".
       render: shell
@@ -68,11 +68,11 @@ body:
   - type: textarea
     id: evidence
     attributes:
-      label: Evidence — verbatim
+      label: Evidence, verbatim
       description: |
         The receipts, copied not paraphrased: the traceback, the failing assertion, the log
         lines, the HTTP response, the command output. Trim it to what matters, but do not
-        rewrite it — the exact wording is often the finding.
+        rewrite it: the exact wording is often the finding.
       render: text
     validations:
       required: true
@@ -81,7 +81,7 @@ body:
     attributes:
       label: Version, commit, or branch
       description: |
-        Required. Where exactly you saw this — a released version, a commit SHA, a branch, or a
+        Required. Where exactly you saw this: a released version, a commit SHA, a branch, or a
         PR number. "Latest" is not an anchor.
       placeholder: "3.0.0 · feat/164-deck-composition-api · aa2d3c5 · PR #165"
     validations:
@@ -91,7 +91,7 @@ body:
     attributes:
       label: Reference
       description: |
-        What else pins this down — at least one, more is better:
+        What else pins this down, at least one, more is better:
         a test name (`tests/test_deck.py::test_x`), a `file:line`, a CI run URL, a docs page,
         a log or trace ID, a related issue or PR.
       placeholder: |
@@ -134,7 +134,7 @@ body:
     id: reach
     attributes:
       label: How far does it reach, as far as you can tell?
-      description: A guess is fine — this is triage input, not a commitment.
+      description: A guess is fine, this is triage input, not a commitment.
       options:
         - Unknown / did not investigate
         - One code path or one call
@@ -147,7 +147,7 @@ body:
     id: could-be-fine
     attributes:
       label: Could this be correct behavior?
-      description: Think about it honestly before submitting — it changes how this gets triaged.
+      description: Think about it honestly before submitting, it changes how this gets triaged.
       options:
         - label: I considered that this might be intended, and I still think it is worth a look.
           required: true
@@ -156,7 +156,7 @@ body:
     attributes:
       label: Environment
       description: |
-        Only where it could matter — Python version, OS, model provider and base URL, relevant
+        Only where it could matter: Python version, OS, model provider and base URL, relevant
         `AGENTDECK_*` settings, installed extras. A finding from reading code can leave this
         empty. Never paste credentials or API keys.
   - type: checkboxes
