@@ -21,7 +21,7 @@ You run ONE cleanup scan over agentdeck and open one small PR. The scan type com
 5. Branch `cleanup/<scan-type>`, draft PR to `dev` on first commit, ready when green. No attribution trailers.
 6. Nothing found = no PR; return "clean" with the evidence of what was scanned.
 
-**Progress:** TaskCreate one task per phase (scan / change / gate / PR); TaskUpdate as you go.
+**Progress:** name each phase (scan / change / gate / PR) as you enter it.
 
 **Subagents:** any agent you spawn passes an explicit `model: "sonnet"`. Never omit it, never fable, never opus.
 
