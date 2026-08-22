@@ -316,8 +316,10 @@ for the life of that run. Anything larger belongs in a `ResourceBlock`.
 An engine that cannot express a block raises `ConfigError` naming the block type, rather than
 dropping it  -  a turn that silently loses its image is worse than one that refuses. Two known
 limits on the openai-agents engine at the pinned `openai-agents==0.17.0`: `AudioBlock` needs the
-Chat-Completions path (`OPENAI_USE_RESPONSES=false`), and `ResourceBlock` is not sent to the model
-at all  -  a `uri` is a pointer, not content, and the engine never fetches it. `DataBlock` **is**
+Chat-Completions path (`OPENAI_USE_RESPONSES=false`), and `ResourceBlock` is refused rather than
+sent  -  a `uri` is a pointer, not content, and the engine never fetches it, so sending the URI
+alone would risk a caller believing the model saw bytes it never received. Read the resource and
+send its bytes as a text, image, audio or data block instead. `DataBlock` **is**
 sent: it renders as its own part, `json.dumps(data, ensure_ascii=False)` with nothing wrapped
 around it, since it is already a separate entry in the model's content list rather than text
 concatenated into a caller's own prompt.
@@ -598,7 +600,7 @@ nothing needs one, and adding a property later is additive while removing one is
 `session_for(session_id)` returns the SDK conversation-memory session `run`/`stream` use for that
 id: Redis-backed when `AGENTDECK_SESSION` is set, an in-process SQLite session otherwise
 (lost on process exit). Pass `session_factory=` to `Deck(...)` to inject one  -  the seam tests use
-to swap in a fake wrapping `fakeredis` without a real Redis server.
+to swap in a fake without a real Redis server.
 
 <Callout type="info">
   A Redis-backed session needs the `redis` extra: `pip install "agentdeck-sdk[redis]"`. Without
