@@ -29,7 +29,7 @@ Verify the draft PR targets `dev`, includes `Closes #<n>`, and its body carries 
 Spawn `deck-reviewer` on the PR. The reviewer must post a COMMENTED GitHub review; a session-only verdict does not count.
 
 ## 5. Address Findings
-The review lands on the PR itself (GitHub review + inline comments); read it there. Route by class: **ERROR** and **WARNING** findings go to `deck-dev` to fix on the branch; **NOTE** findings that will not be fixed now become `finding:`-titled issues via open-issue, never silently dropped. Promotion issues the reviewer filed get scheduled as their own small harness PRs, never implemented by the reviewer.
+The review lands on the PR itself (GitHub review + inline comments); read it there. Route by class: **BLOCK** goes to `deck-dev` to fix on the branch. **DISCUSS** is answered in the thread by the author; if the reviewer and author still disagree once answered, escalate to the user rather than letting either side rule. **DEFER** is already a `finding:`-titled issue the reviewer filed and linked; schedule it as its own harness PR, never implemented by the reviewer. **NIT** needs no action unless the author wants it.
 
 ## 6. Merge
 Merge only when `Agent review` and every other required check are green: `gh pr merge --squash --delete-branch`.
