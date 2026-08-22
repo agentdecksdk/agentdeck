@@ -1792,6 +1792,10 @@ The current release is **v4.0.5**. Earlier releases are listed at the bottom.
 
 ### Added
 
+- **Lifecycle & Control docs now include a capability matrix.** A table on the
+  [Lifecycle & Control](/runs-and-control/lifecycle-and-control) page shows which of
+  `pause()`, `resume()`, `cancel()`, and `answer()` are legal from each run status, for quick
+  reference alongside the existing prose.
 - **Agents can select OpenAI, Anthropic, Gemini, Ollama, or OpenRouter by model prefix.** Each
   provider reads its own environment credential, and `Deck.build()` reports every missing
   requirement before execution. Runtime settings now come only from environment variables or
@@ -2364,6 +2368,21 @@ when it next reaches a safe point: between stream items, before dispatching a to
 boundary. Two events make that visible, `control.requested` when the signal is recorded and
 `control.observed` when the run picks it up, so a control that has not taken effect yet is
 distinguishable from one that was never seen.
+
+### Capability matrix
+
+Which operations are legal from each state:
+
+| State | `pause()` | `resume()` | `cancel()` | `answer()` |
+|---|---|---|---|---|
+| `running` | ✓ | -- | ✓ | -- |
+| `paused` | -- | ✓ | ✓ | -- |
+| `waiting_answer` | ✓ | -- | ✓ | ✓ |
+| `completed` / `failed` / `cancelled` | -- | -- | -- | -- |
+
+`✓` is legal; `--` is not, and covers both a refusal that raises and a call that quietly does
+nothing. `PRECONDITIONS` in `agentdeck/core/status.py` carries the exact verdict and reason
+attached to each cell.
 
 ## Related
 
