@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from agentdeck.core.status import RunStatus, status_of
-from agentdeck.errors import RunStateError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -73,22 +72,6 @@ class EventStorePort(ABC):
     *means*; it refuses what would corrupt the log and reports what it saw.
     """
 
-    def _refuse_if_cancelled(self, status: RunStatus | None, ctx: RunContext) -> None:
-        """Refuse the append this store is inside when the run is already ``CANCELLED``.
-
-        A cancel is decided from outside the run and written from outside it: the deck abandoning
-        a run that ignored its cancellation writes the terminal event while the run's own task is
-        still alive, so one write of that run's can already be suspended in here when it lands.
-        Refusing at the write, inside whatever makes the write indivisible, is the only place that
-        write can still be stopped (#421).
-
-        Cancelled and not every terminal status: a takeover's ``run.failed`` is advisory, and a run
-        that turns out to be alive after being stepped over goes on writing and may reclaim its own
-        session. That is deliberate (ADR-D11 §5) and this refusal leaves it alone.
-        """
-        if status is RunStatus.CANCELLED:
-            raise RunStateError(f"run {ctx.run_id!r} was cancelled; nothing can be appended to it any more")
-
     @abstractmethod
     async def append(self, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
         """Stamp and write ``payloads`` in the order given, returning the finished events.
@@ -97,9 +80,15 @@ class EventStorePort(ABC):
         the backend uses to make the write indivisible. Must return only once they are durable,
         because the Runtime yields to consumers immediately after.
 
-        Raises :class:`~agentdeck.errors.RunStateError` for a run that is already ``CANCELLED``,
-        decided inside the same indivisible step as the write  -  see :meth:`_refuse_if_cancelled`,
-        which every implementation calls from there.
+        Raises ``RunStateError`` for a run that is already ``CANCELLED``, decided inside the same
+        indivisible step as the write: a cancel is written from outside a run whose task is still
+        alive, so one of that run's own appends can already be suspended in here when the terminal
+        event lands, and the write step is the only place left that can still stop it. Every store
+        owes this, through ``adapters.stores.refuse_if_cancelled``  -  the shared decision, which
+        cannot live on this port because core may not name an error type.
+
+        A takeover's ``run.failed`` deliberately refuses nothing: it is written for a run only
+        *believed* dead, and one that turns out to be alive goes on writing (ADR-D11 §5).
 
         Run identity comes from ``ctx`` alone. The one write that belongs to a *different* run  -
         the terminal event a takeover stamps for a run it stepped over  -  passes a ``ctx`` built
