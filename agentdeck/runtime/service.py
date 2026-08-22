@@ -519,10 +519,10 @@ class Runtime:
         """Close a run whose resume claim committed and whose play never started.
 
         The claim flips the run to ``RUNNING`` before there is anything to yield, and every await
-        between it and :meth:`_play` is one a cancellation can land on  -  leaving a run the log
-        says is live with nobody playing it and its session held for a whole staleness window.
-        Status is folded from the log, so the ``finally`` is the fix and not a shield: the record
-        has to say what happened.
+        from there to :meth:`_play` is one a cancellation can land on  -  leaving a run the log says
+        is live with nobody playing it and its session held for a whole staleness window. Recorded
+        rather than shielded, because status is folded from the log: a log saying a run is live
+        while nothing plays it is a log that lies.
 
         Guarded on ``RUNNING`` because the same span also serves a pending cancel, and that path
         has already written this run's terminal event (#391).

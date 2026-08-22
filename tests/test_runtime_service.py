@@ -16,12 +16,14 @@ from event_log_checks import check_contiguous, check_terminal
 from never_yields import NeverYields
 from pydantic import ValidationError
 
+from agentdeck.adapters.control.memory import MemoryControlPort
 from agentdeck.adapters.executors.stub import StubExecutor, stub_spec
 from agentdeck.adapters.leases.memory import MemoryLeasePort
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.composition import build_runtime
 from agentdeck.core.content import DataBlock, TextBlock
 from agentdeck.core.context import RunContext
+from agentdeck.core.control import Signal
 from agentdeck.core.events import (
     Event,
     RunCompleted,
@@ -1029,6 +1031,45 @@ async def test_a_cancellation_after_the_resume_claim_closes_the_run_and_frees_th
         assert check_terminal(logged) is None
         assert logged[-1].payload.reason == "cancelled after the resume claim"
         assert [event.kind for event in await store.read_session(CTX)] == [event.kind for event in logged]
+
+
+async def test_a_consumer_that_stops_reading_a_served_cancel_still_gets_both_closers_recorded() -> None:
+    """The other half of #391's window: the branch that serves a cancel found pending used to
+    yield between its two closers, so a consumer that stopped reading there left the run with a
+    ``control.requested`` and no terminal event  -  the same stranded claim, from the other end.
+    """
+    spec = stub_spec(
+        "Approver",
+        RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1"),
+        DONE,
+        kind=InvocableKind.WORKFLOW,
+    )
+    store = MemoryEventStore()
+    control = MemoryControlPort()
+    runtime = Runtime([StubExecutor()], store, {spec.name: spec}, control=control)
+    parked = [
+        event async for event in runtime.run("Approver", INPUT, session_id=CTX.session_id, namespace=CTX.namespace)
+    ]
+    run_id = parked[0].run_id
+    # Straight at the port, which is the one route that leaves a cancel pending against a waiting
+    # run: ``Runtime.signal`` claims and terminates such a run itself.
+    await control.signal(replace(CTX, run_id=run_id).id, Signal.CANCEL, "the user closed the tab")
+
+    answering = runtime.resume(
+        "Approver", "approved", run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
+    )
+    assert (await anext(answering)).kind == "run.resumed"
+    await answering.aclose()  # and reads no further
+
+    logged = await store.read_run(replace(CTX, run_id=run_id))
+    assert [event.kind for event in logged] == [
+        "run.started",
+        "run.interrupted",
+        "run.resumed",
+        "control.requested",
+        "run.cancelled",
+    ]
+    assert check_terminal(logged) is None
 
 
 async def test_close_cancelled_says_which_status_it_found_when_the_run_closed_itself(
