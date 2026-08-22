@@ -1,6 +1,6 @@
 ---
 name: review-pr
-description: Review one agentdeck PR as the merge gate. Five phases (claims, attack, craft, scope, verdict); BLOCK/DISCUSS/DEFER/NIT findings; a 300-word verdict ending in a greppable marker.
+description: Review gate for one agentdeck PR before merge. Five phases (claims, attack, craft, scope, verdict) plus an optional harvest; BLOCK/DISCUSS/DEFER/NIT findings; a 300-word verdict ending in a greppable marker. Use before merging any agentdeck PR.
 ---
 
 # Review a PR
@@ -17,7 +17,17 @@ A reviewer finds what matters, says it, and stays silent elsewhere. Prove nothin
 
 ## Phases
 
-Work in order. Correctness before craft: a wrong design makes naming irrelevant.
+Work in order. Correctness before craft: a wrong design makes naming irrelevant. Copy this checklist into your own response and check off each phase as you complete it:
+
+```
+Review progress:
+- [ ] 1. Claims: what does this PR assert, and what must be true
+- [ ] 2. Attack: go after those claims (references/attack.md)
+- [ ] 3. Craft: patterns, naming, tests as spec (references/craft.md)
+- [ ] 4. Scope: should this be two PRs
+- [ ] 5. Verdict: post it (references/templates.md)
+- [ ] 6. Harvest: usually nothing (references/craft.md)
+```
 
 | phase | does | writes on the PR |
 |---|---|---|
@@ -25,7 +35,7 @@ Work in order. Correctness before craft: a wrong design makes naming irrelevant.
 | 2. Attack | Go after those claims: lifecycle, event ordering, concurrency, failure paths, states the code cannot express. Edge cases belong here, not later; mutation-test anything the PR calls covered. Depth: `references/attack.md`. | inline (Template A) |
 | 3. Craft | Does it read like its neighbors: `docs/patterns/`, naming, error text, comment slop, test names that state contracts, the PR body's own verbosity. Depth: `references/craft.md`. | inline (Template A) |
 | 4. Scope | Should this be two PRs? Is anything here not asked for? | one line, only if there is something |
-| 5. Verdict | Rubric row per phase (Claims/Attack/Craft/Scope), PASS or the finding count, then findings by class, then the marker. Format fixed in `references/templates.md` (Template B); do not improvise it. | 300 words max, hard cap |
+| 5. Verdict | Draft the rubric row per phase (Claims/Attack/Craft/Scope) and findings by class, format fixed in `references/templates.md` (Template B). Before posting, re-read each finding and ask whether it names a concrete consequence; downgrade it to NIT if it does not. Only then post. | 300 words max, hard cap |
 | 6. Harvest | Optional, non-blocking, gated: see below. The default is to write nothing. | a `docs/patterns/` commit to `dev` and/or a harness-note issue, never on the PR itself |
 
 ## Harvest

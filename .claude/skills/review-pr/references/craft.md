@@ -1,6 +1,6 @@
 # Craft phase
 
-Does this read like it belongs in the repo. Judge only after Attack; craft does not matter if the design is wrong.
+Medium freedom. A preferred pattern exists for each concern below; some variation from it is fine if the PR's own reasoning holds up. Does this read like it belongs in the repo. Judge only after Attack; craft does not matter if the design is wrong.
 
 ## Pattern and sibling alignment
 

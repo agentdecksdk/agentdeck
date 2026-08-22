@@ -1,16 +1,30 @@
 # Attack phase
 
-Go after the claims written down in phase 1. Correctness before craft.
+High freedom. Go after the claims written down in phase 1; correctness before craft. This is an
+open field, not a checklist: which of the angles below matter depends on what this PR actually
+touches. Running all of them on every PR is how the old reviewer produced uniform coverage and
+4,000-word reviews. Pick the ones the claims and the diff put at risk, and go deep there instead
+of shallow everywhere.
 
-## What to trace
+## Angles, not a sequence
 
-- **Lifecycle transitions:** every state the runtime can be in after this change, and whether an invalid one can be expressed. `docs/engineering/runtime-contracts.md` is the law; a state diagram that admits a state the code cannot handle is a BLOCK.
-- **Event ordering:** does a new event kind or a reordered append change what a downstream reader (roll-up, cascade, resume) sees.
-- **Persistence guarantees:** does the change survive a process boundary (store close/reopen), not just an in-memory run.
-- **Streaming semantics:** partial results, cancellation mid-stream, backpressure.
-- **Concurrency and cancellation paths:** what happens when a cancel, a timeout, or a second caller lands between the lines this PR touched.
-- **Import law:** `import-linter` already gates 3-ring boundaries in `make check`; read its count, do not re-derive it by hand.
-- **Invalid states impossible to express:** the PR's own claim, if it makes one. Try to construct the state it says cannot happen.
+- **Lifecycle transitions:** if the change touches runtime state, is there a state the code can
+  now reach that `docs/engineering/runtime-contracts.md` (the law) or the code itself cannot
+  handle.
+- **Event ordering:** would a new event kind or a reordered append change what a downstream reader
+  (roll-up, cascade, resume) sees.
+- **Persistence guarantees:** does the change survive a process boundary (store close/reopen), not
+  just an in-memory run, if that boundary is in play.
+- **Streaming semantics:** partial results, cancellation mid-stream, backpressure, when the PR
+  touches a stream.
+- **Concurrency and cancellation paths:** what happens when a cancel, a timeout, or a second caller
+  lands between the lines this PR touched.
+- **Import law:** `import-linter` already gates 3-ring boundaries in `make check`; read its count,
+  do not re-derive it by hand.
+- **Invalid states the PR claims are impossible:** try to construct the one it says cannot happen.
+
+A claim with a named consequence you actually reproduced is a BLOCK. Skip the angles that do not
+bear on this PR's claims rather than writing something about each for completeness.
 
 ## Mutation testing
 

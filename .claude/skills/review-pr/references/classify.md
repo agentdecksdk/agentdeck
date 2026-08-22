@@ -35,3 +35,10 @@ The PR body's `## Recorded judgments` claimed two rulings were "amended into the
 Only one row landed there; the pause ruling did not. Real, and worth one line inline, but it cost
 nothing to fix, blocked nothing, and needed no author reply beyond editing the doc. That is a NIT:
 collapse it into the bottom list, not a numbered WARNING in the rubric.
+
+<details><summary>Superseded: ERROR / WARNING / NOTE</summary>
+
+ERROR and WARNING blocked, NOTE did not. Replaced because all three were assertions, so a
+reviewer with genuine uncertainty had to overstate it: #415 came back as "block, narrowly".
+DISCUSS is the honest slot, and DEFER separates real-but-later from optional.
+</details>

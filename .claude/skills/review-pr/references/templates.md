@@ -1,9 +1,15 @@
 # Report templates
 
-Every review output falls into one of three templates. Structure, length, and style are fixed
-here; do not paraphrase the numbers.
+Every review output falls into one of three templates. Low freedom: this is the narrow bridge,
+not the open field. A script parses Template B's marker line, so structure, length, and style are
+fixed here; do not paraphrase the numbers.
+
+Contents: Template A (inline comment), Template B (verdict), worked examples, Template C
+(orchestrator return), style rules, why the numbers are these numbers.
 
 ## Template A: inline comment
+
+ALWAYS use this exact template structure:
 
     **CLASS** Consequence in one sentence, naming the trigger.
 
@@ -20,6 +26,8 @@ here; do not paraphrase the numbers.
   resolve it, so a DISCUSS can never be a shrug.
 
 ## Template B: verdict
+
+ALWAYS use this exact template structure:
 
     ## Verdict
 
@@ -53,6 +61,40 @@ here; do not paraphrase the numbers.
 - NITs are always inside the `<details>` block and never inline on the diff.
 - The marker line is last, alone, and exactly as specified (`<!-- agentdeck-review: pass -->` or
   `block`, with the counts). A scorecard greps it.
+
+## Worked examples
+
+Real v5 findings, situation then the exact comment.
+
+**BLOCK**, from #420: `Deck._mint` compiled a minted agent against `catalog={}` (`deck.py:984`),
+so forking any agent declaring `subagents=` raised `NotFoundError` against a catalog that in fact
+held the name.
+
+    **BLOCK** `Deck._mint` compiles the minted agent against `catalog={}` (`deck.py:984`), so
+    `ctx.agents.fork` on any agent declaring `subagents=` raises `NotFoundError: ... Available:
+    []` even though the deck's own catalog holds the name.
+
+Bad version of the same finding, observation instead of consequence, never write this:
+
+    I verified by reproducing the fork call that `Deck._mint` passes `catalog={}`, and confirmed
+    through testing that this causes a `NotFoundError` when subagents are declared, traced to
+    line 984.
+
+**DISCUSS**, from #415: `can_resume` (`context.py:343`) treats `RESUMABLE_STATUSES` as
+`{paused, waiting_answer}`, so a `PAUSED` child is spared too, but both docstrings state only the
+narrower "waiting for an answer" rule.
+
+    **DISCUSS** `can_resume` (`context.py:343`) spares a `PAUSED` child too, wider than both
+    docstrings' "waiting for an answer" rule.
+
+    Settled by: confirm sparing a paused child is intended and update both docstrings plus a
+    test, or narrow the predicate to `WAITING_ANSWER`.
+
+**NIT**, from #420: the PR body's `## Recorded judgments` claimed two rulings landed in the design
+doc; only one row did.
+
+    **NIT** Body says both rulings landed in the design doc; only the `fork(source)` row does.
+    The pause ruling is missing from `docs/design/execution-api.md`.
 
 ## Template C: return to the orchestrator
 
