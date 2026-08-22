@@ -27,8 +27,10 @@ Four kinds of thing, each a plain Python declaration with no runtime attached.
 | Workflow | `@workflow` | ordinary Python that coordinates executions and can suspend in place |
 | Skill | a `SKILL.md` on disk, named by string in `Agent(skills=[...])` | prose the model reads on demand through a generated `load_skill` tool |
 
-None of them execute anything on their own. A declaration is a description, and it stays inert
-until a `Deck` compiles it.
+A `@tool` and a `@workflow` execute nothing on their own: each stays inert until a `Deck` compiles
+it. An `Agent` also has `Agent.run()`, a one-shot headless call that skips the deck entirely and so
+gets no event log, no session and no controls. Everything below is about the path through a `Deck`,
+which is the one with the contract.
 
 ## Deck: the composition root
 
@@ -46,14 +48,15 @@ you get at build time, not halfway through a user's turn.
 ## Run: the thing with identity
 
 Invoking a catalog entry produces a **run**, and the run is what everything else hangs off. It has
-a durable id, a status, an owner session, and a log. It outlives the handle you got it from:
+a durable id, a status, a log, and the session it belongs to if it belongs to one. It outlives the
+handle you got it from:
 `deck.runs.get(id)` picks the same run up again, in this process or another one.
 
 | A run has | Meaning |
 |---|---|
 | identity | a minted id, optionally a `(namespace, key)` you chose |
 | status | one of `running`, `paused`, `waiting_answer`, `completed`, `failed`, `cancelled` |
-| a session | the conversation it belongs to, or its own id if it belongs to none |
+| a session | the conversation it belongs to, or `None` when it stands alone |
 | a log | every event it produced, in order |
 
 ## Control and Events: the two ways out

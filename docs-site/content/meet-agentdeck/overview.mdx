@@ -34,8 +34,8 @@ can operate.
 
 - **Your model provider.** An agent selects OpenAI, Anthropic, Gemini, Ollama or OpenRouter by
   model prefix, and each reads its own credential.
-- **Your tools.** MCP servers attach to a `Deck` directly, and an OpenAI Agents SDK agent or tool
-  you already built passes through as-is.
+- **Your tools.** MCP servers attach to a `Deck` directly, and an OpenAI Agents SDK tool you
+  already built passes through uncompiled. An SDK agent passes through as a handoff target.
 - **Your execution.** The agent loop stays in the SDK, or in a `@workflow`, which is ordinary
   Python with no engine underneath it. AgentDeck owns configuration and orchestration, not the loop.
 
