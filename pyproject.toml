@@ -1,6 +1,6 @@
 [project]
 name = "agentdeck-sdk"
-version = "4.0.5"
+version = "5.0.0"
 description = "Declarative harness over the OpenAI Agents SDK: settings, capabilities, skills, runners, plug-in discovery."
 license = "MIT"
 license-files = ["LICENSE"]
