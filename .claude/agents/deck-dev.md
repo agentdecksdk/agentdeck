@@ -25,7 +25,9 @@ Run `uv run scripts/repomap.py`. Then write the complete design into the draft P
 
 **Whole body: 500 words**, rising to **800 when the diff touches 20 or more files**, where the extra is a list of what moved, never prose. A change that cannot be described in 500 words and touches under 20 files should be two PRs; say so rather than writing 800.
 
-500 rather than the sections' 400, because the sections do not cover everything a body must carry: `Closes #<n>`, a `## Left for the docs-site pass` list, and the docs-impact checklist line that `.github/workflows/docs-impact.yml` greps for verbatim. A total that squeezes out a line CI requires is a cap working against the repo.
+500 rather than the sections' 400, because the sections do not cover everything a body must carry: `Closes #<n>`, a `## Left for the docs-site pass` list, and the docs-impact acknowledgement. A total that squeezes out a line CI requires is a cap working against the repo.
+
+`make check` ends by naming the docs-site pages your sources affect. Open each one. Fix what this change made wrong, and name the rest: `- [x] Unchanged pages reviewed: reference/run.mdx, workflows/native.mdx`. Naming them is the check, so an unrelated push no longer expires it and a newly affected page still fails CI.
 
 Count it this way, no judgement calls. Headings and table rows count: the house rule is a table *instead of* paragraphs, and a table on top of prose is what the cap exists to stop.
 ```

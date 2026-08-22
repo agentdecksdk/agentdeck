@@ -105,14 +105,84 @@ def test_cli_fails_when_an_affected_page_was_not_updated(monkeypatch: pytest.Mon
     mapping = PageMapping("docs-site/content/reference/run.mdx", ("agentdeck/core/*.py",))
     monkeypatch.setattr(docs_impact, "load_mappings", lambda: (mapping,))
     monkeypatch.setattr(docs_impact, "changed_files", lambda base, head: ("agentdeck/core/invocable.py",))
+    monkeypatch.delenv("PR_BODY", raising=False)
 
     assert docs_impact.main([]) == 1
 
 
-def test_cli_requires_review_again_after_new_commits(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_naming_the_affected_page_acknowledges_it(monkeypatch: pytest.MonkeyPatch) -> None:
     mapping = PageMapping("docs-site/content/reference/run.mdx", ("agentdeck/core/*.py",))
     monkeypatch.setattr(docs_impact, "load_mappings", lambda: (mapping,))
     monkeypatch.setattr(docs_impact, "changed_files", lambda base, head: ("agentdeck/core/invocable.py",))
+    # GitHub serves PR bodies with CRLF, which would otherwise ride along into the last page name.
+    monkeypatch.setenv("PR_BODY", "## Design\r\n\r\n- [x] Unchanged pages reviewed: reference/run.mdx\r\n")
 
-    assert docs_impact.main(["--acknowledge-review", "--pr-action", "synchronize"]) == 1
-    assert docs_impact.main(["--acknowledge-review", "--pr-action", "edited"]) == 0
+    assert docs_impact.main([]) == 0
+
+
+def test_acknowledgement_survives_a_push_that_affects_nothing_new(monkeypatch: pytest.MonkeyPatch) -> None:
+    mapping = PageMapping("docs-site/content/reference/run.mdx", ("agentdeck/core/*.py",))
+    monkeypatch.setattr(docs_impact, "load_mappings", lambda: (mapping,))
+    monkeypatch.setenv("PR_BODY", "- [x] Unchanged pages reviewed: docs-site/content/reference/run.mdx")
+
+    monkeypatch.setattr(docs_impact, "changed_files", lambda base, head: ("agentdeck/core/invocable.py",))
+    assert docs_impact.main([]) == 0
+    monkeypatch.setattr(
+        docs_impact,
+        "changed_files",
+        lambda base, head: ("agentdeck/core/invocable.py", "agentdeck/core/context.py"),
+    )
+    assert docs_impact.main([]) == 0
+
+
+def test_a_newly_affected_page_expires_the_acknowledgement(monkeypatch: pytest.MonkeyPatch) -> None:
+    run = PageMapping("docs-site/content/reference/run.mdx", ("agentdeck/core/*.py",))
+    deck = PageMapping("docs-site/content/reference/deck.mdx", ("agentdeck/deck.py",))
+    monkeypatch.setattr(docs_impact, "load_mappings", lambda: (run, deck))
+    monkeypatch.setattr(docs_impact, "changed_files", lambda base, head: ("agentdeck/core/invocable.py",))
+    monkeypatch.setenv("PR_BODY", "- [x] Unchanged pages reviewed: reference/run.mdx")
+
+    assert docs_impact.main([]) == 0
+    monkeypatch.setattr(
+        docs_impact,
+        "changed_files",
+        lambda base, head: ("agentdeck/core/invocable.py", "agentdeck/deck.py"),
+    )
+    assert docs_impact.main([]) == 1
+
+
+def test_report_mode_names_the_pages_and_the_line_that_clears_them(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    mapping = PageMapping("docs-site/content/reference/run.mdx", ("agentdeck/core/*.py",))
+    monkeypatch.setattr(docs_impact, "load_mappings", lambda: (mapping,))
+    monkeypatch.setattr(docs_impact, "changed_files", lambda base, head: ("agentdeck/core/invocable.py",))
+    monkeypatch.delenv("PR_BODY", raising=False)
+
+    assert docs_impact.main(["--report"]) == 0
+    report = capsys.readouterr().out
+    assert "docs-site/content/reference/run.mdx" in report
+    assert "- [x] Unchanged pages reviewed: reference/run.mdx" in report
+
+
+def test_report_mode_still_fails_on_a_source_pattern_matching_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken() -> tuple[PageMapping, ...]:
+        raise ValueError("source patterns matching no files: run.mdx: agentdeck/gone/*.py")
+
+    monkeypatch.setattr(docs_impact, "load_mappings", broken)
+
+    assert docs_impact.main(["--report"]) == 2
+
+
+def test_report_mode_survives_a_base_revision_the_clone_does_not_have(monkeypatch: pytest.MonkeyPatch) -> None:
+    mapping = PageMapping("docs-site/content/reference/run.mdx", ("agentdeck/core/*.py",))
+    monkeypatch.setattr(docs_impact, "load_mappings", lambda: (mapping,))
+
+    def unfetched(base: str, head: str) -> tuple[str, ...]:
+        raise subprocess.CalledProcessError(128, ["git", "diff"])
+
+    monkeypatch.setattr(docs_impact, "changed_files", unfetched)
+
+    assert docs_impact.main(["--report"]) == 0
+    assert docs_impact.main([]) == 2

@@ -34,8 +34,8 @@ golden:         ## re-record the wire + schema snapshots — deliberate, never a
 docs-reference: ## regenerate the five generated docs-site files from the code
 	.venv/bin/python scripts/generate_docs_reference.py
 
-docs-impact: ## check source changes against their documentation pages
-	.venv/bin/python scripts/check_docs_impact.py
+docs-impact: ## report which documentation pages this branch's source changes affect
+	.venv/bin/python scripts/check_docs_impact.py --report
 
 roadmap-sync:   ## refresh the live-status tables in docs/delivery/ from GitHub (gh required)
 	.venv/bin/python scripts/sync_roadmap.py
@@ -48,7 +48,9 @@ eval-jack:      ## Jack, judged: relevancy and faithfulness beside the exact che
 	cd examples/jack && DEEPEVAL_TELEMETRY_OPT_OUT=YES \
 	  uv run --quiet --with deepeval --python 3.12 python -m evals.run $(ARGS)
 
-check: lint typecheck lint-imports test   ## full gate
+# docs-impact runs last and never fails: it is the one output of this gate that asks the reader
+# to go read something, so it has to be the last thing on screen rather than pytest's scrollback.
+check: lint typecheck lint-imports test docs-impact   ## full gate
 
 fmt:            ## ruff format + autofix
 	.venv/bin/ruff format agentdeck/ && .venv/bin/ruff check --fix agentdeck/

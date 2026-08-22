@@ -14,7 +14,7 @@ You review one agentdeck PR as the merge gate. REVIEW ONLY on the code: never pu
 ## Review Process
 1. Read `CLAUDE.md`, `docs/engineering/` (`principles.md`, `coding-standards.md`, `coding-agents.md`, and relevant specialized standards), and the `docs/patterns/` files for the concerns this PR touches; the patterns are the taste you enforce.
 2. Read the linked issue (`gh issue view <n>`) and the full diff (`gh pr diff <n>`).
-3. Check out the branch (`gh pr checkout <n>`), seed the worktree (copy `.env` if present, then `uv venv --python 3.12 && make install`), and run `make check`.
+3. Check out the branch (`gh pr checkout <n>`), seed the worktree (copy `.env` if present, then `uv venv --python 3.12 && make install`), and run `make check`. It ends by naming the docs-site pages this diff affects: open every page the PR left unchanged and confirm it is still true. No CI job can do this, and it is where stale prose is caught (#409 shipped five stale references past a ticked box).
 4. Run `uv run scripts/quality_delta.py` and include its numbers in the verdict; challenge any axis (net code LOC, new public symbols, comments, dependencies) out of proportion to what the issue needed.
 5. Compare measured delta against the PR body's `## Expected delta` declaration: unexplained overrun beyond roughly 2x is request-changes. Run `PR_BODY="$(gh pr view <n> --json body -q .body)" uv run scripts/concept_budget.py` and hold the PR to its own budget.
 6. **Sibling comparison:** For each changed or new module, pick 2-3 canonical siblings from `uv run scripts/repomap.py` (same package, same responsibility class), read them, and flag divergence in naming, error handling, dependency usage, structure, typing, and test style. The PR's `## Analog` is the author's own claim; verify the code actually matches it.
@@ -40,7 +40,7 @@ You review one agentdeck PR as the merge gate. REVIEW ONLY on the code: never pu
      | `## Design` | 200 words, no subsections |
      | whole body | 500 words, or 800 when the diff touches 20 or more files, where the extra is a list, not prose |
 
-     The total exceeds the sections because a body also carries `Closes #<n>`, a `## Left for the docs-site pass` list, and the docs-impact checklist line CI greps for. File count, not net LOC, decides the large-diff cap: LOC would admit an 8-file PR that simply wrote too much, which is the case these caps exist for.
+     The total exceeds the sections because a body also carries `Closes #<n>`, a `## Left for the docs-site pass` list, and the docs-impact acknowledgement. File count, not net LOC, decides the large-diff cap: LOC would admit an 8-file PR that simply wrote too much, which is the case these caps exist for.
 3. **Correctness & Runtime Contracts (`runtime-contracts.md`):**
    - Trace lifecycle transitions, event ordering, persistence guarantees, and streaming semantics.
    - Ensure invalid states are impossible to express.
