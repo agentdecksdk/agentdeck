@@ -1545,7 +1545,7 @@ When building agentic applications, writing model prompts is only the first step
 - **State & Sessions:** Managing conversation history and memory across turns.
 - **Run Lifecycle:** Pausing for human approval, resuming safely, and handling cancellation.
 - **Event Logging:** Capturing every token, tool call, and state transition in an immutable stream.
-- **Interoperability:** Running OpenAI Agents and LangGraph without lock-in or forced rewrites.
+- **Interoperability:** Running OpenAI Agents SDK and native workflows without lock-in.
 
 ---
 
@@ -1736,10 +1736,11 @@ The current release is **v4.0.5**. Earlier releases are listed at the bottom.
   renamed `LangfuseObserver`, and `ConsoleObserver` / `FileObserver` join it: one prints a
   line per event, the other appends one JSONL line per event, both with no configuration.
 - **The event schema is `major=4`, and v5.0.0 does not read a log 4.x wrote.** The payload
-  vocabulary moved (see the reporter entry below), so the major bumps, and this release does not
-  carry a compatibility window: `Event` refuses any major but its own, by name, saying that the log
-  has to be replayed into a new store or read with the version that wrote it. Every store behaves
-  the same way, so there is one rule to know rather than one per backend.
+  vocabulary moved (see the reporter entry below, and `RunStarted.kind_of_invocable` gaining
+  `"tool"`), so the major bumps, and this release does not carry a compatibility window: `Event`
+  refuses any major but its own, by name, saying that the log has to be replayed into a new store
+  or read with the version that wrote it. Every store behaves the same way, so there is one rule to
+  know rather than one per backend.
 - **One executor method: `execute`.** `start` and `resume` are one call. `resume` was never the
   pause's resume  -  lifting a pause already re-entered `start` with the log as history  -  so it
   existed only to answer an interrupt, which the log already records: the answer rides on
@@ -1788,9 +1789,6 @@ The current release is **v4.0.5**. Earlier releases are listed at the bottom.
   store. Opening a SQLite or Postgres log 4.x wrote raises a clear `StoreError`; a Redis log
   written by 4.x reads as empty, since its keys were shaped by the old encoding. Drain or discard
   a 4.x log, or replay it into a new store, before upgrading.
-  for it (`replace(ctx, run_id=...)`). SQLite and Postgres migrate in place when the store opens.
-  **Redis does not**: its keys were shaped by the old encoding, so a Redis event log written by 4.x
-  is not read by 5.0. Drain or discard a Redis log before upgrading.
 - **A completed handoff is the core event `agent.changed`, not a namespaced `custom` one.** The
   OpenAI Agents executor stopped emitting `custom` named `openai_agents.handoff`; a handoff between
   agents in the same run and conversation now lands as `agent.changed`, carrying `previous_agent`
