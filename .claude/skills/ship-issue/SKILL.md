@@ -19,8 +19,22 @@ Read the issue and verify its claims against the tree. **Spec gate first:** if t
 Update GitHub Project (`PVT_kwHOBHijkM4BgHFZ`): Set **Status = In progress**, record Start Date, comment with start timestamp.
 
 ## 2. Implement
-Spawn `deck-dev` with the issue number and brief. It works in stages (understand, design-in-PR-body, implement, self-review, gate) and posts task progress; poll for stalls.
-If it stops at its own spec gate despite step 0, the issue needs a human decision: set the board back to **Todo**, surface what is missing, stop the pipeline.
+Spawn `deck-dev` with the issue number and brief. It runs Stage 0 (Understand) then Stage 1
+(Design, posted to the draft PR body), then stops there and reports back rather than continuing
+into Stage 2.
+
+If it stops at its own spec gate despite step 0, the issue needs a human decision: set the board
+back to **Todo**, surface what is missing, stop the pipeline.
+
+**Design gate:** compare the reported design against this step's own brief. A design is never
+blocked for being larger; it is blocked only for a *named* problem: a duplication of something
+already in `scripts/repomap.py`'s output, an abstraction with one caller, a divergence from its
+own declared `## Analog`, configuration for a value that never changes. No such problem: send
+`deck-dev` a message to proceed to Stage 2. A problem found: send it back naming the problem, not
+a target size; `deck-dev` revises Stage 1 and reports again before Stage 2 starts.
+
+Once past the gate, `deck-dev` continues through Implement, Self-review, and Gate, posting task
+progress; poll for stalls.
 
 ## 3. Attach PR
 Verify the draft PR targets `dev`, includes `Closes #<n>`, and its body carries the design sections (`## Reuse analysis`, `## Analog`, `## Concept budget`, `## Expected delta`). Missing sections go back to deck-dev before any review is spent. Set **Status = In review** when marked ready.
