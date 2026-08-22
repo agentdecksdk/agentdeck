@@ -36,13 +36,13 @@ Review progress:
 | 3. Craft | Does it read like its neighbors: `docs/patterns/`, naming, error text, comment slop, test names that state contracts, the PR body's own verbosity. Depth: `references/craft.md`. | inline (Template A) |
 | 4. Scope | Should this be two PRs? Is anything here not asked for? | one line, only if there is something |
 | 5. Verdict | Draft the rubric row per phase (Claims/Attack/Craft/Scope) and findings by class, format fixed in `references/templates.md` (Template B). Before posting, re-read each finding and ask whether it names a concrete consequence; downgrade it to NIT if it does not. Only then post. | 300 words max, hard cap |
-| 6. Harvest | Optional, non-blocking, gated: see below. The default is to write nothing. | a `docs/patterns/` commit to `dev` and/or a harness-note issue, never on the PR itself |
+| 6. Harvest | Optional, non-blocking, gated: see below. The default is to write nothing. | an issue carrying the entry text, never a commit and never on the PR |
 
 ## Harvest
 
 **The default is to write nothing.** Most reviews produce neither output below. `docs/patterns/` is 106 lines total across four files; that shortness is what makes it worth reading, and a reviewer appending once per PR would double it in a week. Pattern entries are not scored by volume: the measure is whether a later review cites one, never how many exist. Full bar and rationale: `references/craft.md`.
 
-- **A `docs/patterns/` entry**, only when all four of `references/craft.md`'s tests pass: it recurred, it generalizes past this module, it is a real cited good/bad pair, and it is not already covered by the four existing files. Extend an existing file before creating one.
+- **A `docs/patterns/` entry**, only when all four of `references/craft.md`'s tests pass: it recurred, it generalizes past this module, it is a real cited good/bad pair, and it is not already covered by the four existing files. Extending an existing file beats creating one. You never commit it: open an issue containing the finished entry text and the file it belongs in, and a dev agent lands it. A reviewer that commits has reviewed nothing, and taste belongs under review like any other change.
 - **A harness note**, only when the same dev-agent *behavior* (not output) has appeared in two PRs, both cited. File it the same way as a DEFER (`finding: <gap>` issue) but name the behavior, not a proposed rule. Not a new mechanical guard: guards caught 0 of 8 v5 findings, and three of those findings were themselves guard proposals.
 
 Anything that surfaces but fails its bar is a NIT, or it is nothing. It is never a pattern.

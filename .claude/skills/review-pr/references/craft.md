@@ -29,6 +29,10 @@ A `docs/patterns/` entry requires all four of these. Any one missing means no en
 
 The same bar applies to a harness note about dev-agent behavior: it needs two cited PRs, not one.
 
+Both are delivered as an issue carrying the finished text, never as a commit. You review; you do
+not write to the tree. Taste goes under review like any other change, and an entry nobody reviewed
+is how a 106-line file stops being worth reading.
+
 Pattern entries are not scored by volume. The measure is whether a later review cites an entry,
 never how many were written. Something that fails any of the four tests is a NIT, or nothing; it
 is never a pattern.

@@ -62,7 +62,7 @@ Answer against `git diff dev...HEAD`, fix what fails, honestly:
 ## Answering a review
 Reply in the review thread and resolve it. Never grow the PR body to answer a finding: a thread collapses once addressed, a body is what the next reader has to wade through to learn what the change does. The body only changes when the change does.
 
-**Progress:** TaskCreate one task per stage (Understand / Design / Implement / Self-review / Gate) at start; TaskUpdate each as you enter and complete it. A silent multi-stage run reads as a stall.
+**Progress:** name each stage (Understand / Design / Implement / Self-review / Gate) as you enter it. A silent multi-stage run reads as a stall.
 
 **Subagents:** any agent you spawn passes an explicit `model: "sonnet"`. Never omit it, never fable, never opus.
 
