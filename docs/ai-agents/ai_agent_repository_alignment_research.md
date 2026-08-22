@@ -33,9 +33,9 @@ The repository should contain the knowledge, constraints, workflows, verificatio
 
 The complete system has eight parts:
 
-1. **A small agent entry point** — a map, not an encyclopedia.
-2. **Versioned architectural knowledge and invariants** — one source of truth.
-3. **A machine-readable repository map** — symbols, dependencies, ownership, and relevant history.
+1. **A small agent entry point**: a map, not an encyclopedia.
+2. **Versioned architectural knowledge and invariants**: one source of truth.
+3. **A machine-readable repository map**: symbols, dependencies, ownership, and relevant history.
 4. **An inspect → design → implement workflow** for non-trivial changes.
 5. **A mandatory reuse and architecture analysis** before introducing new abstractions.
 6. **Deterministic enforcement** for anything a machine can prove.
@@ -177,7 +177,7 @@ is enforcement.
 
 ### They experienced repository entropy directly
 
-OpenAI reports that their engineers initially spent every Friday — approximately 20% of the work week — cleaning up agent-generated code quality problems.[1]
+OpenAI reports that their engineers initially spent every Friday (approximately 20% of the work week) cleaning up agent-generated code quality problems.[1]
 
 Their response was to encode "golden principles" as repository rules and run recurring Codex tasks that:
 
@@ -413,7 +413,7 @@ The harness has eight layers.
 
 ---
 
-# 6. Layer 1 — A small agent entry point
+# 6. Layer 1: A small agent entry point
 
 The root agent file should be a router.
 
@@ -468,7 +468,7 @@ Claude Code similarly recommends keeping always-loaded instructions concise and 
 
 ---
 
-# 7. Layer 2 — Versioned engineering knowledge
+# 7. Layer 2: Versioned engineering knowledge
 
 A useful repository structure could be:
 
@@ -529,7 +529,7 @@ Adobe's repository harness guide recommends this kind of explicit ownership to r
 
 ---
 
-# 8. Layer 3 — Machine-readable repository understanding
+# 8. Layer 3: Machine-readable repository understanding
 
 Documentation explains intent.
 
@@ -596,9 +596,9 @@ That context is far more useful than simply retrieving five semantically similar
 
 ---
 
-# 9. Layer 4 — Inspect before edit
+# 9. Layer 4: Inspect before edit
 
-For meaningful changes, the agent should be unable — procedurally or mechanically — to jump immediately to implementation.
+For meaningful changes, the agent should be unable (procedurally or mechanically) to jump immediately to implementation.
 
 Anthropic currently recommends:
 
@@ -640,7 +640,7 @@ with optional gates depending on task complexity.[8]
 
 The right implementation for a general repository should be adaptive.
 
-## Change class A — trivial
+## Change class A: trivial
 
 Examples:
 
@@ -659,7 +659,7 @@ inspect
 
 No design artifact required.
 
-## Change class B — normal feature or refactor
+## Change class B: normal feature or refactor
 
 Workflow:
 
@@ -671,7 +671,7 @@ inspect
 -> semantic review
 ```
 
-## Change class C — architectural
+## Change class C: architectural
 
 Triggers include:
 
@@ -699,7 +699,7 @@ This avoids turning every two-line fix into bureaucracy while still preventing h
 
 ---
 
-# 10. Layer 5 — Require proof of reuse
+# 10. Layer 5: Require proof of reuse
 
 This is one of the most important additions.
 
@@ -775,7 +775,7 @@ The goal is to make abstraction **expensive in reasoning, not expensive in imple
 
 ---
 
-# 11. Layer 6 — Make architecture executable
+# 11. Layer 6: Make architecture executable
 
 Any rule that can be determined mechanically should leave the prompt and enter a tool.
 
@@ -877,7 +877,7 @@ The important concept is:
 
 ---
 
-# 12. Layer 7 — A code quality budget
+# 12. Layer 7: A code quality budget
 
 "Keep the code clean" is too vague.
 
@@ -937,7 +937,7 @@ Use a collection of signals and hard gates where appropriate.
 
 ---
 
-# 13. Layer 8 — Comment policy based on information value
+# 13. Layer 8: Comment policy based on information value
 
 A comment count threshold is too crude.
 
@@ -1657,7 +1657,7 @@ The repository system surrounds generation with discovery, constraints, and feed
 
 Do not build the entire system at once.
 
-## Phase 0 — Baseline
+## Phase 0: Baseline
 
 Measure current agent behavior for 20–50 PRs:
 
@@ -1673,7 +1673,7 @@ This gives you a comparison point.
 
 ---
 
-## Phase 1 — Knowledge
+## Phase 1: Knowledge
 
 Add:
 
@@ -1690,7 +1690,7 @@ Document only decisions the agent cannot reliably infer.
 
 ---
 
-## Phase 2 — One validation command
+## Phase 2: One validation command
 
 Create:
 
@@ -1709,7 +1709,7 @@ Every agent uses the same command.
 
 ---
 
-## Phase 3 — Architecture contracts
+## Phase 3: Architecture contracts
 
 Encode:
 
@@ -1723,7 +1723,7 @@ Start by preventing **new** violations.
 
 ---
 
-## Phase 4 — Plan gate
+## Phase 4: Plan gate
 
 For non-trivial work, require:
 
@@ -1740,7 +1740,7 @@ Do not require a large spec for small changes.
 
 ---
 
-## Phase 5 — Semantic quality review
+## Phase 5: Semantic quality review
 
 Add focused checks for:
 
@@ -1754,7 +1754,7 @@ Avoid generic "best practices" review prompts.
 
 ---
 
-## Phase 6 — Repository map
+## Phase 6: Repository map
 
 Build or integrate:
 
@@ -1770,7 +1770,7 @@ Aider's repo-map implementation is a concrete proof that compact, graph-ranked s
 
 ---
 
-## Phase 7 — Continuous garbage collection
+## Phase 7: Continuous garbage collection
 
 Schedule narrow maintenance scans.
 
@@ -1949,11 +1949,11 @@ Use evidence, narrow scope, and small PRs.
 
 If only a small version of this system can be implemented, start with these six requirements.
 
-## Requirement 1 — Repository map
+## Requirement 1: Repository map
 
 Agents must know where architecture, patterns, invariants, and tests live.
 
-## Requirement 2 — Reuse evidence
+## Requirement 2: Reuse evidence
 
 Every non-trivial change answers:
 
@@ -1963,19 +1963,19 @@ What can be reused?
 Why is anything new necessary?
 ```
 
-## Requirement 3 — Architecture as CI
+## Requirement 3: Architecture as CI
 
 At least the most important dependency boundaries are machine-enforced.
 
-## Requirement 4 — Plan before meaningful structural changes
+## Requirement 4: Plan before meaningful structural changes
 
 New public abstractions, dependencies, packages, and cross-module changes require a design artifact.
 
-## Requirement 5 — One verification command
+## Requirement 5: One verification command
 
 Humans and agents share the same repository acceptance gate.
 
-## Requirement 6 — Recurring entropy cleanup
+## Requirement 6: Recurring entropy cleanup
 
 The repository is periodically scanned for drift and corrected in small changes.
 
@@ -2038,7 +2038,7 @@ All three are extending the **same software system**, rather than independently 
 
 ---
 
-# Appendix A — Suggested starter files
+# Appendix A: Suggested starter files
 
 ```text
 AGENTS.md
@@ -2054,7 +2054,7 @@ Makefile
 
 ---
 
-# Appendix B — Suggested engineering principles
+# Appendix B: Suggested engineering principles
 
 ```markdown
 # Engineering principles
@@ -2075,7 +2075,7 @@ Makefile
 
 ---
 
-# Appendix C — Suggested change-analysis contract
+# Appendix C: Suggested change-analysis contract
 
 ```yaml
 change:
@@ -2119,50 +2119,50 @@ This could be produced automatically by the planning agent and validated before 
 
 # References
 
-1. **OpenAI — "Harness engineering: leveraging Codex in an agent-first world"** (Feb. 11, 2026). Production case study describing a roughly million-line agent-generated repository, short `AGENTS.md` as a map, mechanically enforced architecture, "golden principles," and recurring cleanup tasks.
+1. **OpenAI: "Harness engineering: leveraging Codex in an agent-first world"** (Feb. 11, 2026). Production case study describing a roughly million-line agent-generated repository, short `AGENTS.md` as a map, mechanically enforced architecture, "golden principles," and recurring cleanup tasks.
    https://openai.com/index/harness-engineering/
 
-2. **"Echoes of AI: Investigating the downstream effects of AI assistants on software maintainability" — Empirical Software Engineering** (2026). Reports, among other observations, comments added by 79% of AI-assisted developers versus 54% of non-AI developers in one detailed task analysis.
+2. **"Echoes of AI: Investigating the downstream effects of AI assistants on software maintainability": Empirical Software Engineering** (2026). Reports, among other observations, comments added by 79% of AI-assisted developers versus 54% of non-AI developers in one detailed task analysis.
    https://link.springer.com/article/10.1007/s10664-026-10889-1
 
-3. **"An exploratory study on LLM-generated code and comments in code repositories" — Journal of Systems and Software** (2026). Detector-based proxy analysis reporting substantial intra-repository clones in code detected as likely LLM-generated.
+3. **"An exploratory study on LLM-generated code and comments in code repositories": Journal of Systems and Software** (2026). Detector-based proxy analysis reporting substantial intra-repository clones in code detected as likely LLM-generated.
    https://www.sciencedirect.com/science/article/pii/S0164121226002591
 
-4. **Zhu, Tsantalis, Rigby — "AI-Generated Smells: An Analysis of Code and Architecture in LLM and Agent-Driven Development"** (arXiv preprint, 2026). Studies technical debt and structural degradation in generated code. Treat broad causal claims as preprint evidence rather than settled consensus.
+4. **Zhu, Tsantalis, Rigby: "AI-Generated Smells: An Analysis of Code and Architecture in LLM and Agent-Driven Development"** (arXiv preprint, 2026). Studies technical debt and structural degradation in generated code. Treat broad causal claims as preprint evidence rather than settled consensus.
    https://arxiv.org/abs/2605.02741
 
-5. **Ogenrwot & Businge — "How AI Coding Agents Modify Code: A Large-Scale Study of GitHub Pull Requests"** (2026). Analysis of 24,014 merged agentic PRs and 5,081 merged human PRs.
+5. **Ogenrwot & Businge: "How AI Coding Agents Modify Code: A Large-Scale Study of GitHub Pull Requests"** (2026). Analysis of 24,014 merged agentic PRs and 5,081 merged human PRs.
    https://arxiv.org/abs/2601.17581
 
-6. **Xu, Subramanian, Karthik — "AI Agent Pull Requests on GitHub: Frequency, Structure, and Merge Conflict Rates"** (2026). Reports higher textual conflict rates for replayed cross-agent co-active PR pairs than intra-agent pairs.
+6. **Xu, Subramanian, Karthik: "AI Agent Pull Requests on GitHub: Frequency, Structure, and Merge Conflict Rates"** (2026). Reports higher textual conflict rates for replayed cross-agent co-active PR pairs than intra-agent pairs.
    https://arxiv.org/abs/2607.04697
 
-7. **Adobe — "Repository Harnesses for AI Coding Agents: A Practical Guide"** (v1.1.0, Aug. 2026). Repository-local control-system framework covering agent guidance, invariants, skills, docs, execution surfaces, sensors, and maintenance.
+7. **Adobe: "Repository Harnesses for AI Coding Agents: A Practical Guide"** (v1.1.0, Aug. 2026). Repository-local control-system framework covering agent guidance, invariants, skills, docs, execution surfaces, sensors, and maintenance.
    https://opensource.adobe.com/ai-repo-harness-guide/
 
-8. **GitHub — Spec Kit: Agentic Spec-Driven Development**. Defines constitution → specification → planning → tasks → analysis → implementation → convergence workflows and quality gates.
+8. **GitHub: Spec Kit: Agentic Spec-Driven Development**. Defines constitution → specification → planning → tasks → analysis → implementation → convergence workflows and quality gates.
    https://github.github.com/spec-kit/reference/agentic-sdd.html
    https://github.com/github/spec-kit
 
-9. **Anthropic — Claude Code Best Practices**. Recommends explore → plan → implement for complex changes and concise always-loaded repository guidance.
+9. **Anthropic: Claude Code Best Practices**. Recommends explore → plan → implement for complex changes and concise always-loaded repository guidance.
    https://code.claude.com/docs/en/best-practices
 
-10. **Anthropic — Claude Code Hooks**. Documents `PreToolUse` and other hooks that can deterministically block or modify agent actions.
+10. **Anthropic: Claude Code Hooks**. Documents `PreToolUse` and other hooks that can deterministically block or modify agent actions.
     https://code.claude.com/docs/en/hooks
     https://code.claude.com/docs/en/hooks-guide
 
-11. **Kiro — Specs documentation**. Persistent requirements, design, tasks, and sequential execution with verification.
+11. **Kiro: Specs documentation**. Persistent requirements, design, tasks, and sequential execution with verification.
     https://kiro.dev/docs/cli/v3/specs/
     https://kiro.dev/docs/web/specs/
 
-12. **Aider — Repository Map**. Uses Tree-sitter-derived symbols and graph ranking to provide concise codebase context and help models use existing modules and abstractions.
+12. **Aider: Repository Map**. Uses Tree-sitter-derived symbols and graph ranking to provide concise codebase context and help models use existing modules and abstractions.
     https://aider.chat/docs/repomap.html
     https://aider.chat/2023/10/22/repomap.html
 
-13. **Aider — Architect Mode / separating code reasoning and editing**. Reports benchmark improvements for several Architect/Editor model pairings over solo baselines.
+13. **Aider: Architect Mode / separating code reasoning and editing**. Reports benchmark improvements for several Architect/Editor model pairings over solo baselines.
     https://aider.chat/2024/09/26/architect.html
 
-14. **Import Linter — Contract Types**. Provides executable architectural contracts including layered architecture and independent modules for Python.
+14. **Import Linter: Contract Types**. Provides executable architectural contracts including layered architecture and independent modules for Python.
     https://import-linter.readthedocs.io/en/v2.3/contract_types.html
 
 15. **CodeRabbit documentation**. Repository/path instructions, AST-based instructions, custom checks, code guidelines, and persistent review learnings.
@@ -2174,15 +2174,15 @@ This could be produced automatically by the planning agent and validated before 
 16. **Qodo Code Review documentation**. Describes a rule system drawing on repository context, requirements, and pull-request history for consistent review.
     https://docs.qodo.ai/code-review
 
-17. **Anthropic — How Claude remembers your project / configuration guidance**. Distinguishes instruction context from permissions/hooks that provide enforceable boundaries.
+17. **Anthropic: How Claude remembers your project / configuration guidance**. Distinguishes instruction context from permissions/hooks that provide enforceable boundaries.
     https://code.claude.com/docs/en/memory
     https://code.claude.com/docs/en/debug-your-config
 
-18. **Adobe — Harness Components / Documentation Prompts**. Recommends canonical ownership for repository knowledge and progressive disclosure.
+18. **Adobe: Harness Components / Documentation Prompts**. Recommends canonical ownership for repository knowledge and progressive disclosure.
     https://opensource.adobe.com/ai-repo-harness-guide/04-Harness-Components/
     https://opensource.adobe.com/ai-repo-harness-guide/skills/harness-setup/references/docs/
 
-19. **OpenAI — "Using PLANS.md for multi-hour problem solving"**. Defines ExecPlans as living design documents containing progress, discoveries, decision logs, outcomes, explicit context, work plans, and verification.
+19. **OpenAI: "Using PLANS.md for multi-hour problem solving"**. Defines ExecPlans as living design documents containing progress, discoveries, decision logs, outcomes, explicit context, work plans, and verification.
     https://developers.openai.com/cookbook/articles/codex_exec_plans
 
 ---

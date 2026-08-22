@@ -5,7 +5,7 @@ v1.2.x. They exist so the planned three-ring refactor (core events / engine adap
 thin surfaces) can be diffed against today's behaviour instead of trusted.
 
 A failing test here means the wire changed. That is either a bug or a deliberate,
-documented change — never something to "fix" by re-recording without reading the diff.
+documented change, never something to "fix" by re-recording without reading the diff.
 
 ## What is recorded
 
@@ -29,7 +29,7 @@ HTTP <status>
 ```
 
 The recorded headers are exactly `content-type`, `cache-control` and
-`x-accel-buffering` — the three the app sets deliberately. `date`, `server` and
+`x-accel-buffering`: the three the app sets deliberately. `date`, `server` and
 `content-length` are transport noise and are **not** recorded (an omission, not a
 rewrite: the body itself is never touched).
 
@@ -49,7 +49,7 @@ is pinned at the source instead:
   `lookup_slot` tool; turn 2 answers in three text deltas
   (`"Tuesday " / "at 9am " / "works."`). Both turns are identical for `get_response`
   and `stream_response`, so streamed and non-streamed captures agree. The tool call is
-  visible on the wire only through `usage.requests == 2` — `serve.py` forwards text
+  visible on the wire only through `usage.requests == 2`: `serve.py` forwards text
   deltas and drops structural events, which is itself part of the recorded contract.
 - **Ids the client owns.** `session_id` is a literal in `capture`.
 - **Environment.** `conftest._PINNED_ENV` overrides the settings knobs that would
@@ -64,20 +64,20 @@ is pinned at the source instead:
 
 If a future endpoint does put an irreducibly variable value on the wire, pin it in the
 fake first. A normalization step is the last resort, and it must be listed in this
-section — an undocumented normalization is a hole in the safety net.
+section: an undocumented normalization is a hole in the safety net.
 
 ## The fixture project
 
 `fixture_project/.agentdeck/` is a minimal, committed project dir:
 
-- `agents/greeter/agent.py` — one agent, one `function_tool`, so the scripted model can
+- `agents/greeter/agent.py`: one agent, one `function_tool`, so the scripted model can
   drive a tool-call turn.
 
 ## Running and re-recording
 
 ```bash
 make test         # whole suite, golden replay included
-make golden       # re-record snapshots — deliberate, never automatic
+make golden       # re-record snapshots: deliberate, never automatic
 ```
 
 `make golden` is `AGENTDECK_GOLDEN_UPDATE=1 pytest tests/golden -q`. Re-record only
@@ -88,7 +88,7 @@ renamed case cannot leave an orphan behind.
 Besides an intended change of ours, one other thing legitimately moves these bytes: a
 dependency bump. `content-type: text/event-stream; charset=utf-8` comes from starlette
 and the JSON separators from FastAPI's encoder, so a starlette / FastAPI / pydantic
-upgrade can shift a snapshot with no agentdeck change at all — the diff is then the
+upgrade can shift a snapshot with no agentdeck change at all: the diff is then the
 review artifact for that bump (one is already queued: `TestClient` warns that `httpx` is
 deprecated in favour of `httpx2`). Nothing recorded here depends on the Python version;
 CI records on 3.13.

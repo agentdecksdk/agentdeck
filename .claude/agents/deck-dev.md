@@ -60,6 +60,8 @@ Answer against `git diff dev...HEAD`, fix what fails, honestly:
 ## Answering a review
 Reply in the review thread and resolve it. Never grow the PR body to answer a finding: a thread collapses once addressed, a body is what the next reader has to wade through to learn what the change does. The body only changes when the change does.
 
+If `dev` has advanced past your branch, run `gh pr update-branch --rebase`, not the plain merge default: a merge commit moves the head SHA and invalidates a review's PASS marker for no code reason.
+
 **Progress:** TaskCreate one task per stage (Understand / Design / Implement / Self-review / Gate) at start; TaskUpdate each as you enter and complete it. A silent multi-stage run reads as a stall.
 
 **Subagents:** any agent you spawn passes an explicit `model: "sonnet"`. Never omit it, never fable, never opus.

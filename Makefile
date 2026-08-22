@@ -1,4 +1,4 @@
-.PHONY: install build test lint typecheck lint-imports coverage golden docs-reference docs-impact roadmap-sync fmt clean check
+.PHONY: install build test lint typecheck lint-imports slop coverage golden docs-reference docs-impact roadmap-sync fmt clean check
 
 install:        ## editable install with every extra the gate needs
 	# Every extra ci.yml installs, so `make check` locally runs the same tests CI does.
@@ -22,13 +22,16 @@ typecheck:      ## ty type check
 lint-imports:   ## import-linter contracts (.importlinter)
 	.venv/bin/lint-imports
 
-coverage:       ## per-module coverage — audit input for #71/#131, not part of `make check`
+slop:           ## anti-slop gate on lines this branch adds vs origin/dev
+	.venv/bin/python scripts/slopcheck.py --changed --base origin/dev
+
+coverage:       ## per-module coverage: audit input for #71/#131, not part of `make check`
 	# Zero coverage is evidence a module *may* be dead, never proof: skill_runtime is
 	# copied into sandbox venvs and the crossrun tests run out-of-process, so both read
 	# as uncovered while being load-bearing. Corroborate with grep + the import graph.
 	.venv/bin/pytest tests/ -q --cov=agentdeck --cov-report=term-missing:skip-covered
 
-golden:         ## re-record the wire + schema snapshots — deliberate, never automatic
+golden:         ## re-record the wire + schema snapshots: deliberate, never automatic
 	AGENTDECK_GOLDEN_UPDATE=1 .venv/bin/pytest tests/golden tests/core -q
 
 docs-reference: ## regenerate the five generated docs-site files from the code
@@ -48,7 +51,7 @@ eval-jack:      ## Jack, judged: relevancy and faithfulness beside the exact che
 	cd examples/jack && DEEPEVAL_TELEMETRY_OPT_OUT=YES \
 	  uv run --quiet --with deepeval --python 3.12 python -m evals.run $(ARGS)
 
-check: lint typecheck lint-imports test   ## full gate
+check: lint typecheck lint-imports test slop   ## full gate
 
 fmt:            ## ruff format + autofix
 	.venv/bin/ruff format agentdeck/ && .venv/bin/ruff check --fix agentdeck/

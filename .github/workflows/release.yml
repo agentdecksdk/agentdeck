@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 20
     # Same service containers as ci.yml (#75): without them the Redis and Postgres store
     # tests skip, and a release gate that skips ~80 tests a merge gate ran is a narrower
-    # gate — which is the thing this job's own comment below forbids.
+    # gate, which is the thing this job's own comment below forbids.
     services:
       redis:
         image: redis:7-alpine
@@ -69,7 +69,7 @@ jobs:
             exit 1
           fi
       - name: Install and check
-        # Same extras as ci.yml — a release build must run the same gate as a merge, not a
+        # Same extras as ci.yml: a release build must run the same gate as a merge, not a
         # narrower one.
         run: |
           uv pip install -e ".[dev,serve,postgres,observability]"
@@ -79,7 +79,7 @@ jobs:
           .venv/bin/lint-imports
           .venv/bin/pytest tests/ -q --junit-xml=/tmp/pytest-results.xml
           if grep -qE 'needs the \[[a-z]+\] extra|no Postgres at|no Redis at' /tmp/pytest-results.xml; then
-            echo "::error::a subsystem skipped out of the gate — an extra or a service container is missing" >&2
+            echo "::error::a subsystem skipped out of the gate: an extra or a service container is missing" >&2
             grep -oE 'needs the \[[a-z]+\] extra|no (Postgres|Redis) at [^"]*' /tmp/pytest-results.xml | sort -u >&2
             exit 1
           fi
@@ -96,10 +96,10 @@ jobs:
         run: |
           # Release notes are the curated CHANGELOG section, not a commit list: extract the
           # block from "## [<version>]" up to the next "## [" heading or the link-refs block.
-          # A missing section fails loudly — a release without curated notes is the bug this
+          # A missing section fails loudly: a release without curated notes is the bug this
           # step exists to prevent, so there is no --generate-notes fallback. Known limit: a
           # line starting "## [" or "[" inside the section body (e.g. in a code fence)
-          # truncates extraction early — no CHANGELOG section does this today.
+          # truncates extraction early: no CHANGELOG section does this today.
           version="${GITHUB_REF_NAME#v}"
           awk -v want="## [$version]" '
             index($0, want) == 1 { found=1; next }
@@ -108,7 +108,7 @@ jobs:
             found { print }
           ' CHANGELOG.md | awk 'NF{p=1} p' | tac | awk 'NF{p=1} p' | tac > /tmp/release-notes.md
           if [ ! -s /tmp/release-notes.md ]; then
-            echo "No CHANGELOG section found for heading '## [$version]' — add release notes to CHANGELOG.md before tagging." >&2
+            echo "No CHANGELOG section found for heading '## [$version]': add release notes to CHANGELOG.md before tagging." >&2
             exit 1
           fi
       - name: GitHub Release
@@ -144,7 +144,7 @@ jobs:
     # anything running here mint an identity PyPI trusts.
     permissions:
       id-token: write
-    # The environment is the second half of the Trusted Publisher's identity — PyPI is
+    # The environment is the second half of the Trusted Publisher's identity: PyPI is
     # configured with owner/repo *and* workflow *and* environment, so a job running anywhere
     # else in this repository cannot publish. Name it exactly `pypi` there.
     environment:
