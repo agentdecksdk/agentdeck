@@ -96,6 +96,9 @@ including the coverage question. An unanswered question fails the stage.
   Delete abandoned design and justifications the code no longer needs.
 - CONSTRAINT: `make check` 100% green before `gh pr ready`. Consequence: `gh pr ready` on a red
   `make check` fails the Agent review gate and the PR cannot merge.
+- JUDGMENT: if `dev` has advanced past your branch, run `gh pr update-branch --rebase`, not the
+  plain merge default. A merge commit moves the head SHA and invalidates a review's PASS marker
+  for no code reason.
 - No attribution trailers anywhere.
 
 ## Answering a review

@@ -1,4 +1,4 @@
-.PHONY: install build test lint typecheck lint-imports coverage golden docs-reference docs-impact roadmap-sync fmt clean check
+.PHONY: install build test lint typecheck lint-imports slop coverage golden docs-reference docs-impact roadmap-sync fmt clean check
 
 # An agent reads this gate's output, so a passing step says nothing and a failing one says only
 # what failed. 1,700 progress dots and 10 kept import contracts cost more attention than they
@@ -39,13 +39,16 @@ typecheck:      ## ty type check
 lint-imports:   ## import-linter contracts (.importlinter)
 	$(E).venv/bin/lint-imports $(QUIET)
 
-coverage:       ## per-module coverage — audit input for #71/#131, not part of `make check`
+slop:           ## anti-slop gate on lines this branch adds vs origin/dev
+	$(E).venv/bin/python scripts/slopcheck.py --changed --base origin/dev $(QUIET)
+
+coverage:       ## per-module coverage: audit input for #71/#131, not part of `make check`
 	# Zero coverage is evidence a module *may* be dead, never proof: skill_runtime is
 	# copied into sandbox venvs and the crossrun tests run out-of-process, so both read
 	# as uncovered while being load-bearing. Corroborate with grep + the import graph.
 	.venv/bin/pytest tests/ -q --cov=agentdeck --cov-report=term-missing:skip-covered
 
-golden:         ## re-record the wire + schema snapshots — deliberate, never automatic
+golden:         ## re-record the wire + schema snapshots: deliberate, never automatic
 	AGENTDECK_GOLDEN_UPDATE=1 .venv/bin/pytest tests/golden tests/core -q
 
 docs-reference: ## regenerate the five generated docs-site files from the code
@@ -67,7 +70,7 @@ eval-jack:      ## Jack, judged: relevancy and faithfulness beside the exact che
 
 # docs-impact runs last and never fails: it is the one output of this gate that asks the reader
 # to go read something, so it has to be the last thing on screen rather than pytest's scrollback.
-check: lint typecheck lint-imports test docs-impact   ## full gate
+check: lint typecheck lint-imports test slop docs-impact   ## full gate
 
 fmt:            ## ruff format + autofix
 	.venv/bin/ruff format agentdeck/ && .venv/bin/ruff check --fix agentdeck/

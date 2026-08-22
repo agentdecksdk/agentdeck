@@ -32,7 +32,7 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.12", "3.13"]
-    # The Redis and Postgres event logs are contract-tested against real servers (#75) —
+    # The Redis and Postgres event logs are contract-tested against real servers (#75):
     # a store proved only against a mock is not proved. Service containers rather than
     # testcontainers: the gate already installs one dependency set and runs one command,
     # and this keeps the servers out of the Python environment entirely.
@@ -67,12 +67,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           # The schema's backward-compatibility gate (#47) loads the newest *released*
-          # reader out of git — by tag — and measures this tree's events against it. The
+          # reader out of git (by tag) and measures this tree's events against it. The
           # default depth-1 checkout has neither that tag nor its history, so the gate
           # would skip, and prove nothing while going green.
           fetch-depth: 0
       # `check-added-large-files` is a pre-commit hook, so it never runs for a contributor who
-      # has not installed hooks — which is most first PRs. A size cap could not do this job
+      # has not installed hooks, which is most first PRs. A size cap could not do this job
       # anyway: `uv.lock` is 336KB of legitimate text, so any threshold that clears it also
       # clears every image. Location is the rule that holds (coding-standards §11), and a diff
       # against the empty tree is git's own answer to "which of these are binary".
@@ -81,7 +81,7 @@ jobs:
           strays=$(git diff --numstat 4b825dc642cb6eb9a060e54bf8d69288fbee4904 HEAD \
                      | awk '$1 == "-" { print $3 }' | grep -v '^\.github/assets/' || true)
           if [ -n "$strays" ]; then
-            echo "::error::binary files outside .github/assets/ — see docs/coding-standards.md §11"
+            echo "::error::binary files outside .github/assets/: see docs/coding-standards.md §11"
             echo "$strays"
             exit 1
           fi
@@ -112,7 +112,7 @@ jobs:
       - name: Test
         run: .venv/bin/pytest tests/ -q --junit-xml=/tmp/pytest-results.xml
       # Skips come in two kinds. "only a suspended case can be resumed" is the contract matrix
-      # declaring which cells apply — harmless, and it grows whenever a case is added, which is
+      # declaring which cells apply: harmless, and it grows whenever a case is added, which is
       # why counting total skips drifted and false-positived. "needs the [postgres] extra" or
       # "no Postgres at ..." is a subsystem that dropped out of the gate, which is the thing
       # #33 is actually about. Match the reasons, not the count: this never needs maintaining
@@ -120,7 +120,7 @@ jobs:
       - name: No subsystem dropped out of the gate
         run: |
           if grep -qE 'needs the \[[a-z]+\] extra|no Postgres at|no Redis at' /tmp/pytest-results.xml; then
-            echo "::error::a subsystem skipped out of the gate — an extra or a service container is missing"
+            echo "::error::a subsystem skipped out of the gate: an extra or a service container is missing"
             grep -oE 'needs the \[[a-z]+\] extra|no (Postgres|Redis) at [^"]*' /tmp/pytest-results.xml | sort -u
             exit 1
           fi
