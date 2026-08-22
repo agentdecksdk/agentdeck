@@ -1,15 +1,15 @@
 # AgentDeck SDK
 
-> The production runtime for agents you already have  -  composition, durable human-in-the-loop approvals, sessions, streaming, run control and one ordered event log, wrapping the OpenAI Agents SDK.
+> The production runtime for agents you have to operate: composition, human-in-the-loop approvals, sessions, streaming, run control and one ordered event log, over the OpenAI Agents SDK and native workflows.
 
 AgentDeck SDK is a Python harness for agents you have to operate. You write agents, workflows and
 skills as small declarations in a `.agentdeck/` directory; AgentDeck supplies everything around
-them  -  discovery, layered settings, sessions, streaming, MCP servers, durable human-in-the-loop
+them: discovery, layered settings, sessions, streaming, MCP servers, human-in-the-loop
 approvals, run control, and one ordered event log per run.
 
-It wraps the OpenAI Agents SDK rather than replacing it: an `Agent` compiles to an SDK agent,
-and a `@workflow` is ordinary Python awaited by AgentDeck's own executor. AgentDeck owns
-configuration; the SDK owns execution. There is no agent loop here.
+It executes native `@workflow` and `@tool` targets alongside the OpenAI Agents SDK for agents:
+an `Agent` compiles to an SDK agent, and a `@workflow` is ordinary Python awaited by AgentDeck's
+own executor. AgentDeck owns configuration and orchestration, and there is no agent loop here.
 
 Use it when the wiring around an agent has become the work: several agents and workflows in one
 project, a chat surface and a batch path over the same definitions, runs you must inspect
@@ -25,7 +25,7 @@ afterwards, approvals that outlive the process that requested them.
 - [run](https://agentdecksdk.com/reference/run)
 - [Settings](https://agentdecksdk.com/reference/settings): Every AGENTDECK_*, OPENAI_*, ANTHROPIC_*, GEMINI_*, OLLAMA_*, OPENROUTER_*, and TAVILY_* environment variable, generated from agentdeck/runtime/settings.py.
 - [Agents](https://agentdecksdk.com/build-your-deck/agents): Declarative agents with tools, instructions, and model configurations.
-- [context](https://agentdecksdk.com/build-your-deck/context)
+- [Context](https://agentdecksdk.com/build-your-deck/context): Typed, request-scoped access to your own application state, for tools and workflows.
 - [deck](https://agentdecksdk.com/build-your-deck/deck)
 - [skills](https://agentdecksdk.com/build-your-deck/skills)
 - [tools](https://agentdecksdk.com/build-your-deck/tools)
@@ -48,7 +48,7 @@ afterwards, approvals that outlive the process that requested them.
 - [Lifecycle & Control](https://agentdecksdk.com/runs-and-control/lifecycle-and-control): The six states a run can be in, what moves it between them, and which ones you can act on.
 - [pause-resume](https://agentdecksdk.com/runs-and-control/pause-resume)
 - [Runs](https://agentdecksdk.com/runs-and-control/runs): A run is a first-class execution with a durable identity you can pick up again, in this process or another one.
-- [sessions](https://agentdecksdk.com/runs-and-control/sessions)
+- [Sessions](https://agentdecksdk.com/runs-and-control/sessions): Keep an agent's message history across multiple runs, and what happens when two runs reach for the same one at once.
 
 ## Source
 

@@ -22,15 +22,15 @@
   ],
   "rules": [
     "The import name is `agentdeck`. The project is branded AgentDeck SDK; there is no `agentdeck-sdk` package, and `agentdeck-ai` on PyPI is an unrelated project.",
-    "Install and import names differ: `pip install agentdeck-sdk`, then `import agentdeck`. Never write `pip install agentdeck`: that name is taken by an unrelated project. Extras: `agentdeck-sdk[serve]`, `[postgres]`, `[observability]`.",
+    "Install and import names differ: `pip install agentdeck-sdk`, then `import agentdeck`. Never write `pip install agentdeck` - that name is taken by an unrelated project. Extras: `agentdeck-sdk[serve]`, `[durability]`, `[observability]`.",
     "`Deck` is the only composition root, with two front doors onto one catalog: `Deck(agents=..., workflows=...)` and `Deck.from_project()`, which discovers them from a `.agentdeck/` directory.",
-    "AgentDeck owns configuration; the OpenAI Agents SDK owns execution. An `Agent` compiles to an SDK agent, and a `@workflow` is ordinary Python awaited by AgentDeck's own executor. Never say AgentDeck runs its own agent loop.",
-    "A tool is a plain Python function passed to `Agent(tools=[...])`; `build()` compiles it. A tool declaring an `agentdeck.Context[T]` parameter must NOT use `@function_tool`: the decorator would put that parameter in the model's schema.",
-    "State reaches tools and nodes via `Context[T]`: declare it with `Deck(context=MyType)`, pass it per run with `deck.run(..., context=obj)`. A context cannot cross HTTP: a run served through `Deck.asgi()` always receives `None`.",
-    "Human approval is `await ctx.ask(question, options=[...])` inside a `@workflow`. The body suspends where it stands and continues on the next line once answered, so nothing before the `ask` runs twice.",
-    "Every run appends to one ordered event log; status is folded from it by `status_of`, never stored. `type(event)` is always `Event`: switch on `event.kind` with a default case, since an unknown kind parses as `UnknownEvent`.",
-    "Nothing is sandboxed. Tools, skills and workflow nodes are ordinary Python in the caller's process, and a model-chosen tool call is trusted by design.",
-    "Known defects are listed at /known-issues and should be honoured when advising: notably that a tool which raises still completes the run, and that a tool returning a non-serializable value reaches the model as a memory address."
+    "AgentDeck executes native @workflow and @tool targets alongside the OpenAI Agents SDK for agents. An Agent compiles to an SDK agent; a @workflow is an imperative async Python function coordinating executions.",
+    "A tool is a function decorated with @tool or passed to Agent(tools=[...]). A tool parameter typed ToolCtx[T] receives application context without exposing it to the model. Do not use @function_tool on functions taking ToolCtx.",
+    "State reaches tools via ToolCtx[T]: declare it with Deck(context=MyType), pass it per run with deck.run(..., context=obj). Application context cannot cross HTTP; a run served through Deck.asgi() receives None.",
+    "In a native @workflow, human interaction is ctx.ask(question, options=...). It suspends the coroutine in place without unwinding local variables. Answering with run.answer(val) resumes execution on the next line.",
+    "Every run appends to one ordered event log; status is folded from it by status_of, never stored. type(event) is always Event: switch on event.kind with a default case, since an unknown kind parses as UnknownEvent.",
+    "Nothing is sandboxed. Tools, skills and workflow bodies are ordinary Python in the caller's process, and a model-chosen tool call is trusted by design.",
+    "Run control is capability-based: check run.can.pause, run.can.resume, and run.can.cancel before calling lifecycle methods. Strict methods raise RunStateError on illegal state transitions."
   ],
   "previousVersions": []
 }

@@ -87,7 +87,7 @@ GOLDEN: tuple[Case, ...] = (
         "answer",
         ("run.completed", "run.failed"),
     ),
-    Case("ev-progress", "events", "How does a tool report progress while it works?", "answer", ("progress.reported",)),
+    Case("ev-progress", "events", "How does a tool report progress while it works?", "answer", ("report",)),
     # -- operating it ----------------------------------------------------------------------
     Case("ops-events-cfg", "operations", "What is the default value of AGENTDECK_EVENTS?", "answer", ("memory://",)),
     Case("ops-durable", "operations", "How do I make my run log survive a restart?", "answer", ("sqlite",)),

@@ -1,28 +1,28 @@
 # `agentdeck/`
 
-Declarative layer over the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python).
+Declarative harness for the [OpenAI Agents SDK](https://github.com/openai/openai-agents-python)
+and native workflows.
 
-agentdeck owns **configuration**  -  settings, tools and MCP servers, skill disclosure, plug-in
-discovery. Execution stays in the SDK.
+agentdeck owns **configuration and orchestration**: settings, tools and MCP servers, skill disclosure,
+native workflow execution, plug-in discovery.
 
 ```text
 agentdeck/
-    core/          # event schema and ports  -  stdlib + pydantic only
+    core/          # event schema and ports: stdlib + pydantic only
     runtime/       # settings, plugin discovery, the Runtime's own primitives
     authoring/     # Agent, @tool, @workflow: the declarative construction API, compiles to InvocableSpec
     skills/        # Skills: SKILL.md discovery, validation, disclosure text
     adapters/      # executors (openai-agents, native), event stores, control ports, tool sources
     surfaces/      # thin readers over the canonical event stream (HTTP compat, CLI)
-    deck.py        # Deck: the composition root  -  build a catalog, open it, run turns on it
+    deck.py        # Deck: the composition root: build a catalog, open it, run turns on it
     mcp.py         # MCP: .mcp.json parsing and validation
     serve.py       # the FastAPI app agentdeck-serve runs
 ```
 
-`Deck` is the one class application code needs directly  -  see the top-level
+`Deck` is the one class application code needs directly: see the top-level
 [README](../README.md) for how to use it, and [`docs-site/`](../docs-site/) for the full guide.
 The rest of this package is composition plumbing `Deck` wires together; nothing else here is
-meant to be imported on its own except `agentdeck.authoring` (`Agent` and the declaration
-types it compiles from).
+meant to be imported on its own except `agentdeck.authoring` (`Agent`, `@workflow`, `@tool`).
 
 ## Plug-in discovery
 
