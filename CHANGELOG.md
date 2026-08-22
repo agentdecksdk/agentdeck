@@ -23,8 +23,6 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   the run was live with nothing playing it and its session held until the staleness window passed.
   The run is closed with `run.cancelled` instead, so the record says what happened and the session
   is free at once.
-### Fixed
-
 - **`Deck(agents=[...])` refuses a raw Agents SDK agent at construction.** It was admitted
   silently, because a catalog entry only had to have a `.name`, and `build()` then died on
   `AttributeError: 'Agent' object has no attribute 'skills'`. The refusal is a `ConfigError`
@@ -37,6 +35,16 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   parking. Fan out with `ctx.parallel(ctx.invoke(...), ...)` instead, where each child run holds
   its own answer. Not a permanent rule: concurrent questions on one run wait on the answer inbox
   ([#413](https://github.com/agentdecksdk/agentdeck/issues/413)).
+- **Correction to 5.0.0: no executor is named `"langgraph"`.** The "engine port is `Executor`"
+  entry below lists `LangGraphEngine` becoming `LangGraphExecutor` and keeps `"langgraph"` among
+  the wire values. Both went with the engine in that same release; the executors a 5.x deck names
+  are `"native"`, `"openai-agents"` and `"stub"`.
+- **Known Issues no longer documents removed machinery.** The restart entry named
+  `AGENTDECK_CHECKPOINT`, a setting 5.0 removed along with the checkpointer, and one row described
+  a graph `interrupt()`. Both are gone from [Known Issues](/resources/known-issues).
+- **`run.answer()` says what an ask without options does with the value.** An ask that named
+  `options` refuses anything outside them; one that named none hands the value to the body, which
+  is the only thing that can judge it. `PendingRun.invocable` now says why the name is general.
 
 ## [5.0.0] - 2026-08-22
 
