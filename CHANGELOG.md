@@ -29,12 +29,14 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   silently, because a catalog entry only had to have a `.name`, and `build()` then died on
   `AttributeError: 'Agent' object has no attribute 'skills'`. The refusal is a `ConfigError`
   naming the object and pointing at `handoffs=`, which does take a raw SDK agent.
-- **A second concurrent suspension is refused instead of losing the branch that was already
-  waiting.** One run parks on one payload at a time, so two `ctx.ask(...)` calls raced under
-  `asyncio.gather` overwrote the first branch's future and left it waiting for the life of the run
-  with no error and no event. `run.answer()` now raises `ConfigError` naming both payloads and the
-  run fails, where it previously succeeded and left the run stuck. `ctx.parallel(...)` already
-  refused this at the call.
+- **Asking two questions at once is refused instead of losing the branch that was already
+  waiting.** One run holds one answer, so two `ctx.ask(...)` calls raced under `asyncio.gather`
+  overwrote the first branch's future and left it waiting for the life of the run with no error
+  and no event. Only the workflow body itself may suspend its run now, so the first such
+  `ctx.ask(...)` (or `ctx.safepoint()`) raises `ConfigError` and the run fails without ever
+  parking. Fan out with `ctx.parallel(ctx.invoke(...), ...)` instead, where each child run holds
+  its own answer. Not a permanent rule: concurrent questions on one run wait on the answer inbox
+  ([#413](https://github.com/agentdecksdk/agentdeck/issues/413)).
 
 ## [5.0.0] - 2026-08-22
 

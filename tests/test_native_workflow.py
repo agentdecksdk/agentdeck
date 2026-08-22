@@ -16,7 +16,7 @@ import pytest
 from agentdeck import Deck, ToolCtx, WorkflowCtx, tool, workflow
 from agentdeck.core.control import CONTROL_POLL_INTERVAL
 from agentdeck.core.status import RunStatus
-from agentdeck.errors import ConfigError
+from agentdeck.errors import ConfigError, NotFoundError
 
 
 @pytest.fixture(autouse=True)
@@ -349,29 +349,36 @@ async def test_a_parked_body_this_process_lost_says_so() -> None:
         assert ran == ["ran"]
 
 
-async def test_a_second_concurrent_ask_is_refused_rather_than_orphaning_the_first() -> None:
-    """agentdeck #414: one run parks on one payload at a time, so a second ``ask`` raced against
-    the first used to overwrite its future and leave that branch waiting forever. ``ctx.parallel``
-    refuses this at the call; a raw ``asyncio.gather`` reaches ``suspend`` itself, so the channel
-    refuses it there. The refusal travels with the body, which is why it surfaces at the answer."""
+async def test_a_concurrent_ask_is_refused_before_the_run_parks_on_anything() -> None:
+    """agentdeck #414: one run holds one answer, so a body that asks two questions at once is
+    something this model cannot represent. Only the body task may suspend the run, so the first
+    ask off the body task is refused and the run fails without ever parking  -  no branch is left
+    holding a future nothing can complete, and no answer can resume one."""
+    entered: list[str] = []
+    continued: list[str] = []
 
     @workflow
     async def two_questions(ctx: WorkflowCtx) -> list[str]:
         async def branch(question: str) -> str:
-            return str(await ctx.ask(question))
+            entered.append(question)
+            answer = str(await ctx.ask(question))
+            continued.append(question)
+            return answer
 
         return list(await asyncio.gather(branch("a?"), branch("b?")))
 
     async with Deck(workflows=[two_questions]) as deck:
         run = await deck.runs.start("two_questions", None)
-        await _settles(run, RunStatus.WAITING_ANSWER)
+        await _settles(run, RunStatus.FAILED)
 
-        with pytest.raises(ConfigError, match="one payload at a time") as exc_info:
-            await asyncio.wait_for(run.answer("yes"), timeout=5)
-        message = str(exc_info.value)
-        assert "'a?'" in message
-        assert "'b?'" in message
-        assert await run.status() is RunStatus.FAILED
+        # Never parked: no `run.interrupted` to answer, so the refusal is the whole story.
+        assert [event.kind async for event in run.events()] == ["run.started", "run.failed"]
+        assert entered != []
+        # The finding this closes: a refused branch cannot be woken, so no sibling runs on past
+        # `run.failed` and starts child runs under a failed parent.
+        assert continued == []
+        with pytest.raises(NotFoundError, match="No pending run"):
+            await run.answer("yes")
 
 
 async def _settles(run: Any, status: RunStatus) -> None:
