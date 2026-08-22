@@ -545,14 +545,11 @@ provider and no way to supply one to the timer inbox. A `Run`'s own `resume()`/`
 only continuations that carry a context, and only because the handle that started it retained one
 ([above](#run)).
 
-**The headless runners pass no context.** `Agent.run()` calls the SDK's own `Runner.run` with no
+**The headless runner passes no context.** `Agent.run()` calls the SDK's own `Runner.run` with no
 context object, so a tool that declares one fails when the model calls it  -  the compiled tool
 refuses rather than running short an argument, saying the run "carries NoneType rather than an
-AgentDeck run context". `Workflow.run()`, `Workflow.resume()` and `as_tool()` are further out
-still: the bridge that injects a context into a node is installed when a `Deck` builds its
-catalog, and those paths never install it, so a `ToolCtx[...]` node reached that way dies with
-LangGraph's own `TypeError: <node>() missing 1 required positional argument`. Both are the price
-of leaving a deliberately log-free convenience alone; `Deck.run()` is the path with the contract.
+AgentDeck run context". That is the price of leaving a deliberately log-free convenience alone;
+`Deck.run()` is the path with the contract.
 
 **Skills never receive a context.** A skill is progressive disclosure of prose  -  a `SKILL.md` an
 agent reads through the generated `load_skill` tool  -  not a program agentdeck runs. There is no

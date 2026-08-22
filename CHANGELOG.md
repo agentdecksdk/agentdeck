@@ -60,14 +60,6 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   carry a compatibility window: `Event` refuses any major but its own, by name, saying that the log
   has to be replayed into a new store or read with the version that wrote it. Every store behaves
   the same way, so there is one rule to know rather than one per backend.
-- **The event schema is `major=4`, and a v5 reader still reads a v4 log.** The payload vocabulary
-  moved (see the reporter entry below, and `RunStarted.kind_of_invocable` gaining `"tool"`), which
-  an older reader cannot always take: an unknown *kind* degrades to `UnknownEvent`, but a known
-  kind carrying a field value it has never seen raises, and stores parse every row. So the major
-  bumps. What does **not** happen is the usual cost of one: `Event` now checks `v.major` against
-  `SUPPORTED_MAJORS` (`{3, 4}`) rather than against its own version alone, because the envelope is
-  identical between the two and only payload kinds moved. Upgrading to v5 reads every log v4
-  wrote; rolling back to v4 refuses a v5 log by name. No store migration, no replay.
 - **One executor method: `execute`.** `start` and `resume` are one call. `resume` was never the
   pause's resume  -  lifting a pause already re-entered `start` with the log as history  -  so it
   existed only to answer an interrupt, which the log already records: the answer rides on

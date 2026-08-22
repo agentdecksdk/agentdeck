@@ -640,14 +640,11 @@ provider and no way to supply one to the timer inbox. A `Run`'s own `resume()`/`
 only continuations that carry a context, and only because the handle that started it retained one
 ([above](#run)).
 
-**The headless runners pass no context.** `Agent.run()` calls the SDK's own `Runner.run` with no
+**The headless runner passes no context.** `Agent.run()` calls the SDK's own `Runner.run` with no
 context object, so a tool that declares one fails when the model calls it  -  the compiled tool
 refuses rather than running short an argument, saying the run "carries NoneType rather than an
-AgentDeck run context". `Workflow.run()`, `Workflow.resume()` and `as_tool()` are further out
-still: the bridge that injects a context into a node is installed when a `Deck` builds its
-catalog, and those paths never install it, so a `ToolCtx[...]` node reached that way dies with
-LangGraph's own `TypeError: <node>() missing 1 required positional argument`. Both are the price
-of leaving a deliberately log-free convenience alone; `Deck.run()` is the path with the contract.
+AgentDeck run context". That is the price of leaving a deliberately log-free convenience alone;
+`Deck.run()` is the path with the contract.
 
 **Skills never receive a context.** A skill is progressive disclosure of prose  -  a `SKILL.md` an
 agent reads through the generated `load_skill` tool  -  not a program agentdeck runs. There is no
@@ -1670,7 +1667,7 @@ await run.cancel()
 - [Define Agents](/build-your-deck/agents) -> Build decision-making LLM agents.
 - [Workflows](/build-your-deck/workflows) -> Build multi-step deterministic graphs.
 - [Understand Runs & Control](/runs-and-control/runs) -> Learn lifecycle, streaming, and inspection.
-- [Bring an Existing Agent](/integrations/existing-agents) -> Wrap LangGraph or OpenAI SDK workflows into a Deck.
+- [Bring an Existing Agent](/integrations/existing-agents) -> Wrap OpenAI Agents SDK agents into a Deck.
 - [API Reference](/reference/deck) -> Full reference for Deck and Run.
 
 ---
@@ -1716,6 +1713,19 @@ The current release is **v4.0.5**. Earlier releases are listed at the bottom.
   a catalog name or a `@tool` / `@workflow` definition the deck holds; any other object waits for
   the invocation resolver. `ctx.parallel(*runs)` is all-or-nothing: the first failure cancels its
   siblings and propagates, so no child is left running behind a parent that gave up.
+- **`Agent(subagents=[...])` lets an agent delegate a bounded task to another agent.** Names
+  resolve against the catalog at `build()`, like `handoffs=`, and each becomes one tool the model
+  may call with a task; calling it runs that agent as a child run and hands its final output back.
+  Not a handoff: the conversation stays with the parent, and the child sees only the task.
+- **`ctx.agents.create()` and `ctx.agents.fork()` mint an agent the catalog does not hold.**
+  `create(**declaration)` takes the keywords `Agent(...)` takes, `fork(source, **overrides)` copies
+  a catalog name, an `Agent` or another instance, and either is invoked with `ctx.invoke` like any
+  other target. The deck holds what it minted, which is what makes a child run of it answerable,
+  resumable and cancellable. `ctx.agent` is the agent whose turn is running, or `None`.
+- **`run.started` carries `parent_run_id`.** A delegated turn's cost rolls up into its parent's
+  `run.completed.usage`, cancelling a parent cancels the children it started, and a reader of the
+  log follows the same edge afterwards. Delegation is bounded at depth 3 and fan-out 8, with an
+  error naming which bound was hit and who hit it; there is no setting for either.
 
 ### Changed
 
@@ -1730,14 +1740,6 @@ The current release is **v4.0.5**. Earlier releases are listed at the bottom.
   carry a compatibility window: `Event` refuses any major but its own, by name, saying that the log
   has to be replayed into a new store or read with the version that wrote it. Every store behaves
   the same way, so there is one rule to know rather than one per backend.
-- **The event schema is `major=4`, and a v5 reader still reads a v4 log.** The payload vocabulary
-  moved (see the reporter entry below, and `RunStarted.kind_of_invocable` gaining `"tool"`), which
-  an older reader cannot always take: an unknown *kind* degrades to `UnknownEvent`, but a known
-  kind carrying a field value it has never seen raises, and stores parse every row. So the major
-  bumps. What does **not** happen is the usual cost of one: `Event` now checks `v.major` against
-  `SUPPORTED_MAJORS` (`{3, 4}`) rather than against its own version alone, because the envelope is
-  identical between the two and only payload kinds moved. Upgrading to v5 reads every log v4
-  wrote; rolling back to v4 refuses a v5 log by name. No store migration, no replay.
 - **One executor method: `execute`.** `start` and `resume` are one call. `resume` was never the
   pause's resume  -  lifting a pause already re-entered `start` with the log as history  -  so it
   existed only to answer an interrupt, which the log already records: the answer rides on
@@ -1814,6 +1816,11 @@ The current release is **v4.0.5**. Earlier releases are listed at the bottom.
   matched came back as `None`.
 - **A busy standalone run no longer names a session that does not exist.** The refusal read
   `session '<the run's own id>' is held by run '<the same id>'`; a run in no session now says so.
+- **`Deck.aclose()` always returns.** A run whose task never took the cancellation `aclose()` sent
+  it held the close open forever, wedging a shutting-down server. The close now asks twice, a
+  second apart, and then stops waiting: it logs the run id and records the run's own
+  `run.cancelled`, so an abandoned run does not stay open in the log with nothing playing it. The
+  run's own later writes are refused rather than appended past that event.
 
 ## v4.0.5
 
