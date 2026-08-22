@@ -5,7 +5,7 @@ v1.2.x. They exist so the planned three-ring refactor (core events / engine adap
 thin surfaces) can be diffed against today's behaviour instead of trusted.
 
 A failing test here means the wire changed. That is either a bug or a deliberate,
-documented change — never something to "fix" by re-recording without reading the diff.
+documented change, never something to "fix" by re-recording without reading the diff.
 
 ## What is recorded
 
@@ -19,29 +19,6 @@ documented change — never something to "fix" by re-recording without reading t
 | `03_chat_stream.http` | `POST /agents/Greeter/chat?stream=true` (every SSE frame) |
 | `04_chat_missing_field.http` | `POST /agents/Greeter/chat` without `session_id` (422) |
 | `05_agent_unknown.http` | `POST /agents/Nope/chat` (404) |
-| `06_workflow.http` | `POST /workflows/EchoFlow` |
-| `07_workflow_stream.http` | `POST /workflows/EchoFlow?stream=true` (node updates + `done`) |
-| `08_interrupt_stream.http` | `POST /workflows/ApprovalFlow?stream=true&thread_id=t-golden` (`interrupt` in place of `done`) |
-| `09_pending.http` | `GET /workflows/ApprovalFlow/pending` while paused |
-| `10_resume.http` | `POST /workflows/ApprovalFlow/t-golden/resume` |
-| `11_pending_after_resume.http` | `GET /workflows/ApprovalFlow/pending` once answered |
-| `12_workflow_error.http` | `POST /workflows/BoomFlow` — node raises; 500 `{"detail": "internal error"}` |
-| `13_workflow_error_stream.http` | the same `?stream=true` — in-band `error` frame |
-| `14_side_effect.http` | `POST /workflows/SideEffectFlow` — a node with no update; `"delta": null` |
-| `15_side_effect_stream.http` | the same `?stream=true` |
-| `16_fanout_interrupt.http` | `POST /workflows/FanoutInterruptFlow` — one branch interrupts while a sibling completes; the terminal body is the interrupt (#122) |
-| `17_fanout_interrupt_stream.http` | the same `?stream=true` — the completed sibling's `node_update` reaches the wire before `interrupt` replaces `done` |
-| `18_workflow_crash.http` | `POST /workflows/CrashFlow` — node raises a plain `ValueError`; the catch-all's 500 `{"detail": "internal error"}` |
-
-Cases 12/13 exist for the one wire contract with a security property: an `AgentdeckError`
-that isn't a `NotFoundError` may carry secrets (skill stderr, config values), so the
-surface must render a type name and nothing else. `BoomFlow` raises a deliberately
-secret-shaped message and `test_failures_never_echo_the_error_message` asserts it is
-absent from both recordings. Case 18 pins the same property for a failure that is *not*
-an `AgentdeckError` at all — `CrashFlow` raises a plain `ValueError`, caught only by
-`serve.py`'s catch-all handler, and the same test asserts its own secret-shaped message
-stays out of the recording too.
-
 Each snapshot file is a small HTTP-shaped record:
 
 ```
@@ -52,7 +29,7 @@ HTTP <status>
 ```
 
 The recorded headers are exactly `content-type`, `cache-control` and
-`x-accel-buffering` — the three the app sets deliberately. `date`, `server` and
+`x-accel-buffering`: the three the app sets deliberately. `date`, `server` and
 `content-length` are transport noise and are **not** recorded (an omission, not a
 rewrite: the body itself is never touched).
 
@@ -72,48 +49,35 @@ is pinned at the source instead:
   `lookup_slot` tool; turn 2 answers in three text deltas
   (`"Tuesday " / "at 9am " / "works."`). Both turns are identical for `get_response`
   and `stream_response`, so streamed and non-streamed captures agree. The tool call is
-  visible on the wire only through `usage.requests == 2` — `serve.py` forwards text
+  visible on the wire only through `usage.requests == 2`: `serve.py` forwards text
   deltas and drops structural events, which is itself part of the recorded contract.
-- **Ids the client owns.** `session_id`, `thread_id` and workflow input state are
-  literals in `capture`.
+- **Ids the client owns.** `session_id` is a literal in `capture`.
 - **Environment.** `conftest._PINNED_ENV` overrides the settings knobs that would
-  otherwise reach outside the test (Redis sessions, Langfuse export, the sqlite
-  checkpointer) or truncate the scripted turn (`AGENTDECK_RUNNER_MAX_TURNS`). `.env`
-  resolves from cwd at settings-build time through `resolve_env_file`, and `make_client`
-  chdirs to `fixture_project` before building settings. Any `.env` there is overridden
-  for the keys in `_PINNED_ENV`.
+  otherwise reach outside the test (Redis sessions, Langfuse export) or truncate the
+  scripted turn (`AGENTDECK_RUNNER_MAX_TURNS`). `.env` resolves from cwd at
+  settings-build time through `resolve_env_file`, and `make_client` chdirs to
+  `fixture_project` before building settings. Any `.env` there is overridden for the
+  keys in `_PINNED_ENV`.
   Env vars outside `_PINNED_ENV` are still able to reach a capture; add one here rather
-  than normalizing its effect away. The checkpointer is `memory`, and its process-wide
-  cache is cleared per client so `/pending` never sees another capture's threads.
-- **Timestamps.** Nothing on these endpoints emits one. The fixture workflows are pure
-  functions of their input state.
+  than normalizing its effect away.
+- **Timestamps.** Nothing on these endpoints emits one.
 
 If a future endpoint does put an irreducibly variable value on the wire, pin it in the
 fake first. A normalization step is the last resort, and it must be listed in this
-section — an undocumented normalization is a hole in the safety net.
+section: an undocumented normalization is a hole in the safety net.
 
 ## The fixture project
 
 `fixture_project/.agentdeck/` is a minimal, committed project dir:
 
-- `agents/greeter/agent.py` — one agent, one `function_tool`, so the scripted model can
+- `agents/greeter/agent.py`: one agent, one `function_tool`, so the scripted model can
   drive a tool-call turn.
-- `workflows/echo_flow/workflow.py` — two pure nodes; the `done` path.
-- `workflows/approval_flow/workflow.py` — one `interrupt()`, `durable = True`; the
-  pending/resume path.
-- `workflows/boom_flow/workflow.py` — one node raising a secret-shaped `SkillError`; the
-  500 and SSE-`error` paths.
-- `workflows/crash_flow/workflow.py` — one node raising a secret-shaped plain `ValueError`
-  (not an `AgentdeckError`); the catch-all's 500 path.
-- `workflows/fanout_interrupt_flow/workflow.py` — a fan-out with one interrupting branch and
-  one slower sibling that completes; pins the sibling's node update reaching the wire before
-  the pause replaces `done` (#122).
 
 ## Running and re-recording
 
 ```bash
 make test         # whole suite, golden replay included
-make golden       # re-record snapshots — deliberate, never automatic
+make golden       # re-record snapshots: deliberate, never automatic
 ```
 
 `make golden` is `AGENTDECK_GOLDEN_UPDATE=1 pytest tests/golden -q`. Re-record only
@@ -124,7 +88,7 @@ renamed case cannot leave an orphan behind.
 Besides an intended change of ours, one other thing legitimately moves these bytes: a
 dependency bump. `content-type: text/event-stream; charset=utf-8` comes from starlette
 and the JSON separators from FastAPI's encoder, so a starlette / FastAPI / pydantic
-upgrade can shift a snapshot with no agentdeck change at all — the diff is then the
+upgrade can shift a snapshot with no agentdeck change at all: the diff is then the
 review artifact for that bump (one is already queued: `TestClient` warns that `httpx` is
 deprecated in favour of `httpx2`). Nothing recorded here depends on the Python version;
 CI records on 3.13.

@@ -1,4 +1,4 @@
-/* The Jack panel — brand palette from brand.css, no new tokens. */
+/* The Jack panel: brand palette from brand.css, no new tokens. */
 
 .ask-launch {
   position: fixed;
@@ -117,7 +117,7 @@
   font-size: 0.8rem;
 }
 
-/* The answer is model-written markdown, so every element it can emit needs a rule — an
+/* The answer is model-written markdown, so every element it can emit needs a rule: an
    unstyled table or code block in a 30rem panel is unreadable. */
 .ask-answer :is(p, ul, ol, table) {
   margin: 0.5rem 0;

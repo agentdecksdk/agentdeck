@@ -31,7 +31,6 @@ _MINIMAL_FIELDS: dict[str, dict[str, object]] = {
         "result_size": 2,
         "result_sha256": "0" * 64,
     },
-    "node.updated": {"node": "n1", "state_patch": {}},
     "artifact.created": {"artifact_id": "a-1", "media_type": "text/plain", "uri": "file:///x", "size": 1},
     "usage.reported": {"model": "gpt", "usage": {"input_tokens": 1, "output_tokens": 1}},
     "input.appended": {"input": [], "source": "human"},
@@ -106,7 +105,7 @@ BUILT_INS = {
 # Kinds no named view selects  -  reachable only through `views.all`, by design. Pinned as a
 # literal, not derived from KNOWN_KINDS: a derived set is true by construction and could never
 # catch a future kind falling out of every named view unnoticed.
-ALL_ONLY = {"control.requested", "control.observed", "node.updated", "artifact.created", "input.appended", "custom"}
+ALL_ONLY = {"control.requested", "control.observed", "artifact.created", "input.appended", "custom"}
 
 
 def test_every_known_kind_is_reachable_by_a_named_view_or_deliberately_by_all_only():

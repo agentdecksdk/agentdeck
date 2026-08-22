@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import os
 import re
 import subprocess
 import sys
@@ -12,8 +13,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+CONTENT_PREFIX = "docs-site/content/"
 CONTENT_ROOT = REPO_ROOT / "docs-site" / "content"
 DOCS_SOURCES = re.compile(r"^\{/\* docs_sources:\n(?P<sources>(?:  - .+\n)+)\*/\}", re.MULTILINE)
+ACKNOWLEDGEMENT = re.compile(r"^- \[[xX]\] Unchanged pages reviewed: *(?P<pages>.+)$", re.MULTILINE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,9 +77,26 @@ def validate_mappings(mappings: tuple[PageMapping, ...]) -> None:
         raise ValueError(f"source patterns matching no files: {', '.join(unmatched)}")
 
 
+def page_key(path: str) -> str:
+    """A page named the short way, so an acknowledgement may spell it either way."""
+    return path.removeprefix(CONTENT_PREFIX)
+
+
+def acknowledged_pages(body: str) -> frozenset[str]:
+    """Pages a PR body claims were read and found still correct.
+
+    Named rather than ticked, so the claim expires when a new page becomes impacted and not
+    merely because another commit was pushed: a box re-ticked every push gets ticked unread.
+    """
+    # GitHub serves bodies with CRLF, so the last name carries a trailing \r out of the match.
+    if (match := ACKNOWLEDGEMENT.search(body)) is None:
+        return frozenset()
+    return frozenset(page_key(page.strip()) for page in match.group("pages").split(",") if page.strip())
+
+
 def changed_files(base: str, head: str, repo_root: Path = REPO_ROOT) -> tuple[str, ...]:
     result = subprocess.run(
-        ["git", "diff", "--no-renames", "--name-only", "--diff-filter=ACDMR", base, head],
+        ["git", "diff", "--no-renames", "--name-only", "--diff-filter=ACDMR", f"{base}...{head}"],
         cwd=repo_root,
         check=True,
         capture_output=True,
@@ -104,20 +124,32 @@ def check_docs_impact(
     return tuple(mapping for mapping in impacted_pages(mappings, changes) if mapping.path not in changed)
 
 
+def _report(impacted: tuple[PageMapping, ...], missing: tuple[PageMapping, ...]) -> int:
+    """The `make check` view: which pages to open, and the one line that clears them.
+
+    Terse and last in the gate, because an advisory buried under pytest output is one nobody
+    reads, and a report that only describes leaves the reader still deciding what to do.
+    """
+    if not missing:
+        print(f"docs impact: {len(impacted)} affected pages, all updated or already reviewed.")
+        return 0
+
+    print(f"\ndocs impact: {len(missing)} of {len(impacted)} affected pages are neither updated nor reviewed.")
+    for mapping in missing:
+        print(f"  {mapping.path}")
+    print("Open each. Fix what this change made wrong here, then paste this into the PR body:")
+    print(f"  - [x] Unchanged pages reviewed: {', '.join(page_key(mapping.path) for mapping in missing)}\n")
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default="origin/dev", help="base git revision")
     parser.add_argument("--head", default="HEAD", help="head git revision")
     parser.add_argument(
-        "--pr-action",
-        choices=("local", "opened", "synchronize", "reopened", "edited"),
-        default="local",
-        help="pull request event action, used to invalidate stale review acknowledgement",
-    )
-    parser.add_argument(
-        "--acknowledge-review",
+        "--report",
         action="store_true",
-        help="report impacted pages without failing after unchanged pages were reviewed",
+        help="list the affected pages without failing on the ones left unchanged",
     )
     return parser
 
@@ -126,20 +158,39 @@ def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         mappings = load_mappings()
-        changes = changed_files(args.base, args.head)
-    except (OSError, KeyError, TypeError, ValueError, subprocess.CalledProcessError) as error:
+    except (OSError, KeyError, TypeError, ValueError) as error:
         print(f"docs impact configuration error: {error}", file=sys.stderr)
         return 2
 
+    try:
+        changes = changed_files(args.base, args.head)
+    except subprocess.CalledProcessError as error:
+        if not args.report:
+            print(f"docs impact cannot diff {args.base}...{args.head}: {error}", file=sys.stderr)
+            return 2
+        print(f"No {args.base} to diff against, so no impact report. Run `git fetch origin`.")
+        return 0
+
     impacted = impacted_pages(mappings, changes)
-    missing = check_docs_impact(mappings, changes)
     if not impacted:
         print("No mapped documentation pages are affected.")
         return 0
 
+    acknowledged = acknowledged_pages(os.environ.get("PR_BODY", ""))
+    missing = tuple(
+        mapping for mapping in check_docs_impact(mappings, changes) if page_key(mapping.path) not in acknowledged
+    )
+    if args.report:
+        return _report(impacted, missing)
+
     print("Documentation pages affected by this change:")
     for mapping in impacted:
-        state = "updated" if mapping.path in changes else "review needed"
+        if mapping.path in changes:
+            state = "updated"
+        elif mapping in missing:
+            state = "review needed"
+        else:
+            state = "reviewed"
         print(f"  {state}: {mapping.path}")
         matches = sorted(
             change for change in changes if any(fnmatch.fnmatchcase(change, pattern) for pattern in mapping.sources)
@@ -147,12 +198,13 @@ def main(argv: list[str] | None = None) -> int:
         for match in matches:
             print(f"    source: {match}")
 
-    acknowledgement_is_current = args.acknowledge_review and args.pr_action != "synchronize"
-    if not missing or acknowledgement_is_current:
+    if not missing or args.report:
         return 0
 
+    sys.stdout.flush()
+    reviewed = ", ".join(page_key(mapping.path) for mapping in missing)
     print(
-        'Update each affected page, or check "Unchanged pages in the docs impact report were reviewed" in the PR.',
+        f"Update each affected page, or name it in the PR body: `- [x] Unchanged pages reviewed: {reviewed}`",
         file=sys.stderr,
     )
     for mapping in missing:

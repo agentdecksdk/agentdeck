@@ -21,7 +21,6 @@ from agentdeck.core import (
     Custom,
     DataBlock,
     Event,
-    NodeUpdated,
     Reported,
     RunCompleted,
     RunFailed,
@@ -421,7 +420,6 @@ def test_a_cost_json_cannot_carry_is_refused_at_construction(usd):
 @pytest.mark.parametrize(
     ("build", "field"),
     [
-        (lambda v: NodeUpdated(node="n", state_patch=v), "state_patch"),
         (lambda v: ToolCallStarted(call_id="c", tool="t", args=v), "args"),
         (lambda v: RunInterrupted(interrupt_id="i", reason="human", payload=v), "payload"),
         (lambda v: Custom(name="ns.event", data=v), "data"),
@@ -443,7 +441,6 @@ def test_a_free_form_field_holds_only_what_the_store_hands_back_unchanged(build,
 
 def test_the_free_form_fields_still_take_ordinary_json():
     nested = {"a": [1, "two", None, {"b": 3.5}], "c": True}
-    assert NodeUpdated(node="n", state_patch=nested).state_patch == nested
     assert ToolCallStarted(call_id="c", tool="t", args=nested).args == nested
     assert RunInterrupted(interrupt_id="i", reason="human", payload=nested).payload == nested
     assert Custom(name="ns.event", data=nested).data == nested

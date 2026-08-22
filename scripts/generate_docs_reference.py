@@ -311,8 +311,8 @@ them: discovery, layered settings, sessions, streaming, MCP servers, human-in-th
 approvals, run control, and one ordered event log per run.
 
 It executes native `@workflow` and `@tool` targets alongside the OpenAI Agents SDK for agents:
-an `Agent` compiles to an SDK agent, and a `@workflow` coordinates executions with native async
-Python control.
+an `Agent` compiles to an SDK agent, and a `@workflow` is ordinary Python awaited by AgentDeck's
+own executor. AgentDeck owns configuration and orchestration, and there is no agent loop here.
 
 Use it when the wiring around an agent has become the work: several agents and workflows in one
 project, a chat surface and a batch path over the same definitions, runs you must inspect
@@ -369,7 +369,7 @@ def render_llms_txt(generated: Mapping[Path, str] | None = None) -> str:
         "",
         "> The production runtime for agents you have to operate: "
         "composition, human-in-the-loop approvals, sessions, streaming, run control "
-        "and one ordered event log, wrapping the OpenAI Agents SDK and native workflows.",
+        "and one ordered event log, over the OpenAI Agents SDK and native workflows.",
         "",
         _DEFINITION,
         "",

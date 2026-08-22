@@ -68,6 +68,7 @@ class ScriptedModel(Model):
         *,
         final_text: str | None = None,
         tool_name: str | None = None,
+        tool_arguments: str = "{}",
         raises: BaseException | None = None,
         hold: asyncio.Event | None = None,
         input_tokens: int = 3,
@@ -78,6 +79,7 @@ class ScriptedModel(Model):
         # test tells "the SDK's final_output" apart from "the deltas, re-joined".
         self.final_text = final_text
         self.tool_name = tool_name
+        self.tool_arguments = tool_arguments
         self.raises = raises
         # Stall the turn after its first delta until `hold` is set, announcing it on `holding`.
         # A test that has to catch a consumer *inside* its next-event await needs the run to
@@ -113,7 +115,7 @@ class ScriptedModel(Model):
                             id="fc_scripted_1",
                             call_id="call_scripted_1",
                             name=self.tool_name,
-                            arguments="{}",
+                            arguments=self.tool_arguments,
                             type="function_call",
                         )
                     ]

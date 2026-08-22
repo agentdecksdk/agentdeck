@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 
 class Executor(ABC):
-    """One way of executing a target: an SDK, a graph runtime, or AgentDeck's own.
+    """One way of executing a target: an SDK, or AgentDeck's own.
 
     A run ends in exactly one of three ways: a terminal payload (``run.completed`` /
     ``run.failed`` / ``run.cancelled``), a suspending one (``run.interrupted`` / ``run.paused``)

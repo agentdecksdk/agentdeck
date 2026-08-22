@@ -2,14 +2,14 @@
 which ``T`` it requires, what is left for the model to fill in, and whether any of that could be
 established at all.
 
-Engine-independent on purpose. Both engine bridges compile the same declaration  -  a plain
-callable  -  into their own native shape, and two copies of "is this parameter a ``ToolCtx``" is
-how the OpenAI and LangGraph paths would quietly stop agreeing. This module is the one answer
-both compile against; it builds nothing and calls nothing.
+Engine-independent on purpose. Every executor compiles the same declaration  -  a plain
+callable  -  into its own native shape, and two copies of "is this parameter a ``ToolCtx``" is
+how those paths would quietly stop agreeing. This module is the one answer they all compile
+against; it builds nothing and calls nothing.
 
 It lives here rather than in ``core/`` because it raises :class:`ConfigError`, and the error
-taxonomy is not core's yet  -  while every consumer it has (agent compilation, workflow
-compilation, and the graph walk behind ``Deck.build()``) is already in ``authoring``.
+taxonomy is not core's yet  -  while every consumer it has (tool, agent and native definition
+compilation) is already in ``authoring``.
 
 A parameter is injected because of its annotation, never its name: exactly one ``ToolCtx[...]``
 parameter is injected whatever it is called, zero means an ordinary callable, and two is a

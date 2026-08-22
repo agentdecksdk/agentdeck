@@ -10,7 +10,7 @@ native workflow execution, plug-in discovery.
 agentdeck/
     core/          # event schema and ports: stdlib + pydantic only
     runtime/       # settings, plugin discovery, the Runtime's own primitives
-    authoring/     # Agent/@workflow/@tool: construction API, compiles to InvocableSpec
+    authoring/     # Agent, @tool, @workflow: the declarative construction API, compiles to InvocableSpec
     skills/        # Skills: SKILL.md discovery, validation, disclosure text
     adapters/      # executors (openai-agents, native), event stores, control ports, tool sources
     surfaces/      # thin readers over the canonical event stream (HTTP compat, CLI)
@@ -27,8 +27,9 @@ meant to be imported on its own except `agentdeck.authoring` (`Agent`, `@workflo
 ## Plug-in discovery
 
 `agentdeck.runtime.registry.PluginRegistry` walks `<package>/<type_dir>/<bundle>/<module>.py` and
-indexes every module-level *instance* of a base class (`Agent`, `Workflow`)  -  not subclasses; an
-`Agent`/`Workflow` is a value, not something to subclass. `Deck.from_project()` builds one
+indexes every module-level *instance* of a base class (`Agent`, and the definition a
+`@workflow` produces)  -  not subclasses; an `Agent` is a value, not something to subclass.
+`Deck.from_project()` builds one
 registry each for `agents/` and `workflows/`. A pre-0.3 project dir without the `agents/`/
 `workflows/` type subdirectory raises a `ConfigError` pointing at the current layout instead of
 silently discovering nothing.
@@ -45,5 +46,5 @@ from agentdeck.runtime.settings import get_settings
 s = get_settings()  # cached
 s.openai.model
 s.runner.max_turns
-s.checkpoint.url  # e.g. "sqlite://.agentdeck/checkpoints.sqlite3"  -  the scheme names the backend
+s.events.url  # e.g. "sqlite://.agentdeck/events.sqlite3"  -  the scheme names the backend
 ```

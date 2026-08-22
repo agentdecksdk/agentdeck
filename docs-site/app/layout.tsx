@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     title: 'AgentDeck SDK  -  a production runtime for AI agents',
     description:
       'Durable human-in-the-loop approvals, sessions, streaming, run control and one ordered '
-      + 'event log per run  -  wrapping the OpenAI Agents SDK and LangGraph rather than replacing them.'
+      + 'event log per run  -  wrapping the OpenAI Agents SDK rather than replacing it.'
   },
   twitter: { card: 'summary_large_image', title: 'AgentDeck SDK' },
   title: {
@@ -40,7 +40,7 @@ export const metadata: Metadata = {
   description:
     'AgentDeck SDK adds composition and a production runtime around agents you already have  -  '
     + 'durable human-in-the-loop approvals, sessions, streaming, run control and one ordered '
-    + 'event log per run  -  wrapping the OpenAI Agents SDK and LangGraph rather than replacing them.'
+    + 'event log per run  -  wrapping the OpenAI Agents SDK rather than replacing it.'
 }
 
 const navbar = (
@@ -89,7 +89,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                   name: 'AgentDeck SDK',
                   description:
                     'A declarative runtime harness for multi-agent systems, wrapping the OpenAI '
-                    + 'Agents SDK and LangGraph rather than replacing them.',
+                    + 'Agents SDK rather than replacing it.',
                   codeRepository: 'https://github.com/agentdecksdk/agentdeck',
                   programmingLanguage: 'Python',
                   license: 'https://opensource.org/licenses/MIT',

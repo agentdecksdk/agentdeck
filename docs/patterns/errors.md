@@ -2,11 +2,12 @@
 
 Every error states what happened, why, and the exact action that resolves it. The reader is a user at 2am, not the author.
 
-Good (real, `adapters/engines/langgraph/engine.py`):
+Good (real, `authoring/native.py`):
 
 ```text
-{name} paused at a node boundary but is durable=False: with no checkpointer
-the paused run cannot be resumed. Set `durable = True` on the workflow.
+{name} is declared @workflow but is not async. A native workflow is awaited by
+the runtime, and a blocking body would stall every run sharing its event loop:
+make it `async def`, and use asyncio.to_thread for work that genuinely blocks.
 ```
 
 Good (real, `runtime/registry.py`): a lookup failure names the alternatives:

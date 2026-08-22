@@ -10,10 +10,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from agentdeck.adapters.executors.langgraph import LangGraphExecutor
 from agentdeck.adapters.executors.native import NativeExecutor
 from agentdeck.adapters.executors.openai_agents import OpenAIAgentsExecutor
-from agentdeck.composition import resolve_checkpoint, resolve_run_settings
+from agentdeck.composition import resolve_run_settings
 
 if TYPE_CHECKING:
     from agentdeck.core.ports import Executor
@@ -22,7 +21,6 @@ if TYPE_CHECKING:
 def project_executors() -> tuple[Executor, ...]:
     return (
         OpenAIAgentsExecutor(settings=resolve_run_settings()),
-        LangGraphExecutor(durable_checkpoint=resolve_checkpoint()),
         NativeExecutor(),
     )
 

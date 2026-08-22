@@ -46,7 +46,6 @@ _SUBPROCESS_TIMEOUT = 30
 # OPENAI_USE_RESPONSES=false is the same Chat-Completions flag getting-started.mdx documents
 # for a non-OpenAI endpoint.
 _PINNED_ENV = {
-    "AGENTDECK_CHECKPOINT": "memory://",
     "AGENTDECK_EVENTS": "memory://",
     "AGENTDECK_SESSION": "",
     "AGENTDECK_LANGFUSE_PUBLIC_KEY": "",

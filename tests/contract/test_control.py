@@ -9,24 +9,20 @@ what keeps the ordering deterministic without a clock or a sleep anywhere. Where
 *mid-stream* is pinned separately, in ``tests/test_run_control.py``, off the scripted model's
 own hold/release events.
 
-Cases are factories, not built values: control state (a paused thread) lives on the engine
-instance itself for langgraph, so a case shared across every test function in this module would
-leak one test's pause into the next test's run on the same ``thread_id``. A fresh engine (and
-spec) per test closes that off for all three cases alike, langgraph included.
+Cases are factories, not built values: a fresh engine (and spec) per test keeps one test's
+control state from leaking into the next test's run.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from agents import Agent
 from event_log_checks import check_contiguous, check_terminal
-from langgraph.graph import END, START, StateGraph
 
 from agentdeck.adapters.control.memory import MemoryControlPort
-from agentdeck.adapters.executors.langgraph import LangGraphExecutor
 from agentdeck.adapters.executors.openai_agents import OpenAIAgentsExecutor
 from agentdeck.adapters.executors.stub import StubExecutor, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
@@ -78,33 +74,8 @@ def _openai_agents_case() -> ControlCase:
     return ControlCase(id="openai-agents", executor=OpenAIAgentsExecutor(), spec=spec)
 
 
-class _LangGraphState(TypedDict, total=False):
-    input: str
-    a: bool
-    b: bool
-    c: bool
-
-
-def _langgraph_case() -> ControlCase:
-    # Every node ignores whatever state it is handed and returns a fixed patch, so a pause
-    # honored mid-graph and a later, unrelated test reusing the same ``thread_id`` (this
-    # module's ``ctx`` is the same for every test) can never see each other's leftovers  -
-    # the same "safe to share across every test function" property langgraph_cases.py's
-    # nodes are written for.
-    graph: StateGraph[Any] = StateGraph(_LangGraphState)
-    graph.add_node("a", lambda _state: {"a": True})
-    graph.add_node("b", lambda _state: {"b": True})
-    graph.add_node("c", lambda _state: {"c": True})
-    graph.add_edge(START, "a")
-    graph.add_edge("a", "b")
-    graph.add_edge("b", "c")
-    graph.add_edge("c", END)
-    spec = InvocableSpec(name="Chatty", kind=InvocableKind.WORKFLOW, executor=LangGraphExecutor.name, native=graph)
-    return ControlCase(id="langgraph", executor=LangGraphExecutor(), spec=spec, safe_point="node_boundary")
-
-
-CASE_FACTORIES = [_stub_case, _openai_agents_case, _langgraph_case]
-CASE_IDS = ["stub", "openai-agents", "langgraph"]
+CASE_FACTORIES = [_stub_case, _openai_agents_case]
+CASE_IDS = ["stub", "openai-agents"]
 
 
 @pytest.fixture(params=CASE_FACTORIES, ids=CASE_IDS)

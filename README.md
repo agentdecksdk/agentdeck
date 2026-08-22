@@ -154,13 +154,16 @@ You do not want this if you are writing one script that calls one model. Use the
 
 ## What it deliberately does not do
 
-* **No DSL.** Definitions are Python. There is no YAML agent format, and there will not be one.
-* **No execution engine of its own.** Bugs in the agent loop belong upstream, and improvements there arrive without AgentDeck doing anything.
-* **No sandbox.** Tools, skills and workflow bodies are ordinary Python in your process, and a model-chosen tool call is trusted by design. See [SECURITY.md](SECURITY.md).
-* **No auth, no multi-tenancy, no hosted control plane, no marketplace.** `namespace` labels a run; it does not authenticate anyone. Put a real gateway in front of the HTTP surface.
-* **No evaluation framework or prompt management.** Model prefixes select configured providers; AgentDeck does not add a dynamic routing service.
-
----
+- **No DSL.** Definitions are Python. There is no YAML agent format, and there will not be one.
+- **No agent loop of its own.** Bugs in the agent loop belong upstream, and improvements
+  there arrive without agentdeck doing anything.
+- **No sandbox.** Tools, skills and workflows are ordinary Python in your process, and a
+  model-chosen tool call is trusted by design. See [SECURITY.md](SECURITY.md) before you give an
+  agent something destructive.
+- **No auth, no multi-tenancy, no hosted control plane, no marketplace.** `namespace` labels a
+  run; it does not authenticate anyone. Put a real gateway in front of the HTTP surface.
+- **No evaluation framework or prompt management.** Model prefixes select configured providers;
+  AgentDeck does not add a dynamic routing service.
 
 ## Install
 
@@ -169,13 +172,12 @@ pip install agentdeck-sdk              # or, with the HTTP surface: agentdeck-sd
 export OPENAI_MODEL=gpt-4.1-mini OPENAI_API_KEY=sk-...
 ```
 
-The distribution is **`agentdeck-sdk`**; the import stays `agentdeck`. Agents may declare `openai/...`, `anthropic/...`, `gemini/...`, `ollama/...`, or `openrouter/...`; see [model configuration](https://agentdecksdk.com/build-your-deck/agents). `OPENAI_BASE_URL` supports any OpenAI-compatible endpoint.
-
-Extras:
-* `serve`: HTTP / SSE surface (`Deck.asgi()`).
-* `durability`: Postgres event store and persistence backend.
-* `redis`: Redis-backed sessions and event logging.
-* `observability`: Langfuse tracing.
+The distribution is **`agentdeck-sdk`**; the import stays `agentdeck`. Agents may declare
+`openai/...`, `anthropic/...`, `gemini/...`, `ollama/...`, or `openrouter/...`; see
+[model configuration](https://agentdecksdk.com/build-your-deck/agents). `OPENAI_BASE_URL` also
+supports any OpenAI-compatible endpoint. Extras: `serve` for the
+HTTP surface, `postgres` for the Postgres event log, `redis` for Redis-backed sessions or event
+log, `observability` for Langfuse tracing.
 
 Contributing to agentdeck itself is a different setup: see [CONTRIBUTING.md](CONTRIBUTING.md).
 

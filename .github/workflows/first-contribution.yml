@@ -1,7 +1,7 @@
 name: First contribution
 
 # `pull_request_target`, not `pull_request`: a PR from a fork gets a read-only token on the
-# latter, so neither job could comment — which is every external contribution, the only case
+# latter, so neither job could comment, which is every external contribution, the only case
 # this workflow exists for.
 #
 # That trade is only safe while this file touches nothing the PR controls. It must never check
@@ -48,12 +48,12 @@ jobs:
           count=$(gh pr list --repo "$REPO" --author "$AUTHOR" --state all \
                     --limit 2 --json number --jq 'length')
           if [ "$count" -gt 1 ]; then
-            echo "$AUTHOR has opened $count PRs here — not their first, nothing to post."
+            echo "$AUTHOR has opened $count PRs here, not their first, nothing to post."
             exit 0
           fi
 
           # Capture before grepping. Piped straight into `grep -q`, the early exit closes the
-          # pipe, gh takes SIGPIPE, and `pipefail` turns that into a false negative — which posts
+          # pipe, gh takes SIGPIPE, and `pipefail` turns that into a false negative, which posts
           # a second copy of the thing the marker exists to prevent.
           marker='<!-- agentdeck:first-pr-welcome -->'
           bodies=$(gh api "repos/$REPO/issues/$NUMBER/comments" --paginate --jq '.[].body')
@@ -117,7 +117,7 @@ jobs:
           merged=$(gh pr list --repo "$REPO" --author "$AUTHOR" --state merged \
                      --limit 2 --json number --jq 'length')
           if [ "$merged" -gt 1 ]; then
-            echo "$AUTHOR has $merged merged PRs — not their first, nothing to post."
+            echo "$AUTHOR has $merged merged PRs, not their first, nothing to post."
             exit 0
           fi
 

@@ -143,22 +143,6 @@ def resolve_run_settings(settings: Settings | None = None) -> RunSettings:
     )
 
 
-def resolve_checkpoint(settings: Settings | None = None) -> tuple[str, str]:
-    """The ``(backend, path_or_dsn)`` a durable workflow checkpoints to, derived from
-    ``AGENTDECK_CHECKPOINT``'s scheme.
-
-    A pair of strings, not a saver: the postgres saver lives in the ``[durability]`` extra, so
-    naming a backend here must not import one  -  the langgraph adapter builds it at the first
-    durable run and not before. ``postgresql`` normalizes to the backend name
-    ``resolve_checkpointer`` expects (``postgres``); sqlite's own value is the bare path after
-    the scheme, since the saver takes a filesystem path, not a URL.
-    """
-    checkpoint = (settings if settings is not None else get_settings()).checkpoint
-    scheme, rest = parse_backend_url(checkpoint.url)
-    backend = "postgres" if scheme == "postgresql" else scheme
-    return backend, rest if backend == "sqlite" else checkpoint.url
-
-
 def resolve_control_port(settings: ControlSettings | None = None) -> ControlPort:
     """Build the control port named by ``AGENTDECK_CONTROL``'s scheme: ``memory://`` (default)
     or ``sqlite://<path>``.
@@ -222,7 +206,7 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
     ``sqlite://<path>``, ``redis://``/``rediss://<url>``, or ``postgresql://<dsn>``.
 
     The last two are imported inside their own branch, not at module scope: this module is on
-    the import path of every entry point, and Postgres needs the ``[durability]`` extra and
+    the import path of every entry point, and Postgres needs the ``[postgres]`` extra and
     Redis the ``[redis]`` extra, so a top-level import would make either mandatory for anyone
     who only chats.
     """
@@ -253,8 +237,8 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
             from agentdeck.adapters.stores.postgres import PostgresEventStore
         except ImportError as exc:
             raise ImportError(
-                'the postgres event store needs psycopg  -  install the "durability" extra: '
-                f'pip install "agentdeck-sdk[durability]"  -  see {_STORE_DOCS}'
+                'the postgres event store needs psycopg  -  install the "postgres" extra: '
+                f'pip install "agentdeck-sdk[postgres]"  -  see {_STORE_DOCS}'
             ) from exc
         return PostgresEventStore(events.url)
     raise ValueError(
@@ -265,7 +249,6 @@ def resolve_event_store(settings: EventsSettings | None = None) -> EventStorePor
 
 __all__ = [
     "build_runtime",
-    "resolve_checkpoint",
     "resolve_control_port",
     "resolve_event_store",
     "resolve_lease_port",

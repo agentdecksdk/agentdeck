@@ -269,7 +269,7 @@ async def test_the_log_keeps_to_its_own_schema_and_leaves_the_rest_of_the_databa
     keyspace: tuple[str, str],
 ) -> None:
     """ADR-D5's operational separation, as the one thing Postgres can enforce: a database that
-    also holds the langgraph checkpointer's tables (which live in ``public``) shares nothing
+    also holds some other application's tables (which live in ``public``) shares nothing
     with the log, and two logs in two schemas share nothing with each other.
     """
     dsn, schema = keyspace

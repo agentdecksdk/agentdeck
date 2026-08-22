@@ -14,11 +14,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 from agents import Agent
-from langgraph.graph.state import CompiledStateGraph, StateGraph
 
-from agentdeck.adapters.executors.langgraph import LangGraphExecutor
+from agentdeck.adapters.executors.native import NativeExecutor
 from agentdeck.adapters.executors.openai_agents import OpenAIAgentsExecutor
 from agentdeck.adapters.stores.memory import MemoryEventStore
+from agentdeck.authoring.native import NativeDefinition
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
 from agentdeck.core.invocable import InvocableKind
@@ -91,27 +91,12 @@ class OneLineModel(Model):
 '''
 
 WORKFLOW_PY = """
-from typing import TypedDict
-
-from langgraph.graph import END, StateGraph
-
-from agentdeck.authoring import Workflow
+from agentdeck import WorkflowCtx, workflow
 
 
-class State(TypedDict, total=False):
-    input: str
-    shouted: str
-
-
-def _build_graph():
-    graph = StateGraph(State)
-    graph.add_node("shout", lambda state: {{"shouted": state["input"].upper()}})
-    graph.set_entry_point("shout")
-    graph.add_edge("shout", END)
-    return graph
-
-
-{workflow_var} = Workflow(name="{workflow_name}", state=State, graph=_build_graph)
+@workflow(name="{workflow_name}")
+async def {workflow_var}(ctx: WorkflowCtx, text: str) -> str:
+    return text.upper()
 """
 
 SKILL_MD = """---
@@ -149,7 +134,7 @@ def project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def executors() -> list[Executor]:
-    return [OpenAIAgentsExecutor(), LangGraphExecutor()]
+    return [OpenAIAgentsExecutor(), NativeExecutor()]
 
 
 def test_load_compiles_each_bundle_shape_into_a_spec(project: None, executors: list[Executor]) -> None:
@@ -160,10 +145,8 @@ def test_load_compiles_each_bundle_shape_into_a_spec(project: None, executors: l
     assert (greeter.name, greeter.kind, greeter.executor) == ("Greeter", InvocableKind.AGENT, "openai-agents")
     assert isinstance(greeter.native, Agent), "an agent bundle's native is the built SDK Agent, not its class"
     shout = specs["Shout"]
-    assert (shout.name, shout.kind, shout.executor) == ("Shout", InvocableKind.WORKFLOW, "langgraph")
-    assert isinstance(shout.native, StateGraph) and not isinstance(shout.native, CompiledStateGraph), (
-        "the langgraph adapter compiles the graph itself, so the spec carries an uncompiled one"
-    )
+    assert (shout.name, shout.kind, shout.executor) == ("Shout", InvocableKind.WORKFLOW, "native")
+    assert isinstance(shout.native, NativeDefinition), "a native workflow's spec carries its own decorated definition"
 
 
 def test_skills_are_not_discovered_as_invocables(project: None, executors: list[Executor]) -> None:
@@ -177,7 +160,6 @@ def test_skills_are_not_discovered_as_invocables(project: None, executors: list[
 def test_kind_to_engine_names_match_the_adapters() -> None:
     """The table spells the engine names out; drift from the adapters would be silent."""
     assert EXECUTOR_FOR_KIND[InvocableKind.AGENT] == OpenAIAgentsExecutor.name
-    assert EXECUTOR_FOR_KIND[InvocableKind.WORKFLOW] == LangGraphExecutor.name
 
 
 async def test_discovered_specs_run_to_completion_on_their_executor(project: None, executors: list[Executor]) -> None:
@@ -199,14 +181,6 @@ async def test_discovered_specs_run_to_completion_on_their_executor(project: Non
         assert kinds[-1] == "run.completed", name
 
 
-def test_an_executor_the_runtime_lacks_fails_at_load(project: None) -> None:
-    """A project with workflows wired to an openai-agents-only Runtime breaks at startup."""
-    registry = InvocableRegistry([OpenAIAgentsExecutor()])
-
-    with pytest.raises(ConfigError, match="'Shout' needs executor 'langgraph', which is not registered"):
-        registry.load()
-
-
 def test_one_name_for_two_bundles_fails_at_load(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, executors: list[Executor]
 ) -> None:
@@ -226,7 +200,7 @@ def test_a_project_dir_that_is_not_there_fails_at_load(
         InvocableRegistry(executors).load()
 
 
-def test_a_discovered_workflows_build_graph_failure_is_wrapped_at_load(
+def test_a_discovered_workflow_modules_import_failure_is_wrapped_at_load(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, executors: list[Executor]
 ) -> None:
     """#119, on the bare ``load()`` path with no ``Deck`` involved (``build_runtime``'s own
@@ -235,26 +209,7 @@ def test_a_discovered_workflows_build_graph_failure_is_wrapped_at_load(
     """
     root = tmp_path / ".agentdeck"
     (root / "workflows" / "boom").mkdir(parents=True)
-    (root / "workflows" / "boom" / "workflow.py").write_text(
-        textwrap.dedent(
-            """
-            from typing import TypedDict
-
-            from agentdeck.authoring import Workflow
-
-
-            class State(TypedDict, total=False):
-                input: str
-
-
-            def _build_graph():
-                raise ValueError("bad graph")
-
-
-            boom_flow = Workflow(name="BoomFlow", state=State, graph=_build_graph)
-            """
-        )
-    )
+    (root / "workflows" / "boom" / "workflow.py").write_text('raise ValueError("bad workflow module")\n')
     monkeypatch.chdir(tmp_path)
     for module in [name for name in sys.modules if name.startswith("agentdeck_project")]:
         del sys.modules[module]

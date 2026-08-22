@@ -390,9 +390,22 @@ Two lines PR5 does not cross:
 no child is left running behind a parent that already gave up. Gather-with-exceptions is the shape
 that gets misused, because a body that forgets to inspect the list gets a silent wrong answer.
 
+## Amended by PR7 (2026-08-22, #236)
+
+| ruled here | shipped | why |
+|---|---|---|
+| the parent edge lands in PR8 | PR7 | the readers land in PR7: a cancel cascade, a usage roll-up and the depth bound all follow the edge, and two of the three have to work on a log nobody watched live |
+| `agents.fork()` copies `ctx.agent` | `fork(source, **overrides)`, source required | the member table above already puts `agent` on `ToolCtx` and `agents` on `WorkflowCtx`, so the two are never held at once and a `ctx.agent` default could only ever be `None`. Self-fork is unreachable, not merely undefaulted: a body that has `ctx.agent` has no `ctx.agents`, and forking the agent a tool is inside is its own issue if anything ever wants it |
+
+Two rulings this PR adds rather than amends:
+
+| ruling | |
+|---|---|
+| a cancel cascades to a run's children, a pause does not | a paused parent's child keeps running either way, and what the parent does differs by executor: an agent turn replays from the log on resume, so a suspended child would be delegated a second time, while a native workflow parks a live coroutine whose `await child` survives. Stated per executor in `Runtime.signal`, because a guarantee that holds for one engine and not the other is not a guarantee |
+| a child outliving its parent is not in the live usage fold | the fold is what the Runtime saw settle before it wrote `run.completed`. `run.started.parent_run_id` is what a reader totals the tree from afterwards, which is the whole reason the edge is durable rather than in memory |
+
 ## Open
 
 | | |
 |---|---|
-| what the parent edge is called | the field PR8 puts on `run.started` for cancel cascade, usage roll-up and trace nesting. `parent_run_id` is the obvious name and the one that was already removed once |
 | `run.started` for a foreign target | `kind_of_invocable` is a closed literal and a resolved foreign object matches none of its members. PR8 either widens it or records the executor instead |
