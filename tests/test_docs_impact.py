@@ -114,7 +114,7 @@ def test_naming_the_affected_page_acknowledges_it(monkeypatch: pytest.MonkeyPatc
     mapping = PageMapping("docs-site/content/reference/run.mdx", ("agentdeck/core/*.py",))
     monkeypatch.setattr(docs_impact, "load_mappings", lambda: (mapping,))
     monkeypatch.setattr(docs_impact, "changed_files", lambda base, head: ("agentdeck/core/invocable.py",))
-    # GitHub serves PR bodies with CRLF, which would otherwise ride along into the last page name.
+    # A real GitHub body, CRLF and all: the last name carries a trailing \r out of the match.
     monkeypatch.setenv("PR_BODY", "## Design\r\n\r\n- [x] Unchanged pages reviewed: reference/run.mdx\r\n")
 
     assert docs_impact.main([]) == 0

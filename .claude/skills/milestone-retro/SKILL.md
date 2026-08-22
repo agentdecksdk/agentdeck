@@ -40,7 +40,7 @@ Retro progress:
 | 2. Guards | Did any mechanical guard catch a defect this milestone, or only formatting? Compare against the findings filed. | guard hits against real findings |
 | 3. Agents | Dev: defect at first review, rework ratio, scope creep. Reviewer: escapes, rounds, loop rounds, words per finding. | two scorecards, never merged into one |
 | 4. PRs | Body size against the cap, commit hygiene, whether findings were answered in threads or by growing the body. | per-PR table |
-| 5. Criteria | Are the scorecards measuring the right things? Which metric changed a decision, which can be gamed, which cost is unmeasured. The criteria are under review here, not the agents. | metrics kept, killed, added |
+| 5. Criteria | Are the scorecards measuring the right things? Which metric changed a decision, which rewards the artifact rather than the value, which can be gamed, which cost is unmeasured. The criteria are under review here, not the agents. | metrics kept, killed, added |
 | 6. Verdict | What cost us time, ranked. Each gets an issue or it did not matter. | filed issues |
 
 Phase 5 runs after phase 3 and not before, because a criterion is judged on whether it earned its keep this milestone, and you cannot know that until you have used it. It **proposes**: criteria are policy, and the user rules on keep or kill. Two of its four questions belong at proposal time instead, in the issue that adds a metric; `references/judging.md` says which and why.

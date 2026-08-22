@@ -74,9 +74,11 @@ Rework, per PR. This is the honest "was it done when it said done":
 ```bash
 ready=$(gh api repos/{owner}/{repo}/issues/<n>/timeline \
           --jq '.[]|select(.event=="ready_for_review")|.created_at' | head -1)
-gh pr view <n> --json commits --jq --arg r "$ready" \
-  '[[.commits[]|select(.authoredDate > $r)]|length, (.commits|length)]'
+gh pr view <n> --json commits | jq --arg r "$ready" \
+  '{after: ([.commits[]|select(.authoredDate > $r)]|length), total: (.commits|length)}'
 ```
+
+Two things that bite here, both verified: `gh`'s own `--jq` takes no `--arg`, so pipe to real `jq` when the filter needs a variable. And `|` rebinds the input for everything after it, so a second reference to `.commits` must be parenthesized or it evaluates against the piped array instead of the original object.
 
 Declared against actual, from the PR body and the two scripts:
 

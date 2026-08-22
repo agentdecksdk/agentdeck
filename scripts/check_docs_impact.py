@@ -88,8 +88,8 @@ def acknowledged_pages(body: str) -> frozenset[str]:
     Named rather than ticked, so the claim expires when a new page becomes impacted and not
     merely because another commit was pushed: a box re-ticked every push gets ticked unread.
     """
-    match = ACKNOWLEDGEMENT.search(body.replace("\r\n", "\n"))
-    if match is None:
+    # GitHub serves bodies with CRLF, so the last name carries a trailing \r out of the match.
+    if (match := ACKNOWLEDGEMENT.search(body)) is None:
         return frozenset()
     return frozenset(page_key(page.strip()) for page in match.group("pages").split(",") if page.strip())
 
