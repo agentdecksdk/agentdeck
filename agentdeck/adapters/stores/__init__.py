@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from agentdeck.core.context import RunContext
 
 
-def refuse_if_cancelled(status: RunStatus | None, ctx: RunContext) -> None:
+def _refuse_if_cancelled(status: RunStatus | None, ctx: RunContext) -> None:
     """Refuse the append a store is inside when the run is already ``CANCELLED``.
 
     Shared by all four stores rather than written out in each: the refusal is one decision the
@@ -26,6 +26,3 @@ def refuse_if_cancelled(status: RunStatus | None, ctx: RunContext) -> None:
     """
     if status is RunStatus.CANCELLED:
         raise RunStateError(f"run {ctx.run_id!r} was cancelled; nothing can be appended to it any more")
-
-
-__all__ = ["refuse_if_cancelled"]

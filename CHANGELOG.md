@@ -23,8 +23,6 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   the run was live with nothing playing it and its session held until the staleness window passed.
   The run is closed with `run.cancelled` instead, so the record says what happened and the session
   is free at once.
-- **Closing a run that has already ended says so.** The abandonment path returned silently after the
-  deck had logged that it closed the run; it now names the run and the status it found.
 
 ## [5.0.0] - 2026-08-22
 
