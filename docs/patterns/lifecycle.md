@@ -21,10 +21,14 @@ Good (real, `runtime/service.py`):
 
 ```python
 if started is None:
-    logger.error("run %s is being abandoned but has no run.started to close it against", run_id)
+    logger.error(
+        "run %s is being abandoned but has no run.started to close it against; it stays "
+        "open in the log until something reconciles it (#419)",
+        run_id,
+    )
     return
 if (status := await self._store.run_status(ctx)) is not RunStatus.RUNNING:
-    logger.debug("run %s is %s, not RUNNING; nothing to close", run_id, status)
+    logger.debug("run %s is %s, not RUNNING; it closed itself and nothing was written", run_id, status)
     return
 ```
 

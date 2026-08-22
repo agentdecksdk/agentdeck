@@ -630,22 +630,37 @@ async def test_an_append_to_a_cancelled_run_is_refused(event_store: EventStorePo
     assert [event.kind for event in await event_store.read_run(ctx)] == ["run.started", "run.cancelled"]
 
 
-async def test_an_append_racing_the_cancel_lands_before_it_or_not_at_all(event_store: EventStorePort) -> None:
-    """The window opened deliberately rather than waited for: the write and the cancel are handed
-    over together, so on a real store one of them is genuinely in flight when the other commits.
-    Whichever order the store picks, nothing may end up behind the terminal event.
+async def test_an_append_suspended_inside_the_store_when_the_cancel_lands_is_refused(
+    event_store: EventStorePort, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#421's window held open rather than raced for: the delta is inside ``append`` when the
+    cancel commits, on every store and on every run of this case.
+
+    The gate is the seam ``tests/concurrency_worker.py`` and ``tests/crash_worker.py`` already
+    stall in  -  an ``append`` that blocks and then calls the real one. Only the delta is gated, so
+    the cancel commits while the delta sits there and the delta resumes into a sealed log.
     """
+    appending, released = asyncio.Event(), asyncio.Event()
+    real_append = event_store.append
+
+    async def gated(_: EventStorePort, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        if any(isinstance(payload, TextDelta) for payload in payloads):
+            appending.set()
+            await released.wait()
+        return await real_append(payloads, ctx, origin)
+
+    monkeypatch.setattr(type(event_store), "append", gated)
+
     ctx = _ctx()
     await _write(event_store, [_started()], ctx)
+    delta = asyncio.create_task(_write(event_store, [TextDelta(message_id="m1", text="in flight")], ctx))
+    await appending.wait()
+    await _write(event_store, [RunCancelled(reason="the deck closed")], ctx)
+    released.set()
 
-    await asyncio.gather(
-        _write(event_store, [TextDelta(message_id="m1", text="in flight")], ctx),
-        _write(event_store, [RunCancelled(reason="the deck closed")], ctx),
-        return_exceptions=True,  # whichever write lost the race raises, and that is the point
-    )
-
-    kinds = [event.kind for event in await event_store.read_run(ctx)]
-    assert kinds[-1] == "run.cancelled", kinds
+    with pytest.raises(RunStateError, match="r-1"):
+        await delta
+    assert [event.kind for event in await event_store.read_run(ctx)] == ["run.started", "run.cancelled"]
     assert await event_store.run_status(ctx) is RunStatus.CANCELLED
 
 
