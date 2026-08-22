@@ -65,6 +65,7 @@ person or start another run would no longer be a leaf.
 |---|---|---|
 | `ctx.data`, the context object | yes | yes |
 | `ctx.agent`, `ctx.run_id`, `ctx.session_id` | yes | yes |
+| `ctx.reporter`, report progress out of band | yes | yes |
 | `await ctx.safepoint()`, offer a pause/cancel point | yes | yes |
 | `await ctx.ask(question, options=...)`, suspend for an answer | no | yes |
 | `ctx.invoke(target, ...)`, `await ctx.parallel(...)`, start child runs | no | yes |
@@ -72,8 +73,7 @@ person or start another run would no longer be a leaf.
 
 ## Where it does not reach
 
-A context is a live Python object, never serialized. It cannot cross the HTTP surface, and the
-timer sweep that resumes a durable workflow supplies none. See
+A context is a live Python object, never serialized, and it cannot cross the HTTP surface. See
 [Where a context does not reach](/reference/deck#where-a-context-does-not-reach) for the full list.
 
 ## Related
