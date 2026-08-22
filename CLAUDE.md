@@ -65,5 +65,5 @@ AgentDeck is a declarative runtime harness for multi-agent systems and workflows
 
 * **Communication conciseness:** Keep text between tool calls to ≤25 words. Keep final responses to ≤100 words unless more detail is required.
 * **Branches:** `dev` is default; PRs target `dev`. `main` is release-only.
-* **No attribution trailers:** Never include `Co-Authored-By`, `🤖 Generated with`, or AI vendor signatures in commits, PRs, or issues.
+* **No attribution trailers:** Never include an AI `Co-Authored-By`, `🤖 Generated with`, or AI vendor signatures in commits, PRs, or issues. A trailer naming a person is collaboration, not attribution: GitHub writes one itself when a contributor accepts a maintainer's suggestion.
 * **Draft PR workflow:** Open a draft PR on your first commit (`gh pr create --draft`) and push continuously as you work. Mark ready with `gh pr ready` only when `make check` is clean.

@@ -35,3 +35,22 @@ def test_ai_author_identity_is_rejected() -> None:
 
 def test_human_vendor_employee_is_allowed() -> None:
     assert hygiene_findings("Alice Smith", "alice@anthropic.com", "fix: event ordering") == []
+
+
+def test_accepting_a_maintainers_suggestion_is_allowed() -> None:
+    """GitHub writes this trailer itself when a contributor accepts a suggested change.
+
+    #427 accepted one and the gate rejected the commit, so the rule punished the exact
+    collaboration the review had asked for.
+    """
+    message = "Update lifecycle-and-control.mdx\n\nCo-authored-by: Sagi Shabtai <sagi@example.com>"
+    assert hygiene_findings("MLHipster-beep", "contributor@example.com", message) == []
+
+
+def test_an_ai_coauthor_is_still_rejected_beside_a_human_one() -> None:
+    message = (
+        "fix: preserve event ordering\n\n"
+        "Co-authored-by: Alice Smith <alice@example.com>\n"
+        "Co-Authored-By: Claude <noreply@anthropic.com>"
+    )
+    assert "attribution trailer" in hygiene_findings("A Developer", "dev@example.com", message)
