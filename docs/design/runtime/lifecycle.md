@@ -17,18 +17,18 @@ Run states, transitions, and terminal rules.
 
 This is the 5.1 proposal, not a description of current behavior. It adds `paused_waiting_answer` and `paused_answer_ready` and assumes an executor that supports pausing; otherwise `pause()` and `resume()` refuse as unsupported.
 
-Starting is not an action on an existing `Run`. `deck.run(...)` and `deck.runs.start(...)` admit a new run, whose first state is `running`.
+Starting is not an action on an existing `Run`. `deck.run(...)` and `deck.runs.start(...)` admit a new run, whose first state is `running`. The table includes external `Run` actions and the workflow-only in-run action `ctx.ask(...)`.
 
-| Current state | `pause()` | `resume()` | `answer(value)` | `cancel()` |
-| --- | --- | --- | --- | --- |
-| `running` | Accepted: request recorded; remains `running` until a safe point transitions it to `paused` | No-op: already running | Refused: nothing awaits an answer | Accepted: request recorded; remains `running` until a safe point transitions it to `cancelled` |
-| `paused` | No-op: already paused | Transitions to `running` | Refused: use `resume()` | Transitions to `cancelled` |
-| `waiting_answer` | Transitions to `paused_waiting_answer` | Refused: the run requires a value; use `answer(...)` | Transitions to `running` | Transitions to `cancelled` |
-| `paused_waiting_answer` | No-op: already paused | Transitions to `waiting_answer` | Stores the answer and transitions to `paused_answer_ready` | Transitions to `cancelled` |
-| `paused_answer_ready` | No-op: already paused | Transitions to `running` with the stored answer | Refused: an answer is already stored; use `resume()` or `cancel()` | Transitions to `cancelled` |
-| `completed` | No-op: already terminal | No-op: already terminal | No-op: already terminal | No-op: already terminal |
-| `failed` | No-op: already terminal | No-op: already terminal | No-op: already terminal | No-op: already terminal |
-| `cancelled` | No-op: already terminal | No-op: already terminal | No-op: already terminal | No-op: already terminal |
+| Current state | `ctx.ask(...)` | `pause()` | `resume()` | `answer(value)` | `cancel()` |
+| --- | --- | --- | --- | --- | --- |
+| `running` | Transitions to `waiting_answer` (workflow only) | Accepted: request recorded; remains `running` until a safe point transitions it to `paused` | No-op: already running | Refused: nothing awaits an answer | Accepted: request recorded; remains `running` until a safe point transitions it to `cancelled` |
+| `paused` | Not available: no workflow code is executing | No-op: already paused | Transitions to `running` | Refused: use `resume()` | Transitions to `cancelled` |
+| `waiting_answer` | Not available: no workflow code is executing | Transitions to `paused_waiting_answer` | Refused: the run requires a value; use `answer(...)` | Transitions to `running` | Transitions to `cancelled` |
+| `paused_waiting_answer` | Not available: no workflow code is executing | No-op: already paused | Transitions to `waiting_answer` | Stores the answer and transitions to `paused_answer_ready` | Transitions to `cancelled` |
+| `paused_answer_ready` | Not available: no workflow code is executing | No-op: already paused | Transitions to `running` with the stored answer | Refused: an answer is already stored; use `resume()` or `cancel()` | Transitions to `cancelled` |
+| `completed` | Not available: no workflow code is executing | No-op: already terminal | No-op: already terminal | No-op: already terminal | No-op: already terminal |
+| `failed` | Not available: no workflow code is executing | No-op: already terminal | No-op: already terminal | No-op: already terminal | No-op: already terminal |
+| `cancelled` | Not available: no workflow code is executing | No-op: already terminal | No-op: already terminal | No-op: already terminal | No-op: already terminal |
 
 ## Proposed state machine
 
