@@ -46,12 +46,25 @@ class _Channel:
     def __init__(self) -> None:
         self._out: asyncio.Queue[KnownPayload | None] = asyncio.Queue()
         self._answer: asyncio.Future[Any] | None = None
+        # The body task, set by :meth:`NativeExecutor._play` as it starts. One slot means one
+        # suspender, and this is who that is.
+        self.owner: asyncio.Task[Any] | None = None
 
     async def emit(self, payload: KnownPayload) -> None:
         await self._out.put(payload)
 
     async def suspend(self, payload: KnownPayload) -> Any:
         """Hand out the payload that suspends the run, then wait here for what answers it."""
+        if asyncio.current_task() is not self.owner:
+            raise ConfigError(
+                f"this run cannot be suspended from a task it did not start, so the "
+                f"{payload.kind} payload here cannot park it: ctx.ask() and ctx.safepoint() stop "
+                f"the workflow body itself, and this call is running somewhere else. Asking two "
+                f"questions at once is not supported yet, because one run holds one answer. Fan "
+                f"out with ctx.parallel(ctx.invoke(...), ctx.invoke(...)) instead: each child run "
+                f"is a run of its own, so each gets its own slot. An inbox that holds several open "
+                f"questions on one run is agentdeck #413."
+            )
         self._answer = asyncio.get_running_loop().create_future()
         await self._out.put(payload)
         return await self._answer
@@ -171,6 +184,7 @@ class NativeExecutor(Executor):
         :meth:`execute` re-raises it into the run so the Runtime records and reports it the way
         it does for every other executor.
         """
+        channel.owner = asyncio.current_task()
         try:
             result = await definition.call(**_arguments(definition, input, ctx, channel, self._invoker, self._agents))
             await channel.emit(RunCompleted(output=_as_output(result), usage=Usage(input_tokens=0, output_tokens=0)))

@@ -8,6 +8,46 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [5.0.3] - 2026-08-23
+
+### Changed
+
+- **A cancelled run's log is closed for good.** Appending to a run that already has its
+  `run.cancelled` raises `RunStateError` on every store instead of landing behind that event, which
+  is what a write already in flight when `Deck.aclose()` abandoned the run used to do. A takeover's
+  `run.failed` still seals nothing: it is written for a run only believed dead, and one that turns
+  out to be alive goes on writing and may reclaim its own session.
+
+### Fixed
+
+- **A cancelled `answer()` or `resume()` no longer leaves a run claimed but unplayed.** Both claim
+  the run before there is anything to hand back, and a cancellation in between left the log saying
+  the run was live with nothing playing it and its session held until the staleness window passed.
+  The run is closed with `run.cancelled` instead, so the record says what happened and the session
+  is free at once.
+- **`Deck(agents=[...])` refuses a raw Agents SDK agent at construction.** It was admitted
+  silently, because a catalog entry only had to have a `.name`, and `build()` then died on
+  `AttributeError: 'Agent' object has no attribute 'skills'`. The refusal is a `ConfigError`
+  naming the object and pointing at `handoffs=`, which does take a raw SDK agent.
+- **Asking two questions at once is refused instead of losing the branch that was already
+  waiting.** One run holds one answer, so two `ctx.ask(...)` calls raced under `asyncio.gather`
+  overwrote the first branch's future and left it waiting for the life of the run with no error
+  and no event. Only the workflow body itself may suspend its run now, so the first such
+  `ctx.ask(...)` (or `ctx.safepoint()`) raises `ConfigError` and the run fails without ever
+  parking. Fan out with `ctx.parallel(ctx.invoke(...), ...)` instead, where each child run holds
+  its own answer. Not a permanent rule: concurrent questions on one run wait on the answer inbox
+  ([#413](https://github.com/agentdecksdk/agentdeck/issues/413)).
+- **Correction to 5.0.0: no executor is named `"langgraph"`.** The "engine port is `Executor`"
+  entry below lists `LangGraphEngine` becoming `LangGraphExecutor` and keeps `"langgraph"` among
+  the wire values. Both went with the engine in that same release; the executors a 5.x deck names
+  are `"native"`, `"openai-agents"` and `"stub"`.
+- **Known Issues no longer documents removed machinery.** The restart entry named
+  `AGENTDECK_CHECKPOINT`, a setting 5.0 removed along with the checkpointer, and one row described
+  a graph `interrupt()`. Both are gone from [Known Issues](/resources/known-issues).
+- **`run.answer()` says what an ask without options does with the value.** An ask that named
+  `options` refuses anything outside them; one that named none hands the value to the body, which
+  is the only thing that can judge it. `PendingRun.invocable` now says why the name is general.
+
 ## [5.0.0] - 2026-08-22
 
 ### Added
@@ -2452,7 +2492,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.0...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.3...HEAD
+[5.0.3]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.0...v5.0.3
 [5.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.5...v5.0.0
 [4.0.5]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.4...v4.0.5
 [4.0.4]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.3...v4.0.4

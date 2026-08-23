@@ -14,152 +14,55 @@ description: What changed in each release of AgentDeck, and what to do about it 
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v5.0.0**. Earlier releases are listed at the bottom.
+The current release is **v5.0.3**. Earlier releases are listed at the bottom.
 
-## v5.0.0
+## v5.0.3
 
-*Released 2026-08-22.*
-
-### Added
-
-- **Lifecycle & Control docs now include a capability matrix.** A table on the
-  [Lifecycle & Control](/runs-and-control/lifecycle-and-control) page shows which of
-  `pause()`, `resume()`, `cancel()`, and `answer()` are legal from each run status, for quick
-  reference alongside the existing prose.
-- **Agents can select OpenAI, Anthropic, Gemini, Ollama, or OpenRouter by model prefix.** Each
-  provider reads its own environment credential, and `Deck.build()` reports every missing
-  requirement before execution. Runtime settings now come only from environment variables or
-  the project `.env`; the undocumented `config.yaml` source is removed.
-- **`run.can` says which lifecycle controls are available before you call one.** `run.can.pause`,
-  `run.can.resume` and `run.can.cancel` combine the engine's own capability with the run's current
-  state, so a UI can enable its buttons and a workflow can branch without guessing. Informational
-  by design: it reads the status the handle last saw, and the lifecycle methods stay the
-  authoritative answer.
-- **`@tool` and `@workflow` declare AgentDeck-native code: ordinary Python, no engine.** A
-  `@workflow` body takes `WorkflowCtx` and runs as a coroutine that suspends in place  -  at
-  `ctx.safepoint()`, or at `ctx.ask(question, options=...)`  -  and continues on the next line
-  rather than replaying, because its own locals are the checkpoint. A `@tool` takes `ToolCtx` and
-  is a leaf capability: it can report and safepoint, but not `ask` or start other runs. Both are
-  played by a new native executor that parks a suspended body's coroutine in memory and cancels
-  it on `Deck.aclose()`.
-- **`ctx.invoke()` starts a child run from inside a `@workflow`, and `ctx.parallel()` composes
-  several.** `ctx.invoke(target, *args, **kwargs)` binds to the target's own signature and hands
-  back a `Run`: `await ctx.invoke(...)` is the result, `child = ctx.invoke(...)` is the handle,
-  with its own id, its own log and its own `child.can.*` / `pause` / `resume` / `cancel`. It takes
-  a catalog name or a `@tool` / `@workflow` definition the deck holds; any other object waits for
-  the invocation resolver. `ctx.parallel(*runs)` is all-or-nothing: the first failure cancels its
-  siblings and propagates, so no child is left running behind a parent that gave up.
-- **`Agent(subagents=[...])` lets an agent delegate a bounded task to another agent.** Names
-  resolve against the catalog at `build()`, like `handoffs=`, and each becomes one tool the model
-  may call with a task; calling it runs that agent as a child run and hands its final output back.
-  Not a handoff: the conversation stays with the parent, and the child sees only the task.
-- **`ctx.agents.create()` and `ctx.agents.fork()` mint an agent the catalog does not hold.**
-  `create(**declaration)` takes the keywords `Agent(...)` takes, `fork(source, **overrides)` copies
-  a catalog name, an `Agent` or another instance, and either is invoked with `ctx.invoke` like any
-  other target. The deck holds what it minted, which is what makes a child run of it answerable,
-  resumable and cancellable. `ctx.agent` is the agent whose turn is running, or `None`.
-- **`run.started` carries `parent_run_id`.** A delegated turn's cost rolls up into its parent's
-  `run.completed.usage`, cancelling a parent cancels the children it started, and a reader of the
-  log follows the same edge afterwards. Delegation is bounded at depth 3 and fan-out 8, with an
-  error naming which bound was hit and who hit it; there is no setting for either.
+*Released 2026-08-23.*
 
 ### Changed
 
-- **`EventSinkPort` is renamed `Observer`, and it gains `agentdeck.views`.** `views.all`,
-  `views.chat`, `views.tools`, `views.reports`, `views.lifecycle`, `views.errors` and
-  `views.usage` are composable predicates over the event stream (`|`, `&`, `~`); pass
-  `view=` to any observer to filter what it receives. `agentdeck.observers.Langfuse` is
-  renamed `LangfuseObserver`, and `ConsoleObserver` / `FileObserver` join it: one prints a
-  line per event, the other appends one JSONL line per event, both with no configuration.
-- **The event schema is `major=4`, and v5.0.0 does not read a log 4.x wrote.** The payload
-  vocabulary moved (see the reporter entry below, and `RunStarted.kind_of_invocable` gaining
-  `"tool"`), so the major bumps, and this release does not carry a compatibility window: `Event`
-  refuses any major but its own, by name, saying that the log has to be replayed into a new store
-  or read with the version that wrote it. Every store behaves the same way, so there is one rule to
-  know rather than one per backend.
-- **One executor method: `execute`.** `start` and `resume` are one call. `resume` was never the
-  pause's resume  -  lifting a pause already re-entered `start` with the log as history  -  so it
-  existed only to answer an interrupt, which the log already records: the answer rides on
-  `run.resumed` and the thread on `run.interrupted`. An executor now reads which of the three
-  plays it is (fresh, a replayed pause, an answered interrupt) off `history`, and
-  `Runtime.resume(...)` no longer takes a `thread_id`. A custom executor implements one method,
-  and a target that never suspends implements nothing extra.
-- **An answer the log cannot hold is refused.** `run.answer(...)` with a value JSON cannot carry
-  used to log a warning, record nothing, and hand the value to the engine in memory anyway  -  a
-  run resumed on an answer no replay and no other process could reproduce. It raises `ValueError`
-  now, before anything is claimed, and the run stays answerable.
-- **The engine port is `Executor`.** `agentdeck.core.ports.EnginePort` becomes `Executor`,
-  `adapters/engines/` becomes `adapters/executors/`, `LangGraphEngine`/`OpenAIAgentsEngine`/
-  `StubEngine` become `LangGraphExecutor`/`OpenAIAgentsExecutor`/`StubExecutor`, and
-  `InvocableSpec.engine` becomes `InvocableSpec.executor`. One word for the thing that executes a
-  target, in the type, the module path and the spec. Wire values are untouched: an executor is
-  still named `"langgraph"`, `"openai-agents"` or `"stub"`, and `run.failed` still carries
-  `error_code="engine_error"`.
-
-- **The reporter has four methods and one event kind.** `ctx.reporter.status(...)` and
-  `ctx.reporter.progress(...)` are replaced by `info`, `warning`, `error` and `report`, each taking
-  arbitrary keyword fields: `ctx.reporter.warning("Primary source unavailable", source="drive")`,
-  `ctx.reporter.report("candidate_found", score=0.91)`. The `status.reported` and
-  `progress.reported` events become one `report` event carrying `level`, `message` and `fields`.
-  A stage count is now `report("reviewing", current=2, total=4)`, and nothing validates the pair.
-- **`Context[T]` is `ToolCtx[T]`, and `ctx.checkpoint()` is `ctx.safepoint()`.** A tool declares
-  `ToolCtx[T]`; the orchestration surface an imperative workflow gets is `WorkflowCtx[T]`, so one
-  type no longer has to mean both. The method rename follows the concept the docstrings already
-  used: a safe point is where a run can be stopped.
-- **`run.pause()` and `run.cancel()` refuse loudly instead of returning `False`.** Both used to
-  answer `bool`, where `False` meant "this deck has no control backend" and was indistinguishable
-  from "the run had already ended". They now return `None`, raise `RunStateError` when the run's
-  state refuses the operation, and raise the new `UnsupportedControlError` when the control can
-  never be applied. An operation with nothing to do (pausing a paused run, cancelling a finished
-  one) still returns quietly. `run.resume()` is strict on the same terms and no longer ignores a
-  run that is waiting for an answer.
-- **A run that belongs to no conversation now belongs to no session.** `RunContext.log_key`
-  (`session_id or run_id`) is gone. It answered "which stream do these events go in" by encoding
-  two different things as one string, and a store handed it could not tell a session named after a
-  run from that run itself. Event stores hold a nullable `session_id` instead, and every
-  `EventStorePort` method takes `ctx` plus only what is genuinely not identity: `read(log_key, ctx)`
-  is `read_session(ctx)`, `read_run(log_key, run_id, ctx)` is `read_run(ctx)`,
-  `claim_resume(log_key, run_id, resumed, ctx, origin)` is `claim_resume(resumed, ctx, origin)`, and
-  `RunSummary.log_key` is `RunSummary.session_id`. A caller reading another run builds the context
-  for it (`replace(ctx, run_id=...)`). **No migration**: 5.0 does not read a log 4.x wrote, on any
-  store. Opening a SQLite or Postgres log 4.x wrote raises a clear `StoreError`; a Redis log
-  written by 4.x reads as empty, since its keys were shaped by the old encoding. Drain or discard
-  a 4.x log, or replay it into a new store, before upgrading.
-- **A completed handoff is the core event `agent.changed`, not a namespaced `custom` one.** The
-  OpenAI Agents executor stopped emitting `custom` named `openai_agents.handoff`; a handoff between
-  agents in the same run and conversation now lands as `agent.changed`, carrying `previous_agent`
-  and `next_agent`, and only once the handoff has actually happened. A handoff that was requested
-  but failed or was refused still emits nothing. The schema is `major=4, minor=1`.
-
-### Removed
-
-- **LangGraph is gone: `Workflow`, `WorkflowDeclaration`, `graph=`, `durable=`, the executor, the
-  checkpointer and `AGENTDECK_CHECKPOINT`.** What hung off them goes too: `sleep_until` and the
-  timer sweep (`AGENTDECK_RUNTIME_SWEEP_INTERVAL_SECONDS`), `Workflow.pending()`, `as_tool()`, the
-  `AgentNode`/`LoadFileNode` graph nodes, the `node.updated` event, and the HTTP surface's
-  `/workflows/*` routes. A fresh install pulls no `langgraph`, `langchain-core` or
-  `langgraph-checkpoint-sqlite`. A 4.x graph user stays on 4.x, or ports the graph to an
-  imperative `@workflow`.
-- **The `durability` extra is now `postgres`.** Install `agentdeck-sdk[postgres]`: what remains in
-  it is the Postgres event log's driver, and the checkpointer the old name meant is gone.
+- **A cancelled run's log is closed for good.** Appending to a run that already has its
+  `run.cancelled` raises `RunStateError` on every store instead of landing behind that event, which
+  is what a write already in flight when `Deck.aclose()` abandoned the run used to do. A takeover's
+  `run.failed` still seals nothing: it is written for a run only believed dead, and one that turns
+  out to be alive goes on writing and may reclaim its own session.
 
 ### Fixed
 
-- **`deck.runs.get` no longer corrupts a session id that happens to equal a run id.** It recovered
-  the session by comparing the stored key against the run id, so a caller-chosen `session_id` that
-  matched came back as `None`.
-- **A busy standalone run no longer names a session that does not exist.** The refusal read
-  `session '<the run's own id>' is held by run '<the same id>'`; a run in no session now says so.
-- **`Deck.aclose()` always returns.** A run whose task never took the cancellation `aclose()` sent
-  it held the close open forever, wedging a shutting-down server. The close now asks twice, a
-  second apart, and then stops waiting: it logs the run id and records the run's own
-  `run.cancelled`, so an abandoned run does not stay open in the log with nothing playing it. The
-  run's own later writes are refused rather than appended past that event.
+- **A cancelled `answer()` or `resume()` no longer leaves a run claimed but unplayed.** Both claim
+  the run before there is anything to hand back, and a cancellation in between left the log saying
+  the run was live with nothing playing it and its session held until the staleness window passed.
+  The run is closed with `run.cancelled` instead, so the record says what happened and the session
+  is free at once.
+- **`Deck(agents=[...])` refuses a raw Agents SDK agent at construction.** It was admitted
+  silently, because a catalog entry only had to have a `.name`, and `build()` then died on
+  `AttributeError: 'Agent' object has no attribute 'skills'`. The refusal is a `ConfigError`
+  naming the object and pointing at `handoffs=`, which does take a raw SDK agent.
+- **Asking two questions at once is refused instead of losing the branch that was already
+  waiting.** One run holds one answer, so two `ctx.ask(...)` calls raced under `asyncio.gather`
+  overwrote the first branch's future and left it waiting for the life of the run with no error
+  and no event. Only the workflow body itself may suspend its run now, so the first such
+  `ctx.ask(...)` (or `ctx.safepoint()`) raises `ConfigError` and the run fails without ever
+  parking. Fan out with `ctx.parallel(ctx.invoke(...), ...)` instead, where each child run holds
+  its own answer. Not a permanent rule: concurrent questions on one run wait on the answer inbox
+  ([#413](https://github.com/agentdecksdk/agentdeck/issues/413)).
+- **Correction to 5.0.0: no executor is named `"langgraph"`.** The "engine port is `Executor`"
+  entry below lists `LangGraphEngine` becoming `LangGraphExecutor` and keeps `"langgraph"` among
+  the wire values. Both went with the engine in that same release; the executors a 5.x deck names
+  are `"native"`, `"openai-agents"` and `"stub"`.
+- **Known Issues no longer documents removed machinery.** The restart entry named
+  `AGENTDECK_CHECKPOINT`, a setting 5.0 removed along with the checkpointer, and one row described
+  a graph `interrupt()`. Both are gone from [Known Issues](/resources/known-issues).
+- **`run.answer()` says what an ask without options does with the value.** An ask that named
+  `options` refuses anything outside them; one that named none hands the value to the body, which
+  is the only thing that can judge it. `PendingRun.invocable` now says why the name is general.
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v5.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.0.0) | 2026-08-22 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.0.0) |
 | [v4.0.5](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.5) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.5) |
 | [v4.0.4](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.4) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.4) |
 | [v4.0.3](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.3) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.3) |

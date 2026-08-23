@@ -15,6 +15,7 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from agents import Agent as SDKAgent
 from agents import WebSearchTool, function_tool
 from pydantic import BaseModel
 
@@ -488,6 +489,16 @@ def test_agent_tool_that_is_not_callable_at_all_fails_build():
     with pytest.raises(ConfigError, match="Greeter") as exc_info:
         deck.build()
     assert "neither a callable nor an Agents SDK tool object" in str(exc_info.value)
+
+
+def test_a_raw_sdk_agent_in_the_catalog_is_refused_at_construction():
+    """agentdeck #451: a raw SDK agent has a ``.name``, so the catalog admitted it and ``build()``
+    died on ``.skills``. It is legitimate as a handoff target, which is where the refusal points."""
+    raw = SDKAgent(name="raw", instructions="hi")
+
+    with pytest.raises(ConfigError, match="raw") as exc_info:
+        Deck(agents=[raw])
+    assert "handoffs=" in str(exc_info.value)
 
 
 def test_agent_tool_wrapped_with_function_tool_builds_cleanly():
@@ -1135,8 +1146,9 @@ async def test_closing_a_deck_returns_even_when_a_run_never_observes_its_cancell
     """``aclose()`` asks twice and then stops waiting (#412) rather than betting on the run taking
     a cancellation at all, and writes the abandoned run's own ``run.cancelled`` on the way past:
     left open it would be exactly the ghost state ``stale_run_after`` exists to recover. The task
-    stays alive, and the run goes on writing, so no append it starts from there may reach the log
-    past that event.
+    stays alive and the run goes on writing, and nothing it writes may reach the log past that
+    event  -  including the write already suspended inside the store when the event landed, which
+    the guard above the store cannot see and the store itself refuses (#421).
     """
 
     class _UncancellableStore(MemoryEventStore):
@@ -1180,9 +1192,9 @@ async def test_closing_a_deck_returns_even_when_a_run_never_observes_its_cancell
         with contextlib.suppress(BaseException):
             await task
         kinds = [event.kind for event in await store.read_session(_reader_ctx("s1"))]
-        # The one write already suspended inside the store when the run was abandoned still lands
-        # (#421). Every append the run starts after that is refused, so nothing else follows.
-        assert kinds[kinds.index("run.cancelled") + 1 :] == ["text.delta"]
+        # Including the one write already suspended inside the store when the run was abandoned:
+        # the store refuses it on the way out, so ``run.cancelled`` is the log's last word (#421).
+        assert kinds[kinds.index("run.cancelled") + 1 :] == []
     finally:
         store.release.set()
         if task is not None:

@@ -50,7 +50,7 @@ from agentdeck.core.events import (
 )
 from agentdeck.core.ports import SessionClaim
 from agentdeck.core.status import RunStatus
-from agentdeck.errors import DuplicateKeyError, StoreError
+from agentdeck.errors import DuplicateKeyError, RunStateError, StoreError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Coroutine, Iterable, Sequence
@@ -614,6 +614,70 @@ async def test_a_second_batch_carries_on_from_where_the_first_stopped(event_stor
 
     later = await _write(event_store, [_completed()], ctx)
     assert [event.seq for event in later] == [2]
+
+
+async def test_an_append_to_a_cancelled_run_is_refused(event_store: EventStorePort) -> None:
+    """A cancel is written from outside the run while its own task is still alive, so the run goes
+    on writing and the store is the last thing that can stop it (#421). The refusal is the state's,
+    so it is a ``RunStateError`` rather than a store failure, and it writes nothing.
+    """
+    ctx = _ctx()
+    await _write(event_store, [_started(), RunCancelled(reason="the deck closed")], ctx)
+
+    with pytest.raises(RunStateError, match="r-1"):
+        await _write(event_store, [TextDelta(message_id="m1", text="late")], ctx)
+
+    assert [event.kind for event in await event_store.read_run(ctx)] == ["run.started", "run.cancelled"]
+
+
+async def test_an_append_suspended_inside_the_store_when_the_cancel_lands_is_refused(
+    event_store: EventStorePort, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#421's window held open rather than raced for: the delta is inside ``append`` when the
+    cancel commits, on every store and on every run of this case.
+
+    The gate is the seam ``tests/concurrency_worker.py`` and ``tests/crash_worker.py`` already
+    stall in  -  an ``append`` that blocks and then calls the real one. Only the delta is gated, so
+    the cancel commits while the delta sits there and the delta resumes into a sealed log.
+    """
+    appending, released = asyncio.Event(), asyncio.Event()
+    real_append = event_store.append
+
+    async def gated(_: EventStorePort, payloads: Sequence[KnownPayload], ctx: RunContext, origin: str) -> list[Event]:
+        if any(isinstance(payload, TextDelta) for payload in payloads):
+            appending.set()
+            await released.wait()
+        return await real_append(payloads, ctx, origin)
+
+    monkeypatch.setattr(type(event_store), "append", gated)
+
+    ctx = _ctx()
+    await _write(event_store, [_started()], ctx)
+    delta = asyncio.create_task(_write(event_store, [TextDelta(message_id="m1", text="in flight")], ctx))
+    await appending.wait()
+    await _write(event_store, [RunCancelled(reason="the deck closed")], ctx)
+    released.set()
+
+    with pytest.raises(RunStateError, match="r-1"):
+        await delta
+    assert [event.kind for event in await event_store.read_run(ctx)] == ["run.started", "run.cancelled"]
+    assert await event_store.run_status(ctx) is RunStatus.CANCELLED
+
+
+async def test_an_append_past_a_taken_over_runs_failure_still_lands(event_store: EventStorePort) -> None:
+    """The carve-out, on every store. A takeover's ``run.failed`` is advisory: it is written for a
+    run only *believed* dead, and one that turns out to be alive goes on writing and may reclaim
+    its own session. Only a cancel seals a log (ADR-D11 §5).
+    """
+    ctx = _ctx()
+    await _write(
+        event_store, [_started(), RunFailed(error_code="cancelled_hard", message="abandoned", retryable=False)], ctx
+    )
+
+    resurrected = await _write(event_store, [_interrupted()], ctx)
+
+    assert [event.seq for event in resurrected] == [2]
+    assert await event_store.run_status(ctx) is RunStatus.WAITING_ANSWER
 
 
 async def _interrupt(event_store: EventStorePort, ctx: RunContext, run_id: str = "r-1") -> None:
