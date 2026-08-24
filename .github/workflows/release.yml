@@ -54,7 +54,7 @@ jobs:
       AGENTDECK_TEST_REDIS_URL: redis://127.0.0.1:6379/15
       AGENTDECK_TEST_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/agentdeck_test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
