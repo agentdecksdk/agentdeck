@@ -11,6 +11,12 @@ object.
 `run.created`, `claim_create` and a `holds_session` axis. All of it is withdrawn. `start()` is the
 first operation, and the six states in `core/status.py` today are the whole lifecycle.
 
+> **Target contract 2026-08-24: `design/runtime/`.** The Runtime 5.1 design set is the target for
+> durable run identity and execution ownership, and for a lifecycle wider than the six states
+> named above. This file stays the record of the runtime as built and keeps winning for anything
+> not yet migrated. Per area, authority moves to `design/runtime/` when that area's rollout step
+> in `design/runtime/migration-and-compatibility.md` lands.
+
 ## The defect this starts from
 
 `agentdeck/adapters/control/sqlite/port.py:25`:

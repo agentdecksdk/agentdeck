@@ -5,6 +5,12 @@ what a pending signal does when it is read.
 
 `design/agentdeck-v2-architecture.md` §4.4 summarises this file; on the lifecycle this file wins.
 
+> **Target contract 2026-08-24: `design/runtime/`.** The Runtime 5.1 design set is the target for
+> the lifecycle: two more states, three more events, and control precedence. This file stays the
+> record of the runtime as built and keeps winning for anything not yet migrated. Per area,
+> authority moves to `design/runtime/` when that area's rollout step in
+> `design/runtime/migration-and-compatibility.md` lands.
+
 **The rule underneath all of it:** the log *is* the state. `core/status.py` folds a run's lifecycle
 events, there is no status table, and appending is the only way a decision becomes true. Nothing
 holds a status field and nothing caches a fold.

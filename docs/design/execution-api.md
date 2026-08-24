@@ -7,6 +7,12 @@ constrains #211 (reporter), and #236 / #249 / #304 inherit its vocabulary.
 Decided 2026-08-20. Ships across v5.0.0. No v4 compatibility: the names below replace what 4.x
 exposed rather than sitting beside them.
 
+> **Target contract 2026-08-24: `design/runtime/`.** The Runtime 5.1 design set is the target
+> for the execution surface: `ctx.safepoint()`, durable ask identity, `run.inject(...)` and
+> `run.tree()`. This file stays the record of the API as built and keeps winning for anything not
+> yet migrated. Per area, authority moves to `design/runtime/` when that area's rollout step in
+> `design/runtime/migration-and-compatibility.md` lands.
+
 ## The ruling
 
 Anything executable becomes an AgentDeck Run: a workflow, a tool, an agent, an OpenAI Agents SDK

@@ -2,7 +2,7 @@
 
 **The one file to read first.** It maps every document, says which one wins when they disagree,
 reconciles the known deltas, and gives the execution order.
-Date: 2026-08-04. Amended 2026-08-11, 2026-08-14.
+Date: 2026-08-04. Amended 2026-08-11, 2026-08-14, 2026-08-24.
 
 > **Amendment 2026-08-11  -  v3 is built.** The title drops its version, because this file outlives
 > any one release. Two corrections: §4's `NOW` arrow pointed at a cutover that has since finished,
@@ -17,6 +17,10 @@ Date: 2026-08-04. Amended 2026-08-11, 2026-08-14.
 > 1536 lines to 1408: `design/run-lifecycle.md` (§4.4/§4.5), `design/event-store-claims.md` (§4.5)
 > and `design/sink-dispatch.md` (§4.6)  -  docs #12–#14, §2 rule 4. Three delivery documents §6 had
 > never listed gained rows in §1b.
+>
+> **Amendment 2026-08-24: two runtime contracts, scoped.** `design/runtime/` (doc #19) is the
+> Runtime 5.1 target; docs #12, #15, #16 and #17 stay the runtime as built. §2 rule 8 says which wins
+> where, and the four older docs now point at it.
 
 ---
 
@@ -42,6 +46,7 @@ Date: 2026-08-04. Amended 2026-08-11, 2026-08-14.
 | 16 | `design/run-identity.md` | Run identity (`id`, `namespace`, `key`), the `Run` object, session ownership, execution ownership, and the control plane's cross-tenant defect. **Supersedes** doc #15's surface ruling: lifecycle ops move onto `Run` and `deck.runs` keeps `start`/`get`/`list`. Semantics stay in doc #12 | engineers |
 | 17 | `design/execution-api.md` | The v5 execution API: `ctx`, `Run`, `run.can.*`, `Reporter`, and the one `Executor.execute()` that any target becomes a Run through. Rules #336 and #337. Lifecycle semantics stay in doc #12, identity in doc #16 | engineers |
 | 18 | `design/execution-api-source.md` | The architecture draft doc #17 was written from, kept for what #17 does not restate: Appendix A's decorator and context contracts, and Appendix B's `Event -> View -> Observer` pipeline. **Doc #17 wins wherever the two disagree** (`ctx.approve`, the `Suspendable`/`Cancelable` protocols and `Workflow(graph=...)` are all rejected there) | engineers |
+| 19 | `design/runtime/` (15 documents behind its [README](design/runtime/README.md)) | **The Runtime 5.1 target contract**: the eight-state lifecycle, control precedence and safe points, durable ask identity, the injection inbox, the execution tree, the event model, projections, observation, recovery and the public surface. A target, not the runtime as built: docs #12, #15, #16 and #17 stay the as-built record until each area migrates (§2 rule 8) | engineers |
 
 ## 1b. The v3 cutover set (added 2026-08-11)
 
@@ -105,6 +110,14 @@ Documents were written in conversation order and later ones refine earlier ones.
    `roadmap-v3.1.md` / `findings-register.md` own the reasoning behind that state and do not
    self-update. Their live-status tables are generated  -  `make roadmap-sync`  -  and GitHub wins
    if the two disagree. See `delivery/workflow.md`.
+8. `design/runtime/` **is** the Runtime 5.1 target contract; docs #12 (`run-lifecycle.md`),
+   #15 (`run-operations.md`), #16 (`run-identity.md`) and #17 (`execution-api.md`) **are** the
+   runtime as built. Both are
+   live on purpose and neither is stale: the target set describes states, events and surfaces the
+   code does not have yet. Where they disagree, **the as-built doc wins for shipped code and the
+   target set wins for new design**, per area, until that area's rollout step in
+   `design/runtime/migration-and-compatibility.md` lands and moves authority across. Nothing else
+   in the tree may claim the runtime contract.
 
 ## 3. Known deltas (recorded so nothing is silently inconsistent)
 
@@ -128,6 +141,7 @@ Documents were written in conversation order and later ones refine earlier ones.
 | Design doc header | Read `**Status:** proposal`, while §2 and `CLAUDE.md` both treat it as the design of record | **Applied 2026-08-14**  -  dated amendment beside it; the status now says so |
 | Design doc §4.5 `last_seq` | Named a port method ADR-D11 removed | **Applied 2026-08-14**  -  said so in place, in the amendment that introduced it |
 | Design doc §4.5/§4.6 depth | The store-claim and sink-dispatch material had outgrown the sections holding it | **Applied 2026-08-14**  -  split to docs #13 and #14 (§2 rule 4) |
+| `design/runtime/README.md` vs docs #12/#15/#16/#17 | The new set called itself the authority and the older docs carried no pointer, leaving two runtime contracts live with no rule between them | **Applied 2026-08-24**: §2 rule 8 scopes each set, the README says it is the target rather than the as-built record, and the four older docs carry a dated pointer |
 
 ## 4. Execution order (single source of truth for "what's next")
 

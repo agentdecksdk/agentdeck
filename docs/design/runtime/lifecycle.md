@@ -1,36 +1,76 @@
 # Lifecycle
 
-Status: TBD
+Status: Proposed canonical design
 
-Run states, transitions, and terminal rules.
+This document defines the complete AgentDeck Run lifecycle state machine.
 
-## Current code state inventory
+## States
 
-- `running`
-- `paused`
-- `waiting_answer`
-- `completed`
-- `failed`
-- `cancelled`
+A Run is in exactly one lifecycle state:
 
-## Proposed state and action contract
+| State | Meaning | Terminal |
+|---|---|---:|
+| `running` | Execution may actively advance. | no |
+| `paused` | Execution is stopped by runtime control and needs no value to continue. | no |
+| `waiting_answer` | Execution is suspended waiting for an answer to a specific ask. | no |
+| `paused_waiting_answer` | Execution still needs an answer, and the answer gate is also paused. | no |
+| `paused_answer_ready` | The required answer has arrived and is durably stored, but execution remains paused. | no |
+| `completed` | Execution finished successfully. | yes |
+| `failed` | Execution finished with failure. | yes |
+| `cancelled` | Execution was intentionally terminated and will not continue. | yes |
 
-This is the 5.1 proposal, not a description of current behavior. It adds `paused_waiting_answer` and `paused_answer_ready` and assumes an executor that supports pausing; otherwise `pause()` and `resume()` refuse as unsupported.
+The lifecycle state set is authoritative. A new state is justified only when the runtime condition has materially different legal actions or transitions from all existing states.
 
-Starting is not an action on an existing `Run`. `deck.run(...)` and `deck.runs.start(...)` admit a new run, whose first state is `running`. The table includes external `Run` actions and the workflow-only in-run action `ctx.ask(...)`.
+## Not lifecycle states
+
+The following are not lifecycle states:
+
+- `start`
+- `pause`
+- `resume`
+- `answer`
+- `cancel`
+- `ask`
+- `interrupt`
+- `safepoint`
+- `inject`
+- `pausing`
+- `resuming`
+- `cancelling`
+- `answering`
+
+These are actions, execution primitives, events, delivery boundaries, or parallel runtime facilities.
+
+## Starting a Run
+
+Starting is not an action on an existing Run.
+
+A new Run begins with:
+
+```text
+DOES_NOT_EXIST
+    |
+    | run.started
+    v
+RUNNING
+```
+
+There is no `created`, `pending`, or `queued` lifecycle state in this contract.
+
+## State x action matrix
 
 | Current state | `ctx.ask(...)` | `pause()` | `resume()` | `answer(value)` | `cancel()` |
-| --- | --- | --- | --- | --- | --- |
-| `running` | Transitions to `waiting_answer` (workflow only) | Accepted: request recorded; remains `running` until a safe point transitions it to `paused` | No-op: already running | Refused: nothing awaits an answer | Accepted: request recorded; remains `running` until a safe point transitions it to `cancelled` |
-| `paused` | Not available: no workflow code is executing | No-op: already paused | Transitions to `running` | Refused: use `resume()` | Transitions to `cancelled` |
-| `waiting_answer` | Not available: no workflow code is executing | Transitions to `paused_waiting_answer` | Refused: the run requires a value; use `answer(...)` | Transitions to `running` | Transitions to `cancelled` |
-| `paused_waiting_answer` | Not available: no workflow code is executing | No-op: already paused | Transitions to `waiting_answer` | Stores the answer and transitions to `paused_answer_ready` | Transitions to `cancelled` |
-| `paused_answer_ready` | Not available: no workflow code is executing | No-op: already paused | Transitions to `running` with the stored answer | Refused: an answer is already stored; use `resume()` or `cancel()` | Transitions to `cancelled` |
-| `completed` | Not available: no workflow code is executing | No-op: already terminal | No-op: already terminal | No-op: already terminal | No-op: already terminal |
-| `failed` | Not available: no workflow code is executing | No-op: already terminal | No-op: already terminal | No-op: already terminal | No-op: already terminal |
-| `cancelled` | Not available: no workflow code is executing | No-op: already terminal | No-op: already terminal | No-op: already terminal | No-op: already terminal |
+|---|---|---|---|---|---|
+| `running` | Produces an ask suspension and transitions to `waiting_answer` | Accepted as durable control intent; remains `running` until observed at a safe point, then transitions to `paused` | No-op | Refused: no ask is awaiting an answer | Accepted as durable control intent; remains `running` until observed at a safe point, then transitions to `cancelled` |
+| `paused` | Not available: execution is not advancing | No-op | Transitions to `running` | Refused: use `resume()` | Transitions to `cancelled` |
+| `waiting_answer` | Not available: execution is suspended | Transitions to `paused_waiting_answer` | Refused: the Run requires an answer | Transitions to `running` with the supplied answer | Transitions to `cancelled` |
+| `paused_waiting_answer` | Not available | No-op | Transitions to `waiting_answer` | Stores the answer and transitions to `paused_answer_ready` | Transitions to `cancelled` |
+| `paused_answer_ready` | Not available | No-op | Transitions to `running` with the stored answer | Refused: an answer is already stored | Transitions to `cancelled` |
+| `completed` | Not available | No-op | No-op | No-op | No-op |
+| `failed` | Not available | No-op | No-op | No-op | No-op |
+| `cancelled` | Not available | No-op | No-op | No-op | No-op |
 
-## Proposed state machine
+## Canonical state machine
 
 ```mermaid
 stateDiagram-v2
@@ -40,11 +80,13 @@ stateDiagram-v2
     paused --> running: run.resumed
 
     running --> waiting_answer: run.interrupted
-    waiting_answer --> running: run.resumed with answer
+    waiting_answer --> running: run.resumed + answer
     waiting_answer --> paused_waiting_answer: run.waiting_paused
+
     paused_waiting_answer --> waiting_answer: run.waiting_resumed
     paused_waiting_answer --> paused_answer_ready: run.answer_buffered
-    paused_answer_ready --> running: run.resumed with stored answer
+
+    paused_answer_ready --> running: run.resumed + stored answer
 
     running --> completed: run.completed
     running --> failed: run.failed
@@ -60,6 +102,8 @@ stateDiagram-v2
     cancelled --> [*]
 ```
 
+## Text form
+
 ```text
 START -- run.started --> RUNNING
 
@@ -67,11 +111,12 @@ RUNNING -- run.paused --> PAUSED
 PAUSED -- run.resumed --> RUNNING
 
 RUNNING -- run.interrupted --> WAITING_ANSWER
-WAITING_ANSWER -- run.resumed with answer --> RUNNING
+WAITING_ANSWER -- run.resumed + answer --> RUNNING
+
 WAITING_ANSWER -- run.waiting_paused --> PAUSED_WAITING_ANSWER
 PAUSED_WAITING_ANSWER -- run.waiting_resumed --> WAITING_ANSWER
 PAUSED_WAITING_ANSWER -- run.answer_buffered --> PAUSED_ANSWER_READY
-PAUSED_ANSWER_READY -- run.resumed with stored answer --> RUNNING
+PAUSED_ANSWER_READY -- run.resumed + stored answer --> RUNNING
 
 RUNNING -- run.completed --> COMPLETED
 RUNNING -- run.failed --> FAILED
@@ -81,12 +126,41 @@ PAUSED -- run.cancelled --> CANCELLED
 WAITING_ANSWER -- run.cancelled --> CANCELLED
 PAUSED_WAITING_ANSWER -- run.cancelled --> CANCELLED
 PAUSED_ANSWER_READY -- run.cancelled --> CANCELLED
-
-COMPLETED, FAILED, CANCELLED -- no further transition --> END
 ```
 
-`pause()` and `cancel()` from `running` first record control intent. The state changes only when the matching lifecycle event is observed at a safe point. Pausing a run waiting for input is immediate: no executing task must reach a safe point. `run.waiting_paused`, `run.waiting_resumed`, and `run.answer_buffered` are proposed new events because existing lifecycle events cannot distinguish these paths from `paused` to `running`. Terminal states are absorbing: no further lifecycle transition is legal.
+## Terminal rules
 
-## Decisions
+`completed`, `failed`, and `cancelled` are absorbing.
 
-TBD
+After a terminal event:
+
+- no lifecycle event may move the same Run again;
+- `pause()`, `resume()`, `answer()`, and `cancel()` resolve as no-ops;
+- a later execution creates a new Run;
+- a Run may have exactly one terminal outcome.
+
+## Lifecycle event mapping
+
+| Event | Resulting state |
+|---|---|
+| `run.started` | `running` |
+| `run.paused` | `paused` |
+| `run.resumed` after ordinary pause | `running` |
+| `run.interrupted` | `waiting_answer` |
+| `run.resumed` with answer | `running` |
+| `run.waiting_paused` | `paused_waiting_answer` |
+| `run.waiting_resumed` | `waiting_answer` |
+| `run.answer_buffered` | `paused_answer_ready` |
+| `run.resumed` with stored answer | `running` |
+| `run.completed` | `completed` |
+| `run.failed` | `failed` |
+| `run.cancelled` | `cancelled` |
+
+## Core invariants
+
+1. The event log determines lifecycle state.
+2. No terminal state has an outgoing lifecycle transition.
+3. A buffered answer is never overwritten.
+4. `resume()` removes a pause; it does not synthesize a missing answer.
+5. `answer()` resolves one specific ask; it does not act as generic injected input.
+6. A state transition is real only once its lifecycle event is durably appended.
