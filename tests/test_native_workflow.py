@@ -248,6 +248,29 @@ async def test_a_question_with_no_options_takes_whatever_it_is_given() -> None:
         assert seen == [{"plan": "go left", "confidence": 0.4}]
 
 
+async def test_an_unrecordable_freeform_answer_leaves_the_run_answerable() -> None:
+    seen: list[Any] = []
+
+    @workflow
+    async def freeform(ctx: WorkflowCtx) -> str:
+        seen.append(await ctx.ask("what is the plan?"))
+        return "noted"
+
+    async with Deck(workflows=[freeform]) as deck:
+        run = await deck.runs.start("freeform", None)
+        await _settles(run, RunStatus.WAITING_ANSWER)
+
+        with pytest.raises(ValueError, match="cannot be recorded"):
+            await run.answer(object())
+
+        assert await run.status() is RunStatus.WAITING_ANSWER
+        assert seen == []
+
+        await run.answer("go left")
+        assert await run == "noted"
+        assert seen == ["go left"]
+
+
 async def test_a_cancel_ends_the_run_rather_than_parking_it() -> None:
     """The other half of the parking rule: there is nothing to come back to, so the body unwinds
     and the run is over."""

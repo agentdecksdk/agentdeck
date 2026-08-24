@@ -1923,6 +1923,21 @@ async def test_a_paused_run_offers_resume_instead_of_pause(no_project):
 
 
 @pytest.mark.asyncio
+async def test_pausing_an_already_paused_run_keeps_can_current(no_project):
+    deck = Deck(agents=[_greeter()])
+    async with deck:
+        stream = deck.stream("Greeter", "hi there", session_id="s-can-paused-twice")
+        started = await anext(stream)
+        run = await deck.runs.get(started.run_id)
+        await run.pause("operator stepped away")
+        [event async for event in stream]
+
+        await run.pause("operator is still away")
+
+        assert (run.can.pause, run.can.resume, run.can.cancel) == (False, True, True)
+
+
+@pytest.mark.asyncio
 async def test_a_recovered_handle_knows_what_it_can_do_without_being_asked(no_project, monkeypatch):
     """``deck.runs.get`` reads a status to find the run at all, so the handle it hands back
     answers ``can`` from that read rather than from a second one the caller has to make."""
