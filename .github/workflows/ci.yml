@@ -87,9 +87,12 @@ jobs:
             echo "$strays"
             exit 1
           fi
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
+          # v6 made this opt-in; without it `uv pip install` below finds no venv, and the
+          # Makefile's `.venv/bin/*` calls have nothing to run.
+          activate-environment: true
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       # postgres pulls in the psycopg driver the Postgres event log's tests need: omitting an
