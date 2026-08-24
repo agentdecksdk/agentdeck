@@ -1,0 +1,44 @@
+name: Agent review rerun
+
+# A submitted review cannot produce the `Agent review` check itself: on
+# `pull_request_review` the ref is `refs/pull/N/merge`, so the check run would land on the merge
+# commit rather than the head SHA branch protection reads. So poke the real gate instead.
+on:
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  actions: write
+  checks: read
+
+concurrency:
+  group: agent-review-rerun-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  rerun:
+    name: Agent review rerun
+    # Only a member's review can carry a marker, so only a member's review is worth a rerun. This
+    # is also what keeps `actions: write` out of reach of a review submitted on a fork PR.
+    if: >-
+      github.event.review.author_association == 'OWNER'
+      || github.event.review.author_association == 'MEMBER'
+      || github.event.review.author_association == 'COLLABORATOR'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Re-fire the review gate on this PR's head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # The gate's own run is keyed to the base branch, not to this head, so find it the way a
+          # human does: through the check run it published on the head commit.
+          run_id=$(gh api "repos/$GITHUB_REPOSITORY/commits/$HEAD_SHA/check-runs" \
+            --jq '.check_runs[] | select(.name == "Agent review") | .html_url' \
+            | head -1 | sed -n 's#.*/actions/runs/\([0-9]\{1,\}\)/.*#\1#p')
+          if [ -z "$run_id" ]; then
+            echo "No Agent review check run on $HEAD_SHA yet, nothing to rerun."
+            exit 0
+          fi
+          gh run rerun "$run_id" --failed

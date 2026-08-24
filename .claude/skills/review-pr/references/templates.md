@@ -52,15 +52,16 @@ ALWAYS use this exact template structure:
     - `service.py:12` ...
     </details>
 
-    <!-- agentdeck-review: pass --> (0 BLOCK, 1 DISCUSS answered, 1 DEFER #431, 4 NIT)
+    <!-- agentdeck-review: pass patch=aa2637b7ae23f17eedef0aefe62d0fd503856a2e --> (0 BLOCK, 1 DISCUSS answered, 1 DEFER #431, 4 NIT)
 
 - **300 words maximum**, excluding the rubric table and the collapsed NIT block.
 - **Per finding: 25 words. A DISCUSS gets 35**, because it carries `Settled by:`.
 - Sections in exactly this order. **An empty section is omitted entirely**, never written as
   "None".
 - NITs are always inside the `<details>` block and never inline on the diff.
-- The marker line is last, alone, and exactly as specified (`<!-- agentdeck-review: pass -->` or
-  `block`, with the counts). A scorecard greps it.
+- The marker line is last, alone, and exactly as specified (`<!-- agentdeck-review: pass patch=<id> -->`
+  or `block`, with the counts). The gate matches on the id, so a wrong or missing one reads as no
+  review at all. A scorecard greps the line.
 
 ## Worked examples
 

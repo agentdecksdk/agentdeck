@@ -25,6 +25,19 @@ def test_governance_checks_use_trusted_pull_request_target() -> None:
         assert "actions/checkout" not in workflow
 
 
+def test_the_review_rerun_poker_is_not_a_gate_and_cannot_be_driven_by_a_fork() -> None:
+    """`pull_request_review` is a trusted base-branch event, but its ref is the merge commit, so a
+    check run it published would miss the head SHA branch protection reads. This workflow therefore
+    reruns the real gate rather than being one, and only a member's review may spend `actions: write`."""
+    workflow = (WORKFLOWS / "agent-review-rerun.yml").read_text()
+    events = workflow_events("agent-review-rerun.yml")
+
+    assert list(events) == ["pull_request_review"]
+    assert "actions/checkout" not in workflow
+    assert "github.event.review.author_association == 'MEMBER'" in workflow
+    assert "gh run rerun" in workflow
+
+
 def test_issue_hygiene_accepts_one_labeled_closing_issue() -> None:
     workflow = (WORKFLOWS / "issue-hygiene.yml").read_text()
     issues = [{"labels": {"totalCount": 1}}, {"labels": {"totalCount": 0}}]

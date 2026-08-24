@@ -75,9 +75,10 @@ Every comment and the verdict body follow fixed templates: `references/templates
 - Reviews are COMMENTED only. Approve and request-changes are unavailable when the agent authenticates as the PR author.
 - Inline, line-anchored comments (BLOCK, DISCUSS, DEFER; NITs never inline) in Template A form:
   `gh api repos/{owner}/{repo}/pulls/<n>/comments -f body=... -f commit_id=$(gh pr view <n> --json headRefOid -q .headRefOid) -f path=<file> -F line=<line> -f side=RIGHT`
-- Post the verdict as a real review in Template B form: `gh pr review <n> --comment --body-file <file>`. Pass requires zero BLOCK and every DISCUSS answered. The marker applies only to the reviewed head commit; any later push needs a new one.
-- If the only change since the last pass is a NIT fix or a PR body edit, post a one-line re-stamp review at the new SHA instead of a full re-review. It still ends with the marker line; the gate matches the last review at `HEAD_SHA` regardless of length.
-- After posting the marked review, rerun the trusted gate: extract the run ID from the `Agent review` check URL (`gh pr checks <n> --json name,link`), then `gh run rerun <run-id>`. The gate only runs from base-branch workflow code, so a review submission does not trigger it directly.
+- Post the verdict as a real review in Template B form: `gh pr review <n> --comment --body-file <file>`. Pass requires zero BLOCK and every DISCUSS answered. The marker carries the patch id of the diff you reviewed, so it applies to that content: a rebase or a `dev` merge keeps it, any push that changes a line needs a new one.
+- Read the patch id off the same endpoint the gate reads, so the two cannot drift: `gh api repos/{owner}/{repo}/pulls/<n> -H 'Accept: application/vnd.github.v3.diff' | git patch-id --stable | cut -d' ' -f1`.
+- If the only change since the last pass is a NIT fix or a PR body edit, post a one-line re-stamp review at the new patch id instead of a full re-review. It still ends with the marker line; the gate matches the last marked review carrying the current id, regardless of length.
+- Submitting the review re-fires the gate on its own. If the `Agent review` check does not move within a minute, rerun it: `gh pr checks <n> --json name,link` for the run ID, then `gh run rerun <run-id>`.
 - Confirm the `Agent review` check turns green after a pass. A local pass with no green check is incomplete.
 - File DEFER and harness-note issues per the finding-class table above.
 

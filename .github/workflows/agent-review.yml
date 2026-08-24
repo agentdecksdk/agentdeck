@@ -1,12 +1,14 @@
 name: Agent review gate
 
 on:
-  # Trusted base-branch code judges the PR. The reviewer reruns this check after
-  # posting a marker; see .claude/agents/deck-reviewer.md.
+  # Trusted base-branch code judges the PR, and only ever `pull_request_target`: this job is a
+  # required check, so its check run has to land on the PR head SHA that branch protection reads.
+  # A review submission re-fires it from agent-review-rerun.yml instead.
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
+  contents: read
   pull-requests: read
 
 concurrency:
@@ -20,30 +22,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Require a passing review on the current commit
+      - name: Require a passing review of the current content
         env:
           GH_TOKEN: ${{ github.token }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
+          # Keyed to the content, not the commit: a rebase or a `dev` merge that changes no
+          # line of the diff keeps its review, and any real push invalidates it. `git patch-id`
+          # reads a diff on stdin and needs no repository, so nothing from the PR is checked out.
+          patch=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+            -H "Accept: application/vnd.github.v3.diff" \
+            | git patch-id --stable | cut -d' ' -f1)
+          if [ -z "$patch" ]; then
+            echo "::error::No patch id for this PR: an empty diff, or one too large for the API to serve."
+            exit 1
+          fi
           reviews=$(gh api --paginate --slurp \
             "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews?per_page=100")
-          if ! jq -e --arg sha "$HEAD_SHA" '
+          if ! jq -e --arg patch "$patch" '
             add
             | map(select(
-                .commit_id == $sha
-                and .state == "COMMENTED"
+                .state == "COMMENTED"
                 and (.author_association == "OWNER"
                      or .author_association == "MEMBER"
                      or .author_association == "COLLABORATOR")
-                and (((.body // "") | contains("<!-- agentdeck-review: pass -->"))
-                     or ((.body // "") | contains("<!-- agentdeck-review: block -->")))
+                and ((.body // "") | contains("patch=" + $patch))
+                and (((.body // "") | contains("<!-- agentdeck-review: pass"))
+                     or ((.body // "") | contains("<!-- agentdeck-review: block")))
               ))
             | sort_by(.submitted_at)
             | last
             | (.body // "")
-            | contains("<!-- agentdeck-review: pass -->")
+            | contains("<!-- agentdeck-review: pass")
           ' <<< "$reviews"; then
-            echo "::error::Current commit needs a passing AgentDeck review comment from a repository member."
+            echo "::error::Current content needs a passing AgentDeck review from a repository member, marked with patch=$patch."
             exit 1
           fi
