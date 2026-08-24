@@ -1,8 +1,7 @@
 # Report templates
 
 Every review output falls into one of three templates. Low freedom: this is the narrow bridge,
-not the open field. A script parses Template B's marker line, so structure, length, and style are
-fixed here; do not paraphrase the numbers.
+not the open field. Structure, length and style are fixed here; do not paraphrase the numbers.
 
 Contents: Template A (inline comment), Template B (verdict), worked examples, Template C
 (orchestrator return), style rules, why the numbers are these numbers.
@@ -52,15 +51,14 @@ ALWAYS use this exact template structure:
     - `service.py:12` ...
     </details>
 
-    <!-- agentdeck-review: pass --> (0 BLOCK, 1 DISCUSS answered, 1 DEFER #431, 4 NIT)
+    0 BLOCK, 1 DISCUSS answered, 1 DEFER #431, 4 NIT
 
 - **300 words maximum**, excluding the rubric table and the collapsed NIT block.
 - **Per finding: 25 words. A DISCUSS gets 35**, because it carries `Settled by:`.
 - Sections in exactly this order. **An empty section is omitted entirely**, never written as
   "None".
 - NITs are always inside the `<details>` block and never inline on the diff.
-- The marker line is last, alone, and exactly as specified (`<!-- agentdeck-review: pass -->` or
-  `block`, with the counts). A scorecard greps it.
+- The counts line is last and alone, so the verdict is legible without reading the findings.
 
 ## Worked examples
 
