@@ -92,6 +92,19 @@ await run.cancel()
 ```
 </BrandCallout>
 
+## If something went wrong
+
+These are the first-run failures you can hit before you have a mental model for AgentDeck.
+Match the text in your terminal, then apply the concrete fix.
+
+| What you see | Why | What to do |
+|---|---|---|
+| `openai.OpenAIError: The api_key client option must be set either by passing api_key to the client or by setting the OPENAI_API_KEY environment variable`<br /><br />The run then surfaces as:<br />`RuntimeError: run '<run-id>' failed: OpenAIError in engine 'openai-agents'` | `OPENAI_API_KEY` is not set for the Python process running the Deck. | Export a valid key before running the script:<br />`export OPENAI_API_KEY=sk-...`<br /><br />If you run from an IDE, set the same variable in that run configuration. |
+| <code>openai.NotFoundError: Error code: 404 - &#123;'error': &#123;'message': 'The model &grave;not-a-real-agentdeck-model&grave; does not exist or you do not have access to it.', 'type': 'invalid_request_error', 'param': 'model', 'code': 'model_not_found'&#125;&#125;</code><br /><br />The run then surfaces as:<br />`RuntimeError: run '<run-id>' failed: NotFoundError in engine 'openai-agents'` | The `model` on the `Agent`, or `OPENAI_MODEL`, names a model your key or configured OpenAI-compatible endpoint cannot reach. | Use a model available to your account, for example the Quickstart's `gpt-4o-mini`, or update `OPENAI_BASE_URL` and `OPENAI_MODEL` together when using a compatible gateway. |
+| `RuntimeWarning: coroutine 'Runs.start' was never awaited` | `deck.runs.start(...)` is async. Calling it without `await` creates a coroutine but never starts the run. | Start the run with `run = await deck.runs.start("assistant", input="Hello!")` inside an `async def`, then drive it with `asyncio.run(main())`. |
+| `agentdeck.errors.SessionBusyError: session 'quickstart' already has run '<first-run-id>' in flight, so run '<second-run-id>' cannot start on it  -  see https://agentdecksdk.com/runs-and-control/sessions` | A second run started with the same `session_id` before the previous run reached a terminal event. Sessions serialize turns. | Wait for the first run to finish with `result = await run`, cancel it with `await run.cancel()`, or use a different `session_id` for an independent conversation. |
+| <code>agentdeck.errors.ConfigError: this Deck is not open: use &grave;async with deck:&grave; (or &grave;await deck.__aenter__()&grave;) first.</code> | `deck.stream(...)` was iterated before the Deck runtime was opened. | Wrap streaming in the Deck context:<br />`async with deck:`<br />&nbsp;&nbsp;&nbsp;&nbsp;`async for event in deck.stream("assistant", "Hello!"):`<br />&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`print(event.kind)` |
+
 ## Next
 
 - [Add a Tool](/build-your-deck/tools) -> Give your agents callable capabilities.
@@ -100,11 +113,3 @@ await run.cancel()
 - [Understand Runs & Control](/runs-and-control/runs) -> Learn lifecycle, streaming, and inspection.
 - [Bring an Existing Agent](/integrations/existing-agents) -> Wrap OpenAI Agents SDK agents into a Deck.
 - [API Reference](/reference/deck) -> Full reference for Deck and Run.
-
-<Contribute
-  issue={351}
-  difficulty="small"
-  scope="troubleshooting"
-  need="This page shows only the path where everything is configured correctly, and says nothing about the five errors that stop the clock in a first run."
-  because="A first-run error arrives before the reader has any model to debug with, so matching it against real terminal output is the whole fix."
-/>
