@@ -50,6 +50,33 @@ OPENROUTER_API_KEY=sk-or-...
 
 An agent without `model=` uses `OPENAI_MODEL`. Bare model names use OpenAI, while namespaced IDs
 such as `vendor/model` remain available for an endpoint configured with `OPENAI_BASE_URL`.
+## Send an agent an image
+
+`deck.run()` takes a list of content blocks as well as a plain string. That is how an image
+reaches a vision model.
+
+```python no-test reason="needs an image file and a live model that accepts one"
+import base64
+
+from agentdeck import ImageBlock, TextBlock
+
+photo = base64.b64encode(open("receipt.png", "rb").read()).decode()
+result = await deck.run(
+    "Intake",
+    [TextBlock(text="What is the total on this receipt?"), ImageBlock(media_type="image/png", data_b64=photo)],
+)
+```
+
+The model must accept images: `ollama/qwen3.5:9b` and `openai/gpt-4o` do, `gpt-4.1-mini` does not.
+
+Inline blocks are capped at **1 MB decoded**. Anything larger needs a `ResourceBlock`, which
+references bytes held elsewhere instead of carrying them. `AudioBlock` and `DataBlock` cover audio
+and structured JSON. See [the block reference](/reference/deck) for the full table and the
+per-engine limits.
+
+An image cannot reach the model through a tool's return value: tool results are text. Content
+blocks on the way in are the only path.
+
 ## SDK-native Options
 
 Some agent options come directly from the OpenAI Agents SDK. For example, structured output can use

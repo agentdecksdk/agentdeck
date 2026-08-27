@@ -8,6 +8,26 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+
+- **Content blocks and `Observer` import from the package root.** `ImageBlock`, `TextBlock`,
+  `ContentBlock`, `ResourceBlock`, `AudioBlock`, `DataBlock` and `Observer` are exported from
+  `agentdeck` alongside `Agent` and `Deck`, rather than only from `agentdeck.core.content` and
+  `agentdeck.core.ports`. Sending an agent an image and watching a deck's events are both
+  first-contact tasks, and both previously required knowing an internal path to reach a public
+  capability.
+
+### Changed
+
+- **A durable event log now says what it does not make durable.** Setting `AGENTDECK_EVENTS` to
+  anything other than `memory://` while `AGENTDECK_SESSION` is unset logs a warning: the log
+  survives a restart, the conversation the model sees does not. The old warning fired only for
+  `memory://`, so configuring a durable log silenced the one message and left the reader believing
+  recall was handled.
+- **Sending an agent an image is documented where agents are.** `build-your-deck/agents` gains a
+  section on content blocks, and `build-your-deck/tools` states that a tool cannot carry an image:
+  tool results are text, so a returned `data:` URI reaches the model as a string.
+
 ## [5.0.3] - 2026-08-23
 
 ### Changed
