@@ -63,7 +63,7 @@ def tool(target: Callable[..., Any] | None = None, *, name: str | None = None, d
 
         @tool
         async def search(ctx: ToolCtx[Corpus], query: str) -> list[str]:
-            await ctx.reporter.info("Searching", query=query)
+            ctx.reporter.info("Searching", query=query)
             return await ctx.data.search(query)
 
     The context parameter is injected by the runtime and is absent from the schema the model is

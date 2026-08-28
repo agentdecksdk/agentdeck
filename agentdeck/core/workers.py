@@ -50,10 +50,8 @@ class SyncToolWorkers:
         """Stop accepting submissions, drop queued-not-started work, and let running work finish.
 
         ``shutdown(wait=True)`` run straight away would block the event loop for as long as any
-        worker keeps running  -  and a worker blocked on the reporter bridge
-        (:class:`~agentdeck.core.reporting.SyncReporter`) needs that very loop free to accept its
-        marshaled report. Draining through ``asyncio.gather`` first keeps the loop live; the final
-        ``shutdown(wait=True)`` returns immediately once nothing is left to join.
+        worker keeps running. Draining through ``asyncio.gather`` first keeps the loop live; the
+        final ``shutdown(wait=True)`` returns immediately once nothing is left to join.
         """
         self._pool.shutdown(wait=False, cancel_futures=True)
         running = [future for future in self._pending if not future.done()]

@@ -122,8 +122,8 @@ class _CallsTheToolOnce(Model):
 @function_tool
 async def search_github(wrapper: RunContextWrapper[RunContext]) -> str:
     """Search GitHub, reporting what it is doing while it does."""
-    await wrapper.context.reporter.info("Searching GitHub")
-    await wrapper.context.reporter.report("issues_reviewed", current=2, total=4)
+    wrapper.context.reporter.info("Searching GitHub")
+    wrapper.context.reporter.report("issues_reviewed", current=2, total=4)
     return "two open issues"
 
 
@@ -177,18 +177,15 @@ async def test_a_function_tool_reports_through_the_sdk_context() -> None:
 
 @tool
 def _noisy_sync(ctx: ToolCtx) -> str:
-    """Report twice, then return  -  the sync facade must block the worker for each report, so
-    its own return can never race ahead of one still in flight."""
+    """Report twice, then return  -  a plain synchronous call, same as from any other body."""
     ctx.reporter.info("one")
     ctx.reporter.info("two")
     return "done"
 
 
-async def test_a_sync_tools_reporter_facade_preserves_order_against_its_own_return() -> None:
-    """Plan §5, through the real pipeline: two reports made before a sync tool's return show up
-    before ``run.completed``, not silently dropped the way an unawaited coroutine would be. This
-    does not by itself prove the marshal blocks  -  ``tests/core/test_reporting.py`` does that
-    with a report slow enough to force reordering if unblocked."""
+async def test_a_sync_tools_reports_preserve_order_against_its_own_return() -> None:
+    """Two reports made before a sync tool's return show up before ``run.completed``, not
+    silently dropped the way an unawaited coroutine would be."""
     spec = InvocableSpec(name="_noisy_sync", kind=InvocableKind.TOOL, executor=NativeExecutor.name, native=_noisy_sync)
     runtime = Runtime([NativeExecutor(workers=SyncToolWorkers())], MemoryEventStore(), {spec.name: spec})
 
@@ -208,8 +205,8 @@ class _ReportingStub(StubExecutor):
     async def execute(
         self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
     ) -> AsyncGenerator[KnownPayload, None]:
-        await ctx.reporter.info("Searching GitHub")
-        await ctx.reporter.report("issues_reviewed", current=2, total=4)
+        ctx.reporter.info("Searching GitHub")
+        ctx.reporter.report("issues_reviewed", current=2, total=4)
         async for payload in super().execute(spec, input, history, ctx):
             yield payload
 

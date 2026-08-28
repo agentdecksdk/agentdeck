@@ -8,6 +8,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Changed
+
+- **`Reporter` is always synchronous.** `ctx.reporter.info()`/`.warning()`/`.error()`/`.report()`
+  are plain methods now, not coroutines  -  drop the `await` at every call site. `SyncReporter` is
+  gone; `ToolCtx.reporter` returns the same `Reporter` whether the body runs on the event loop or
+  a worker thread. The buffer it enqueues into is thread-safe either way.
+
 ## [5.1.0] - 2026-08-28
 
 ### Added
