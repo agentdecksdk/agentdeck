@@ -28,3 +28,17 @@ Rules:
 - Ordering, race, and compatibility constraints are the usual legitimate subjects.
 - Deliberate shortcuts carry `# ponytail: <ceiling and upgrade path>`.
 - Suppressions carry a code and a reason (`# noqa: F401`, never bare `# noqa`).
+- Two lines is the ceiling. A third means it is documentation: write it in `docs/` and link (SLOP011).
+
+## Docstrings
+
+A docstring says what the callable is for and what a caller must know to use it. The design behind it lives in `docs/design/`.
+
+| Part | Budget |
+|---|---|
+| Summary line | always |
+| Prose after it | 5 lines, total 6 (SLOP010) |
+| `Args:`/`Returns:`/`Raises:`/`Attributes:`/`Examples:` | unbudgeted, they are per-item structure |
+| Indented code example | unbudgeted |
+
+`Notes:` is not a section, it is prose under a heading, and counts against the budget.
