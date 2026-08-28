@@ -128,6 +128,13 @@ SKIP_MARK_RE = re.compile(r"pytest\.mark\.(?:skip(?!if)|xfail)")
 ABSTRACT_BASES = ("Protocol", "ABC", "ABCMeta")
 ABSTRACT_DECORATORS = frozenset({"abstractmethod", "overload", "override"})
 DIVIDER_RE = re.compile(r"-{4,}|={4,}")
+# Per-item structure a docstring is the right home for. "Note:" is absent on purpose: it is
+# prose under a heading, and would be the one-word escape from the prose cap.
+DOC_SECTION_RE = re.compile(r"^(Args|Arguments|Returns|Yields|Raises|Attributes|Warns|Examples?)\s*:$")
+DOC_PROSE_MAX = 6
+# CLAUDE.md section 3: comments are "max 1-2 lines". Longer is documentation, and belongs in docs/.
+COMMENT_BLOCK_MAX = 2
+LIBRARY_ONLY = ("SLOP004", "SLOP010", "SLOP011")
 HUNK_RE = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
 EM_DASH = chr(0x2014)
 
@@ -263,6 +270,18 @@ def check_source(source: str) -> list[Violation]:
         if code and _is_narrative(joined, code):
             violations.append(_narrative(block[0][0], last_row, joined))
 
+    for block in blocks:
+        if len(block) > COMMENT_BLOCK_MAX:
+            violations.append(
+                Violation(
+                    block[0][0],
+                    block[-1][0],
+                    "SLOP011 comment-essay",
+                    f"{len(block)} comment lines where the standard is {COMMENT_BLOCK_MAX}; "
+                    "keep the one clause the code cannot show and move the rest to docs/",
+                )
+            )
+
     violations.extend(_ast_violations(source))
     violations = [v for v in violations if not any(v.rule.startswith(r) for r in allowed.get(v.start, ()))]
     return sorted(violations, key=lambda v: v.start)
@@ -274,6 +293,41 @@ def check_style(source: str) -> list[Violation]:
         for row, line in enumerate(source.splitlines(), 1)
         if EM_DASH in line
     ]
+
+
+def _doc_prose(doc: str) -> list[str]:
+    """The narrative lines of a cleaned docstring: no blanks, no structured section, no example."""
+    prose: list[str] = []
+    for line in doc.splitlines():
+        if DOC_SECTION_RE.match(line.strip()):
+            break
+        if line.strip() and not line.startswith((" ", "\t", ">>>", "...")):
+            prose.append(line)
+    return prose
+
+
+def _docstring_violations(tree: ast.Module) -> list[Violation]:
+    out: list[Violation] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        doc = ast.get_docstring(node, clean=True)
+        if doc is None or "SLOP010" in ALLOW_RE.findall(doc):
+            continue
+        prose = _doc_prose(doc)
+        if len(prose) <= DOC_PROSE_MAX:
+            continue
+        literal = node.body[0]
+        out.append(
+            Violation(
+                literal.lineno,
+                literal.end_lineno or literal.lineno,
+                "SLOP010 docstring-essay",
+                f"{getattr(node, 'name', 'module')} docstring runs {len(prose)} prose lines where the "
+                f"cap is {DOC_PROSE_MAX}; keep the summary plus one paragraph and move the rest to docs/",
+            )
+        )
+    return out
 
 
 def _stub_body(stmts: list[ast.stmt]) -> bool:
@@ -310,7 +364,7 @@ def _ast_violations(source: str) -> list[Violation]:
         tree = ast.parse(source)
     except (SyntaxError, ValueError):
         return []
-    out: list[Violation] = []
+    out: list[Violation] = _docstring_violations(tree)
 
     def visit(node: ast.AST, abstract: bool) -> None:
         for child in ast.iter_child_nodes(node):
@@ -393,7 +447,7 @@ def _scope(path: Path, violations: list[Violation]) -> list[Violation]:
     except (OSError, subprocess.SubprocessError):
         out = ""
     if not out or Path(out).resolve() / "agentdeck" not in path.parents:
-        return [v for v in violations if not v.rule.startswith("SLOP004")]
+        return [v for v in violations if not v.rule.startswith(LIBRARY_ONLY)]
     return violations
 
 
@@ -568,6 +622,22 @@ def _self_test() -> None:
     assert not check_source(skipif), "conditional skipif must pass"
     allow = "# Increment the retry count  (slopcheck: allow SLOP001 exemplar fixture)\nretry_count += 1\n"
     assert not check_source(allow), "explicit coded allow marker must suppress"
+    essay = 'def f():\n    """One line.\n\n    Two.\n    Three.\n    Four.\n    Five.\n    Six.\n    Seven.\n    """\n'
+    assert any(v.rule.startswith("SLOP010") for v in check_source(essay)), "docstring essay must be flagged"
+    google = (
+        'def f(a, b):\n    """One line.\n\n    Args:\n        a: first.\n        b: second.\n'
+        '        c: third.\n        d: fourth.\n        e: fifth.\n        f: sixth.\n    """\n'
+    )
+    assert not check_source(google), "Google-style sections must not count as prose"
+    noted = essay.replace("Two.", "Notes:")
+    assert any(v.rule.startswith("SLOP010") for v in check_source(noted)), "'Notes:' must not exempt prose"
+    allowed_doc = essay.replace("One line.", "One line.  (slopcheck: allow SLOP010 exemplar)")
+    assert not check_source(allowed_doc), "coded allow inside the docstring must suppress"
+    pair = "# One clause the code cannot show,\n# because nothing here records it.\nx = 1\n"
+    assert not check_source(pair), "two-line why-comment must pass"
+    essay_comment = "# One.\n# Two.\n# Three.\n# Four.\nx = 1\n"
+    assert any(v.rule.startswith("SLOP011") for v in check_source(essay_comment)), "comment essay must be flagged"
+    assert _scope(Path("/tmp/x.py"), check_source(essay)) == [], "SLOP010 is library-only"
     em_dash = "Use the short path" + chr(0x2014) + "the runtime owns the machinery.\n"
     assert any(v.rule.startswith("SLOP009") for v in check_style(em_dash)), "em dash must be flagged"
     assert not check_style("Use the short path: the runtime owns the machinery.\n"), "colon must pass"
