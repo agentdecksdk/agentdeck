@@ -196,6 +196,26 @@ def _is_narrative(comment: str, code_line: str) -> bool:
     return matched / len(words) >= 0.6
 
 
+def _allowed_markers(source: str) -> dict[int, set[str]]:
+    try:
+        tokens = tokenize.generate_tokens(io.StringIO(source).readline)
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return {}
+    allowed: dict[int, set[str]] = {}
+    for tok in tokens:
+        if tok.type != tokenize.COMMENT:
+            continue
+        row, _col = tok.start
+        for rule_id in ALLOW_RE.findall(tok.string):
+            allowed.setdefault(row, set()).add(rule_id)
+    return allowed
+
+
+def _filter_allowed(source: str, violations: list[Violation]) -> list[Violation]:
+    allowed = _allowed_markers(source)
+    return [v for v in violations if not any(v.rule.startswith(r) for r in allowed.get(v.start, ()))]
+
+
 def check_source(source: str) -> list[Violation]:
     try:
         all_tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
@@ -205,13 +225,10 @@ def check_source(source: str) -> list[Violation]:
     violations: list[Violation] = []
 
     comments: list[tuple[int, int, str, bool]] = []
-    allowed: dict[int, set[str]] = {}
     for tok in all_tokens:
         if tok.type != tokenize.COMMENT:
             continue
         row, col = tok.start
-        for rule_id in ALLOW_RE.findall(tok.string):
-            allowed.setdefault(row, set()).add(rule_id)
         text = tok.string.lstrip("#").strip()
         if BLANKET_RE.match(text):
             violations.append(
@@ -290,7 +307,7 @@ def check_source(source: str) -> list[Violation]:
 
     violations.extend(_ast_violations(source))
     violations.extend(_file_ratio_violations(source))
-    violations = [v for v in violations if not any(v.rule.startswith(r) for r in allowed.get(v.start, ()))]
+    violations = _filter_allowed(source, violations)
     return sorted(violations, key=lambda v: v.start)
 
 
@@ -547,7 +564,8 @@ def check_file(path: Path, all_lines: bool = False, base: str = "HEAD") -> list[
     if changed is not None:
         violations = [v for v in violations if v.touches(changed)]
         if path.suffix == ".py":
-            violations.extend(_scope(path, _diff_ratio_violations(source, changed)))
+            diff_violations = _scope(path, _diff_ratio_violations(source, changed))
+            violations.extend(_filter_allowed(source, diff_violations))
     return [f"{path}:{v.start}: {v.rule}: {v.message}" for v in violations]
 
 
@@ -613,7 +631,8 @@ def main() -> int:
             violations.extend(check_source(candidate))
         blocked = [v for v in _scope(path.resolve(), violations) if v.touches(new_rows)]
         if path.suffix == ".py":
-            blocked.extend(_scope(path.resolve(), _diff_ratio_violations(candidate, new_rows)))
+            diff_violations = _scope(path.resolve(), _diff_ratio_violations(candidate, new_rows))
+            blocked.extend(_filter_allowed(candidate, diff_violations))
         for v in blocked:
             print(f"{path}:{v.start}: {v.rule}: {v.message}", file=sys.stderr)
         return 2 if blocked else 0
@@ -729,6 +748,14 @@ def _self_test() -> None:
     assert not _file_ratio_violations(diff_source), "large otherwise-fine file must pass Check A"
     assert _diff_ratio_violations(diff_source, set(range(1, 21))), "comment-heavy added lines must fail Check B"
     assert not _diff_ratio_violations(diff_source, set(range(21, 121))), "code-only added lines must pass Check B"
+    over_ratio_allowed = over_ratio.replace("# note", "# note  (slopcheck: allow SLOP012 exemplar)", 1)
+    assert not any(v.rule.startswith("SLOP012") for v in check_source(over_ratio_allowed)), (
+        "allow marker on line 1 must suppress Check A"
+    )
+    diff_source_allowed = diff_source.replace("# note 0", "# note 0  (slopcheck: allow SLOP012 exemplar)", 1)
+    unfiltered = _diff_ratio_violations(diff_source_allowed, set(range(1, 21)))
+    assert unfiltered, "sanity: Check B must still detect the violation before allow-marker filtering"
+    assert not _filter_allowed(diff_source_allowed, unfiltered), "allow marker on line 1 must suppress Check B"
     google_big = (
         'def f(a, b, c, d, e, f, g, h, i, j):\n    """One line.\n\n    Args:\n        a: first.\n'
         "        b: second.\n        c: third.\n        d: fourth.\n        e: fifth.\n"
