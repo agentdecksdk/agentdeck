@@ -96,6 +96,46 @@ async def test_a_queued_job_cancelled_before_it_starts_never_calls_its_body() ->
     await workers.aclose()
 
 
+async def test_aclose_itself_drops_a_queued_job_no_task_ever_cancelled() -> None:
+    """The other route to a dropped queued job: nobody cancels the awaiting task this time  -
+    ``aclose()``'s own ``shutdown(cancel_futures=True)`` drops it from the pool directly."""
+    workers = SyncToolWorkers(max_workers=1)
+    started = threading.Event()
+    release = threading.Event()
+    called: list[str] = []
+
+    def occupy() -> None:
+        started.set()
+        release.wait(timeout=5)
+
+    def queued() -> None:
+        called.append("ran")
+
+    async def submit_queued_and_expect_cancellation() -> None:
+        await asyncio.to_thread(started.wait, 5)
+        await asyncio.sleep(0.05)  # let `queued` reach the pool's queue behind `occupy`
+        with pytest.raises(asyncio.CancelledError):
+            await workers.submit(queued)
+
+    async def close_while_occupy_is_still_running() -> None:
+        await asyncio.to_thread(started.wait, 5)
+        await asyncio.sleep(0.1)  # `queued` is queued and `occupy` is genuinely still running
+        await workers.aclose()
+
+    async def release_once_aclose_has_already_cancelled_it() -> None:
+        await asyncio.to_thread(started.wait, 5)
+        await asyncio.sleep(0.2)  # after aclose()'s cancel-drain, so it never races the cancel
+        release.set()
+
+    await asyncio.gather(
+        workers.submit(occupy),
+        submit_queued_and_expect_cancellation(),
+        close_while_occupy_is_still_running(),
+        release_once_aclose_has_already_cancelled_it(),
+    )
+    assert called == []
+
+
 async def test_shutdown_drains_a_running_job_and_rejects_new_ones() -> None:
     """No jobs, a running job, and a submission after close, in one pass: each drains or rejects
     correctly, and closing never blocks the event loop the running job still needs (a worker

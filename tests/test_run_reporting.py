@@ -185,9 +185,10 @@ def _noisy_sync(ctx: ToolCtx) -> str:
 
 
 async def test_a_sync_tools_reporter_facade_preserves_order_against_its_own_return() -> None:
-    """Plan §5: ``ctx.reporter`` from a worker thread marshals onto the run's own loop and blocks
-    until accepted, so two reports made before a return show up before ``run.completed``, in
-    order  -  not reordered, and not silently dropped the way an unawaited coroutine would be."""
+    """Plan §5, through the real pipeline: two reports made before a sync tool's return show up
+    before ``run.completed``, not silently dropped the way an unawaited coroutine would be. This
+    does not by itself prove the marshal blocks  -  ``tests/core/test_reporting.py`` does that
+    with a report slow enough to force reordering if unblocked."""
     spec = InvocableSpec(name="_noisy_sync", kind=InvocableKind.TOOL, executor=NativeExecutor.name, native=_noisy_sync)
     runtime = Runtime([NativeExecutor(workers=SyncToolWorkers())], MemoryEventStore(), {spec.name: spec})
 
