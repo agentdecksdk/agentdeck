@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections import deque
 from typing import TYPE_CHECKING
 
@@ -99,18 +100,30 @@ def test_a_drained_buffer_takes_reports_again() -> None:
     assert list(buffer) == [Reported(level="info", message="still reporting")]
 
 
-def test_concurrent_reports_from_multiple_threads_all_land() -> None:
-    """The buffer is written from whatever thread a THREAD-executed tool runs on, so two tools
-    reporting at once must not corrupt or drop each other's payload."""
-    reporter, buffer = _pending()
-    reports_per_thread = 50
-    threads = [
-        threading.Thread(target=lambda i=i: [reporter.report("step", thread=i, n=n) for n in range(reports_per_thread)])
-        for i in range(4)
-    ]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
+def test_the_lock_closes_the_check_then_act_race_at_the_cap() -> None:
+    """The cap check and the append are two operations, not one  -  each is atomic by itself
+    under the GIL, but two threads interleaving between them could both see room and both
+    append, one past the cap. A deliberately slow first check opens exactly that window for a
+    concurrent second call; the lock is what has to close it back up."""
+    entered_check = threading.Event()
 
-    assert len(buffer) == min(4 * reports_per_thread, MAX_PENDING_REPORTS)
+    class _SlowOnFirstCheck(deque):
+        def __len__(self) -> int:
+            length = super().__len__()
+            if not entered_check.is_set():
+                entered_check.set()
+                time.sleep(0.05)
+            return length
+
+    buffer = _SlowOnFirstCheck(
+        Reported(level="record", message="step", fields={"n": n}) for n in range(MAX_PENDING_REPORTS - 1)
+    )
+    reporter = Reporter(buffer)
+
+    first = threading.Thread(target=lambda: reporter.report("step", n=100))
+    first.start()
+    assert entered_check.wait(timeout=1), "the first call never reached its length check"
+    reporter.report("step", n=101)
+    first.join(timeout=1)
+
+    assert len(buffer) == MAX_PENDING_REPORTS
