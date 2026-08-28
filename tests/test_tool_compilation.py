@@ -232,6 +232,36 @@ def test_two_context_parameters_are_still_a_configuration_error_at_compile_time(
         compile_tool(greedy)
 
 
+def test_the_engine_decorator_over_a_context_parameter_names_the_fix_rather_than_an_internal() -> None:
+    """The refusal has to come from the type itself: ``@function_tool`` runs at decoration time,
+    before any Deck or Agent exists, so no build-time check can reach it. Left to pydantic it
+    descended the context and failed on ``Gate``, naming a private type and no way forward.
+    """
+    with pytest.raises(ConfigError) as raised:
+
+        @function_tool
+        def booking(day: str, environment: ToolCtx[Calendar]) -> str:
+            """Book a slot."""
+            return day
+
+    message = str(raised.value)
+    assert "@function_tool" in message
+    assert "@tool" in message
+    assert "undecorated" in message
+    assert "Gate" not in message
+
+
+def test_the_engine_decorator_refuses_a_bare_context_annotation_the_same_way() -> None:
+    """The spelling that a hook on ``ToolCtx`` would have caught alone: pydantic reaches a
+    parameterised ``ToolCtx[T]`` through its dataclass schema instead of the origin's hook."""
+    with pytest.raises(ConfigError, match="@tool"):
+
+        @function_tool
+        def booking(environment: ToolCtx) -> str:
+            """Book a slot."""
+            return "ok"
+
+
 async def test_a_tool_played_by_a_foreign_run_says_so_instead_of_failing_obscurely() -> None:
     """The invocation-time safety net. A compiled tool handed some other framework's context has
     nothing to inject; the bridge raises before calling the user's function, rather than letting
