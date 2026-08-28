@@ -25,10 +25,10 @@ from typing import TYPE_CHECKING, Any, NoReturn, Protocol, cast, runtime_checkab
 from uuid import uuid4
 
 from agentdeck.core.control import Gate, RunPausedError
+from agentdeck.core.errors import DOCS_URL, ConfigError
 from agentdeck.core.events import KnownPayload, RunInterrupted
 from agentdeck.core.reporting import Reporter
 from agentdeck.core.status import RunStatus
-from agentdeck.errors import DOCS_URL, ConfigError
 
 logger = logging.getLogger(__name__)
 

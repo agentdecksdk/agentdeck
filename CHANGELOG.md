@@ -27,6 +27,11 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 - **Sending an agent an image is documented where agents are.** `build-your-deck/agents` gains a
   section on content blocks, and `build-your-deck/tools` states that a tool cannot carry an image:
   tool results are text, so a returned `data:` URI reaches the model as a string.
+- **The error taxonomy moved to `agentdeck/core/errors.py`.** `agentdeck.errors` re-exports the
+  same class objects, so every `from agentdeck.errors import ...` and `except ConfigError` is
+  unchanged. What changes is what a traceback prints: `agentdeck.core.errors.ConfigError`,
+  not `agentdeck.errors.ConfigError`. Core raises these now, which is where `CLAUDE.md` §2
+  already placed the taxonomy.
 
 ### Fixed
 
