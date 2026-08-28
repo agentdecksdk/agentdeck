@@ -205,7 +205,7 @@ block; see [Workflows](/build-your-deck/workflows) for what a body does with it.
 ```python no-test reason="needs an image file and a live model that accepts one"
 import base64
 
-from agentdeck.core import ImageBlock, TextBlock
+from agentdeck import ImageBlock, TextBlock
 
 photo = base64.b64encode(open("receipt.png", "rb").read()).decode()
 result = await deck.run(

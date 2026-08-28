@@ -300,7 +300,7 @@ block; see [Workflows](/build-your-deck/workflows) for what a body does with it.
 ```python no-test reason="needs an image file and a live model that accepts one"
 import base64
 
-from agentdeck.core import ImageBlock, TextBlock
+from agentdeck import ImageBlock, TextBlock
 
 photo = base64.b64encode(open("receipt.png", "rb").read()).decode()
 result = await deck.run(
@@ -773,6 +773,18 @@ Core types and public classes exported from `agentdeck`.
 - `workflow`: Decorator declaring orchestration as an async function.
 - `ToolCtx`: The context a tool receives.
 - `WorkflowCtx`: `ToolCtx` plus orchestration, for a `@workflow` body.
+- `Observer`: One consumer of a deck's event stream, for `Deck(observers=[...])`.
+
+### Content blocks
+
+What `deck.run()` takes instead of a plain string, and what a run reports back.
+
+- `ContentBlock`: The union of the block types below.
+- `TextBlock`: Prose.
+- `ImageBlock`: An image inline, base64.
+- `AudioBlock`: Audio inline, base64.
+- `ResourceBlock`: Bytes held elsewhere, referenced rather than carried.
+- `DataBlock`: JSON as content.
 
 ---
 
@@ -964,6 +976,33 @@ OPENROUTER_API_KEY=sk-or-...
 
 An agent without `model=` uses `OPENAI_MODEL`. Bare model names use OpenAI, while namespaced IDs
 such as `vendor/model` remain available for an endpoint configured with `OPENAI_BASE_URL`.
+## Send an agent an image
+
+`deck.run()` takes a list of content blocks as well as a plain string. That is how an image
+reaches a vision model.
+
+```python no-test reason="needs an image file and a live model that accepts one"
+import base64
+
+from agentdeck import ImageBlock, TextBlock
+
+photo = base64.b64encode(open("receipt.png", "rb").read()).decode()
+result = await deck.run(
+    "Intake",
+    [TextBlock(text="What is the total on this receipt?"), ImageBlock(media_type="image/png", data_b64=photo)],
+)
+```
+
+The model must accept images: `ollama/qwen3.5:9b` and `openai/gpt-4o` do, `gpt-4.1-mini` does not.
+
+Inline blocks are capped at **1 MB decoded**. Anything larger needs a `ResourceBlock`, which
+references bytes held elsewhere instead of carrying them. `AudioBlock` and `DataBlock` cover audio
+and structured JSON. See [the block reference](/reference/deck) for the full table and the
+per-engine limits.
+
+An image cannot reach the model through a tool's return value: tool results are text. Content
+blocks on the way in are the only path.
+
 ## SDK-native Options
 
 Some agent options come directly from the OpenAI Agents SDK. For example, structured output can use
@@ -1190,6 +1229,12 @@ handling that re-raises. Then the log records `run.failed` with `error_code="eng
 `Deck.run()` raises the exception, `Deck.stream()` yields `run.failed` and then raises, the
 non-streamed HTTP route returns `500 {"detail": "internal error"}`, and the streamed HTTP route
 sends an `error` event with the exception type.
+
+## Tools do not carry images
+
+A tool returns text. Returning a `data:` URI, a file path or base64 from a tool does not let the
+model see an image: it sees the string. Images travel as content blocks on the way *in*, not as
+tool results on the way back. See [sending an agent an image](/build-your-deck/agents).
 
 ---
 
@@ -1763,6 +1808,19 @@ await run.cancel()
 ```
 </BrandCallout>
 
+## If something went wrong
+
+These are the first-run failures you can hit before you have a mental model for AgentDeck.
+Match the text in your terminal, then apply the concrete fix.
+
+| What you see | Why | What to do |
+|---|---|---|
+| `openai.OpenAIError: The api_key client option must be set either by passing api_key to the client or by setting the OPENAI_API_KEY environment variable`<br /><br />The run then surfaces as:<br />`RuntimeError: run '<run-id>' failed: OpenAIError in engine 'openai-agents'` | `OPENAI_API_KEY` is not set for the Python process running the Deck. | Export a valid key before running the script:<br />`export OPENAI_API_KEY=sk-...`<br /><br />If you run from an IDE, set the same variable in that run configuration. |
+| <code>openai.NotFoundError: Error code: 404 - &#123;'error': &#123;'message': 'The model &grave;not-a-real-agentdeck-model&grave; does not exist or you do not have access to it.', 'type': 'invalid_request_error', 'param': 'model', 'code': 'model_not_found'&#125;&#125;</code><br /><br />The run then surfaces as:<br />`RuntimeError: run '<run-id>' failed: NotFoundError in engine 'openai-agents'` | The `model` on the `Agent`, or `OPENAI_MODEL`, names a model your key or configured OpenAI-compatible endpoint cannot reach. | Use a model available to your account, for example the Quickstart's `gpt-4o-mini`, or update `OPENAI_BASE_URL` and `OPENAI_MODEL` together when using a compatible gateway. |
+| `RuntimeWarning: coroutine 'Runs.start' was never awaited` | `deck.runs.start(...)` is async. Calling it without `await` creates a coroutine but never starts the run. | Start the run with `run = await deck.runs.start("assistant", input="Hello!")` inside an `async def`, then drive it with `asyncio.run(main())`. |
+| `agentdeck.errors.SessionBusyError: session 'quickstart' already has run '<first-run-id>' in flight, so run '<second-run-id>' cannot start on it  -  see https://agentdecksdk.com/runs-and-control/sessions` | A second run started with the same `session_id` before the previous run reached a terminal event. Sessions serialize turns. | Wait for the first run to finish with `result = await run`, cancel it with `await run.cancel()`, or use a different `session_id` for an independent conversation. |
+| <code>agentdeck.errors.ConfigError: this Deck is not open: use &grave;async with deck:&grave; (or &grave;await deck.__aenter__()&grave;) first.</code> | `deck.stream(...)` was iterated before the Deck runtime was opened. | Wrap streaming in the Deck context:<br />`async with deck:`<br />&nbsp;&nbsp;&nbsp;&nbsp;`async for event in deck.stream("assistant", "Hello!"):`<br />&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`print(event.kind)` |
+
 ## Next
 
 - [Add a Tool](/build-your-deck/tools) -> Give your agents callable capabilities.
@@ -1787,6 +1845,28 @@ Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift fro
 are written for someone using the package: what changed, and what to do about it.
 
 The current release is **v5.0.3**. Earlier releases are listed at the bottom.
+
+## Unreleased
+
+### Added
+
+- **Content blocks and `Observer` import from the package root.** `ImageBlock`, `TextBlock`,
+  `ContentBlock`, `ResourceBlock`, `AudioBlock`, `DataBlock` and `Observer` are exported from
+  `agentdeck` alongside `Agent` and `Deck`, rather than only from `agentdeck.core.content` and
+  `agentdeck.core.ports`. Sending an agent an image and watching a deck's events are both
+  first-contact tasks, and both previously required knowing an internal path to reach a public
+  capability.
+
+### Changed
+
+- **A durable event log now says what it does not make durable.** Setting `AGENTDECK_EVENTS` to
+  anything other than `memory://` while `AGENTDECK_SESSION` is unset logs a warning: the log
+  survives a restart, the conversation the model sees does not. The old warning fired only for
+  `memory://`, so configuring a durable log silenced the one message and left the reader believing
+  recall was handled.
+- **Sending an agent an image is documented where agents are.** `build-your-deck/agents` gains a
+  section on content blocks, and `build-your-deck/tools` states that a tool cannot carry an image:
+  tool results are text, so a returned `data:` URI reaches the model as a string.
 
 ## v5.0.3
 

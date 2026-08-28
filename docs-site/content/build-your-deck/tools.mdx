@@ -58,3 +58,9 @@ handling that re-raises. Then the log records `run.failed` with `error_code="eng
 `Deck.run()` raises the exception, `Deck.stream()` yields `run.failed` and then raises, the
 non-streamed HTTP route returns `500 {"detail": "internal error"}`, and the streamed HTTP route
 sends an `error` event with the exception type.
+
+## Tools do not carry images
+
+A tool returns text. Returning a `data:` URI, a file path or base64 from a tool does not let the
+model see an image: it sees the string. Images travel as content blocks on the way *in*, not as
+tool results on the way back. See [sending an agent an image](/build-your-deck/agents).

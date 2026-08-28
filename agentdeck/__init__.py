@@ -13,8 +13,17 @@ from importlib.metadata import version as _version
 from agentdeck import views
 from agentdeck.authoring import Agent
 from agentdeck.authoring.native import tool, workflow
+from agentdeck.core.content import (
+    AudioBlock,
+    ContentBlock,
+    DataBlock,
+    ImageBlock,
+    ResourceBlock,
+    TextBlock,
+)
 from agentdeck.core.context import ToolCtx, WorkflowCtx
 from agentdeck.core.invocable import AgentInstance
+from agentdeck.core.ports import Observer
 from agentdeck.deck import Deck, Run, TurnResult
 from agentdeck.errors import (
     AgentdeckError,
@@ -41,19 +50,26 @@ __all__ = [
     "Agent",
     "AgentInstance",
     "AgentdeckError",
+    "AudioBlock",
     "ConfigError",
-    "ToolCtx",
-    "WorkflowCtx",
+    "ContentBlock",
     "ContextTypeError",
+    "DataBlock",
     "Deck",
+    "ImageBlock",
     "NotFoundError",
+    "Observer",
+    "ResourceBlock",
     "Run",
     "SessionBusyError",
     "SkillError",
     "StoreError",
+    "TextBlock",
+    "ToolCtx",
     "TurnResult",
+    "WorkflowCtx",
+    "__version__",
     "tool",
     "views",
     "workflow",
-    "__version__",
 ]
