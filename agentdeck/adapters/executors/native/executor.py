@@ -9,6 +9,7 @@ place until somebody answers it.
 from __future__ import annotations
 
 import asyncio
+import inspect
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -186,7 +187,12 @@ class NativeExecutor(Executor):
         """
         channel.owner = asyncio.current_task()
         try:
-            result = await definition.call(**_arguments(definition, input, ctx, channel, self._invoker, self._agents))
+            arguments = _arguments(definition, input, ctx, channel, self._invoker, self._agents)
+            if inspect.iscoroutinefunction(inspect.unwrap(definition.call)):
+                result = await definition.call(**arguments)
+            else:
+                # On the loop a blocking body would stall the stream and every safepoint with it.
+                result = await asyncio.to_thread(definition.call, **arguments)
             await channel.emit(RunCompleted(output=_as_output(result), usage=Usage(input_tokens=0, output_tokens=0)))
         except ControlSignalled as signalled:
             for payload in signalled.payloads:

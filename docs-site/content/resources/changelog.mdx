@@ -20,12 +20,24 @@ The current release is **v5.0.3**. Earlier releases are listed at the bottom.
 
 ### Added
 
+- **`@tool` accepts a sync body.** Only `@workflow` still requires `async def`, because every
+  orchestration primitive on `WorkflowCtx` is awaited and a sync body cannot reach one. A tool has
+  nothing to await, and both paths that play one now put a sync body on a worker thread: the
+  model-facing path already did, and `ctx.invoke()` does now. The refusal previously applied to
+  both kinds, so the richer form was also the more restrictive one.
 - **Content blocks and `Observer` import from the package root.** `ImageBlock`, `TextBlock`,
   `ContentBlock`, `ResourceBlock`, `AudioBlock`, `DataBlock` and `Observer` are exported from
   `agentdeck` alongside `Agent` and `Deck`, rather than only from `agentdeck.core.content` and
   `agentdeck.core.ports`. Sending an agent an image and watching a deck's events are both
   first-contact tasks, and both previously required knowing an internal path to reach a public
   capability.
+
+### Removed
+
+- **A plain function carrying a `ToolCtx[...]`/`WorkflowCtx[...]` parameter in `tools=` is
+  refused.** Only `@tool` may declare one now; `build()` names the callable and shows the
+  decorator to add. `instructions=` and `hooks=` callables are unaffected, and a context-free
+  plain function still compiles exactly as before.
 
 ### Changed
 
@@ -37,6 +49,19 @@ The current release is **v5.0.3**. Earlier releases are listed at the bottom.
 - **Sending an agent an image is documented where agents are.** `build-your-deck/agents` gains a
   section on content blocks, and `build-your-deck/tools` states that a tool cannot carry an image:
   tool results are text, so a returned `data:` URI reaches the model as a string.
+- **The error taxonomy moved to `agentdeck/core/errors.py`.** `agentdeck.errors` re-exports the
+  same class objects, so every `from agentdeck.errors import ...` and `except ConfigError` is
+  unchanged. What changes is what a traceback prints: `agentdeck.core.errors.ConfigError`,
+  not `agentdeck.errors.ConfigError`. Core raises these now, which is where `CLAUDE.md` §2
+  already placed the taxonomy.
+
+### Fixed
+
+- **`@function_tool` over a `ToolCtx` parameter now says what to do about it.** The Agents SDK
+  decorator builds its argument schema from every parameter it does not recognise, so a context
+  one used to fail at decoration with `PydanticSchemaGenerationError: Unable to generate
+  pydantic-core schema for <class 'agentdeck.core.control.Gate'>`, naming a private type and no
+  fix. It now raises `ConfigError` naming the fix: use agentdeck's own `@tool`.
 
 ## v5.0.3
 

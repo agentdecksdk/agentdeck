@@ -19,7 +19,7 @@ from agents import Agent as SDKAgent
 from agents import WebSearchTool, function_tool
 from pydantic import BaseModel
 
-from agentdeck import WorkflowCtx, workflow
+from agentdeck import ToolCtx, WorkflowCtx, tool, workflow
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring import Agent
@@ -432,8 +432,10 @@ def test_declaring_mcp_with_no_mcp_configured_at_all_fails_build():
 
 
 # --- a plain callable in tools= is compiled, and one that cannot be is refused loudly ------
-# (#172 rejected every bare callable; #166 makes one the canonical declaration, because a
-# callable annotated ToolCtx[...] cannot be pre-decorated without leaking that parameter)
+# (#172 rejected every bare callable; #166 made one the canonical declaration for every tool.
+# A callable annotated ToolCtx[...] narrowed that: it cannot be pre-decorated with @function_tool
+# without leaking that parameter, and now cannot be left undecorated either  -  only @tool carries
+# a context into a tool, tested below.)
 
 
 def test_agent_tool_that_is_a_bare_named_function_is_compiled():
@@ -489,6 +491,46 @@ def test_agent_tool_that_is_not_callable_at_all_fails_build():
     with pytest.raises(ConfigError, match="Greeter") as exc_info:
         deck.build()
     assert "neither a callable nor an Agents SDK tool object" in str(exc_info.value)
+
+
+class Calendar:
+    """The sort of thing an application hands a run: a live object, never serialized."""
+
+    def find(self, day: str) -> str:
+        return f"{day} 09:00"
+
+
+def test_a_plain_function_carrying_a_context_fails_build_naming_tool():
+    """The rule this whole slice narrowed to: a ``ToolCtx[...]`` parameter needs a visible
+    declaration site, and ``@tool`` is it."""
+
+    async def find_slots(day: str, environment: ToolCtx[Calendar]) -> str:
+        """Find free slots."""
+        return day
+
+    deck = Deck(agents=[_greeter(name="Booking", tools=[find_slots])])
+
+    with pytest.raises(ConfigError, match="Booking") as exc_info:
+        deck.build()
+    message = str(exc_info.value)
+    assert "find_slots" in message
+    assert "@tool" in message
+
+
+def test_the_same_function_declared_tool_compiles_and_injects():
+    """The other half: nothing about carrying a context is refused, only carrying it undeclared."""
+
+    @tool
+    async def find_slots(day: str, environment: ToolCtx[Calendar]) -> str:
+        """Find free slots."""
+        return environment.data.find(day)
+
+    deck = Deck(agents=[_greeter(tools=[find_slots])])
+    deck.build()
+
+    (compiled,) = deck._invocables["Greeter"].native.tools
+    assert compiled.name == "find_slots"
+    assert sorted(compiled.params_json_schema["properties"]) == ["day"]
 
 
 def test_a_raw_sdk_agent_in_the_catalog_is_refused_at_construction():

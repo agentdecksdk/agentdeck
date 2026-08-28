@@ -68,7 +68,7 @@ async def test_a_raised_tool_records_its_exception_on_the_run_context(target: An
     """
     run = RunContext(run_id="r", data=Calendar())
 
-    await _invoke(compile_tool(target, context_type=Calendar), run)
+    await _invoke(compile_tool(target, context_type=Calendar, declared_via_tool=True), run)
 
     assert run.tool_failures == {"call_1": "RuntimeError: boom: test"}
 

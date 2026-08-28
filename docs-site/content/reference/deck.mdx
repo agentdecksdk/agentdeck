@@ -106,7 +106,7 @@ below. Declaring the type is what lets `build()` check it against every `ToolCtx
 the catalog before anything runs:
 
 ```python run
-from agentdeck import Agent, ToolCtx, ContextTypeError, Deck
+from agentdeck import Agent, ToolCtx, ContextTypeError, Deck, tool
 
 
 class Calendar:
@@ -118,6 +118,7 @@ class Warehouse:
     """A different application environment entirely."""
 
 
+@tool
 def find_slots(day: str, environment: ToolCtx[Calendar]) -> str:
     """Find free appointment slots on a given day."""
     return environment.data.find(day)

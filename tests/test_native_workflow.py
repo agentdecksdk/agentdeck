@@ -318,13 +318,24 @@ def test_a_workflow_may_not_ask_for_the_tool_context() -> None:
             return topic
 
 
-def test_a_native_definition_has_to_be_async() -> None:
-    """A blocking body would stall the loop every other run on this deck shares."""
+def test_a_workflow_has_to_be_async() -> None:
+    """Every orchestration primitive on ``WorkflowCtx`` is awaited, so a sync body cannot reach one."""
     with pytest.raises(ConfigError, match="not async"):
 
         @workflow
         def blocking(ctx: WorkflowCtx) -> str:  # pragma: no cover  -  never built
             return "no"
+
+
+def test_a_tool_does_not_have_to_be_async() -> None:
+    """A tool has nothing to await, and both paths that play one thread a sync body."""
+
+    @tool
+    def add(a: int, b: int) -> int:
+        """Add two numbers."""
+        return a + b
+
+    assert add.name == "add"
 
 
 async def test_an_agent_can_use_a_native_tool() -> None:
