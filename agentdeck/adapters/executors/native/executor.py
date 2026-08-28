@@ -9,7 +9,6 @@ place until somebody answers it.
 from __future__ import annotations
 
 import asyncio
-import inspect
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, ClassVar
@@ -18,7 +17,7 @@ from agentdeck.core.content import DataBlock, TextBlock, answer_of
 from agentdeck.core.context import WorkflowCtx
 from agentdeck.core.control import ControlSignalled
 from agentdeck.core.events import RunCompleted, Usage
-from agentdeck.core.invocable import NativeInvocable
+from agentdeck.core.invocable import NativeExecution, NativeInvocable
 from agentdeck.core.ports import Executor
 from agentdeck.core.status import SUSPENDED_KINDS, Play, continuation_of
 from agentdeck.errors import ConfigError
@@ -31,6 +30,7 @@ if TYPE_CHECKING:
     from agentdeck.core.events import Event, KnownPayload
     from agentdeck.core.invocable import InvocableSpec
     from agentdeck.core.status import Continuation
+    from agentdeck.core.workers import SyncToolWorkers
 
 # The body's own ``finally`` puts ``None`` on the channel: it is over, whichever way it ended.
 # A payload is never ``None``, so the two cannot be confused.
@@ -110,7 +110,9 @@ class NativeExecutor(Executor):
     name: ClassVar[str] = "native"
     suspendable: ClassVar[bool] = True
 
-    def __init__(self, invoker: Invoker | None = None, agents: Agents | None = None) -> None:
+    def __init__(
+        self, invoker: Invoker | None = None, agents: Agents | None = None, workers: SyncToolWorkers | None = None
+    ) -> None:
         # Keyed by run id, because that is what a resume names and what a parked body belongs to.
         self._parked: dict[str, _Body] = {}
         # The two things this executor cannot do for a workflow: start another run, and add to
@@ -118,6 +120,9 @@ class NativeExecutor(Executor):
         # rather than reached for.
         self._invoker = invoker
         self._agents = agents
+        # Owned here, closed here (see aclose); ``None`` falls back to asyncio.to_thread(), same
+        # as a Deck with no lifecycle around this executor (a standalone construction, in tests).
+        self._workers = workers
 
     async def execute(
         self,
@@ -150,13 +155,20 @@ class NativeExecutor(Executor):
     async def aclose(self) -> None:
         """Cancel every body still parked. A workflow waiting for an answer nobody will now give
         is over when the deck that started it is: leaving the coroutine suspended would outlive
-        the loop it was created on."""
+        the loop it was created on.
+
+        The pool closes last, after every parked body (including one still on a worker thread)
+        has been cancelled and awaited above: draining it earlier could still admit a submission
+        from a body this loop hasn't cancelled yet.
+        """
         parked, self._parked = list(self._parked.values()), {}
         for body in parked:
             body.task.cancel()
         for body in parked:
             with suppress(asyncio.CancelledError):
                 await body.task
+        if self._workers is not None:
+            await self._workers.aclose()
 
     def _begin(self, spec: InvocableSpec, input: Input, ctx: RunContext) -> _Body:
         definition = _definition_of(spec)
@@ -180,19 +192,24 @@ class NativeExecutor(Executor):
     async def _play(self, definition: NativeInvocable, input: Input, ctx: RunContext, channel: _Channel) -> None:
         """Run the body to its end, and put whatever that end was on the channel.
 
-        Two exits are payloads: a return is ``run.completed``, and a signal honored at a safepoint
-        is its own three. Anything else raised is left to travel  -  the task keeps it, and
-        :meth:`execute` re-raises it into the run so the Runtime records and reports it the way
-        it does for every other executor.
+        A return is ``run.completed``; anything else raised travels to :meth:`execute`, which
+        re-raises it into the run. A THREAD-executed body has no await point of its own to offer a
+        checkpoint at, so this is the only one it gets: right after the worker call returns or
+        raises, routing a pending CANCEL through the same handler below as a real safepoint would.
         """
         channel.owner = asyncio.current_task()
         try:
             arguments = _arguments(definition, input, ctx, channel, self._invoker, self._agents)
-            if inspect.iscoroutinefunction(inspect.unwrap(definition.call)):
-                result = await definition.call(**arguments)
+            if definition.execution is NativeExecution.THREAD:
+                submit = self._workers.submit if self._workers is not None else asyncio.to_thread
+                try:
+                    result = await submit(definition.call, **arguments)
+                except Exception:
+                    await ctx.gate.checkpoint_cancel_only("tool_dispatch")
+                    raise
+                await ctx.gate.checkpoint_cancel_only("tool_dispatch")
             else:
-                # On the loop a blocking body would stall the stream and every safepoint with it.
-                result = await asyncio.to_thread(definition.call, **arguments)
+                result = await definition.call(**arguments)
             await channel.emit(RunCompleted(output=_as_output(result), usage=Usage(input_tokens=0, output_tokens=0)))
         except ControlSignalled as signalled:
             for payload in signalled.payloads:
@@ -264,18 +281,19 @@ def _context_for(
 ) -> Any:
     """The context the body declared, holding the channel it can stop on.
 
-    Which class it is was settled by the decorator; both get the channel, because a body this
-    executor is playing can always be parked  -  a tool's ``safepoint`` waits here exactly as a
-    workflow's does, and only a tool played inside somebody else's turn has to unwind instead.
-    Only a workflow gets the invoker and the agent mint: a tool that could start another run,
-    or add one to the catalog, is no longer a leaf.
+    Only a workflow gets the invoker and the agent mint  -  a tool that could start another run is
+    no longer a leaf. A THREAD-executed tool's context also carries the running loop, which
+    switches its ``reporter`` to a sync facade and its ``safepoint`` to a refusal.
     """
     context_class = definition.context_class
     if context_class is None:
         return None
+    thread_loop = asyncio.get_running_loop() if definition.execution is NativeExecution.THREAD else None
     if issubclass(context_class, WorkflowCtx):
-        return context_class(ctx, channel, invoker, agents)
-    return context_class(ctx, channel)
+        # Keyword, not positional: ToolCtx's own new `_loop` field sits ahead of WorkflowCtx's
+        # `_invoker`/`_agents` in dataclass field order, and a workflow is always ASYNC anyway.
+        return context_class(ctx, channel, _invoker=invoker, _agents=agents)
+    return context_class(ctx, channel, _loop=thread_loop)
 
 
 def _as_output(result: Any) -> Input:

@@ -13,7 +13,9 @@ Tools allow agents to perform actions and fetch external information.
 ## Defining a Tool
 
 `@tool` declares a leaf capability. The body is your own Python, sync or async, and the docstring
-is what the model reads.
+is what the model reads. A sync body runs on a bounded worker pool the deck owns, never on the
+event loop; see [Context: what each context can do](/build-your-deck/context#what-each-context-can-do)
+for what that changes about `ctx.safepoint()`.
 
 ```python run tool="lookup_order" tool_arguments='{"order_id":"A-1003"}'
 import asyncio
