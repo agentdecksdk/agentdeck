@@ -795,7 +795,8 @@ Source: https://agentdecksdk.com/reference/run
 
 # Run Reference
 
-API reference for `Run` instances and execution controls.
+API reference for `Run` instances and execution controls. Starting, fetching and listing runs is
+`deck.runs`, not this handle: see [`Run` and `deck.runs`](/reference/deck#run-and-deckruns).
 
 ## Methods
 
@@ -1052,7 +1053,7 @@ Declare the type once on `Deck(context=...)`. Pass the object once per run, on
 ```python run
 import asyncio
 
-from agentdeck import Agent, Deck, ToolCtx
+from agentdeck import Agent, Deck, ToolCtx, tool
 
 
 class Billing:
@@ -1060,7 +1061,8 @@ class Billing:
         return f"{order_id}: shipped"
 
 
-def order_status(order_id: str, billing: ToolCtx[Billing]) -> str:
+@tool
+async def order_status(order_id: str, billing: ToolCtx[Billing]) -> str:
     """Look up the shipping status of an order."""
     return billing.data.status(order_id)
 
@@ -1077,6 +1079,11 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+A context parameter is injected by the runtime and is absent from the schema the model sees, which
+is why a tool that declares one cannot be pre-decorated with the Agents SDK's `function_tool`: that
+decorator puts every parameter into the schema, and a context has none, so it raises
+`PydanticSchemaGenerationError` at the decorator line.
 
 `billing.data` is the exact `Billing()` instance passed to `context=`, not a copy. `Deck.build`
 checks every `ToolCtx[...]`/`WorkflowCtx[...]` parameter in the catalog against the declared type
@@ -1182,26 +1189,70 @@ Tools allow agents to perform actions and fetch external information.
 
 ## Defining a Tool
 
-```python
-from agents import function_tool
+`@tool` declares a leaf capability. The body is your own Python, sync or async, and the docstring
+is what the model reads.
 
-from agentdeck import Agent
+```python run
+import asyncio
+
+from agentdeck import Agent, Deck, tool
 
 
-@function_tool
-def lookup_order(order_id: str) -> str:
+@tool
+async def lookup_order(order_id: str) -> str:
     """Fetch status for an order."""
     return f"Order {order_id} is in transit."
 
-agent = Agent(
-    name="order_bot",
-    instructions="Look up customer orders.",
-    tools=[lookup_order],
-)
+
+agent = Agent(name="order_bot", instructions="Look up customer orders.", tools=[lookup_order])
+deck = Deck(agents=[agent])
+
+
+async def main() -> None:
+    async with deck:
+        result = await deck.run("order_bot", "where is order A-1003?")
+        print(result.output)
+
+
+asyncio.run(main())
 ```
 
-`function_tool` comes from the OpenAI Agents SDK (`agents`), which `agentdeck` installs and
-passes through unchanged. Tools are the SDK's execution primitive, not an `agentdeck` wrapper type.
+## The plain function
+
+An undecorated callable in `tools=` is compiled the same way, with less ceremony:
+
+```python
+def lookup_order(order_id: str) -> str:
+    """Fetch status for an order."""
+    return f"Order {order_id} is in transit."
+```
+
+Both forms get the same schema, the same [context injection](/build-your-deck/context), and the
+same failure attribution. What `@tool` adds is a catalog entry: it yields a `NativeDefinition` the
+deck holds, so a workflow can start it as a child run of its own with
+`ctx.invoke(lookup_order, "A-1003")`. A plain function is not a target `ctx.invoke` can resolve.
+
+| | `@tool` | plain function |
+|---|---|---|
+| Called by a model | yes | yes |
+| Sync or async body | yes | yes |
+| `ToolCtx[T]` injected | yes | yes |
+| Started as its own child run | yes | no |
+| Name and description | `name=`, `description=`, else the function's | the function's |
+
+## You already have SDK tools
+
+A tool already decorated with `function_tool` from the OpenAI Agents SDK (`agents`) is accepted in
+`tools=` and passed through untouched. That passthrough has three consequences:
+
+- It cannot take a `ToolCtx` parameter. The decorator puts every parameter into the schema the
+  model sees, and a context has none, so it raises `PydanticSchemaGenerationError` at the
+  decorator line.
+- It keeps whatever `failure_error_function` it was given, so its exceptions never reach
+  `tool.call.completed.error`.
+- It is engine-native and carries no portability guarantee.
+
+Reach for it to adopt tools you already have. Write new ones with `@tool`.
 
 ## Handling Failures
 
@@ -1209,8 +1260,8 @@ A tool can return a user-facing failure like any other result. Do that when the 
 and continue the conversation:
 
 ```python
-@function_tool
-def lookup_shift(date: str) -> str:
+@tool
+async def lookup_shift(date: str) -> str:
     """Return the nurse on duty for a date."""
     row = SHIFTS.get(date)
     if row is None:
@@ -1218,17 +1269,18 @@ def lookup_shift(date: str) -> str:
     return row
 ```
 
-If a tool raises instead, the Agents SDK catches the exception and gives the model its standard
-tool-error string. `agentdeck` records the call as `tool.call.completed`, not `run.failed`, and the
-run can still complete. In that case `Deck.run()` returns the model's final answer, the
-non-streamed HTTP route returns `200 {"output": ...}`, and the streamed HTTP route ends with
-`done` if the model completes.
+If a tool raises instead, `agentdeck` records the call as `tool.call.completed` with the exception
+type and message on its `error` field, and hands the model the Agents SDK's standard tool-error
+string. The run is not failed, so it can still complete: `Deck.run()` returns the model's final
+answer, the non-streamed HTTP route returns `200 {"output": ...}`, and the streamed HTTP route ends
+with `done` if the model completes.
 
-That is different from an exception that escapes the SDK runner, for example custom tool failure
-handling that re-raises. Then the log records `run.failed` with `error_code="engine_error"`,
-`Deck.run()` raises the exception, `Deck.stream()` yields `run.failed` and then raises, the
-non-streamed HTTP route returns `500 {"detail": "internal error"}`, and the streamed HTTP route
-sends an `error` event with the exception type.
+An exception that escapes the SDK runner is a different outcome, and a pre-decorated
+`function_tool` whose own failure handling re-raises is the way to get one. Then the log records
+`run.failed` with `error_code="engine_error"`, `Deck.run()` raises the exception, `Deck.stream()`
+yields `run.failed` and then raises, the non-streamed HTTP route returns
+`500 {"detail": "internal error"}`, and the streamed HTTP route sends an `error` event with the
+exception type.
 
 ## Tools do not carry images
 
@@ -1850,6 +1902,11 @@ The current release is **v5.0.3**. Earlier releases are listed at the bottom.
 
 ### Added
 
+- **`@tool` accepts a sync body.** Only `@workflow` still requires `async def`, because every
+  orchestration primitive on `WorkflowCtx` is awaited and a sync body cannot reach one. A tool has
+  nothing to await, and both paths that play one now put a sync body on a worker thread: the
+  model-facing path already did, and `ctx.invoke()` does now. The refusal previously applied to
+  both kinds, so the richer form was also the more restrictive one.
 - **Content blocks and `Observer` import from the package root.** `ImageBlock`, `TextBlock`,
   `ContentBlock`, `ResourceBlock`, `AudioBlock`, `DataBlock` and `Observer` are exported from
   `agentdeck` alongside `Agent` and `Deck`, rather than only from `agentdeck.core.content` and
