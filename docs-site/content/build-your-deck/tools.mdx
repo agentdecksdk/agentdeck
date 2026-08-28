@@ -15,7 +15,7 @@ Tools allow agents to perform actions and fetch external information.
 `@tool` declares a leaf capability. The body is your own Python, sync or async, and the docstring
 is what the model reads.
 
-```python run
+```python run tool="lookup_order" tool_arguments='{"order_id":"A-1003"}'
 import asyncio
 
 from agentdeck import Agent, Deck, tool

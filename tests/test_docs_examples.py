@@ -75,11 +75,15 @@ def _tokens(meta: str) -> list[str]:
 
 
 @cache
-def _fences_of(page: Path) -> tuple[list[tuple[int, str]], list[tuple[str, str]]]:
-    """``(run fences, file fences)`` for one page: run as ``(fence-index, source)``, file as
-    ``(relative-path, source)``  -  both in the order they appear on the page.
+def _fences_of(page: Path) -> tuple[list[tuple[int, str, str | None, str]], list[tuple[str, str]]]:
+    """``(run fences, file fences)`` for one page: run as ``(fence-index, source, tool-name,
+    tool-arguments)``, file as ``(relative-path, source)``  -  both in the order they appear on
+    the page. ``tool="name"`` on a run fence scripts the model to call that tool on its first
+    turn instead of answering in text, so the fence proves the tool's own body actually ran
+    rather than only that the script built; ``tool_arguments='{"k":"v"}'`` (single-quoted, since
+    the JSON payload already owns double quotes) supplies its call arguments, default ``{}``.
     """
-    runs: list[tuple[int, str]] = []
+    runs: list[tuple[int, str, str | None, str]] = []
     files: list[tuple[str, str]] = []
     for i, (_lang, meta, src) in enumerate(FENCE.findall(page.read_text())):
         tokens = _tokens(meta)
@@ -87,12 +91,20 @@ def _fences_of(page: Path) -> tuple[list[tuple[int, str]], list[tuple[str, str]]
         if file_token is not None:
             files.append((file_token.removeprefix("file="), src))
         elif "run" in tokens:
-            runs.append((i, src))
+            tool_token = next((t for t in tokens if t.startswith("tool=")), None)
+            tool_name = tool_token.removeprefix("tool=").strip("'\"") if tool_token else None
+            args_token = next((t for t in tokens if t.startswith("tool_arguments=")), None)
+            tool_arguments = args_token.removeprefix("tool_arguments=").strip("'\"") if args_token else "{}"
+            runs.append((i, src, tool_name, tool_arguments))
     return runs, files
 
 
-def _run_cases() -> list[tuple[Path, int, str]]:
-    return [(page, i, src) for page in _pages() for i, src in _fences_of(page)[0]]
+def _run_cases() -> list[tuple[Path, int, str, str | None, str]]:
+    return [
+        (page, i, src, tool_name, tool_arguments)
+        for page in _pages()
+        for i, src, tool_name, tool_arguments in _fences_of(page)[0]
+    ]
 
 
 def _illustrative_cases() -> list[tuple[Path, str]]:
@@ -117,20 +129,10 @@ def _write_file(root: Path, page: Path, relpath: str, src: str) -> None:
     dest.write_text(src)
 
 
-@pytest.mark.parametrize("page,index,src", RUN_CASES, ids=[f"{page.name}::run#{i}" for page, i, _ in RUN_CASES])
-def test_run_fence_executes(page: Path, index: int, src: str, tmp_path: Path, fake_model_server: str) -> None:
-    _, files = _fences_of(page)
-    for relpath, file_src in files:
-        _write_file(tmp_path, page, relpath, file_src)
-    # a reader would have a file on disk, not a piped stdin script  -  same as the file= fences
-    script = tmp_path / f"_run_{index}.py"
-    script.write_text(src)
-    env = dict(os.environ)
-    env.update(_PINNED_ENV)
-    env["OPENAI_BASE_URL"] = fake_model_server
+def _execute(script: Path, cwd: Path, env: dict[str, str], page: Path, index: int) -> None:
     result = subprocess.run(
         [sys.executable, str(script)],
-        cwd=tmp_path,
+        cwd=cwd,
         env=env,
         capture_output=True,
         text=True,
@@ -141,6 +143,39 @@ def test_run_fence_executes(page: Path, index: int, src: str, tmp_path: Path, fa
             f"{page.name} run fence #{index}: exit {result.returncode}\n"
             f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
         )
+
+
+@pytest.mark.parametrize(
+    "page,index,src,tool_name,tool_arguments",
+    RUN_CASES,
+    ids=[f"{page.name}::run#{i}" for page, i, _, _, _ in RUN_CASES],
+)
+def test_run_fence_executes(
+    page: Path,
+    index: int,
+    src: str,
+    tool_name: str | None,
+    tool_arguments: str,
+    tmp_path: Path,
+    fake_model_server: str,
+) -> None:
+    _, files = _fences_of(page)
+    for relpath, file_src in files:
+        _write_file(tmp_path, page, relpath, file_src)
+    # a reader would have a file on disk, not a piped stdin script  -  same as the file= fences
+    script = tmp_path / f"_run_{index}.py"
+    script.write_text(src)
+    env = dict(os.environ)
+    env.update(_PINNED_ENV)
+    if tool_name is None:
+        env["OPENAI_BASE_URL"] = fake_model_server
+        _execute(script, tmp_path, env, page, index)
+    else:
+        # a dedicated server, not the shared fixture: scripting a tool call here must not change
+        # what every other page's fence gets back.
+        with scripted_model_server(tool_name=tool_name, tool_arguments=tool_arguments) as base_url:
+            env["OPENAI_BASE_URL"] = base_url
+            _execute(script, tmp_path, env, page, index)
 
 
 @pytest.mark.parametrize("page,meta", ILLUSTRATIVE_CASES, ids=[p.name for p, _ in ILLUSTRATIVE_CASES])
