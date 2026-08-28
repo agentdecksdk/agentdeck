@@ -134,7 +134,13 @@ DOC_SECTION_RE = re.compile(r"^(Args|Arguments|Returns|Yields|Raises|Attributes|
 DOC_PROSE_MAX = 6
 # CLAUDE.md section 3: comments are "max 1-2 lines". Longer is documentation, and belongs in docs/.
 COMMENT_BLOCK_MAX = 2
-LIBRARY_ONLY = ("SLOP004", "SLOP010", "SLOP011")
+# Empirically derived: agentdeck/ files >=20 lines run a median 0.31/p90 0.51/p95 0.56/max 0.72
+# ratio (docs/delivery/plan-slop-comment-ratio.md measurement); 0.6 clears everything but one
+# Protocol file's per-method Args/Returns docstrings. Below 20 total/added lines a ratio is noise:
+# a bare package docstring in an empty __init__.py is 100% prose and not bloat.
+COMMENT_RATIO_MAX = 0.6
+COMMENT_RATIO_MIN_LINES = 20
+LIBRARY_ONLY = ("SLOP004", "SLOP010", "SLOP011", "SLOP012")
 HUNK_RE = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
 EM_DASH = chr(0x2014)
 
@@ -283,6 +289,7 @@ def check_source(source: str) -> list[Violation]:
             )
 
     violations.extend(_ast_violations(source))
+    violations.extend(_file_ratio_violations(source))
     violations = [v for v in violations if not any(v.rule.startswith(r) for r in allowed.get(v.start, ()))]
     return sorted(violations, key=lambda v: v.start)
 
@@ -292,6 +299,77 @@ def check_style(source: str) -> list[Violation]:
         Violation(row, row, "SLOP009 em-dash", "replace the em dash with a colon, hyphen, or new sentence")
         for row, line in enumerate(source.splitlines(), 1)
         if EM_DASH in line
+    ]
+
+
+def _prose_rows(source: str) -> set[int]:
+    """Every full-line comment row plus every docstring line, sections and blanks included.
+
+    Unlike _doc_prose, nothing is exempted: SLOP012 measures total prose volume, not
+    whether a block reads as a design essay.
+    """
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return set()
+    lines = source.splitlines()
+    rows: set[int] = set()
+    for tok in tokens:
+        if tok.type != tokenize.COMMENT:
+            continue
+        row, col = tok.start
+        text = tok.string.lstrip("#").strip()
+        if BLANKET_RE.match(text) or MARKER_RE.match(tok.string) or DIVIDER_RE.search(text):
+            continue
+        if not lines[row - 1][:col].strip():
+            rows.add(row)
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return rows
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        doc = ast.get_docstring(node, clean=False)
+        if doc is None:
+            continue
+        literal = node.body[0]
+        rows.update(range(literal.lineno, (literal.end_lineno or literal.lineno) + 1))
+    return rows
+
+
+def _file_ratio_violations(source: str) -> list[Violation]:
+    total = len(source.splitlines())
+    if total < COMMENT_RATIO_MIN_LINES:
+        return []
+    ratio = len(_prose_rows(source)) / total
+    if ratio <= COMMENT_RATIO_MAX:
+        return []
+    return [
+        Violation(
+            1,
+            total,
+            "SLOP012 comment-ratio",
+            f"file runs {ratio:.0%} comment/docstring lines where the cap is {COMMENT_RATIO_MAX:.0%}; "
+            "move prose to docs/ or trim comments",
+        )
+    ]
+
+
+def _diff_ratio_violations(source: str, added: set[int]) -> list[Violation]:
+    if len(added) < COMMENT_RATIO_MIN_LINES:
+        return []
+    ratio = len(_prose_rows(source) & added) / len(added)
+    if ratio <= COMMENT_RATIO_MAX:
+        return []
+    return [
+        Violation(
+            min(added),
+            max(added),
+            "SLOP012 comment-ratio",
+            f"this PR's added lines run {ratio:.0%} comment/docstring where the cap is "
+            f"{COMMENT_RATIO_MAX:.0%}, even if the file as a whole is not",
+        )
     ]
 
 
@@ -468,6 +546,8 @@ def check_file(path: Path, all_lines: bool = False, base: str = "HEAD") -> list[
     changed = None if all_lines else changed_lines(path, base)
     if changed is not None:
         violations = [v for v in violations if v.touches(changed)]
+        if path.suffix == ".py":
+            violations.extend(_scope(path, _diff_ratio_violations(source, changed)))
     return [f"{path}:{v.start}: {v.rule}: {v.message}" for v in violations]
 
 
@@ -532,6 +612,8 @@ def main() -> int:
         if path.suffix == ".py":
             violations.extend(check_source(candidate))
         blocked = [v for v in _scope(path.resolve(), violations) if v.touches(new_rows)]
+        if path.suffix == ".py":
+            blocked.extend(_scope(path.resolve(), _diff_ratio_violations(candidate, new_rows)))
         for v in blocked:
             print(f"{path}:{v.start}: {v.rule}: {v.message}", file=sys.stderr)
         return 2 if blocked else 0
@@ -638,6 +720,24 @@ def _self_test() -> None:
     essay_comment = "# One.\n# Two.\n# Three.\n# Four.\nx = 1\n"
     assert any(v.rule.startswith("SLOP011") for v in check_source(essay_comment)), "comment essay must be flagged"
     assert _scope(Path("/tmp/x.py"), check_source(essay)) == [], "SLOP010 is library-only"
+    under_ratio = "\n".join(["# note"] * 4 + ["x = 1"] * 16) + "\n"
+    assert not any(v.rule.startswith("SLOP012") for v in check_source(under_ratio)), "ratio under cap must pass"
+    over_ratio = "\n".join(["# note"] * 13 + ["x = 1"] * 7) + "\n"
+    assert any(v.rule.startswith("SLOP012") for v in check_source(over_ratio)), "whole-file ratio over cap must fail"
+    assert _scope(Path("/tmp/x.py"), check_source(over_ratio)) == [], "SLOP012 is library-only"
+    diff_source = "\n".join(f"# note {i}" for i in range(20)) + "\n" + "\n".join(["x = 1"] * 100) + "\n"
+    assert not _file_ratio_violations(diff_source), "large otherwise-fine file must pass Check A"
+    assert _diff_ratio_violations(diff_source, set(range(1, 21))), "comment-heavy added lines must fail Check B"
+    google_big = (
+        'def f(a, b, c, d, e, f, g, h, i, j):\n    """One line.\n\n    Args:\n        a: first.\n'
+        "        b: second.\n        c: third.\n        d: fourth.\n        e: fifth.\n"
+        "        f: sixth.\n        g: seventh.\n        h: eighth.\n        i: ninth.\n"
+        "        j: tenth.\n        k: eleventh.\n        l: twelfth.\n        m: thirteenth.\n"
+        '        n: fourteenth.\n    """\n    return a\n'
+    )
+    google_violations = check_source(google_big)
+    assert not any(v.rule.startswith("SLOP010") for v in google_violations), "Args: section stays SLOP010-exempt"
+    assert any(v.rule.startswith("SLOP012") for v in google_violations), "same Args: section counts toward SLOP012"
     em_dash = "Use the short path" + chr(0x2014) + "the runtime owns the machinery.\n"
     assert any(v.rule.startswith("SLOP009") for v in check_style(em_dash)), "em dash must be flagged"
     assert not check_style("Use the short path: the runtime owns the machinery.\n"), "colon must pass"
