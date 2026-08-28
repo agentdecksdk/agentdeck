@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
     from agentdeck.authoring.compile import Delegate
     from agentdeck.core.ports import Executor
+    from agentdeck.core.workers import SyncToolWorkers
 
 # Which executor plays which bundle shape: a bundle names no executor of its own, the shape it
 # was authored in decides. Written as strings rather than read off the adapters, because an
@@ -74,6 +75,7 @@ class InvocableRegistry:
         bundle_of: Mapping[str, str] | None = None,
         context_type: object | None = None,
         delegate: Delegate | None = None,
+        workers: SyncToolWorkers | None = None,
     ) -> Mapping[str, InvocableSpec]:
         """Compile every agent and workflow to an ``InvocableSpec``.
 
@@ -116,6 +118,7 @@ class InvocableRegistry:
                     context_type=context_type,
                     catalog=catalog,
                     delegate=delegate,
+                    workers=workers,
                 )
             except Exception as exc:
                 bundle_file = bundle_of.get(agent.name)

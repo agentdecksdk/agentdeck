@@ -30,6 +30,8 @@ from openai.types.responses import (
 )
 from openai.types.responses.response_usage import InputTokensDetails, OutputTokensDetails
 
+from agentdeck import ToolCtx, tool
+from agentdeck.adapters.executors.native import NativeExecutor
 from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
 from agentdeck.adapters.executors.stub import StubExecutor, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
@@ -38,6 +40,7 @@ from agentdeck.core.context import RunContext
 from agentdeck.core.events import CURRENT_VERSION, Event, Reported, RunCompleted, Usage
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
+from agentdeck.core.workers import SyncToolWorkers
 from agentdeck.runtime.service import Runtime
 from agentdeck.surfaces.cli.chat import render
 
@@ -167,6 +170,31 @@ async def test_a_function_tool_reports_through_the_sdk_context() -> None:
     assert check_contiguous(events) == [] and check_terminal(events) is None
     assert await store.read_session(CTX) == events
     assert status_of(events) is RunStatus.COMPLETED
+
+
+# --- a sync @tool body, on its worker thread ----------------------------------------------
+
+
+@tool
+def _noisy_sync(ctx: ToolCtx) -> str:
+    """Report twice, then return  -  the sync facade must block the worker for each report, so
+    its own return can never race ahead of one still in flight."""
+    ctx.reporter.info("one")
+    ctx.reporter.info("two")
+    return "done"
+
+
+async def test_a_sync_tools_reporter_facade_preserves_order_against_its_own_return() -> None:
+    """Plan §5: ``ctx.reporter`` from a worker thread marshals onto the run's own loop and blocks
+    until accepted, so two reports made before a return show up before ``run.completed``, in
+    order  -  not reordered, and not silently dropped the way an unawaited coroutine would be."""
+    spec = InvocableSpec(name="_noisy_sync", kind=InvocableKind.TOOL, executor=NativeExecutor.name, native=_noisy_sync)
+    runtime = Runtime([NativeExecutor(workers=SyncToolWorkers())], MemoryEventStore(), {spec.name: spec})
+
+    events = [event async for event in runtime.run("_noisy_sync", coerce_input(""))]
+
+    assert [event.kind for event in events] == ["run.started", "report", "report", "run.completed"]
+    assert _reports(events) == [("info", "one", {}), ("info", "two", {})]
 
 
 # --- the SSE surface and the reference renderer ----------------------------------------

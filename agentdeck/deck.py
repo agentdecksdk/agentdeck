@@ -75,6 +75,7 @@ from agentdeck.core.events import (
 from agentdeck.core.invocable import AgentInstance, InvocableKind, InvocableSpec
 from agentdeck.core.ports import Observer
 from agentdeck.core.status import PRECONDITIONS, SUSPENDED_KINDS, Controls, Operation, RunStatus, Verdict, can_of
+from agentdeck.core.workers import SyncToolWorkers
 from agentdeck.errors import (
     AgentdeckError,
     ConfigError,
@@ -561,6 +562,11 @@ class Deck:
         self._state: _State = "NEW"
         self._invocables: Mapping[str, InvocableSpec] | None = None
         self._executor_instances: tuple[Executor, ...] | None = None
+        # Shared by the compile chain (build()) and NativeExecutor (__aenter__)  -  constructed
+        # here, before either exists, because build() compiles every sync @tool's bridge before
+        # __aenter__ ever constructs an executor. Cheap: a ThreadPoolExecutor spawns no thread
+        # until its first submit().
+        self._sync_workers = SyncToolWorkers()
         self._runtime: Runtime | None = None
         self._sessions: ExecutionStore | None = None
         # The one execution owner per run (docs/design/run-identity.md §9): keyed by run_id,
@@ -684,6 +690,7 @@ class Deck:
             bundle_of=self._bundle_of,
             context_type=self._context_type,
             delegate=self._delegate,
+            workers=self._sync_workers,
         )
         self._state = "BUILT"
         return self
@@ -745,7 +752,7 @@ class Deck:
         else:
             self._executor_instances = (
                 OpenAIAgentsExecutor(self._ensure_sessions(), settings=resolve_run_settings()),
-                NativeExecutor(self._invoke, _Agents(self)),
+                NativeExecutor(self._invoke, _Agents(self), self._sync_workers),
             )
         self._owns_store = self._store_arg is None
         store = self._store_arg if self._store_arg is not None else resolve_event_store()
@@ -1019,7 +1026,11 @@ class Deck:
             kind=InvocableKind.AGENT,
             executor=EXECUTOR_FOR_KIND[InvocableKind.AGENT],
             native=compile_agent(
-                minted, context_type=self._context_type, catalog=self._agents, delegate=self._delegate
+                minted,
+                context_type=self._context_type,
+                catalog=self._agents,
+                delegate=self._delegate,
+                workers=self._sync_workers,
             ),
             metadata={"agent": instance},
         )

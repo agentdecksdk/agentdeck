@@ -161,3 +161,21 @@ class Gate:
             # pending behind an honored one would be honored a second time on the next resume.
             await self._control.consume(self._id, pending.verb)
         raise _HALTED_BY[pending.verb](self._id, safe_point, pending.reason)
+
+    async def checkpoint_cancel_only(self, safe_point: SafePoint) -> None:
+        """Like :meth:`checkpoint`, but honors CANCEL alone and never touches PAUSE.
+
+        The safe point a THREAD-executed tool body could never offer on its own: it has no await
+        point while its worker runs, so the native executor asks this once, right after the body
+        returns, before recording completion. Consuming a pending PAUSE here, with no parked body
+        to leave it suspended in, would make it unresumable  -  so it is left for a real
+        checkpoint to honor instead, exactly as a leaf tool with none of its own already leaves it
+        today.
+        """
+        if self._control is None:
+            return
+        pending = await self._control.poll(self._id)
+        if pending is None or pending.verb is not Signal.CANCEL:
+            return
+        await self._control.consume(self._id, pending.verb)
+        raise RunCancelledError(self._id, safe_point, pending.reason)

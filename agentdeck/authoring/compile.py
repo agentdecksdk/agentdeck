@@ -64,6 +64,7 @@ if TYPE_CHECKING:
 
     from agentdeck.authoring.agent import Agent
     from agentdeck.core.context import RunContext
+    from agentdeck.core.workers import SyncToolWorkers
 
 type Delegate = Callable[["RunContext", str, str], "Awaitable[Any]"]
 """How a subagent tool reaches the deck: ``delegate(parent_context, subagent_name, task)``, run as
@@ -89,6 +90,7 @@ def compile_agent(
     context_type: object | None = None,
     catalog: Mapping[str, Agent] | None = None,
     delegate: Delegate | None = None,
+    workers: SyncToolWorkers | None = None,
 ) -> SDKAgent:
     """Build the SDK ``Agent`` for ``agent``, minus handoffs (see module docstring).
 
@@ -101,6 +103,9 @@ def compile_agent(
 
     ``catalog`` and ``delegate`` are what ``subagents=`` needs and a standalone compile has
     neither of: the agents a name may resolve to, and the deck's own way of starting a child run.
+
+    ``workers`` is the deck's shared sync-tool worker pool, threaded to :func:`compile_tool` the
+    same way; ``None`` for a standalone compile, same fallback.
     """
     banner, mcp_servers = _resolve_mcp(agent)
     disclosure = ""
@@ -128,9 +133,11 @@ def compile_agent(
                 # what the catalog holds and what makes it invocable in its own right, and the SDK
                 # only ever needed the callable underneath. Only this branch may pass a context:
                 # it is the one callable shape that declared it through ``@tool``.
-                resolved_tools.append(compile_tool(tool.call, context_type=context_type, declared_via_tool=True))
+                resolved_tools.append(
+                    compile_tool(tool.call, context_type=context_type, declared_via_tool=True, workers=workers)
+                )
             else:
-                resolved_tools.append(compile_tool(tool, context_type=context_type))
+                resolved_tools.append(compile_tool(tool, context_type=context_type, workers=workers))
         except ConfigError as refused:
             # Re-raised as its own class: a ContextTypeError flattened to its supertype here
             # would reach the caller as a different error than the one the API promises.

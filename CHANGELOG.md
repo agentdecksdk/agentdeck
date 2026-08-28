@@ -54,6 +54,17 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   credential it would never use. Model authentication belongs to the wrapped Agents SDK and the
   selected provider, not `Deck.build()`; a real auth failure now surfaces at the actual call,
   as the provider's own error.
+- **`ctx.reporter` now works from a sync `@tool` body.** It previously did nothing: `Reporter.info`
+  and friends are `async def`, and a worker thread has no event loop to await one on, so a bare
+  call built an unawaited coroutine and quietly reported nothing. `ctx.reporter` from a sync body
+  is now a sync-callable facade that marshals the report onto the run's own loop and blocks until
+  it lands, preserving order against the tool's own return. `ctx.safepoint()` from a sync body now
+  raises `ConfigError` naming the constraint, instead of the same silent no-op.
+- **A sync `@tool` body now runs on a bounded, deck-owned worker pool**, not the interpreter-global
+  default `asyncio.to_thread()` executor. A `Run` cancelled while its sync body is still on a
+  worker now ends `CANCELLED`, never flipped back to `COMPLETED` by the body's eventual,
+  uninterruptible return; a queued-but-not-started call is cancelled outright and its body never
+  runs. The pool drains on `Deck.aclose()` along with everything else this Deck owns.
 - **`@function_tool` over a `ToolCtx` parameter now says what to do about it.** The Agents SDK
   decorator builds its argument schema from every parameter it does not recognise, so a context
   one used to fail at decoration with `PydanticSchemaGenerationError: Unable to generate

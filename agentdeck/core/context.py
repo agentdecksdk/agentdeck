@@ -27,13 +27,14 @@ from uuid import uuid4
 from agentdeck.core.control import Gate, RunPausedError
 from agentdeck.core.errors import DOCS_URL, ConfigError
 from agentdeck.core.events import KnownPayload, RunInterrupted
-from agentdeck.core.reporting import Reporter
+from agentdeck.core.reporting import Reporter, SyncReporter
 from agentdeck.core.status import RunStatus
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from asyncio import AbstractEventLoop
+    from collections.abc import Callable, Coroutine
 
     from agentdeck.core.base import JsonData
     from agentdeck.core.invocable import AgentInstance
@@ -181,6 +182,11 @@ class ToolCtx[T]:
     when it cannot: a tool inside an Agents SDK turn has no way to park, because the SDK owns the
     stack and the turn is replayed from the log on resume.
 
+    ``_loop`` is present exactly when the body is running on a worker thread rather than on the
+    loop itself  -  set by whichever executor dispatched a THREAD-executed ``@tool`` to one. It
+    switches :attr:`reporter` to a sync-callable facade and makes :meth:`safepoint` refuse: both
+    are async APIs a thread with no loop of its own cannot honor the ordinary way.
+
     A tool is a leaf capability, so this is where the surface stops: orchestration
     (``invoke``, ``parallel``, ``ask``, ``approve``) is :class:`WorkflowCtx`'s, and a tool that
     declared it would silently acquire the ability to coordinate other executions
@@ -189,6 +195,7 @@ class ToolCtx[T]:
 
     _run: RunContext
     _channel: Suspender | None = None
+    _loop: AbstractEventLoop | None = None
 
     @property
     def data(self) -> T:
@@ -208,8 +215,13 @@ class ToolCtx[T]:
         return cast("AgentInstance | None", self._run.agent)
 
     @property
-    def reporter(self) -> Reporter:
-        return self._run.reporter
+    def reporter(self) -> Reporter | SyncReporter:
+        """The run's report channel: the async :class:`Reporter` every caller has always gotten,
+        or a sync-callable :class:`SyncReporter` when this body is THREAD-executed and has no
+        loop of its own to await one on."""
+        if self._loop is None:
+            return self._run.reporter
+        return SyncReporter(self._run.reporter, self._loop)
 
     @property
     def run_id(self) -> str:
@@ -219,7 +231,7 @@ class ToolCtx[T]:
     def session_id(self) -> str | None:
         return self._run.session_id
 
-    async def safepoint(self) -> None:
+    def safepoint(self) -> Coroutine[Any, Any, None]:
         """Offer a safe point: returns, or stops the run here if one was signaled.
 
         How it stops depends on what is playing this body, and that is the whole difference:
@@ -230,7 +242,22 @@ class ToolCtx[T]:
         Deliberately takes no safe-point argument. The kinds of safe point are a recorded
         contract executor adapters share, and a user callable naming a new one would change what
         the event log means from outside the executors.
+
+        Refused outright for a THREAD-executed body: cooperative cancellation needs an await
+        point, which a synchronous function has none of. A plain ``def`` here, not ``async def``,
+        is what makes that a real call-time ``ConfigError`` rather than a coroutine a sync body
+        has no way to await and that silently does nothing.
         """
+        if self._loop is not None:
+            raise ConfigError(
+                "ctx.safepoint() is not available inside a sync @tool body: cooperative "
+                "cancellation needs an await point to suspend on, which a synchronous function "
+                "cannot offer. This is deferred rather than half-implemented  -  a bounded sync "
+                f"safepoint is real follow-up work, not built here. See {DOCS_URL}/build-your-deck/tools."
+            )
+        return self._safepoint()
+
+    async def _safepoint(self) -> None:
         try:
             await self._run.gate.checkpoint()
         except RunPausedError as paused:
