@@ -27,7 +27,8 @@ support_agent = Agent(
 
 ## Choose a model provider
 
-Prefix `model=` to select a provider. `Deck.build()` checks every required credential before any model call.
+Prefix `model=` to select a provider. Each provider reads its own credential at the actual model
+call; a missing or invalid one surfaces there, not from `Deck.build()`.
 
 ```python
 openai_agent = Agent(name="openai", model="openai/gpt-4o")
