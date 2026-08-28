@@ -38,26 +38,23 @@ if TYPE_CHECKING:
     from agents.tool import FunctionTool
 
     from agentdeck.authoring.injection import CallableAnalysis
+    from agentdeck.core.workers import SyncToolWorkers
 
 
 def compile_tool(
-    target: Callable[..., Any], *, context_type: object | None = None, declared_via_tool: bool = False
+    target: Callable[..., Any],
+    *,
+    context_type: object | None = None,
+    declared_via_tool: bool = False,
+    workers: SyncToolWorkers | None = None,
 ) -> FunctionTool:
     """Build the SDK tool for ``target``, injecting its ``ToolCtx[...]`` parameter if it has one.
 
-    A callable whose signature could not be recovered is refused rather than compiled. The
-    schema the model is shown has to exist at build time, so an unreadable signature has no
-    honest one to offer  -  and "no ``ToolCtx`` parameter was found" is not a finding about such a
-    callable, it is the absence of one. Guessing there is nothing to inject would drop the
-    argument at the first call, silently.
-
-    ``declared_via_tool`` is set only for a callable that reached here through ``@tool``: a bare
-    callable declaring ``ToolCtx[...]`` is refused, since the annotation alone gives it no
-    contract and no visible declaration site.
-
-    ``context_type`` is the owning deck's ``Deck(context=...)`` declaration, or ``None`` when it
-    made none; an incompatible requirement raises :class:`ContextTypeError` here rather than
-    reaching a run that could only fail on the first call.
+    An unreadable signature is refused, not guessed at. ``declared_via_tool`` is set only for a
+    callable that reached here through ``@tool``; a bare one declaring ``ToolCtx[...]`` is
+    refused. ``context_type`` checks against ``Deck(context=...)``. ``workers`` is the deck's
+    shared :class:`~agentdeck.core.workers.SyncToolWorkers`; ``None`` falls back to
+    ``asyncio.to_thread()``, for a standalone compile with no deck lifecycle to own one.
     """
     analysis = analyze_callable(target)
     if not analysis.reliable:
@@ -77,7 +74,7 @@ def compile_tool(
     # something needs to forward it; nothing about this split is what stops that today.
     if analysis.context_parameter is None:
         return function_tool(target, failure_error_function=_tool_failure)
-    return function_tool(_bridge(analysis), failure_error_function=_tool_failure)
+    return function_tool(_bridge(analysis, workers), failure_error_function=_tool_failure)
 
 
 def _undeclared_context_message(target: Callable[..., Any], analysis: CallableAnalysis) -> str:
@@ -120,7 +117,7 @@ def _tool_failure(ctx: RunContextWrapper[Any], error: Exception) -> str:
     return default_tool_error_function(ctx, error)
 
 
-def _bridge(analysis: CallableAnalysis) -> Callable[..., Any]:
+def _bridge(analysis: CallableAnalysis, workers: SyncToolWorkers | None) -> Callable[..., Any]:
     """A function the SDK sees as ``(wrapper, *visible parameters)`` and that calls the original.
 
     The declared signature is synthesized rather than written, because the visible parameters are
@@ -156,6 +153,9 @@ def _bridge(analysis: CallableAnalysis) -> Callable[..., Any]:
                 f"{type(run).__name__} rather than an AgentDeck run context  -  a tool compiled by "
                 "AgentDeck has to be played by an AgentDeck run."
             )
+        # Absent for an awaited body: it never leaves this loop, so it never needs its own facade
+        # reporter or a refusal to guard an API it can reach the ordinary way.
+        tool_ctx = ToolCtx(run, _loop=None if awaits else asyncio.get_running_loop())
         bound = visible_signature.bind(*supplied, **kwargs)
         # `BoundArguments` already knows how to split a name -> value mapping back into positional
         # and keyword arguments for a signature, including positional-only parameters (which cannot
@@ -163,7 +163,7 @@ def _bridge(analysis: CallableAnalysis) -> Callable[..., Any]:
         call = original.bind_partial()
         call.arguments.update(
             {
-                parameter.name: (ToolCtx(run) if parameter.name == context_parameter else bound.arguments[name])
+                parameter.name: (tool_ctx if parameter.name == context_parameter else bound.arguments[name])
                 for parameter in original.parameters.values()
                 if (name := parameter.name) == context_parameter or name in bound.arguments
             }
@@ -172,7 +172,8 @@ def _bridge(analysis: CallableAnalysis) -> Callable[..., Any]:
             return await target(*call.args, **call.kwargs)
         # Parity with what the SDK does for a sync `@function_tool`: a blocking tool body must not
         # run on the event loop, where it would stall the stream and every safe point with it.
-        result = await asyncio.to_thread(target, *call.args, **call.kwargs)
+        submit = workers.submit if workers is not None else asyncio.to_thread
+        result = await submit(target, *call.args, **call.kwargs)
         return await result if inspect.isawaitable(result) else result
 
     bridge.__name__ = getattr(target, "__name__", "tool")

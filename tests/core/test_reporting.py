@@ -8,7 +8,9 @@ malformed when it happens to run under a Runtime has no way to test itself.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import threading
 from collections import deque
 from typing import TYPE_CHECKING
 
@@ -16,9 +18,10 @@ import pytest
 from pydantic import ValidationError
 
 from agentdeck.core import Reported, Reporter, RunContext
-from agentdeck.core.reporting import MAX_PENDING_REPORTS
+from agentdeck.core.reporting import MAX_PENDING_REPORTS, SyncReporter
 
 if TYPE_CHECKING:
+    from agentdeck.core.base import JsonData
     from agentdeck.core.events import KnownPayload
 
 
@@ -96,3 +99,28 @@ async def test_a_drained_buffer_takes_reports_again() -> None:
     buffer.clear()
     await reporter.info("still reporting")
     assert list(buffer) == [Reported(level="info", message="still reporting")]
+
+
+def test_sync_reporter_blocks_the_worker_until_the_report_actually_lands() -> None:
+    """The bridge's guarantee is that ``.result()`` blocks, not merely that a fast report
+    happens to arrive first: two instant reports pass even with the block removed, because
+    ``call_soon_threadsafe`` delivers FIFO regardless of whether the submitter waited. A report
+    that takes real wall-clock time to land is what actually exercises the block  -  proven by
+    asserting the buffer already holds it the instant ``.info()`` returns."""
+    buffer: deque[KnownPayload] = deque()
+
+    class _SlowReporter(Reporter):
+        async def info(self, message: str, **fields: JsonData) -> None:
+            await asyncio.sleep(0.05)
+            await super().info(message, **fields)
+
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    try:
+        SyncReporter(_SlowReporter(buffer), loop).info("slow report")
+        assert list(buffer) == [Reported(level="info", message="slow report")]
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=5)
+        loop.close()

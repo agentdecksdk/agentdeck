@@ -27,13 +27,14 @@ from uuid import uuid4
 from agentdeck.core.control import Gate, RunPausedError
 from agentdeck.core.errors import DOCS_URL, ConfigError
 from agentdeck.core.events import KnownPayload, RunInterrupted
-from agentdeck.core.reporting import Reporter
+from agentdeck.core.reporting import Reporter, SyncReporter
 from agentdeck.core.status import RunStatus
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from asyncio import AbstractEventLoop
+    from collections.abc import Callable, Coroutine
 
     from agentdeck.core.base import JsonData
     from agentdeck.core.invocable import AgentInstance
@@ -164,31 +165,16 @@ class RunContext:
 class ToolCtx[T]:
     """The only public context type: what a user callable declaring ``ToolCtx[T]`` receives.
 
-    One portable type above every executor. The OpenAI SDK hands a tool its own
-    ``RunContextWrapper``; each bridge unwraps its native carrier to the :class:`RunContext`
-    travelling inside and presents this view, so a tool signature does not change when the
-    engine does.
-
-    A view, not a copy  -  ``data`` is the very object the caller supplied, by reference. Access
-    to it is access for *application* code only: nothing here is ever serialized into a prompt,
-    and a dynamic-instructions callable contributes only its return value to what the model sees.
-
-    Narrower than the carrier on purpose. ``namespace`` is absent because no injection site has
-    needed to read it, and ``gate`` is absent because :meth:`safepoint` is the whole of what a
-    callable may do with it  -  adding a property later is cheaper than changing one after release.
-
-    ``_channel`` is present when the executor playing this body can stop it in place, and absent
-    when it cannot: a tool inside an Agents SDK turn has no way to park, because the SDK owns the
-    stack and the turn is replayed from the log on resume.
-
-    A tool is a leaf capability, so this is where the surface stops: orchestration
-    (``invoke``, ``parallel``, ``ask``, ``approve``) is :class:`WorkflowCtx`'s, and a tool that
-    declared it would silently acquire the ability to coordinate other executions
-    (``docs/design/execution-api.md``).
+    A view over :class:`RunContext`, not a copy: ``data`` is the caller's own object, by
+    reference, never serialized into a prompt. ``_channel`` is present only where the executor
+    playing this body can park it in place; ``_loop`` only when it runs on a worker thread, which
+    switches :attr:`reporter` to a sync facade and makes :meth:`safepoint` refuse. Orchestration
+    (``invoke``, ``parallel``, ``ask``, ``approve``) is :class:`WorkflowCtx`'s alone.
     """
 
     _run: RunContext
     _channel: Suspender | None = None
+    _loop: AbstractEventLoop | None = None
 
     @property
     def data(self) -> T:
@@ -208,8 +194,13 @@ class ToolCtx[T]:
         return cast("AgentInstance | None", self._run.agent)
 
     @property
-    def reporter(self) -> Reporter:
-        return self._run.reporter
+    def reporter(self) -> Reporter | SyncReporter:
+        """The run's report channel: the async :class:`Reporter` every caller has always gotten,
+        or a sync-callable :class:`SyncReporter` when this body is THREAD-executed and has no
+        loop of its own to await one on."""
+        if self._loop is None:
+            return self._run.reporter
+        return SyncReporter(self._run.reporter, self._loop)
 
     @property
     def run_id(self) -> str:
@@ -219,18 +210,24 @@ class ToolCtx[T]:
     def session_id(self) -> str | None:
         return self._run.session_id
 
-    async def safepoint(self) -> None:
+    def safepoint(self) -> Coroutine[Any, Any, None]:
         """Offer a safe point: returns, or stops the run here if one was signaled.
 
-        How it stops depends on what is playing this body, and that is the whole difference:
-        where the body can be parked it waits in place with its locals intact, and where it
-        cannot it unwinds and the run is replayed from the log on resume. A cancel always
-        unwinds, because the run is over and there is nothing left to preserve.
-
-        Deliberately takes no safe-point argument. The kinds of safe point are a recorded
-        contract executor adapters share, and a user callable naming a new one would change what
-        the event log means from outside the executors.
+        Parks in place where the executor can, unwinds and replays from the log where it cannot;
+        a cancel always unwinds. A THREAD-executed body is refused outright, at call time  -  a
+        plain ``def``, not ``async def``, so the refusal is a real ``ConfigError`` rather than a
+        coroutine a sync body has no await point to raise it from.
         """
+        if self._loop is not None:
+            raise ConfigError(
+                "ctx.safepoint() is not available inside a sync @tool body: cooperative "
+                "cancellation needs an await point to suspend on, which a synchronous function "
+                "cannot offer. This is deferred rather than half-implemented  -  a bounded sync "
+                f"safepoint is real follow-up work, not built here. See {DOCS_URL}/build-your-deck/tools."
+            )
+        return self._safepoint()
+
+    async def _safepoint(self) -> None:
         try:
             await self._run.gate.checkpoint()
         except RunPausedError as paused:

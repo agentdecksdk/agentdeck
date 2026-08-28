@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from agentdeck.authoring.injection import analyze_callable, describe_callable
 from agentdeck.core.context import ToolCtx, WorkflowCtx
-from agentdeck.core.invocable import InvocableKind
+from agentdeck.core.invocable import InvocableKind, NativeExecution
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
@@ -40,6 +40,7 @@ class NativeDefinition:
     kind: InvocableKind
     call: Callable[..., Any]
     analysis: CallableAnalysis
+    execution: NativeExecution
 
     @property
     def context_parameter(self) -> str | None:
@@ -124,12 +125,14 @@ def _build(
             f"decorator that does not use functools.wraps is the usual cause."
         )
     _check_context(kind, required, analysis, target)
+    execution = NativeExecution.ASYNC if inspect.iscoroutinefunction(inspect.unwrap(target)) else NativeExecution.THREAD
     return NativeDefinition(
         name=name or getattr(target, "__name__", None) or describe_callable(target),
         description=description or inspect.getdoc(target) or "",
         kind=kind,
         call=target,
         analysis=analysis,
+        execution=execution,
     )
 
 
