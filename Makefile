@@ -40,7 +40,7 @@ lint-imports:   ## import-linter contracts (.importlinter)
 	$(E).venv/bin/lint-imports $(QUIET)
 
 slop:           ## anti-slop gate on lines this branch adds vs origin/dev
-	$(E).venv/bin/python scripts/slopcheck.py --changed --base origin/dev $(QUIET)
+	$(E).venv/bin/python scripts/slopcheck.py --changed --base origin/dev < /dev/null $(QUIET)
 
 coverage:       ## per-module coverage: audit input for #71/#131, not part of `make check`
 	# Zero coverage is evidence a module *may* be dead, never proof: skill_runtime is
