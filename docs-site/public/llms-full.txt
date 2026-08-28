@@ -201,7 +201,7 @@ below. Declaring the type is what lets `build()` check it against every `ToolCtx
 the catalog before anything runs:
 
 ```python run
-from agentdeck import Agent, ToolCtx, ContextTypeError, Deck
+from agentdeck import Agent, ToolCtx, ContextTypeError, Deck, tool
 
 
 class Calendar:
@@ -213,6 +213,7 @@ class Warehouse:
     """A different application environment entirely."""
 
 
+@tool
 def find_slots(day: str, environment: ToolCtx[Calendar]) -> str:
     """Find free appointment slots on a given day."""
     return environment.data.find(day)
@@ -1192,7 +1193,7 @@ Tools allow agents to perform actions and fetch external information.
 `@tool` declares a leaf capability. The body is your own Python, sync or async, and the docstring
 is what the model reads.
 
-```python run
+```python run tool="lookup_order" tool_arguments='{"order_id":"A-1003"}'
 import asyncio
 
 from agentdeck import Agent, Deck, tool
@@ -1219,7 +1220,7 @@ asyncio.run(main())
 
 ## The plain function
 
-An undecorated callable in `tools=` is compiled the same way, with less ceremony:
+A context-free callable in `tools=` is compiled the same way, with less ceremony:
 
 ```python
 def lookup_order(order_id: str) -> str:
@@ -1227,18 +1228,29 @@ def lookup_order(order_id: str) -> str:
     return f"Order {order_id} is in transit."
 ```
 
-Both forms get the same schema, the same [context injection](/build-your-deck/context), and the
-same failure attribution. What `@tool` adds is a catalog entry: it yields a `NativeDefinition` the
-deck holds, so a workflow can start it as a child run of its own with
-`ctx.invoke(lookup_order, "A-1003")`. A plain function is not a target `ctx.invoke` can resolve.
+Both forms get the same schema and the same failure attribution. What `@tool` adds is a catalog
+entry: it yields a `NativeDefinition` the deck holds, so a workflow can start it as a child run of
+its own with `ctx.invoke(lookup_order, "A-1003")`. A plain function is not a target `ctx.invoke`
+can resolve.
 
 | | `@tool` | plain function |
 |---|---|---|
 | Called by a model | yes | yes |
 | Sync or async body | yes | yes |
-| `ToolCtx[T]` injected | yes | yes |
+| `ToolCtx[T]` injected | yes | no  -  `build()` refuses it |
 | Started as its own child run | yes | no |
 | Name and description | `name=`, `description=`, else the function's | the function's |
+
+A callable that declares [`ToolCtx[T]`](/build-your-deck/context) has to be `@tool`. The parameter
+is injected by the runtime and must stay off the schema the model sees, so `@tool` is what makes
+"this callable receives a live dependency" part of its own declaration rather than something a
+reader has to notice from the annotation alone. A plain function carrying one fails `build()`,
+naming the fix:
+
+```text
+lookup_order takes a ToolCtx parameter ('shop') but is not declared @tool. Only @tool carries
+a context into a tool  -  add the decorator: ...
+```
 
 ## You already have SDK tools
 
@@ -1467,12 +1479,14 @@ Question
 That shape is the whole application, and the code says the same thing:
 
 ```python
-from agentdeck import Agent, ToolCtx, Deck
+from agentdeck import Agent, ToolCtx, Deck, tool
 
+@tool
 def search_docs(query: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Find AgentDeck documentation pages matching a query."""
     return docs.data.search(query)
 
+@tool
 def read_doc(slug: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Read one AgentDeck documentation page in full, by its slug."""
     return docs.data.pages[slug]
@@ -1486,7 +1500,7 @@ jack = Agent(
 deck = Deck(agents=[jack], context=DocsCorpus)
 ```
 
-Three ordinary functions, one agent, one Deck. `ToolCtx[DocsCorpus]` is how a tool reaches the
+Three `@tool`s, one agent, one Deck. `ToolCtx[DocsCorpus]` is how a tool reaches the
 application's own data; the model is offered only `query` or `slug`.
 
 ## The application code stays application code
@@ -1568,11 +1582,13 @@ Source: https://agentdecksdk.com/jack/notes
 The engineering behind [how Jack is built](/jack). Each note is a decision that had a reasonable
 alternative, and the reason that alternative lost.
 
-## The tools are undecorated
+## The tools are `@tool`
 
-A tool that declares a `ToolCtx` parameter stays a plain function. `@function_tool` puts every
-parameter into the schema the model sees, and the model has no `DocsCorpus` to pass. `build()`
-compiles the function instead, so the model is offered only `query` or `slug`.
+A tool that declares a `ToolCtx` parameter is `@tool`, not `@function_tool`: that decorator puts
+every parameter into the schema the model sees, and the model has no `DocsCorpus` to pass. `@tool`
+compiles the function instead, so the model is offered only `query` or `slug`  -  and is required
+here precisely because these tools carry a context: a plain function doing the same is refused at
+`build()`, naming `@tool` as the fix.
 
 See [Tools](/build-your-deck/tools) and [Context](/build-your-deck/context).
 
@@ -1914,6 +1930,13 @@ The current release is **v5.0.3**. Earlier releases are listed at the bottom.
   first-contact tasks, and both previously required knowing an internal path to reach a public
   capability.
 
+### Removed
+
+- **A plain function carrying a `ToolCtx[...]`/`WorkflowCtx[...]` parameter in `tools=` is
+  refused.** Only `@tool` may declare one now; `build()` names the callable and shows the
+  decorator to add. `instructions=` and `hooks=` callables are unaffected, and a context-free
+  plain function still compiles exactly as before.
+
 ### Changed
 
 - **A durable event log now says what it does not make durable.** Setting `AGENTDECK_EVENTS` to
@@ -1936,8 +1959,7 @@ The current release is **v5.0.3**. Earlier releases are listed at the bottom.
   decorator builds its argument schema from every parameter it does not recognise, so a context
   one used to fail at decoration with `PydanticSchemaGenerationError: Unable to generate
   pydantic-core schema for <class 'agentdeck.core.control.Gate'>`, naming a private type and no
-  fix. It now raises `ConfigError` naming the two that work: leave the function undecorated, or
-  use agentdeck's own `@tool`.
+  fix. It now raises `ConfigError` naming the fix: use agentdeck's own `@tool`.
 
 ## v5.0.3
 

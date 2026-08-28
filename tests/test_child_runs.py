@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from agentdeck import Deck, WorkflowCtx, tool, workflow
+from agentdeck import Deck, ToolCtx, WorkflowCtx, tool, workflow
 from agentdeck.core.status import RunStatus
 from agentdeck.errors import ConfigError, NotFoundError, RunSuspendedError
 
@@ -70,6 +70,26 @@ async def test_a_sync_child_body_runs_off_the_event_loop() -> None:
     model-facing path threads it: on the loop it would stall the stream and every safepoint."""
     async with Deck(workflows=[thread_of, awaiting_sync]) as deck:
         assert await deck.run("awaiting_sync", "hi") != threading.current_thread().name
+
+
+@tool
+async def peek(environment: ToolCtx[str], word: str) -> str:
+    """A ``@tool`` that asks for the run's application context, the other half of what a plain
+    function carrying one is now refused for."""
+    return f"{environment.data}:{word}"
+
+
+@workflow
+async def awaiting_context(ctx: WorkflowCtx, word: str) -> str:
+    return str(await ctx.invoke("peek", word))
+
+
+async def test_a_tool_declaring_toolctx_is_injected_through_ctx_invoke_too() -> None:
+    """The model-facing path is covered end to end in ``test_tool_compilation.py``; this is the
+    other caller ``compile_tool`` has to serve, and the reason ``@tool`` compiles the same
+    callable for both rather than each owning a separate bridge."""
+    async with Deck(workflows=[peek, awaiting_context], context=str) as deck:
+        assert await deck.run("awaiting_context", "hi", context="app") == "app:hi"
 
 
 async def test_a_held_child_is_a_run_of_its_own() -> None:

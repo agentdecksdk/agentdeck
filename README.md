@@ -37,7 +37,7 @@ Execution, control, state, observability, reporting, interaction, and integratio
 
 Your code stays about the behavior and structure of your application:
 
-* **Tools do work:** Plain Python functions or `@tool` decorators. Tools declare `ToolCtx[T]` to receive strongly typed application data without exposing internal state to the model prompt.
+* **Tools do work:** A plain Python function for a context-free tool, `@tool` for one that declares `ToolCtx[T]` to receive strongly typed application data without exposing internal state to the model prompt.
 * **Agents make decisions:** Declarations configuring model instructions, tools, skills, and handoffs.
 * **Workflows manage process:** Ordinary async Python functions decorated with `@workflow`. Use `WorkflowCtx` to invoke targets (`ctx.invoke`), branch in parallel (`ctx.parallel`), or park for human input (`ctx.ask`).
 * **Decks assemble applications:** `Deck` is the single composition root. It validates dependencies, schemas, and catalogs at startup before the first turn.

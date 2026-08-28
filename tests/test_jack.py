@@ -58,15 +58,15 @@ def test_the_changelog_tool_answers_by_version_and_by_topic(corpus: DocsCorpus) 
     from pathlib import Path
 
     current = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text())["project"]["version"]
-    assert current in read_changelog("latest", _AsContext(corpus))
+    assert current in read_changelog.call("latest", _AsContext(corpus))
 
-    topic = read_changelog("AudioBlock", _AsContext(corpus))
+    topic = read_changelog.call("AudioBlock", _AsContext(corpus))
     assert "AudioBlock" in topic
     assert "3.0.0" in topic, "a changelog line without its release reads as current"
 
-    unknown = read_changelog("9.9.9", _AsContext(corpus))
+    unknown = read_changelog.call("9.9.9", _AsContext(corpus))
     assert "no release" in unknown and "3.0.0" in unknown, "an unknown version lists the real ones"
-    assert "no release mentions" in read_changelog("zzzznotaword", _AsContext(corpus))
+    assert "no release mentions" in read_changelog.call("zzzznotaword", _AsContext(corpus))
 
 
 def test_slugs_are_the_sites_own_slugs(corpus: DocsCorpus) -> None:
@@ -111,7 +111,7 @@ def test_search_returns_nothing_rather_than_anything(corpus: DocsCorpus) -> None
 
 def test_an_unknown_slug_answers_with_the_page_list(corpus: DocsCorpus) -> None:
     """A wrong guess should teach the agent the right slug in the same turn, not raise."""
-    result = read_doc("build-your-deck/nonexistent", _AsContext(corpus))
+    result = read_doc.call("build-your-deck/nonexistent", _AsContext(corpus))
     assert "no page" in result
     assert "build-your-deck/agents" in result
 
@@ -128,8 +128,8 @@ def test_the_context_parameter_is_absent_from_the_schema_the_model_sees() -> Non
     be asked to invent a `DocsCorpus`, and the failure would look like a confused model rather
     than a broken tool.
     """
-    for tool in (search_docs, read_doc):
-        compiled = compile_tool(tool, context_type=DocsCorpus)
+    for definition in (search_docs, read_doc):
+        compiled = compile_tool(definition.call, context_type=DocsCorpus, declared_via_tool=True)
         assert "docs" not in compiled.params_json_schema["properties"], compiled.params_json_schema
 
 
