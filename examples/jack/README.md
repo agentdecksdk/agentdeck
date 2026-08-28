@@ -52,17 +52,19 @@ store, no embedding model, no index to rebuild when a page changes  -  TF-IDF ov
 and it cannot return a stale chunk. `DocsCorpus.search` is where that decision lives, and its
 signature is what stays fixed if the corpus ever outgrows it.
 
-**The tools take a context, so they are plain functions.**
+**The tools take a context, so they are `@tool`.**
 
 ```python
+@tool
 def read_doc(slug: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Read one AgentDeck documentation page in full, by its slug."""
     return docs.data.pages.get(slug, ...)
 ```
 
-No `@function_tool`. A tool that declares a `ToolCtx` parameter must stay undecorated, because
-the decorator would put that parameter into the schema the model sees  -  and the model has no
-`DocsCorpus` to pass. `build()` compiles it instead, and the model is offered only `slug`.
+Not `@function_tool`: that decorator would put `docs` into the schema the model sees, and the
+model has no `DocsCorpus` to pass. `@tool` compiles it instead, and the model is offered only
+`slug`  -  and is required here precisely because `docs` is a `ToolCtx`: a plain function carrying
+one is refused at `build()`, naming `@tool` as the fix.
 
 **The context type is declared, so the deck checks it.**
 

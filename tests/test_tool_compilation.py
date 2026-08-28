@@ -22,6 +22,7 @@ from agents import WebSearchTool, function_tool
 from agents.tool_context import ToolContext
 
 import agentdeck
+from agentdeck import tool
 from agentdeck.authoring import Agent
 from agentdeck.authoring.tools import compile_tool
 from agentdeck.core.context import RunContext, ToolCtx
@@ -73,7 +74,7 @@ def test_the_context_parameter_is_absent_from_the_generated_tool_schema() -> Non
     """The whole point. ``environment`` is a parameter of the user's function and must appear
     nowhere in what is sent to the model  -  not as a property, not as a required name, not as a
     title, not anywhere in the serialized schema."""
-    tool = compile_tool(find_slots)
+    tool = compile_tool(find_slots, declared_via_tool=True)
 
     assert sorted(tool.params_json_schema["properties"]) == ["day"]
     assert tool.params_json_schema["required"] == ["day"]
@@ -83,19 +84,19 @@ def test_the_context_parameter_is_absent_from_the_generated_tool_schema() -> Non
 def test_the_wrapper_parameter_the_bridge_adds_is_absent_from_the_schema_too() -> None:
     """The bridge introduces a parameter of its own for the SDK's context object. If the SDK
     stopped recognising it, it would land in the schema as a model-fillable argument."""
-    tool = compile_tool(find_slots)
+    tool = compile_tool(find_slots, declared_via_tool=True)
 
     assert "run_context_wrapper" not in json.dumps(tool.params_json_schema)
 
 
 def test_a_context_only_tool_advertises_no_parameters_at_all() -> None:
-    tool = compile_tool(whoami)
+    tool = compile_tool(whoami, declared_via_tool=True)
 
     assert tool.params_json_schema["properties"] == {}
 
 
 def test_the_tool_is_named_and_described_after_the_users_function_not_the_bridge() -> None:
-    tool = compile_tool(find_slots)
+    tool = compile_tool(find_slots, declared_via_tool=True)
 
     assert tool.name == "find_slots"
     assert tool.description == "Find free appointment slots on a given day."
@@ -114,14 +115,16 @@ async def test_the_declared_context_reaches_the_callable_by_reference() -> None:
         received.append(environment.data)
         return "ok"
 
-    await _invoke(compile_tool(record), RunContext(run_id="run-1", data=calendar))
+    await _invoke(compile_tool(record, declared_via_tool=True), RunContext(run_id="run-1", data=calendar))
 
     assert received == [calendar]
     assert received[0] is calendar
 
 
 async def test_the_model_supplied_arguments_and_the_context_arrive_together() -> None:
-    result = await _invoke(compile_tool(find_slots), RunContext(run_id="run-1", data=Calendar()), '{"day": "tue"}')
+    result = await _invoke(
+        compile_tool(find_slots, declared_via_tool=True), RunContext(run_id="run-1", data=Calendar()), '{"day": "tue"}'
+    )
 
     assert result == "tue 09:00"
 
@@ -129,13 +132,13 @@ async def test_the_model_supplied_arguments_and_the_context_arrive_together() ->
 async def test_the_run_identity_travels_on_the_context_as_well_as_the_data() -> None:
     run = RunContext(run_id="run-7", session_id="s-1", data=Calendar(slot="11:00"))
 
-    assert await _invoke(compile_tool(whoami), run) == "run-7/11:00"
+    assert await _invoke(compile_tool(whoami, declared_via_tool=True), run) == "run-7/11:00"
 
 
 async def test_a_bare_context_annotation_is_injected_like_any_other() -> None:
     """Confirms slice 1's reading now that the schema builder exists: an unparameterised
     ``ToolCtx`` is injected, so the internal never reaches the schema."""
-    tool = compile_tool(bare)
+    tool = compile_tool(bare, declared_via_tool=True)
 
     assert tool.params_json_schema["properties"] == {}
     assert await _invoke(tool, RunContext(run_id="run-1", data="the environment")) == "the environment"
@@ -151,14 +154,16 @@ async def test_a_synchronous_tool_body_runs_off_the_event_loop() -> None:
         ran_on.append(threading.current_thread())
         return environment.data.find("mon")
 
-    result = await _invoke(compile_tool(blocking), RunContext(run_id="run-1", data=Calendar()))
+    result = await _invoke(compile_tool(blocking, declared_via_tool=True), RunContext(run_id="run-1", data=Calendar()))
 
     assert result == "mon 09:00"
     assert ran_on[0] is not threading.current_thread()
 
 
 async def test_a_sync_tool_declaring_a_context_still_returns_its_value() -> None:
-    result = await _invoke(compile_tool(sync_find_slots), RunContext(run_id="r", data=Calendar()), '{"day": "wed"}')
+    result = await _invoke(
+        compile_tool(sync_find_slots, declared_via_tool=True), RunContext(run_id="r", data=Calendar()), '{"day": "wed"}'
+    )
 
     assert result == "wed 09:00"
 
@@ -179,7 +184,7 @@ async def test_a_wraps_decorated_callable_compiles_to_the_function_it_wraps() ->
         """Find free slots, through a decorator."""
         return environment.data.find(day)
 
-    tool = compile_tool(decorated)
+    tool = compile_tool(decorated, declared_via_tool=True)
 
     assert sorted(tool.params_json_schema["properties"]) == ["day"]
     assert await _invoke(tool, RunContext(run_id="r", data=Calendar()), '{"day": "fri"}') == "fri 09:00"
@@ -247,7 +252,6 @@ def test_the_engine_decorator_over_a_context_parameter_names_the_fix_rather_than
     message = str(raised.value)
     assert "@function_tool" in message
     assert "@tool" in message
-    assert "undecorated" in message
     assert "Gate" not in message
 
 
@@ -277,7 +281,7 @@ async def test_a_tool_played_by_a_foreign_run_says_so_instead_of_failing_obscure
         called.append(True)
         return "ran"
 
-    tool = compile_tool(never)
+    tool = compile_tool(never, declared_via_tool=True)
     context = ToolContext(context="not a run context", tool_name=tool.name, tool_call_id="c", tool_arguments="{}")
 
     result = await tool.on_invoke_tool(context, "{}")
@@ -311,6 +315,7 @@ async def test_deck_run_hands_its_context_to_a_tool_that_declared_one(no_project
     ``ctx.data`` inside a tool the SDK dispatched."""
     seen: list[Any] = []
 
+    @tool
     async def peek(environment: ToolCtx[Calendar]) -> str:
         """Look at the environment."""
         seen.append(environment.data)
@@ -332,6 +337,7 @@ async def test_deck_run_hands_its_context_to_a_tool_that_declared_one(no_project
 async def test_deck_stream_carries_the_context_the_same_way(no_project) -> None:
     seen: list[Any] = []
 
+    @tool
     async def peek(environment: ToolCtx[Calendar]) -> str:
         """Look at the environment."""
         seen.append(environment.data)
@@ -354,6 +360,7 @@ async def test_a_run_without_a_context_reaches_a_declaring_tool_with_none(no_pro
     which is the value the application declined to supply."""
     seen: list[Any] = []
 
+    @tool
     async def peek(environment: ToolCtx[Calendar | None]) -> str:
         """Look at the environment."""
         seen.append(environment.data)
@@ -373,6 +380,7 @@ async def test_a_run_without_a_context_reaches_a_declaring_tool_with_none(no_pro
 async def test_the_context_is_never_written_to_the_event_log(no_project) -> None:
     """Lifecycle rule: the log records what a run was asked to do, not the live objects it held."""
 
+    @tool
     async def peek(environment: ToolCtx[Calendar]) -> str:
         """Look at the environment."""
         return "ok"

@@ -42,7 +42,7 @@ asyncio.run(main())
 
 ## The plain function
 
-An undecorated callable in `tools=` is compiled the same way, with less ceremony:
+A context-free callable in `tools=` is compiled the same way, with less ceremony:
 
 ```python
 def lookup_order(order_id: str) -> str:
@@ -50,18 +50,29 @@ def lookup_order(order_id: str) -> str:
     return f"Order {order_id} is in transit."
 ```
 
-Both forms get the same schema, the same [context injection](/build-your-deck/context), and the
-same failure attribution. What `@tool` adds is a catalog entry: it yields a `NativeDefinition` the
-deck holds, so a workflow can start it as a child run of its own with
-`ctx.invoke(lookup_order, "A-1003")`. A plain function is not a target `ctx.invoke` can resolve.
+Both forms get the same schema and the same failure attribution. What `@tool` adds is a catalog
+entry: it yields a `NativeDefinition` the deck holds, so a workflow can start it as a child run of
+its own with `ctx.invoke(lookup_order, "A-1003")`. A plain function is not a target `ctx.invoke`
+can resolve.
 
 | | `@tool` | plain function |
 |---|---|---|
 | Called by a model | yes | yes |
 | Sync or async body | yes | yes |
-| `ToolCtx[T]` injected | yes | yes |
+| `ToolCtx[T]` injected | yes | no  -  `build()` refuses it |
 | Started as its own child run | yes | no |
 | Name and description | `name=`, `description=`, else the function's | the function's |
+
+A callable that declares [`ToolCtx[T]`](/build-your-deck/context) has to be `@tool`. The parameter
+is injected by the runtime and must stay off the schema the model sees, so `@tool` is what makes
+"this callable receives a live dependency" part of its own declaration rather than something a
+reader has to notice from the annotation alone. A plain function carrying one fails `build()`,
+naming the fix:
+
+```text
+lookup_order takes a ToolCtx parameter ('shop') but is not declared @tool. Only @tool carries
+a context into a tool  -  add the decorator: ...
+```
 
 ## You already have SDK tools
 

@@ -14,12 +14,14 @@ one  -  a root to scan  -  so it arrives as an optional resolver callback a ``De
 silently dropping what it declared.
 
 A bare callable in ``tools=`` is **compiled** here, by ``tools.compile_tool``  -  a plain function
-is the canonical way to declare a tool, and a function annotated ``ToolCtx[...]`` can only be
-declared that way, since ``@function_tool`` applied by the author would put the context parameter
-in the model-visible schema. This used to be a rejection ("wrap it with ``@function_tool``"), for
-the good reason that an uncompiled callable reached the SDK and failed mid-run with a ``UserError``
-about hosted tools; compiling it here keeps that failure from happening while giving the callable
-a real contract. A pre-built SDK tool object is still accepted and passed straight through, as
+is the canonical way to declare a context-free tool. One that declares ``ToolCtx[...]`` needs
+``@tool`` instead: ``@function_tool`` applied by the author would put the context parameter in
+the model-visible schema, so a plain function carrying one is refused here, naming the decorator
+to add, rather than silently compiled the way ``@tool``'s own callable still is (below). This
+used to be a rejection ("wrap it with ``@function_tool``"), for the good reason that an
+uncompiled callable reached the SDK and failed mid-run with a ``UserError`` about hosted tools;
+compiling it here keeps that failure from happening while giving the callable a real contract. A
+pre-built SDK tool object is still accepted and passed straight through, as
 engine-native: nothing here introspects it, and it carries no portability guarantee. That
 includes the failure formatter ``compile_tool`` attaches (#250)  -  a tool the author decorated
 with ``@function_tool`` themselves keeps whatever ``failure_error_function`` they chose, so its
@@ -49,6 +51,7 @@ from agentdeck.adapters.tools.mcp.wiring import mcp_status_banner, resolve_agent
 from agentdeck.authoring.hooks import compile_hooks
 from agentdeck.authoring.instructions import compile_instructions
 from agentdeck.authoring.native import NativeDefinition
+from agentdeck.authoring.native import tool as _native_tool
 from agentdeck.authoring.tools import compile_tool
 from agentdeck.core.context import ToolCtx  # noqa: TC001  -  a subagent tool's own annotation, resolved at runtime
 from agentdeck.errors import ConfigError, NotFoundError
@@ -112,24 +115,26 @@ def compile_agent(
         tools.extend(skill_tools)
     resolved_tools: list[Any] = []
     for tool in tools:
-        if isinstance(tool, NativeDefinition):
-            # A ``@tool`` is compiled from the function it was declared over: the definition is
-            # what the catalog holds and what makes it invocable in its own right, and the SDK
-            # only ever needed the callable underneath.
-            resolved_tools.append(compile_tool(tool.call, context_type=context_type))
-        elif isinstance(tool, _SDK_TOOL_TYPES):
+        if isinstance(tool, _SDK_TOOL_TYPES):
             resolved_tools.append(tool)
-        elif callable(tool):
-            try:
-                resolved_tools.append(compile_tool(tool, context_type=context_type))
-            except ConfigError as refused:
-                # Re-raised as its own class: a ContextTypeError flattened to its supertype here
-                # would reach the caller as a different error than the one the API promises.
-                raise type(refused)(f"agent {agent.name!r}: {refused}") from refused
-        else:
+            continue
+        if not isinstance(tool, NativeDefinition) and not callable(tool):
             raise ConfigError(
                 f"agent {agent.name!r} has a tool that is neither a callable nor an Agents SDK tool object: {tool!r}."
             )
+        try:
+            if isinstance(tool, NativeDefinition):
+                # A ``@tool`` is compiled from the function it was declared over: the definition is
+                # what the catalog holds and what makes it invocable in its own right, and the SDK
+                # only ever needed the callable underneath. Only this branch may pass a context:
+                # it is the one callable shape that declared it through ``@tool``.
+                resolved_tools.append(compile_tool(tool.call, context_type=context_type, declared_via_tool=True))
+            else:
+                resolved_tools.append(compile_tool(tool, context_type=context_type))
+        except ConfigError as refused:
+            # Re-raised as its own class: a ContextTypeError flattened to its supertype here
+            # would reach the caller as a different error than the one the API promises.
+            raise type(refused)(f"agent {agent.name!r}: {refused}") from refused
     # Fields the SDK's own dataclass defaults (empty list, `None`) apply to: passing `None`
     # explicitly for `tools`/`mcp_servers` fails its `__post_init__` type check, so an unset
     # value is omitted from the call entirely rather than passed through as `None`.
@@ -171,12 +176,13 @@ def _subagent_tools(agent: Agent, catalog: Mapping[str, Agent] | None, delegate:
     return [_delegation(_lookup_agent(catalog, name), delegate) for name in agent.subagents]
 
 
-def _delegation(subagent: Agent, delegate: Delegate) -> Callable[..., Any]:
+def _delegation(subagent: Agent, delegate: Delegate) -> NativeDefinition:
     """The tool the model calls to hand ``subagent`` a task and wait for what it comes back with.
 
-    A plain callable declaring ``ToolCtx[...]``, so it is compiled by the one tool compiler and
-    the run it is inside reaches the deck through the seam ``ctx.invoke`` already uses  -  a
-    delegation is a child run, not a second way to execute something.
+    Declares ``ToolCtx[...]``, so it is synthesized as a ``@tool`` itself  -  the same declaration
+    an author's own context-carrying tool needs  -  and the run it is inside reaches the deck
+    through the seam ``ctx.invoke`` already uses: a delegation is a child run, not a second way to
+    execute something.
     """
 
     async def delegated(ctx: ToolCtx[Any], task: str) -> Any:
@@ -186,7 +192,7 @@ def _delegation(subagent: Agent, delegate: Delegate) -> Callable[..., Any]:
     delegated.__doc__ = subagent.handoff_description or (
         f"Delegate one self-contained task to the {subagent.name} agent and wait for its result."
     )
-    return delegated
+    return _native_tool(delegated)
 
 
 def _identifier(name: str) -> str:

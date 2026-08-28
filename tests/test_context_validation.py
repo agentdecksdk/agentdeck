@@ -19,6 +19,7 @@ No live model: every assertion here is about ``build()``, which never calls one.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Mapping  # noqa: TC003  -  the subjects below must resolve it at runtime
 from typing import Any, Protocol, TypeVar, runtime_checkable
 
@@ -26,6 +27,7 @@ import pytest
 from agents import AgentHooks, WebSearchTool
 
 import agentdeck
+from agentdeck import tool
 from agentdeck.authoring import Agent
 from agentdeck.core.context import ToolCtx  # noqa: TC001  -  the subjects below must resolve it at runtime
 from agentdeck.deck import Deck
@@ -85,8 +87,13 @@ def no_project(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
 
-def _agent_with_tool(tool: Any) -> Agent:
-    return Agent(name="Booker", instructions="Book things.", tools=[tool])
+def _agent_with_tool(fn: Any) -> Agent:
+    """Every subject here exists to probe ``check_context_type``, not the ``@tool`` requirement
+    itself  -  so this is the one place that requirement is satisfied, for all of them. A
+    pre-built SDK tool object (``WebSearchTool()``) passes through undecorated: it is not a
+    function ``@tool`` could wrap."""
+    wired = tool(fn) if inspect.isroutine(fn) else fn
+    return Agent(name="Booker", instructions="Book things.", tools=[wired])
 
 
 def _build(**kwargs: Any) -> Deck:
@@ -128,6 +135,21 @@ def test_a_supertype_does_not_satisfy_a_requirement_for_a_subtype(no_project) ->
     message = str(raised.value)
     assert "find_slots" in message
     assert "MiddleContext" in message and "BaseContext" in message
+
+
+def test_a_tool_declared_refusal_names_its_agent_too(no_project) -> None:
+    """``_agent_with_tool`` routes every subject here through ``@tool``, the one callable shape
+    that may carry a context  -  so this is also the ``NativeDefinition`` branch of the agent-name
+    wrap, not just the plain-callable one the other tests above happen to share it with."""
+
+    async def find_slots(day: str, environment: ToolCtx[MiddleContext]) -> str:
+        """Find free slots."""
+        return day
+
+    with pytest.raises(ContextTypeError) as raised:
+        _build(agents=[_agent_with_tool(find_slots)], context=BaseContext)
+
+    assert "Booker" in str(raised.value)
 
 
 def test_an_unrelated_declared_type_is_refused_naming_both_types(no_project) -> None:
@@ -300,9 +322,10 @@ def test_the_refusal_survives_the_bundle_wrap_of_a_discovered_project(tmp_path, 
     project = tmp_path / ".agentdeck" / "agents" / "booker"
     project.mkdir(parents=True)
     (project / "agent.py").write_text(
-        "from agentdeck import Agent, ToolCtx\n"
+        "from agentdeck import Agent, ToolCtx, tool\n"
         "from test_context_validation import MiddleContext\n"
         "\n"
+        "@tool\n"
         "async def find_slots(day: str, environment: ToolCtx[MiddleContext]) -> str:\n"
         '    """Find free slots."""\n'
         "    return day\n"

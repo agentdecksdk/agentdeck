@@ -12,11 +12,13 @@ description: The decisions behind Jack, and the alternatives each one beat.
 The engineering behind [how Jack is built](/jack). Each note is a decision that had a reasonable
 alternative, and the reason that alternative lost.
 
-## The tools are undecorated
+## The tools are `@tool`
 
-A tool that declares a `ToolCtx` parameter stays a plain function. `@function_tool` puts every
-parameter into the schema the model sees, and the model has no `DocsCorpus` to pass. `build()`
-compiles the function instead, so the model is offered only `query` or `slug`.
+A tool that declares a `ToolCtx` parameter is `@tool`, not `@function_tool`: that decorator puts
+every parameter into the schema the model sees, and the model has no `DocsCorpus` to pass. `@tool`
+compiles the function instead, so the model is offered only `query` or `slug`  -  and is required
+here precisely because these tools carry a context: a plain function doing the same is refused at
+`build()`, naming `@tool` as the fix.
 
 See [Tools](/build-your-deck/tools) and [Context](/build-your-deck/context).
 

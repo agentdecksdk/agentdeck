@@ -22,6 +22,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   first-contact tasks, and both previously required knowing an internal path to reach a public
   capability.
 
+### Removed
+
+- **A plain function carrying a `ToolCtx[...]`/`WorkflowCtx[...]` parameter in `tools=` is
+  refused.** Only `@tool` may declare one now; `build()` names the callable and shows the
+  decorator to add. `instructions=` and `hooks=` callables are unaffected, and a context-free
+  plain function still compiles exactly as before.
+
 ### Changed
 
 - **A durable event log now says what it does not make durable.** Setting `AGENTDECK_EVENTS` to
@@ -44,8 +51,7 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   decorator builds its argument schema from every parameter it does not recognise, so a context
   one used to fail at decoration with `PydanticSchemaGenerationError: Unable to generate
   pydantic-core schema for <class 'agentdeck.core.control.Gate'>`, naming a private type and no
-  fix. It now raises `ConfigError` naming the two that work: leave the function undecorated, or
-  use agentdeck's own `@tool`.
+  fix. It now raises `ConfigError` naming the fix: use agentdeck's own `@tool`.
 
 ## [5.0.3] - 2026-08-23
 
