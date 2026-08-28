@@ -18,10 +18,12 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 import pytest
 from agents import Agent, RunConfig
 from agents.models.chatcmpl_converter import Converter
 from agents.models.interface import Model
+from openai import AuthenticationError
 from pydantic import BaseModel, ConfigDict
 
 from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
@@ -111,6 +113,37 @@ async def test_execute_enables_tracing_on_explicit_opt_in(monkeypatch: pytest.Mo
     monkeypatch.setenv("AGENTDECK_OPENAI_AGENTS_TRACING_ENABLED", "true")
     run_config = await _run_config_passed_to_runner(monkeypatch)
     assert run_config.tracing_disabled is False
+
+
+# --- a provider auth failure surfaces unwrapped (issue #519) ----------------------------
+
+
+async def test_a_provider_auth_failure_surfaces_as_the_sdks_own_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Deck.build() no longer gates on credentials; a real auth failure must still reach the
+    caller as the provider/SDK's own exception, not a build-time or rewritten one."""
+    sentinel = AuthenticationError(
+        "invalid api key",
+        response=httpx.Response(401, request=httpx.Request("POST", "https://api.anthropic.com/v1/chat/completions")),
+        body=None,
+    )
+
+    class _FailingStreamResult(_FakeStreamResult):
+        async def stream_events(self) -> Any:
+            raise sentinel
+            yield  # pragma: no cover  -  makes this an async generator; never reached
+
+    class _FakeRunner:
+        @staticmethod
+        def run_streamed(*_args: Any, **_kwargs: Any) -> _FailingStreamResult:
+            return _FailingStreamResult()
+
+    monkeypatch.setattr(executor_module, "Runner", _FakeRunner)
+    engine = OpenAIAgentsExecutor(ExecutionStore())
+
+    with pytest.raises(AuthenticationError) as exc_info:
+        async for _ in engine.execute(_spec(), coerce_input("hi"), [], _ctx()):
+            pass
+    assert exc_info.value is sentinel
 
 
 # --- the final output (issue #101) ------------------------------------------------------
