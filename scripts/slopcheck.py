@@ -26,6 +26,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 import tokenize
 from dataclasses import dataclass
 from pathlib import Path
@@ -216,7 +217,7 @@ def _filter_allowed(source: str, violations: list[Violation]) -> list[Violation]
     return [v for v in violations if not any(v.rule.startswith(r) for r in allowed.get(v.start, ()))]
 
 
-def check_source(source: str) -> list[Violation]:
+def check_source(source: str, changed: set[int] | None = None) -> list[Violation]:
     try:
         all_tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
     except (tokenize.TokenError, IndentationError, SyntaxError):
@@ -306,7 +307,7 @@ def check_source(source: str) -> list[Violation]:
             )
 
     violations.extend(_ast_violations(source))
-    violations.extend(_file_ratio_violations(source))
+    violations.extend(_file_ratio_violations(source, changed))
     violations = _filter_allowed(source, violations)
     return sorted(violations, key=lambda v: v.start)
 
@@ -355,12 +356,17 @@ def _prose_rows(source: str) -> set[int]:
     return rows
 
 
-def _file_ratio_violations(source: str) -> list[Violation]:
+def _file_ratio_violations(source: str, changed: set[int] | None = None) -> list[Violation]:
     total = len(source.splitlines())
     if total < COMMENT_RATIO_MIN_LINES:
         return []
-    ratio = len(_prose_rows(source)) / total
+    prose = _prose_rows(source)
+    ratio = len(prose) / total
     if ratio <= COMMENT_RATIO_MAX:
+        return []
+    # Diff-gated like every other rule: an unrelated one-line fix in an already-over-
+    # threshold file must not inherit someone else's pre-existing comment debt.
+    if changed is not None and prose.isdisjoint(changed):
         return []
     return [
         Violation(
@@ -556,11 +562,11 @@ def _outside_repo(path: Path) -> bool:
 def check_file(path: Path, all_lines: bool = False, base: str = "HEAD") -> list[str]:
     path = path.resolve()
     source = path.read_text(encoding="utf-8")
+    changed = None if all_lines else changed_lines(path, base)
     violations = check_style(source)
     if path.suffix == ".py":
-        violations.extend(check_source(source))
+        violations.extend(check_source(source, changed))
     violations = _scope(path, violations)
-    changed = None if all_lines else changed_lines(path, base)
     if changed is not None:
         violations = [v for v in violations if v.touches(changed)]
         if path.suffix == ".py":
@@ -628,7 +634,7 @@ def main() -> int:
         new_rows = {i for i, ln in enumerate(candidate.splitlines(), 1) if ln not in previous_lines}
         violations = check_style(candidate)
         if path.suffix == ".py":
-            violations.extend(check_source(candidate))
+            violations.extend(check_source(candidate, new_rows))
         blocked = [v for v in _scope(path.resolve(), violations) if v.touches(new_rows)]
         if path.suffix == ".py":
             diff_violations = _scope(path.resolve(), _diff_ratio_violations(candidate, new_rows))
@@ -744,6 +750,12 @@ def _self_test() -> None:
     over_ratio = "\n".join(["# note"] * 13 + ["x = 1"] * 7) + "\n"
     assert any(v.rule.startswith("SLOP012") for v in check_source(over_ratio)), "whole-file ratio over cap must fail"
     assert _scope(Path("/tmp/x.py"), check_source(over_ratio)) == [], "SLOP012 is library-only"
+    assert not any(v.rule.startswith("SLOP012") for v in check_source(over_ratio, {14})), (
+        "a pure-code edit in an already-over-threshold file must not trip Check A"
+    )
+    assert any(v.rule.startswith("SLOP012") for v in check_source(over_ratio, {5})), (
+        "an edit touching a comment/docstring row in an over-threshold file must still trip Check A"
+    )
     diff_source = "\n".join(f"# note {i}" for i in range(20)) + "\n" + "\n".join(["x = 1"] * 100) + "\n"
     assert not _file_ratio_violations(diff_source), "large otherwise-fine file must pass Check A"
     assert _diff_ratio_violations(diff_source, set(range(1, 21))), "comment-heavy added lines must fail Check B"
@@ -756,6 +768,53 @@ def _self_test() -> None:
     unfiltered = _diff_ratio_violations(diff_source_allowed, set(range(1, 21)))
     assert unfiltered, "sanity: Check B must still detect the violation before allow-marker filtering"
     assert not _filter_allowed(diff_source_allowed, unfiltered), "allow marker on line 1 must suppress Check B"
+
+    # Exercise the two real call sites (check_file, and the --write PreToolUse hook), not
+    # just _filter_allowed in isolation: a regression that stops wrapping either call site
+    # in _filter_allowed must fail here, which the isolated assertion above cannot catch.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp)
+        for cmd in (["init", "-q"], ["config", "user.email", "t@t"], ["config", "user.name", "t"]):
+            subprocess.run(["git", *cmd], cwd=repo, check=True, capture_output=True, text=True)
+        target = repo / "agentdeck" / "x.py"
+        target.parent.mkdir()
+        base_content = "x = 1\n" * 100
+        target.write_text(base_content)
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=repo, check=True, capture_output=True, text=True)
+
+        added_comments = "\n".join(f"# note {i}" for i in range(20))
+        candidate = added_comments + "\nx = 1\n" + "x = 1\n" * 99
+        target.write_text(candidate)
+        assert any("SLOP012" in r for r in check_file(target)), "check_file must still flag comment-heavy added lines"
+
+        added_comments_allowed = added_comments.replace("# note 0", "# note 0  (slopcheck: allow SLOP012 exemplar)", 1)
+        candidate_allowed = added_comments_allowed + "\nx = 1\n" + "x = 1\n" * 99
+        target.write_text(candidate_allowed)
+        assert not any("SLOP012" in r for r in check_file(target)), "allow marker must suppress Check B in check_file"
+
+        def write_hook_flags_slop012(new_string: str) -> bool:
+            target.write_text(base_content)
+            payload = json.dumps(
+                {"tool_input": {"file_path": str(target), "old_string": "x = 1\n", "new_string": new_string}}
+            )
+            proc = subprocess.run(
+                [sys.executable, str(Path(__file__).resolve()), "--write"],
+                input=payload,
+                capture_output=True,
+                text=True,
+                cwd=repo,
+                timeout=10,
+            )
+            return "SLOP012" in proc.stderr
+
+        assert write_hook_flags_slop012(added_comments + "\nx = 1\n"), (
+            "--write hook must flag comment-heavy added lines"
+        )
+        assert not write_hook_flags_slop012(added_comments_allowed + "\nx = 1\n"), (
+            "--write hook must honor the allow marker"
+        )
+
     google_big = (
         'def f(a, b, c, d, e, f, g, h, i, j):\n    """One line.\n\n    Args:\n        a: first.\n'
         "        b: second.\n        c: third.\n        d: fourth.\n        e: fifth.\n"
