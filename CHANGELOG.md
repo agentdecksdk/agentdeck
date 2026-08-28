@@ -19,6 +19,12 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Changed
 
+- **A tool the author built with `@function_tool` now says it is passed through uncompiled.**
+  Such a tool reaches the engine as-is, so its exceptions keep its own `failure_error_function`
+  and never reach `tool.call.completed.error`, it carries no portability guarantee, and it cannot
+  take a `ToolCtx[...]` parameter. `Deck.build()` logs a warning naming those costs and the
+  alternative: drop the decorator, or declare the tool with agentdeck's `@tool`. Hosted SDK tools
+  (`WebSearchTool`, `FileSearchTool`, `ComputerTool`) have no compiled form and stay silent.
 - **A durable event log now says what it does not make durable.** Setting `AGENTDECK_EVENTS` to
   anything other than `memory://` while `AGENTDECK_SESSION` is unset logs a warning: the log
   survives a restart, the conversation the model sees does not. The old warning fired only for

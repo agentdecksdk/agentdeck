@@ -520,6 +520,33 @@ def test_agent_tool_that_is_a_hosted_sdk_tool_builds_cleanly():
     deck.build()  # no raise
 
 
+def test_a_function_tool_the_author_built_warns_that_it_is_passed_through_uncompiled(caplog):
+    @function_tool
+    def lookup(q: str) -> str:
+        """Look something up."""
+        return q
+
+    deck = Deck(agents=[_greeter(tools=[lookup])])
+
+    with caplog.at_level("WARNING"):
+        deck.build()
+
+    passthrough = [r.message for r in caplog.records if "through uncompiled" in r.message]
+    assert len(passthrough) == 1
+    assert "lookup" in passthrough[0]
+    assert "agentdeck's @tool" in passthrough[0]  # the alternative, not just the complaint
+
+
+def test_a_hosted_sdk_tool_does_not_warn_about_passthrough(caplog):
+    """It has no compiled form to be steered towards, so the warning would be noise."""
+    deck = Deck(agents=[_greeter(tools=[WebSearchTool()])])
+
+    with caplog.at_level("WARNING"):
+        deck.build()
+
+    assert not any("through uncompiled" in r.message for r in caplog.records)
+
+
 def test_build_is_idempotent(tmp_path):
     _write_skill(tmp_path, "booking")
     deck = Deck(agents=[_greeter(skills=["booking"])], skills=tmp_path)

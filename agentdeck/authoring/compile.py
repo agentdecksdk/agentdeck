@@ -13,18 +13,19 @@ one  -  a root to scan  -  so it arrives as an optional resolver callback a ``De
 ``Agent`` built without it raises a clear ``ConfigError`` naming what is missing, instead of
 silently dropping what it declared.
 
-A bare callable in ``tools=`` is **compiled** here, by ``tools.compile_tool``  -  a plain function
-is the canonical way to declare a tool, and a function annotated ``ToolCtx[...]`` can only be
-declared that way, since ``@function_tool`` applied by the author would put the context parameter
-in the model-visible schema. This used to be a rejection ("wrap it with ``@function_tool``"), for
-the good reason that an uncompiled callable reached the SDK and failed mid-run with a ``UserError``
-about hosted tools; compiling it here keeps that failure from happening while giving the callable
-a real contract. A pre-built SDK tool object is still accepted and passed straight through, as
-engine-native: nothing here introspects it, and it carries no portability guarantee. That
-includes the failure formatter ``compile_tool`` attaches (#250)  -  a tool the author decorated
-with ``@function_tool`` themselves keeps whatever ``failure_error_function`` they chose, so its
-exceptions stay off ``tool.call.completed.error``. Passing one is opting out of what compiling
-buys, which is the same trade the sentence above names, not a second one.
+A bare callable in ``tools=`` is **compiled** here, by ``tools.compile_tool``  -  ``@tool`` is the
+taught way to declare a tool and a plain function the lower-ceremony alternative, and a function
+annotated ``ToolCtx[...]`` can only reach the model through this compiler, since ``@function_tool``
+applied by the author would put the context parameter in the model-visible schema. This used to be
+a rejection ("wrap it with ``@function_tool``"), for the good reason that an uncompiled callable
+reached the SDK and failed mid-run with a ``UserError`` about hosted tools; compiling it here keeps
+that failure from happening while giving the callable a real contract. A pre-built SDK tool object
+is still accepted and passed straight through, as engine-native: nothing here introspects it, and
+it carries no portability guarantee. That includes the failure formatter ``compile_tool`` attaches
+(#250)  -  a tool the author decorated with ``@function_tool`` themselves keeps whatever
+``failure_error_function`` they chose, so its exceptions stay off ``tool.call.completed.error``.
+Passing one is opting out of what compiling buys, which is the same trade the sentence above names,
+not a second one.
 
 ``instructions=`` and ``hooks=`` go through that same compiler rather than a mechanism each:
 a callable in ``instructions=`` becomes the SDK's dynamic-instructions shape, and a hooks object
@@ -38,11 +39,12 @@ ever connects a server, so the first resolution is always stale by the time anyt
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import TYPE_CHECKING, Any, get_args, get_origin
 
 from agents import Agent as SDKAgent
-from agents import ModelSettings
+from agents import FunctionTool, ModelSettings
 from agents import Tool as SDKTool
 
 from agentdeck.adapters.tools.mcp.wiring import mcp_status_banner, resolve_agent_mcp_status
@@ -54,10 +56,10 @@ from agentdeck.core.context import ToolCtx  # noqa: TC001  -  a subagent tool's 
 from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.runtime.settings import get_settings
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping, Sequence
-
-    from agents.tool import FunctionTool
 
     from agentdeck.authoring.agent import Agent
     from agentdeck.core.context import RunContext
@@ -101,6 +103,7 @@ def compile_agent(
     """
     banner, mcp_servers = _resolve_mcp(agent)
     disclosure = ""
+    _warn_on_passthrough(agent)
     tools = [*agent.tools, *_subagent_tools(agent, catalog, delegate)]
     if agent.skills:
         if resolve_skills is None:
@@ -151,6 +154,23 @@ def compile_agent(
     sdk_agent = SDKAgent(**{k: v for k, v in fields.items() if v is not None})
     sdk_agent.handoffs = []
     return sdk_agent
+
+
+def _warn_on_passthrough(agent: Agent) -> None:
+    """Name what a pre-built ``FunctionTool`` in ``tools=`` costs the author who wrote it.
+
+    Over ``agent.tools`` alone: a skill resolver hands back ``FunctionTool``s agentdeck compiled
+    itself, and a hosted tool has no other form to be declared in, so neither has anything to say.
+    """
+    for tool in agent.tools:
+        if isinstance(tool, FunctionTool):
+            logger.warning(
+                f"agent {agent.name!r} passes tool {tool.name!r} through uncompiled: a @function_tool the "
+                "author applied is engine-native, so its exceptions keep its own failure_error_function and stay "
+                "off tool.call.completed.error, it carries no portability guarantee, and it cannot take a "
+                "ToolCtx[...] parameter. Drop the decorator, or declare it with agentdeck's @tool, to have "
+                "agentdeck compile it."
+            )
 
 
 def _subagent_tools(agent: Agent, catalog: Mapping[str, Agent] | None, delegate: Delegate | None) -> list[Any]:
