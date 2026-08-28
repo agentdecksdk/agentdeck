@@ -72,7 +72,7 @@ def openai_agents_subject() -> Subject:
     agent = SDKAgent(
         name="Looker",
         instructions="use the tool",
-        tools=[compile_tool(_peek(seen))],
+        tools=[compile_tool(_peek(seen), declared_via_tool=True)],
         model=TailScriptedModel("done", tool_name="peek"),
     )
     return Subject(

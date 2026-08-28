@@ -408,7 +408,7 @@ async def test_lifting_a_pause_resupplies_the_run_s_application_context() -> Non
         return "looked"
 
     model = TailScriptedModel("done", tool_name="peek")
-    runtime, _ = _agent_runtime(model, control, tools=[compile_tool(peek)])
+    runtime, _ = _agent_runtime(model, control, tools=[compile_tool(peek, declared_via_tool=True)])
 
     paused = [
         event
@@ -444,7 +444,8 @@ async def test_lifting_a_pause_without_a_context_replays_with_none() -> None:
             await control.signal(environment.run_id, Signal.PAUSE, "asked while a tool was running")
         return "looked"
 
-    runtime, _ = _agent_runtime(TailScriptedModel("done", tool_name="peek"), control, tools=[compile_tool(peek)])
+    model = TailScriptedModel("done", tool_name="peek")
+    runtime, _ = _agent_runtime(model, control, tools=[compile_tool(peek, declared_via_tool=True)])
 
     events = [
         event

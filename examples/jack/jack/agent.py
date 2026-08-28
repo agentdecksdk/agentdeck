@@ -1,17 +1,18 @@
 """Jack  -  the assistant that answers questions about AgentDeck, built on AgentDeck.
 
-Three tools over one context. None is wrapped in ``@function_tool``: a tool that declares a
-``ToolCtx`` parameter must stay a plain function, because the decorator would put that parameter
-into the schema the model sees. ``build()`` compiles it instead, and the context argument is
-absent from what the model is offered  -  it only ever chooses ``query``, ``slug`` or ``subject``.
+Three tools over one context, each declared ``@tool``: a callable that carries a ``ToolCtx``
+parameter must be, because the context argument has to stay off the schema the model sees, and
+``@tool`` is what makes that contract readable at the declaration site rather than inferred from
+a parameter type. The model only ever chooses ``query``, ``slug`` or ``subject``.
 """
 
 from __future__ import annotations
 
-from agentdeck import Agent, ToolCtx
+from agentdeck import Agent, ToolCtx, tool
 from jack.corpus import DocsCorpus  # noqa: TC001  -  ToolCtx[DocsCorpus] is resolved at runtime
 
 
+@tool
 def search_docs(query: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Find AgentDeck documentation pages matching a query. Returns slugs with a matching line
     from each; call read_doc on a slug to get the full page."""
@@ -21,6 +22,7 @@ def search_docs(query: str, docs: ToolCtx[DocsCorpus]) -> str:
     return "\n".join(f"{slug}: {excerpt}" for slug, excerpt in hits)
 
 
+@tool
 def read_doc(slug: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Read one AgentDeck documentation page in full, by its slug (e.g. 'concepts/agents')."""
     page = docs.data.pages.get(slug)
@@ -29,6 +31,7 @@ def read_doc(slug: str, docs: ToolCtx[DocsCorpus]) -> str:
     return page
 
 
+@tool
 def read_changelog(subject: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Read AgentDeck's release history. Pass a version ('3.0.0', 'latest') for that release's
     notes, or a topic ('ToolCtx', 'AudioBlock') to find which releases changed it."""

@@ -8,6 +8,71 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [5.1.0] - 2026-08-28
+
+### Added
+
+- **`@tool` accepts a sync body.** Only `@workflow` still requires `async def`, because every
+  orchestration primitive on `WorkflowCtx` is awaited and a sync body cannot reach one. A tool has
+  nothing to await, and both paths that play one now put a sync body on a worker thread: the
+  model-facing path already did, and `ctx.invoke()` does now. The refusal previously applied to
+  both kinds, so the richer form was also the more restrictive one.
+- **Content blocks and `Observer` import from the package root.** `ImageBlock`, `TextBlock`,
+  `ContentBlock`, `ResourceBlock`, `AudioBlock`, `DataBlock` and `Observer` are exported from
+  `agentdeck` alongside `Agent` and `Deck`, rather than only from `agentdeck.core.content` and
+  `agentdeck.core.ports`. Sending an agent an image and watching a deck's events are both
+  first-contact tasks, and both previously required knowing an internal path to reach a public
+  capability.
+
+### Removed
+
+- **A plain function carrying a `ToolCtx[...]`/`WorkflowCtx[...]` parameter in `tools=` is
+  refused.** Only `@tool` may declare one now; `build()` names the callable and shows the
+  decorator to add. `instructions=` and `hooks=` callables are unaffected, and a context-free
+  plain function still compiles exactly as before.
+
+### Changed
+
+- **A durable event log now says what it does not make durable.** Setting `AGENTDECK_EVENTS` to
+  anything other than `memory://` while `AGENTDECK_SESSION` is unset logs a warning: the log
+  survives a restart, the conversation the model sees does not. The old warning fired only for
+  `memory://`, so configuring a durable log silenced the one message and left the reader believing
+  recall was handled.
+- **Sending an agent an image is documented where agents are.** `build-your-deck/agents` gains a
+  section on content blocks, and `build-your-deck/tools` states that a tool cannot carry an image:
+  tool results are text, so a returned `data:` URI reaches the model as a string.
+- **The error taxonomy moved to `agentdeck/core/errors.py`.** `agentdeck.errors` re-exports the
+  same class objects, so every `from agentdeck.errors import ...` and `except ConfigError` is
+  unchanged. What changes is what a traceback prints: `agentdeck.core.errors.ConfigError`,
+  not `agentdeck.errors.ConfigError`. Core raises these now, which is where `CLAUDE.md` §2
+  already placed the taxonomy.
+
+### Fixed
+
+- **`Deck.build()` no longer rejects a model for a missing provider env var.** The credential
+  check only ever recognized `anthropic`/`gemini`/`ollama`/`openrouter` and otherwise demanded
+  `OPENAI_API_KEY`/`OPENAI_BASE_URL`, so a `litellm/...` or `any-llm/...` model authenticated
+  through its own provider's own convention (Vertex ADC, an IAM role, ...) failed to build over a
+  credential it would never use. Model authentication belongs to the wrapped Agents SDK and the
+  selected provider, not `Deck.build()`; a real auth failure now surfaces at the actual call,
+  as the provider's own error.
+- **`ctx.reporter` now works from a sync `@tool` body.** It previously did nothing: `Reporter.info`
+  and friends are `async def`, and a worker thread has no event loop to await one on, so a bare
+  call built an unawaited coroutine and quietly reported nothing. `ctx.reporter` from a sync body
+  is now a sync-callable facade that marshals the report onto the run's own loop and blocks until
+  it lands, preserving order against the tool's own return. `ctx.safepoint()` from a sync body now
+  raises `ConfigError` naming the constraint, instead of the same silent no-op.
+- **A sync `@tool` body now runs on a bounded, deck-owned worker pool**, not the interpreter-global
+  default `asyncio.to_thread()` executor. A `Run` cancelled while its sync body is still on a
+  worker now ends `CANCELLED`, never flipped back to `COMPLETED` by the body's eventual,
+  uninterruptible return; a queued-but-not-started call is cancelled outright and its body never
+  runs. The pool drains on `Deck.aclose()` along with everything else this Deck owns.
+- **`@function_tool` over a `ToolCtx` parameter now says what to do about it.** The Agents SDK
+  decorator builds its argument schema from every parameter it does not recognise, so a context
+  one used to fail at decoration with `PydanticSchemaGenerationError: Unable to generate
+  pydantic-core schema for <class 'agentdeck.core.control.Gate'>`, naming a private type and no
+  fix. It now raises `ConfigError` naming the fix: use agentdeck's own `@tool`.
+
 ## [5.0.3] - 2026-08-23
 
 ### Changed
@@ -327,8 +392,8 @@ run-scoped API, and the control plane. Read **Upgrading** before you bump.
   `(namespace, run_id, seq)`, so one logical run can no longer be split across two log keys. An
   existing SQLite events database is migrated in place on open (`key` column added, the tightened
   index rebuilt); a database with rows that genuinely violate the tighter constraint raises
-  `StoreError` naming the conflict instead of silently picking a survivor. `list_runs` gains a
-  `limit` parameter across all four stores.
+  `StoreError` naming the conflict instead of silently picking a survivor. `EventStorePort.list_runs`
+  gains a `limit` parameter across all four stores.
 - **Breaking: `deck.run(...)`/`deck.stream(...)` now raises `SessionBusyError` on a session
   held by a run parked `PAUSED` or `WAITING_ANSWER`, however long ago it went quiet** (#311).
   Every store's `claim_start` applied `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` to *any* open
@@ -405,7 +470,7 @@ run-scoped API, and the control plane. Read **Upgrading** before you bump.
   index over `events`' own `namespace`/`run_id` columns (`CREATE INDEX IF NOT EXISTS`, so it
   applies cleanly to a database an earlier build already created), and memory/Redis keep a
   derived `(namespace, run_id) -> log_key` mapping a replay of the log rebuilds. `Deck._status`
-  (behind `deck.runs.status`) uses it now instead of walking `list_runs`.
+  (behind `Run.status`) uses it now instead of walking `EventStorePort.list_runs`.
 - **Breaking: `deck.run(...)`/`deck.stream(...)` no longer stop a run when its caller stops
   reading it** (#325). Execution used to *be* consuming the event generator, so closing
   `stream()`'s frame (or having the task reading it cancelled, as a real HTTP disconnect does)
@@ -2492,7 +2557,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.3...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v5.1.0...HEAD
+[5.1.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.3...v5.1.0
 [5.0.3]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.0...v5.0.3
 [5.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.5...v5.0.0
 [4.0.5]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.4...v4.0.5

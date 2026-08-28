@@ -7,9 +7,9 @@ callable  -  into its own native shape, and two copies of "is this parameter a `
 how those paths would quietly stop agreeing. This module is the one answer they all compile
 against; it builds nothing and calls nothing.
 
-It lives here rather than in ``core/`` because it raises :class:`ConfigError`, and the error
-taxonomy is not core's yet  -  while every consumer it has (tool, agent and native definition
-compilation) is already in ``authoring``.
+It lives here rather than in ``core/`` because every consumer it has (tool, agent and native
+definition compilation) is in ``authoring``. The error taxonomy no longer keeps it out: that
+moved to ``core/errors.py``.
 
 A parameter is injected because of its annotation, never its name: exactly one ``ToolCtx[...]``
 parameter is injected whatever it is called, zero means an ordinary callable, and two is a

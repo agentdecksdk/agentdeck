@@ -15,3 +15,15 @@ Core types and public classes exported from `agentdeck`.
 - `workflow`: Decorator declaring orchestration as an async function.
 - `ToolCtx`: The context a tool receives.
 - `WorkflowCtx`: `ToolCtx` plus orchestration, for a `@workflow` body.
+- `Observer`: One consumer of a deck's event stream, for `Deck(observers=[...])`.
+
+### Content blocks
+
+What `deck.run()` takes instead of a plain string, and what a run reports back.
+
+- `ContentBlock`: The union of the block types below.
+- `TextBlock`: Prose.
+- `ImageBlock`: An image inline, base64.
+- `AudioBlock`: Audio inline, base64.
+- `ResourceBlock`: Bytes held elsewhere, referenced rather than carried.
+- `DataBlock`: JSON as content.

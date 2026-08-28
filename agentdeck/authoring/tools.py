@@ -4,7 +4,10 @@ The bridge half of :mod:`agentdeck.authoring.injection`: that module answers wha
 declares, this one turns the answer into a ``FunctionTool``. A callable annotated
 ``ToolCtx[T]`` cannot be pre-decorated with ``@function_tool``  -  the decorator would put the
 context parameter in the model-visible schema  -  so compiling it here is the only way the
-annotation can mean anything at all.
+annotation can mean anything at all. Only a callable that arrived through ``@tool`` may carry
+one, though (``declared_via_tool=True``, set by :func:`~agentdeck.authoring.compile.compile_agent`
+for a :class:`~agentdeck.authoring.native.NativeDefinition`)  -  a bare function in ``tools=``
+declaring ``ToolCtx[...]`` is refused, naming the decorator to add.
 
 What the SDK still owns, and is deliberately not reimplemented: schema generation, JSON
 parsing, dispatch, and excluding its own ``RunContextWrapper`` parameter from the schema. The
@@ -21,7 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, get_type_hints
 
 from agents import RunContextWrapper, default_tool_error_function, function_tool
 
@@ -35,20 +38,23 @@ if TYPE_CHECKING:
     from agents.tool import FunctionTool
 
     from agentdeck.authoring.injection import CallableAnalysis
+    from agentdeck.core.workers import SyncToolWorkers
 
 
-def compile_tool(target: Callable[..., Any], *, context_type: object | None = None) -> FunctionTool:
+def compile_tool(
+    target: Callable[..., Any],
+    *,
+    context_type: object | None = None,
+    declared_via_tool: bool = False,
+    workers: SyncToolWorkers | None = None,
+) -> FunctionTool:
     """Build the SDK tool for ``target``, injecting its ``ToolCtx[...]`` parameter if it has one.
 
-    A callable whose signature could not be recovered is refused rather than compiled. The
-    schema the model is shown has to exist at build time, so an unreadable signature has no
-    honest one to offer  -  and "no ``ToolCtx`` parameter was found" is not a finding about such a
-    callable, it is the absence of one. Guessing there is nothing to inject would drop the
-    argument at the first call, silently.
-
-    ``context_type`` is the owning deck's ``Deck(context=...)`` declaration, or ``None`` when it
-    made none; an incompatible requirement raises :class:`ContextTypeError` here rather than
-    reaching a run that could only fail on the first call.
+    An unreadable signature is refused, not guessed at. ``declared_via_tool`` is set only for a
+    callable that reached here through ``@tool``; a bare one declaring ``ToolCtx[...]`` is
+    refused. ``context_type`` checks against ``Deck(context=...)``. ``workers`` is the deck's
+    shared :class:`~agentdeck.core.workers.SyncToolWorkers`; ``None`` falls back to
+    ``asyncio.to_thread()``, for a standalone compile with no deck lifecycle to own one.
     """
     analysis = analyze_callable(target)
     if not analysis.reliable:
@@ -59,6 +65,8 @@ def compile_tool(target: Callable[..., Any], *, context_type: object | None = No
             "fix the decorator, or pass a pre-built Agents SDK tool object instead (engine-native: "
             "it gets no portability guarantee)."
         )
+    if analysis.context_parameter is not None and not declared_via_tool:
+        raise ConfigError(_undeclared_context_message(target, analysis))
     check_context_type(analysis, context_type)
     # `failure_error_function=_tool_failure` is passed on both branches so a raised tool still
     # lands on `tool.call.completed.error`, whether or not it declares `ToolCtx[...]`. Any other
@@ -66,7 +74,32 @@ def compile_tool(target: Callable[..., Any], *, context_type: object | None = No
     # something needs to forward it; nothing about this split is what stops that today.
     if analysis.context_parameter is None:
         return function_tool(target, failure_error_function=_tool_failure)
-    return function_tool(_bridge(analysis), failure_error_function=_tool_failure)
+    return function_tool(_bridge(analysis, workers), failure_error_function=_tool_failure)
+
+
+def _undeclared_context_message(target: Callable[..., Any], analysis: CallableAnalysis) -> str:
+    """Names the fix in the shape the author can paste: the real function name, its own visible
+    parameters, and the context annotation it already wrote  -  reassembled as the ``@tool``
+    version of the same signature."""
+    ctx_name = (analysis.context_class or ToolCtx).__name__
+    hints = get_type_hints(inspect.unwrap(target))
+    visible = ", ".join(f"{p.name}: {_type_name(p.annotation)}" for p in analysis.visible_parameters)
+    params = f"{visible}, " if visible else ""
+    context_arg = f"{analysis.context_parameter}: {ctx_name}[{_type_name(analysis.context_type)}]"
+    returns = f" -> {_type_name(hints['return'])}" if "return" in hints else ""
+    name = getattr(target, "__name__", None) or describe_callable(target)
+    return (
+        f"{describe_callable(target)} takes a {ctx_name} parameter ({analysis.context_parameter!r}) but is not "
+        f"declared @tool. Only @tool carries a context into a tool  -  add the decorator:\n\n"
+        f"    from agentdeck import tool\n\n"
+        f"    @tool\n"
+        f"    def {name}({params}{context_arg}){returns}: ...\n\n"
+        f"(instructions= and hooks= callables take a {ctx_name} without one.)"
+    )
+
+
+def _type_name(annotation: object) -> str:
+    return getattr(annotation, "__name__", None) or str(annotation)
 
 
 def _tool_failure(ctx: RunContextWrapper[Any], error: Exception) -> str:
@@ -84,7 +117,7 @@ def _tool_failure(ctx: RunContextWrapper[Any], error: Exception) -> str:
     return default_tool_error_function(ctx, error)
 
 
-def _bridge(analysis: CallableAnalysis) -> Callable[..., Any]:
+def _bridge(analysis: CallableAnalysis, workers: SyncToolWorkers | None) -> Callable[..., Any]:
     """A function the SDK sees as ``(wrapper, *visible parameters)`` and that calls the original.
 
     The declared signature is synthesized rather than written, because the visible parameters are
@@ -120,6 +153,9 @@ def _bridge(analysis: CallableAnalysis) -> Callable[..., Any]:
                 f"{type(run).__name__} rather than an AgentDeck run context  -  a tool compiled by "
                 "AgentDeck has to be played by an AgentDeck run."
             )
+        # Absent for an awaited body: it never leaves this loop, so it never needs its own facade
+        # reporter or a refusal to guard an API it can reach the ordinary way.
+        tool_ctx = ToolCtx(run, _loop=None if awaits else asyncio.get_running_loop())
         bound = visible_signature.bind(*supplied, **kwargs)
         # `BoundArguments` already knows how to split a name -> value mapping back into positional
         # and keyword arguments for a signature, including positional-only parameters (which cannot
@@ -127,7 +163,7 @@ def _bridge(analysis: CallableAnalysis) -> Callable[..., Any]:
         call = original.bind_partial()
         call.arguments.update(
             {
-                parameter.name: (ToolCtx(run) if parameter.name == context_parameter else bound.arguments[name])
+                parameter.name: (tool_ctx if parameter.name == context_parameter else bound.arguments[name])
                 for parameter in original.parameters.values()
                 if (name := parameter.name) == context_parameter or name in bound.arguments
             }
@@ -136,7 +172,8 @@ def _bridge(analysis: CallableAnalysis) -> Callable[..., Any]:
             return await target(*call.args, **call.kwargs)
         # Parity with what the SDK does for a sync `@function_tool`: a blocking tool body must not
         # run on the event loop, where it would stall the stream and every safe point with it.
-        result = await asyncio.to_thread(target, *call.args, **call.kwargs)
+        submit = workers.submit if workers is not None else asyncio.to_thread
+        result = await submit(target, *call.args, **call.kwargs)
         return await result if inspect.isawaitable(result) else result
 
     bridge.__name__ = getattr(target, "__name__", "tool")

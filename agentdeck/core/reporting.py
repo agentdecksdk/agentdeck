@@ -11,13 +11,17 @@ somebody's tool. What it costs is timeliness, stated on :class:`Reporter`.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
 from agentdeck.core.events import Reported
 
 if TYPE_CHECKING:
+    from asyncio import AbstractEventLoop
     from collections import deque
+    from collections.abc import Coroutine
+    from typing import Any
 
     from agentdeck.core.base import JsonData
     from agentdeck.core.events import KnownPayload
@@ -85,3 +89,38 @@ class Reporter:
             )
             return
         self._pending.append(payload)
+
+
+class SyncReporter:
+    """A sync-callable facade over :class:`Reporter`, for a body running on a worker thread with
+    no event loop of its own to await one on.
+
+    Each call marshals the report onto the loop the run's real ``Reporter`` lives on
+    (``asyncio.run_coroutine_threadsafe``) and blocks the calling thread until it lands, so a
+    tool's own return can never race ahead of a report it made just before returning.
+    """
+
+    __slots__ = ("_loop", "_reporter")
+
+    def __init__(self, reporter: Reporter, loop: AbstractEventLoop) -> None:
+        self._reporter = reporter
+        self._loop = loop
+
+    def info(self, message: str, **fields: JsonData) -> None:
+        """See :meth:`Reporter.info`."""
+        self._call(self._reporter.info(message, **fields))
+
+    def warning(self, message: str, **fields: JsonData) -> None:
+        """See :meth:`Reporter.warning`."""
+        self._call(self._reporter.warning(message, **fields))
+
+    def error(self, message: str, **fields: JsonData) -> None:
+        """See :meth:`Reporter.error`."""
+        self._call(self._reporter.error(message, **fields))
+
+    def report(self, name: str, **fields: JsonData) -> None:
+        """See :meth:`Reporter.report`."""
+        self._call(self._reporter.report(name, **fields))
+
+    def _call(self, coro: Coroutine[Any, Any, None]) -> None:
+        asyncio.run_coroutine_threadsafe(coro, self._loop).result()

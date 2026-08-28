@@ -201,7 +201,7 @@ below. Declaring the type is what lets `build()` check it against every `ToolCtx
 the catalog before anything runs:
 
 ```python run
-from agentdeck import Agent, ToolCtx, ContextTypeError, Deck
+from agentdeck import Agent, ToolCtx, ContextTypeError, Deck, tool
 
 
 class Calendar:
@@ -213,6 +213,7 @@ class Warehouse:
     """A different application environment entirely."""
 
 
+@tool
 def find_slots(day: str, environment: ToolCtx[Calendar]) -> str:
     """Find free appointment slots on a given day."""
     return environment.data.find(day)
@@ -300,7 +301,7 @@ block; see [Workflows](/build-your-deck/workflows) for what a body does with it.
 ```python no-test reason="needs an image file and a live model that accepts one"
 import base64
 
-from agentdeck.core import ImageBlock, TextBlock
+from agentdeck import ImageBlock, TextBlock
 
 photo = base64.b64encode(open("receipt.png", "rb").read()).decode()
 result = await deck.run(
@@ -773,6 +774,18 @@ Core types and public classes exported from `agentdeck`.
 - `workflow`: Decorator declaring orchestration as an async function.
 - `ToolCtx`: The context a tool receives.
 - `WorkflowCtx`: `ToolCtx` plus orchestration, for a `@workflow` body.
+- `Observer`: One consumer of a deck's event stream, for `Deck(observers=[...])`.
+
+### Content blocks
+
+What `deck.run()` takes instead of a plain string, and what a run reports back.
+
+- `ContentBlock`: The union of the block types below.
+- `TextBlock`: Prose.
+- `ImageBlock`: An image inline, base64.
+- `AudioBlock`: Audio inline, base64.
+- `ResourceBlock`: Bytes held elsewhere, referenced rather than carried.
+- `DataBlock`: JSON as content.
 
 ---
 
@@ -783,7 +796,8 @@ Source: https://agentdecksdk.com/reference/run
 
 # Run Reference
 
-API reference for `Run` instances and execution controls.
+API reference for `Run` instances and execution controls. Starting, fetching and listing runs is
+`deck.runs`, not this handle: see [`Run` and `deck.runs`](/reference/deck#run-and-deckruns).
 
 ## Methods
 
@@ -941,7 +955,8 @@ support_agent = Agent(
 
 ## Choose a model provider
 
-Prefix `model=` to select a provider. `Deck.build()` checks every required credential before any model call.
+Prefix `model=` to select a provider. Each provider reads its own credential at the actual model
+call; a missing or invalid one surfaces there, not from `Deck.build()`.
 
 ```python
 openai_agent = Agent(name="openai", model="openai/gpt-4o")
@@ -964,6 +979,33 @@ OPENROUTER_API_KEY=sk-or-...
 
 An agent without `model=` uses `OPENAI_MODEL`. Bare model names use OpenAI, while namespaced IDs
 such as `vendor/model` remain available for an endpoint configured with `OPENAI_BASE_URL`.
+## Send an agent an image
+
+`deck.run()` takes a list of content blocks as well as a plain string. That is how an image
+reaches a vision model.
+
+```python no-test reason="needs an image file and a live model that accepts one"
+import base64
+
+from agentdeck import ImageBlock, TextBlock
+
+photo = base64.b64encode(open("receipt.png", "rb").read()).decode()
+result = await deck.run(
+    "Intake",
+    [TextBlock(text="What is the total on this receipt?"), ImageBlock(media_type="image/png", data_b64=photo)],
+)
+```
+
+The model must accept images: `ollama/qwen3.5:9b` and `openai/gpt-4o` do, `gpt-4.1-mini` does not.
+
+Inline blocks are capped at **1 MB decoded**. Anything larger needs a `ResourceBlock`, which
+references bytes held elsewhere instead of carrying them. `AudioBlock` and `DataBlock` cover audio
+and structured JSON. See [the block reference](/reference/deck) for the full table and the
+per-engine limits.
+
+An image cannot reach the model through a tool's return value: tool results are text. Content
+blocks on the way in are the only path.
+
 ## SDK-native Options
 
 Some agent options come directly from the OpenAI Agents SDK. For example, structured output can use
@@ -1013,7 +1055,7 @@ Declare the type once on `Deck(context=...)`. Pass the object once per run, on
 ```python run
 import asyncio
 
-from agentdeck import Agent, Deck, ToolCtx
+from agentdeck import Agent, Deck, ToolCtx, tool
 
 
 class Billing:
@@ -1021,7 +1063,8 @@ class Billing:
         return f"{order_id}: shipped"
 
 
-def order_status(order_id: str, billing: ToolCtx[Billing]) -> str:
+@tool
+async def order_status(order_id: str, billing: ToolCtx[Billing]) -> str:
     """Look up the shipping status of an order."""
     return billing.data.status(order_id)
 
@@ -1038,6 +1081,11 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+A context parameter is injected by the runtime and is absent from the schema the model sees, which
+is why a tool that declares one cannot be pre-decorated with the Agents SDK's `function_tool`: that
+decorator puts every parameter into the schema, and a context has none, so it raises
+`PydanticSchemaGenerationError` at the decorator line.
 
 `billing.data` is the exact `Billing()` instance passed to `context=`, not a copy. `Deck.build`
 checks every `ToolCtx[...]`/`WorkflowCtx[...]` parameter in the catalog against the declared type
@@ -1056,7 +1104,11 @@ person or start another run would no longer be a leaf.
 | `ctx.data`, the context object | yes | yes |
 | `ctx.agent`, `ctx.run_id`, `ctx.session_id` | yes | yes |
 | `ctx.reporter`, report progress out of band | yes | yes |
-| `await ctx.safepoint()`, offer a pause/cancel point | yes | yes |
+| `await ctx.safepoint()`, offer a pause/cancel point | yes, async body only | yes |
+
+A sync `@tool` body runs on a worker thread: `ctx.reporter` still works there (it marshals onto the
+run's own loop and blocks until accepted), but `ctx.safepoint()` raises `ConfigError`  -
+cooperative cancellation needs an await point a synchronous function does not have.
 | `await ctx.ask(question, options=...)`, suspend for an answer | no | yes |
 | `ctx.invoke(target, ...)`, `await ctx.parallel(...)`, start child runs | no | yes |
 | `ctx.agents.create()`, `ctx.agents.fork()`, mint an agent not in the catalog | no | yes |
@@ -1143,26 +1195,83 @@ Tools allow agents to perform actions and fetch external information.
 
 ## Defining a Tool
 
-```python
-from agents import function_tool
+`@tool` declares a leaf capability. The body is your own Python, sync or async, and the docstring
+is what the model reads. A sync body runs on a bounded worker pool the deck owns, never on the
+event loop; see [Context: what each context can do](/build-your-deck/context#what-each-context-can-do)
+for what that changes about `ctx.safepoint()`.
 
-from agentdeck import Agent
+```python run tool="lookup_order" tool_arguments='{"order_id":"A-1003"}'
+import asyncio
+
+from agentdeck import Agent, Deck, tool
 
 
-@function_tool
-def lookup_order(order_id: str) -> str:
+@tool
+async def lookup_order(order_id: str) -> str:
     """Fetch status for an order."""
     return f"Order {order_id} is in transit."
 
-agent = Agent(
-    name="order_bot",
-    instructions="Look up customer orders.",
-    tools=[lookup_order],
-)
+
+agent = Agent(name="order_bot", instructions="Look up customer orders.", tools=[lookup_order])
+deck = Deck(agents=[agent])
+
+
+async def main() -> None:
+    async with deck:
+        result = await deck.run("order_bot", "where is order A-1003?")
+        print(result.output)
+
+
+asyncio.run(main())
 ```
 
-`function_tool` comes from the OpenAI Agents SDK (`agents`), which `agentdeck` installs and
-passes through unchanged. Tools are the SDK's execution primitive, not an `agentdeck` wrapper type.
+## The plain function
+
+A context-free callable in `tools=` is compiled the same way, with less ceremony:
+
+```python
+def lookup_order(order_id: str) -> str:
+    """Fetch status for an order."""
+    return f"Order {order_id} is in transit."
+```
+
+Both forms get the same schema and the same failure attribution. What `@tool` adds is a catalog
+entry: it yields a `NativeDefinition` the deck holds, so a workflow can start it as a child run of
+its own with `ctx.invoke(lookup_order, "A-1003")`. A plain function is not a target `ctx.invoke`
+can resolve.
+
+| | `@tool` | plain function |
+|---|---|---|
+| Called by a model | yes | yes |
+| Sync or async body | yes | yes |
+| `ToolCtx[T]` injected | yes | no  -  `build()` refuses it |
+| Started as its own child run | yes | no |
+| Name and description | `name=`, `description=`, else the function's | the function's |
+
+A callable that declares [`ToolCtx[T]`](/build-your-deck/context) has to be `@tool`. The parameter
+is injected by the runtime and must stay off the schema the model sees, so `@tool` is what makes
+"this callable receives a live dependency" part of its own declaration rather than something a
+reader has to notice from the annotation alone. A plain function carrying one fails `build()`,
+naming the fix:
+
+```text
+lookup_order takes a ToolCtx parameter ('shop') but is not declared @tool. Only @tool carries
+a context into a tool  -  add the decorator: ...
+```
+
+## You already have SDK tools
+
+A tool already decorated with `function_tool` from the OpenAI Agents SDK (`agents`) is accepted in
+`tools=` and passed through untouched. That passthrough has three consequences:
+
+- It cannot take a `ToolCtx` parameter. The decorator puts every parameter into the schema the
+  model sees, and a context has none, so it raises `PydanticSchemaGenerationError` at the
+  decorator line.
+- It keeps whatever `failure_error_function` it was given, so its exceptions never reach
+  `tool.call.completed.error`.
+- It is engine-native and carries no portability guarantee.
+
+Reach for it to adopt tools you already have. Write new ones with `@tool`.
 
 ## Handling Failures
 
@@ -1170,8 +1279,8 @@ A tool can return a user-facing failure like any other result. Do that when the 
 and continue the conversation:
 
 ```python
-@function_tool
-def lookup_shift(date: str) -> str:
+@tool
+async def lookup_shift(date: str) -> str:
     """Return the nurse on duty for a date."""
     row = SHIFTS.get(date)
     if row is None:
@@ -1179,17 +1288,24 @@ def lookup_shift(date: str) -> str:
     return row
 ```
 
-If a tool raises instead, the Agents SDK catches the exception and gives the model its standard
-tool-error string. `agentdeck` records the call as `tool.call.completed`, not `run.failed`, and the
-run can still complete. In that case `Deck.run()` returns the model's final answer, the
-non-streamed HTTP route returns `200 {"output": ...}`, and the streamed HTTP route ends with
-`done` if the model completes.
+If a tool raises instead, `agentdeck` records the call as `tool.call.completed` with the exception
+type and message on its `error` field, and hands the model the Agents SDK's standard tool-error
+string. The run is not failed, so it can still complete: `Deck.run()` returns the model's final
+answer, the non-streamed HTTP route returns `200 {"output": ...}`, and the streamed HTTP route ends
+with `done` if the model completes.
 
-That is different from an exception that escapes the SDK runner, for example custom tool failure
-handling that re-raises. Then the log records `run.failed` with `error_code="engine_error"`,
-`Deck.run()` raises the exception, `Deck.stream()` yields `run.failed` and then raises, the
-non-streamed HTTP route returns `500 {"detail": "internal error"}`, and the streamed HTTP route
-sends an `error` event with the exception type.
+An exception that escapes the SDK runner is a different outcome, and a pre-decorated
+`function_tool` whose own failure handling re-raises is the way to get one. Then the log records
+`run.failed` with `error_code="engine_error"`, `Deck.run()` raises the exception, `Deck.stream()`
+yields `run.failed` and then raises, the non-streamed HTTP route returns
+`500 {"detail": "internal error"}`, and the streamed HTTP route sends an `error` event with the
+exception type.
+
+## Tools do not carry images
+
+A tool returns text. Returning a `data:` URI, a file path or base64 from a tool does not let the
+model see an image: it sees the string. Images travel as content blocks on the way *in*, not as
+tool results on the way back. See [sending an agent an image](/build-your-deck/agents).
 
 ---
 
@@ -1370,12 +1486,14 @@ Question
 That shape is the whole application, and the code says the same thing:
 
 ```python
-from agentdeck import Agent, ToolCtx, Deck
+from agentdeck import Agent, ToolCtx, Deck, tool
 
+@tool
 def search_docs(query: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Find AgentDeck documentation pages matching a query."""
     return docs.data.search(query)
 
+@tool
 def read_doc(slug: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Read one AgentDeck documentation page in full, by its slug."""
     return docs.data.pages[slug]
@@ -1389,7 +1507,7 @@ jack = Agent(
 deck = Deck(agents=[jack], context=DocsCorpus)
 ```
 
-Three ordinary functions, one agent, one Deck. `ToolCtx[DocsCorpus]` is how a tool reaches the
+Three `@tool`s, one agent, one Deck. `ToolCtx[DocsCorpus]` is how a tool reaches the
 application's own data; the model is offered only `query` or `slug`.
 
 ## The application code stays application code
@@ -1471,11 +1589,13 @@ Source: https://agentdecksdk.com/jack/notes
 The engineering behind [how Jack is built](/jack). Each note is a decision that had a reasonable
 alternative, and the reason that alternative lost.
 
-## The tools are undecorated
+## The tools are `@tool`
 
-A tool that declares a `ToolCtx` parameter stays a plain function. `@function_tool` puts every
-parameter into the schema the model sees, and the model has no `DocsCorpus` to pass. `build()`
-compiles the function instead, so the model is offered only `query` or `slug`.
+A tool that declares a `ToolCtx` parameter is `@tool`, not `@function_tool`: that decorator puts
+every parameter into the schema the model sees, and the model has no `DocsCorpus` to pass. `@tool`
+compiles the function instead, so the model is offered only `query` or `slug`  -  and is required
+here precisely because these tools carry a context: a plain function doing the same is refused at
+`build()`, naming `@tool` as the fix.
 
 See [Tools](/build-your-deck/tools) and [Context](/build-your-deck/context).
 
@@ -1588,8 +1708,9 @@ deck = Deck(agents=[assistant], workflows=[approve])
 ```
 
 `Deck.build()` resolves every name in that catalog before a run starts: handoffs, subagents,
-skills, MCP servers, model credentials. A missing provider key or an unresolvable name is an error
-you get at build time, not halfway through a user's turn.
+skills, MCP servers. An unresolvable name is an error you get at build time, not halfway through a
+user's turn. Model credentials are the provider's own: a missing or invalid one surfaces at the
+actual call, not from `build()`.
 
 ## Run: the thing with identity
 
@@ -1763,6 +1884,19 @@ await run.cancel()
 ```
 </BrandCallout>
 
+## If something went wrong
+
+These are the first-run failures you can hit before you have a mental model for AgentDeck.
+Match the text in your terminal, then apply the concrete fix.
+
+| What you see | Why | What to do |
+|---|---|---|
+| `openai.OpenAIError: The api_key client option must be set either by passing api_key to the client or by setting the OPENAI_API_KEY environment variable`<br /><br />The run then surfaces as:<br />`RuntimeError: run '<run-id>' failed: OpenAIError in engine 'openai-agents'` | `OPENAI_API_KEY` is not set for the Python process running the Deck. | Export a valid key before running the script:<br />`export OPENAI_API_KEY=sk-...`<br /><br />If you run from an IDE, set the same variable in that run configuration. |
+| <code>openai.NotFoundError: Error code: 404 - &#123;'error': &#123;'message': 'The model &grave;not-a-real-agentdeck-model&grave; does not exist or you do not have access to it.', 'type': 'invalid_request_error', 'param': 'model', 'code': 'model_not_found'&#125;&#125;</code><br /><br />The run then surfaces as:<br />`RuntimeError: run '<run-id>' failed: NotFoundError in engine 'openai-agents'` | The `model` on the `Agent`, or `OPENAI_MODEL`, names a model your key or configured OpenAI-compatible endpoint cannot reach. | Use a model available to your account, for example the Quickstart's `gpt-4o-mini`, or update `OPENAI_BASE_URL` and `OPENAI_MODEL` together when using a compatible gateway. |
+| `RuntimeWarning: coroutine 'Runs.start' was never awaited` | `deck.runs.start(...)` is async. Calling it without `await` creates a coroutine but never starts the run. | Start the run with `run = await deck.runs.start("assistant", input="Hello!")` inside an `async def`, then drive it with `asyncio.run(main())`. |
+| `agentdeck.core.errors.SessionBusyError: session 'quickstart' already has run '<first-run-id>' in flight, so run '<second-run-id>' cannot start on it  -  see https://agentdecksdk.com/runs-and-control/sessions` | A second run started with the same `session_id` before the previous run reached a terminal event. Sessions serialize turns. | Wait for the first run to finish with `result = await run`, cancel it with `await run.cancel()`, or use a different `session_id` for an independent conversation. |
+| <code>agentdeck.core.errors.ConfigError: this Deck is not open: use &grave;async with deck:&grave; (or &grave;await deck.__aenter__()&grave;) first.</code> | `deck.stream(...)` was iterated before the Deck runtime was opened. | Wrap streaming in the Deck context:<br />`async with deck:`<br />&nbsp;&nbsp;&nbsp;&nbsp;`async for event in deck.stream("assistant", "Hello!"):`<br />&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;`print(event.kind)` |
+
 ## Next
 
 - [Add a Tool](/build-your-deck/tools) -> Give your agents callable capabilities.
@@ -1786,54 +1920,80 @@ Source: https://agentdecksdk.com/resources/changelog
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v5.0.3**. Earlier releases are listed at the bottom.
+The current release is **v5.1.0**. Earlier releases are listed at the bottom.
 
-## v5.0.3
+## v5.1.0
 
-*Released 2026-08-23.*
+*Released 2026-08-28.*
+
+### Added
+
+- **`@tool` accepts a sync body.** Only `@workflow` still requires `async def`, because every
+  orchestration primitive on `WorkflowCtx` is awaited and a sync body cannot reach one. A tool has
+  nothing to await, and both paths that play one now put a sync body on a worker thread: the
+  model-facing path already did, and `ctx.invoke()` does now. The refusal previously applied to
+  both kinds, so the richer form was also the more restrictive one.
+- **Content blocks and `Observer` import from the package root.** `ImageBlock`, `TextBlock`,
+  `ContentBlock`, `ResourceBlock`, `AudioBlock`, `DataBlock` and `Observer` are exported from
+  `agentdeck` alongside `Agent` and `Deck`, rather than only from `agentdeck.core.content` and
+  `agentdeck.core.ports`. Sending an agent an image and watching a deck's events are both
+  first-contact tasks, and both previously required knowing an internal path to reach a public
+  capability.
+
+### Removed
+
+- **A plain function carrying a `ToolCtx[...]`/`WorkflowCtx[...]` parameter in `tools=` is
+  refused.** Only `@tool` may declare one now; `build()` names the callable and shows the
+  decorator to add. `instructions=` and `hooks=` callables are unaffected, and a context-free
+  plain function still compiles exactly as before.
 
 ### Changed
 
-- **A cancelled run's log is closed for good.** Appending to a run that already has its
-  `run.cancelled` raises `RunStateError` on every store instead of landing behind that event, which
-  is what a write already in flight when `Deck.aclose()` abandoned the run used to do. A takeover's
-  `run.failed` still seals nothing: it is written for a run only believed dead, and one that turns
-  out to be alive goes on writing and may reclaim its own session.
+- **A durable event log now says what it does not make durable.** Setting `AGENTDECK_EVENTS` to
+  anything other than `memory://` while `AGENTDECK_SESSION` is unset logs a warning: the log
+  survives a restart, the conversation the model sees does not. The old warning fired only for
+  `memory://`, so configuring a durable log silenced the one message and left the reader believing
+  recall was handled.
+- **Sending an agent an image is documented where agents are.** `build-your-deck/agents` gains a
+  section on content blocks, and `build-your-deck/tools` states that a tool cannot carry an image:
+  tool results are text, so a returned `data:` URI reaches the model as a string.
+- **The error taxonomy moved to `agentdeck/core/errors.py`.** `agentdeck.errors` re-exports the
+  same class objects, so every `from agentdeck.errors import ...` and `except ConfigError` is
+  unchanged. What changes is what a traceback prints: `agentdeck.core.errors.ConfigError`,
+  not `agentdeck.errors.ConfigError`. Core raises these now, which is where `CLAUDE.md` §2
+  already placed the taxonomy.
 
 ### Fixed
 
-- **A cancelled `answer()` or `resume()` no longer leaves a run claimed but unplayed.** Both claim
-  the run before there is anything to hand back, and a cancellation in between left the log saying
-  the run was live with nothing playing it and its session held until the staleness window passed.
-  The run is closed with `run.cancelled` instead, so the record says what happened and the session
-  is free at once.
-- **`Deck(agents=[...])` refuses a raw Agents SDK agent at construction.** It was admitted
-  silently, because a catalog entry only had to have a `.name`, and `build()` then died on
-  `AttributeError: 'Agent' object has no attribute 'skills'`. The refusal is a `ConfigError`
-  naming the object and pointing at `handoffs=`, which does take a raw SDK agent.
-- **Asking two questions at once is refused instead of losing the branch that was already
-  waiting.** One run holds one answer, so two `ctx.ask(...)` calls raced under `asyncio.gather`
-  overwrote the first branch's future and left it waiting for the life of the run with no error
-  and no event. Only the workflow body itself may suspend its run now, so the first such
-  `ctx.ask(...)` (or `ctx.safepoint()`) raises `ConfigError` and the run fails without ever
-  parking. Fan out with `ctx.parallel(ctx.invoke(...), ...)` instead, where each child run holds
-  its own answer. Not a permanent rule: concurrent questions on one run wait on the answer inbox
-  ([#413](https://github.com/agentdecksdk/agentdeck/issues/413)).
-- **Correction to 5.0.0: no executor is named `"langgraph"`.** The "engine port is `Executor`"
-  entry below lists `LangGraphEngine` becoming `LangGraphExecutor` and keeps `"langgraph"` among
-  the wire values. Both went with the engine in that same release; the executors a 5.x deck names
-  are `"native"`, `"openai-agents"` and `"stub"`.
-- **Known Issues no longer documents removed machinery.** The restart entry named
-  `AGENTDECK_CHECKPOINT`, a setting 5.0 removed along with the checkpointer, and one row described
-  a graph `interrupt()`. Both are gone from [Known Issues](/resources/known-issues).
-- **`run.answer()` says what an ask without options does with the value.** An ask that named
-  `options` refuses anything outside them; one that named none hands the value to the body, which
-  is the only thing that can judge it. `PendingRun.invocable` now says why the name is general.
+- **`Deck.build()` no longer rejects a model for a missing provider env var.** The credential
+  check only ever recognized `anthropic`/`gemini`/`ollama`/`openrouter` and otherwise demanded
+  `OPENAI_API_KEY`/`OPENAI_BASE_URL`, so a `litellm/...` or `any-llm/...` model authenticated
+  through its own provider's own convention (Vertex ADC, an IAM role, ...) failed to build over a
+  credential it would never use. Model authentication belongs to the wrapped Agents SDK and the
+  selected provider, not `Deck.build()`; a real auth failure now surfaces at the actual call,
+  as the provider's own error.
+- **`ctx.reporter` now works from a sync `@tool` body.** It previously did nothing: `Reporter.info`
+  and friends are `async def`, and a worker thread has no event loop to await one on, so a bare
+  call built an unawaited coroutine and quietly reported nothing. `ctx.reporter` from a sync body
+  is now a sync-callable facade that marshals the report onto the run's own loop and blocks until
+  it lands, preserving order against the tool's own return. `ctx.safepoint()` from a sync body now
+  raises `ConfigError` naming the constraint, instead of the same silent no-op.
+- **A sync `@tool` body now runs on a bounded, deck-owned worker pool**, not the interpreter-global
+  default `asyncio.to_thread()` executor. A `Run` cancelled while its sync body is still on a
+  worker now ends `CANCELLED`, never flipped back to `COMPLETED` by the body's eventual,
+  uninterruptible return; a queued-but-not-started call is cancelled outright and its body never
+  runs. The pool drains on `Deck.aclose()` along with everything else this Deck owns.
+- **`@function_tool` over a `ToolCtx` parameter now says what to do about it.** The Agents SDK
+  decorator builds its argument schema from every parameter it does not recognise, so a context
+  one used to fail at decoration with `PydanticSchemaGenerationError: Unable to generate
+  pydantic-core schema for <class 'agentdeck.core.control.Gate'>`, naming a private type and no
+  fix. It now raises `ConfigError` naming the fix: use agentdeck's own `@tool`.
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v5.0.3](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.0.3) | 2026-08-23 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.0.3) |
 | [v5.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.0.0) | 2026-08-22 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.0.0) |
 | [v4.0.5](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.5) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.5) |
 | [v4.0.4](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.4) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.4) |

@@ -75,10 +75,9 @@ Every comment and the verdict body follow fixed templates: `references/templates
 - Reviews are COMMENTED only. Approve and request-changes are unavailable when the agent authenticates as the PR author.
 - Inline, line-anchored comments (BLOCK, DISCUSS, DEFER; NITs never inline) in Template A form:
   `gh api repos/{owner}/{repo}/pulls/<n>/comments -f body=... -f commit_id=$(gh pr view <n> --json headRefOid -q .headRefOid) -f path=<file> -F line=<line> -f side=RIGHT`
-- Post the verdict as a real review in Template B form: `gh pr review <n> --comment --body-file <file>`. Pass requires zero BLOCK and every DISCUSS answered. The marker applies only to the reviewed head commit; any later push needs a new one.
-- If the only change since the last pass is a NIT fix or a PR body edit, post a one-line re-stamp review at the new SHA instead of a full re-review. It still ends with the marker line; the gate matches the last review at `HEAD_SHA` regardless of length.
-- After posting the marked review, rerun the trusted gate: extract the run ID from the `Agent review` check URL (`gh pr checks <n> --json name,link`), then `gh run rerun <run-id>`. The gate only runs from base-branch workflow code, so a review submission does not trigger it directly.
-- Confirm the `Agent review` check turns green after a pass. A local pass with no green check is incomplete.
+- Post the verdict as a real review in Template B form: `gh pr review <n> --comment --body-file <file>`. Pass requires zero BLOCK and every DISCUSS answered.
+- The review is only delivered once it is on the PR. A local pass with nothing posted is incomplete.
+- A push that changes the code needs a new review: nothing enforces that mechanically, so it is on whoever merges.
 - File DEFER and harness-note issues per the finding-class table above.
 
 ## Return to the orchestrator

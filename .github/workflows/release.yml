@@ -54,10 +54,13 @@ jobs:
       AGENTDECK_TEST_REDIS_URL: redis://127.0.0.1:6379/15
       AGENTDECK_TEST_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/agentdeck_test
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
+          # v6 made this opt-in; without it `uv pip install` below finds no venv, and the
+          # Makefile's `.venv/bin/*` calls have nothing to run.
+          activate-environment: true
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Verify tag matches pyproject version

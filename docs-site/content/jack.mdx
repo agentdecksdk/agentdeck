@@ -29,12 +29,14 @@ Question
 That shape is the whole application, and the code says the same thing:
 
 ```python
-from agentdeck import Agent, ToolCtx, Deck
+from agentdeck import Agent, ToolCtx, Deck, tool
 
+@tool
 def search_docs(query: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Find AgentDeck documentation pages matching a query."""
     return docs.data.search(query)
 
+@tool
 def read_doc(slug: str, docs: ToolCtx[DocsCorpus]) -> str:
     """Read one AgentDeck documentation page in full, by its slug."""
     return docs.data.pages[slug]
@@ -48,7 +50,7 @@ jack = Agent(
 deck = Deck(agents=[jack], context=DocsCorpus)
 ```
 
-Three ordinary functions, one agent, one Deck. `ToolCtx[DocsCorpus]` is how a tool reaches the
+Three `@tool`s, one agent, one Deck. `ToolCtx[DocsCorpus]` is how a tool reaches the
 application's own data; the model is offered only `query` or `slug`.
 
 ## The application code stays application code

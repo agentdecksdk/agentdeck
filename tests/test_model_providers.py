@@ -1,4 +1,10 @@
-"""Multi-provider routing and startup validation, with no model calls."""
+"""Multi-provider routing, with no model calls.
+
+Issue #519: ``Deck.build()`` used to reject a model for a missing provider env var, which was
+neither AgentDeck's to own (the wrapped Agents SDK and the provider resolve auth) nor authoritative
+(a bad key value passed the old check; a validly-configured client with no env var failed it). It
+no longer checks credentials at all: every prefix below builds with nothing set.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +13,6 @@ from agents import MultiProvider
 
 from agentdeck import Agent, Deck
 from agentdeck.adapters.executors.openai_agents.runconfig import RunSettings, build_run_config
-from agentdeck.errors import ConfigError
 from agentdeck.runtime.settings import reset_settings_cache
 
 
@@ -82,40 +87,26 @@ def test_keyless_openai_compatible_endpoint_gets_an_internal_client_placeholder(
     assert resolved._client.api_key == "agentdeck"
 
 
-def test_build_reports_every_missing_provider_credential(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ("ANTHROPIC_API_KEY", "GEMINI_API_KEY"):
+@pytest.mark.parametrize(
+    ("model", "env_vars"),
+    [
+        ("anthropic/claude-3-7-sonnet", ("ANTHROPIC_API_KEY",)),
+        ("gemini/gemini-2.5-flash", ("GEMINI_API_KEY",)),
+        ("ollama/llama3.2", ("OLLAMA_BASE_URL",)),
+        ("openrouter/openai/gpt-4o", ("OPENROUTER_API_KEY",)),
+        ("litellm/vertex_ai/gemini-1.5-pro", ("OPENAI_API_KEY", "OPENAI_BASE_URL")),
+        ("any-llm/anthropic/claude-3-7-sonnet", ("OPENAI_API_KEY", "OPENAI_BASE_URL")),
+        (None, ("OPENAI_API_KEY", "OPENAI_BASE_URL")),  # the undeclared default
+    ],
+)
+def test_build_succeeds_with_no_provider_credential_set(
+    monkeypatch: pytest.MonkeyPatch, model: str | None, env_vars: tuple[str, ...]
+) -> None:
+    for name in env_vars:
         monkeypatch.delenv(name, raising=False)
     reset_settings_cache()
-    deck = Deck(
-        agents=[
-            Agent(name="Writer", model="anthropic/claude-3-7-sonnet"),
-            Agent(name="Researcher", model="gemini/gemini-2.5-flash"),
-        ]
-    )
 
-    with pytest.raises(ConfigError) as exc_info:
-        deck.build()
-
-    message = str(exc_info.value)
-    assert "Writer" in message and "ANTHROPIC_API_KEY" in message
-    assert "Researcher" in message and "GEMINI_API_KEY" in message
-
-
-def test_build_requires_an_ollama_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
-    reset_settings_cache()
-
-    with pytest.raises(ConfigError, match="OLLAMA_BASE_URL"):
-        Deck(agents=[Agent(name="Local", model="ollama/llama3.2")]).build()
-
-
-def test_build_requires_openai_credentials_for_the_undeclared_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY")
-    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
-    reset_settings_cache()
-
-    with pytest.raises(ConfigError, match="OPENAI_API_KEY or OPENAI_BASE_URL"):
-        Deck(agents=[Agent(name="Default")]).build()
+    Deck(agents=[Agent(name="Test", model=model)]).build()
 
 
 def test_build_accepts_non_string_sdk_models_without_provider_credentials() -> None:

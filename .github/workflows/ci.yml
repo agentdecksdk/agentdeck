@@ -66,7 +66,7 @@ jobs:
       AGENTDECK_TEST_REDIS_URL: redis://127.0.0.1:6379/15
       AGENTDECK_TEST_POSTGRES_DSN: postgresql://postgres:postgres@127.0.0.1:5432/agentdeck_test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The schema's backward-compatibility gate (#47) loads the newest *released*
           # reader out of git (by tag) and measures this tree's events against it. The
@@ -87,9 +87,12 @@ jobs:
             echo "$strays"
             exit 1
           fi
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: ${{ matrix.python-version }}
+          # v6 made this opt-in; without it `uv pip install` below finds no venv, and the
+          # Makefile's `.venv/bin/*` calls have nothing to run.
+          activate-environment: true
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       # postgres pulls in the psycopg driver the Postgres event log's tests need: omitting an
@@ -159,7 +162,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Comment slop on lines this PR adds

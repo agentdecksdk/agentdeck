@@ -47,7 +47,6 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from agentdeck.adapters.executors.native import NativeExecutor
 from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor, SessionFactory
-from agentdeck.adapters.executors.openai_agents.runconfig import validate_model_requirements
 from agentdeck.adapters.tools.mcp.lifecycle import MCPLifecycle
 from agentdeck.authoring.agent import Agent
 from agentdeck.authoring.compile import compile_agent, refresh_mcp_status
@@ -76,6 +75,7 @@ from agentdeck.core.events import (
 from agentdeck.core.invocable import AgentInstance, InvocableKind, InvocableSpec
 from agentdeck.core.ports import Observer
 from agentdeck.core.status import PRECONDITIONS, SUSPENDED_KINDS, Controls, Operation, RunStatus, Verdict, can_of
+from agentdeck.core.workers import SyncToolWorkers
 from agentdeck.errors import (
     AgentdeckError,
     ConfigError,
@@ -562,6 +562,9 @@ class Deck:
         self._state: _State = "NEW"
         self._invocables: Mapping[str, InvocableSpec] | None = None
         self._executor_instances: tuple[Executor, ...] | None = None
+        # Shared by build()'s compile chain and NativeExecutor (__aenter__), which is why it is
+        # constructed here, before either exists.
+        self._sync_workers = SyncToolWorkers()
         self._runtime: Runtime | None = None
         self._sessions: ExecutionStore | None = None
         # The one execution owner per run (docs/design/run-identity.md §9): keyed by run_id,
@@ -669,14 +672,6 @@ class Deck:
         if self._state != "NEW":
             return self
         _validate_observers(self._observers_arg)
-        run_settings = resolve_run_settings()
-        validate_model_requirements(
-            (
-                (agent.name, agent.model if agent.model is not None else run_settings.model)
-                for agent in self._agents.values()
-            ),
-            run_settings,
-        )
         skills_by_name = self._skills_obj.build() if self._skills_obj is not None else {}
         mcp_names = frozenset(self._mcp_obj.build()) if self._mcp_obj is not None else frozenset()
         if self._mcp_obj is not None:
@@ -693,6 +688,7 @@ class Deck:
             bundle_of=self._bundle_of,
             context_type=self._context_type,
             delegate=self._delegate,
+            workers=self._sync_workers,
         )
         self._state = "BUILT"
         return self
@@ -754,7 +750,7 @@ class Deck:
         else:
             self._executor_instances = (
                 OpenAIAgentsExecutor(self._ensure_sessions(), settings=resolve_run_settings()),
-                NativeExecutor(self._invoke, _Agents(self)),
+                NativeExecutor(self._invoke, _Agents(self), self._sync_workers),
             )
         self._owns_store = self._store_arg is None
         store = self._store_arg if self._store_arg is not None else resolve_event_store()
@@ -1028,7 +1024,11 @@ class Deck:
             kind=InvocableKind.AGENT,
             executor=EXECUTOR_FOR_KIND[InvocableKind.AGENT],
             native=compile_agent(
-                minted, context_type=self._context_type, catalog=self._agents, delegate=self._delegate
+                minted,
+                context_type=self._context_type,
+                catalog=self._agents,
+                delegate=self._delegate,
+                workers=self._sync_workers,
             ),
             metadata={"agent": instance},
         )

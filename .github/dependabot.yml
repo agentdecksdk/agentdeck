@@ -7,9 +7,23 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # One PR for the week's minor and patch bumps: they share `uv.lock`, so separate branches
+    # each resolve against the same base and only the first can merge (#499). Majors stay on
+    # their own, because a major is a migration, and a migration inside a batch is one nobody
+    # reviews.
+    groups:
+      python-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   # The pinned action refs in .github/workflows/.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    # Same split, and #477 is why majors are excluded: setup-uv v5 to v7 needed
+    # `activate-environment: true` at the call site, not just a new tag.
+    groups:
+      actions-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
