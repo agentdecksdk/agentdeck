@@ -135,8 +135,8 @@ DOC_PROSE_MAX = 6
 # CLAUDE.md section 3: comments are "max 1-2 lines". Longer is documentation, and belongs in docs/.
 COMMENT_BLOCK_MAX = 2
 # Empirically derived: agentdeck/ files >=20 lines run a median 0.31/p90 0.51/p95 0.56/max 0.72
-# ratio (docs/delivery/plan-slop-comment-ratio.md measurement); 0.6 clears everything but one
-# Protocol file's per-method Args/Returns docstrings. Below 20 total/added lines a ratio is noise:
+# ratio (docs/delivery/plan-slop-comment-ratio.md measurement); 0.6 clears everything but two
+# Protocol files' per-method Args/Returns docstrings. Below 20 total/added lines a ratio is noise:
 # a bare package docstring in an empty __init__.py is 100% prose and not bloat.
 COMMENT_RATIO_MAX = 0.6
 COMMENT_RATIO_MIN_LINES = 20
@@ -728,6 +728,7 @@ def _self_test() -> None:
     diff_source = "\n".join(f"# note {i}" for i in range(20)) + "\n" + "\n".join(["x = 1"] * 100) + "\n"
     assert not _file_ratio_violations(diff_source), "large otherwise-fine file must pass Check A"
     assert _diff_ratio_violations(diff_source, set(range(1, 21))), "comment-heavy added lines must fail Check B"
+    assert not _diff_ratio_violations(diff_source, set(range(21, 121))), "code-only added lines must pass Check B"
     google_big = (
         'def f(a, b, c, d, e, f, g, h, i, j):\n    """One line.\n\n    Args:\n        a: first.\n'
         "        b: second.\n        c: third.\n        d: fourth.\n        e: fifth.\n"

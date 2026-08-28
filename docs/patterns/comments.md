@@ -45,7 +45,7 @@ A docstring says what the callable is for and what a caller must know to use it.
 
 ## File-level density
 
-A file whose comment+docstring lines exceed 60% of its total (files under 20 lines exempt) is
+A file whose comment+docstring lines exceed 60% of its total (files/diffs under 20 lines exempt) is
 prose-heavy even if every individual block is within budget (SLOP012). Every comment and docstring
 line counts here, `Args:`/`Returns:` sections included: this checks total prose volume, not
 whether one block reads as an essay. Same rule fires on a PR's own added lines, so a comment-heavy
