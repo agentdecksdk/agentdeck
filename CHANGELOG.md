@@ -27,6 +27,20 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 - **Sending an agent an image is documented where agents are.** `build-your-deck/agents` gains a
   section on content blocks, and `build-your-deck/tools` states that a tool cannot carry an image:
   tool results are text, so a returned `data:` URI reaches the model as a string.
+- **The error taxonomy moved to `agentdeck/core/errors.py`.** `agentdeck.errors` re-exports the
+  same class objects, so every `from agentdeck.errors import ...` and `except ConfigError` is
+  unchanged. What changes is what a traceback prints: `agentdeck.core.errors.ConfigError`,
+  not `agentdeck.errors.ConfigError`. Core raises these now, which is where `CLAUDE.md` §2
+  already placed the taxonomy.
+
+### Fixed
+
+- **`@function_tool` over a `ToolCtx` parameter now says what to do about it.** The Agents SDK
+  decorator builds its argument schema from every parameter it does not recognise, so a context
+  one used to fail at decoration with `PydanticSchemaGenerationError: Unable to generate
+  pydantic-core schema for <class 'agentdeck.core.control.Gate'>`, naming a private type and no
+  fix. It now raises `ConfigError` naming the two that work: leave the function undecorated, or
+  use agentdeck's own `@tool`.
 
 ## [5.0.3] - 2026-08-23
 
