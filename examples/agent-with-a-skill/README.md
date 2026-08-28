@@ -5,7 +5,7 @@ shapes *how*  -  loaded only when the model decides it needs it.
 
 ```text
 .agentdeck/
-├── agents/handover_desk/agent.py     # two @function_tools + Agent(..., skills=["shift-notes"])
+├── agents/handover_desk/agent.py     # two @tools + Agent(..., skills=["shift-notes"])
 └── skills/shift-notes/SKILL.md       # frontmatter + instructions the model loads on demand
 run.py                                # two turns on one session: a lookup, then a note
 ```

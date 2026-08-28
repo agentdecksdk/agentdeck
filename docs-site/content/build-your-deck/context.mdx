@@ -5,6 +5,7 @@ description: Typed, request-scoped access to your own application state, for too
 
 {/* docs_sources:
   - "agentdeck/core/context.py"
+  - "agentdeck/authoring/native.py"
   - "agentdeck/authoring/injection.py"
   - "agentdeck/authoring/compile.py"
 */}
@@ -23,7 +24,7 @@ Declare the type once on `Deck(context=...)`. Pass the object once per run, on
 ```python run
 import asyncio
 
-from agentdeck import Agent, Deck, ToolCtx
+from agentdeck import Agent, Deck, ToolCtx, tool
 
 
 class Billing:
@@ -31,7 +32,8 @@ class Billing:
         return f"{order_id}: shipped"
 
 
-def order_status(order_id: str, billing: ToolCtx[Billing]) -> str:
+@tool
+async def order_status(order_id: str, billing: ToolCtx[Billing]) -> str:
     """Look up the shipping status of an order."""
     return billing.data.status(order_id)
 
@@ -48,6 +50,11 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+A context parameter is injected by the runtime and is absent from the schema the model sees, which
+is why a tool that declares one cannot be pre-decorated with the Agents SDK's `function_tool`: that
+decorator puts every parameter into the schema, and a context has none, so it raises
+`PydanticSchemaGenerationError` at the decorator line.
 
 `billing.data` is the exact `Billing()` instance passed to `context=`, not a copy. `Deck.build`
 checks every `ToolCtx[...]`/`WorkflowCtx[...]` parameter in the catalog against the declared type

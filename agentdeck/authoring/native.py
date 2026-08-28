@@ -109,12 +109,12 @@ def _build(
     name: str | None,
     description: str | None,
 ) -> NativeDefinition:
-    if not inspect.iscoroutinefunction(inspect.unwrap(target)):
+    if kind is InvocableKind.WORKFLOW and not inspect.iscoroutinefunction(inspect.unwrap(target)):
         raise ConfigError(
-            f"{describe_callable(target)} is declared @{kind.value} but is not async. A native "
-            f"{kind.value} is awaited by the runtime, and a blocking body would stall every run "
-            f"sharing its event loop  -  make it `async def`, and use asyncio.to_thread for work "
-            f"that genuinely blocks."
+            f"{describe_callable(target)} is declared @workflow but is not async. A workflow "
+            f"coordinates other executions through `await ctx.invoke()`, `await ctx.parallel()` "
+            f"and `await ctx.ask()`, none of which a sync body can reach  -  make it `async def`, "
+            f"and use asyncio.to_thread for work that genuinely blocks."
         )
     analysis = analyze_callable(target)
     if not analysis.reliable:
