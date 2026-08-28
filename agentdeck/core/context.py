@@ -21,13 +21,14 @@ import asyncio
 import inspect
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, NoReturn, Protocol, cast, runtime_checkable
 from uuid import uuid4
 
 from agentdeck.core.control import Gate, RunPausedError
 from agentdeck.core.events import KnownPayload, RunInterrupted
 from agentdeck.core.reporting import Reporter
 from agentdeck.core.status import RunStatus
+from agentdeck.errors import DOCS_URL, ConfigError
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,29 @@ class RunContext:
                 "namespace must be a non-empty string or None; empty is how stores encode "
                 "'no namespace', so an explicit '' would share a bucket with unnamespaced runs"
             )
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> NoReturn:
+        """Refuse to be modelled, naming the fix, instead of letting pydantic fail on a field.
+
+        Here and not on :class:`ToolCtx` because pydantic routes a generic dataclass to its own
+        dataclass schema before consulting the origin's hook, so a hook on ``ToolCtx`` would catch
+        ``ctx: ToolCtx`` and miss ``ctx: ToolCtx[T]``. This is the first field either spelling
+        descends into, which is what makes one refusal cover both.
+        """
+        raise ConfigError(
+            "RunContext cannot be a pydantic field: it carries a run's live machinery (its gate, "
+            "its reporter, the object handed to run(context=...)), and nothing a model emits or a "
+            "JSON payload holds can fill one. Decorating a function that takes a ToolCtx parameter "
+            "with the Agents SDK's @function_tool is the usual cause, because that decorator builds "
+            "an argument schema out of every parameter it does not recognise. Give the function to "
+            "AgentDeck instead, undecorated or with agentdeck's own @tool, and the context stays "
+            "out of the schema the model sees:\n\n"
+            "    from agentdeck import tool\n\n"
+            "    @tool\n"
+            "    def find_slots(day: str, ctx: ToolCtx[Calendar]) -> str: ...\n\n"
+            f"See {DOCS_URL}/build-your-deck/tools."
+        )
 
     @property
     def namespace_key(self) -> str:
