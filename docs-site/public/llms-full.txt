@@ -955,7 +955,8 @@ support_agent = Agent(
 
 ## Choose a model provider
 
-Prefix `model=` to select a provider. `Deck.build()` checks every required credential before any model call.
+Prefix `model=` to select a provider. Each provider reads its own credential at the actual model
+call; a missing or invalid one surfaces there, not from `Deck.build()`.
 
 ```python
 openai_agent = Agent(name="openai", model="openai/gpt-4o")
@@ -1701,8 +1702,9 @@ deck = Deck(agents=[assistant], workflows=[approve])
 ```
 
 `Deck.build()` resolves every name in that catalog before a run starts: handoffs, subagents,
-skills, MCP servers, model credentials. A missing provider key or an unresolvable name is an error
-you get at build time, not halfway through a user's turn.
+skills, MCP servers. An unresolvable name is an error you get at build time, not halfway through a
+user's turn. Model credentials are the provider's own: a missing or invalid one surfaces at the
+actual call, not from `build()`.
 
 ## Run: the thing with identity
 
@@ -1955,6 +1957,13 @@ The current release is **v5.0.3**. Earlier releases are listed at the bottom.
 
 ### Fixed
 
+- **`Deck.build()` no longer rejects a model for a missing provider env var.** The credential
+  check only ever recognized `anthropic`/`gemini`/`ollama`/`openrouter` and otherwise demanded
+  `OPENAI_API_KEY`/`OPENAI_BASE_URL`, so a `litellm/...` or `any-llm/...` model authenticated
+  through its own provider's own convention (Vertex ADC, an IAM role, ...) failed to build over a
+  credential it would never use. Model authentication belongs to the wrapped Agents SDK and the
+  selected provider, not `Deck.build()`; a real auth failure now surfaces at the actual call,
+  as the provider's own error.
 - **`@function_tool` over a `ToolCtx` parameter now says what to do about it.** The Agents SDK
   decorator builds its argument schema from every parameter it does not recognise, so a context
   one used to fail at decoration with `PydanticSchemaGenerationError: Unable to generate

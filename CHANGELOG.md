@@ -47,6 +47,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Fixed
 
+- **`Deck.build()` no longer rejects a model for a missing provider env var.** The credential
+  check only ever recognized `anthropic`/`gemini`/`ollama`/`openrouter` and otherwise demanded
+  `OPENAI_API_KEY`/`OPENAI_BASE_URL`, so a `litellm/...` or `any-llm/...` model authenticated
+  through its own provider's own convention (Vertex ADC, an IAM role, ...) failed to build over a
+  credential it would never use. Model authentication belongs to the wrapped Agents SDK and the
+  selected provider, not `Deck.build()`; a real auth failure now surfaces at the actual call,
+  as the provider's own error.
 - **`@function_tool` over a `ToolCtx` parameter now says what to do about it.** The Agents SDK
   decorator builds its argument schema from every parameter it does not recognise, so a context
   one used to fail at decoration with `PydanticSchemaGenerationError: Unable to generate
