@@ -94,18 +94,10 @@ def compile_agent(
 ) -> SDKAgent:
     """Build the SDK ``Agent`` for ``agent``, minus handoffs (see module docstring).
 
-    Raises :class:`ConfigError` rather than silently dropping ``skills=`` when no resolver was
-    supplied  -  the caller (``Deck.build()``, or a bare compile with none configured) must be the
-    one to say why, not the compiled agent by omission.
-
-    ``context_type`` is the owning deck's ``Deck(context=...)`` declaration, checked against
-    every ``ToolCtx[...]`` this agent's tools, instructions and hooks require.
-
-    ``catalog`` and ``delegate`` are what ``subagents=`` needs and a standalone compile has
-    neither of: the agents a name may resolve to, and the deck's own way of starting a child run.
-
-    ``workers`` is the deck's shared sync-tool worker pool, threaded to :func:`compile_tool` the
-    same way; ``None`` for a standalone compile, same fallback.
+    ``context_type`` checks every ``ToolCtx[...]`` requirement here; ``catalog``/``delegate``
+    resolve ``subagents=``; ``workers`` is the deck's shared sync-tool pool, threaded to
+    :func:`compile_tool`. Each defaults to ``None`` for a standalone compile, which raises
+    :class:`ConfigError` instead of compiling short wherever one was actually needed.
     """
     banner, mcp_servers = _resolve_mcp(agent)
     disclosure = ""

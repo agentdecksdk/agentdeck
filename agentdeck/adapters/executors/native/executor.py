@@ -192,15 +192,10 @@ class NativeExecutor(Executor):
     async def _play(self, definition: NativeInvocable, input: Input, ctx: RunContext, channel: _Channel) -> None:
         """Run the body to its end, and put whatever that end was on the channel.
 
-        Two exits are payloads: a return is ``run.completed``, and a signal honored at a safepoint
-        is its own three. Anything else raised is left to travel  -  the task keeps it, and
-        :meth:`execute` re-raises it into the run so the Runtime records and reports it the way
-        it does for every other executor.
-
-        A THREAD-executed body has no await point of its own to offer a checkpoint at, so this is
-        the only place one exists for it: right after the worker call returns or raises, before
-        either becomes a payload. A pending CANCEL found there raises through the same
-        ``ControlSignalled`` handler below, exactly as a workflow's own ``ctx.safepoint()`` would.
+        A return is ``run.completed``; anything else raised travels to :meth:`execute`, which
+        re-raises it into the run. A THREAD-executed body has no await point of its own to offer a
+        checkpoint at, so this is the only one it gets: right after the worker call returns or
+        raises, routing a pending CANCEL through the same handler below as a real safepoint would.
         """
         channel.owner = asyncio.current_task()
         try:
@@ -286,15 +281,9 @@ def _context_for(
 ) -> Any:
     """The context the body declared, holding the channel it can stop on.
 
-    Which class it is was settled by the decorator; both get the channel, because a body this
-    executor is playing can always be parked  -  an ASYNC tool's ``safepoint`` waits here exactly
-    as a workflow's does, and only a tool played inside somebody else's turn has to unwind
-    instead. Only a workflow gets the invoker and the agent mint: a tool that could start another
-    run, or add one to the catalog, is no longer a leaf.
-
-    A THREAD-executed tool's context also carries the running loop, which is what makes its
-    ``reporter`` a sync-callable facade and its ``safepoint`` a refusal instead: neither is an API
-    a worker thread with no loop of its own can honor the ordinary way.
+    Only a workflow gets the invoker and the agent mint  -  a tool that could start another run is
+    no longer a leaf. A THREAD-executed tool's context also carries the running loop, which
+    switches its ``reporter`` to a sync facade and its ``safepoint`` to a refusal.
     """
     context_class = definition.context_class
     if context_class is None:

@@ -35,20 +35,14 @@ class SyncToolWorkers:
     async def submit[T](self, func: Callable[..., T], /, *args: Any, **kwargs: Any) -> T:
         """Run ``func(*args, **kwargs)`` on the pool and await its result.
 
-        ``asyncio.wrap_future`` already gives this the cancellation behavior a queued-not-started
-        job needs for free: cancelling the awaiting task cancels the underlying future too, so a
-        job that never started never runs its body. Raises ``RuntimeError`` if called after
-        :meth:`aclose`, the same as the executor's own ``submit`` does past ``shutdown()``.
-
-        ``_pending`` is untracked only once the *future* is done, not once this call stops
-        awaiting it: a caller cancelled out from under a still-running job (the native executor
-        cancels a parked body's task on its own ``aclose()``) must not make :meth:`aclose` think
-        there is nothing left to drain, or the pool's own close would fall through to a blocking
-        ``shutdown(wait=True)`` while the job is still on its thread.
+        ``asyncio.wrap_future`` cancels a queued-not-started future along with the awaiting task,
+        so a cancelled job never runs. Raises ``RuntimeError`` if called after :meth:`aclose`.
         """
         loop = asyncio.get_running_loop()
         future = self._pool.submit(func, *args, **kwargs)
         self._pending.add(future)
+        # Untracked once the future is done, not once this call stops awaiting it: a caller
+        # cancelled out from under a still-running job must not make aclose() see nothing to drain.
         future.add_done_callback(lambda done: loop.call_soon_threadsafe(self._pending.discard, done))
         return await asyncio.wrap_future(future, loop=loop)
 

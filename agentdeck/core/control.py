@@ -165,12 +165,8 @@ class Gate:
     async def checkpoint_cancel_only(self, safe_point: SafePoint) -> None:
         """Like :meth:`checkpoint`, but honors CANCEL alone and never touches PAUSE.
 
-        The safe point a THREAD-executed tool body could never offer on its own: it has no await
-        point while its worker runs, so the native executor asks this once, right after the body
-        returns, before recording completion. Consuming a pending PAUSE here, with no parked body
-        to leave it suspended in, would make it unresumable  -  so it is left for a real
-        checkpoint to honor instead, exactly as a leaf tool with none of its own already leaves it
-        today.
+        The safe point a THREAD-executed tool body has no await point to offer on its own; a
+        pending PAUSE is left untouched rather than consumed with no parked body to suspend it in.
         """
         if self._control is None:
             return

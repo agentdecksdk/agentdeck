@@ -562,10 +562,8 @@ class Deck:
         self._state: _State = "NEW"
         self._invocables: Mapping[str, InvocableSpec] | None = None
         self._executor_instances: tuple[Executor, ...] | None = None
-        # Shared by the compile chain (build()) and NativeExecutor (__aenter__)  -  constructed
-        # here, before either exists, because build() compiles every sync @tool's bridge before
-        # __aenter__ ever constructs an executor. Cheap: a ThreadPoolExecutor spawns no thread
-        # until its first submit().
+        # Shared by build()'s compile chain and NativeExecutor (__aenter__), which is why it is
+        # constructed here, before either exists.
         self._sync_workers = SyncToolWorkers()
         self._runtime: Runtime | None = None
         self._sessions: ExecutionStore | None = None

@@ -50,24 +50,11 @@ def compile_tool(
 ) -> FunctionTool:
     """Build the SDK tool for ``target``, injecting its ``ToolCtx[...]`` parameter if it has one.
 
-    A callable whose signature could not be recovered is refused rather than compiled. The
-    schema the model is shown has to exist at build time, so an unreadable signature has no
-    honest one to offer  -  and "no ``ToolCtx`` parameter was found" is not a finding about such a
-    callable, it is the absence of one. Guessing there is nothing to inject would drop the
-    argument at the first call, silently.
-
-    ``declared_via_tool`` is set only for a callable that reached here through ``@tool``: a bare
-    callable declaring ``ToolCtx[...]`` is refused, since the annotation alone gives it no
-    contract and no visible declaration site.
-
-    ``context_type`` is the owning deck's ``Deck(context=...)`` declaration, or ``None`` when it
-    made none; an incompatible requirement raises :class:`ContextTypeError` here rather than
-    reaching a run that could only fail on the first call.
-
-    ``workers`` is the deck's shared :class:`~agentdeck.core.workers.SyncToolWorkers`, which a
-    sync body runs on instead of the interpreter-global default executor; ``None`` for a
-    standalone compile with no deck lifecycle to own one, which falls back to
-    ``asyncio.to_thread()`` exactly as before.
+    An unreadable signature is refused, not guessed at. ``declared_via_tool`` is set only for a
+    callable that reached here through ``@tool``; a bare one declaring ``ToolCtx[...]`` is
+    refused. ``context_type`` checks against ``Deck(context=...)``. ``workers`` is the deck's
+    shared :class:`~agentdeck.core.workers.SyncToolWorkers`; ``None`` falls back to
+    ``asyncio.to_thread()``, for a standalone compile with no deck lifecycle to own one.
     """
     analysis = analyze_callable(target)
     if not analysis.reliable:
