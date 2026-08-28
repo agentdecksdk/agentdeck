@@ -10,6 +10,11 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Added
 
+- **`@tool` accepts a sync body.** Only `@workflow` still requires `async def`, because every
+  orchestration primitive on `WorkflowCtx` is awaited and a sync body cannot reach one. A tool has
+  nothing to await, and both paths that play one now put a sync body on a worker thread: the
+  model-facing path already did, and `ctx.invoke()` does now. The refusal previously applied to
+  both kinds, so the richer form was also the more restrictive one.
 - **Content blocks and `Observer` import from the package root.** `ImageBlock`, `TextBlock`,
   `ContentBlock`, `ResourceBlock`, `AudioBlock`, `DataBlock` and `Observer` are exported from
   `agentdeck` alongside `Agent` and `Deck`, rather than only from `agentdeck.core.content` and
@@ -347,8 +352,8 @@ run-scoped API, and the control plane. Read **Upgrading** before you bump.
   `(namespace, run_id, seq)`, so one logical run can no longer be split across two log keys. An
   existing SQLite events database is migrated in place on open (`key` column added, the tightened
   index rebuilt); a database with rows that genuinely violate the tighter constraint raises
-  `StoreError` naming the conflict instead of silently picking a survivor. `list_runs` gains a
-  `limit` parameter across all four stores.
+  `StoreError` naming the conflict instead of silently picking a survivor. `EventStorePort.list_runs`
+  gains a `limit` parameter across all four stores.
 - **Breaking: `deck.run(...)`/`deck.stream(...)` now raises `SessionBusyError` on a session
   held by a run parked `PAUSED` or `WAITING_ANSWER`, however long ago it went quiet** (#311).
   Every store's `claim_start` applied `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` to *any* open
@@ -425,7 +430,7 @@ run-scoped API, and the control plane. Read **Upgrading** before you bump.
   index over `events`' own `namespace`/`run_id` columns (`CREATE INDEX IF NOT EXISTS`, so it
   applies cleanly to a database an earlier build already created), and memory/Redis keep a
   derived `(namespace, run_id) -> log_key` mapping a replay of the log rebuilds. `Deck._status`
-  (behind `deck.runs.status`) uses it now instead of walking `list_runs`.
+  (behind `Run.status`) uses it now instead of walking `EventStorePort.list_runs`.
 - **Breaking: `deck.run(...)`/`deck.stream(...)` no longer stop a run when its caller stops
   reading it** (#325). Execution used to *be* consuming the event generator, so closing
   `stream()`'s frame (or having the task reading it cancelled, as a real HTTP disconnect does)
