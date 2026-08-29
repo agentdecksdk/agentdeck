@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.bindings.binding import PROTOCOL_SPI_VERSION, HttpEndpoint, StdioEndpoint
@@ -15,7 +15,7 @@ from agentdeck.errors import ConfigError
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
 
-    from agentdeck.bindings.binding import Binding
+    from agentdeck.bindings.binding import Binding, Endpoint
     from agentdeck.deck import Deck
 
 
@@ -40,13 +40,16 @@ class Exposure:
     @asynccontextmanager
     async def _lifecycle(self) -> AsyncIterator[asyncio.Future[None] | None]:
         """``started`` holds only bindings whose own ``start()`` returned, so a failure on
-        binding N stops 1..N-1 in reverse and never N itself, in the one ``finally`` that also
-        runs on a clean shutdown."""
+        binding N stops 1..N-1 in reverse and never N itself. Shutdown is failure-isolated: the
+        stdio task, every ``stop()``, and ``aclose()`` all run regardless of what failed before,
+        so one exception can never orphan the rest; the first one is re-raised once all of it ran.
+        """
         owns_deck = not self._deck.is_open
         if owns_deck:
             await self._deck.__aenter__()
         started: list[Binding] = []
         stdio_task: asyncio.Future[None] | None = None
+        first_error: BaseException | None = None
         try:
             for binding in self._bindings:
                 await binding.start()
@@ -54,15 +57,26 @@ class Exposure:
             if self._stdio_endpoint is not None:
                 stdio_task = asyncio.ensure_future(self._stdio_endpoint.run())
             yield stdio_task
+        except BaseException as error:
+            first_error = error
         finally:
             if stdio_task is not None:
                 stdio_task.cancel()
-                with suppress(asyncio.CancelledError):
+                try:
                     await stdio_task
+                except asyncio.CancelledError:
+                    pass
+                except BaseException as error:
+                    first_error = first_error or error
             for binding in reversed(started):
-                await binding.stop()
+                try:
+                    await binding.stop()
+                except BaseException as error:
+                    first_error = first_error or error
             if owns_deck:
                 await self._deck.aclose()
+            if first_error is not None:
+                raise first_error
 
     def asgi(self) -> Any:
         """One ``Starlette`` app, one ``Mount`` per :class:`~agentdeck.bindings.binding.HttpEndpoint`,
@@ -113,7 +127,7 @@ def _validate_info(bindings: Sequence[Binding]) -> None:
             raise ConfigError(f"binding {info.name!r} advertises {unimplemented} with no projection implemented.")
 
 
-def _validate_endpoints(bindings: Sequence[Binding], endpoints: Sequence[Any]) -> None:
+def _validate_endpoints(bindings: Sequence[Binding], endpoints: Sequence[Endpoint]) -> None:
     owner_of_path: dict[str, str] = {}
     stdio_owners: list[str] = []
     for binding, endpoint in zip(bindings, endpoints, strict=True):

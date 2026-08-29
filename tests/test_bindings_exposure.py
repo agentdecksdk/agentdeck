@@ -72,18 +72,23 @@ class _Http:
 
 
 class _Stdio:
-    """A binding whose endpoint records that it ran, then returns (or waits forever)."""
+    """A binding whose endpoint records that it ran, then returns, waits forever, or raises."""
 
-    def __init__(self, name: str, recorder: _Recorder, *, forever: bool = False) -> None:
+    def __init__(
+        self, name: str, recorder: _Recorder, *, forever: bool = False, raises: BaseException | None = None
+    ) -> None:
         self.info = BindingInfo(
             name=name, kind="surface", transport="stdio", spi_version=PROTOCOL_SPI_VERSION, advertises=frozenset()
         )
         self._recorder = recorder
         self._forever = forever
+        self._raises = raises
 
     def build(self, gateway: object) -> StdioEndpoint:
         async def run() -> None:
             self._recorder.started.append(f"{self.info.name}:run")
+            if self._raises is not None:
+                raise self._raises
             if self._forever:
                 await asyncio.Event().wait()
 
@@ -215,4 +220,49 @@ async def test_serve_stdio_only_never_imports_uvicorn(no_project, monkeypatch):
 
     assert recorder.started == ["term", "term:run"]
     assert recorder.stopped == ["term"]
+    assert not deck.is_open
+
+
+@pytest.mark.asyncio
+async def test_stdio_run_failure_still_stops_every_started_binding(no_project):
+    deck = Deck(agents=[])
+    recorder = _Recorder()
+    exposure = deck.expose(_Stdio("term", recorder, raises=RuntimeError("boom")))
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await exposure.serve()
+
+    assert recorder.stopped == ["term"]
+    assert not deck.is_open
+
+
+@pytest.mark.asyncio
+async def test_serve_with_http_endpoints_runs_the_mounted_app_under_uvicorn(no_project, monkeypatch):
+    """Mirrors ``test_serve.py``'s fake-``uvicorn`` pattern: no real port bound."""
+    deck = Deck(agents=[])
+    recorder = _Recorder()
+    exposure = deck.expose(_Http("a", "/a", recorder))
+    served: list[object] = []
+
+    class _FakeServer:
+        def __init__(self, config: tuple[object, str, int]) -> None:
+            self._config = config
+
+        async def serve(self) -> None:
+            served.append(self._config)
+
+    fake_uvicorn = type(
+        "_FakeUvicorn",
+        (),
+        {"Config": staticmethod(lambda app, host, port: (app, host, port)), "Server": _FakeServer},
+    )
+    monkeypatch.setitem(__import__("sys").modules, "uvicorn", fake_uvicorn)
+
+    await exposure.serve(host="127.0.0.1", port=9100)
+
+    assert len(served) == 1
+    app, host, port = served[0]
+    assert (host, port) == ("127.0.0.1", 9100)
+    with TestClient(app) as client:
+        assert client.get("/a").content == b"a"
     assert not deck.is_open
