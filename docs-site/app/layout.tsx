@@ -6,6 +6,7 @@ import { Mark } from './mark'
 import { getPageMap } from 'nextra/page-map'
 import type { ReactNode } from 'react'
 import { docsSlugs } from './docs-slugs'
+import { CURRENT_VERSION } from './generated-version'
 import { JackPanel } from './jack'
 import { SITE } from './site'
 import 'nextra-theme-docs/style.css'
@@ -57,7 +58,7 @@ const navbar = (
 
 const footer = (
   <Footer>
-    AgentDeck SDK · Compose. Observe. Ship.
+    AgentDeck SDK v{CURRENT_VERSION} · Compose. Observe. Ship.
   </Footer>
 )
 
