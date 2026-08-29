@@ -1,4 +1,4 @@
-# ProtocolBinding and endpoints
+# Binding and endpoints
 
 One concrete protocol over one transport it actually supports.
 

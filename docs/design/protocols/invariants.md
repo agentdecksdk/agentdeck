@@ -37,4 +37,4 @@ Core stays: Invocable, Run, session correlation, Event, Control, Content, Artifa
 
 ## Stability boundary
 
-The SPI (`ProtocolGateway`, `ProtocolBinding`, endpoint and exposure lifecycle) becomes public API. Today's ASGI routes (`agentdeck/serve.py`, `surfaces/serve/`) do not define it and may be replaced rather than contorted around.
+The SPI (`ProtocolGateway`, `Binding`, endpoint and exposure lifecycle) becomes public API. Today's ASGI routes (`agentdeck/serve.py`, `surfaces/serve/`) do not define it and may be replaced rather than contorted around.

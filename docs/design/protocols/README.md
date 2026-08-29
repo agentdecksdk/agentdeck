@@ -41,7 +41,7 @@ Success test: a React client, an IDE and another agent independently project the
 | [`invariants.md`](invariants.md) | the rules every protocol implementation is held to, and what may never enter core |
 | [`gateway.md`](gateway.md) | `ProtocolGateway`: targets, capabilities, start/get/list, failure taxonomy |
 | [`projection.md`](projection.md) | how a protocol maps sessions, identities, events and input onto AgentDeck's |
-| [`bindings.md`](bindings.md) | `ProtocolBinding` and endpoint types: one protocol over one transport it supports |
+| [`bindings.md`](bindings.md) | `Binding` (protocol or channel) and endpoint types: one external system over one transport it supports |
 | [`exposure.md`](exposure.md) | `deck.expose(...)`: validation, lifecycle, ownership, HTTP composition |
 | [`spi.md`](spi.md) | SPI versioning and out-of-tree plugin packaging |
 | [`rulings.md`](rulings.md) | every decision taken while attacking the design: chosen, rejected, why |
