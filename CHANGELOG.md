@@ -8,6 +8,8 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [5.2.0] - 2026-08-29
+
 ### Added
 
 - **A deployment guide for running a Deck as a service** (#353): the
@@ -2571,7 +2573,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v5.1.0...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.0...HEAD
+[5.2.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.3...v5.1.0
 [5.0.3]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.0...v5.0.3
 [5.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.5...v5.0.0
