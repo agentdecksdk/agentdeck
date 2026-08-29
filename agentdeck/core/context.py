@@ -27,7 +27,7 @@ from uuid import uuid4
 from agentdeck.core.control import Gate, RunPausedError
 from agentdeck.core.errors import DOCS_URL, ConfigError
 from agentdeck.core.events import KnownPayload, RunInterrupted
-from agentdeck.core.reporting import Reporter, SyncReporter
+from agentdeck.core.reporting import Reporter
 from agentdeck.core.status import RunStatus
 
 logger = logging.getLogger(__name__)
@@ -168,8 +168,8 @@ class ToolCtx[T]:
     A view over :class:`RunContext`, not a copy: ``data`` is the caller's own object, by
     reference, never serialized into a prompt. ``_channel`` is present only where the executor
     playing this body can park it in place; ``_loop`` only when it runs on a worker thread, which
-    switches :attr:`reporter` to a sync facade and makes :meth:`safepoint` refuse. Orchestration
-    (``invoke``, ``parallel``, ``ask``, ``approve``) is :class:`WorkflowCtx`'s alone.
+    makes :meth:`safepoint` refuse. Orchestration (``invoke``, ``parallel``, ``ask``, ``approve``)
+    is :class:`WorkflowCtx`'s alone.
     """
 
     _run: RunContext
@@ -194,13 +194,10 @@ class ToolCtx[T]:
         return cast("AgentInstance | None", self._run.agent)
 
     @property
-    def reporter(self) -> Reporter | SyncReporter:
-        """The run's report channel: the async :class:`Reporter` every caller has always gotten,
-        or a sync-callable :class:`SyncReporter` when this body is THREAD-executed and has no
-        loop of its own to await one on."""
-        if self._loop is None:
-            return self._run.reporter
-        return SyncReporter(self._run.reporter, self._loop)
+    def reporter(self) -> Reporter:
+        """The run's report channel: always synchronous, so a THREAD-executed body calls it the
+        same way an ASYNC one does."""
+        return self._run.reporter
 
     @property
     def run_id(self) -> str:

@@ -1105,13 +1105,34 @@ person or start another run would no longer be a leaf.
 | `ctx.agent`, `ctx.run_id`, `ctx.session_id` | yes | yes |
 | `ctx.reporter`, report progress out of band | yes | yes |
 | `await ctx.safepoint()`, offer a pause/cancel point | yes, async body only | yes |
-
-A sync `@tool` body runs on a worker thread: `ctx.reporter` still works there (it marshals onto the
-run's own loop and blocks until accepted), but `ctx.safepoint()` raises `ConfigError`  -
-cooperative cancellation needs an await point a synchronous function does not have.
 | `await ctx.ask(question, options=...)`, suspend for an answer | no | yes |
 | `ctx.invoke(target, ...)`, `await ctx.parallel(...)`, start child runs | no | yes |
 | `ctx.agents.create()`, `ctx.agents.fork()`, mint an agent not in the catalog | no | yes |
+
+`ctx.reporter` is always synchronous (`ctx.reporter.info(...)`, no `await`), on a sync `@tool`'s
+worker thread exactly as on the event loop. Only `ctx.safepoint()` distinguishes the two: a sync
+body runs on a worker thread with no await point to suspend on, so it raises `ConfigError` there.
+
+### Reporting progress
+
+Four methods, each becomes a `report` event ([reference](/reference/events#reporting)) on the run's
+log. Advisory: reporting never changes run status, and outside a wired run (no buffer attached)
+each method still validates and drops silently rather than raising inside your tool.
+
+| Method | For |
+|---|---|
+| `ctx.reporter.info(message, **fields)` | progress a person reads |
+| `ctx.reporter.warning(message, **fields)` | a fallback taken, a source unavailable |
+| `ctx.reporter.error(message, **fields)` | something the run could not do; does not fail the run |
+| `ctx.reporter.report(name, **fields)` | a named, structured fact for a consumer that filters |
+
+```python
+@tool
+async def refresh_cache(source: str, cache: ToolCtx[Cache]) -> str:
+    """Refresh one cache entry."""
+    cache.reporter.info("refreshing", source=source)
+    return cache.data.refresh(source)
+```
 
 ## Where it does not reach
 
@@ -1908,6 +1929,132 @@ Match the text in your terminal, then apply the concrete fix.
 
 ---
 
+# Deployment
+
+*Running a Deck as a supervised, long-lived service, not `python run.py`.*
+Source: https://agentdecksdk.com/operate/deployment
+
+# Running a Deck as a service
+
+Everything up to `agentdeck-serve` or `uvicorn app:server` is covered elsewhere on this site.
+This page is what comes after: a worked systemd deployment that starts on boot, restarts on
+failure, and shuts down without losing a run in flight.
+
+## What has to be durable before you deploy
+
+Three settings default to in-process state, and each is a real trap on a restart. Opening a
+`Deck` with the defaults logs all three:
+
+```text
+AGENTDECK_EVENTS is 'memory://': the event log never evicts and is lost on restart. Set
+AGENTDECK_EVENTS=sqlite:///<path> for a durable log, or redis://.../postgresql://... for one
+several workers can share.
+AGENTDECK_CONTROL is 'memory://': a signal written in one process is invisible to another -
+'agentdeck runs signal' and a second worker cannot reach a run. Set AGENTDECK_CONTROL=sqlite:///<path>
+to cross process boundaries.
+AGENTDECK_CONTROL is 'memory://': run leases are visible only inside this process, so a worker
+killed outright still holds its session for AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS (an hour by
+default). Set AGENTDECK_CONTROL=sqlite:///<path> to free it within one lease TTL instead.
+```
+
+| Setting | Default | Lost on restart if left default |
+|---|---|---|
+| `AGENTDECK_EVENTS` | `memory://` | The event log, which is also the checkpoint a paused or interrupted run resumes from. A restart on the default cannot resume anything. |
+| `AGENTDECK_CONTROL` | `memory://` | Pending pause/cancel signals, and the per-run liveness lease. A worker killed outright holds its session for `AGENTDECK_RUNTIME_STALE_RUN_AFTER_SECONDS` (one hour by default) instead of the much shorter lease TTL. |
+| `AGENTDECK_SESSION` | unset | The model-visible conversation history (falls back to one in-process `SQLiteSession` per key). The event log can survive a restart while the conversation the model sees does not. |
+
+Set `AGENTDECK_EVENTS=sqlite:///<path>` and `AGENTDECK_CONTROL=sqlite:///<path>` at minimum for a
+single-instance deployment; add `AGENTDECK_SESSION=redis://<url>` (the `[redis]` extra) if a
+restart must not lose in-progress conversations. `AGENTDECK_EVENTS=redis://`/`postgresql://` and
+`AGENTDECK_SESSION=redis://` are what several workers can share; SQLite is one process's file.
+
+## A supervised process
+
+`agentdeck-serve` is `Deck.from_project().asgi()` behind a console script: it reads `HOST`/`PORT`
+from the environment (default `0.0.0.0:8000`) and must run from the directory holding
+`.agentdeck/`, since there is no `--project-dir` flag. An application composing its own `Deck`,
+like Jack, runs the same way under a plain `uvicorn module:app`.
+
+```ini
+[Unit]
+Description=AgentDeck: Jack
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/jack
+Environment=AGENTDECK_EVENTS=sqlite:////var/lib/jack/events.sqlite3
+Environment=AGENTDECK_CONTROL=sqlite:////var/lib/jack/control.sqlite3
+ExecStart=/opt/jack/.venv/bin/uvicorn jack.server:app --host 127.0.0.1 --port 8100 --timeout-graceful-shutdown 20
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=25
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`Restart=on-failure` covers a crash; it does not cover a clean `systemctl stop`, which is what
+the next two sections are about. `TimeoutStopSec` must exceed `--timeout-graceful-shutdown`
+(next section), or systemd sends `SIGKILL` before uvicorn gets to run the shutdown it was given
+time for.
+
+## Health checks
+
+`agentdeck-serve`'s built-in `/health` is `{"status": "ok", "agents": [...], "workflows": [...],
+"skills": [...]}` once the Deck has opened, `503 {"status": "starting"}` before its lifespan has
+run. That proves the catalog built; it does not touch the event store. A Postgres event store
+gone unreachable *after* startup still answers `200`. Jack's own `/health`
+(`{"status": "ok", "pages": N}`) has the identical gap: it counts loaded documentation pages, not
+store connectivity.
+
+For a deployment where losing the store silently matters, add a route that does one round-trip
+against it (a store read, not a write, so a health probe never itself contends with real
+traffic) and treat a failure there as unhealthy, not a `200` with an ignored field.
+
+## Graceful shutdown
+
+`Deck.aclose()` is what a shutdown owes: it cancels every run this process still has in flight
+(each becomes a real `run.cancelled` in the log rather than nothing), then flushes and closes
+every observer and the store. `Deck.asgi()` and Jack's own `async with Deck(...)` both call it
+from the ASGI lifespan's shutdown phase, which is what `SIGTERM` triggers by default (systemd's
+default `KillSignal`, and uvicorn's own).
+
+The trap is what happens *before* uvicorn gets there. By default uvicorn's graceful shutdown
+waits for every open connection to close on its own before it ever runs the lifespan shutdown
+(and so before `aclose()` runs at all). Verified against a plain SSE endpoint under uvicorn: with
+one client still connected, `SIGTERM` logs `Shutting down` then `Waiting for connections to close
+(CTRL+C to force quit)` and the process does not move past it while the client stays open; a run
+streaming to a client that never disconnects holds the whole shutdown hostage. Setting
+`--timeout-graceful-shutdown <n>` bounds that wait: past `n` seconds uvicorn cancels the
+remaining connections itself and proceeds to the lifespan shutdown, so `aclose()` still runs.
+Without it, an operator relying on `TimeoutStopSec` alone gets a `SIGKILL` instead: `aclose()`
+never runs, in-flight runs never get their `run.cancelled`, and buffered reports never flush.
+
+Set `--timeout-graceful-shutdown` on uvicorn below `TimeoutStopSec`, leaving room for `aclose()`
+itself afterward.
+
+## Behind a reverse proxy
+
+`agentdeck-serve`'s streamed routes already send `Cache-Control: no-cache` and
+`X-Accel-Buffering: no`, the header nginx needs to stop buffering a proxied response. Without it,
+nginx holds the whole SSE stream until the run ends, which looks exactly like a hung agent from
+the client's side. A hand-rolled route, like Jack's own (which sends only `Cache-Control:
+no-cache`), does not get this for free: set `proxy_buffering off;` for that location in nginx
+instead, or add the header yourself.
+
+Also raise `proxy_read_timeout` past the longest idle gap a real run can have between events
+(a slow tool call, a model thinking before its first token), or the proxy closes a connection
+that was never actually stuck.
+
+## Related
+
+- [Settings](/reference/settings) - every setting named above, generated from code
+- [How Jack Is Built](/jack) - the real deployed application this page's examples are drawn from
+- [Deck](/reference/deck) - `asgi()`, `aclose()`, and every other `Deck` method
+
+---
+
 # Changelog
 
 *What changed in each release of AgentDeck, and what to do about it when upgrading.*
@@ -1920,79 +2067,31 @@ Source: https://agentdecksdk.com/resources/changelog
 Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift from it. Entries
 are written for someone using the package: what changed, and what to do about it.
 
-The current release is **v5.1.0**. Earlier releases are listed at the bottom.
+The current release is **v5.2.0**. Earlier releases are listed at the bottom.
 
-## v5.1.0
+## v5.2.0
 
-*Released 2026-08-28.*
+*Released 2026-08-29.*
 
 ### Added
 
-- **`@tool` accepts a sync body.** Only `@workflow` still requires `async def`, because every
-  orchestration primitive on `WorkflowCtx` is awaited and a sync body cannot reach one. A tool has
-  nothing to await, and both paths that play one now put a sync body on a worker thread: the
-  model-facing path already did, and `ctx.invoke()` does now. The refusal previously applied to
-  both kinds, so the richer form was also the more restrictive one.
-- **Content blocks and `Observer` import from the package root.** `ImageBlock`, `TextBlock`,
-  `ContentBlock`, `ResourceBlock`, `AudioBlock`, `DataBlock` and `Observer` are exported from
-  `agentdeck` alongside `Agent` and `Deck`, rather than only from `agentdeck.core.content` and
-  `agentdeck.core.ports`. Sending an agent an image and watching a deck's events are both
-  first-contact tasks, and both previously required knowing an internal path to reach a public
-  capability.
-
-### Removed
-
-- **A plain function carrying a `ToolCtx[...]`/`WorkflowCtx[...]` parameter in `tools=` is
-  refused.** Only `@tool` may declare one now; `build()` names the callable and shows the
-  decorator to add. `instructions=` and `hooks=` callables are unaffected, and a context-free
-  plain function still compiles exactly as before.
+- **A deployment guide for running a Deck as a service** (#353): the
+  `AGENTDECK_EVENTS`/`AGENTDECK_CONTROL`/`AGENTDECK_SESSION` durability defaults, a systemd unit,
+  `aclose()` on `SIGTERM`, uvicorn's graceful-shutdown behavior against an open SSE connection,
+  and reverse-proxy buffering. See [Deployment](https://agentdecksdk.com/operate/deployment).
 
 ### Changed
 
-- **A durable event log now says what it does not make durable.** Setting `AGENTDECK_EVENTS` to
-  anything other than `memory://` while `AGENTDECK_SESSION` is unset logs a warning: the log
-  survives a restart, the conversation the model sees does not. The old warning fired only for
-  `memory://`, so configuring a durable log silenced the one message and left the reader believing
-  recall was handled.
-- **Sending an agent an image is documented where agents are.** `build-your-deck/agents` gains a
-  section on content blocks, and `build-your-deck/tools` states that a tool cannot carry an image:
-  tool results are text, so a returned `data:` URI reaches the model as a string.
-- **The error taxonomy moved to `agentdeck/core/errors.py`.** `agentdeck.errors` re-exports the
-  same class objects, so every `from agentdeck.errors import ...` and `except ConfigError` is
-  unchanged. What changes is what a traceback prints: `agentdeck.core.errors.ConfigError`,
-  not `agentdeck.errors.ConfigError`. Core raises these now, which is where `CLAUDE.md` §2
-  already placed the taxonomy.
-
-### Fixed
-
-- **`Deck.build()` no longer rejects a model for a missing provider env var.** The credential
-  check only ever recognized `anthropic`/`gemini`/`ollama`/`openrouter` and otherwise demanded
-  `OPENAI_API_KEY`/`OPENAI_BASE_URL`, so a `litellm/...` or `any-llm/...` model authenticated
-  through its own provider's own convention (Vertex ADC, an IAM role, ...) failed to build over a
-  credential it would never use. Model authentication belongs to the wrapped Agents SDK and the
-  selected provider, not `Deck.build()`; a real auth failure now surfaces at the actual call,
-  as the provider's own error.
-- **`ctx.reporter` now works from a sync `@tool` body.** It previously did nothing: `Reporter.info`
-  and friends are `async def`, and a worker thread has no event loop to await one on, so a bare
-  call built an unawaited coroutine and quietly reported nothing. `ctx.reporter` from a sync body
-  is now a sync-callable facade that marshals the report onto the run's own loop and blocks until
-  it lands, preserving order against the tool's own return. `ctx.safepoint()` from a sync body now
-  raises `ConfigError` naming the constraint, instead of the same silent no-op.
-- **A sync `@tool` body now runs on a bounded, deck-owned worker pool**, not the interpreter-global
-  default `asyncio.to_thread()` executor. A `Run` cancelled while its sync body is still on a
-  worker now ends `CANCELLED`, never flipped back to `COMPLETED` by the body's eventual,
-  uninterruptible return; a queued-but-not-started call is cancelled outright and its body never
-  runs. The pool drains on `Deck.aclose()` along with everything else this Deck owns.
-- **`@function_tool` over a `ToolCtx` parameter now says what to do about it.** The Agents SDK
-  decorator builds its argument schema from every parameter it does not recognise, so a context
-  one used to fail at decoration with `PydanticSchemaGenerationError: Unable to generate
-  pydantic-core schema for <class 'agentdeck.core.control.Gate'>`, naming a private type and no
-  fix. It now raises `ConfigError` naming the fix: use agentdeck's own `@tool`.
+- **`Reporter` is always synchronous.** `ctx.reporter.info()`/`.warning()`/`.error()`/`.report()`
+  are plain methods now, not coroutines  -  drop the `await` at every call site. `SyncReporter` is
+  gone; `ToolCtx.reporter` returns the same `Reporter` whether the body runs on the event loop or
+  a worker thread. The buffer it enqueues into is thread-safe either way.
 
 ## Earlier releases
 
 | Version | Date | Notes |
 |---|---|---|
+| [v5.1.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.1.0) | 2026-08-28 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.1.0) |
 | [v5.0.3](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.0.3) | 2026-08-23 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.0.3) |
 | [v5.0.0](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.0.0) | 2026-08-22 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v5.0.0) |
 | [v4.0.5](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.5) | 2026-08-19 | [release notes](https://github.com/agentdecksdk/agentdeck/releases/tag/v4.0.5) |
@@ -2051,6 +2150,17 @@ reasoning that both are "a tool result mishandled in the same translation functi
 shipped only the raise half; this half  -  the warning and the hashing fix  -  was never
 implemented. The behavior described here is unchanged in the tree, and no open issue currently
 tracks it.
+
+```python
+@tool
+def get_user(user_id: str) -> object:
+    return object()          # not JSON-serializable
+```
+
+```text
+# the model receives, and the event log records byte-for-byte:
+<object object at 0x7fb09bf28b30>
+```
 
 **Until it is fixed:** return JSON-compatible values from tools. If you return an object today,
 check what the model is actually receiving.

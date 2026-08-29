@@ -1183,16 +1183,16 @@ class _Reporting(StubExecutor):
         # only one left; a fresh one reports between two, which is where the drain's ordering
         # is worth asserting.
         if continuation_of(history, ctx.run_id).play is Play.ANSWER:
-            await ctx.reporter.info("Searching GitHub")
-            await ctx.reporter.report("issues_reviewed", current=2, total=4)
+            ctx.reporter.info("Searching GitHub")
+            ctx.reporter.report("issues_reviewed", current=2, total=4)
             async for payload in super().execute(spec, input, history, ctx):
                 yield payload
             return
         played = 0
         async for payload in super().execute(spec, input, history, ctx):
             if played == self._before:
-                await ctx.reporter.info("Searching GitHub")
-                await ctx.reporter.report("issues_reviewed", current=2, total=4)
+                ctx.reporter.info("Searching GitHub")
+                ctx.reporter.report("issues_reviewed", current=2, total=4)
             played += 1
             yield payload
 
@@ -1267,7 +1267,7 @@ async def test_two_concurrent_runs_never_drain_each_others_reports() -> None:
         async def execute(
             self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
         ) -> AsyncGenerator[KnownPayload, None]:
-            await ctx.reporter.info(f"working on {ctx.session_id}")
+            ctx.reporter.info(f"working on {ctx.session_id}")
             if ctx.session_id == "s-1":
                 entered.set()
                 await release.wait()
@@ -1316,7 +1316,7 @@ async def test_a_caller_built_context_reports_into_nothing() -> None:
     """Existing runs behave unchanged when no updates are emitted: a context nobody bound
     still accepts a report, drops it, and produces exactly the run it produced before."""
     ctx = replace(CTX, run_id="r-9")
-    await ctx.reporter.info("into the void")
+    ctx.reporter.info("into the void")
 
     spec = stub_spec("Greeter", DONE)
     store = MemoryEventStore()

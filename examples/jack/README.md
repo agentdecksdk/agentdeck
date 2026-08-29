@@ -30,12 +30,12 @@ the database unreadable to other users, and decide a retention period before tur
 
 ## What it is
 
-One agent, two tools, one context.
+One agent, three tools, one context.
 
 | File | What is in it |
 |---|---|
 | `jack/corpus.py` | `DocsCorpus`  -  every `.mdx` page under `docs-site/content/`, read once and keyed by the slug the site serves it under |
-| `jack/agent.py` | the two tools, the instructions, and the `Agent(...)` |
+| `jack/agent.py` | the three tools, the instructions, and the `Agent(...)` |
 | `jack/server.py` | one `POST /ask` route over `deck.stream()`, streaming canonical events |
 | `run.py` | composes the `Deck` and asks one question |
 
@@ -245,7 +245,7 @@ worst outcome is an off-topic paragraph.
 
 That is a deliberate trade, and it rests on the blast radius being small by construction:
 
-- **The agent has two tools and both are read-only over public documentation.** There is no
+- **The agent has three tools and all are read-only over public documentation.** There is no
   write, no shell, no network, no database. Nothing a jailbreak reaches is anything a reader
   could not already get by browsing the site.
 - **`read_doc` is a dict lookup on a slug**, not a file read  -  so no input reaches the

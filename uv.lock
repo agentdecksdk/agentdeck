@@ -10,7 +10,7 @@ resolution-markers = [
 
 [[package]]
 name = "agentdeck-sdk"
-version = "5.0.3"
+version = "5.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },

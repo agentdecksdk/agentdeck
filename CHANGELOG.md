@@ -8,6 +8,22 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [5.2.0] - 2026-08-29
+
+### Added
+
+- **A deployment guide for running a Deck as a service** (#353): the
+  `AGENTDECK_EVENTS`/`AGENTDECK_CONTROL`/`AGENTDECK_SESSION` durability defaults, a systemd unit,
+  `aclose()` on `SIGTERM`, uvicorn's graceful-shutdown behavior against an open SSE connection,
+  and reverse-proxy buffering. See [Deployment](https://agentdecksdk.com/operate/deployment).
+
+### Changed
+
+- **`Reporter` is always synchronous.** `ctx.reporter.info()`/`.warning()`/`.error()`/`.report()`
+  are plain methods now, not coroutines  -  drop the `await` at every call site. `SyncReporter` is
+  gone; `ToolCtx.reporter` returns the same `Reporter` whether the body runs on the event loop or
+  a worker thread. The buffer it enqueues into is thread-safe either way.
+
 ## [5.1.0] - 2026-08-28
 
 ### Added
@@ -2557,7 +2573,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v5.1.0...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.0...HEAD
+[5.2.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.3...v5.1.0
 [5.0.3]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.0...v5.0.3
 [5.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v4.0.5...v5.0.0

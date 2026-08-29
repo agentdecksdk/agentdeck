@@ -74,13 +74,34 @@ person or start another run would no longer be a leaf.
 | `ctx.agent`, `ctx.run_id`, `ctx.session_id` | yes | yes |
 | `ctx.reporter`, report progress out of band | yes | yes |
 | `await ctx.safepoint()`, offer a pause/cancel point | yes, async body only | yes |
-
-A sync `@tool` body runs on a worker thread: `ctx.reporter` still works there (it marshals onto the
-run's own loop and blocks until accepted), but `ctx.safepoint()` raises `ConfigError`  -
-cooperative cancellation needs an await point a synchronous function does not have.
 | `await ctx.ask(question, options=...)`, suspend for an answer | no | yes |
 | `ctx.invoke(target, ...)`, `await ctx.parallel(...)`, start child runs | no | yes |
 | `ctx.agents.create()`, `ctx.agents.fork()`, mint an agent not in the catalog | no | yes |
+
+`ctx.reporter` is always synchronous (`ctx.reporter.info(...)`, no `await`), on a sync `@tool`'s
+worker thread exactly as on the event loop. Only `ctx.safepoint()` distinguishes the two: a sync
+body runs on a worker thread with no await point to suspend on, so it raises `ConfigError` there.
+
+### Reporting progress
+
+Four methods, each becomes a `report` event ([reference](/reference/events#reporting)) on the run's
+log. Advisory: reporting never changes run status, and outside a wired run (no buffer attached)
+each method still validates and drops silently rather than raising inside your tool.
+
+| Method | For |
+|---|---|
+| `ctx.reporter.info(message, **fields)` | progress a person reads |
+| `ctx.reporter.warning(message, **fields)` | a fallback taken, a source unavailable |
+| `ctx.reporter.error(message, **fields)` | something the run could not do; does not fail the run |
+| `ctx.reporter.report(name, **fields)` | a named, structured fact for a consumer that filters |
+
+```python
+@tool
+async def refresh_cache(source: str, cache: ToolCtx[Cache]) -> str:
+    """Refresh one cache entry."""
+    cache.reporter.info("refreshing", source=source)
+    return cache.data.refresh(source)
+```
 
 ## Where it does not reach
 
