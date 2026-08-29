@@ -74,13 +74,13 @@ person or start another run would no longer be a leaf.
 | `ctx.agent`, `ctx.run_id`, `ctx.session_id` | yes | yes |
 | `ctx.reporter`, report progress out of band | yes | yes |
 | `await ctx.safepoint()`, offer a pause/cancel point | yes, async body only | yes |
-
-A sync `@tool` body runs on a worker thread: `ctx.reporter` still works there (it marshals onto the
-run's own loop and blocks until accepted), but `ctx.safepoint()` raises `ConfigError`  -
-cooperative cancellation needs an await point a synchronous function does not have.
 | `await ctx.ask(question, options=...)`, suspend for an answer | no | yes |
 | `ctx.invoke(target, ...)`, `await ctx.parallel(...)`, start child runs | no | yes |
 | `ctx.agents.create()`, `ctx.agents.fork()`, mint an agent not in the catalog | no | yes |
+
+`ctx.reporter` is always synchronous (`ctx.reporter.info(...)`, no `await`), on a sync `@tool`'s
+worker thread exactly as on the event loop. Only `ctx.safepoint()` distinguishes the two: a sync
+body runs on a worker thread with no await point to suspend on, so it raises `ConfigError` there.
 
 ## Where it does not reach
 

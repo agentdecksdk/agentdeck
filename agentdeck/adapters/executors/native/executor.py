@@ -283,7 +283,7 @@ def _context_for(
 
     Only a workflow gets the invoker and the agent mint  -  a tool that could start another run is
     no longer a leaf. A THREAD-executed tool's context also carries the running loop, which
-    switches its ``reporter`` to a sync facade and its ``safepoint`` to a refusal.
+    switches its ``safepoint`` to a refusal.
     """
     context_class = definition.context_class
     if context_class is None:

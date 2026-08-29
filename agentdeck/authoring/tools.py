@@ -153,8 +153,8 @@ def _bridge(analysis: CallableAnalysis, workers: SyncToolWorkers | None) -> Call
                 f"{type(run).__name__} rather than an AgentDeck run context  -  a tool compiled by "
                 "AgentDeck has to be played by an AgentDeck run."
             )
-        # Absent for an awaited body: it never leaves this loop, so it never needs its own facade
-        # reporter or a refusal to guard an API it can reach the ordinary way.
+        # Absent for an awaited body: it never leaves this loop, so it never needs safepoint()'s
+        # refusal to guard an await point it can reach the ordinary way.
         tool_ctx = ToolCtx(run, _loop=None if awaits else asyncio.get_running_loop())
         bound = visible_signature.bind(*supplied, **kwargs)
         # `BoundArguments` already knows how to split a name -> value mapping back into positional
