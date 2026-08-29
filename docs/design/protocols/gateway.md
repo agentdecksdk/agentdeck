@@ -75,7 +75,6 @@ class GatewayFailureCode(Enum):
     CONFLICT = auto()
     BUSY = auto()
     UNSUPPORTED = auto()
-    CANCELLED = auto()
     INTERNAL = auto()
 
 class GatewayError(Exception):
