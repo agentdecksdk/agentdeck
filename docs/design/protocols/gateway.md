@@ -50,7 +50,7 @@ Two layers, never merged.
 
 | layer | question | where |
 |---|---|---|
-| deployment | `control`: is a control backend configured, so pause, resume and cancel reach runs; `durable`: do events survive restart, so `from_seq` reconnect is honest | `gateway.capabilities` |
+| deployment | `control`: control signals are written to a backend other processes read, so a binding in one worker can pause or cancel a run executing in another (False on `memory://`, where control still reaches runs in this process); `durable`: events survive a restart and are readable from other processes, so `from_seq` reconnect is honest (False on `memory://`) | `gateway.capabilities` |
 | run | can this Run be cancelled, paused, resumed right now | `run.can` |
 
 ```python
