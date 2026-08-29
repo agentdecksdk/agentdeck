@@ -14,6 +14,9 @@ permissions:
 jobs:
   check:
     name: Check affected documentation
+    # Skipped on a `main`-based PR: that diff re-accumulates everything merged into `dev`
+    # since main's last advance, each already reviewed against `dev` as its base (#536).
+    if: github.event.pull_request.base.ref != 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

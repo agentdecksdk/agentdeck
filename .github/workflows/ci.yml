@@ -157,8 +157,11 @@ jobs:
   # The anti-slop gate for code that never went through a Claude Code hook:
   # outside contributors, and anything written by a process the Edit|Write
   # matcher never saw. Same scripts, PR-base-relative, stdlib only.
+  #
+  # Skipped on a `main`-based PR: that diff is the whole release cycle since main's last
+  # advance, re-flagging lines each contributing PR already passed against `dev` (#536).
   slop:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && github.base_ref != 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
