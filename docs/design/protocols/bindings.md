@@ -25,12 +25,23 @@ Shared HTTP and gRPC helpers live behind those factories, not in the public API.
 ## Shape
 
 ```python
-class ProtocolBinding(Protocol):
-    info: ProtocolInfo          # name, transport, spi_version
+class Binding(Protocol):
+    info: BindingInfo           # name, kind ("protocol" | "channel"), transport, spi_version, advertised capabilities
     def build(self, gateway: ProtocolGateway) -> Endpoint: ...
+    async def start(self) -> None: ...   # background work the Exposure owns
+    async def stop(self) -> None: ...
 ```
 
 Concrete classes (`A2AHttpBinding`, `ACPStdioBinding`, ...) stay behind the factories.
+
+## Protocols and channels
+
+| kind | what it is | examples | typical advertisement |
+|---|---|---|---|
+| protocol | machine-facing execution contract | A2A, ACP, MCP, AG-UI, A2UI | streaming, hitl, control |
+| channel | messaging platform with webhook and message APIs | Slack, WhatsApp, Telegram | no streaming; projects `message.completed`; buttons from `run.interrupted` |
+
+Same contract, same gateway; the kind is data. A channel ACKs its webhook, then tails the run from a task the Exposure owns (`start()`), and keeps a durable map from its message ids to the Run address. Channels are outside the v6 protocols epic; the fixture plugin under `tests/` is channel-shaped so the SPI is proven against that pattern (`rulings.md` 31 to 33).
 
 ## Endpoint types
 

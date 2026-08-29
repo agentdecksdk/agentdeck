@@ -38,8 +38,10 @@ Each binding supplies an isolated ASGI app. The host mounts them. No protocol st
 
 ```text
 create Deck → create bindings → validate exposure → open Deck → build gateway
-→ start bindings → serve → stop bindings → close Deck if exposure opened it
+→ binding.start() in order → serve → binding.stop() in reverse → close Deck if exposure opened it
 ```
+
+Every binding's background task runs under the Exposure; a failed `start()` cancels the ones already started.
 
 Ownership: whoever opens something closes it. Mounting onto an already-open Deck takes no ownership of it; `exposure.serve()` that opened the Deck closes it. Same rule for binding-owned resources.
 

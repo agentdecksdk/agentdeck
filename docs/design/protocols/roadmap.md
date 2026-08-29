@@ -6,7 +6,7 @@ Status: proposed, 2026-08-29.
 
 | phase | deliverable | done when |
 |---|---|---|
-| 1 | contracts only: `Run.events(through=)`, `ProtocolGateway` over `deck.runs`, `TargetInfo`, `Capabilities`, `GatewayFailureCode`, `ProtocolBinding`, endpoint types, `Exposure` | every contract test below that needs no real protocol passes against a fake binding |
+| 1 | contracts only: `Run.events(through=)`, `ProtocolGateway` over `deck.runs`, `TargetInfo`, `Capabilities`, `GatewayFailureCode`, `Binding` with `start`/`stop`, endpoint types, `Exposure`, channel-shaped fixture plugin | every contract test below that needs no real protocol passes against a fake binding |
 | 2 | Native HTTP as a binding, with a versioned wire spec and `@agentdeck/client` through the gateway; `agentdeck/serve.py`, `surfaces/serve/` and their goldens deleted | imports nothing private; no v1 route survives |
 | 3 | AG-UI and A2UI out of core | streaming, thread mapping, cancel, tool and report projection, HITL, frontend hook, with zero special-case code inside AgentDeck |
 | 4 | a structurally different protocol (ACP stdio or A2A) | works with no HTTP present |
