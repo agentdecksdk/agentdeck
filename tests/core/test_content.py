@@ -21,6 +21,7 @@ from agentdeck.core import (
     coerce_input,
 )
 from agentdeck.core.content import INLINE_BYTES_CAP
+from agentdeck.core.errors import AgentdeckError, InputError
 
 BLOCKS = TypeAdapter(list[ContentBlock])
 
@@ -50,8 +51,10 @@ def test_empty_list_is_valid_input():
 
 @pytest.mark.parametrize("value", [None, 42, {"type": "text", "text": "hi"}, [{"type": "text", "text": "hi"}]])
 def test_anything_else_raises(value):
-    with pytest.raises(TypeError):
+    with pytest.raises(InputError) as excinfo:
         coerce_input(value)
+    assert isinstance(excinfo.value, AgentdeckError)
+    assert type(value).__name__ in str(excinfo.value)
 
 
 # --- DataBlock -------------------------------------------------------------------------

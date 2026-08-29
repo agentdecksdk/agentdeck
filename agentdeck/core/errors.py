@@ -15,9 +15,11 @@ pydantic field refuses with a :class:`ConfigError`, and core may import nothing 
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from agentdeck.core.status import RunStatus
+if TYPE_CHECKING:
+    # Not a top-level import: status.py -> content.py -> here is already a cycle.
+    from agentdeck.core.status import RunStatus
 
 # The canonical docs-site origin (see tests/test_docs_site.py's SITE_LINK, which knows both
 # live origins and treats this one as canonical). One place to fix on a domain change, so an
@@ -47,6 +49,14 @@ class ContextTypeError(ConfigError):
     A configuration error rather than a kind of its own: it is raised at ``Deck.build()``,
     alongside every other "this catalog does not hold together" refusal, and a caller already
     catching :class:`ConfigError` around ``build()`` keeps catching it.
+    """
+
+
+class InputError(AgentdeckError):
+    """Content the caller supplied that AgentDeck cannot take, as opposed to a bug elsewhere in
+    the call path: raised by :func:`agentdeck.core.content.coerce_input` for a value that is
+    neither a string nor ``list[ContentBlock]``. A binding maps it to its own "bad request" code;
+    an unrelated ``TypeError``/``ValueError`` from the store or an executor stays internal.
     """
 
 
@@ -115,6 +125,8 @@ class RunSuspendedError(RunStateError):
     """
 
     def __init__(self, run_id: str, status: RunStatus, pending: Any = None) -> None:
+        from agentdeck.core.status import RunStatus  # local: see the TYPE_CHECKING import above
+
         verb = "run.answer(...)" if status is RunStatus.WAITING_ANSWER else "run.resume()"
         super().__init__(f"run {run_id!r} is {status.value}, not done: call {verb} instead of awaiting it.")
         self.status = status
@@ -127,6 +139,7 @@ __all__ = [
     "ConfigError",
     "ContextTypeError",
     "DuplicateKeyError",
+    "InputError",
     "NotFoundError",
     "RunStateError",
     "RunSuspendedError",

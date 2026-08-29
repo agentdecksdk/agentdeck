@@ -24,6 +24,7 @@ from pydantic import (
 )
 
 from agentdeck.core.base import CoreModel, JsonData
+from agentdeck.core.errors import InputError
 
 INLINE_BYTES_CAP = 1024 * 1024
 """1 MB decoded, enforced on every inline block (:class:`ImageBlock`, :class:`AudioBlock`).
@@ -163,7 +164,7 @@ def coerce_input(value: str | Input) -> Input:
         return [TextBlock(text=value)]
     if isinstance(value, list) and all(isinstance(block, _BLOCK_TYPES) for block in value):
         return list(value)
-    raise TypeError(f"expected str or list[ContentBlock], got {type(value).__name__}")
+    raise InputError(f"expected str or list[ContentBlock], got {type(value).__name__}")
 
 
 def as_answer(value: Any) -> Input | None:
@@ -188,7 +189,7 @@ def as_answer(value: Any) -> Input | None:
     if not (isinstance(value, list) and not value):
         try:
             return coerce_input(value)
-        except TypeError:
+        except InputError:
             pass
     try:
         return [DataBlock(data=value)]

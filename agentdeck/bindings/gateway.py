@@ -16,6 +16,7 @@ from pydantic import create_model
 
 from agentdeck.errors import (
     DuplicateKeyError,
+    InputError,
     NotFoundError,
     RunStateError,
     SessionBusyError,
@@ -98,7 +99,7 @@ def _map_failure(exc: Exception) -> GatewayError:
         return GatewayError(GatewayFailureCode.BUSY, str(exc), exc)
     if isinstance(exc, (RunStateError, DuplicateKeyError)):
         return GatewayError(GatewayFailureCode.CONFLICT, str(exc), exc)
-    if isinstance(exc, (TypeError, ValueError)):
+    if isinstance(exc, InputError):
         return GatewayError(GatewayFailureCode.INVALID_INPUT, str(exc), exc)
     if isinstance(exc, UnsupportedControlError):
         return GatewayError(GatewayFailureCode.UNSUPPORTED, str(exc), exc)

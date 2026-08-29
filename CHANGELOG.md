@@ -20,6 +20,11 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   runs, SSE tail with `Last-Event-ID`/`from_seq` reconnect, cancel/pause/resume, pending/answer),
   frames as `Event.model_dump_json()` verbatim, and a versioned wire spec at
   `docs/design/protocols/native-wire.md` diffed against the app's own routes by a test.
+- **`InputError`** (#579): a public `AgentdeckError` naming content the caller supplied that
+  AgentDeck cannot take. `coerce_input` now raises it instead of a bare `TypeError`; catch
+  `InputError` (or `AgentdeckError`) where you caught `TypeError` before. `ProtocolGateway`'s
+  `_map_failure` maps it to `INVALID_INPUT` and no longer treats every `TypeError`/`ValueError`
+  as bad input, so an unrelated bug now surfaces as `INTERNAL` instead of a misleading 422.
 
 ### Fixed
 

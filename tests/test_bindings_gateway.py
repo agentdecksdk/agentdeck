@@ -14,7 +14,14 @@ from agentdeck.authoring import Agent
 from agentdeck.bindings import Capabilities, GatewayError, GatewayFailureCode, ProtocolGateway, TargetInfo
 from agentdeck.bindings.gateway import _map_failure
 from agentdeck.deck import Deck, Run
-from agentdeck.errors import DuplicateKeyError, NotFoundError, RunStateError, SessionBusyError, UnsupportedControlError
+from agentdeck.errors import (
+    DuplicateKeyError,
+    InputError,
+    NotFoundError,
+    RunStateError,
+    SessionBusyError,
+    UnsupportedControlError,
+)
 from agentdeck.runtime.settings import reset_settings_cache
 from agentdeck.testing import ScriptedModel, patch_model
 
@@ -79,7 +86,8 @@ async def test_start_maps_bad_input_to_invalid_input(no_project):
             await gateway.start("Greeter", 123)  # an agent only ever takes str/content blocks
 
     assert excinfo.value.code is GatewayFailureCode.INVALID_INPUT
-    assert isinstance(excinfo.value.cause, TypeError)
+    assert isinstance(excinfo.value.cause, InputError)
+    assert "int" in excinfo.value.message  # names the part: what the caller sent
 
 
 @pytest.mark.asyncio
@@ -157,6 +165,18 @@ def test_map_failure_maps_run_state_error_to_conflict():
 def test_map_failure_maps_unsupported_control_error_to_unsupported():
     mapped = _map_failure(UnsupportedControlError("no control backend is configured"))
     assert mapped.code is GatewayFailureCode.UNSUPPORTED
+
+
+def test_map_failure_maps_input_error_to_invalid_input():
+    mapped = _map_failure(InputError("expected str or list[ContentBlock], got int"))
+    assert mapped.code is GatewayFailureCode.INVALID_INPUT
+
+
+def test_map_failure_maps_a_bare_value_error_to_internal():
+    """Only ``InputError`` is client input; an unrelated ``ValueError`` from the store or an
+    executor is a bug, not a bad request  -  it must not be classified as one (#579)."""
+    mapped = _map_failure(ValueError("unexpected internal state"))
+    assert mapped.code is GatewayFailureCode.INTERNAL
 
 
 def test_map_failure_never_echoes_the_cause_for_internal():
