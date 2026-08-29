@@ -51,6 +51,13 @@ def test_dependabot_exemption_follows_pr_author() -> None:
     assert "github.actor != 'dependabot[bot]'" not in workflow
 
 
+def test_issue_hygiene_skips_non_default_base_branch() -> None:
+    """Closing references only exist for PRs based on the default branch, so a promotion PR
+    (dev -> main) or a stacked PR (based on a feature branch) can never satisfy this check."""
+    workflow = (WORKFLOWS / "issue-hygiene.yml").read_text()
+    assert "github.event.pull_request.base.ref == github.event.repository.default_branch" in workflow
+
+
 def test_release_promotion_checks_skip_on_main_base() -> None:
     """A dev -> main promotion PR's diff re-accumulates everything merged into dev since main's
     last advance; each change was already gated against dev as its base at merge time (#536)."""
