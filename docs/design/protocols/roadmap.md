@@ -47,7 +47,7 @@ deck.expose(A2A.http(path="/a2a"), WhatsApp.http(path="/whatsapp"), Terminal.std
 
 ## Delivery
 
-One `gh stack` rooted on `dev`. PR 1 is this design; when it is approved, the implementation plan follows as one PR per layer, bottom to top, and coding starts only once the whole stack of plan PRs is laid out. The Artifacts epic is independent and is not on this stack.
+One `gh stack` rooted on `dev`; PR 1 is this design (#539, closes #543). Epic #129 carries one issue per story (#544 to #554) and is the plan of record. Each story opens its stacked draft PR when it starts, with the design in the PR body, and closes its issue. The Artifacts epic is independent and not on this stack.
 
 ## Contract tests before SPI v1
 
