@@ -15,10 +15,20 @@ Generated from [`agentdeck/cli.py`](https://github.com/agentdecksdk/agentdeck/bl
 ## `agentdeck`
 
 ```text
-usage: agentdeck [-h] {runs} ...
+usage: agentdeck [-h] {chat,runs} ...
 
 positional arguments:
-  {runs}
+  {chat,runs}
+    chat       a one-process terminal client over Terminal.stdio()
+
+options:
+  -h, --help   show this help message and exit
+```
+
+## `agentdeck chat`
+
+```text
+usage: agentdeck chat [-h]
 
 options:
   -h, --help  show this help message and exit

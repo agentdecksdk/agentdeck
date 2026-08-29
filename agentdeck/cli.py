@@ -30,6 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(prog="agentdeck")
     subcommands = parser.add_subparsers(dest="resource", required=True)
+    subcommands.add_parser("chat", help="a one-process terminal client over Terminal.stdio()")
     runs = subcommands.add_parser("runs")
     runs_commands = runs.add_subparsers(dest="action", required=True)
     signal_cmd = runs_commands.add_parser("signal")
@@ -42,8 +43,20 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _chat() -> int:
+    """``Deck.from_project().expose(Terminal.stdio()).serve()``  -  a stdio-only ``Exposure``,
+    so ``serve()`` never imports uvicorn (``exposure.py``)."""
+    from agentdeck.adapters.bindings.terminal import Terminal
+    from agentdeck.deck import Deck
+
+    asyncio.run(Deck.from_project().expose(Terminal.stdio()).serve())
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.resource == "chat":
+        return _chat()
     control = SqliteControlPort(args.control_db)
     # A run's id is minted and canonical, so this CLI's argument addresses one directly  -  no
     # namespace to combine it with, no resolution step, and nothing to derive.

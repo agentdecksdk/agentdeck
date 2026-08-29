@@ -58,10 +58,20 @@ Generated from [`agentdeck/cli.py`](https://github.com/agentdecksdk/agentdeck/bl
 ## `agentdeck`
 
 ```text
-usage: agentdeck [-h] {runs} ...
+usage: agentdeck [-h] {chat,runs} ...
 
 positional arguments:
-  {runs}
+  {chat,runs}
+    chat       a one-process terminal client over Terminal.stdio()
+
+options:
+  -h, --help   show this help message and exit
+```
+
+## `agentdeck chat`
+
+```text
+usage: agentdeck chat [-h]
 
 options:
   -h, --help  show this help message and exit
@@ -2069,6 +2079,33 @@ Rendered from the repository's own `CHANGELOG.md`, so this page cannot drift fro
 are written for someone using the package: what changed, and what to do about it.
 
 The current release is **v5.2.1**. Earlier releases are listed at the bottom.
+
+## Unreleased
+
+### Added
+
+- **A channel-shaped out-of-tree fixture plugin proving the SPI** (#547): `tests/bindings/`
+  covers every `docs/design/protocols/roadmap.md` contract item against `ProtocolGateway`/`Run`
+  directly and against the fixture, with its own `.importlinter` contract wired into
+  `make check`. No product code changes; `ProtocolGateway.list_runs`/`get_run` docstrings were
+  tightened on namespace scope alongside it.
+- **`Native.http()`, the AgentDeck protocol** (#548): `agentdeck/adapters/bindings/native/`, the
+  SPI's reference binding. Ten routes over `ProtocolGateway`/`Run` only (targets, start, get/list
+  runs, SSE tail with `Last-Event-ID`/`from_seq` reconnect, cancel/pause/resume, pending/answer),
+  frames as `Event.model_dump_json()` verbatim, and a versioned wire spec at
+  `docs/design/protocols/native-wire.md` diffed against the app's own routes by a test.
+- **`Terminal.stdio()`, the first surface** (#549): `agentdeck/adapters/bindings/terminal/`,
+  a stdio binding with no auth, store or background task. `agentdeck chat` becomes
+  `Deck.from_project().expose(Terminal.stdio()).serve()`, replacing the httpx client of the
+  deleted v1 wire; imports no HTTP dependency on that path.
+
+### Fixed
+
+- **`BindingInfo.advertises`/`projects` were two conflated vocabularies** (#578):
+  `agentdeck/bindings/binding.py` adds `REQUIRED_KINDS`, a capability -> canonical-kinds table;
+  `Exposure` now checks the kinds an advertised capability actually requires against `projects`
+  (canonical event kinds only), instead of comparing capability names to themselves. The fixture
+  and Native's `BindingInfo.projects` are fixed to hold kinds, not capability names.
 
 ## v5.2.1
 

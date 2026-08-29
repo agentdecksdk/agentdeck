@@ -6,6 +6,9 @@ namespace, no resolution step (#324)  -  so what it writes under is exactly what
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import sys
+import textwrap
 
 from agentdeck import cli
 from agentdeck.adapters.control.memory import MemoryControlPort
@@ -61,3 +64,38 @@ async def test_an_unnamespaced_cli_signal_does_not_reach_a_namespaced_run() -> N
 
     assert acme[0].run_id != "order-1234"  # minted, never the key a caller happened to pass
     assert [event.kind for event in acme][-1] == "run.completed"  # the namespaced run, untouched
+
+
+def test_agentdeck_chat_starts_with_no_http_dependency_importable(tmp_path) -> None:
+    """`Terminal.stdio()` is a stdio binding: `agentdeck chat` must reach `Exposure.serve()`
+    without importing uvicorn or fastapi, the `[serve]` extra, anywhere on that path
+    (rulings.md 35). `httpx` is not part of this: it is a base dependency regardless of any
+    binding (`openai`'s own SDK imports it, and `agentdeck/deck.py` imports that unconditionally),
+    so blocking it fails before `import agentdeck` and would prove nothing about this path.
+
+    A fresh subprocess with each set to `None` in `sys.modules` before any import, same
+    rationale as `test_composition.py`'s identical redis probe: this process already has both
+    imported, and `sys.modules` cannot unsee that.
+    """
+    project = tmp_path / ".agentdeck" / "agents" / "greeter"
+    project.mkdir(parents=True)
+    (project / "agent.py").write_text(
+        textwrap.dedent("""
+        from agentdeck.authoring import Agent
+
+        it = Agent(name="Greeter", instructions="Greet the user.")
+        """)
+    )
+    probe = textwrap.dedent("""
+        import sys
+        sys.modules["uvicorn"] = None
+        sys.modules["fastapi"] = None
+        from agentdeck.cli import main
+        raise SystemExit(main(["chat"]))
+        """)
+
+    done = subprocess.run(
+        [sys.executable, "-c", probe], cwd=tmp_path, input="", capture_output=True, text=True, timeout=60
+    )
+
+    assert done.returncode == 0, done.stderr

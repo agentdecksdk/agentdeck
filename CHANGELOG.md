@@ -25,6 +25,10 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `InputError` (or `AgentdeckError`) where you caught `TypeError` before. `ProtocolGateway`'s
   `_map_failure` maps it to `INVALID_INPUT` and no longer treats every `TypeError`/`ValueError`
   as bad input, so an unrelated bug now surfaces as `INTERNAL` instead of a misleading 422.
+- **`Terminal.stdio()`, the first surface** (#549): `agentdeck/adapters/bindings/terminal/`,
+  a stdio binding with no auth, store or background task. `agentdeck chat` becomes
+  `Deck.from_project().expose(Terminal.stdio()).serve()`, replacing the httpx client of the
+  deleted v1 wire; imports no HTTP dependency on that path.
 
 ### Fixed
 
