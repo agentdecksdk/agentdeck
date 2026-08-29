@@ -141,7 +141,10 @@ COMMENT_BLOCK_MAX = 2
 # a bare package docstring in an empty __init__.py is 100% prose and not bloat.
 COMMENT_RATIO_MAX = 0.6
 COMMENT_RATIO_MIN_LINES = 20
-LIBRARY_ONLY = ("SLOP004", "SLOP010", "SLOP011", "SLOP012")
+# A helper's docstring this long next to a thinner public one is the contract in the wrong place;
+# below it a helper explaining one mechanism in two lines is not.
+INVERSION_MIN_HELPER_LINES = 3
+LIBRARY_ONLY = ("SLOP004", "SLOP010", "SLOP011", "SLOP012", "SLOP013")
 HUNK_RE = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
 EM_DASH = chr(0x2014)
 
@@ -460,12 +463,66 @@ def _decorator_names(node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
     return names
 
 
+def _private_calls(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    names: set[str] = set()
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Call):
+            target = node.func
+            name = (
+                target.id if isinstance(target, ast.Name) else target.attr if isinstance(target, ast.Attribute) else ""
+            )
+            if name.startswith("_") and not name.startswith("__"):
+                names.add(name)
+    return names
+
+
+def _inversion_violations(tree: ast.Module) -> list[Violation]:
+    """SLOP013: a public callable whose same-module private helper carries more docstring than it
+    does. The reader of the public API never opens the helper, so the contract has to sit on the
+    public side; the helper keeps only what its code cannot show."""
+    # Module-level functions and methods only: a closure inside a function is not an API anyone
+    # reads, whatever its name.
+    scopes: list[ast.Module | ast.ClassDef] = [tree, *(n for n in ast.walk(tree) if isinstance(n, ast.ClassDef))]
+    callables: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
+    for scope in scopes:
+        for node in scope.body:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                callables.setdefault(node.name, node)
+    out: list[Violation] = []
+    for name, fn in callables.items():
+        if name.startswith("_"):
+            continue
+        doc = ast.get_docstring(fn, clean=True) or ""
+        if "SLOP013" in ALLOW_RE.findall(doc):
+            continue
+        public_lines = len(_doc_prose(doc))
+        for helper_name in sorted(_private_calls(fn)):
+            helper = callables.get(helper_name)
+            if helper is None:
+                continue
+            helper_lines = len(_doc_prose(ast.get_docstring(helper, clean=True) or ""))
+            if helper_lines < INVERSION_MIN_HELPER_LINES or helper_lines <= public_lines:
+                continue
+            end = fn.body[0].end_lineno if isinstance(fn.body[0], ast.Expr) else fn.lineno
+            out.append(
+                Violation(
+                    fn.lineno,
+                    end or fn.lineno,
+                    "SLOP013 docstring-inversion",
+                    f"{name} documents {public_lines} prose lines while its helper {helper_name} documents "
+                    f"{helper_lines}: the contract belongs on the public callable; the helper keeps only "
+                    "what the code cannot show",
+                )
+            )
+    return out
+
+
 def _ast_violations(source: str) -> list[Violation]:
     try:
         tree = ast.parse(source)
     except (SyntaxError, ValueError):
         return []
-    out: list[Violation] = _docstring_violations(tree)
+    out: list[Violation] = _docstring_violations(tree) + _inversion_violations(tree)
 
     def visit(node: ast.AST, abstract: bool) -> None:
         for child in ast.iter_child_nodes(node):
@@ -829,6 +886,25 @@ def _self_test() -> None:
     assert any(v.rule.startswith("SLOP009") for v in check_style(em_dash)), "em dash must be flagged"
     assert not check_style("Use the short path: the runtime owns the machinery.\n"), "colon must pass"
     assert _is_text_file(Path(__file__).resolve().parents[1] / "Makefile"), "extensionless text must route to SLOP009"
+    helper_doc = '    """One.\n\n    Two.\n    Three.\n    Four.\n    """\n    return x\n'
+    inverted = "def _shape(x):\n" + helper_doc + 'def targets(x):\n    """Every target."""\n    return _shape(x)\n'
+    assert any(v.rule.startswith("SLOP013") for v in check_source(inverted)), "docstring inversion must be flagged"
+    righted = inverted.replace('"""Every target."""', '"""Every target.\n\n    Two.\n    Three.\n    Four.\n    """')
+    assert not check_source(righted), "contract on the public callable must pass"
+    sectioned = inverted.replace(
+        "Two.\n    Three.\n    Four.", "Args:\n        x: one.\n        y: two.\n        z: three."
+    )
+    assert not check_source(sectioned), "a helper's Args section must not count as prose"
+    allowed_inversion = inverted.replace(
+        '"""Every target."""', '"""Every target.  (slopcheck: allow SLOP013 exemplar)"""'
+    )
+    assert not check_source(allowed_inversion), "coded allow on the public callable must suppress"
+    nested = (
+        "def _lc(x):\n"
+        + helper_doc
+        + 'def asgi(x):\n    """App."""\n    def lifespan(a):\n        return _lc(a)\n    return lifespan\n'
+    )
+    assert not any(v.rule.startswith("SLOP013") for v in check_source(nested)), "a closure is not a public callable"
     print("slopcheck self-test: ok")
 
 
