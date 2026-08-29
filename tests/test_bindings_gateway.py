@@ -125,6 +125,28 @@ async def test_get_run_maps_an_unknown_id_to_not_found(no_project):
     assert excinfo.value.code is GatewayFailureCode.NOT_FOUND
 
 
+@pytest.mark.asyncio
+async def test_get_run_in_the_wrong_namespace_is_not_found_not_cross_namespace(no_project, scripted):
+    """A run started in one namespace is invisible from another  -  no fuzzy search across the
+    isolation boundary, the same rule :meth:`Runs.get` enforces (run-identity.md §15)."""
+    deck = Deck(agents=[_greeter()])
+    async with deck:
+        gateway = ProtocolGateway(deck)
+        started = await gateway.start("Greeter", "hi", namespace="acme", session_id="s1")
+        with pytest.raises(GatewayError) as excinfo:
+            await gateway.get_run(started.id, namespace="other")
+
+    assert excinfo.value.code is GatewayFailureCode.NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_list_runs_in_an_unknown_namespace_is_empty_not_not_found(no_project):
+    deck = Deck(agents=[_greeter()])
+    async with deck:
+        gateway = ProtocolGateway(deck)
+        assert await gateway.list_runs(namespace="ghost-namespace") == []
+
+
 def test_map_failure_maps_run_state_error_to_conflict():
     """``RunStateError`` never reaches ``start``/``get``/``list`` in practice (it is a
     ``Run``-method refusal), so its mapping is exercised directly on the mapper."""

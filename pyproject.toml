@@ -117,6 +117,10 @@ known-first-party = ["agentdeck"]
 # so its coroutine has to outlive the call that started it. Owned, not loose  -  the executor holds
 # every parked body and `Executor.aclose()` cancels them (docs/patterns/lifecycle.md).
 "agentdeck/adapters/executors/native/executor.py" = ["TID251"]
+# A channel binding spawns its own tail task per inbound webhook and owns it: tracked in its own
+# set, cancelled by its own stop() (docs/design/protocols/rulings.md 32), the same shape as the
+# native executor's parked bodies above  -  never the runtime's, since a binding lives outside it.
+"tests/bindings/fixture_plugin/channel.py" = ["TID251"]
 "tests/contract/test_store.py" = ["TID251"]
 "tests/test_deck.py" = ["TID251"]
 "tests/test_run_control.py" = ["TID251"]

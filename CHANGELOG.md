@@ -8,6 +8,14 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+
+- **A channel-shaped out-of-tree fixture plugin proving the SPI** (#547): `tests/bindings/`
+  covers every `docs/design/protocols/roadmap.md` contract item against `ProtocolGateway`/`Run`
+  directly and against the fixture, with its own `.importlinter` contract wired into
+  `make check`. No product code changes; `ProtocolGateway.list_runs`/`get_run` docstrings were
+  tightened on namespace scope alongside it.
+
 ## [5.2.1] - 2026-08-29
 
 ### Changed

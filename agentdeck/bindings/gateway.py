@@ -188,8 +188,10 @@ class ProtocolGateway:
             raise _map_failure(exc) from exc
 
     async def get_run(self, run_id: str, *, namespace: str | None = None) -> Run:
-        """Rehydrate the run named ``run_id``, per :meth:`Runs.get`: ``NOT_FOUND`` for an unknown
-        ``run_id``, ``INTERNAL`` for anything else, both arriving as a :class:`GatewayError`.
+        """Rehydrate the run named ``run_id``, scoped to ``namespace`` exactly like
+        :meth:`Runs.get`: ``run_id`` in a namespace other than the one it was started in is
+        ``NOT_FOUND``, never a cross-namespace lookup. ``INTERNAL`` for anything else. Both
+        arrive as a :class:`GatewayError`.
         """
         try:
             return await self._deck.runs.get(run_id, namespace=namespace)
@@ -199,8 +201,11 @@ class ProtocolGateway:
     async def list_runs(
         self, *, namespace: str | None = None, status: RunStatus | None = None, limit: int | None = None
     ) -> Sequence[Run]:
-        """Every run in ``namespace``, per :meth:`Runs.list`; any failure arrives as a
-        :class:`GatewayError` with code ``INTERNAL``.
+        """Every run in ``namespace``, per :meth:`Runs.list`: stays scoped to that one
+        namespace, never spanning several, and an unknown ``namespace`` is an empty sequence,
+        never ``NOT_FOUND``  -  a namespace is a partition, not an identity the store can fail
+        to find. Order is not guaranteed. Any failure arrives as a :class:`GatewayError` with
+        code ``INTERNAL``.
         """
         try:
             return await self._deck.runs.list(namespace=namespace, status=status, limit=limit)
