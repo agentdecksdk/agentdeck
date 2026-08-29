@@ -5,7 +5,9 @@
 # carry, and pytest's default traceback buries the assertion under frames nobody reads.
 # `make check V=1` restores every tool's own full output.
 V ?= 0
-LOG = $${TMPDIR:-/tmp}/agentdeck-$@.log
+# In-repo, not /tmp: two worktrees running `make check` at once each get their own tree, so the
+# log can never interleave with another checkout's (#518).
+LOG = $(CURDIR)/.make-$@.log
 ifeq ($(V),0)
   E = @
   PYTEST_ARGS = -q --no-header --tb=line -rf
