@@ -10,6 +10,7 @@ from agentdeck.bindings.binding import (
     HttpEndpoint,
     StdioEndpoint,
 )
+from agentdeck.bindings.exposure import Exposure
 from agentdeck.bindings.gateway import (
     Capabilities,
     GatewayError,
@@ -25,6 +26,7 @@ __all__ = [
     "BindingInfo",
     "Capabilities",
     "Endpoint",
+    "Exposure",
     "GatewayError",
     "GatewayFailureCode",
     "HttpEndpoint",

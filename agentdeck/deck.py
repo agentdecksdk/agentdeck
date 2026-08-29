@@ -97,6 +97,8 @@ if TYPE_CHECKING:
     from agents.memory.session import Session
 
     from agentdeck.authoring.interrupts import InterruptResult
+    from agentdeck.bindings.binding import Binding
+    from agentdeck.bindings.exposure import Exposure
     from agentdeck.core.content import Input
     from agentdeck.core.events import Event, Usage
     from agentdeck.core.ports import EventStorePort, Executor
@@ -646,6 +648,20 @@ class Deck:
     @property
     def settings(self) -> Settings:
         return get_settings()
+
+    @property
+    def is_open(self) -> bool:
+        """Whether ``__aenter__``/``async with`` has opened this Deck and ``aclose`` has not yet
+        run. What :class:`~agentdeck.bindings.exposure.Exposure` checks before deciding whether
+        it owns the close, without reaching for ``_state`` from outside this module."""
+        return self._state == "OPEN"
+
+    def expose(self, *bindings: Binding) -> Exposure:
+        """Validate, host and own the lifecycle of a set of bindings. See
+        :class:`~agentdeck.bindings.exposure.Exposure`."""
+        from agentdeck.bindings.exposure import Exposure
+
+        return Exposure(self, bindings)
 
     def build(self) -> Deck:
         """Validate the whole catalog and compile every agent/workflow to an ``InvocableSpec``.

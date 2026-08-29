@@ -43,6 +43,8 @@ create Deck → create bindings → validate exposure → open Deck → build ga
 
 Every binding's background task runs under the Exposure; a failed `start()` cancels the ones already started.
 
+In `#546`'s implementation, "build gateway" moves ahead of "open Deck": the gateway constructor only stores the Deck reference and `build()` is documented pure, so validating real endpoints (paths, stdio count) stays possible before anything opens.
+
 Ownership: whoever opens something closes it. Mounting onto an already-open Deck takes no ownership of it; `exposure.serve()` that opened the Deck closes it. Same rule for binding-owned resources.
 
 ## Validation before start

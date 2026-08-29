@@ -33,6 +33,15 @@ class BindingInfo:
     ``expose()`` checks each one against a real projection or action before anything opens
     (``docs/design/protocols/rulings.md`` 26)."""
 
+    projects: frozenset[str] = frozenset()
+    """The capability names this binding actually implements. ``expose()`` rejects any name in
+    :attr:`advertises` missing here, naming the binding and the gap  -  additive field, no
+    :data:`PROTOCOL_SPI_VERSION` bump (``spi.md``)."""
+
+    requires: frozenset[str] = frozenset()
+    """Other bindings (by :attr:`name`) this one depends on within the same exposure; ``expose()``
+    rejects a name missing from the set being exposed."""
+
 
 @dataclass(frozen=True, slots=True)
 class HttpEndpoint:
