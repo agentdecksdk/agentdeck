@@ -16,7 +16,15 @@ Status: proposed, 2026-08-29.
 
 ## Run identity
 
-`(namespace, run_id)` is the address. A protocol may expose it directly (native HTTP, UI generation id) or under its own name (A2A `taskId`). The mapping is the adapter's. `run_id` format never changes for a protocol, and values like `a2a:task:123` never enter the runtime.
+`(namespace, run_id)` is the address. Three kinds of external id, three rules:
+
+| external id | maps to |
+|---|---|
+| conversation identity (`contextId`, `threadId`, ACP session) | `session_id`, when it is semantically a conversation |
+| request or task identity (A2A `taskId`, JSON-RPC id) | adapter-local mapping to the Run address |
+| retry or idempotency id | `key`, only when the protocol defines retry semantics |
+
+`run_id` format never changes for a protocol, and values like `a2a:task:123` never enter the runtime.
 
 ## Events
 
@@ -32,13 +40,13 @@ Protocols consume canonical events (`agentdeck/core/events.py`): `run.started`, 
 | `run.interrupted` | approval or question | input-required |
 | `run.completed` | generation complete | Task completed |
 
-A binding declares the closed set of kinds it projects; unmapped kinds and `UnknownEvent` are skipped with no per-event warning. At build time the binding proves it covers the required categories (terminal state, text output, `run.interrupted`) or construction fails. The schema never gains protocol kinds (`a2a.task.updated`, `acp.session.updated`).
+A binding advertises what it supports (`streaming`, `text`, `hitl`, `control.cancel`, ...) and `expose()` validates that each advertised capability has its projection or action implemented. Unadvertised kinds and `UnknownEvent` are skipped with no per-event warning. Advertise it, implement it. The schema never gains protocol kinds (`a2a.task.updated`, `acp.session.updated`).
 
-`run.interrupted` maps to the protocol's native "needs user input" mechanism and the reply maps back to `run.answer()`: A2A `INPUT_REQUIRED`, ACP `request_permission` or user interaction, MCP elicitation, AG-UI and A2UI interactive part, Native `{run_id, interrupt_id, reason, payload}` plus an `answer` route. Every target can interrupt, so every binding must map it.
+`run.interrupted` maps to the protocol's native "needs user input" mechanism and the reply maps back to `run.answer()`: A2A `INPUT_REQUIRED`, ACP `request_permission` or user interaction, MCP elicitation, AG-UI and A2UI interactive part, Native `{run_id, interrupt_id, reason, payload}` plus an `answer` route. A binding that does not advertise `hitl` refuses targets at start with `UNSUPPORTED` when an interrupt would otherwise stall its client.
 
 ## Reconnect
 
-`Event.seq` is the reconnect cursor. `run.events(from_seq=last + 1, follow=True)` resumes a lost stream without touching execution. This is why the event log stays below every protocol.
+`Event.seq` is the common replay primitive: `run.events(from_seq=last + 1, follow=True)` resumes a lost stream without touching execution. Each binding builds its protocol's reconnect on it, with adapter-owned cursor or task state where the protocol needs more.
 
 ## Input
 
