@@ -77,6 +77,7 @@ Success test: a React client, an IDE and another agent independently project the
 | [`spi.md`](spi.md) | SPI versioning and out-of-tree plugin packaging |
 | [`rulings.md`](rulings.md) | every decision taken while attacking the design: chosen, rejected, why |
 | [`roadmap.md`](roadmap.md) | implementation sequence, target protocols, contract tests, open rulings |
+| [`native-wire.md`](native-wire.md) | `Native.http()`'s own versioned wire: routes, SSE framing, reconnect |
 
 ## Where the design and the tree disagree
 

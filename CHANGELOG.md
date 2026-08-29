@@ -15,6 +15,11 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   directly and against the fixture, with its own `.importlinter` contract wired into
   `make check`. No product code changes; `ProtocolGateway.list_runs`/`get_run` docstrings were
   tightened on namespace scope alongside it.
+- **`Native.http()`, the AgentDeck protocol** (#548): `agentdeck/adapters/bindings/native/`, the
+  SPI's reference binding. Ten routes over `ProtocolGateway`/`Run` only (targets, start, get/list
+  runs, SSE tail with `Last-Event-ID`/`from_seq` reconnect, cancel/pause/resume, pending/answer),
+  frames as `Event.model_dump_json()` verbatim, and a versioned wire spec at
+  `docs/design/protocols/native-wire.md` diffed against the app's own routes by a test.
 
 ## [5.2.1] - 2026-08-29
 
