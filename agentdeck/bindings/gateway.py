@@ -109,18 +109,17 @@ def _map_failure(exc: Exception) -> GatewayError:
 
 def _workflow_schema(definition: NativeDefinition) -> JsonSchema | None:
     """The object schema a caller's mapping input must satisfy, built from the parameters the
-    body itself declares (``NativeExecutor._arguments`` binds a multi-parameter workflow's input
-    by name against exactly these). ``None`` for a workflow that takes no input at all; a
+    body itself declares. Every field is required regardless of its own Python default:
+    ``NativeExecutor._arguments`` binds a multi-parameter workflow's input by name against
+    exactly this set, with no partial mapping accepted, so an optional field here would advertise
+    an input the executor refuses. ``None`` for a workflow that takes no input at all; a
     single-parameter workflow also accepts its value bare, which this schema does not represent.
     """
     parameters = definition.analysis.visible_parameters
     if not parameters:
         return None
     fields: dict[str, Any] = {
-        parameter.name: (
-            Any if parameter.annotation is inspect.Parameter.empty else parameter.annotation,
-            ... if parameter.default is inspect.Parameter.empty else parameter.default,
-        )
+        parameter.name: (Any if parameter.annotation is inspect.Parameter.empty else parameter.annotation, ...)
         for parameter in parameters
     }
     model = create_model(f"{definition.name}_input", **fields)
