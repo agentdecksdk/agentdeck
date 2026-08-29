@@ -29,6 +29,9 @@ class BindingInfo:
     transport: str
     spi_version: int
     advertises: frozenset[str]
+    """The capability names this binding claims (``streaming``, ``hitl``, ``control.cancel``, ...);
+    ``expose()`` checks each one against a real projection or action before anything opens
+    (``docs/design/protocols/rulings.md`` 26)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,11 +59,20 @@ class Binding(Protocol):
 
     info: BindingInfo
 
-    def build(self, gateway: ProtocolGateway) -> Endpoint: ...
+    def build(self, gateway: ProtocolGateway) -> Endpoint:
+        """Pure: no I/O, no port opened, no stdin read. Every validation this binding needs
+        runs here, before anything opens, so a bad binding fails construction, not a live socket."""
+        ...
 
-    async def start(self) -> None: ...
+    async def start(self) -> None:
+        """Runs once the gateway exists, after every binding's :meth:`build`. A background task
+        this spawns is owned by the Exposure's own lifecycle, never left unsupervised (ruling 32)."""
+        ...
 
-    async def stop(self) -> None: ...
+    async def stop(self) -> None:
+        """Runs in the reverse of start order, including during a partial-startup rollback. Must be
+        idempotent: a second call, for a binding whose own :meth:`start` never ran, is still safe."""
+        ...
 
 
 __all__ = [

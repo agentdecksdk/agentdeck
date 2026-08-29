@@ -185,6 +185,28 @@ def test_targets_input_schema_is_none_for_a_workflow_with_no_parameters(no_proje
     assert target.input_schema is None
 
 
+@pytest.mark.asyncio
+async def test_starting_from_input_built_off_the_advertised_schema_completes(no_project):
+    """A defaulted parameter is still required in the schema: ``NativeExecutor._arguments``
+    needs every visible name present for a multi-parameter workflow regardless of its own
+    default, so a caller following the advertised schema must not be refused with an unmapped
+    ``ConfigError`` instead of a ``GatewayError``."""
+
+    async def greet(ctx: WorkflowCtx, name: str, greeting: str = "hi") -> str:
+        return f"{greeting}, {name}!"
+
+    deck = Deck(workflows=[workflow(greet, name="Greet")])
+    async with deck:
+        gateway = ProtocolGateway(deck)
+        (target,) = gateway.targets()
+        assert set(target.input_schema["required"]) == {"name", "greeting"}
+
+        run = await gateway.start("Greet", {"name": "Bob", "greeting": "hi"})
+        result = await run
+
+    assert result == "hi, Bob!"
+
+
 # --- capabilities ------------------------------------------------------------------------------
 
 
