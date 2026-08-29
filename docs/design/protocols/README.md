@@ -20,7 +20,7 @@ Status: proposed, 2026-08-29. Supersedes the single-file `design.md`, kept in gi
  │                                                                                   │
  │  kind=protocol            kind=channel             kind=surface                   │
  │  AGUI.http()              WhatsApp.http()          Terminal.stdio()  agentdeck chat│
- │  A2UI.http()              Slack.http()             TUI.stdio()  (later)           │
+ │  A2UI.http()              Slack.http()             TUI.stdio() WebChat.http() (later)│
  │  A2A.http()               Telegram.http()                                         │
  │  ACP.stdio()              Discord.http()                                          │
  │  MCP.stdio() MCP.http()                                                           │
