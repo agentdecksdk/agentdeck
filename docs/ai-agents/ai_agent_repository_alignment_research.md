@@ -73,8 +73,7 @@ But a mature codebase may already communicate this behavior clearly through name
 A more serious version is:
 
 ```python
-class CancellationManager:
-    ...
+class CancellationManager: ...
 ```
 
 added to implement cancellation even though the repository already has:
@@ -1417,8 +1416,7 @@ src/runtime/timeout_exceptions.py
 It adds:
 
 ```python
-class TimeoutManager:
-    ...
+class TimeoutManager: ...
 ```
 
 and directly mutates run state when the timer expires.

@@ -1,5 +1,5 @@
 """The contract suite `docs/design/protocols/roadmap.md` names before an SPI v1: every line
-proven either straight against `ProtocolGateway`/`Run` (fixture-free, see
+proven either straight against `DeckGateway`/`Run` (fixture-free, see
 `test_bindings_gateway.py` for the sibling style) or through `FixtureChannel`, the channel-shaped
 plugin under `fixture_plugin/` built only on the public SPI.
 
@@ -29,10 +29,10 @@ from agentdeck.authoring import Agent
 from agentdeck.bindings import (
     PROTOCOL_SPI_VERSION,
     BindingInfo,
+    DeckGateway,
     GatewayError,
     GatewayFailureCode,
     HttpEndpoint,
-    ProtocolGateway,
 )
 from agentdeck.core.content import ImageBlock, TextBlock
 from agentdeck.core.control import CONTROL_POLL_INTERVAL
@@ -80,7 +80,7 @@ async def test_receive_message_starts_a_run_reachable_through_ordinary_runs(no_p
     with patch_model(model):
         async with deck:
             channel = _channel(tmp_path, target="Greeter")
-            channel.build(ProtocolGateway(deck))
+            channel.build(DeckGateway(deck))
             result = await channel.receive_message(
                 secret=SECRET, conversation_id="c1", message_id="msg-1", content=TextBlock(text="hi")
             )
@@ -98,7 +98,7 @@ async def test_tail_posts_message_completed_to_the_outbox(no_project, tmp_path):
     with patch_model(model):
         async with deck:
             channel = _channel(tmp_path, target="Greeter")
-            channel.build(ProtocolGateway(deck))
+            channel.build(DeckGateway(deck))
             await channel.receive_message(
                 secret=SECRET, conversation_id="c1", message_id="msg-1", content=TextBlock(text="hi")
             )
@@ -116,7 +116,7 @@ async def test_a_disconnected_reader_does_not_cancel_the_run(no_project, tmp_pat
     with patch_model(model):
         async with deck:
             channel = _channel(tmp_path, target="Greeter")
-            gateway = ProtocolGateway(deck)
+            gateway = DeckGateway(deck)
             channel.build(gateway)
             result = await channel.receive_message(
                 secret=SECRET, conversation_id="c1", message_id="msg-1", content=TextBlock(text="hi")
@@ -140,7 +140,7 @@ async def test_receive_button_answers_and_retails_the_resumed_segment_without_po
     deck = _deck()
     async with deck:
         channel = _channel(tmp_path, target="Survey")
-        gateway = ProtocolGateway(deck)
+        gateway = DeckGateway(deck)
         channel.build(gateway)
         result = await channel.receive_message(
             secret=SECRET, conversation_id="c1", message_id="msg-1", content=TextBlock(text="kites")
@@ -178,7 +178,7 @@ async def test_cancel_pause_resume_map_to_the_same_run(no_project, tmp_path):
     with patch_model(model):
         async with deck:
             channel = _channel(tmp_path, target="Greeter")
-            gateway = ProtocolGateway(deck)
+            gateway = DeckGateway(deck)
             channel.build(gateway)
             result = await channel.receive_message(
                 secret=SECRET, conversation_id="c1", message_id="msg-1", content=TextBlock(text="hi")
@@ -260,7 +260,7 @@ async def test_protocol_metadata_never_appears_in_event_payloads(no_project, tmp
     with patch_model(model):
         async with deck:
             channel = _channel(tmp_path, target="Greeter")
-            gateway = ProtocolGateway(deck)
+            gateway = DeckGateway(deck)
             channel.build(gateway)
             result = await channel.receive_message(
                 secret=SECRET, conversation_id="conv-98765", message_id="msg-13579", content=TextBlock(text="hi")
@@ -300,7 +300,7 @@ async def test_unsupported_content_is_rejected_with_invalid_input_naming_the_par
     deck = _deck()
     async with deck:
         channel = _channel(tmp_path, target="Greeter")
-        channel.build(ProtocolGateway(deck))
+        channel.build(DeckGateway(deck))
         image = ImageBlock(media_type="image/png", data_b64=base64.b64encode(b"x").decode())
 
         with pytest.raises(GatewayError) as excinfo:
@@ -316,7 +316,7 @@ async def test_receive_button_with_an_unknown_message_id_is_not_found(no_project
     deck = _deck()
     async with deck:
         channel = _channel(tmp_path, target="Greeter")
-        channel.build(ProtocolGateway(deck))
+        channel.build(DeckGateway(deck))
 
         with pytest.raises(GatewayError) as excinfo:
             await channel.receive_button(secret=SECRET, message_id="no-such-message", value="red")
@@ -395,7 +395,7 @@ async def test_stop_cancels_every_in_flight_tail_task(no_project, tmp_path):
     with patch_model(model):
         async with deck:
             channel = _channel(tmp_path, target="Greeter")
-            channel.build(ProtocolGateway(deck))
+            channel.build(DeckGateway(deck))
             await channel.receive_message(
                 secret=SECRET, conversation_id="c1", message_id="msg-1", content=TextBlock(text="hi")
             )
@@ -476,7 +476,7 @@ async def test_durable_map_survives_a_simulated_restart(no_project, tmp_path):
     map_path = tmp_path / "map.json"
     deck = _deck()
     async with deck:
-        gateway = ProtocolGateway(deck)
+        gateway = DeckGateway(deck)
         channel_1 = FixtureChannel(secret=SECRET, map_path=map_path, target="Survey")
         channel_1.build(gateway)
         result = await channel_1.receive_message(

@@ -6,7 +6,7 @@ Status: proposed, 2026-08-29.
 
 | phase | deliverable | done when |
 |---|---|---|
-| 1 | contracts only: `ProtocolGateway` over `deck.runs`, `TargetInfo`, `Capabilities`, `GatewayFailureCode`, `Binding` with `start`/`stop`, endpoint types, `Exposure`, channel-shaped fixture plugin | every contract test below that needs no real protocol passes against a fake binding |
+| 1 | contracts only: `DeckGateway` over `deck.runs`, `TargetInfo`, `Capabilities`, `GatewayFailureCode`, `Binding` with `start`/`stop`, endpoint types, `Exposure`, channel-shaped fixture plugin | every contract test below that needs no real protocol passes against a fake binding |
 | 2 | Native HTTP and `Terminal.stdio()` (the first surface) as bindings, with a versioned wire spec and `@agentdeck/client` through the gateway; `agentdeck/serve.py`, all of `surfaces/`, the `agentdeck-serve` script and the goldens deleted; `agentdeck chat` runs `Terminal.stdio()` | imports nothing private; no v1 route survives; `engineering/architecture.md` ownership table updated |
 | 3 | `A2A.http()` (protocol) | tasks, `contextId` session, `taskId` key, `input-required` HITL, `tasks/resubscribe` from `seq`, AgentCard from `TargetInfo` |
 | 4 | `WhatsApp.http()` (channel) | webhook ACK then Exposure-owned tail, `message.completed` posting, reply buttons for HITL, durable phone-to-run map |

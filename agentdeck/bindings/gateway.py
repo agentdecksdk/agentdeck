@@ -1,4 +1,4 @@
-"""``ProtocolGateway``: the stable interface from a protocol into a Deck
+"""``DeckGateway``: the stable interface from a protocol into a Deck
 (``docs/design/protocols/gateway.md``).
 
 ``Deck``/``Run`` are imported for typing only; this module reaches a Deck through its public
@@ -75,7 +75,7 @@ _INTERNAL_MESSAGE = "internal error"
 
 
 class GatewayError(Exception):
-    """What every :class:`ProtocolGateway` method raises on failure; a :class:`~agentdeck.deck.Run`
+    """What every :class:`DeckGateway` method raises on failure; a :class:`~agentdeck.deck.Run`
     method (``cancel``, ``pause``, ``resume``, ``answer``) is not one and keeps its own public
     error instead (``RunStateError``, ``UnsupportedControlError``, ``RunSuspendedError``), mapped by a binding.
 
@@ -108,7 +108,7 @@ def _map_failure(exc: Exception) -> GatewayError:
 
 def _workflow_schema(definition: NativeDefinition) -> JsonSchema | None:
     """The object schema for a workflow's input, or ``None`` if it takes none. Every field is
-    marked required: :meth:`ProtocolGateway.targets` explains why.
+    marked required: :meth:`DeckGateway.targets` explains why.
     """
     parameters = definition.analysis.visible_parameters
     if not parameters:
@@ -121,7 +121,7 @@ def _workflow_schema(definition: NativeDefinition) -> JsonSchema | None:
     return model.model_json_schema()
 
 
-class ProtocolGateway:
+class DeckGateway:
     """The stable surface a :class:`~agentdeck.bindings.binding.Binding` builds an
     :class:`~agentdeck.bindings.binding.Endpoint` against. A thin facade over :attr:`Deck.runs`:
     it delegates every run operation and adds only what ``Runs`` lacks for a protocol  -
@@ -226,6 +226,6 @@ __all__ = [
     "GatewayError",
     "GatewayFailureCode",
     "JsonSchema",
-    "ProtocolGateway",
+    "DeckGateway",
     "TargetInfo",
 ]

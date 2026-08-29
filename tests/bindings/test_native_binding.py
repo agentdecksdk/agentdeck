@@ -19,7 +19,7 @@ from starlette.testclient import TestClient
 from agentdeck import WorkflowCtx, workflow
 from agentdeck.adapters.bindings.native.binding import Native, NativeBinding, _error_response
 from agentdeck.authoring import Agent
-from agentdeck.bindings import ProtocolGateway
+from agentdeck.bindings import DeckGateway
 from agentdeck.deck import Deck
 from agentdeck.errors import UnsupportedControlError
 from agentdeck.testing import ScriptedModel, patch_model
@@ -273,7 +273,7 @@ def test_unsupported_control_error_maps_to_501():
 
 @pytest.mark.asyncio
 async def test_pause_route_maps_no_control_backend_to_501(no_project):
-    """The reachable `UNSUPPORTED` path over the wire: `ProtocolGateway.get_run` always
+    """The reachable `UNSUPPORTED` path over the wire: `DeckGateway.get_run` always
     rehydrates a `Run` with `suspendable=True` (`deck.py`'s `_RECOVERED_SUSPENDABLE`, "assumed,
     not read"), so `tests/test_deck.py`'s `run._suspendable = False` recipe never reaches a
     route that only ever holds a rehydrated `Run` -- that recipe mutates one specific handle,
@@ -286,7 +286,7 @@ async def test_pause_route_maps_no_control_backend_to_501(no_project):
     deck = _deck()
     with patch_model(model):
         async with deck:
-            gateway = ProtocolGateway(deck)
+            gateway = DeckGateway(deck)
             endpoint = Native.http().build(gateway)
             transport = httpx.ASGITransport(app=endpoint.app)
             async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:

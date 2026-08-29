@@ -8,7 +8,7 @@ Status: proposed, 2026-08-29.
 PROTOCOL_SPI_VERSION = 1
 ```
 
-A plugin declares `spi_version = 1` in its `BindingInfo`; `expose()` refuses a binding whose `spi_version` this AgentDeck does not support, naming both versions, before anything opens. Breaking `ProtocolGateway`, `Binding`, endpoint contracts or `GatewayFailureCode` bumps the major; adding optional fields or capabilities does not.
+A plugin declares `spi_version = 1` in its `BindingInfo`; `expose()` refuses a binding whose `spi_version` this AgentDeck does not support, naming both versions, before anything opens. Breaking `DeckGateway`, `Binding`, endpoint contracts or `GatewayFailureCode` bumps the major; adding optional fields or capabilities does not.
 
 Independent version lines, never coupled:
 

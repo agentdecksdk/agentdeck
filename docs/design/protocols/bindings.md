@@ -26,9 +26,12 @@ Shared HTTP and gRPC helpers live behind those factories, not in the public API.
 
 ```python
 class Binding(Protocol):
-    info: BindingInfo           # name, kind ("protocol" | "channel" | "surface"), transport, spi_version, advertised capabilities
-    def build(self, gateway: ProtocolGateway) -> Endpoint: ...
-    async def start(self) -> None: ...   # background work the Exposure owns
+    info: (
+        BindingInfo  # name, kind ("protocol" | "channel" | "surface"), transport, spi_version, advertised capabilities
+    )
+
+    def build(self, gateway: DeckGateway) -> Endpoint: ...
+    async def start(self) -> None: ...  # background work the Exposure owns
     async def stop(self) -> None: ...
 ```
 
@@ -57,7 +60,7 @@ Hosting primitives with no AgentDeck semantics.
 stdio is why HTTP is not built into the gateway:
 
 ```text
-stdin → ACP binding → ProtocolGateway → Deck → ACP binding → stdout
+stdin → ACP binding → DeckGateway → Deck → ACP binding → stdout
 ```
 
 The gateway knows nothing about transport.
@@ -71,7 +74,7 @@ Assistant UI React app       IDE            another agent      ← external surf
         │                     │                  │
    AGUI.http()           ACP.stdio()         A2A.http()        ← AgentDeck bindings
         └─────────────────────┼──────────────────┘
-                       ProtocolGateway
+                       DeckGateway
                               │
                              Deck
 ```

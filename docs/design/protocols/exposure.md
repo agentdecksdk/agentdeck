@@ -9,8 +9,8 @@ Status: proposed, 2026-08-29.
 ```python
 exposure = deck.expose(Native.http(path="/"), A2A.http(path="/a2a"))
 
-app = exposure.asgi()                       # embed in FastAPI/Starlette
-await exposure.serve(host="0.0.0.0", port=8000)   # standalone
+app = exposure.asgi()  # embed in FastAPI/Starlette
+await exposure.serve(host="0.0.0.0", port=8000)  # standalone
 ```
 
 `expose()` is the only verb on `Deck`; `serve()` lives on the exposure. `deck.serve(*bindings)` is one line over `expose(*bindings).serve()`; `expose()` remains the contract for embedding (`asgi()`).

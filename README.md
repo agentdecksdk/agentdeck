@@ -45,20 +45,24 @@ Your code stays about the behavior and structure of your application:
 ```python
 from agentdeck import Agent, Deck, ToolCtx, WorkflowCtx, tool, workflow
 
+
 class AppContext:
     def search(self, query: str) -> str:
         return "Internal records found."
+
 
 @tool
 def lookup_records(query: str, ctx: ToolCtx[AppContext]) -> str:
     """Look up internal records."""
     return ctx.data.search(query)
 
+
 agent = Agent(
     name="SupportBot",
     instructions="Help users resolve inquiries using internal tools.",
     tools=[lookup_records],
 )
+
 
 @workflow
 async def handle_request(ctx: WorkflowCtx, ticket: dict) -> str:
@@ -69,6 +73,7 @@ async def handle_request(ctx: WorkflowCtx, ticket: dict) -> str:
         if not approved:
             return "Escalated to human supervisor."
     return response
+
 
 deck = Deck(agents=[agent], workflows=[handle_request], context=AppContext)
 ```

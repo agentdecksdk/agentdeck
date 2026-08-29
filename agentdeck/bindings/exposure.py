@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.bindings.binding import PROTOCOL_SPI_VERSION, REQUIRED_KINDS, HttpEndpoint, StdioEndpoint
-from agentdeck.bindings.gateway import ProtocolGateway
+from agentdeck.bindings.gateway import DeckGateway
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
@@ -27,9 +27,9 @@ class Exposure:
     def __init__(self, deck: Deck, bindings: Sequence[Binding]) -> None:
         bindings = tuple(bindings)
         _validate_info(bindings)
-        # Both pure (build() by contract, ProtocolGateway.__init__ only stores deck), so both
+        # Both pure (build() by contract, DeckGateway.__init__ only stores deck), so both
         # run here, ahead of exposure.md's "open Deck -> build gateway" order.
-        gateway = ProtocolGateway(deck)
+        gateway = DeckGateway(deck)
         endpoints = [binding.build(gateway) for binding in bindings]
         _validate_endpoints(bindings, endpoints)
         self._deck = deck

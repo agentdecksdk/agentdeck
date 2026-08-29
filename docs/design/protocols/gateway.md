@@ -1,4 +1,4 @@
-# ProtocolGateway
+# DeckGateway
 
 The stable interface from a protocol into a Deck: what an external integration may ask a Deck to do.
 
@@ -11,16 +11,25 @@ Status: proposed, 2026-08-29.
 ## Shape
 
 ```python
-class ProtocolGateway(Protocol):
+class DeckGateway(Protocol):
     def targets(self) -> Sequence[TargetInfo]: ...
+
     capabilities: Capabilities
 
-    async def start(self, target: str, input: Input, *, session_id: str | None = None,
-                    namespace: str | None = None, key: str | None = None,
-                    context: object = None) -> Run: ...
+    async def start(
+        self,
+        target: str,
+        input: Input,
+        *,
+        session_id: str | None = None,
+        namespace: str | None = None,
+        key: str | None = None,
+        context: object = None,
+    ) -> Run: ...
     async def get_run(self, run_id: str, *, namespace: str | None = None) -> Run: ...
-    async def list_runs(self, *, namespace: str | None = None, status: RunStatus | None = None,
-                        limit: int | None = None) -> Sequence[Run]: ...
+    async def list_runs(
+        self, *, namespace: str | None = None, status: RunStatus | None = None, limit: int | None = None
+    ) -> Sequence[Run]: ...
 ```
 
 `start`, `get_run` and `list_runs` are `deck.runs.start`, `deck.runs.get` and `deck.runs.list` (`agentdeck/deck.py`, class `Runs`) with the same signatures. The gateway does not reimplement them; it wraps them and adds what `Runs` lacks: `targets()`, `capabilities`, and failure classification. The gateway covers targets, runs, events, control and HITL; artifact bytes are out of its scope (`rulings.md` 14).
@@ -39,7 +48,7 @@ class TargetInfo:
     name: str
     kind: Literal["agent", "workflow"]
     description: str | None
-    input_schema: JsonSchema | None   # None for free-text agents
+    input_schema: JsonSchema | None  # None for free-text agents
 ```
 
 Enough for an A2A AgentCard skill and an MCP tool definition. Never A2A AgentCard fields or ACP capability fields; those are produced by their adapter from `TargetInfo`. No per-target capability flags: every target on a deck can stream and interrupt.
@@ -77,9 +86,10 @@ class GatewayFailureCode(Enum):
     UNSUPPORTED = auto()
     INTERNAL = auto()
 
+
 class GatewayError(Exception):
     code: GatewayFailureCode
-    message: str            # wire-safe only for NOT_FOUND, BUSY, CONFLICT, INVALID_INPUT
+    message: str  # wire-safe only for NOT_FOUND, BUSY, CONFLICT, INVALID_INPUT
     cause: BaseException | None
 ```
 

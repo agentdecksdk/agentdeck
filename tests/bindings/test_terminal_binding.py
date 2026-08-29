@@ -16,7 +16,7 @@ import pytest
 from agentdeck import WorkflowCtx, workflow
 from agentdeck.adapters.bindings.terminal.binding import Terminal, TerminalBinding
 from agentdeck.authoring import Agent
-from agentdeck.bindings import ProtocolGateway
+from agentdeck.bindings import DeckGateway
 from agentdeck.core.status import RunStatus
 from agentdeck.deck import Deck
 from agentdeck.errors import ConfigError
@@ -67,7 +67,7 @@ def test_terminal_stdio_is_the_factory_for_terminal_binding():
 
 async def test_a_turn_an_interrupt_and_an_answer_reach_completion_matching_the_snapshot():
     deck = Deck(workflows=[workflow(_survey, name="Survey")])
-    gateway = ProtocolGateway(deck)
+    gateway = DeckGateway(deck)
     stdout = io.StringIO()
     binding = TerminalBinding(target="Survey", stdin=io.StringIO("kites\n2\n"), stdout=stdout)
     endpoint = binding.build(gateway)
@@ -83,7 +83,7 @@ async def test_an_out_of_range_choice_is_refused_and_re_prompts_instead_of_raisi
     `_answer` exists to catch, so a fat-fingered number cannot crash the whole session.
     """
     deck = Deck(workflows=[workflow(_survey, name="Survey")])
-    gateway = ProtocolGateway(deck)
+    gateway = DeckGateway(deck)
     stdout = io.StringIO()
     binding = TerminalBinding(target="Survey", stdin=io.StringIO("kites\n9\n2\n"), stdout=stdout)
     endpoint = binding.build(gateway)
@@ -103,7 +103,7 @@ async def test_two_agents_and_no_target_raises_config_error_naming_both():
             Agent(name="Bravo", instructions="."),
         ]
     )
-    gateway = ProtocolGateway(deck)
+    gateway = DeckGateway(deck)
     binding = TerminalBinding()
 
     with pytest.raises(ConfigError) as excinfo:
@@ -119,7 +119,7 @@ async def test_cancelling_mid_run_records_the_cancel_then_re_raises():
     is the same delivery a real Ctrl-C gives this coroutine either way.
     """
     deck = Deck(workflows=[workflow(_pending, name="Pending")])
-    gateway = ProtocolGateway(deck)
+    gateway = DeckGateway(deck)
     stdin = _BlockingStdin("go\n")
     binding = TerminalBinding(target="Pending", stdin=stdin, stdout=io.StringIO())
 
@@ -137,6 +137,6 @@ async def test_cancelling_mid_run_records_the_cancel_then_re_raises():
             stdin.release()
 
 
-async def _is_waiting(gateway: ProtocolGateway) -> bool:
+async def _is_waiting(gateway: DeckGateway) -> bool:
     runs = await gateway.list_runs()
     return bool(runs) and await runs[0].status() == RunStatus.WAITING_ANSWER

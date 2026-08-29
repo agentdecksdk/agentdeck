@@ -11,10 +11,10 @@ from starlette.routing import Route
 from agentdeck.bindings import (
     PROTOCOL_SPI_VERSION,
     BindingInfo,
+    DeckGateway,
     GatewayError,
     GatewayFailureCode,
     HttpEndpoint,
-    ProtocolGateway,
 )
 from agentdeck.core.events import KNOWN_KINDS
 from agentdeck.core.status import RunStatus
@@ -43,7 +43,7 @@ _END = object()
 
 
 class NativeBinding:
-    """``kind="protocol"``: routes over ``ProtocolGateway``/``Run``, nothing reshaped."""
+    """``kind="protocol"``: routes over ``DeckGateway``/``Run``, nothing reshaped."""
 
     def __init__(self, *, path: str = "/", namespace: str | None = None) -> None:
         self.info = BindingInfo(
@@ -56,14 +56,14 @@ class NativeBinding:
         )
         self._path = path
         self._namespace = namespace
-        self._gateway: ProtocolGateway | None = None
+        self._gateway: DeckGateway | None = None
 
-    def _require_gateway(self) -> ProtocolGateway:
+    def _require_gateway(self) -> DeckGateway:
         """Return the gateway after the binding has been built."""
         assert self._gateway is not None, "build() must run before a route is served"
         return self._gateway
 
-    def build(self, gateway: ProtocolGateway) -> HttpEndpoint:
+    def build(self, gateway: DeckGateway) -> HttpEndpoint:
         self._gateway = gateway
         app = Starlette(
             routes=[

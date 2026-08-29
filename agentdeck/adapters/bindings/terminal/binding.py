@@ -14,7 +14,7 @@ import sys
 from typing import Any, TextIO
 from uuid import uuid4
 
-from agentdeck.bindings import PROTOCOL_SPI_VERSION, BindingInfo, ProtocolGateway, StdioEndpoint
+from agentdeck.bindings import PROTOCOL_SPI_VERSION, BindingInfo, DeckGateway, StdioEndpoint
 from agentdeck.core.events import (
     KNOWN_KINDS,
     MessageCompleted,
@@ -58,13 +58,13 @@ class TerminalBinding:
         self._session_id = session_id or uuid4().hex
         self._stdin = stdin if stdin is not None else sys.stdin
         self._stdout = stdout if stdout is not None else sys.stdout
-        self._gateway: ProtocolGateway | None = None
+        self._gateway: DeckGateway | None = None
 
-    def _require_gateway(self) -> ProtocolGateway:
+    def _require_gateway(self) -> DeckGateway:
         assert self._gateway is not None, "build() must run before the stdio loop starts"
         return self._gateway
 
-    def build(self, gateway: ProtocolGateway) -> StdioEndpoint:
+    def build(self, gateway: DeckGateway) -> StdioEndpoint:
         self._gateway = gateway
         if self._target is None:
             agents = sorted(t.name for t in gateway.targets() if t.kind == "agent")

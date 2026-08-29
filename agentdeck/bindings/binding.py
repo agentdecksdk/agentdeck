@@ -11,11 +11,11 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
-    from agentdeck.bindings.gateway import ProtocolGateway
+    from agentdeck.bindings.gateway import DeckGateway
 
 PROTOCOL_SPI_VERSION = 1
 """The contract version a :class:`Binding` declares in its own :attr:`BindingInfo.spi_version`.
-Bumped on a breaking change to :class:`ProtocolGateway`, :class:`Binding`, an endpoint type or
+Bumped on a breaking change to :class:`DeckGateway`, :class:`Binding`, an endpoint type or
 :class:`~agentdeck.bindings.gateway.GatewayFailureCode`; an added optional field never bumps it.
 """
 
@@ -81,7 +81,7 @@ class Binding(Protocol):
 
     info: BindingInfo
 
-    def build(self, gateway: ProtocolGateway) -> Endpoint:
+    def build(self, gateway: DeckGateway) -> Endpoint:
         """Pure: no I/O, no port opened, no stdin read. Every validation this binding needs
         runs here, before anything opens, so a bad binding fails construction, not a live socket."""
         ...

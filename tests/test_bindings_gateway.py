@@ -1,4 +1,4 @@
-"""``ProtocolGateway``: delegation, failure mapping, ``targets()`` and ``capabilities``.
+"""``DeckGateway``: delegation, failure mapping, ``targets()`` and ``capabilities``.
 
 No binding exists yet (#548/#552 add the first), so these test the facade directly against a
 plain ``Deck``, the same way ``tests/test_serve.py`` tests ``serve.py``'s handlers directly.
@@ -11,7 +11,7 @@ import pytest
 
 from agentdeck import WorkflowCtx, workflow
 from agentdeck.authoring import Agent
-from agentdeck.bindings import Capabilities, GatewayError, GatewayFailureCode, ProtocolGateway, TargetInfo
+from agentdeck.bindings import Capabilities, DeckGateway, GatewayError, GatewayFailureCode, TargetInfo
 from agentdeck.bindings.gateway import _map_failure
 from agentdeck.deck import Deck, Run
 from agentdeck.errors import (
@@ -49,7 +49,7 @@ def scripted():
 async def test_start_get_list_delegate_to_deck_runs_and_return_real_runs(no_project, scripted):
     deck = Deck(agents=[_greeter()])
     async with deck:
-        gateway = ProtocolGateway(deck)
+        gateway = DeckGateway(deck)
 
         started = await gateway.start("Greeter", "hi", session_id="s1")
         assert isinstance(started, Run)
@@ -68,7 +68,7 @@ async def test_start_get_list_delegate_to_deck_runs_and_return_real_runs(no_proj
 async def test_start_maps_an_unknown_target_to_not_found(no_project):
     deck = Deck(agents=[_greeter()])
     async with deck:
-        gateway = ProtocolGateway(deck)
+        gateway = DeckGateway(deck)
         with pytest.raises(GatewayError) as excinfo:
             await gateway.start("NoSuchAgent", "hi")
 
@@ -81,7 +81,7 @@ async def test_start_maps_an_unknown_target_to_not_found(no_project):
 async def test_start_maps_bad_input_to_invalid_input(no_project):
     deck = Deck(agents=[_greeter()])
     async with deck:
-        gateway = ProtocolGateway(deck)
+        gateway = DeckGateway(deck)
         with pytest.raises(GatewayError) as excinfo:
             await gateway.start("Greeter", 123)  # an agent only ever takes str/content blocks
 
@@ -97,7 +97,7 @@ async def test_start_maps_a_busy_session_to_busy(no_project):
     deck = Deck(agents=[_greeter()])
     with patch_model(model):
         async with deck:
-            gateway = ProtocolGateway(deck)
+            gateway = DeckGateway(deck)
             running = await gateway.start("Greeter", "hello", session_id="s-busy")
             await model.holding.wait()
             with pytest.raises(GatewayError) as excinfo:
@@ -113,7 +113,7 @@ async def test_start_maps_a_busy_session_to_busy(no_project):
 async def test_start_maps_a_reused_key_to_conflict(no_project, scripted):
     deck = Deck(agents=[_greeter()])
     async with deck:
-        gateway = ProtocolGateway(deck)
+        gateway = DeckGateway(deck)
         await gateway.start("Greeter", "hi", session_id="s1", key="k1")
         with pytest.raises(GatewayError) as excinfo:
             await gateway.start("Greeter", "hi again", session_id="s2", key="k1")
@@ -126,7 +126,7 @@ async def test_start_maps_a_reused_key_to_conflict(no_project, scripted):
 async def test_get_run_maps_an_unknown_id_to_not_found(no_project):
     deck = Deck(agents=[_greeter()])
     async with deck:
-        gateway = ProtocolGateway(deck)
+        gateway = DeckGateway(deck)
         with pytest.raises(GatewayError) as excinfo:
             await gateway.get_run("no-such-run")
 
@@ -139,7 +139,7 @@ async def test_get_run_in_the_wrong_namespace_is_not_found_not_cross_namespace(n
     isolation boundary, the same rule :meth:`Runs.get` enforces (run-identity.md §15)."""
     deck = Deck(agents=[_greeter()])
     async with deck:
-        gateway = ProtocolGateway(deck)
+        gateway = DeckGateway(deck)
         started = await gateway.start("Greeter", "hi", namespace="acme", session_id="s1")
         with pytest.raises(GatewayError) as excinfo:
             await gateway.get_run(started.id, namespace="other")
@@ -151,7 +151,7 @@ async def test_get_run_in_the_wrong_namespace_is_not_found_not_cross_namespace(n
 async def test_list_runs_in_an_unknown_namespace_is_empty_not_not_found(no_project):
     deck = Deck(agents=[_greeter()])
     async with deck:
-        gateway = ProtocolGateway(deck)
+        gateway = DeckGateway(deck)
         assert await gateway.list_runs(namespace="ghost-namespace") == []
 
 
@@ -200,7 +200,7 @@ def test_targets_lists_agents_and_workflows_with_description_and_schema(no_proje
         agents=[_greeter(handoff_description="Greets whoever is talking.")],
         workflows=[workflow(two_numbers, name="Add")],
     )
-    gateway = ProtocolGateway(deck)
+    gateway = DeckGateway(deck)
 
     targets = {target.name: target for target in gateway.targets()}
 
@@ -221,7 +221,7 @@ def test_targets_input_schema_is_none_for_a_workflow_with_no_parameters(no_proje
         return "pong"
 
     deck = Deck(agents=[], workflows=[workflow(ping, name="Ping")])
-    gateway = ProtocolGateway(deck)
+    gateway = DeckGateway(deck)
 
     (target,) = gateway.targets()
     assert target.input_schema is None
@@ -239,7 +239,7 @@ async def test_starting_from_input_built_off_the_advertised_schema_completes(no_
 
     deck = Deck(workflows=[workflow(greet, name="Greet")])
     async with deck:
-        gateway = ProtocolGateway(deck)
+        gateway = DeckGateway(deck)
         (target,) = gateway.targets()
         assert set(target.input_schema["required"]) == {"name", "greeting"}
 
@@ -257,7 +257,7 @@ def test_capabilities_are_false_on_the_default_memory_backends(no_project, monke
     monkeypatch.delenv("AGENTDECK_CONTROL", raising=False)
     reset_settings_cache()
     try:
-        gateway = ProtocolGateway(Deck(agents=[_greeter()]))
+        gateway = DeckGateway(Deck(agents=[_greeter()]))
         assert gateway.capabilities == Capabilities(control=False, durable=False)
     finally:
         reset_settings_cache()
@@ -268,7 +268,7 @@ def test_capabilities_are_true_once_a_real_backend_is_configured(no_project, mon
     monkeypatch.setenv("AGENTDECK_CONTROL", f"sqlite:///{tmp_path / 'control.db'}")
     reset_settings_cache()
     try:
-        gateway = ProtocolGateway(Deck(agents=[_greeter()]))
+        gateway = DeckGateway(Deck(agents=[_greeter()]))
         assert gateway.capabilities == Capabilities(control=True, durable=True)
     finally:
         reset_settings_cache()

@@ -13,10 +13,10 @@ from agentdeck.bindings.binding import (
 from agentdeck.bindings.exposure import Exposure
 from agentdeck.bindings.gateway import (
     Capabilities,
+    DeckGateway,
     GatewayError,
     GatewayFailureCode,
     JsonSchema,
-    ProtocolGateway,
     TargetInfo,
 )
 
@@ -31,7 +31,7 @@ __all__ = [
     "GatewayFailureCode",
     "HttpEndpoint",
     "JsonSchema",
-    "ProtocolGateway",
+    "DeckGateway",
     "StdioEndpoint",
     "TargetInfo",
 ]

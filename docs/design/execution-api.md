@@ -84,9 +84,9 @@ one parameter, one value.
 control surface, whichever side it came from.
 
 ```python
-result = await ctx.invoke(agent, input)          # the short path: Run is awaitable
+result = await ctx.invoke(agent, input)  # the short path: Run is awaitable
 
-child = ctx.invoke(agent, input)                 # the same call, held
+child = ctx.invoke(agent, input)  # the same call, held
 if child.can.pause:
     await child.pause()
 result = await child

@@ -564,8 +564,7 @@ This gives AgentDeck a clean place to incorporate lifecycle state without pollut
 A plain callable does not need to know anything about AgentDeck.
 
 ```python
-async def load_customer(customer_id):
-    ...
+async def load_customer(customer_id): ...
 ```
 
 Usage:
@@ -594,7 +593,7 @@ Then:
 ```python
 run = ctx.invoke(load_customer, customer_id)
 
-run.can.pause   # False
+run.can.pause  # False
 run.can.resume  # False
 run.can.cancel  # perhaps True
 ```
@@ -612,8 +611,7 @@ class LangGraphExecutor(
     Executor,
     Suspendable,
     Cancelable,
-):
-    ...
+): ...
 ```
 
 Then:
@@ -621,12 +619,12 @@ Then:
 ```python
 graph_run = ctx.invoke(graph, input)
 
-graph_run.can.pause   # True while RUNNING
+graph_run.can.pause  # True while RUNNING
 graph_run.can.resume  # False while RUNNING
 
 await graph_run.pause()
 
-graph_run.can.pause   # False
+graph_run.can.pause  # False
 graph_run.can.resume  # True
 
 await graph_run.resume()
@@ -687,9 +685,7 @@ answer = await ctx.ask("Which environment?")
 ```
 
 ```python
-approved = await ctx.approve(
-    "Deploy to production?"
-)
+approved = await ctx.approve("Deploy to production?")
 ```
 
 These suspend the **current execution branch** according to AgentDeck semantics.
@@ -738,12 +734,12 @@ Does it mean:
 The API now has clearer concepts:
 
 ```python
-await child.pause()       # control a child execution
+await child.pause()  # control a child execution
 
-await ctx.ask(...)        # suspend current branch for an answer
-await ctx.approve(...)    # suspend current branch for approval
+await ctx.ask(...)  # suspend current branch for an answer
+await ctx.approve(...)  # suspend current branch for approval
 
-await ctx.safepoint()     # cooperate with runtime control
+await ctx.safepoint()  # cooperate with runtime control
 ```
 
 Therefore a generic `ctx.pause()` adds ambiguity rather than capability.
@@ -996,9 +992,7 @@ async def resolve_ticket(ctx, ticket):
     if diagnosis.can.pause:
         await diagnosis.pause()
 
-        approved = await ctx.approve(
-            "Continue automated diagnosis?"
-        )
+        approved = await ctx.approve("Continue automated diagnosis?")
 
         if approved:
             await diagnosis.resume()
@@ -1636,9 +1630,7 @@ async def research(
         ctx.invoke(search_docs, topic),
     )
 
-    approved = await ctx.approve(
-        "Continue to synthesis?"
-    )
+    approved = await ctx.approve("Continue to synthesis?")
 
     if not approved:
         return None
@@ -1689,8 +1681,7 @@ async def search(
     ctx: ToolCtx,
     query: str,
     limit: int = 10,
-) -> list[Result]:
-    ...
+) -> list[Result]: ...
 ```
 
 AgentDeck can derive:
@@ -1729,8 +1720,7 @@ This should fail during Deck/build validation:
 async def search(
     ctx: WorkflowCtx,
     query: str,
-):
-    ...
+): ...
 ```
 
 Because a tool must not silently acquire workflow orchestration capabilities.
@@ -1742,8 +1732,7 @@ Likewise:
 async def research(
     ctx: ToolCtx,
     topic: str,
-):
-    ...
+): ...
 ```
 
 should fail because a workflow requires the workflow execution contract.
@@ -1828,9 +1817,7 @@ async def research(
         docs_run,
     )
 
-    approved = await ctx.approve(
-        "Continue to synthesis?"
-    )
+    approved = await ctx.approve("Continue to synthesis?")
 
     if not approved:
         return None
@@ -1953,8 +1940,7 @@ The required observer contract should stay minimal:
 
 ```python
 class Observer(Protocol):
-    async def emit(self, event: Event) -> None:
-        ...
+    async def emit(self, event: Event) -> None: ...
 ```
 
 No additional concepts are required in the base protocol.
@@ -1969,8 +1955,7 @@ A View is a reusable predicate over the unified event stream:
 
 ```python
 class View(Protocol):
-    def matches(self, event: Event) -> bool:
-        ...
+    def matches(self, event: Event) -> bool: ...
 ```
 
 Views compose declaratively:
@@ -2031,7 +2016,6 @@ deck = Deck(
     observers=[
         ConsoleObserver(view=views.chat),
         ConsoleObserver(view=views.lifecycle),
-
         LangfuseObserver(
             project="production",
             view=views.all,

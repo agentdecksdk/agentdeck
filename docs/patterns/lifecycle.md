@@ -11,7 +11,7 @@ await run.cancel(reason="timeout")
 Bad, the classic agent artifact:
 
 ```python
-class TimeoutManager:            # second lifecycle path
+class TimeoutManager:  # second lifecycle path
     def _terminate_run(self): ...
 ```
 

@@ -111,7 +111,7 @@ class FixtureChannel:
         self.outbox: list[dict[str, Any]] = []
         self._tasks: set[asyncio.Task[None]] = set()
         # Typed loosely on purpose: the fixture never imports ``agentdeck.deck`` (own
-        # ``.importlinter`` contract), so ``ProtocolGateway``/``Run`` are reached only by
+        # ``.importlinter`` contract), so ``DeckGateway``/``Run`` are reached only by
         # calling their public methods, never by naming their types.
         self._gateway: Any = None
 
@@ -161,7 +161,7 @@ class FixtureChannel:
         the run, record it in the durable map, spawn its tail, and return  -  never awaits the
         run itself, which is the whole ACK-then-continue point (ruling 33). Raises
         ``PermissionError`` for a bad secret, ``GatewayError`` for unsupported content or
-        anything :meth:`ProtocolGateway.start` itself refuses.
+        anything :meth:`DeckGateway.start` itself refuses.
         """
         if secret != self._secret:
             raise PermissionError("bad shared secret")
