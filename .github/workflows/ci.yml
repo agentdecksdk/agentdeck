@@ -161,7 +161,7 @@ jobs:
   # Skipped on a `main`-based PR: that diff is the whole release cycle since main's last
   # advance, re-flagging lines each contributing PR already passed against `dev` (#536).
   slop:
-    if: github.event_name == 'pull_request' && github.base_ref != 'main'
+    if: github.event_name == 'pull_request' && github.event.pull_request.base.ref != 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -169,12 +169,12 @@ jobs:
         with:
           fetch-depth: 0
       - name: Comment slop on lines this PR adds
-        run: python3 scripts/slopcheck.py --changed --base "origin/${{ github.base_ref }}" < /dev/null
+        run: python3 scripts/slopcheck.py --changed --base "origin/${{ github.event.pull_request.base.ref }}" < /dev/null
       - name: Commit metadata has no agent attribution
-        run: python3 scripts/check_commit_hygiene.py "origin/${{ github.base_ref }}"
+        run: python3 scripts/check_commit_hygiene.py "origin/${{ github.event.pull_request.base.ref }}"
       - name: Concept budget honored (new classes/symbols/modules/deps declared)
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
-        run: python3 scripts/concept_budget.py "origin/${{ github.base_ref }}"
+        run: python3 scripts/concept_budget.py "origin/${{ github.event.pull_request.base.ref }}"
       - name: Quality delta
-        run: python3 scripts/quality_delta.py "origin/${{ github.base_ref }}"
+        run: python3 scripts/quality_delta.py "origin/${{ github.event.pull_request.base.ref }}"
