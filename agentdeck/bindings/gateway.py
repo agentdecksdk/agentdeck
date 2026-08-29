@@ -1,10 +1,8 @@
-"""``ProtocolGateway``: the stable interface from a protocol into a Deck.
+"""``ProtocolGateway``: the stable interface from a protocol into a Deck
+(``docs/design/protocols/gateway.md``).
 
-Wraps :attr:`Deck.runs` rather than growing it or handing a plugin the Deck itself
-(``docs/design/protocols/gateway.md``): ``targets()``, ``capabilities`` and one exception type
-are what a plugin needs beyond ``start``/``get``/``list``, so it never has to understand
-:mod:`agentdeck.errors`. ``Deck``/``Run`` are imported for typing only; this module reaches a
-Deck through its public surface alone (``.runs``, ``.agents``, ``.workflows``, ``.settings``).
+``Deck``/``Run`` are imported for typing only; this module reaches a Deck through its public
+surface alone (``.runs``, ``.agents``, ``.workflows``, ``.settings``).
 """
 
 from __future__ import annotations
@@ -69,7 +67,6 @@ class GatewayFailureCode(Enum):
     CONFLICT = auto()
     BUSY = auto()
     UNSUPPORTED = auto()
-    CANCELLED = auto()
     INTERNAL = auto()
 
 
@@ -108,12 +105,8 @@ def _map_failure(exc: Exception) -> GatewayError:
 
 
 def _workflow_schema(definition: NativeDefinition) -> JsonSchema | None:
-    """The object schema a caller's mapping input must satisfy, built from the parameters the
-    body itself declares. Every field is required regardless of its own Python default:
-    ``NativeExecutor._arguments`` binds a multi-parameter workflow's input by name against
-    exactly this set, with no partial mapping accepted, so an optional field here would advertise
-    an input the executor refuses. ``None`` for a workflow that takes no input at all; a
-    single-parameter workflow also accepts its value bare, which this schema does not represent.
+    """The object schema for a workflow's input, or ``None`` if it takes none. Every field is
+    marked required: :meth:`ProtocolGateway.targets` explains why.
     """
     parameters = definition.analysis.visible_parameters
     if not parameters:
@@ -137,7 +130,13 @@ class ProtocolGateway:
         self._deck = deck
 
     def targets(self) -> Sequence[TargetInfo]:
-        """Every agent and workflow in the deck's catalog, as a protocol advertises them."""
+        """Every agent and workflow in the deck's catalog, as a protocol advertises them.
+
+        ``description`` is the agent's ``handoff_description`` or the workflow's own ``description``;
+        ``kind`` distinguishes them. ``input_schema`` is ``None`` for a free-text agent; for a workflow
+        it is the schema built from its parameters, every field required regardless of its own default,
+        because ``NativeExecutor._arguments`` takes no partial mapping for a multi-parameter workflow.
+        """
         agents = [
             TargetInfo(name=agent.name, kind="agent", description=agent.handoff_description, input_schema=None)
             for agent in self._deck.agents.values()
@@ -174,7 +173,13 @@ class ProtocolGateway:
         key: str | None = None,
         context: object = None,
     ) -> Run:
-        """:meth:`Runs.start`, with every failure arriving as one :class:`GatewayError`."""
+        """Begin a run against ``target`` with the same parameters as :meth:`Runs.start`, mapping every
+        failure to one :class:`GatewayError`.
+
+        ``NOT_FOUND``: no target named ``target``. ``INVALID_INPUT``: ``input`` the target cannot take.
+        ``BUSY``: ``session_id`` already holds a run in flight, named in the message. ``CONFLICT``:
+        ``(namespace, key)`` already held. ``INTERNAL``: anything else, with a fixed message.
+        """
         try:
             return await self._deck.runs.start(
                 target, input, session_id=session_id, namespace=namespace, key=key, context=context
@@ -183,7 +188,9 @@ class ProtocolGateway:
             raise _map_failure(exc) from exc
 
     async def get_run(self, run_id: str, *, namespace: str | None = None) -> Run:
-        """:meth:`Runs.get`, with every failure arriving as one :class:`GatewayError`."""
+        """Rehydrate the run named ``run_id``, per :meth:`Runs.get`: ``NOT_FOUND`` for an unknown
+        ``run_id``, ``INTERNAL`` for anything else, both arriving as a :class:`GatewayError`.
+        """
         try:
             return await self._deck.runs.get(run_id, namespace=namespace)
         except Exception as exc:
@@ -192,7 +199,9 @@ class ProtocolGateway:
     async def list_runs(
         self, *, namespace: str | None = None, status: RunStatus | None = None, limit: int | None = None
     ) -> Sequence[Run]:
-        """:meth:`Runs.list`, with every failure arriving as one :class:`GatewayError`."""
+        """Every run in ``namespace``, per :meth:`Runs.list`; any failure arrives as a
+        :class:`GatewayError` with code ``INTERNAL``.
+        """
         try:
             return await self._deck.runs.list(namespace=namespace, status=status, limit=limit)
         except Exception as exc:
