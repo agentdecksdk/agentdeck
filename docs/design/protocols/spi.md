@@ -29,7 +29,7 @@ app = Deck(...).expose(A2A.http()).asgi()
 
 | may import | may not import |
 |---|---|
-| `agentdeck.protocols` (gateway, `Binding`, endpoint, failure types) | `agentdeck.runtime.*` |
+| `agentdeck.bindings` (gateway, `Binding`, endpoint, failure types) | `agentdeck.runtime.*` |
 | `agentdeck.Run`, `agentdeck.Event` | `agentdeck.adapters.*` |
 | content blocks, public errors and value types | `deck._*` |
 

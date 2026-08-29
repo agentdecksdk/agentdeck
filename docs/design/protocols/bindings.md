@@ -26,7 +26,7 @@ Shared HTTP and gRPC helpers live behind those factories, not in the public API.
 
 ```python
 class Binding(Protocol):
-    info: BindingInfo           # name, kind ("protocol" | "channel"), transport, spi_version, advertised capabilities
+    info: BindingInfo           # name, kind ("protocol" | "channel" | "surface"), transport, spi_version, advertised capabilities
     def build(self, gateway: ProtocolGateway) -> Endpoint: ...
     async def start(self) -> None: ...   # background work the Exposure owns
     async def stop(self) -> None: ...
@@ -34,14 +34,15 @@ class Binding(Protocol):
 
 Concrete classes (`A2AHttpBinding`, `ACPStdioBinding`, ...) stay behind the factories.
 
-## Protocols and channels
+## Protocols, channels and surfaces
 
 | kind | what it is | examples | typical advertisement |
 |---|---|---|---|
-| protocol | machine-facing execution contract | A2A, ACP, MCP, AG-UI, A2UI | streaming, hitl, control |
-| channel | a surface with a person on the other end | Terminal (`agentdeck chat`), Slack, WhatsApp, Telegram | platform-limited: a terminal streams, a webhook platform posts on `message.completed`; buttons or prompts from `run.interrupted` |
+| protocol | machine-facing interoperability contract | A2A, ACP, MCP, AG-UI, A2UI | streaming, hitl, control |
+| channel | existing communication network with its own messaging identity and API | Slack, WhatsApp, Telegram, Discord | no streaming; posts on `message.completed`; buttons from `run.interrupted` |
+| surface | user-facing interface someone uses to interact with the Deck | Terminal (`agentdeck chat`), TUI, web app, desktop app | streams; prompts from `run.interrupted` |
 
-Same contract, same gateway; the kind is data. A channel ACKs its webhook, then tails the run from a task the Exposure owns (`start()`), and keeps a durable map from its message ids to the Run address. `Terminal.stdio()` is the one channel in the v6 epic, the degenerate case with no webhook, auth, store or background task; platform channels are outside it; the fixture plugin under `tests/` is channel-shaped so the SPI is proven against that pattern (`rulings.md` 31 to 33).
+Same contract, same gateway; the kind is data. A channel ACKs its webhook, then tails the run from a task the Exposure owns (`start()`), and keeps a durable map from its message ids to the Run address. `Terminal.stdio()` is the one surface in the v6 epic and the simplest binding: no webhook, auth, store or background task; channels are outside it; the fixture plugin under `tests/` is channel-shaped so the SPI is proven against that pattern (`rulings.md` 31 to 33).
 
 ## Endpoint types
 

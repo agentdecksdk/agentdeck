@@ -7,7 +7,7 @@ Status: proposed, 2026-08-29.
 | phase | deliverable | done when |
 |---|---|---|
 | 1 | contracts only: `Run.events(through=)`, `ProtocolGateway` over `deck.runs`, `TargetInfo`, `Capabilities`, `GatewayFailureCode`, `Binding` with `start`/`stop`, endpoint types, `Exposure`, channel-shaped fixture plugin | every contract test below that needs no real protocol passes against a fake binding |
-| 2 | Native HTTP and `Terminal.stdio()` (the first channel) as bindings, with a versioned wire spec and `@agentdeck/client` through the gateway; `agentdeck/serve.py`, all of `surfaces/`, the `agentdeck-serve` script and the goldens deleted; `agentdeck chat` runs `Terminal.stdio()` | imports nothing private; no v1 route survives; `engineering/architecture.md` ownership table updated |
+| 2 | Native HTTP and `Terminal.stdio()` (the first surface) as bindings, with a versioned wire spec and `@agentdeck/client` through the gateway; `agentdeck/serve.py`, all of `surfaces/`, the `agentdeck-serve` script and the goldens deleted; `agentdeck chat` runs `Terminal.stdio()` | imports nothing private; no v1 route survives; `engineering/architecture.md` ownership table updated |
 | 3 | AG-UI and A2UI out of core | streaming, thread mapping, cancel, tool and report projection, HITL, frontend hook, with zero special-case code inside AgentDeck |
 | 4 | a structurally different protocol (ACP stdio or A2A) | works with no HTTP present |
 | 5 | freeze SPI v1 | both an HTTP/chat protocol and a task/stdio protocol run cleanly |
@@ -25,14 +25,14 @@ Phase 1 is small because `deck.runs` already has the gateway's shape (`gateway.m
 | ACP | `ACP.stdio()`, later `ACP.http()` | stdio JSON-RPC | phase 4 candidate; forces the non-HTTP path |
 | A2A | `A2A.http()`, later `A2A.grpc()` | HTTP JSON-RPC | phase 4 candidate; task and AgentCard projection |
 | MCP server | `MCP.stdio()`, `MCP.http()` | stdio or streamable HTTP | one tool per target, progress notifications, elicitation for HITL, runs as resources (`rulings.md` 17) |
-| Terminal | `Terminal.stdio()` | stdio | channel; `agentdeck chat`; phase 2 (`rulings.md` 35) |
+| Terminal | `Terminal.stdio()` | stdio | surface; `agentdeck chat`; phase 2 (`rulings.md` 35) |
 | AgentDeck-native | `Native` itself | HTTP/SSE | Native is the AgentDeck protocol: versioned spec plus JS client (`rulings.md` 18) |
 
 ## Rulings (decided 2026-08-29)
 
 | question | ruling |
 |---|---|
-| where protocol code lives | `agentdeck/protocols/` holds the SPI; `adapters/protocols/<name>/` holds each in-tree binding; `surfaces/` is deleted (ruling 34); the CLI entry stays in `agentdeck/cli.py` |
+| where protocol code lives | `agentdeck/bindings/` holds the SPI; `adapters/bindings/<name>/` holds each in-tree binding; `surfaces/` is deleted (ruling 34); the CLI entry stays in `agentdeck/cli.py` |
 | UI-facing protocols | both AG-UI and A2UI; Assistant UI is out of scope |
 | existing serving code | `agentdeck/serve.py`, `surfaces/serve/`, their tests and goldens are deleted, not adapted; protocols start from scratch at v6 |
 
