@@ -83,7 +83,7 @@ class GatewayError(Exception):
     cause: BaseException | None
 ```
 
-One exception type; a binding writes one `except GatewayError`.
+One exception type; a binding writes one `except GatewayError`. `Run` methods (`cancel`, `pause`, `resume`, `answer`) are not gateway methods and keep their own public errors (`RunStateError`, `UnsupportedControlError`, `RunSuspendedError`, all in `agentdeck.errors`); a binding maps those itself.
 
 | AgentDeck error | code | HTTP precedent in `agentdeck/serve.py` |
 |---|---|---|

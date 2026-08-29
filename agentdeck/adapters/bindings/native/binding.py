@@ -1,8 +1,4 @@
-"""``Native.http()``: the AgentDeck protocol, the SPI's own reference implementation
-(``docs/design/protocols/native-wire.md``). Frames are ``Event.model_dump_json()`` verbatim,
-nothing reshaped (``rulings.md`` 18); every route reaches a Deck only through
-:class:`~agentdeck.bindings.ProtocolGateway` or a public ``Run`` method.
-"""
+"""AgentDeck's native HTTP protocol binding."""
 
 from __future__ import annotations
 
@@ -47,10 +43,7 @@ _END = object()
 
 
 class NativeBinding:
-    """``kind="protocol"``: one Starlette app over ten routes, all thin (parse, call
-    gateway/Run, map errors). No route builds its own response body reshaping an
-    :class:`~agentdeck.core.events.Event`  -  the wire *is* the canonical event.
-    """
+    """``kind="protocol"``: routes over ``ProtocolGateway``/``Run``, nothing reshaped."""
 
     def __init__(self, *, path: str = "/", namespace: str | None = None) -> None:
         self.info = BindingInfo(
@@ -59,22 +52,18 @@ class NativeBinding:
             transport="http",
             spi_version=PROTOCOL_SPI_VERSION,
             advertises=_ADVERTISES,
-            # Native reshapes nothing, so it genuinely forwards every kind the schema has, not
-            # only the ones behind its own capability tags.
-            projects=_ADVERTISES | KNOWN_KINDS,
+            projects=KNOWN_KINDS,
         )
         self._path = path
         self._namespace = namespace
         self._gateway: ProtocolGateway | None = None
 
     def _require_gateway(self) -> ProtocolGateway:
-        """Every route runs after :meth:`build`, per the `Binding` contract (Exposure calls it
-        before serving anything); this is what makes that fact visible to the type checker."""
+        """Return the gateway after the binding has been built."""
         assert self._gateway is not None, "build() must run before a route is served"
         return self._gateway
 
     def build(self, gateway: ProtocolGateway) -> HttpEndpoint:
-        """Pure: stores the gateway, wires the routes, opens nothing."""
         self._gateway = gateway
         app = Starlette(
             routes=[
@@ -93,13 +82,16 @@ class NativeBinding:
         return HttpEndpoint(path=self._path, app=app)
 
     async def start(self) -> None:
-        """Nothing to prewarm: every route reaches the gateway lazily, per request."""
+        """No background work."""
 
     async def stop(self) -> None:
-        """No background work this binding owns."""
+        """No background work."""
 
     async def _list_targets(self, request: Request) -> JSONResponse:
-        targets = self._require_gateway().targets()
+        try:
+            targets = self._require_gateway().targets()
+        except Exception as exc:
+            return _error_response(exc)
         return JSONResponse(
             [
                 {"name": t.name, "kind": t.kind, "description": t.description, "input_schema": t.input_schema}
@@ -109,10 +101,10 @@ class NativeBinding:
 
     async def _start_run(self, request: Request) -> JSONResponse:
         try:
-            body = await request.json()
+            body = await _json_body(request)
             run = await self._require_gateway().start(
-                body["target"],
-                body["input"],
+                _require(body, "target"),
+                _require(body, "input"),
                 session_id=body.get("session_id"),
                 key=body.get("key"),
                 namespace=self._namespace,
@@ -125,8 +117,7 @@ class NativeBinding:
     async def _list_runs(self, request: Request) -> JSONResponse:
         try:
             status = _parse_status(request.query_params.get("status"))
-            raw_limit = request.query_params.get("limit")
-            limit = int(raw_limit) if raw_limit is not None else None
+            limit = _parse_limit(request.query_params.get("limit"))
             runs = await self._require_gateway().list_runs(namespace=self._namespace, status=status, limit=limit)
             summaries = [await _run_summary(run) for run in runs]
         except Exception as exc:
@@ -174,19 +165,18 @@ class NativeBinding:
 
     async def _answer(self, request: Request) -> JSONResponse:
         try:
-            body = await request.json()
+            body = await _json_body(request)
             run = await self._require_gateway().get_run(request.path_params["run_id"], namespace=self._namespace)
-            await run.answer(body["value"])
+            await run.answer(_require(body, "value"))
         except Exception as exc:
             return _error_response(exc)
         return JSONResponse({}, status_code=200)
 
     async def _events(self, request: Request) -> Any:
-        """SSE tail of one run's canonical events, ``from_seq`` on. The first event is pulled
-        before the response is built, so a refusal (``NOT_FOUND``) is still a status code and
-        not a stream that opens and immediately stops (``surfaces/serve/app.py``'s own reason).
-        """
+        """Stream canonical run events as SSE."""
         try:
+            # Pull the first event before opening the stream so lookup and follow failures stay
+            # HTTP errors.
             run = await self._require_gateway().get_run(request.path_params["run_id"], namespace=self._namespace)
             stream = run.events(from_seq=_from_seq(request), follow=True)
             opening = await _first(stream)
@@ -223,27 +213,49 @@ async def _run_summary(run: Any) -> dict[str, Any]:
     }
 
 
+def _require(body: dict[str, Any], field: str) -> Any:
+    try:
+        return body[field]
+    except KeyError:
+        raise InvalidRequestError(f"missing field: {field!r}") from None
+
+
 def _parse_status(raw: str | None) -> RunStatus | None:
     if raw is None:
         return None
     try:
         return RunStatus(raw)
     except ValueError:
-        raise ValueError(f"status must be one of {sorted(s.value for s in RunStatus)}, got {raw!r}") from None
+        raise InvalidRequestError(f"status must be one of {sorted(s.value for s in RunStatus)}, got {raw!r}") from None
+
+
+def _parse_limit(raw: str | None) -> int | None:
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        raise InvalidRequestError(f"limit must be an integer, got {raw!r}") from None
 
 
 async def _json_body(request: Request) -> dict[str, Any]:
-    return await request.json() if await request.body() else {}
+    if not await request.body():
+        return {}
+    try:
+        return await request.json()
+    except ValueError as exc:
+        raise InvalidRequestError(f"malformed JSON body: {exc}") from None
 
 
 def _from_seq(request: Request) -> int:
-    """``Last-Event-ID`` resumes from the id after the last one the client saw (the standard SSE
-    reading of that header); ``?from_seq=`` is a caller-computed starting point, taken verbatim.
-    """
+    """Resolve the replay cursor from Last-Event-ID or from_seq."""
     last_event_id = request.headers.get("last-event-id")
-    if last_event_id is not None:
-        return int(last_event_id) + 1
-    return int(request.query_params.get("from_seq", "0"))
+    raw = last_event_id if last_event_id is not None else request.query_params.get("from_seq", "0")
+    try:
+        seq = int(raw)
+    except ValueError:
+        raise InvalidRequestError(f"from_seq must be an integer, got {raw!r}") from None
+    return seq + 1 if last_event_id is not None else seq
 
 
 async def _first(stream: Any) -> Any:
@@ -257,6 +269,10 @@ def _frame(event: Any) -> str:
     return f"id: {event.seq}\ndata: {event.model_dump_json()}\n\n"
 
 
+class InvalidRequestError(Exception):
+    """Malformed input this binding itself rejects, never a gateway or ``Run`` failure."""
+
+
 def _error_response(exc: Exception) -> JSONResponse:
     if isinstance(exc, GatewayError):
         code, message = exc.code, exc.message
@@ -264,9 +280,7 @@ def _error_response(exc: Exception) -> JSONResponse:
         code, message = GatewayFailureCode.CONFLICT, str(exc)
     elif isinstance(exc, UnsupportedControlError):
         code, message = GatewayFailureCode.UNSUPPORTED, str(exc)
-    elif isinstance(exc, KeyError):
-        code, message = GatewayFailureCode.INVALID_INPUT, f"missing field: {exc.args[0]!r}"
-    elif isinstance(exc, (TypeError, ValueError)):
+    elif isinstance(exc, InvalidRequestError):
         code, message = GatewayFailureCode.INVALID_INPUT, str(exc)
     else:
         code, message = GatewayFailureCode.INTERNAL, _INTERNAL_MESSAGE

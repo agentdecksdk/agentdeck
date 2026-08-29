@@ -21,6 +21,14 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   frames as `Event.model_dump_json()` verbatim, and a versioned wire spec at
   `docs/design/protocols/native-wire.md` diffed against the app's own routes by a test.
 
+### Fixed
+
+- **`BindingInfo.advertises`/`projects` were two conflated vocabularies** (#578):
+  `agentdeck/bindings/binding.py` adds `REQUIRED_KINDS`, a capability -> canonical-kinds table;
+  `Exposure` now checks the kinds an advertised capability actually requires against `projects`
+  (canonical event kinds only), instead of comparing capability names to themselves. The fixture
+  and Native's `BindingInfo.projects` are fixed to hold kinds, not capability names.
+
 ## [5.2.1] - 2026-08-29
 
 ### Changed

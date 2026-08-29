@@ -36,7 +36,7 @@ class _Http:
         *,
         on_start=None,
         advertises: frozenset[str] = frozenset(),
-        projects: frozenset[str] | None = None,
+        projects: frozenset[str] = frozenset(),
         requires: frozenset[str] = frozenset(),
         spi_version: int = PROTOCOL_SPI_VERSION,
     ) -> None:
@@ -46,7 +46,7 @@ class _Http:
             transport="http",
             spi_version=spi_version,
             advertises=advertises,
-            projects=advertises if projects is None else projects,
+            projects=projects,
             requires=requires,
         )
         self._path = path

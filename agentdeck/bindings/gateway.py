@@ -74,12 +74,13 @@ _INTERNAL_MESSAGE = "internal error"
 
 
 class GatewayError(Exception):
-    """The one exception a binding needs to catch. A plugin must not understand AgentDeck's own
-    exception classes, so every failure out of :class:`ProtocolGateway` arrives as this.
+    """What every :class:`ProtocolGateway` method raises on failure; a :class:`~agentdeck.deck.Run`
+    method (``cancel``, ``pause``, ``resume``, ``answer``) is not one and keeps its own public
+    error instead (``RunStateError``, ``UnsupportedControlError``, ``RunSuspendedError``), mapped by a binding.
 
     ``message`` is wire-safe only for ``NOT_FOUND``, ``BUSY``, ``CONFLICT`` and ``INVALID_INPUT``;
-    ``INTERNAL`` always carries the fixed ``"internal error"`` and never the cause's own text,
-    which may hold configuration values or a skill's stderr. ``cause`` is for logging, not display.
+    ``INTERNAL`` always carries the fixed ``"internal error"``, never the cause's own text, which
+    may hold configuration values or a skill's stderr. ``cause`` is for logging, not display.
     """
 
     def __init__(self, code: GatewayFailureCode, message: str, cause: BaseException | None = None) -> None:

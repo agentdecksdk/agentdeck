@@ -8,7 +8,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from agentdeck.bindings.binding import PROTOCOL_SPI_VERSION, HttpEndpoint, StdioEndpoint
+from agentdeck.bindings.binding import PROTOCOL_SPI_VERSION, REQUIRED_KINDS, HttpEndpoint, StdioEndpoint
 from agentdeck.bindings.gateway import ProtocolGateway
 from agentdeck.errors import ConfigError
 
@@ -124,8 +124,13 @@ def _validate_info(bindings: Sequence[Binding]) -> None:
             raise ConfigError(
                 f"binding {info.name!r} requires {missing}, not in this exposure. Available: {sorted(names)}."
             )
-        if unimplemented := sorted(info.advertises - info.projects):
-            raise ConfigError(f"binding {info.name!r} advertises {unimplemented} with no projection implemented.")
+        if unknown := sorted(info.advertises - REQUIRED_KINDS.keys()):
+            raise ConfigError(f"binding {info.name!r} advertises unknown capabilities: {unknown}.")
+        required = frozenset[str]().union(*(REQUIRED_KINDS[capability] for capability in info.advertises))
+        if missing := sorted(required - info.projects):
+            raise ConfigError(
+                f"binding {info.name!r} advertises {sorted(info.advertises)} but does not map {missing} in `projects`."
+            )
 
 
 def _validate_endpoints(bindings: Sequence[Binding], endpoints: Sequence[Endpoint]) -> None:

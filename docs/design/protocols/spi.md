@@ -31,6 +31,7 @@ app = Deck(...).expose(A2A.http()).asgi()
 |---|---|
 | `agentdeck.bindings` (gateway, `Binding`, endpoint, failure types) | `agentdeck.runtime.*` |
 | `agentdeck.Run`, `agentdeck.Event` | `agentdeck.adapters.*` |
-| content blocks, public errors and value types | `deck._*` |
+| content blocks, `agentdeck.core.status` and other public value types | `deck._*` |
+| public errors (`agentdeck.errors`: `RunStateError`, `UnsupportedControlError`, `RunSuspendedError`, ...) | |
 
 The Native binding is held to the same list. Needing a private Deck method means the gateway lacks a legitimate capability, and the gateway grows, not the import list.

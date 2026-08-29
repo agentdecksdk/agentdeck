@@ -9,14 +9,17 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import socket  # noqa: TC003  -  get_type_hints() resolves `_unschematizable`'s annotation at runtime
 from pathlib import Path
 
+import httpx
 import pytest
 from starlette.testclient import TestClient
 
 from agentdeck import WorkflowCtx, workflow
 from agentdeck.adapters.bindings.native.binding import Native, NativeBinding, _error_response
 from agentdeck.authoring import Agent
+from agentdeck.bindings import ProtocolGateway
 from agentdeck.deck import Deck
 from agentdeck.errors import UnsupportedControlError
 from agentdeck.testing import ScriptedModel, patch_model
@@ -33,6 +36,10 @@ def no_project(tmp_path, monkeypatch):
 async def _survey(ctx: WorkflowCtx, topic: str) -> str:
     answer = await ctx.ask(f"pick a color for {topic}?", options=["red", "blue"])
     return f"{topic}:{answer}"
+
+
+async def _unschematizable(ctx: WorkflowCtx, conn: socket.socket) -> str:
+    return "unreachable"  # never called: the point is the schema pydantic can't build for `conn`
 
 
 def _deck() -> Deck:
@@ -63,6 +70,17 @@ def test_targets_lists_every_agent_and_workflow(no_project):
 
     assert response.status_code == 200
     assert {t["name"] for t in response.json()} == {"Greeter", "Survey"}
+
+
+def test_targets_maps_a_schema_generation_failure_to_internal_500(no_project):
+    """`_workflow_schema` calls pydantic's `create_model(...).model_json_schema()`; a parameter
+    type pydantic cannot schematize must not reach the client as a bare, non-JSON 500."""
+    deck = Deck(workflows=[workflow(_unschematizable, name="Bad")])
+    with _client(deck) as client:
+        response = client.get("/targets")
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "internal error"}
 
 
 def test_start_run_returns_identity_then_get_run_reads_it_back(no_project):
@@ -176,6 +194,34 @@ def test_unknown_run_id_maps_to_404(no_project):
     assert response.status_code == 404
 
 
+def test_events_for_an_unknown_run_id_is_404_json_not_a_dying_stream(no_project):
+    """The property `_events`'s own docstring claims: pulling the first event before the
+    response is built means a refusal is a status code, never a `text/event-stream` body that
+    opens and immediately stops. Proven here, not merely asserted in the docstring."""
+    with _client(_deck()) as client:
+        response = client.get("/runs/no-such-run/events")
+
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/json")
+
+
+def test_events_for_a_run_in_another_namespace_is_404(no_project):
+    """``namespace`` is fixed per binding (ruling 5): a run started under one binding's
+    namespace is unreachable, not merely re-scoped, through a second binding on another one."""
+    model = ScriptedModel(deltas=("hi",))
+    deck = _deck()
+    default_binding = Native.http(path="/default")
+    other_binding = Native.http(path="/other", namespace="elsewhere")
+    with patch_model(model), TestClient(deck.expose(default_binding, other_binding).asgi()) as client:
+        started = client.post("/default/runs", json={"target": "Greeter", "input": "hi", "session_id": "s1"})
+        run_id = started.json()["run_id"]
+
+        response = client.get(f"/other/runs/{run_id}/events")
+
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/json")
+
+
 def test_second_run_on_a_busy_session_maps_to_409(no_project):
     model = ScriptedModel(deltas=("hi",), hold=asyncio.Event())  # held forever: the session stays claimed
     with patch_model(model), _client(_deck()) as client:
@@ -209,11 +255,54 @@ def test_internal_error_never_echoes_the_exception_text():
     assert json.loads(bytes(response.body)) == {"detail": "internal error"}
 
 
+def test_an_unrequested_value_error_is_a_bug_not_a_422():
+    """Only a deliberate `InvalidRequestError` earns 422; a `ValueError` no parsing helper
+    raised on purpose is a bug in the handler, not bad client input."""
+    response = _error_response(ValueError("some internal invariant broke"))
+
+    assert response.status_code == 500
+    assert json.loads(bytes(response.body)) == {"detail": "internal error"}
+
+
 def test_unsupported_control_error_maps_to_501():
     response = _error_response(UnsupportedControlError("run r1 cannot pause: no control backend reaches it"))
 
     assert response.status_code == 501
     assert "no control backend" in json.loads(bytes(response.body))["detail"]
+
+
+@pytest.mark.asyncio
+async def test_pause_route_maps_no_control_backend_to_501(no_project):
+    """The reachable `UNSUPPORTED` path over the wire: `ProtocolGateway.get_run` always
+    rehydrates a `Run` with `suspendable=True` (`deck.py`'s `_RECOVERED_SUSPENDABLE`, "assumed,
+    not read"), so `tests/test_deck.py`'s `run._suspendable = False` recipe never reaches a
+    route that only ever holds a rehydrated `Run` -- that recipe mutates one specific handle,
+    and every route here calls `get_run` fresh. Its sibling recipe (no `ControlPort`) does reach
+    it: `Run.pause` doesn't consult `_suspendable` for that failure. Uses a raw ASGI transport,
+    not `TestClient`, so `model.holding.wait()` and the request share one event loop.
+    """
+    hold = asyncio.Event()
+    model = ScriptedModel(deltas=("hi", "there"), hold=hold)
+    deck = _deck()
+    with patch_model(model):
+        async with deck:
+            gateway = ProtocolGateway(deck)
+            endpoint = Native.http().build(gateway)
+            transport = httpx.ASGITransport(app=endpoint.app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                started = await client.post("/runs", json={"target": "Greeter", "input": "hi", "session_id": "s1"})
+                run_id = started.json()["run_id"]
+                await model.holding.wait()
+                deck._runtime._control = None
+
+                response = await client.post(f"/runs/{run_id}/pause")
+
+            hold.set()
+            run = await gateway.get_run(run_id)
+            await run
+
+    assert response.status_code == 501
+    assert "AGENTDECK_CONTROL" in response.json()["detail"]
 
 
 # --- the wire spec must not drift from the app ---------------------------------------------------

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Mapping
 
     from agentdeck.bindings.gateway import ProtocolGateway
 
@@ -18,6 +18,18 @@ PROTOCOL_SPI_VERSION = 1
 Bumped on a breaking change to :class:`ProtocolGateway`, :class:`Binding`, an endpoint type or
 :class:`~agentdeck.bindings.gateway.GatewayFailureCode`; an added optional field never bumps it.
 """
+
+REQUIRED_KINDS: Mapping[str, frozenset[str]] = {
+    "streaming": frozenset({"text.delta"}),
+    "text": frozenset({"message.completed"}),
+    "hitl": frozenset({"run.interrupted"}),
+    "control.cancel": frozenset(),
+    "control.pause": frozenset(),
+    "control.resume": frozenset(),
+}
+"""The canonical kinds each capability name requires in :attr:`BindingInfo.projects`
+(``docs/design/protocols/rulings.md`` 26). A control capability requires none: control is an
+action on ``Run``, not a projection of an event kind."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,8 +46,9 @@ class BindingInfo:
     (``docs/design/protocols/rulings.md`` 26)."""
 
     projects: frozenset[str] = frozenset()
-    """The capability names this binding actually implements. ``expose()`` rejects any name in
-    :attr:`advertises` missing here, naming the binding and the gap  -  additive field, no
+    """Canonical event kinds this binding maps (``run.interrupted``, ``text.delta``, ...).
+    ``expose()`` computes the kinds :data:`REQUIRED_KINDS` requires from :attr:`advertises` and
+    rejects any missing here, naming the binding and the gap  -  additive field, no
     :data:`PROTOCOL_SPI_VERSION` bump (``spi.md``)."""
 
     requires: frozenset[str] = frozenset()

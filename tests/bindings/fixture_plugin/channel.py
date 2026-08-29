@@ -102,7 +102,7 @@ class FixtureChannel:
             transport="fake",
             spi_version=PROTOCOL_SPI_VERSION,
             advertises=frozenset({"hitl"}),
-            projects=frozenset({"hitl"}),
+            projects=frozenset({"run.interrupted", "message.completed"}),
         )
         self._secret = secret
         self._target = target
