@@ -19,6 +19,10 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Added
 
+- **`agentdeck.bindings`, the protocol SPI** (#545): `ProtocolGateway` (`targets()`,
+  `capabilities`, `start`/`get_run`/`list_runs`), `GatewayError`/`GatewayFailureCode`, `Binding`,
+  `BindingInfo`, `HttpEndpoint`/`StdioEndpoint`. No concrete binding ships yet; this is the
+  contract the first one (#548) builds against.
 - **A deployment guide for running a Deck as a service** (#353): the
   `AGENTDECK_EVENTS`/`AGENTDECK_CONTROL`/`AGENTDECK_SESSION` durability defaults, a systemd unit,
   `aclose()` on `SIGTERM`, uvicorn's graceful-shutdown behavior against an open SSE connection,
