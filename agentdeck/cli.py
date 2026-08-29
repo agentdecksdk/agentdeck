@@ -3,15 +3,10 @@ reach a run's ``ControlPort`` from a different OS process than the one streaming
 
     agentdeck runs signal <run_id> cancel --control-db path/to/control.sqlite3 --reason "typo"
 
-A recorded ``resume`` here only lifts a pause that has not landed yet: continuing a run that
-already stopped means playing it on, which needs the event log and so belongs to a process
-holding a Runtime (``Deck.runs.resume``, ``POST /runs/{id}/resume``), not to this file.
-
-A top-level composition root, like ``serve.py``: it wires the SQLite ``ControlPort``
-adapter directly, which is why it lives outside ``surfaces/``  -  surfaces never import an
-adapter (they get one handed to them). There is no HTTP control route (out of scope for
-M0) and no registry of which run lives where; the caller already has ``run_id`` from the
-stream it was watching.
+A recorded ``resume`` only lifts a pause that has not landed yet; replaying an already-stopped
+run needs the event log and belongs to a process holding a Runtime (``Deck.runs.resume``), not
+here. This file wires the SQLite ``ControlPort`` adapter directly rather than through a binding,
+which gets one handed to it instead; there is no HTTP control route (out of scope for M0).
 """
 
 from __future__ import annotations

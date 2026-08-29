@@ -32,7 +32,7 @@ AgentDeck is a declarative runtime harness for multi-agent systems and workflows
 * **`agentdeck/runtime/`**: Execution orchestration, lifecycle state machine, event dispatch. Imports `core/` only.
 * **`agentdeck/adapters/`**: Pluggable integrations (executors: `openai_agents`, `native`; stores: `sqlite`, `postgres`, `redis`; `mcp`; `telemetry`). Each adapter imports `core/` plus exactly one external technology. Adapters never import other adapters.
 * **`agentdeck/authoring/`**: Declarations (`Agent`, `@tool`, `@workflow`, `Skill`) compiled to specs.
-* **`agentdeck/surfaces/`**: Ingress surfaces (HTTP/SSE in `surfaces/serve/`, CLI).
+* **`agentdeck/adapters/bindings/`**: Translation between one external system and the gateway (`agentdeck/bindings/`): protocols, channels and surfaces (Native, Terminal, ...). Never alternate run semantics.
 
 ---
 

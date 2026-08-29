@@ -197,8 +197,8 @@ async def validate_every_project() -> None:
 ```
 
 A script that validates several projects in a loop needs that `aclose()` between them; a service
-that mounts one deck's `asgi()` inside an existing app is unaffected, since that is still one
-deck. Running two side by side is a capability we intend to add, tracked in
+that mounts one deck's `expose(...).asgi()` inside an existing app is unaffected, since that is
+still one deck. Running two side by side is a capability we intend to add, tracked in
 [issue #213](https://github.com/agentdecksdk/agentdeck/issues/213)  -  until then, a deck per tenant is
 a process per tenant.
 
@@ -277,8 +277,8 @@ defer and the parameter would promise something it never delivered.
 | `runs.start` | `(name, input, *, context=None, session_id=None, namespace=None, key=None)` | a [`Run`](#run) handle  -  the same admission as `run`/`stream`, without waiting for or reading it |
 
 `run`/`stream`/`runs.start` resolve `name` against whichever catalog holds it  -  an agent or a
-workflow  -  and play it on the Runtime, recorded exactly as `POST /agents/{name}/chat` or
-`POST /workflows/{name}` would record it. Pass `session_id=` for a conversational agent turn: the
+workflow  -  and play it on the Runtime, recorded exactly as a binding's `POST /runs` would
+record it. Pass `session_id=` for a conversational agent turn: the
 same id means the same history across calls. `key=` is an optional stable
 application identifier  -  for lookup (`runs.get(namespace=, key=)`) and idempotency, never the
 run's address: the run's own `id` is always minted, never derived from it, and reusing a
@@ -350,7 +350,7 @@ carry it, through their own native runtime-context channel rather than anything 
 invented. Three things it deliberately is not: the model never sees it (the context parameter is
 absent from the tool schema), it is never written to the event log, and it cannot cross the HTTP
 surface  -  a live Python object has no wire form, so a context-requiring root is reachable from an
-embedded Python caller and not from `asgi()`. That boundary and two others are set out under
+embedded Python caller and not from `expose(...).asgi()`. That boundary and two others are set out under
 [Where a context does not reach](#where-a-context-does-not-reach) below; read it before you build
 one into a served path.
 
@@ -490,31 +490,9 @@ asyncio.run(deck.serve(Terminal.stdio()))   # what `agentdeck chat` runs
 ```
 
 Embedding uses `deck.expose(...).asgi()` instead of `serve()`. HTTP bindings and the full guide
-arrive with the bindings section of these docs.
-
-## Serving over HTTP
-
-`asgi()` returns an ASGI application  -  a FastAPI app whose lifespan **opens the deck on startup
-and closes it on shutdown**, so a served deck needs no separate `async with`:
-
-```python
-from agentdeck import Deck
-
-deck = Deck.from_project("./.agentdeck")
-app = deck.asgi()                          # uvicorn yourmodule:app
-```
-
-That is all `agentdeck serve` is. It also means you can mount a deck inside an existing service
-and have it open and close with the host app.
-
-Two details worth knowing. The FastAPI import is deferred inside the method, so `agentdeck.deck`
-stays importable without the `[serve]` extra  -  you only need it to actually serve. And requests
-arriving before the lifespan has run get `503 {"status": "starting"}` rather than touching a deck
-that is not open yet.
-
-A third, if any of this catalog's callables declare a context: **it does not reach a served run.**
-A context is a live Python object with no wire form, so an HTTP-started run always carries `None`
- -  [see below](#where-a-context-does-not-reach).
+arrive with the bindings section of these docs. If any of this catalog's callables declare a
+context: **it does not reach a served run.** A context is a live Python object with no wire
+form, so an HTTP-started run always carries `None`  -  [see below](#where-a-context-does-not-reach).
 
 ## Observers
 
@@ -643,11 +621,11 @@ Three boundaries, all of them consequences of the same fact: a context is a live
 is never serialized, so it exists only for as long as some caller is holding it.
 
 **A context cannot cross the HTTP surface at all.** There is no wire form for a live object, and
-`asgi()` invents none. An agent or workflow whose callables require a context is therefore
-reachable from an embedded Python caller  -  `deck.run(...)`, a `Run` from `runs.start(context=...)`
- -  and **not** from a served deck. `POST /agents/{name}/chat` will run it with `ctx.data` set to
-`None`. If a root needs a context, do not serve it; drive it from the process that holds the
-object.
+`expose(...).asgi()` invents none. An agent or workflow whose callables require a context is
+therefore reachable from an embedded Python caller  -  `deck.run(...)`, a `Run` from
+`runs.start(context=...)`  -  and **not** from a served deck. A binding's `POST /runs` will run it
+with `ctx.data` set to `None`. If a root needs a context, do not serve it; drive it from the
+process that holds the object.
 
 **The headless runner passes no context.** `Agent.run()` calls the SDK's own `Runner.run` with no
 context object, so a tool that declares one fails when the model calls it  -  the compiled tool
@@ -1681,14 +1659,11 @@ with the program composing it:
 
 Explicit composition has neither problem. Both front doors are described in [Deck](/build-your-deck/deck).
 
-## Its own route, not `Deck.asgi()`
+## Its own route, not `expose(...).asgi()`
 
-AgentDeck packages an HTTP surface and Jack writes his own, for two structural reasons:
-
-| | |
-|---|---|
-| **Context cannot cross HTTP** | A run started through `asgi()` carries `context=None`. There is no wire form for a live Python object, and both tools need the `DocsCorpus`. |
-| **The chat wire is frozen** | Its body is exactly `{"session_id", "message"}`, pinned byte-for-byte by `tests/golden/`. The page a reader is on has nowhere to go in it. |
+AgentDeck packages an HTTP binding and Jack writes his own route instead: a run started through
+`expose(...).asgi()` carries `context=None`. There is no wire form for a live Python object, and
+both tools need the `DocsCorpus`.
 
 The result is about forty lines over `deck.stream()`, streaming canonical events with no
 translation layer.
@@ -1964,9 +1939,9 @@ Source: https://agentdecksdk.com/operate/deployment
 
 # Running a Deck as a service
 
-Everything up to `agentdeck-serve` or `uvicorn app:server` is covered elsewhere on this site.
-This page is what comes after: a worked systemd deployment that starts on boot, restarts on
-failure, and shuts down without losing a run in flight.
+Everything up to `uvicorn app:server` (or `deck.expose(...).serve()`) is covered elsewhere on
+this site. This page is what comes after: a worked systemd deployment that starts on boot,
+restarts on failure, and shuts down without losing a run in flight.
 
 ## What has to be durable before you deploy
 
@@ -1998,10 +1973,8 @@ restart must not lose in-progress conversations. `AGENTDECK_EVENTS=redis://`/`po
 
 ## A supervised process
 
-`agentdeck-serve` is `Deck.from_project().asgi()` behind a console script: it reads `HOST`/`PORT`
-from the environment (default `0.0.0.0:8000`) and must run from the directory holding
-`.agentdeck/`, since there is no `--project-dir` flag. An application composing its own `Deck`,
-like Jack, runs the same way under a plain `uvicorn module:app`.
+A `Deck` served over HTTP, `app = deck.expose(...).asgi()` or an application composing its own
+ASGI app around one (like Jack, below), runs the same way: under a plain `uvicorn module:app`.
 
 ```ini
 [Unit]
@@ -2029,12 +2002,10 @@ time for.
 
 ## Health checks
 
-`agentdeck-serve`'s built-in `/health` is `{"status": "ok", "agents": [...], "workflows": [...],
-"skills": [...]}` once the Deck has opened, `503 {"status": "starting"}` before its lifespan has
-run. That proves the catalog built; it does not touch the event store. A Postgres event store
-gone unreachable *after* startup still answers `200`. Jack's own `/health`
-(`{"status": "ok", "pages": N}`) has the identical gap: it counts loaded documentation pages, not
-store connectivity.
+There is no packaged `/health` route: a binding's own routes are its protocol's, not an
+operational one. Add your own the way Jack does (`{"status": "ok", "pages": N}`), and know its
+gap going in: it counts loaded documentation pages, not store connectivity. A store gone
+unreachable after startup still answers `200` from a route that only checks the catalog built.
 
 For a deployment where losing the store silently matters, add a route that does one round-trip
 against it (a store read, not a write, so a health probe never itself contends with real
@@ -2044,9 +2015,9 @@ traffic) and treat a failure there as unhealthy, not a `200` with an ignored fie
 
 `Deck.aclose()` is what a shutdown owes: it cancels every run this process still has in flight
 (each becomes a real `run.cancelled` in the log rather than nothing), then flushes and closes
-every observer and the store. `Deck.asgi()` and Jack's own `async with Deck(...)` both call it
-from the ASGI lifespan's shutdown phase, which is what `SIGTERM` triggers by default (systemd's
-default `KillSignal`, and uvicorn's own).
+every observer and the store. `expose(...).asgi()` and Jack's own `async with Deck(...)` both
+call it from the ASGI lifespan's shutdown phase, which is what `SIGTERM` triggers by default
+(systemd's default `KillSignal`, and uvicorn's own).
 
 The trap is what happens *before* uvicorn gets there. By default uvicorn's graceful shutdown
 waits for every open connection to close on its own before it ever runs the lifespan shutdown
@@ -2064,12 +2035,11 @@ itself afterward.
 
 ## Behind a reverse proxy
 
-`agentdeck-serve`'s streamed routes already send `Cache-Control: no-cache` and
-`X-Accel-Buffering: no`, the header nginx needs to stop buffering a proxied response. Without it,
-nginx holds the whole SSE stream until the run ends, which looks exactly like a hung agent from
-the client's side. A hand-rolled route, like Jack's own (which sends only `Cache-Control:
-no-cache`), does not get this for free: set `proxy_buffering off;` for that location in nginx
-instead, or add the header yourself.
+`Native.http()`'s streamed routes already send `Cache-Control: no-cache`, but not
+`X-Accel-Buffering: no`, the header nginx needs to stop buffering a proxied response entirely.
+Without either, nginx holds the whole SSE stream until the run ends, which looks exactly like a
+hung agent from the client's side. Set `proxy_buffering off;` for that location in nginx instead,
+or add the header yourself; a hand-rolled route, like Jack's own, needs the same treatment.
 
 Also raise `proxy_read_timeout` past the longest idle gap a real run can have between events
 (a slow tool call, a model thinking before its first token), or the proxy closes a connection
@@ -2079,7 +2049,7 @@ that was never actually stuck.
 
 - [Settings](/reference/settings) - every setting named above, generated from code
 - [How Jack Is Built](/jack) - the real deployed application this page's examples are drawn from
-- [Deck](/reference/deck) - `asgi()`, `aclose()`, and every other `Deck` method
+- [Deck](/reference/deck) - `expose()`, `aclose()`, and every other `Deck` method
 
 ---
 
@@ -2125,6 +2095,15 @@ The current release is **v5.2.1**. Earlier releases are listed at the bottom.
   `asyncio.Runner` (3.12+) already cancels the running turn, which this records as `run.cancel()`
   before a clean exit  -  idle or mid-run, and without overriding uvicorn's own handler when an
   HTTP binding shares the exposure.
+
+### Removed
+
+- **The v1 wire** (#550): `agentdeck/serve.py`, `agentdeck/surfaces/` (its FastAPI app and CLI
+  chat renderer), the `agentdeck-serve` console script, `Deck.asgi()`, and the `tests/golden/`
+  baselines that pinned that wire byte-for-byte. `deck.expose(...).asgi()` /
+  `deck.expose(...).serve()` (Native, #548) and `agentdeck chat` (Terminal, #549) replace them;
+  no shim or redirect for the old routes. The `serve` extra stays: Native and embedding still
+  need `fastapi`/`uvicorn` through it.
 
 ### Fixed
 
@@ -2232,7 +2211,7 @@ Not silent, not traps  -  just things that will cost you a few minutes.
 |---|---|
 | `run()`'s return type makes the documented interrupt idiom fail a type checker | [#231](https://github.com/agentdecksdk/agentdeck/issues/231) |
 | The CLI can send signals but cannot read anything  -  no inbox, no run view | [#256](https://github.com/agentdecksdk/agentdeck/issues/256) |
-| `Deck.asgi()` cannot serve an agent whose tools declare a `ToolCtx` | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
+| `expose(...).asgi()` cannot serve an agent whose tools declare a `ToolCtx` | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
 
 ## Fixed in v3.1.0
 
@@ -2403,7 +2382,6 @@ Common operational errors and how to resolve them.
 ## Common Issues
 
 - **Session is busy:** A run is already active on this session. Wait for completion or cancel it before starting another.
-- **Port conflicts:** Configure `AGENTDECK_SERVE_PORT` when running the HTTP server.
 
 ---
 

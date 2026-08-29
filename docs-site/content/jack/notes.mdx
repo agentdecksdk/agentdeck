@@ -55,14 +55,11 @@ with the program composing it:
 
 Explicit composition has neither problem. Both front doors are described in [Deck](/build-your-deck/deck).
 
-## Its own route, not `Deck.asgi()`
+## Its own route, not `expose(...).asgi()`
 
-AgentDeck packages an HTTP surface and Jack writes his own, for two structural reasons:
-
-| | |
-|---|---|
-| **Context cannot cross HTTP** | A run started through `asgi()` carries `context=None`. There is no wire form for a live Python object, and both tools need the `DocsCorpus`. |
-| **The chat wire is frozen** | Its body is exactly `{"session_id", "message"}`, pinned byte-for-byte by `tests/golden/`. The page a reader is on has nowhere to go in it. |
+AgentDeck packages an HTTP binding and Jack writes his own route instead: a run started through
+`expose(...).asgi()` carries `context=None`. There is no wire form for a live Python object, and
+both tools need the `DocsCorpus`.
 
 The result is about forty lines over `deck.stream()`, streaming canonical events with no
 translation layer.

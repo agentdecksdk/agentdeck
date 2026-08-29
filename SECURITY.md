@@ -27,8 +27,8 @@ there are no long-term support branches and no backports to older lines.
 **In scope**  -  anything where agentdeck itself is the weakness:
 
 - Project discovery importing something it should not, or from somewhere it should not.
-- The HTTP/SSE surface (`agentdeck-serve`): a request reaching a run, a session, or an event
-  log that belongs to another caller, or crossing a `namespace` boundary.
+- A protocol binding (`deck.expose(...)`, e.g. `Native.http()`): a request reaching a run, a
+  session, or an event log that belongs to another caller, or crossing a `namespace` boundary.
 - The event log and the stores behind it: an injection into a backend query, or one run's
   events being readable as another's.
 - Secrets escaping where they should not  -  an API key in a log line, an event payload, or an

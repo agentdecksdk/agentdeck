@@ -2,12 +2,12 @@
 
 **Status:** Binding.
 
-Dependency *direction* is enforced by [`.importlinter`](../../.importlinter): 10 contracts, run by `make check` and by CI. That file is the authority and it fails the build, so this one does not restate it. What follows is *ownership*, which no tool can check.
+Dependency *direction* is enforced by [`.importlinter`](../../.importlinter): 12 contracts, run by `make check` and by CI. That file is the authority and it fails the build, so this one does not restate it. What follows is *ownership*, which no tool can check.
 
 ## 1. Rings
 
 ```text
-Authoring / Composition / Surfaces
+Authoring / Composition
                 ↓
              Runtime
                 ↓
@@ -26,7 +26,7 @@ Authoring / Composition / Surfaces
 | `runtime/` | lifecycle, routing, sequencing, control handling, persistence coordination, cleanup | knowledge of which concrete provider is installed |
 | `adapters/` | one external technology each: its SDK types, its lifecycle, its exceptions, and translation to and from core contracts | another adapter's implementation |
 | `authoring/` | user-facing declarations compiled to specs | run semantics |
-| `surfaces/` | transport translation for CLI, HTTP, ASGI and protocol ingress | alternate run semantics. A surface delegates lifecycle to the same model a Python caller uses |
+| `adapters/bindings/` | translation between one external system and the gateway | alternate run semantics |
 
 Two tests that settle most boundary arguments:
 

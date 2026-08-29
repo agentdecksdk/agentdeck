@@ -1,22 +1,17 @@
-"""Issue #47 end to end: a real tool reporting, through a real surface.
+"""Issue #47 end to end: a real tool reporting, through the Runtime.
 
 The two claims worth proving outside the Runtime's own unit tests: an openai-agents **function
-tool** finds the reporter on the SDK's context object, and an SSE client sees its reports arrive
-in order without the surface knowing they exist. The reference CLI renderer reading them closes
-the loop, including its default case  -  the promise every consumer makes about a kind it has
-never heard of.
+tool** finds the reporter on the SDK's context object, and a sync `@tool` body reports in order
+against its own return.
 
 Scripted fakes only: the SDK boundary is the one thing stubbed, so nothing here calls a model.
 """
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-import httpx
-import pytest
 from agents import Agent, RunContextWrapper, function_tool
 from agents.models.interface import Model
 from event_log_checks import check_contiguous, check_terminal
@@ -33,24 +28,17 @@ from openai.types.responses.response_usage import InputTokensDetails, OutputToke
 from agentdeck import ToolCtx, tool
 from agentdeck.adapters.executors.native import NativeExecutor
 from agentdeck.adapters.executors.openai_agents import ExecutionStore, OpenAIAgentsExecutor
-from agentdeck.adapters.executors.stub import StubExecutor, stub_spec
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.core.content import coerce_input
 from agentdeck.core.context import RunContext
-from agentdeck.core.events import CURRENT_VERSION, Event, Reported, RunCompleted, Usage
+from agentdeck.core.events import Event, Reported
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.core.workers import SyncToolWorkers
 from agentdeck.runtime.service import Runtime
-from agentdeck.surfaces.cli.chat import render
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncGenerator, AsyncIterator, Sequence
-
-    from agentdeck.core.content import Input
-    from agentdeck.core.events import KnownPayload
-
-pytest.importorskip("fastapi")
+    from collections.abc import AsyncIterator, Sequence
 
 TS = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
 CTX = RunContext(namespace="acme", run_id="r-1", session_id="s-1")
@@ -193,87 +181,3 @@ async def test_a_sync_tools_reports_preserve_order_against_its_own_return() -> N
 
     assert [event.kind for event in events] == ["run.started", "report", "report", "run.completed"]
     assert _reports(events) == [("info", "one", {}), ("info", "two", {})]
-
-
-# --- the SSE surface and the reference renderer ----------------------------------------
-
-
-class _ReportingStub(StubExecutor):
-    """A scripted run that reports between its payloads  -  the surface must not care which
-    engine did it, so the cheapest one is the honest choice here."""
-
-    async def execute(
-        self, spec: InvocableSpec, input: Input, history: Sequence[Event], ctx: RunContext
-    ) -> AsyncGenerator[KnownPayload, None]:
-        ctx.reporter.info("Searching GitHub")
-        ctx.reporter.report("issues_reviewed", current=2, total=4)
-        async for payload in super().execute(spec, input, history, ctx):
-            yield payload
-
-
-def _runtime() -> Runtime:
-    done = RunCompleted(output=coerce_input("two issues, both open"), usage=Usage(input_tokens=1, output_tokens=1))
-    spec = stub_spec("Searcher", done)
-    return Runtime([_ReportingStub()], MemoryEventStore(), {spec.name: spec})
-
-
-async def test_an_sse_client_receives_the_reports_in_order() -> None:
-    """The surface streams the canonical event and knows nothing about these kinds; a client
-    reading frames in order is what "streamed clients receive ordered events" means."""
-    from agentdeck.surfaces.serve.app import build_app
-
-    app = build_app(_runtime())
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.post("/v2/invocables/Searcher/chat", json={"session_id": "s-1", "message": "hi"})
-
-    frames = [
-        Event.model_validate(json.loads(line.removeprefix("data: ")))
-        for line in response.text.splitlines()
-        if line.startswith("data: ")
-    ]
-    assert [event.kind for event in frames] == [
-        "run.started",
-        "report",
-        "report",
-        "run.completed",
-    ]
-    assert _reports(frames) == [
-        ("info", "Searching GitHub", {}),
-        ("record", "issues_reviewed", {"current": 2, "total": 4}),
-    ]
-
-
-async def test_the_reference_renderer_prints_prose_and_a_record(capsys) -> None:
-    async def lines() -> AsyncIterator[str]:
-        yield f"data: {_event(Reported(level='info', message='Searching GitHub')).model_dump_json()}"
-        yield f"data: {_event(Reported(level='warning', message='Primary source down', fields={'source': 'drive'})).model_dump_json()}"
-        yield f"data: {_event(Reported(level='record', message='issues_reviewed', fields={'current': 2})).model_dump_json()}"
-        # A kind this renderer has never heard of must not stop it  -  the default case is the
-        # forward-compatibility promise, and a new kind is exactly when it gets tested.
-        yield (
-            f'data: {{"v": {{"major": {CURRENT_VERSION.major}, "minor": {CURRENT_VERSION.minor + 1}}}, '
-            '"kind": "future.thing", "seq": 4, "run_id": "r-1", '
-            '"session_id": null, "namespace": "acme", "origin": "Searcher", "ts": "2026-01-01T12:00:00Z", '
-            '"payload": {"whatever": 1}}'
-        )
-
-    await render(lines())
-
-    assert capsys.readouterr().out.splitlines() == [
-        "[info] Searching GitHub",
-        "[warning] Primary source down (source='drive')",
-        "[record] issues_reviewed (current=2)",
-    ]
-
-
-def _event(payload: KnownPayload) -> Event:
-    return Event(
-        kind=payload.kind,
-        seq=0,
-        run_id="r-1",
-        session_id="s-1",
-        namespace="acme",
-        origin="Searcher",
-        ts=TS,
-        payload=payload,
-    )

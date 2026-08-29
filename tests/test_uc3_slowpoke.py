@@ -3,16 +3,9 @@ a signal against its ``run_id`` cancels it cleanly, in-process and across a real
 process boundary; replay after cancel is truncated but coherent; a dropped mid-run event
 is detected by its ``seq`` gap and recovered from the store.
 
-Every test below drives ``Runtime`` directly  -  nothing in the CLI renderer
-(``surfaces/cli/chat.py``) changes for this file; it is fed a truncated replay as-is in
-``test_uc3_replay_is_truncated_but_coherent_and_the_renderer_copes``. The cancel wiring
-lives entirely in ``Runtime._bind``: a ``Runtime`` built with a ``ControlPort``
-rebinds ``ctx.gate`` itself, so a caller building a plain ``RunContext``  -  including
-``surfaces/serve/app.py``'s chat route, also untouched  -  never has to know a control port
-exists. (The chat route's own cancellability isn't exercised here: ``httpx.ASGITransport``
-runs a request's whole ASGI call before returning anything, so it cannot interleave a
-live signal with an in-flight response  -  a real ASGI server wouldn't have that limit, but
-proving it needs one, which is out of scope for this unit-test suite.)
+Every test below drives ``Runtime`` directly. The cancel wiring lives entirely in
+``Runtime._bind``: a ``Runtime`` built with a ``ControlPort`` rebinds ``ctx.gate`` itself, so a
+caller building a plain ``RunContext`` never has to know a control port exists.
 """
 
 from __future__ import annotations
@@ -46,12 +39,9 @@ from agentdeck.core.control import Signal
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.runtime.service import Runtime
-from agentdeck.surfaces.cli.chat import render
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-
-    import pytest
 
     from agentdeck.core.events import Event
     from agentdeck.core.ports import EventStorePort
@@ -210,9 +200,7 @@ async def test_uc3_run_cancelled_is_terminal_and_a_followup_signal_is_a_noop() -
     assert after == before
 
 
-async def test_uc3_replay_is_truncated_but_coherent_and_the_renderer_copes(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+async def test_uc3_replay_is_truncated_but_coherent() -> None:
     control = MemoryControlPort()
     runtime, store = _build(control)
     ctx = RunContext(namespace="demo", run_id="reader", session_id="s-replay")
@@ -233,15 +221,6 @@ async def test_uc3_replay_is_truncated_but_coherent_and_the_renderer_copes(
     assert log[-1].kind == "run.cancelled"
     assert sum(1 for event in log if event.kind == "text.delta") > 0
     assert not any(event.kind == "message.completed" for event in log)  # the message never finished
-
-    async def lines() -> AsyncIterator[str]:
-        for event in log:
-            yield f"data: {event.model_dump_json()}\n\n"
-
-    await render(lines())  # UC1's unedited renderer must not crash on a truncated run
-    out = capsys.readouterr().out
-    assert "run.cancelled" in out
-    assert MESSAGE_ID not in out  # no message.completed line prints for the unfinished bubble
 
 
 async def test_uc3_chaos_gap_detection_recovers_from_store() -> None:

@@ -91,9 +91,9 @@ def test_python_classifiers_agree_with_requires_python():
 
 
 def test_every_console_script_points_at_something_importable():
-    """`agentdeck-serve` and `agentdeck` are commands the README and the docs tell people to type.
-    A renamed or deleted target only shows up when someone types one, because installing the
-    package writes the wrapper either way.
+    """`agentdeck` is a command the README and the docs tell people to type. A renamed or deleted
+    target only shows up when someone types it, because installing the package writes the
+    wrapper either way.
     """
     for command, target in _pyproject()["project"]["scripts"].items():
         module_name, _, function = target.partition(":")

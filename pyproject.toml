@@ -31,7 +31,6 @@ dependencies = [
 ]
 
 [project.scripts]
-agentdeck-serve = "agentdeck.serve:main"
 agentdeck = "agentdeck.cli:main"
 
 [project.optional-dependencies]
@@ -104,7 +103,6 @@ known-first-party = ["agentdeck"]
 "agentdeck/adapters/tools/mcp/*" = ["TID251"]
 "tests/test_mcp_tool_source.py" = ["TID251"]
 # print is the legitimate output mechanism everywhere except library code.
-"agentdeck/surfaces/cli/*" = ["T201"]
 "tests/*" = ["T201"]
 "scripts/*" = ["T201"]
 "examples/*" = ["T201"]

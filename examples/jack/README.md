@@ -78,15 +78,11 @@ check every `ToolCtx[...]` in the catalog  -  both tools and the instructions ca
 question is ever asked. Declaring the wrong type raises `ContextTypeError` naming both, which
 `tests/test_jack.py` pins.
 
-## Why it serves itself instead of using `Deck.asgi()`
+## Why it serves itself instead of using `expose(...).asgi()`
 
-agentdeck packages an HTTP surface. This application cannot use it, for two independent reasons  -
-and finding that out is a large part of what this example exists for.
-
-- **A run through `asgi()` carries `context=None`.** There is no wire form for a live Python
-  object, so the packaged surface cannot deliver one. Both tools here need the `DocsCorpus`.
-- **Its chat body is exactly `{"session_id", "message"}`**, frozen byte-for-byte by
-  `tests/golden/`. The page the reader is on has nowhere to go in it.
+agentdeck packages an HTTP binding. This application cannot use it: a run through
+`expose(...).asgi()` carries `context=None`. There is no wire form for a live Python object, and
+both tools here need the `DocsCorpus`.
 
 So `server.py` is forty lines of FastAPI over `deck.stream()`. Each SSE frame is one canonical
 `Event`, dumped as written  -  no translation layer, so a browser switching on `event.kind` reads

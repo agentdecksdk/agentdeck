@@ -9,7 +9,7 @@ description: Defects in the current release that will surprise you, what happens
   - "agentdeck/adapters/executors/openai_agents/translate.py"
   - "agentdeck/cli.py"
   - "agentdeck/deck.py"
-  - "agentdeck/surfaces/serve/**"
+  - "agentdeck/bindings/exposure.py"
 */}
 
 # Known Issues
@@ -64,7 +64,7 @@ Not silent, not traps  -  just things that will cost you a few minutes.
 |---|---|
 | `run()`'s return type makes the documented interrupt idiom fail a type checker | [#231](https://github.com/agentdecksdk/agentdeck/issues/231) |
 | The CLI can send signals but cannot read anything  -  no inbox, no run view | [#256](https://github.com/agentdecksdk/agentdeck/issues/256) |
-| `Deck.asgi()` cannot serve an agent whose tools declare a `ToolCtx` | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
+| `expose(...).asgi()` cannot serve an agent whose tools declare a `ToolCtx` | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
 
 ## Fixed in v3.1.0
 

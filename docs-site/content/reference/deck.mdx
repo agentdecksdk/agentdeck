@@ -92,8 +92,8 @@ async def validate_every_project() -> None:
 ```
 
 A script that validates several projects in a loop needs that `aclose()` between them; a service
-that mounts one deck's `asgi()` inside an existing app is unaffected, since that is still one
-deck. Running two side by side is a capability we intend to add, tracked in
+that mounts one deck's `expose(...).asgi()` inside an existing app is unaffected, since that is
+still one deck. Running two side by side is a capability we intend to add, tracked in
 [issue #213](https://github.com/agentdecksdk/agentdeck/issues/213)  -  until then, a deck per tenant is
 a process per tenant.
 
@@ -172,8 +172,8 @@ defer and the parameter would promise something it never delivered.
 | `runs.start` | `(name, input, *, context=None, session_id=None, namespace=None, key=None)` | a [`Run`](#run) handle  -  the same admission as `run`/`stream`, without waiting for or reading it |
 
 `run`/`stream`/`runs.start` resolve `name` against whichever catalog holds it  -  an agent or a
-workflow  -  and play it on the Runtime, recorded exactly as `POST /agents/{name}/chat` or
-`POST /workflows/{name}` would record it. Pass `session_id=` for a conversational agent turn: the
+workflow  -  and play it on the Runtime, recorded exactly as a binding's `POST /runs` would
+record it. Pass `session_id=` for a conversational agent turn: the
 same id means the same history across calls. `key=` is an optional stable
 application identifier  -  for lookup (`runs.get(namespace=, key=)`) and idempotency, never the
 run's address: the run's own `id` is always minted, never derived from it, and reusing a
@@ -245,7 +245,7 @@ carry it, through their own native runtime-context channel rather than anything 
 invented. Three things it deliberately is not: the model never sees it (the context parameter is
 absent from the tool schema), it is never written to the event log, and it cannot cross the HTTP
 surface  -  a live Python object has no wire form, so a context-requiring root is reachable from an
-embedded Python caller and not from `asgi()`. That boundary and two others are set out under
+embedded Python caller and not from `expose(...).asgi()`. That boundary and two others are set out under
 [Where a context does not reach](#where-a-context-does-not-reach) below; read it before you build
 one into a served path.
 
@@ -385,31 +385,9 @@ asyncio.run(deck.serve(Terminal.stdio()))   # what `agentdeck chat` runs
 ```
 
 Embedding uses `deck.expose(...).asgi()` instead of `serve()`. HTTP bindings and the full guide
-arrive with the bindings section of these docs.
-
-## Serving over HTTP
-
-`asgi()` returns an ASGI application  -  a FastAPI app whose lifespan **opens the deck on startup
-and closes it on shutdown**, so a served deck needs no separate `async with`:
-
-```python
-from agentdeck import Deck
-
-deck = Deck.from_project("./.agentdeck")
-app = deck.asgi()                          # uvicorn yourmodule:app
-```
-
-That is all `agentdeck serve` is. It also means you can mount a deck inside an existing service
-and have it open and close with the host app.
-
-Two details worth knowing. The FastAPI import is deferred inside the method, so `agentdeck.deck`
-stays importable without the `[serve]` extra  -  you only need it to actually serve. And requests
-arriving before the lifespan has run get `503 {"status": "starting"}` rather than touching a deck
-that is not open yet.
-
-A third, if any of this catalog's callables declare a context: **it does not reach a served run.**
-A context is a live Python object with no wire form, so an HTTP-started run always carries `None`
- -  [see below](#where-a-context-does-not-reach).
+arrive with the bindings section of these docs. If any of this catalog's callables declare a
+context: **it does not reach a served run.** A context is a live Python object with no wire
+form, so an HTTP-started run always carries `None`  -  [see below](#where-a-context-does-not-reach).
 
 ## Observers
 
@@ -538,11 +516,11 @@ Three boundaries, all of them consequences of the same fact: a context is a live
 is never serialized, so it exists only for as long as some caller is holding it.
 
 **A context cannot cross the HTTP surface at all.** There is no wire form for a live object, and
-`asgi()` invents none. An agent or workflow whose callables require a context is therefore
-reachable from an embedded Python caller  -  `deck.run(...)`, a `Run` from `runs.start(context=...)`
- -  and **not** from a served deck. `POST /agents/{name}/chat` will run it with `ctx.data` set to
-`None`. If a root needs a context, do not serve it; drive it from the process that holds the
-object.
+`expose(...).asgi()` invents none. An agent or workflow whose callables require a context is
+therefore reachable from an embedded Python caller  -  `deck.run(...)`, a `Run` from
+`runs.start(context=...)`  -  and **not** from a served deck. A binding's `POST /runs` will run it
+with `ctx.data` set to `None`. If a root needs a context, do not serve it; drive it from the
+process that holds the object.
 
 **The headless runner passes no context.** `Agent.run()` calls the SDK's own `Runner.run` with no
 context object, so a tool that declares one fails when the model calls it  -  the compiled tool

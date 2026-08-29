@@ -5,7 +5,7 @@ description: Running a Deck as a supervised, long-lived service, not `python run
 
 {/* docs_sources:
   - "agentdeck/deck.py"
-  - "agentdeck/serve.py"
+  - "agentdeck/bindings/exposure.py"
   - "agentdeck/composition.py"
   - "agentdeck/runtime/settings.py"
   - "examples/jack/jack/server.py"
@@ -13,9 +13,9 @@ description: Running a Deck as a supervised, long-lived service, not `python run
 
 # Running a Deck as a service
 
-Everything up to `agentdeck-serve` or `uvicorn app:server` is covered elsewhere on this site.
-This page is what comes after: a worked systemd deployment that starts on boot, restarts on
-failure, and shuts down without losing a run in flight.
+Everything up to `uvicorn app:server` (or `deck.expose(...).serve()`) is covered elsewhere on
+this site. This page is what comes after: a worked systemd deployment that starts on boot,
+restarts on failure, and shuts down without losing a run in flight.
 
 ## What has to be durable before you deploy
 
@@ -47,10 +47,8 @@ restart must not lose in-progress conversations. `AGENTDECK_EVENTS=redis://`/`po
 
 ## A supervised process
 
-`agentdeck-serve` is `Deck.from_project().asgi()` behind a console script: it reads `HOST`/`PORT`
-from the environment (default `0.0.0.0:8000`) and must run from the directory holding
-`.agentdeck/`, since there is no `--project-dir` flag. An application composing its own `Deck`,
-like Jack, runs the same way under a plain `uvicorn module:app`.
+A `Deck` served over HTTP, `app = deck.expose(...).asgi()` or an application composing its own
+ASGI app around one (like Jack, below), runs the same way: under a plain `uvicorn module:app`.
 
 ```ini
 [Unit]
@@ -78,12 +76,10 @@ time for.
 
 ## Health checks
 
-`agentdeck-serve`'s built-in `/health` is `{"status": "ok", "agents": [...], "workflows": [...],
-"skills": [...]}` once the Deck has opened, `503 {"status": "starting"}` before its lifespan has
-run. That proves the catalog built; it does not touch the event store. A Postgres event store
-gone unreachable *after* startup still answers `200`. Jack's own `/health`
-(`{"status": "ok", "pages": N}`) has the identical gap: it counts loaded documentation pages, not
-store connectivity.
+There is no packaged `/health` route: a binding's own routes are its protocol's, not an
+operational one. Add your own the way Jack does (`{"status": "ok", "pages": N}`), and know its
+gap going in: it counts loaded documentation pages, not store connectivity. A store gone
+unreachable after startup still answers `200` from a route that only checks the catalog built.
 
 For a deployment where losing the store silently matters, add a route that does one round-trip
 against it (a store read, not a write, so a health probe never itself contends with real
@@ -93,9 +89,9 @@ traffic) and treat a failure there as unhealthy, not a `200` with an ignored fie
 
 `Deck.aclose()` is what a shutdown owes: it cancels every run this process still has in flight
 (each becomes a real `run.cancelled` in the log rather than nothing), then flushes and closes
-every observer and the store. `Deck.asgi()` and Jack's own `async with Deck(...)` both call it
-from the ASGI lifespan's shutdown phase, which is what `SIGTERM` triggers by default (systemd's
-default `KillSignal`, and uvicorn's own).
+every observer and the store. `expose(...).asgi()` and Jack's own `async with Deck(...)` both
+call it from the ASGI lifespan's shutdown phase, which is what `SIGTERM` triggers by default
+(systemd's default `KillSignal`, and uvicorn's own).
 
 The trap is what happens *before* uvicorn gets there. By default uvicorn's graceful shutdown
 waits for every open connection to close on its own before it ever runs the lifespan shutdown
@@ -113,12 +109,11 @@ itself afterward.
 
 ## Behind a reverse proxy
 
-`agentdeck-serve`'s streamed routes already send `Cache-Control: no-cache` and
-`X-Accel-Buffering: no`, the header nginx needs to stop buffering a proxied response. Without it,
-nginx holds the whole SSE stream until the run ends, which looks exactly like a hung agent from
-the client's side. A hand-rolled route, like Jack's own (which sends only `Cache-Control:
-no-cache`), does not get this for free: set `proxy_buffering off;` for that location in nginx
-instead, or add the header yourself.
+`Native.http()`'s streamed routes already send `Cache-Control: no-cache`, but not
+`X-Accel-Buffering: no`, the header nginx needs to stop buffering a proxied response entirely.
+Without either, nginx holds the whole SSE stream until the run ends, which looks exactly like a
+hung agent from the client's side. Set `proxy_buffering off;` for that location in nginx instead,
+or add the header yourself; a hand-rolled route, like Jack's own, needs the same treatment.
 
 Also raise `proxy_read_timeout` past the longest idle gap a real run can have between events
 (a slow tool call, a model thinking before its first token), or the proxy closes a connection
@@ -128,4 +123,4 @@ that was never actually stuck.
 
 - [Settings](/reference/settings) - every setting named above, generated from code
 - [How Jack Is Built](/jack) - the real deployed application this page's examples are drawn from
-- [Deck](/reference/deck) - `asgi()`, `aclose()`, and every other `Deck` method
+- [Deck](/reference/deck) - `expose()`, `aclose()`, and every other `Deck` method

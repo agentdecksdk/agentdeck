@@ -1,6 +1,4 @@
-"""``Deck``: the v3 composition root. One test per "Done when" item in #164's 4d slice  -
-``Deck.asgi()`` and the golden-wire invariants are covered in 4e; this file is the Python API.
-"""
+"""``Deck``: the v3 composition root. One test per "Done when" item in #164's 4d slice."""
 
 from __future__ import annotations
 
@@ -865,46 +863,11 @@ def test_engines_seam_accepts_the_matching_default_engines(no_project):
     deck.build()  # no raise
 
 
-# --- asgi() opens and closes through the ASGI lifespan --------------------------------------
-
-
-def test_asgi_opens_and_closes_the_deck_through_the_lifespan(no_project, scripted):
-    from fastapi.testclient import TestClient
-
-    deck = Deck(agents=[_greeter()])
-    api = deck.asgi()
-
-    assert deck._state == "NEW"
-    with TestClient(api) as client:
-        assert deck._state == "OPEN"
-        response = client.post("/agents/Greeter/chat", json={"session_id": "s", "message": "hi"})
-        assert response.status_code == 200
-    assert deck._state == "CLOSED"
-
-
-def test_asgi_health_reflects_this_decks_catalog(no_project, tmp_path):
-    from fastapi.testclient import TestClient
-
-    _write_skill(tmp_path, "booking")
-    deck = Deck(agents=[_greeter()], workflows=[_shout_workflow()], skills=tmp_path)
-
-    with TestClient(deck.asgi()) as client:
-        response = client.get("/health")
-
-    assert response.json() == {
-        "status": "ok",
-        "agents": ["Greeter"],
-        "workflows": ["Shout"],
-        "skills": ["booking"],
-    }
-
-
 # --- v1's convenience carried across as `run`/`stream`, behave the same on Deck ------------
 
 
 def _reader_ctx(session_id: str | None) -> RunContext:
-    """A throwaway context of the Deck's own namespace, for reading its log back in a test  -
-    exactly what ``serve.py``'s compat routes build for an HTTP request."""
+    """A throwaway context of the Deck's own namespace, for reading its log back in a test."""
     return RunContext(run_id="reader", session_id=session_id)
 
 

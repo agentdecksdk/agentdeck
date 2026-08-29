@@ -1,8 +1,6 @@
-"""chat_stream / run_streamed / the SSE endpoint: no live model, fakes the SDK boundary."""
+"""chat_stream / run_streamed: no live model, fakes the SDK boundary."""
 
-import json
 import textwrap
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 
@@ -26,16 +24,6 @@ def lookup_slot(day: str) -> str:
 greeter = Agent(name="Greeter", instructions="Greet the user.")
 tooler = Agent(name="Tooler", instructions="Use the tool, then answer.", tools=[lookup_slot])
 """
-
-
-def _usage_frame(requests: int, input_tokens: int, output_tokens: int) -> dict[str, int]:
-    """v1's aggregate usage dict, in v1's key order."""
-    return {
-        "requests": requests,
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "total_tokens": input_tokens + output_tokens,
-    }
 
 
 @pytest.fixture
@@ -175,104 +163,3 @@ async def test_stream_uses_same_session_as_run(deck):
     # proof the two Deck methods shared one `session_for("s1")` rather than each starting fresh.
     assert model.calls == 2
     assert "first" in str(model.inputs[-1])
-
-
-def _sse_frames(text: str) -> list[tuple[str, dict]]:
-    """Parse an SSE body into ``(event_name, data)`` pairs; unnamed frames are "message"."""
-    frames = []
-    for block in text.strip().split("\n\n"):
-        name = "message"
-        data = ""
-        for line in block.splitlines():
-            if line.startswith("event: "):
-                name = line.removeprefix("event: ")
-            elif line.startswith("data: "):
-                data = line.removeprefix("data: ")
-        frames.append((name, json.loads(data)))
-    return frames
-
-
-@pytest.fixture
-def serve_client(project):
-    """TestClient over the real FastAPI app, with only the model scripted.
-
-    The endpoint runs on the Runtime the Deck composes, so the stub goes at the SDK boundary
-    (v1's resolved provider) rather than at ``Deck.chat_stream``: everything in between is
-    what these tests are about.
-    """
-    from fastapi.testclient import TestClient
-
-    from agentdeck.serve import create_app
-
-    @contextmanager
-    def _client(model):
-        # context manager runs the lifespan; without it every endpoint is 503.
-        # raise_server_exceptions=False: a non-AgentdeckError failure is answered by
-        # ServerErrorMiddleware, which re-raises after sending its response so a real server
-        # can still log it  -  the default client would surface that as a raised exception
-        # instead of the response a real caller gets. A no-op for every case here that
-        # doesn't fail this way.
-        with patch_model(model), TestClient(create_app(), raise_server_exceptions=False) as client:
-            yield client
-
-    return _client
-
-
-def test_stream_endpoint_emits_deltas_then_done(serve_client):
-    with serve_client(ScriptedModel(deltas=("Hel", "lo"), input_tokens=3, output_tokens=4)) as client:
-        response = client.post("/agents/Greeter/chat?stream=true", json={"session_id": "s1", "message": "hi"})
-
-    assert response.status_code == 200
-    assert response.headers["cache-control"] == "no-cache"
-    assert response.headers["x-accel-buffering"] == "no"
-    assert _sse_frames(response.text) == [
-        ("message", {"delta": "Hel"}),
-        ("message", {"delta": "lo"}),
-        # one model call, so `requests` is 1 and the totals are that call's
-        ("done", {"output": "Hello", "usage": _usage_frame(1, 3, 4)}),
-    ]
-
-
-def test_stream_endpoint_counts_every_model_call_in_usage(serve_client):
-    """``usage.requests`` is v1's count of model calls  -  two here, the tool round and the answer."""
-    model = ScriptedModel(deltas=("done",), tool_name="lookup_slot", input_tokens=5, output_tokens=2)
-    with serve_client(model) as client:
-        response = client.post("/agents/Tooler/chat?stream=true", json={"session_id": "s1", "message": "hi"})
-
-    assert model.calls == 2
-    assert _sse_frames(response.text)[-1] == ("done", {"output": "done", "usage": _usage_frame(2, 10, 4)})
-
-
-def test_stream_endpoint_rejects_missing_session_id(serve_client):
-    with serve_client(ScriptedModel()) as client:
-        response = client.post("/agents/Greeter/chat?stream=true", json={"message": "hi"})
-
-    # 4xx before any header is sent  -  not a 200 that streams nothing.
-    assert response.status_code == 422
-    assert "session_id" in response.json()["detail"]
-
-
-def test_stream_endpoint_reports_mid_stream_failure(serve_client):
-    model = ScriptedModel(deltas=("par",), raises=RuntimeError("secret internal detail"))
-    with serve_client(model) as client:
-        response = client.post("/agents/Greeter/chat?stream=true", json={"session_id": "s1", "message": "hi"})
-
-    frames = _sse_frames(response.text)
-    assert frames[0] == ("message", {"delta": "par"})
-    assert frames[-1] == ("error", {"error": "RuntimeError"})
-    assert "secret internal detail" not in response.text
-
-
-def test_non_streamed_chat_answers_the_v1_500_contract_for_a_non_agentdeck_error(serve_client):
-    """A raw model exception (an SDK error, a bare ``ValueError``, ...) has no registered
-    handler of its own, unlike ``AgentdeckError``. It must still land on v1's fixed 500 body
-    rather than Starlette's bare-text default  -  the same contract the streamed path already
-    gives it above, minus the framing.
-    """
-    model = ScriptedModel(raises=ValueError("secret internal detail"))
-    with serve_client(model) as client:
-        response = client.post("/agents/Greeter/chat", json={"session_id": "s1", "message": "hi"})
-
-    assert response.status_code == 500
-    assert response.json() == {"detail": "internal error"}
-    assert "secret internal detail" not in response.text

@@ -35,6 +35,15 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   before a clean exit  -  idle or mid-run, and without overriding uvicorn's own handler when an
   HTTP binding shares the exposure.
 
+### Removed
+
+- **The v1 wire** (#550): `agentdeck/serve.py`, `agentdeck/surfaces/` (its FastAPI app and CLI
+  chat renderer), the `agentdeck-serve` console script, `Deck.asgi()`, and the `tests/golden/`
+  baselines that pinned that wire byte-for-byte. `deck.expose(...).asgi()` /
+  `deck.expose(...).serve()` (Native, #548) and `agentdeck chat` (Terminal, #549) replace them;
+  no shim or redirect for the old routes. The `serve` extra stays: Native and embedding still
+  need `fastapi`/`uvicorn` through it.
+
 ### Fixed
 
 - **`BindingInfo.advertises`/`projects` were two conflated vocabularies** (#578):
