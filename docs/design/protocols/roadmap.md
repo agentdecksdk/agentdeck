@@ -7,7 +7,7 @@ Status: proposed, 2026-08-29.
 | phase | deliverable | done when |
 |---|---|---|
 | 1 | contracts only: `Run.events(through=)`, `ProtocolGateway` over `deck.runs`, `TargetInfo`, `Capabilities`, `GatewayFailureCode`, `Binding` with `start`/`stop`, endpoint types, `Exposure`, channel-shaped fixture plugin | every contract test below that needs no real protocol passes against a fake binding |
-| 2 | Native HTTP as a binding, with a versioned wire spec and `@agentdeck/client` through the gateway; `agentdeck/serve.py`, `surfaces/serve/` and their goldens deleted | imports nothing private; no v1 route survives |
+| 2 | Native HTTP as a binding, with a versioned wire spec and `@agentdeck/client` through the gateway; `agentdeck/serve.py`, all of `surfaces/`, the `agentdeck-serve` script and the goldens deleted; `agentdeck chat` re-pointed at the Native wire | imports nothing private; no v1 route survives; `engineering/architecture.md` ownership table updated |
 | 3 | AG-UI and A2UI out of core | streaming, thread mapping, cancel, tool and report projection, HITL, frontend hook, with zero special-case code inside AgentDeck |
 | 4 | a structurally different protocol (ACP stdio or A2A) | works with no HTTP present |
 | 5 | freeze SPI v1 | both an HTTP/chat protocol and a task/stdio protocol run cleanly |
@@ -31,7 +31,7 @@ Phase 1 is small because `deck.runs` already has the gateway's shape (`gateway.m
 
 | question | ruling |
 |---|---|
-| where protocol code lives | `agentdeck/protocols/` holds the SPI; `adapters/protocols/<name>/` holds each in-tree binding; `surfaces/` keeps the CLI only |
+| where protocol code lives | `agentdeck/protocols/` holds the SPI; `adapters/protocols/<name>/` holds each in-tree binding; `surfaces/` is deleted (ruling 34); the CLI entry stays in `agentdeck/cli.py` |
 | UI-facing protocols | both AG-UI and A2UI; Assistant UI is out of scope |
 | existing serving code | `agentdeck/serve.py`, `surfaces/serve/`, their tests and goldens are deleted, not adapted; protocols start from scratch at v6 |
 
