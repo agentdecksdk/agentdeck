@@ -61,3 +61,22 @@ stdin → ACP binding → ProtocolGateway → Deck → ACP binding → stdout
 ```
 
 The gateway knows nothing about transport.
+
+## The reference trio
+
+Same intent down each kind; the bold rows are identical code against public `Run`.
+
+| step | A2A (protocol) | WhatsApp (channel) | Terminal (surface) |
+|---|---|---|---|
+| arrives as | `message/send {contextId, message}` | webhook `{from, text}`, ACK 200 at once | a typed line |
+| identity | `contextId` to `session_id`; `taskId` to `key` | phone to `session_id`; message id in the binding's map | one session per process |
+| **`gateway.start(target, text, session_id=)`** | same | same | same |
+| busy session | A2A "task running" error | "still working on your last message" | printed notice |
+| **`run.events(follow=True, through="suspensions")`** | Exposure-owned task | Exposure-owned task | inline in the stdio loop |
+| `text.delta` | streamed parts | skipped; posts on `message.completed` | printed live |
+| `run.interrupted` | `input-required` with the question | reply buttons | numbered prompt |
+| **`run.answer(value)`** | next `message/send` on the task | button webhook, run found in the map | typed choice |
+| stop | `tasks/cancel` | "stop" keyword | Ctrl-C |
+| **`run.cancel()`** | same | same | same |
+| binding-owned state | task metadata, push subscriptions | phone-to-run map, access token | none |
+| enters the runtime | nothing | nothing | nothing |

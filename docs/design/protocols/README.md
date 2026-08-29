@@ -32,6 +32,8 @@ A protocol is a projection of a Deck. It translates between an external wire and
 
 Direction is always downward: external systems adapt to AgentDeck.
 
+Reference example, v6.0: `deck.expose(A2A.http(), WhatsApp.http(), Terminal.stdio())`, one binding of each kind on one Deck, traced in `bindings.md`.
+
 Success test: a React client, an IDE and another agent independently project the same Deck through their native protocols, every execution is still an ordinary AgentDeck Run, and the runtime contains zero protocol-specific behavior.
 
 ## Files
