@@ -212,3 +212,18 @@ forbidden_modules =
     agentdeck.surfaces
     agentdeck.serve
     agentdeck.deck
+
+# Protocol SPI (#545): a plugin wraps a Deck through this package's public surface, never a
+# backend directly. allow_indirect_imports lets `Deck`/`Run` in under TYPE_CHECKING for typing
+# (Deck itself imports both rings) while still failing on a direct `agentdeck.runtime`/
+# `agentdeck.adapters` import inside `agentdeck/bindings/`  -  the reach-around the issue warns
+# review would otherwise have to catch by eye.
+[importlinter:contract:bindings-spi-is-deck-facing-only]
+name = the protocol SPI reaches a Deck through its public surface, never runtime or adapters directly
+type = forbidden
+source_modules =
+    agentdeck.bindings
+forbidden_modules =
+    agentdeck.runtime
+    agentdeck.adapters
+allow_indirect_imports = True
