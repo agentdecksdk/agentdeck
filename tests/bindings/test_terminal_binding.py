@@ -1,14 +1,14 @@
 """`Terminal.stdio()` end to end (`docs/design/protocols/bindings.md`, `rulings.md` 34, 35):
-a scripted turn through an interrupt and an answer to completion, a real SIGINT cancelling an
-in-flight run, and the ambiguous-target refusal at `build()`.
+a scripted turn through an interrupt and an answer to completion, cancelling an in-flight run,
+and the ambiguous-target refusal at `build()`. Real Ctrl-C/SIGINT delivery is `asyncio.Runner`'s
+own job (Python 3.12+), verified at the process boundary by `test_cli.py`'s subprocess tests,
+not re-proven here.
 """
 
 from __future__ import annotations
 
 import asyncio
 import io
-import os
-import signal
 import threading
 
 import pytest
@@ -113,7 +113,11 @@ async def test_two_agents_and_no_target_raises_config_error_naming_both():
     assert "Bravo" in str(excinfo.value)
 
 
-async def test_sigint_mid_run_cancels_the_run_and_exits_cleanly():
+async def test_cancelling_mid_run_records_the_cancel_then_re_raises():
+    """The application logic this binding owns: `asyncio.Runner` turning a real SIGINT into a
+    `CancelledError` here is Python's own job, not re-proven by this test  -  `task.cancel()`
+    is the same delivery a real Ctrl-C gives this coroutine either way.
+    """
     deck = Deck(workflows=[workflow(_pending, name="Pending")])
     gateway = ProtocolGateway(deck)
     stdin = _BlockingStdin("go\n")
@@ -121,19 +125,15 @@ async def test_sigint_mid_run_cancels_the_run_and_exits_cleanly():
 
     async with deck:
         endpoint = binding.build(gateway)
-        await binding.start()
         task = asyncio.ensure_future(endpoint.run())
         try:
             await _wait_until(lambda: _is_waiting(gateway))
-            os.kill(os.getpid(), signal.SIGINT)
-            # The Exposure's own shutdown awaits the stdio task the same way (`exposure.py`
-            # `_lifecycle`): SIGINT cancels it, `run.cancel()` runs first, then it re-raises.
+            task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await task
             runs = await gateway.list_runs()
             assert await runs[0].status() == RunStatus.CANCELLED
         finally:
-            await binding.stop()
             stdin.release()
 
 

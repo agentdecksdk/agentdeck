@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
+import os
 
 from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.core.control import Signal
@@ -44,13 +46,18 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _chat() -> int:
-    """``Deck.from_project().serve(Terminal.stdio())``  -  a stdio-only ``Exposure``,
-    so ``serve()`` never imports uvicorn (``exposure.py``)."""
+    """``Deck.from_project().serve(Terminal.stdio())``  -  a stdio-only ``Exposure``, so
+    ``serve()`` never imports uvicorn (``exposure.py``). Mid-run Ctrl-C surfaces here as
+    ``KeyboardInterrupt``; idle Ctrl-C raises nothing (``terminal/binding.py``). ``os._exit``
+    covers both: the stdio loop's blocked ``stdin.readline()`` runs in a worker thread a live
+    terminal never gives an EOF, so normal shutdown would hang joining it.
+    """
     from agentdeck.adapters.bindings.terminal import Terminal
     from agentdeck.deck import Deck
 
-    asyncio.run(Deck.from_project().serve(Terminal.stdio()))
-    return 0
+    with contextlib.suppress(KeyboardInterrupt):
+        asyncio.run(Deck.from_project().serve(Terminal.stdio()))
+    os._exit(0)
 
 
 def main(argv: list[str] | None = None) -> int:

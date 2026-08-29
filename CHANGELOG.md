@@ -28,8 +28,11 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   as bad input, so an unrelated bug now surfaces as `INTERNAL` instead of a misleading 422.
 - **`Terminal.stdio()`, the first surface** (#549): `agentdeck/adapters/bindings/terminal/`,
   a stdio binding with no auth, store or background task. `agentdeck chat` becomes
-  `Deck.from_project().expose(Terminal.stdio()).serve()`, replacing the httpx client of the
-  deleted v1 wire; imports no HTTP dependency on that path.
+  `Deck.from_project().serve(Terminal.stdio())`, replacing the httpx client of the deleted v1
+  wire; imports no HTTP dependency on that path. Ctrl-C installs no signal handler of its own:
+  `asyncio.Runner` (3.12+) already cancels the running turn, which this records as `run.cancel()`
+  before a clean exit  -  idle or mid-run, and without overriding uvicorn's own handler when an
+  HTTP binding shares the exposure.
 
 ### Fixed
 

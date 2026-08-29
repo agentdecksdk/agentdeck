@@ -475,6 +475,23 @@ A caller who wants to wait polls `status()`/`pending()` instead of awaiting.
 is parked in memory with the `ctx` it already holds, so it reads the original value when it
 continues on its next line.
 
+## Serving through bindings
+
+`expose(*bindings)` validates a set of bindings and owns their lifecycle; `serve(*bindings)` is
+`expose(*bindings).serve()` in one call. A binding is one external protocol, channel or surface
+over one transport. The first one is the terminal:
+
+```python
+from agentdeck import Deck
+from agentdeck.adapters.bindings.terminal import Terminal
+
+deck = Deck.from_project("./.agentdeck")
+asyncio.run(deck.serve(Terminal.stdio()))   # what `agentdeck chat` runs
+```
+
+Embedding uses `deck.expose(...).asgi()` instead of `serve()`. HTTP bindings and the full guide
+arrive with the bindings section of these docs.
+
 ## Serving over HTTP
 
 `asgi()` returns an ASGI application  -  a FastAPI app whose lifespan **opens the deck on startup
@@ -2084,6 +2101,7 @@ The current release is **v5.2.1**. Earlier releases are listed at the bottom.
 
 ### Added
 
+- **`deck.serve(*bindings)`**: `expose(*bindings).serve()` in one call; `agentdeck chat` uses it (#549).
 - **A channel-shaped out-of-tree fixture plugin proving the SPI** (#547): `tests/bindings/`
   covers every `docs/design/protocols/roadmap.md` contract item against `ProtocolGateway`/`Run`
   directly and against the fixture, with its own `.importlinter` contract wired into
@@ -2094,10 +2112,18 @@ The current release is **v5.2.1**. Earlier releases are listed at the bottom.
   runs, SSE tail with `Last-Event-ID`/`from_seq` reconnect, cancel/pause/resume, pending/answer),
   frames as `Event.model_dump_json()` verbatim, and a versioned wire spec at
   `docs/design/protocols/native-wire.md` diffed against the app's own routes by a test.
+- **`InputError`** (#579): a public `AgentdeckError` naming content the caller supplied that
+  AgentDeck cannot take. `coerce_input` now raises it instead of a bare `TypeError`; catch
+  `InputError` (or `AgentdeckError`) where you caught `TypeError` before. `ProtocolGateway`'s
+  `_map_failure` maps it to `INVALID_INPUT` and no longer treats every `TypeError`/`ValueError`
+  as bad input, so an unrelated bug now surfaces as `INTERNAL` instead of a misleading 422.
 - **`Terminal.stdio()`, the first surface** (#549): `agentdeck/adapters/bindings/terminal/`,
   a stdio binding with no auth, store or background task. `agentdeck chat` becomes
-  `Deck.from_project().expose(Terminal.stdio()).serve()`, replacing the httpx client of the
-  deleted v1 wire; imports no HTTP dependency on that path.
+  `Deck.from_project().serve(Terminal.stdio())`, replacing the httpx client of the deleted v1
+  wire; imports no HTTP dependency on that path. Ctrl-C installs no signal handler of its own:
+  `asyncio.Runner` (3.12+) already cancels the running turn, which this records as `run.cancel()`
+  before a clean exit  -  idle or mid-run, and without overriding uvicorn's own handler when an
+  HTTP binding shares the exposure.
 
 ### Fixed
 

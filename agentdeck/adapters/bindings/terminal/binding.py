@@ -1,12 +1,15 @@
 """``Terminal.stdio()``: the simplest binding, one session per process over stdin/stdout
 (``docs/design/protocols/bindings.md``, ``rulings.md`` 34, 35).
+
+Ctrl-C needs no handler here: Python's own ``asyncio.Runner`` (3.12+) cancels the running main
+task on SIGINT, surfacing as ``asyncio.CancelledError`` wherever this is awaiting; a second
+handler would only override that one, or uvicorn's own on an HTTP exposure.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
-import signal
 import sys
 from typing import Any, TextIO
 from uuid import uuid4
@@ -21,7 +24,7 @@ from agentdeck.core.events import (
     RunInterrupted,
     TextDelta,
 )
-from agentdeck.errors import ConfigError
+from agentdeck.errors import ConfigError, RunStateError
 
 _ADVERTISES = frozenset({"streaming", "text", "hitl", "control.cancel"})
 
@@ -56,7 +59,6 @@ class TerminalBinding:
         self._stdin = stdin if stdin is not None else sys.stdin
         self._stdout = stdout if stdout is not None else sys.stdout
         self._gateway: ProtocolGateway | None = None
-        self._task: asyncio.Task[None] | None = None
 
     def _require_gateway(self) -> ProtocolGateway:
         assert self._gateway is not None, "build() must run before the stdio loop starts"
@@ -75,26 +77,14 @@ class TerminalBinding:
         return StdioEndpoint(self._run)
 
     async def start(self) -> None:
-        """Installs SIGINT so Ctrl-C cancels the in-flight run: without a handler, a bare
-        ``asyncio.run()`` aborts the whole loop on the signal and never reaches an ``await
-        run.cancel()`` (the issue's own pitfall). ``NotImplementedError`` on Windows, where
-        ``add_signal_handler`` is unsupported; Ctrl-C there falls back to the interpreter default.
-        """
-        with contextlib.suppress(NotImplementedError):
-            asyncio.get_running_loop().add_signal_handler(signal.SIGINT, self._sigint)
+        """No background work."""
 
     async def stop(self) -> None:
-        with contextlib.suppress(NotImplementedError):
-            asyncio.get_running_loop().remove_signal_handler(signal.SIGINT)
-
-    def _sigint(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
+        """No background work."""
 
     async def _run(self) -> None:
         # Typed loosely on purpose: ``Run`` is ``agentdeck.deck``'s, which this binding's own
         # import-linter contract forbids naming even under ``TYPE_CHECKING`` (matches Native).
-        self._task = asyncio.current_task()
         gateway = self._require_gateway()
         assert self._target is not None, "build() must run before the stdio loop starts"
         target = self._target
@@ -105,12 +95,17 @@ class TerminalBinding:
                 run = await gateway.start(target, line, session_id=self._session_id)
                 await self._drive(run)
                 run = None
-        except (_EofError, KeyboardInterrupt):
+        except _EofError:
             if run is not None:
                 await run.cancel()
         except asyncio.CancelledError:
-            if run is not None:
+            # Idle: return cleanly, no exception reaches the caller's asyncio.run(). Mid-run:
+            # record the cancel, then re-raise for asyncio.Runner to convert it below.
+            if run is None:
+                return
+            with contextlib.suppress(RunStateError):  # already ended; nothing left to cancel
                 await run.cancel()
+            self._write("\n")
             raise
 
     async def _drive(self, run: Any, *, from_seq: int = 0) -> None:
