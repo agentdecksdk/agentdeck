@@ -28,7 +28,7 @@ Status: proposed, 2026-08-29. Supersedes the single-file `design.md`, kept in gi
      Web app             Other agents                IDE
 ```
 
-A protocol is a projection of a Deck. It translates between an external wire and AgentDeck's existing Run, Event and control concepts. It never executes, never owns sessions or runs, never adds an event model.
+A protocol is a projection of a Deck. It translates between an external wire and AgentDeck's existing Run, Event and control concepts. It never executes, never owns sessions or runs, never adds an event model. The Deck has one behavior; each adapter presents it in its protocol's terms.
 
 Direction is always downward: external systems adapt to AgentDeck.
 

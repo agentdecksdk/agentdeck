@@ -42,7 +42,7 @@ v6.0.0: SPI, Native, artifact store, one of AG-UI or A2A. 6.x minors: the rest (
 
 ## Delivery
 
-One `gh stack` rooted on `dev`. PR 1 is this design. When it is approved, the implementation plan follows as one PR per layer, bottom to top, and coding starts only once the whole stack of plan PRs is laid out.
+Two `gh stack`s rooted on `dev`. The protocol stack: PR 1 is this design; when it is approved, the implementation plan follows as one PR per layer, bottom to top, and coding starts only once the whole stack of plan PRs is laid out. The artifact-store stack (phase 2b) is separate and merges before phase 3.
 
 ## Contract tests before SPI v1
 

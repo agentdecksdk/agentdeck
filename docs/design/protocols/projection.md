@@ -32,7 +32,9 @@ Protocols consume canonical events (`agentdeck/core/events.py`): `run.started`, 
 | `run.interrupted` | approval or question | input-required |
 | `run.completed` | generation complete | Task completed |
 
-The schema never gains protocol kinds (`a2a.task.updated`, `acp.session.updated`). Unknown future kinds arrive as `UnknownEvent` and a plugin must skip them, not crash.
+A binding declares the closed set of kinds it projects; unmapped kinds and `UnknownEvent` are skipped with no per-event warning. At build time the binding proves it covers the required categories (terminal state, text output, `run.interrupted`) or construction fails. The schema never gains protocol kinds (`a2a.task.updated`, `acp.session.updated`).
+
+`run.interrupted` maps to the protocol's native "needs user input" mechanism and the reply maps back to `run.answer()`: A2A `INPUT_REQUIRED`, ACP `request_permission` or user interaction, MCP elicitation, AG-UI and A2UI interactive part, Native `{run_id, interrupt_id, reason, payload}` plus an `answer` route. Every target can interrupt, so every binding must map it.
 
 ## Reconnect
 
@@ -48,6 +50,10 @@ The schema never gains protocol kinds (`a2a.task.updated`, `acp.session.updated`
 | structured | `DataBlock` or workflow JSON input |
 
 Conversion is explicit. Unrepresentable input is rejected with `INVALID_INPUT`, never dropped: the caller must never believe the model saw something AgentDeck discarded.
+
+## Artifacts
+
+`artifact.created` is projected as metadata or a reference only, never bytes. Bytes stream through `gateway.open_artifact()`; each binding serves them its own way (A2A `FilePart` uri, MCP resource, ACP resource, AG-UI and A2UI attachment URL, Native download route) and never writes that URL into the event.
 
 ## Protocol-specific state
 
