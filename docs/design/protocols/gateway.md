@@ -25,7 +25,9 @@ class ProtocolGateway(Protocol):
 
 `start`, `get_run` and `list_runs` are `deck.runs.start`, `deck.runs.get` and `deck.runs.list` (`agentdeck/deck.py`, class `Runs`) with the same signatures. The gateway does not reimplement them; it wraps them and adds what `Runs` lacks: `targets()`, `capabilities`, and failure classification. The gateway covers targets, runs, events, control and HITL; artifact bytes are out of its scope (`rulings.md` 14).
 
-Everything else is already on `Run`: `id`, `namespace`, `session_id`, `status()`, `can`, `events(from_seq=, follow=)`, `cancel()`, `pause()`, `resume()`, `pending()`, `answer()`. Plugins consume `Run`; they never construct one. A binding translates only the subset of these capabilities its protocol can faithfully represent (`rulings.md` 24). The gateway grows when an execution-model capability is unreachable through it, never for a protocol-specific noun (`rulings.md` 27).
+Everything else is already on `Run`: `id`, `namespace`, `session_id`, `status()`, `can`, `events(from_seq=, follow=, through=)`, `cancel()`, `pause()`, `resume()`, `pending()`, `answer()`.
+
+`events(follow=True)` stops at a segment boundary (terminal or suspension). `through="suspensions"` keeps tailing across `WAITING_ANSWER` and `PAUSED` and stops only at a terminal event; every binding presenting HITL uses it (`rulings.md` 29). Bindings never register `Observer`s: those are deck-wide lossy taps for telemetry, and a protocol needs a per-run replayable stream (`rulings.md` 30). Plugins consume `Run`; they never construct one. A binding translates only the subset of these capabilities its protocol can faithfully represent (`rulings.md` 24). The gateway grows when an execution-model capability is unreachable through it, never for a protocol-specific noun (`rulings.md` 27).
 
 Not introduced: `ProtocolRun`, `ProtocolEvent`, `ProtocolSession`, `ProtocolControl`. Each would duplicate an existing contract.
 
