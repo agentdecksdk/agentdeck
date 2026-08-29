@@ -663,6 +663,11 @@ class Deck:
 
         return Exposure(self, bindings)
 
+    async def serve(self, *bindings: Binding, **serve_kwargs: Any) -> None:
+        """Expose ``bindings`` and serve them until shutdown: ``await deck.expose(*bindings).serve(**serve_kwargs)``
+        in one call. ``expose()`` stays the contract for embedding (``exposure.asgi()``)."""
+        await self.expose(*bindings).serve(**serve_kwargs)
+
     def build(self) -> Deck:
         """Validate the whole catalog and compile every agent/workflow to an ``InvocableSpec``.
 

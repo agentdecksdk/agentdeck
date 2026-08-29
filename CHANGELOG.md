@@ -10,6 +10,7 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Added
 
+- **`deck.serve(*bindings)`**: `expose(*bindings).serve()` in one call; `agentdeck chat` uses it (#549).
 - **A channel-shaped out-of-tree fixture plugin proving the SPI** (#547): `tests/bindings/`
   covers every `docs/design/protocols/roadmap.md` contract item against `ProtocolGateway`/`Run`
   directly and against the fixture, with its own `.importlinter` contract wired into

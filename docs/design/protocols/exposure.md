@@ -13,7 +13,7 @@ app = exposure.asgi()                       # embed in FastAPI/Starlette
 await exposure.serve(host="0.0.0.0", port=8000)   # standalone
 ```
 
-`expose()` is the only verb on `Deck`; `serve()` lives on the exposure. `deck.serve(...)` sugar is deferred to Phase 6 (`rulings.md` 23).
+`expose()` is the only verb on `Deck`; `serve()` lives on the exposure. `deck.serve(*bindings)` is one line over `expose(*bindings).serve()`; `expose()` remains the contract for embedding (`asgi()`).
 
 ## Many protocols, one Deck
 

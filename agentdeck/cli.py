@@ -44,12 +44,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _chat() -> int:
-    """``Deck.from_project().expose(Terminal.stdio()).serve()``  -  a stdio-only ``Exposure``,
+    """``Deck.from_project().serve(Terminal.stdio())``  -  a stdio-only ``Exposure``,
     so ``serve()`` never imports uvicorn (``exposure.py``)."""
     from agentdeck.adapters.bindings.terminal import Terminal
     from agentdeck.deck import Deck
 
-    asyncio.run(Deck.from_project().expose(Terminal.stdio()).serve())
+    asyncio.run(Deck.from_project().serve(Terminal.stdio()))
     return 0
 
 

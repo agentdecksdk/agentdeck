@@ -224,6 +224,18 @@ async def test_serve_stdio_only_never_imports_uvicorn(no_project, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_deck_serve_is_expose_then_serve(no_project):
+    deck = Deck(agents=[])
+    recorder = _Recorder()
+
+    await deck.serve(_Stdio("term", recorder))
+
+    assert recorder.started == ["term", "term:run"]
+    assert recorder.stopped == ["term"]
+    assert not deck.is_open
+
+
+@pytest.mark.asyncio
 async def test_stdio_run_failure_still_stops_every_started_binding(no_project):
     deck = Deck(agents=[])
     recorder = _Recorder()
