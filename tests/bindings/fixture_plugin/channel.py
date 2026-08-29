@@ -136,7 +136,9 @@ class FixtureChannel:
         """Cancel and await every tail task this channel spawned, each in its own ``try`` so one
         task's exception never stops another's cancellation  -  the Exposure owns ``start``/
         ``stop``, never a task this binding did not hand it (ruling 32); this mirrors
-        ``Exposure._lifecycle``'s own shutdown loop for the same reason.
+        ``Exposure._lifecycle``'s own shutdown loop for the same reason. Re-raises the first
+        non-``CancelledError`` any task raised, once every task has been cancelled and awaited,
+        same as that shutdown loop.
         """
         tasks = list(self._tasks)
         first_error: BaseException | None = None
@@ -157,7 +159,9 @@ class FixtureChannel:
     ) -> dict[str, Any]:
         """The fake webhook: verify the secret, reject anything but text naming the part, start
         the run, record it in the durable map, spawn its tail, and return  -  never awaits the
-        run itself, which is the whole ACK-then-continue point (ruling 33).
+        run itself, which is the whole ACK-then-continue point (ruling 33). Raises
+        ``PermissionError`` for a bad secret, ``GatewayError`` for unsupported content or
+        anything :meth:`ProtocolGateway.start` itself refuses.
         """
         if secret != self._secret:
             raise PermissionError("bad shared secret")
@@ -176,7 +180,8 @@ class FixtureChannel:
     async def receive_button(self, *, secret: str, message_id: str, value: Any) -> dict[str, Any]:
         """The later inbound button: resolve the run from the durable map, answer it, and
         re-tail from ``last_seq + 1``  -  no polling, ``Run.events(follow=True)`` waits through
-        the suspension itself (ruling 29).
+        the suspension itself (ruling 29). Raises ``PermissionError`` for a bad secret,
+        ``GatewayError(NOT_FOUND)`` for a ``message_id`` the durable map never heard of.
         """
         if secret != self._secret:
             raise PermissionError("bad shared secret")

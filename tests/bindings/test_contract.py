@@ -152,14 +152,20 @@ async def test_receive_button_answers_and_retails_the_resumed_segment_without_po
         assert excinfo.value.status is RunStatus.WAITING_ANSWER
         await next(iter(channel._tasks))  # the tail's own segment ends at the interrupt boundary
 
-        assert channel.outbox == [
-            {"conversation_id": "c1", "question": "pick a color for kites?", "buttons": ["red", "blue"]}
-        ]
-        assert channel._map.get("msg-1")["last_seq"] > 0
+        interrupt_post = {"conversation_id": "c1", "question": "pick a color for kites?", "buttons": ["red", "blue"]}
+        assert channel.outbox == [interrupt_post]
+        seq_at_interrupt = channel._map.get("msg-1")["last_seq"]
+        assert seq_at_interrupt > 0
 
         await channel.receive_button(secret=SECRET, message_id="msg-1", value="red")
         await next(iter(channel._tasks))  # re-tail, no new tail spawned until this line
         turn = await run
+
+        # The discriminating assertion: re-tailing from `last_seq + 1` (not from 0) means the
+        # resumed segment never re-walks the first one, so the interrupt is posted exactly once
+        # -  a channel that replayed from scratch would double-post it here.
+        assert channel.outbox == [interrupt_post]
+        assert channel._map.get("msg-1")["last_seq"] > seq_at_interrupt
 
     assert turn == "kites:red"
 
@@ -303,6 +309,20 @@ async def test_unsupported_content_is_rejected_with_invalid_input_naming_the_par
     assert excinfo.value.code is GatewayFailureCode.INVALID_INPUT
     assert "image" in excinfo.value.message
     assert channel._map.get("msg-1") is None  # nothing started
+
+
+@pytest.mark.asyncio
+async def test_receive_button_with_an_unknown_message_id_is_not_found(no_project, tmp_path):
+    deck = _deck()
+    async with deck:
+        channel = _channel(tmp_path, target="Greeter")
+        channel.build(ProtocolGateway(deck))
+
+        with pytest.raises(GatewayError) as excinfo:
+            await channel.receive_button(secret=SECRET, message_id="no-such-message", value="red")
+
+    assert excinfo.value.code is GatewayFailureCode.NOT_FOUND
+    assert "no-such-message" in excinfo.value.message
 
 
 def test_fixture_imports_no_private_module():
@@ -466,12 +486,19 @@ async def test_durable_map_survives_a_simulated_restart(no_project, tmp_path):
         with pytest.raises(RunSuspendedError):
             await run
         await next(iter(channel_1._tasks))
+        seq_at_interrupt = channel_1._map.get("msg-1")["last_seq"]
 
         # "restart": a brand new instance, no shared state but the file on disk.
         channel_2 = FixtureChannel(secret=SECRET, map_path=map_path, target="Survey")
         channel_2.build(gateway)
         await channel_2.receive_button(secret=SECRET, message_id="msg-1", value="red")
         await next(iter(channel_2._tasks))
+
+        # `channel_2` starts with an empty outbox and never saw the interrupt itself: re-tailing
+        # from `last_seq + 1` means it only walks the resumed segment, so it must stay empty  -
+        # a restart that replayed from seq 0 would post the interrupt's buttons here instead.
+        assert channel_2.outbox == []
+        assert channel_1._map.get("msg-1")["last_seq"] > seq_at_interrupt
 
         entry = channel_1._map.get("msg-1")
         final = await gateway.get_run(entry["run_id"], namespace=entry["namespace"])
