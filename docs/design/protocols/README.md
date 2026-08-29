@@ -44,8 +44,8 @@ Status: proposed, 2026-08-29. Supersedes the single-file `design.md`, kept in gi
                                     ▼
  ┌───────────────────────────────────────────────────────────────────────────────────┐
  │  DECK (unchanged)                                                                 │
- │  deck.runs · Run: events(follow, through="suspensions") cancel pause resume       │
- │              pending answer can status                                            │
+ │  deck.runs · Run: events(from_seq, follow) cancel pause resume pending answer      │
+ │              can status                                                           │
  │  targets · runs · canonical events (seq) · control · HITL · sessions · namespaces │
  │  Observers are telemetry taps here, never a binding seam                          │
  └───────────────────────────────────────────────────────────────────────────────────┘
@@ -61,7 +61,7 @@ Status: proposed, 2026-08-29. Supersedes the single-file `design.md`, kept in gi
 
 A protocol is a projection of a Deck. A binding translates the subset of the Deck's behavior its protocol can faithfully represent and never changes runtime semantics to ease the translation. Direction is always downward: external systems adapt to AgentDeck.
 
-v6.0 ships `Native` plus one binding of each kind: `A2A.http()`, `WhatsApp.http()`, `Terminal.stdio()`. The rest are 6.x. The only Deck change protocols ever caused is `through="suspensions"` on `Run.events`, a Run feature.
+v6.0 ships `Native` plus one binding of each kind: `A2A.http()`, `WhatsApp.http()`, `Terminal.stdio()`. The rest are 6.x. The epic changes nothing in the Deck or the runtime.
 
 Success test: a React client, an IDE and another agent independently project the same Deck through their native protocols, every execution is still an ordinary AgentDeck Run, and the runtime contains zero protocol-specific behavior.
 
