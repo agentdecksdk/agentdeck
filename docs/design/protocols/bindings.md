@@ -39,9 +39,9 @@ Concrete classes (`A2AHttpBinding`, `ACPStdioBinding`, ...) stay behind the fact
 | kind | what it is | examples | typical advertisement |
 |---|---|---|---|
 | protocol | machine-facing execution contract | A2A, ACP, MCP, AG-UI, A2UI | streaming, hitl, control |
-| channel | messaging platform with webhook and message APIs | Slack, WhatsApp, Telegram | no streaming; projects `message.completed`; buttons from `run.interrupted` |
+| channel | a surface with a person on the other end | Terminal (`agentdeck chat`), Slack, WhatsApp, Telegram | platform-limited: a terminal streams, a webhook platform posts on `message.completed`; buttons or prompts from `run.interrupted` |
 
-Same contract, same gateway; the kind is data. A channel ACKs its webhook, then tails the run from a task the Exposure owns (`start()`), and keeps a durable map from its message ids to the Run address. Channels are outside the v6 protocols epic; the fixture plugin under `tests/` is channel-shaped so the SPI is proven against that pattern (`rulings.md` 31 to 33).
+Same contract, same gateway; the kind is data. A channel ACKs its webhook, then tails the run from a task the Exposure owns (`start()`), and keeps a durable map from its message ids to the Run address. `Terminal.stdio()` is the one channel in the v6 epic, the degenerate case with no webhook, auth, store or background task; platform channels are outside it; the fixture plugin under `tests/` is channel-shaped so the SPI is proven against that pattern (`rulings.md` 31 to 33).
 
 ## Endpoint types
 
