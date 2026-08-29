@@ -13,12 +13,12 @@ app = exposure.asgi()                       # embed in FastAPI/Starlette
 await exposure.serve(host="0.0.0.0", port=8000)   # standalone
 ```
 
-`deck.serve(*bindings)` is sugar for `deck.expose(*bindings).serve()`. `expose()` is the contract.
+`expose()` is the only verb on `Deck`; `serve()` lives on the exposure. `deck.serve(...)` sugar is deferred to Phase 6 (`rulings.md` 23).
 
 ## Many protocols, one Deck
 
 ```python
-await deck.serve(Native.http(path="/"), A2A.http(path="/a2a"), <UI>.http(path="/ui"))
+await deck.expose(Native.http(path="/"), A2A.http(path="/a2a"), AGUI.http(path="/ui")).serve()
 ```
 
 Same agents, Runs, sessions, events and controls. A run started over A2A is visible over native HTTP, namespace and authorization permitting. That is a contract test.
