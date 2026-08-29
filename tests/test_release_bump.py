@@ -111,8 +111,10 @@ class FakeGh:
         self.calls.append(args)
         if args[:2] == ["git", "tag"]:
             return "v5.2.0\nv5.1.0\n"
-        if args[0] == "git" and args[1] == "log":
-            return "Fixes #10\nFixes #11\n\x00Closes #12\n"
+        if args[0] == "git" and args[1] == "log" and "--merges" in args:
+            return "Merge pull request #100 from agentdecksdk/a\nMerge pull request #101 from agentdecksdk/b\n"
+        if args[:2] == ["gh", "pr"] and args[2] == "view":
+            return {"100": "Fixes #10\nFixes #11\n", "101": "Closes #12\n"}[args[3]]
         if args[:2] == ["gh", "api"] and "--method" in args and args[args.index("--method") + 1] == "GET":
             return json.dumps(self.milestones)
         if args[:2] == ["gh", "api"] and "--method" not in args:

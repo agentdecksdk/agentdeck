@@ -8,6 +8,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [5.2.1] - 2026-08-29
+
+### Changed
+
+- **Release bookkeeping is now scripted** (`scripts/release_bump.py`), and the docs-site footer
+  shows the current version instead of a stale mid-page marker (#560, #564).
+
 ## [5.2.0] - 2026-08-29
 
 ### Added
@@ -2573,7 +2580,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.0...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.1...HEAD
+[5.2.1]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.0...v5.2.1
 [5.2.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.3...v5.1.0
 [5.0.3]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.0...v5.0.3
