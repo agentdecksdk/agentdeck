@@ -42,6 +42,7 @@ Direction is always downward: external systems adapt to AgentDeck.
 | [`bindings.md`](bindings.md) | `ProtocolBinding` and endpoint types: one protocol over one transport it supports |
 | [`exposure.md`](exposure.md) | `deck.expose(...)`: validation, lifecycle, ownership, HTTP composition |
 | [`spi.md`](spi.md) | SPI versioning and out-of-tree plugin packaging |
+| [`rulings.md`](rulings.md) | every decision taken while attacking the design: chosen, rejected, why |
 | [`roadmap.md`](roadmap.md) | implementation sequence, target protocols, contract tests, open rulings |
 
 ## Where the design and the tree disagree
