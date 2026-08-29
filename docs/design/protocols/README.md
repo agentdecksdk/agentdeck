@@ -7,32 +7,61 @@ Status: proposed, 2026-08-29. Supersedes the single-file `design.md`, kept in gi
 ## Mental model
 
 ```text
-                    ┌─────────────────────┐
-                    │        Deck         │
-                    │  Agents / Workflows │
-                    │         │           │
-                    │        Runs         │
-                    │         │           │
-                    │  Events / Control   │
-                    └──────────┬──────────┘
-                               │
-                       ProtocolGateway
-                               │
-                  stable protocol SPI (versioned)
-                               │
-        ┌──────────────────────┼──────────────────────┐
-        ▼                      ▼                      ▼
-   <UI>.http()             A2A.http()            ACP.stdio()
-        │                      │                      │
-        ▼                      ▼                      ▼
-     Web app             Other agents                IDE
+ EXTERNAL SURFACES (clients, no AgentDeck code)
+ ┌──────────────┐ ┌──────────────┐ ┌────────────┐ ┌──────────────┐ ┌────────────────┐
+ │ Assistant UI │ │ custom React │ │  IDE       │ │ other agent  │ │ any MCP client │
+ └──────┬───────┘ └──────┬───────┘ └─────┬──────┘ └──────┬───────┘ └───────┬────────┘
+   react-ag-ui /      ag-ui client     ACP client      A2A client        MCP client
+   react-a2a
+ ═══════╪════════════════╪════════════════╪════════════════╪═════════════════╪══════ wire
+        ▼                ▼                ▼                ▼                 ▼
+ ┌───────────────────────────────────────────────────────────────────────────────────┐
+ │  BINDINGS   adapters/bindings/<name>/        one Binding contract, kind is data   │
+ │                                                                                   │
+ │  kind=protocol            kind=channel             kind=surface                   │
+ │  AGUI.http()              WhatsApp.http()          Terminal.stdio()  agentdeck chat│
+ │  A2UI.http()              Slack.http()             TUI.stdio()  (later)           │
+ │  A2A.http()               Telegram.http()                                         │
+ │  ACP.stdio()              Discord.http()                                          │
+ │  MCP.stdio() MCP.http()                                                           │
+ │  Native.http()   the AgentDeck protocol: versioned wire + @agentdeck/client       │
+ │                                                                                   │
+ │  info(kind, transport, spi_version, advertised caps) · build(gateway) → Endpoint  │
+ │  start() / stop()         HttpEndpoint | StdioEndpoint                            │
+ └──────────────────────────────────┬────────────────────────────────────────────────┘
+                                    ▼
+ ┌───────────────────────────────────────────────────────────────────────────────────┐
+ │  EXPOSURE   deck.expose(...)  validate → open → gateway → start() → serve → stop()│
+ │             .asgi() mounts every HttpEndpoint on one listener; .serve() standalone │
+ │             one stdio binding per process; atomic startup, reverse shutdown       │
+ └──────────────────────────────────┬────────────────────────────────────────────────┘
+                                    ▼
+ ┌───────────────────────────────────────────────────────────────────────────────────┐
+ │  ProtocolGateway   agentdeck/bindings/          stable SPI v1                     │
+ │  targets() · start() · get_run() · list_runs() · capabilities(control, durable)   │
+ │  GatewayError(code) · returns Run                                                 │
+ └──────────────────────────────────┬────────────────────────────────────────────────┘
+                                    ▼
+ ┌───────────────────────────────────────────────────────────────────────────────────┐
+ │  DECK (unchanged)                                                                 │
+ │  deck.runs · Run: events(follow, through="suspensions") cancel pause resume       │
+ │              pending answer can status                                            │
+ │  targets · runs · canonical events (seq) · control · HITL · sessions · namespaces │
+ │  Observers are telemetry taps here, never a binding seam                          │
+ └───────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-A protocol is a projection of a Deck. It translates between an external wire and AgentDeck's existing Run, Event and control concepts. It never executes, never owns sessions or runs, never adds an event model. The Deck has one behavior; a binding translates the subset of it that its protocol can faithfully represent and never changes runtime semantics to ease the translation.
+| layer | knows about | never knows about |
+|---|---|---|
+| external surface | one protocol's client library | AgentDeck |
+| binding | its wire, the gateway, `Run`, `Event` | ports, other bindings, runtime internals |
+| exposure | ports, paths, stdin, lifecycle, rollback | any protocol's semantics |
+| gateway | `deck.runs`, targets, failure mapping | transports |
+| deck | execution | that any binding exists |
 
-Direction is always downward: external systems adapt to AgentDeck.
+A protocol is a projection of a Deck. A binding translates the subset of the Deck's behavior its protocol can faithfully represent and never changes runtime semantics to ease the translation. Direction is always downward: external systems adapt to AgentDeck.
 
-Reference example, v6.0: `deck.expose(A2A.http(), WhatsApp.http(), Terminal.stdio())`, one binding of each kind on one Deck, traced in `bindings.md`.
+v6.0 ships `Native` plus one binding of each kind: `A2A.http()`, `WhatsApp.http()`, `Terminal.stdio()`. The rest are 6.x. The only Deck change protocols ever caused is `through="suspensions"` on `Run.events`, a Run feature.
 
 Success test: a React client, an IDE and another agent independently project the same Deck through their native protocols, every execution is still an ordinary AgentDeck Run, and the runtime contains zero protocol-specific behavior.
 
