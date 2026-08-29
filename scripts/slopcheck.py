@@ -904,7 +904,8 @@ def _self_test() -> None:
         + helper_doc
         + 'def asgi(x):\n    """App."""\n    def lifespan(a):\n        return _lc(a)\n    return lifespan\n'
     )
-    assert not any(v.rule.startswith("SLOP013") for v in check_source(nested)), "a closure is not a public callable"
+    (closure,) = [v for v in check_source(nested) if v.rule.startswith("SLOP013")]
+    assert closure.message.startswith("asgi "), "the inversion is anchored on the public method, never its closure"
     print("slopcheck self-test: ok")
 
 
