@@ -23,3 +23,6 @@ docs/brand/*.jpg
 # deepeval writes a cache and a telemetry marker beside the suite
 .deepeval/
 .deepeval-cache.json
+
+# make check's per-target logs (worktree-scoped, see Makefile's LOG)
+.make-*.log
