@@ -49,10 +49,13 @@ Fails at `expose()`, never after a listener is up:
 
 ```text
 two HTTP bindings claim one path
-two stdio bindings claim stdin/stdout
-unsupported binding combination
+more than one stdio binding (stdin/stdout is exclusive per process)
+a binding whose spi_version is unsupported
+a binding whose projection misses a required event category
 invalid protocol configuration
 ```
+
+stdio and HTTP bindings may share one exposure: one stdio binding at most, HTTP bindings on one listener.
 
 ## Atomic startup
 

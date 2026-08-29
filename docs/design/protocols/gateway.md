@@ -21,9 +21,11 @@ class ProtocolGateway(Protocol):
     async def get_run(self, run_id: str, *, namespace: str | None = None) -> Run: ...
     async def list_runs(self, *, namespace: str | None = None, status: RunStatus | None = None,
                         limit: int | None = None) -> Sequence[Run]: ...
+    def open_artifact(self, run_id: str, artifact_id: str, *,
+                      namespace: str | None = None) -> AsyncIterator[bytes]: ...
 ```
 
-`start`, `get_run` and `list_runs` are `deck.runs.start`, `deck.runs.get` and `deck.runs.list` (`agentdeck/deck.py`, class `Runs`) with the same signatures. The gateway does not reimplement them; it wraps them and adds the three things `Runs` lacks: `targets()`, `capabilities`, and failure classification.
+`start`, `get_run` and `list_runs` are `deck.runs.start`, `deck.runs.get` and `deck.runs.list` (`agentdeck/deck.py`, class `Runs`) with the same signatures. The gateway does not reimplement them; it wraps them and adds what `Runs` lacks: `targets()`, `capabilities`, `open_artifact()` (streams bytes from the `ArtifactStorePort`, scoped like `get_run`), and failure classification.
 
 Everything else is already on `Run`: `id`, `namespace`, `session_id`, `status()`, `can`, `events(from_seq=, follow=)`, `cancel()`, `pause()`, `resume()`, `pending()`, `answer()`. Plugins consume `Run`; they never construct one.
 
@@ -36,9 +38,11 @@ Not introduced: `ProtocolRun`, `ProtocolEvent`, `ProtocolSession`, `ProtocolCont
 class TargetInfo:
     name: str
     kind: Literal["agent", "workflow"]
+    description: str | None
+    input_schema: JsonSchema | None   # None for free-text agents
 ```
 
-Later, if earned: `description`, `input_modes`, `output_modes`, `metadata`. Never A2A AgentCard fields or ACP capability fields; those are produced by their adapter from `TargetInfo`.
+Enough for an A2A AgentCard skill and an MCP tool definition. Never A2A AgentCard fields or ACP capability fields; those are produced by their adapter from `TargetInfo`. No per-target capability flags: every target on a deck can stream and interrupt.
 
 ## Capabilities
 
@@ -46,8 +50,17 @@ Two layers, never merged.
 
 | layer | question | where |
 |---|---|---|
-| deployment | does this Deck support streaming, run recovery, run listing, sessions, control backend, interrupts, artifacts | `gateway.capabilities` |
+| deployment | `control`: is a control backend configured, so pause, resume and cancel reach runs; `durable`: do events and artifacts survive restart, so `from_seq` reconnect is honest | `gateway.capabilities` |
 | run | can this Run be cancelled, paused, resumed right now | `run.can` |
+
+```python
+@dataclass(frozen=True, slots=True)
+class Capabilities:
+    control: bool
+    durable: bool
+```
+
+Only what varies per deployment. Streaming, sessions, listing, interrupts and artifacts are true for every Deck, so they are not flags; A2A cards and ACP or MCP `initialize` state them as constants.
 
 `run.can` is informational and the `Run` methods are authoritative: a protocol may advertise cancellation and still be refused on a completed run.
 
@@ -64,7 +77,14 @@ class GatewayFailureCode(Enum):
     UNSUPPORTED = auto()
     CANCELLED = auto()
     INTERNAL = auto()
+
+class GatewayError(Exception):
+    code: GatewayFailureCode
+    message: str            # wire-safe only for NOT_FOUND, BUSY, CONFLICT, INVALID_INPUT
+    cause: BaseException | None
 ```
+
+One exception type; a binding writes one `except GatewayError`.
 
 | AgentDeck error | code | HTTP precedent in `agentdeck/serve.py` |
 |---|---|---|
