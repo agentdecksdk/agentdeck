@@ -58,5 +58,5 @@ Success test: a React client, an IDE and another agent independently project the
 | disconnected reader never cancels the run | `compat.py` documents that `deck.stream()` runs are deck-owned and survive reader cancellation | bindings tail `run.events()`, never a raw runtime generator, and the property holds for free |
 | failure taxonomy maps to wire codes | `agentdeck/serve.py` already maps `NotFoundError` 404, `SessionBusyError` 409, `RunStateError` 409, other `AgentdeckError` 500 | precedent for `GatewayFailure`; the mapping moves behind the gateway |
 | protocols live in one place | `agentdeck-v2-architecture.md` says `adapters/bindings/` (Ring 2); `engineering/architecture.md` gives `surfaces/` "protocol ingress" | ruled: SPI in `agentdeck/bindings/`, bindings in `adapters/bindings/<name>/`, `surfaces/` deleted |
-| UI protocol is "Assistant UI" | v2 arch doc says `ag-ui`; the product ask says A2UI | ruled: AG-UI and A2UI both ship; Assistant UI dropped |
+| UI protocol is "Assistant UI" | v2 arch doc says `ag-ui`; the product ask says A2UI | ruled: AG-UI and A2UI ship as protocols; Assistant UI is an external surface that consumes them (or A2A) with no binding of its own |
 | MCP is a tool source | `adapters/tools/mcp/` is client side only | serving the Deck as an MCP server is a new binding with its own mini-design |

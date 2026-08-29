@@ -40,7 +40,7 @@ Concrete classes (`A2AHttpBinding`, `ACPStdioBinding`, ...) stay behind the fact
 |---|---|---|---|
 | protocol | machine-facing interoperability contract | A2A, ACP, MCP, AG-UI, A2UI | streaming, hitl, control |
 | channel | existing communication network with its own messaging identity and API | Slack, WhatsApp, Telegram, Discord | no streaming; posts on `message.completed`; buttons from `run.interrupted` |
-| surface | user-facing interface someone uses to interact with the Deck | Terminal (`agentdeck chat`), TUI, web app, desktop app | streams; prompts from `run.interrupted` |
+| surface | user-facing interface AgentDeck hosts in-process | Terminal (`agentdeck chat`), TUI | streams; prompts from `run.interrupted` |
 
 Same contract, same gateway; the kind is data. A channel ACKs its webhook, then tails the run from a task the Exposure owns (`start()`), and keeps a durable map from its message ids to the Run address. `Terminal.stdio()` is the one surface in the v6 epic and the simplest binding: no webhook, auth, store or background task; channels are outside it; the fixture plugin under `tests/` is channel-shaped so the SPI is proven against that pattern (`rulings.md` 31 to 33).
 
@@ -61,6 +61,22 @@ stdin → ACP binding → ProtocolGateway → Deck → ACP binding → stdout
 ```
 
 The gateway knows nothing about transport.
+
+## External surfaces are clients, not bindings
+
+```text
+Assistant UI React app       IDE            another agent      ← external surfaces
+        │                     │                  │
+@assistant-ui/react-ag-ui    ACP client        A2A client
+        │                     │                  │
+   AGUI.http()           ACP.stdio()         A2A.http()        ← AgentDeck bindings
+        └─────────────────────┼──────────────────┘
+                       ProtocolGateway
+                              │
+                             Deck
+```
+
+Assistant UI already ships AG-UI and A2A runtimes, so a web UI for the v6.0 trio is `useAgUiRuntime` or the A2A runtime pointed at the binding's path, with no AgentDeck code. No `AssistantUIBinding` is written (`rulings.md` 38).
 
 ## The reference trio
 
