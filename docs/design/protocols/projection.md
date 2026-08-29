@@ -53,7 +53,7 @@ Conversion is explicit. Unrepresentable input is rejected with `INVALID_INPUT`, 
 
 ## Artifacts
 
-`artifact.created` is projected as metadata or a reference only, never bytes. Bytes stream through `gateway.open_artifact()`; each binding serves them its own way (A2A `FilePart` uri, MCP resource, ACP resource, AG-UI and A2UI attachment URL, Native download route) and never writes that URL into the event.
+`artifact.created` is a reference: `{artifact_id, media_type, uri, size}`. A binding projects it into its protocol-native artifact or resource type carrying that uri (A2A `FilePart` uri, MCP resource, ACP resource, AG-UI and A2UI attachment), or skips it if the protocol has none. AgentDeck does not fetch, store or proxy the bytes; the uri is owned by whoever produced it. Storage and retrieval are a separate future Artifacts epic.
 
 ## Protocol-specific state
 

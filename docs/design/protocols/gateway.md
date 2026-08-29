@@ -21,11 +21,9 @@ class ProtocolGateway(Protocol):
     async def get_run(self, run_id: str, *, namespace: str | None = None) -> Run: ...
     async def list_runs(self, *, namespace: str | None = None, status: RunStatus | None = None,
                         limit: int | None = None) -> Sequence[Run]: ...
-    def open_artifact(self, run_id: str, artifact_id: str, *,
-                      namespace: str | None = None) -> AsyncIterator[bytes]: ...
 ```
 
-`start`, `get_run` and `list_runs` are `deck.runs.start`, `deck.runs.get` and `deck.runs.list` (`agentdeck/deck.py`, class `Runs`) with the same signatures. The gateway does not reimplement them; it wraps them and adds what `Runs` lacks: `targets()`, `capabilities`, `open_artifact()` (streams bytes from the `ArtifactStorePort`, scoped like `get_run`), and failure classification.
+`start`, `get_run` and `list_runs` are `deck.runs.start`, `deck.runs.get` and `deck.runs.list` (`agentdeck/deck.py`, class `Runs`) with the same signatures. The gateway does not reimplement them; it wraps them and adds what `Runs` lacks: `targets()`, `capabilities`, and failure classification. The gateway covers targets, runs, events, control and HITL; artifact bytes are out of its scope (`rulings.md` 14).
 
 Everything else is already on `Run`: `id`, `namespace`, `session_id`, `status()`, `can`, `events(from_seq=, follow=)`, `cancel()`, `pause()`, `resume()`, `pending()`, `answer()`. Plugins consume `Run`; they never construct one.
 
@@ -50,7 +48,7 @@ Two layers, never merged.
 
 | layer | question | where |
 |---|---|---|
-| deployment | `control`: is a control backend configured, so pause, resume and cancel reach runs; `durable`: do events and artifacts survive restart, so `from_seq` reconnect is honest | `gateway.capabilities` |
+| deployment | `control`: is a control backend configured, so pause, resume and cancel reach runs; `durable`: do events survive restart, so `from_seq` reconnect is honest | `gateway.capabilities` |
 | run | can this Run be cancelled, paused, resumed right now | `run.can` |
 
 ```python
