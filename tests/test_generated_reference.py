@@ -1,14 +1,16 @@
 """Regenerate-and-diff for every generated reference page (`docs-site/content/reference/
 {settings,cli}.mdx`, `docs-site/content/changelog.mdx`, `docs-site/public/{llms.txt,
-llms-full.txt}`): a generated page that can silently drift from the source it was generated from
-is worse than a hand-written one, because nobody suspects it. Run
-`python scripts/generate_docs_reference.py` to refresh the committed pages after changing
+llms-full.txt}`, `docs-site/app/generated-version.ts`): a generated page that can silently drift
+from the source it was generated from is worse than a hand-written one, because nobody suspects
+it. Run `python scripts/generate_docs_reference.py` to refresh the committed pages after changing
 `agentdeck/runtime/settings.py`, `agentdeck/cli.py`, `CHANGELOG.md`, or any `docs-site/content/**/*.mdx`
 page, and this suite fails loudly if that step was skipped.
 
-Three of the five are pinned byte for byte: `settings.mdx`, `cli.mdx` and `llms.txt`. They
-derive from `agentdeck/runtime/settings.py`, `agentdeck/cli.py` and the set of docs pages, none
-of which two PRs edit at once by accident.
+Four of the six are pinned byte for byte: `settings.mdx`, `cli.mdx`, `llms.txt` and
+`generated-version.ts`. The first three derive from `agentdeck/runtime/settings.py`,
+`agentdeck/cli.py` and the set of docs pages, none of which two PRs edit at once by accident.
+`generated-version.ts` derives from `CHANGELOG.md`'s newest *released* heading, which only a
+release-cut commit adds  -  never two concurrent PRs at once, unlike an `## [Unreleased]` entry.
 
 **`changelog.mdx` and `llms-full.txt` are asserted regenerable, not byte-equal, and that is
 deliberate.** Both derive from `CHANGELOG.md`, which is `merge=union` in `.gitattributes`
@@ -33,8 +35,10 @@ from generate_docs_reference import (
     LLMS_FULL_PAGE,
     LLMS_PAGE,
     SETTINGS_PAGE,
+    VERSION_PAGE,
     render_changelog_mdx,
     render_cli_mdx,
+    render_generated_version_ts,
     render_llms_full_txt,
     render_llms_txt,
     render_settings_mdx,
@@ -56,6 +60,10 @@ def test_cli_reference_page_matches_the_generator() -> None:
 
 def test_llms_txt_matches_the_generator() -> None:
     assert LLMS_PAGE.read_text() == render_llms_txt(), f"{LLMS_PAGE} is stale  -  {_REGEN_HINT}"
+
+
+def test_version_page_matches_the_generator() -> None:
+    assert VERSION_PAGE.read_text() == render_generated_version_ts(), f"{VERSION_PAGE} is stale  -  {_REGEN_HINT}"
 
 
 def test_the_changelog_page_can_be_regenerated() -> None:

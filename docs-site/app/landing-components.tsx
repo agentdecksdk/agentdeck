@@ -22,13 +22,12 @@ const DOC_SLUGS = docsSlugs()
 
 export { Hero }
 
-const RELEASE = '4.0.5'
 const REPO = 'https://github.com/agentdecksdk/agentdeck'
 const JACK_SOURCE = `${REPO}/tree/dev/examples/jack`
 
 type Status = 'shipped' | 'proposed'
 
-/** What release a block belongs to, on the block. */
+/** Whether a code block is shipped or proposed, on the block. */
 export function Snippet({ status, children }: { status: Status; children?: React.ReactNode }) {
   const shipped = status === 'shipped'
   return (
@@ -36,7 +35,7 @@ export function Snippet({ status, children }: { status: Status; children?: React
       <p className="snippet-head">
         <span className={`status-chip is-${status}`}>
           <span aria-hidden="true">{shipped ? '◆' : '◇'}</span>
-          {shipped ? `v${RELEASE}` : 'proposed'}
+          {status}
         </span>
       </p>
       {children}
