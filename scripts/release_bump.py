@@ -79,10 +79,35 @@ def latest_tag(run: Runner) -> str:
     return tags[0]
 
 
-def referenced_issues(log_text: str) -> list[int]:
+def referenced_issues(text: str) -> list[int]:
     seen: dict[int, None] = {}
-    for match in FIXES_RE.finditer(log_text):
+    for match in FIXES_RE.finditer(text):
         seen.setdefault(int(match.group(1)), None)
+    return list(seen)
+
+
+def merged_pr_numbers_since(tag: str, run: Runner) -> list[int]:
+    """PRs merged into ``dev`` since ``tag``, oldest first.
+
+    A closing keyword lives in the PR body, not the commit message: this repo merges with
+    ``--merge`` rather than squashing, so a PR body's text never reaches ``git log`` at all (the
+    gap that left #560 out of v5.2.1's own milestone on the first real run of this script).
+    """
+    log = run(["git", "log", f"{tag}..HEAD", "--merges", "--format=%s"])
+    numbers: list[int] = []
+    for line in log.splitlines():
+        match = re.search(r"Merge pull request #(\d+)", line)
+        if match:
+            numbers.append(int(match.group(1)))
+    return numbers
+
+
+def referenced_issues_in_merged_prs(tag: str, run: Runner) -> list[int]:
+    seen: dict[int, None] = {}
+    for pr in merged_pr_numbers_since(tag, run):
+        body = run(["gh", "pr", "view", str(pr), "--repo", REPO, "--json", "body", "-q", ".body"])
+        for issue in referenced_issues(body):
+            seen.setdefault(issue, None)
     return list(seen)
 
 
@@ -122,8 +147,7 @@ def cmd_issues(version: str, run: Runner = run_command) -> int:
     milestone = f"v{version}"
     ensure_milestone(milestone, run)
 
-    log = run(["git", "log", f"{latest_tag(run)}..HEAD", "--format=%B%x00"]).replace("\x00", "\n")
-    issues = referenced_issues(log)
+    issues = referenced_issues_in_merged_prs(latest_tag(run), run)
     for issue in issues:
         run(["gh", "issue", "edit", str(issue), "--repo", REPO, "--milestone", milestone])
 
