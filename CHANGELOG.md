@@ -8,6 +8,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+
+- **A deployment guide for running a Deck as a service** (#353): the
+  `AGENTDECK_EVENTS`/`AGENTDECK_CONTROL`/`AGENTDECK_SESSION` durability defaults, a systemd unit,
+  `aclose()` on `SIGTERM`, uvicorn's graceful-shutdown behavior against an open SSE connection,
+  and reverse-proxy buffering. See [Deployment](https://agentdecksdk.com/operate/deployment).
+
 ### Changed
 
 - **`Reporter` is always synchronous.** `ctx.reporter.info()`/`.warning()`/`.error()`/`.report()`
