@@ -39,11 +39,8 @@ class Exposure:
 
     @asynccontextmanager
     async def _lifecycle(self) -> AsyncIterator[asyncio.Future[None] | None]:
-        """``started`` holds only bindings whose own ``start()`` returned, so a failure on
-        binding N stops 1..N-1 in reverse and never N itself. Shutdown is failure-isolated: the
-        stdio task, every ``stop()``, and ``aclose()`` all run regardless of what failed before,
-        so one exception can never orphan the rest; the first one is re-raised once all of it ran.
-        """
+        """``started`` holds only bindings whose ``start()`` returned, so a failure on binding N
+        stops 1..N-1 and never N; shutdown steps each run in their own ``try`` so none is skipped."""
         owns_deck = not self._deck.is_open
         if owns_deck:
             await self._deck.__aenter__()
@@ -79,9 +76,13 @@ class Exposure:
                 raise first_error
 
     def asgi(self) -> Any:
-        """One ``Starlette`` app, one ``Mount`` per :class:`~agentdeck.bindings.binding.HttpEndpoint`,
-        lifecycle bound to the app's own lifespan. Lazy import: Starlette is not a hard
-        dependency of ``agentdeck.bindings``."""
+        """One ``Starlette`` app with one ``Mount`` per :class:`~agentdeck.bindings.binding.HttpEndpoint`,
+        for embedding in a host that owns the server. Its lifespan is the exposure's lifecycle:
+        on startup it opens the Deck only if the Deck is not already open, then calls each
+        binding's ``start()`` in order; on shutdown it calls ``stop()`` in reverse, then closes the
+        Deck only if this exposure opened it. A ``start()`` failure stops the bindings already
+        started and re-raises; the first exception wins, and every shutdown step still runs.
+        """
         from starlette.applications import Starlette
         from starlette.routing import Mount
 
