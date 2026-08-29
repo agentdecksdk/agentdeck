@@ -2,7 +2,7 @@
 
 One executable Deck, exposed through many external protocols, none of which becomes part of the execution model.
 
-Status: proposed, 2026-08-29. Supersedes the single-file `design.md` (git has it).
+Status: proposed, 2026-08-29. Supersedes the single-file `design.md`, kept in git history one commit back.
 
 ## Mental model
 

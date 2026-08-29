@@ -8,7 +8,7 @@ Status: proposed, 2026-08-29.
 |---|---|---|
 | 1 | contracts only: `ProtocolGateway` over `deck.runs`, `TargetInfo`, `Capabilities`, `GatewayFailureCode`, `ProtocolBinding`, endpoint types, `Exposure` | every contract test below that needs no real protocol passes against a fake binding |
 | 2 | Native HTTP rebuilt as a binding through the gateway | replaces `agentdeck/serve.py` and `surfaces/serve/`; imports nothing private |
-| 3 | UI-facing protocol out of core | streaming, thread mapping, cancel, tool and report projection, HITL, frontend hook |
+| 3 | UI-facing protocol out of core | streaming, thread mapping, cancel, tool and report projection, HITL, frontend hook, with zero special-case code inside AgentDeck |
 | 4 | a structurally different protocol (ACP stdio or A2A) | works with no HTTP present |
 | 5 | freeze SPI v1 | both an HTTP/chat protocol and a task/stdio protocol run cleanly |
 | 6 | convenience: `deck.serve`, CLI flags, discovery/config, packaged plugins, docs | |
