@@ -49,9 +49,9 @@ Direction is always downward: external systems adapt to AgentDeck.
 | design | tree today | consequence |
 |---|---|---|
 | gateway = `start/get/list` returning `Run` | `deck.runs.start/get/list` and `Run` already have that exact signature (`agentdeck/deck.py`) | the gateway is a facade over `deck.runs` plus targets, capabilities and failure mapping; Phase 1 shrinks accordingly |
-| protocol code never touches `Runtime` | `surfaces/serve/app.py` takes a `Runtime` directly | replaced by the Phase 2 native binding, not adapted |
+| protocol code never touches `Runtime` | `surfaces/serve/app.py` takes a `Runtime` directly | ruled: deleted in Phase 2 with `agentdeck/serve.py` and the goldens; nothing is adapted |
 | disconnected reader never cancels the run | `compat.py` documents that `deck.stream()` runs are deck-owned and survive reader cancellation | bindings tail `run.events()`, never a raw runtime generator, and the property holds for free |
 | failure taxonomy maps to wire codes | `agentdeck/serve.py` already maps `NotFoundError` 404, `SessionBusyError` 409, `RunStateError` 409, other `AgentdeckError` 500 | precedent for `GatewayFailure`; the mapping moves behind the gateway |
-| protocols live in one place | `agentdeck-v2-architecture.md` says `adapters/protocols/` (Ring 2); `engineering/architecture.md` gives `surfaces/` "protocol ingress" | needs a ruling before Phase 1 code (see `roadmap.md`) |
-| UI protocol is "Assistant UI" | v2 arch doc says `ag-ui`; the product ask says A2UI | three different protocols; Phase 3 target needs a ruling |
+| protocols live in one place | `agentdeck-v2-architecture.md` says `adapters/protocols/` (Ring 2); `engineering/architecture.md` gives `surfaces/` "protocol ingress" | ruled: SPI in `agentdeck/protocols/`, bindings in `adapters/protocols/<name>/`, `surfaces/` keeps the CLI |
+| UI protocol is "Assistant UI" | v2 arch doc says `ag-ui`; the product ask says A2UI | ruled: AG-UI and A2UI both ship; Assistant UI dropped |
 | MCP is a tool source | `adapters/tools/mcp/` is client side only | serving the Deck as an MCP server is a new binding with its own mini-design |
