@@ -10,7 +10,7 @@ Status: proposed, 2026-08-29.
 | 2 | Native HTTP and `Terminal.stdio()` (the first surface) as bindings, with a versioned wire spec and `@agentdeck/client` through the gateway; `agentdeck/serve.py`, all of `surfaces/`, the `agentdeck-serve` script and the goldens deleted; `agentdeck chat` runs `Terminal.stdio()` | imports nothing private; no v1 route survives; `engineering/architecture.md` ownership table updated |
 | 3 | `A2A.http()` (protocol) | tasks, `contextId` session, `taskId` key, `input-required` HITL, `tasks/resubscribe` from `seq`, AgentCard from `TargetInfo` |
 | 4 | `WhatsApp.http()` (channel) | webhook ACK then Exposure-owned tail, `message.completed` posting, reply buttons for HITL, durable phone-to-run map |
-| 5 | freeze SPI v1 | both an HTTP/chat protocol and a task/stdio protocol run cleanly |
+| 5 | freeze SPI v1 | the trio runs on one Deck: a run started over A2A is visible from the Terminal, WhatsApp answers an interrupt, every contract test passes |
 | 6 | AG-UI, A2UI, ACP, MCP server as 6.x minors; convenience: `deck.serve` sugar, `.agentdeck/bindings` config, CLI flags, extras, docs | v6.x |
 
 Phase 1 is small because `deck.runs` already has the gateway's shape (`gateway.md`).
