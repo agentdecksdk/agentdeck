@@ -40,6 +40,17 @@ shipped only the raise half; this half  -  the warning and the hashing fix  -  w
 implemented. The behavior described here is unchanged in the tree, and no open issue currently
 tracks it.
 
+```python
+@tool
+def get_user(user_id: str) -> object:
+    return object()          # not JSON-serializable
+```
+
+```text
+# the model receives, and the event log records byte-for-byte:
+<object object at 0x7fb09bf28b30>
+```
+
 **Until it is fixed:** return JSON-compatible values from tools. If you return an object today,
 check what the model is actually receiving.
 &nbsp;→ [#251](https://github.com/agentdecksdk/agentdeck/issues/251), folded into

@@ -1105,13 +1105,34 @@ person or start another run would no longer be a leaf.
 | `ctx.agent`, `ctx.run_id`, `ctx.session_id` | yes | yes |
 | `ctx.reporter`, report progress out of band | yes | yes |
 | `await ctx.safepoint()`, offer a pause/cancel point | yes, async body only | yes |
-
-A sync `@tool` body runs on a worker thread: `ctx.reporter` still works there (it marshals onto the
-run's own loop and blocks until accepted), but `ctx.safepoint()` raises `ConfigError`  -
-cooperative cancellation needs an await point a synchronous function does not have.
 | `await ctx.ask(question, options=...)`, suspend for an answer | no | yes |
 | `ctx.invoke(target, ...)`, `await ctx.parallel(...)`, start child runs | no | yes |
 | `ctx.agents.create()`, `ctx.agents.fork()`, mint an agent not in the catalog | no | yes |
+
+`ctx.reporter` is always synchronous (`ctx.reporter.info(...)`, no `await`), on a sync `@tool`'s
+worker thread exactly as on the event loop. Only `ctx.safepoint()` distinguishes the two: a sync
+body runs on a worker thread with no await point to suspend on, so it raises `ConfigError` there.
+
+### Reporting progress
+
+Four methods, each becomes a `report` event ([reference](/reference/events#reporting)) on the run's
+log. Advisory: reporting never changes run status, and a call with no observer attached still
+validates and drops silently rather than raising inside your tool.
+
+| Method | For |
+|---|---|
+| `ctx.reporter.info(message, **fields)` | progress a person reads |
+| `ctx.reporter.warning(message, **fields)` | a fallback taken, a source unavailable |
+| `ctx.reporter.error(message, **fields)` | something the run could not do; does not fail the run |
+| `ctx.reporter.report(name, **fields)` | a named, structured fact for a consumer that filters |
+
+```python
+@tool
+async def refresh_cache(source: str, cache: ToolCtx[Cache]) -> str:
+    """Refresh one cache entry."""
+    cache.reporter.info("refreshing", source=source)
+    return cache.data.refresh(source)
+```
 
 ## Where it does not reach
 
@@ -1922,6 +1943,15 @@ are written for someone using the package: what changed, and what to do about it
 
 The current release is **v5.1.0**. Earlier releases are listed at the bottom.
 
+## Unreleased
+
+### Changed
+
+- **`Reporter` is always synchronous.** `ctx.reporter.info()`/`.warning()`/`.error()`/`.report()`
+  are plain methods now, not coroutines  -  drop the `await` at every call site. `SyncReporter` is
+  gone; `ToolCtx.reporter` returns the same `Reporter` whether the body runs on the event loop or
+  a worker thread. The buffer it enqueues into is thread-safe either way.
+
 ## v5.1.0
 
 *Released 2026-08-28.*
@@ -2051,6 +2081,17 @@ reasoning that both are "a tool result mishandled in the same translation functi
 shipped only the raise half; this half  -  the warning and the hashing fix  -  was never
 implemented. The behavior described here is unchanged in the tree, and no open issue currently
 tracks it.
+
+```python
+@tool
+def get_user(user_id: str) -> object:
+    return object()          # not JSON-serializable
+```
+
+```text
+# the model receives, and the event log records byte-for-byte:
+<object object at 0x7fb09bf28b30>
+```
 
 **Until it is fixed:** return JSON-compatible values from tools. If you return an object today,
 check what the model is actually receiving.
