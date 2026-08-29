@@ -1,0 +1,59 @@
+# Exposure
+
+The composition object that validates bindings, owns their lifecycle, and hosts them.
+
+Status: proposed, 2026-08-29.
+
+## API
+
+```python
+exposure = deck.expose(Native.http(path="/"), A2A.http(path="/a2a"))
+
+app = exposure.asgi()                       # embed in FastAPI/Starlette
+await exposure.serve(host="0.0.0.0", port=8000)   # standalone
+```
+
+`deck.serve(*bindings)` is sugar for `deck.expose(*bindings).serve()`. `expose()` is the contract.
+
+## Many protocols, one Deck
+
+```python
+await deck.serve(Native.http(path="/"), A2A.http(path="/a2a"), <UI>.http(path="/ui"))
+```
+
+Same agents, Runs, sessions, events and controls. A run started over A2A is visible over native HTTP, namespace and authorization permitting. That is a contract test.
+
+## HTTP composition
+
+```text
+:8000/
+  ├── /api/...    Native
+  ├── /a2a/...    A2A
+  └── /ui/...     UI
+```
+
+Each binding supplies an isolated ASGI app. The host mounts them. No protocol starts Uvicorn.
+
+## Lifecycle
+
+```text
+create Deck → create bindings → validate exposure → open Deck → build gateway
+→ start bindings → serve → stop bindings → close Deck if exposure opened it
+```
+
+Ownership: whoever opens something closes it. Mounting onto an already-open Deck takes no ownership of it; `exposure.serve()` that opened the Deck closes it. Same rule for binding-owned resources.
+
+## Validation before start
+
+Fails at `expose()`, never after a listener is up:
+
+```text
+two HTTP bindings claim one path
+two stdio bindings claim stdin/stdout
+unsupported binding combination
+invalid protocol configuration
+```
+
+## Atomic startup
+
+If any binding fails to start, every started binding stops, exposure-owned resources close, the Deck closes if exposure opened it, and the failure is raised. Never half a protocol set running.
