@@ -39,21 +39,19 @@ class Exposure:
         owns_deck = not self._deck.is_open
         if owns_deck:
             await self._deck.__aenter__()
-        started: list[Binding] = []
+        to_stop: list[Binding] = []
         stdio_task: asyncio.Future[None] | None = None
         first_error: BaseException | None = None
         try:
             for binding in self._bindings:
+                to_stop.append(binding)
                 await binding.start()
-                started.append(binding)
             if self._stdio is not None:
                 stdio_task = asyncio.ensure_future(self._stdio.run())
             yield stdio_task
         except BaseException as error:
             first_error = error
         finally:
-            # Every step in its own try: one failure must not skip the rest, and the error the
-            # caller sees is the first one, not whatever failed last on the way out.
             if stdio_task is not None:
                 stdio_task.cancel()
                 try:
@@ -62,7 +60,7 @@ class Exposure:
                     pass
                 except BaseException as error:
                     first_error = first_error or error
-            for binding in reversed(started):
+            for binding in reversed(to_stop):
                 try:
                     await binding.stop()
                 except BaseException as error:
@@ -85,8 +83,7 @@ class Exposure:
             async with self._lifecycle():
                 yield
 
-        # A Mount matches by prefix and Starlette takes the first match, so "/api" ahead of
-        # "/api/admin" would swallow it: deepest path first.
+        # Mounts are prefix-matched in order; deepest path wins.
         ordered = sorted(self._http, key=lambda endpoint: _depth(endpoint.path), reverse=True)
         root = next((e for e in ordered if _normalize(e.path) == "/"), None)
         app = Starlette(
@@ -94,8 +91,8 @@ class Exposure:
             lifespan=lifespan,
         )
         if root is not None:
-            # Not a Mount: `Mount("/")` matches everything, and a bare "/a2a" (no trailing slash,
-            # which no Mount pattern matches) would reach the root app instead of redirecting.
+            # Root is the fallback, not a Mount, so it cannot shadow a nested mount (a bare
+            # "/a2a" matches no Mount pattern and would otherwise reach the root app).
             app.router.default = root.app
         return app
 

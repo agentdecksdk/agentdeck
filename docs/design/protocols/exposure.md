@@ -36,7 +36,7 @@ create Deck → create bindings → validate metadata → build gateway and endp
 
 Nothing opens before validation: the gateway constructor only stores the Deck and `build()` is pure, so real endpoints exist to validate while the Deck is still closed.
 
-Every binding's background task runs under the Exposure. If any `start()` fails, the bindings already started stop in reverse, exposure-owned resources close, the Deck closes if the exposure opened it, and the first failure is the one raised: each shutdown step runs in its own `try`, the Deck's own close included.
+Every binding's background task runs under the Exposure. If any `start()` fails, every binding reached stops in reverse, the one that raised included, since `stop()` tolerates a missing start and whatever that `start()` allocated still has to be released. Exposure-owned resources close, the Deck closes if the exposure opened it, and the first failure is the one raised: each shutdown step runs in its own `try`, the Deck's own close included.
 
 Ownership: whoever opens something closes it. Mounting onto an open Deck takes no ownership; an `exposure.serve()` that opened the Deck closes it. Same for binding-owned resources.
 

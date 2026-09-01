@@ -1,5 +1,4 @@
-"""``Exposure``: validation at ``expose()``, then lifecycle ownership. Fake bindings only:
-no concrete protocol exists yet (#548 adds the first)."""
+"""``Exposure``: validation at ``expose()``, then lifecycle ownership, against fake bindings."""
 
 from __future__ import annotations
 
@@ -190,6 +189,24 @@ def test_stdio_and_http_binding_run_in_one_exposure(no_project, recorder):
     assert recorder.stopped == ["term", "a"]
 
 
+def test_the_binding_whose_start_raised_is_stopped_before_the_earlier_ones(no_project, recorder):
+    """``stop()`` is contracted to tolerate a missing start, so whatever ``start()`` allocated
+    before raising still gets released."""
+    deck = Deck(agents=[])
+
+    def boom():
+        raise RuntimeError("boom")
+
+    exposure = deck.expose(_Http("a", "/a", recorder), _Http("b", "/b", recorder, on_start=boom))
+
+    with pytest.raises(RuntimeError, match="boom"), TestClient(exposure.asgi()):
+        pass
+
+    assert recorder.started == ["a"]
+    assert recorder.stopped == ["b", "a"]
+    assert not deck.is_open
+
+
 def test_failed_start_on_binding_three_rolls_back_and_closes_owned_deck(no_project, recorder):
     deck = Deck(agents=[])
 
@@ -206,7 +223,7 @@ def test_failed_start_on_binding_three_rolls_back_and_closes_owned_deck(no_proje
         pass
 
     assert recorder.started == ["a", "b"]
-    assert recorder.stopped == ["b", "a"]
+    assert recorder.stopped == ["c", "b", "a"]
     assert not deck.is_open
 
 

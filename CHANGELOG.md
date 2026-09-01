@@ -24,7 +24,7 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   binding, all before anything opens. `exposure.asgi()` mounts every
   `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
   `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
-  `start()` on binding N stops 1..N-1 in reverse and raises. `Deck.is_open` is new too.
+  `start()` on binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too.
 - **`agentdeck.bindings`, the protocol SPI** (#545): `DeckGateway` (`targets()`,
   `capabilities`, `start`/`get_run`/`list_runs`), `GatewayError`/`GatewayFailureCode`, `Binding`,
   `BindingInfo`, `HttpEndpoint`/`StdioEndpoint`. No concrete binding ships yet; this is the
