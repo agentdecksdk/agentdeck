@@ -10,7 +10,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 from agentdeck.authoring.skills import _load_skill, skills_resolver
-from agentdeck.errors import DOCS_URL, ConfigError, NotFoundError
+from agentdeck.core.errors import DOCS_URL
+from agentdeck.errors import ConfigError, NotFoundError
 from agentdeck.skills import Skills
 
 if TYPE_CHECKING:

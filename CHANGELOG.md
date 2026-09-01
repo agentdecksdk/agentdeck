@@ -28,6 +28,28 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `Exposure` now checks the kinds an advertised capability actually requires against `projects`
   (canonical event kinds only), instead of comparing capability names to themselves. The fixture
   and Native's `BindingInfo.projects` are fixed to hold kinds, not capability names.
+- **`agentdeck.bindings`, the protocol SPI** (#545): `DeckGateway` (`targets()`,
+  `capabilities`, `start`/`get_run`/`list_runs`), `GatewayError`/`GatewayFailureCode`, `Binding`,
+  `BindingInfo`, `HttpEndpoint`/`StdioEndpoint`. No concrete binding ships yet; this is the
+  contract the first one (#548) builds against.
+- **`Deck.expose(*bindings) -> Exposure`** (#546): validates duplicate HTTP paths, more than one
+  stdio binding, a repeated binding name, an unsupported `spi_version`, and a missing prerequisite
+  binding, all before anything opens. `exposure.asgi()` mounts every
+  `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
+  `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
+  `start()` on binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too.
+
+### Changed
+
+- **`agentdeck.errors` is the one import path for the error taxonomy.** `AgentdeckError`,
+  `ConfigError`, `ContextTypeError`, `NotFoundError`, `SessionBusyError`, `SkillError` and
+  `StoreError` are no longer exported from `agentdeck` itself: `from agentdeck.errors import
+  AgentdeckError` for a catch-all. `agentdeck.errors` has always carried the complete set.
+- **`Event` is exported from `agentdeck`.** `run.events()` yields them, so a caller that reads a
+  run needs the type; it was already documented as a public import for binding authors.
+
+  The root keeps the everyday vocabulary, a feature namespace keeps its own, and no public name
+  lives at two paths (`docs/engineering/architecture.md` 3).
 
 ## [5.2.1] - 2026-08-29
 
@@ -40,16 +62,6 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Added
 
-- **`agentdeck.bindings`, the protocol SPI** (#545): `ProtocolGateway` (`targets()`,
-  `capabilities`, `start`/`get_run`/`list_runs`), `GatewayError`/`GatewayFailureCode`, `Binding`,
-  `BindingInfo`, `HttpEndpoint`/`StdioEndpoint`. No concrete binding ships yet; this is the
-  contract the first one (#548) builds against.
-- **`Deck.expose(*bindings) -> Exposure`** (#546): validates duplicate HTTP paths, more than one
-  stdio binding, an unsupported `spi_version`, an advertised capability with no projection, and a
-  missing prerequisite binding, all before anything opens. `exposure.asgi()` mounts every
-  `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
-  `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
-  `start()` on binding N stops 1..N-1 in reverse and raises. `Deck.is_open` is new too.
 - **A deployment guide for running a Deck as a service** (#353): the
   `AGENTDECK_EVENTS`/`AGENTDECK_CONTROL`/`AGENTDECK_SESSION` durability defaults, a systemd unit,
   `aclose()` on `SIGTERM`, uvicorn's graceful-shutdown behavior against an open SSE connection,

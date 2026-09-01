@@ -18,4 +18,5 @@ forbidden_modules =
     agentdeck.runtime
     agentdeck.adapters
     agentdeck.deck
+    agentdeck.core
 allow_indirect_imports = True

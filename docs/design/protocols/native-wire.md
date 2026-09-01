@@ -2,13 +2,13 @@
 
 `native-wire v1`. Independent of `PROTOCOL_SPI_VERSION`: this is the HTTP contract `Native.http()` serves, not the SPI a plugin builds against.
 
-Status: proposed, 2026-08-29. Every route reaches a Deck through `ProtocolGateway` or a public `Run` method (`docs/design/protocols/gateway.md`); a test (`tests/bindings/test_native_binding.py`) diffs the table below against the app's own routes, so they cannot drift.
+Every route reaches a Deck through `DeckGateway` or a public `Run` method (`docs/design/protocols/gateway.md`). A test (`tests/bindings/test_native_binding.py`) diffs the route table below against the app's own routes, so a route cannot appear in one and not the other; the request shapes and status codes are held by that file's behavioural tests, not by parsing this page.
 
 ## Routes
 
 | method | path | request body | response body | error codes |
 |---|---|---|---|---|
-| GET | `/targets` | none | `[{name, kind, description, input_schema}]` | none |
+| GET | `/targets` | none | `[{name, kind, description, input_schema}]` | 500 |
 | POST | `/runs` | `{target, input, session_id?, key?}` | run summary | 422, 409, 500 |
 | GET | `/runs` | query: `status?`, `limit?` | `[run summary]` | 422, 500 |
 | GET | `/runs/{run_id}` | none | run summary | 404, 500 |
@@ -21,7 +21,7 @@ Status: proposed, 2026-08-29. Every route reaches a Deck through `ProtocolGatewa
 
 A run summary is `{run_id, namespace, session_id, status, can: {pause, resume, cancel}}`.
 
-`input` on `POST /runs` is forwarded to `ProtocolGateway.start` unchanged: a string for free text, or whatever a workflow target's own parameters accept. Rejected non-text content for an agent target surfaces as 422, named by the coercion failure.
+`input` on `POST /runs` is forwarded to `DeckGateway.start` unchanged: a string for free text, or whatever a workflow target's own parameters accept. Rejected non-text content for an agent target surfaces as 422, named by the coercion failure.
 
 ## Errors
 
@@ -36,7 +36,7 @@ Every non-2xx body is `{"detail": "<message>"}`. `GatewayFailureCode` maps onto 
 | `UNSUPPORTED` | 501 |
 | `INTERNAL` | 500, message fixed to `"internal error"`, never the exception's own text |
 
-`RunStateError` and `UnsupportedControlError` from a `Run` control method (not gateway-wrapped: `cancel`/`pause`/`resume`/`answer` live on `Run`, not `ProtocolGateway`) map to `CONFLICT`/`UNSUPPORTED` the same way, with their own message.
+`RunStateError` and `UnsupportedControlError` from a `Run` control method (not gateway-wrapped: `cancel`/`pause`/`resume`/`answer` live on `Run`, not `DeckGateway`) map to `CONFLICT`/`UNSUPPORTED` the same way, with their own message.
 
 ## SSE framing and reconnect
 

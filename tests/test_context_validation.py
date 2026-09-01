@@ -27,6 +27,7 @@ import pytest
 from agents import AgentHooks, WebSearchTool
 
 import agentdeck
+import agentdeck.errors
 from agentdeck import tool
 from agentdeck.authoring import Agent
 from agentdeck.core.context import ToolCtx  # noqa: TC001  -  the subjects below must resolve it at runtime
@@ -341,9 +342,11 @@ def test_the_refusal_survives_the_bundle_wrap_of_a_discovered_project(tmp_path, 
     assert "requires MiddleContext" in str(raised.value)
 
 
-def test_context_type_error_is_exported_from_the_package_root() -> None:
-    assert agentdeck.ContextTypeError is ContextTypeError
-    assert "ContextTypeError" in agentdeck.__all__
+def test_context_type_error_is_exported_from_agentdeck_errors() -> None:
+    """The taxonomy has one import path (`docs/engineering/architecture.md` 3); the root keeps
+    `AgentdeckError` alone."""
+    assert agentdeck.errors.ContextTypeError is ContextTypeError
+    assert "ContextTypeError" in agentdeck.errors.__all__
 
 
 # --- the declaration is a type, and a deck may still declare none ---------------------------------

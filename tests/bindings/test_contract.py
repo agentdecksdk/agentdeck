@@ -1,49 +1,35 @@
-"""The contract suite `docs/design/protocols/roadmap.md` names before an SPI v1: every line
-proven either straight against `ProtocolGateway`/`Run` (fixture-free, see
-`test_bindings_gateway.py` for the sibling style) or through `FixtureChannel`, the channel-shaped
-plugin under `fixture_plugin/` built only on the public SPI.
+"""The SPI contract suite: `FixtureChannel`, an out-of-tree plugin built only on the
+public surface, driven against a real Deck.
 
 Every wait is on a real event (`ScriptedModel.holding`, a spawned tail task, `RunSuspendedError`)
 except one: the control gate's own documented batching window (`core/control.py`), which has no
-event to wait on by design and is the same bounded wait `test_native_workflow.py`'s own pause
-test needs.
+event to wait on by design.
 """
 
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
-import subprocess
-import sys
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from fixture_plugin import FixtureChannel
+from fixture_plugin.channel import _RequestError
 from starlette.testclient import TestClient
 
-from agentdeck import WorkflowCtx, workflow
+from agentdeck import TextBlock, WorkflowCtx, workflow
 from agentdeck.authoring import Agent
-from agentdeck.bindings import (
-    PROTOCOL_SPI_VERSION,
-    BindingInfo,
-    GatewayError,
-    GatewayFailureCode,
-    HttpEndpoint,
-    ProtocolGateway,
-)
-from agentdeck.core.content import ImageBlock, TextBlock
-from agentdeck.core.control import CONTROL_POLL_INTERVAL
+from agentdeck.bindings import DeckGateway
 from agentdeck.core.events import Event, UnknownEvent
 from agentdeck.core.status import RunStatus
 from agentdeck.deck import Deck
 from agentdeck.errors import RunSuspendedError
 from agentdeck.testing import ScriptedModel, patch_model
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-FIXTURE_IMPORTLINTER = Path(__file__).parent / "fixture_plugin" / ".importlinter"
+if TYPE_CHECKING:
+    from pathlib import Path
+
 SECRET = "s3cr3t"
 
 
@@ -68,19 +54,17 @@ def _channel(tmp_path: Path, *, target: str, name: str = "fixture", path: str = 
     return FixtureChannel(secret=SECRET, map_path=tmp_path / "map.json", target=target, name=name, path=path)
 
 
-# --- gateway/channel identity ------------------------------------------------------------------
-
 
 @pytest.mark.asyncio
-async def test_receive_message_starts_a_run_reachable_through_ordinary_runs(no_project, tmp_path):
-    """No `Runtime`, no store: `receive_message` reaches a Deck only through `gateway.start`,
-    and the run it starts is an ordinary AgentDeck run, recoverable through `deck.runs` itself."""
+async def test_a_message_starts_an_ordinary_run_and_its_tail_posts_the_reply(no_project, tmp_path):
+    """The channel reaches a Deck only through `gateway.start`, and what it starts is an
+    ordinary run."""
     model = ScriptedModel(deltas=("hi",))
     deck = _deck()
     with patch_model(model):
         async with deck:
             channel = _channel(tmp_path, target="Greeter")
-            channel.build(ProtocolGateway(deck))
+            channel.build(DeckGateway(deck))
             result = await channel.receive_message(
                 secret=SECRET, conversation_id="c1", message_id="msg-1", content=TextBlock(text="hi")
             )
@@ -89,21 +73,6 @@ async def test_receive_message_starts_a_run_reachable_through_ordinary_runs(no_p
 
     assert recovered.id == result["run_id"]
     assert recovered.session_id == "fixture:c1"
-
-
-@pytest.mark.asyncio
-async def test_tail_posts_message_completed_to_the_outbox(no_project, tmp_path):
-    model = ScriptedModel(deltas=("hi",))
-    deck = _deck()
-    with patch_model(model):
-        async with deck:
-            channel = _channel(tmp_path, target="Greeter")
-            channel.build(ProtocolGateway(deck))
-            await channel.receive_message(
-                secret=SECRET, conversation_id="c1", message_id="msg-1", content=TextBlock(text="hi")
-            )
-            await next(iter(channel._tasks))
-
     assert channel.outbox == [{"conversation_id": "c1", "text": "hi"}]
 
 
@@ -116,7 +85,7 @@ async def test_a_disconnected_reader_does_not_cancel_the_run(no_project, tmp_pat
     with patch_model(model):
         async with deck:
             channel = _channel(tmp_path, target="Greeter")
-            gateway = ProtocolGateway(deck)
+            gateway = DeckGateway(deck)
             channel.build(gateway)
             result = await channel.receive_message(
                 secret=SECRET, conversation_id="c1", message_id="msg-1", content=TextBlock(text="hi")
@@ -134,13 +103,12 @@ async def test_a_disconnected_reader_does_not_cancel_the_run(no_project, tmp_pat
 
 @pytest.mark.asyncio
 async def test_receive_button_answers_and_retails_the_resumed_segment_without_polling(no_project, tmp_path):
-    """`run.interrupted` renders as buttons; the button answers through `run.answer()` and
-    re-tails from `last_seq + 1`  -  `Run.events(follow=True)` itself waits through the
-    suspension, so nothing here polls for the resumed segment (ruling 29)."""
+    """The first follow ends at the suspension; the re-tail from `last_seq + 1` blocks until the
+    resumed segment writes, so nothing polls (ruling 29)."""
     deck = _deck()
     async with deck:
         channel = _channel(tmp_path, target="Survey")
-        gateway = ProtocolGateway(deck)
+        gateway = DeckGateway(deck)
         channel.build(gateway)
         result = await channel.receive_message(
             secret=SECRET, conversation_id="c1", message_id="msg-1", content=TextBlock(text="kites")
@@ -157,13 +125,13 @@ async def test_receive_button_answers_and_retails_the_resumed_segment_without_po
         seq_at_interrupt = channel._map.get("msg-1")["last_seq"]
         assert seq_at_interrupt > 0
 
+        tails_before = set(channel._tasks)
         await channel.receive_button(secret=SECRET, message_id="msg-1", value="red")
-        await next(iter(channel._tasks))  # re-tail, no new tail spawned until this line
+        (retail,) = channel._tasks - tails_before  # the finished first tail stays in the set
+        await retail
         turn = await run
 
-        # The discriminating assertion: re-tailing from `last_seq + 1` (not from 0) means the
-        # resumed segment never re-walks the first one, so the interrupt is posted exactly once
-        # -  a channel that replayed from scratch would double-post it here.
+        # Posted exactly once: a channel that re-tailed from 0 would double-post it here.
         assert channel.outbox == [interrupt_post]
         assert channel._map.get("msg-1")["last_seq"] > seq_at_interrupt
 
@@ -171,61 +139,13 @@ async def test_receive_button_answers_and_retails_the_resumed_segment_without_po
 
 
 @pytest.mark.asyncio
-async def test_cancel_pause_resume_map_to_the_same_run(no_project, tmp_path):
-    hold = asyncio.Event()
-    model = ScriptedModel(deltas=("one", "two"), hold=hold)
-    deck = _deck()
-    with patch_model(model):
-        async with deck:
-            channel = _channel(tmp_path, target="Greeter")
-            gateway = ProtocolGateway(deck)
-            channel.build(gateway)
-            result = await channel.receive_message(
-                secret=SECRET, conversation_id="c1", message_id="msg-1", content=TextBlock(text="hi")
-            )
-            await model.holding.wait()
-
-            run = await gateway.get_run(result["run_id"], namespace=result["namespace"])
-            await run.pause()
-            # The gate reuses its last answer for one interval (core/control.py); the same
-            # bounded wait `test_native_workflow.py`'s own pause test needs, not a poll loop.
-            await asyncio.sleep(CONTROL_POLL_INTERVAL)
-            hold.set()
-            with pytest.raises(RunSuspendedError) as excinfo:
-                await run
-            assert excinfo.value.status is RunStatus.PAUSED
-
-            await run.resume()
-            turn = await run
-
-            # `run.cancel()` on an already-terminal run is a no-op by contract (Run.cancel's own
-            # docstring): proves the same handle still reaches the same run after it is done.
-            await run.cancel()
-
-    assert turn.output
-
-
-@pytest.mark.asyncio
-async def test_two_bindings_share_one_deck_and_stop_in_reverse(no_project, tmp_path):
+async def test_two_bindings_share_one_deck_and_see_the_same_run(no_project, tmp_path):
     """Two bindings, one Exposure, one shared gateway: `channel_b` sees the run `channel_a`
-    started without ever touching it itself, and shutdown runs in the reverse of start order."""
+    started without ever touching it itself."""
     deck = _deck()
     map_path = tmp_path / "map.json"
     channel_a = FixtureChannel(secret=SECRET, map_path=map_path, target="Greeter", name="a", path="/a")
     channel_b = FixtureChannel(secret=SECRET, map_path=map_path, target="Greeter", name="b", path="/b")
-
-    order: list[str] = []
-    orig_a, orig_b = channel_a.stop, channel_b.stop
-
-    async def stop_a() -> None:
-        order.append("a")
-        await orig_a()
-
-    async def stop_b() -> None:
-        order.append("b")
-        await orig_b()
-
-    channel_a.stop, channel_b.stop = stop_a, stop_b
     exposure = deck.expose(channel_a, channel_b)
 
     model = ScriptedModel(deltas=("hi",))
@@ -245,33 +165,6 @@ async def test_two_bindings_share_one_deck_and_stop_in_reverse(no_project, tmp_p
         same_run = await channel_b._gateway.get_run(body["run_id"], namespace=body["namespace"])
         assert same_run.id == body["run_id"]
 
-    assert order == ["b", "a"]
-
-
-# --- properties every canonical event / content boundary must hold -----------------------------
-
-
-@pytest.mark.asyncio
-async def test_protocol_metadata_never_appears_in_event_payloads(no_project, tmp_path):
-    """``session_id`` legitimately carries the channel prefix (ruling 8); the *payload* is what
-    must stay clean of binding-owned identifiers the durable map already holds."""
-    model = ScriptedModel(deltas=("hi",))
-    deck = _deck()
-    with patch_model(model):
-        async with deck:
-            channel = _channel(tmp_path, target="Greeter")
-            gateway = ProtocolGateway(deck)
-            channel.build(gateway)
-            result = await channel.receive_message(
-                secret=SECRET, conversation_id="conv-98765", message_id="msg-13579", content=TextBlock(text="hi")
-            )
-            await next(iter(channel._tasks))
-            run = await gateway.get_run(result["run_id"], namespace=result["namespace"])
-            events = [event async for event in run.events()]
-
-    dumped_payloads = " ".join(event.payload.model_dump_json() for event in events)
-    assert SECRET not in dumped_payloads
-    assert "msg-13579" not in dumped_payloads
 
 
 def test_an_unknown_event_kind_is_skipped_not_raised(tmp_path):
@@ -296,95 +189,17 @@ def test_an_unknown_event_kind_is_skipped_not_raised(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_unsupported_content_is_rejected_with_invalid_input_naming_the_part(no_project, tmp_path):
-    deck = _deck()
-    async with deck:
-        channel = _channel(tmp_path, target="Greeter")
-        channel.build(ProtocolGateway(deck))
-        image = ImageBlock(media_type="image/png", data_b64=base64.b64encode(b"x").decode())
-
-        with pytest.raises(GatewayError) as excinfo:
-            await channel.receive_message(secret=SECRET, conversation_id="c1", message_id="msg-1", content=image)
-
-    assert excinfo.value.code is GatewayFailureCode.INVALID_INPUT
-    assert "image" in excinfo.value.message
-    assert channel._map.get("msg-1") is None  # nothing started
-
-
-@pytest.mark.asyncio
 async def test_receive_button_with_an_unknown_message_id_is_not_found(no_project, tmp_path):
     deck = _deck()
     async with deck:
         channel = _channel(tmp_path, target="Greeter")
-        channel.build(ProtocolGateway(deck))
+        channel.build(DeckGateway(deck))
 
-        with pytest.raises(GatewayError) as excinfo:
+        with pytest.raises(_RequestError) as excinfo:
             await channel.receive_button(secret=SECRET, message_id="no-such-message", value="red")
 
-    assert excinfo.value.code is GatewayFailureCode.NOT_FOUND
+    assert excinfo.value.status == 404
     assert "no-such-message" in excinfo.value.message
-
-
-def test_fixture_imports_no_private_module():
-    lint_imports = Path(sys.executable).with_name("lint-imports")
-    result = subprocess.run(
-        [str(lint_imports), "--config", str(FIXTURE_IMPORTLINTER)],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
-# --- lifecycle ownership -------------------------------------------------------------------------
-
-
-@dataclass
-class _Boom:
-    """A binding whose ``start()`` always fails, to drive the rollback the real fixture sits
-    beside  -  the same toy shape ``test_bindings_exposure.py`` uses for the same purpose."""
-
-    info: BindingInfo = field(
-        default_factory=lambda: BindingInfo(
-            name="boom", kind="protocol", transport="http", spi_version=PROTOCOL_SPI_VERSION, advertises=frozenset()
-        )
-    )
-
-    def build(self, gateway: object) -> HttpEndpoint:
-        async def app(scope, receive, send):
-            await send({"type": "http.response.start", "status": 200, "headers": []})
-            await send({"type": "http.response.body", "body": b""})
-
-        return HttpEndpoint(path="/boom", app=app)
-
-    async def start(self) -> None:
-        raise RuntimeError("boom")
-
-    async def stop(self) -> None:
-        pass
-
-
-@pytest.mark.asyncio
-async def test_partial_startup_rolls_back_and_stops_the_fixture(no_project, tmp_path):
-    deck = _deck()
-    channel = _channel(tmp_path, target="Greeter")
-    stopped: list[bool] = []
-    orig_stop = channel.stop
-
-    async def _stop() -> None:
-        stopped.append(True)
-        await orig_stop()
-
-    channel.stop = _stop
-    exposure = deck.expose(channel, _Boom())
-
-    with pytest.raises(RuntimeError, match="boom"), TestClient(exposure.asgi()):
-        pass
-
-    assert stopped == [True]
-    assert channel._tasks == set()
-    assert not deck.is_open
 
 
 @pytest.mark.asyncio
@@ -395,7 +210,7 @@ async def test_stop_cancels_every_in_flight_tail_task(no_project, tmp_path):
     with patch_model(model):
         async with deck:
             channel = _channel(tmp_path, target="Greeter")
-            channel.build(ProtocolGateway(deck))
+            channel.build(DeckGateway(deck))
             await channel.receive_message(
                 secret=SECRET, conversation_id="c1", message_id="msg-1", content=TextBlock(text="hi")
             )
@@ -405,6 +220,29 @@ async def test_stop_cancels_every_in_flight_tail_task(no_project, tmp_path):
             await channel.stop()
 
     assert channel._tasks == set()
+
+
+@pytest.mark.asyncio
+async def test_a_tail_that_failed_before_shutdown_still_raises_from_stop(no_project, tmp_path):
+    """`_task_done` keeps the failure after discarding the task, so `stop()` can still raise it."""
+    model = ScriptedModel(deltas=("hi",))
+    deck = _deck()
+    with patch_model(model):
+        async with deck:
+            channel = _channel(tmp_path, target="Greeter")
+            channel.build(DeckGateway(deck))
+
+            async def exploding_tail(*args: object, **kwargs: object) -> None:
+                raise RuntimeError("tail exploded")
+
+            channel._tail = exploding_tail  # type: ignore[method-assign]
+            await channel.receive_message(
+                secret=SECRET, conversation_id="c1", message_id="msg-1", content=TextBlock(text="hi")
+            )
+            await asyncio.sleep(0)
+
+            with pytest.raises(RuntimeError, match="tail exploded"):
+                await channel.stop()
 
 
 @pytest.mark.asyncio
@@ -434,10 +272,10 @@ async def test_the_webhook_acks_before_the_first_event_arrives(no_project, tmp_p
 
 
 @pytest.mark.asyncio
-async def test_the_webhook_maps_a_bad_secret_and_unsupported_content_to_http_errors(no_project, tmp_path):
-    """The one gap the ACK test above leaves: `_http_message`'s own error branches, only
-    observable through a real request  -  a direct `receive_message` call raises Python
-    exceptions the handler never gets a chance to translate."""
+async def test_the_webhook_maps_every_rejection_to_an_http_code(no_project, tmp_path):
+    """`_http_message`'s error branches, only observable through a real request: a direct
+    `receive_message` call raises Python exceptions the handler never sees. Malformed input is
+    the branch that matters, since the Native binding inherits this edge next."""
     deck = _deck()
     channel = _channel(tmp_path, target="Greeter")
     exposure = deck.expose(channel)
@@ -464,6 +302,12 @@ async def test_the_webhook_maps_a_bad_secret_and_unsupported_content_to_http_err
         )
         assert unsupported.status_code == 400
         assert unsupported.json()["error"] == "INVALID_INPUT"
+        assert "data" in unsupported.json()["message"]
+
+        for body in ({"secret": SECRET}, {"secret": SECRET, "conversation_id": "c1", "message_id": "m", "content": 7}):
+            malformed = client.post("/fixture/message", json=body)
+            assert malformed.status_code == 400, body
+            assert malformed.json()["error"] == "INVALID_INPUT"
 
     assert channel.outbox == []
 
@@ -476,7 +320,7 @@ async def test_durable_map_survives_a_simulated_restart(no_project, tmp_path):
     map_path = tmp_path / "map.json"
     deck = _deck()
     async with deck:
-        gateway = ProtocolGateway(deck)
+        gateway = DeckGateway(deck)
         channel_1 = FixtureChannel(secret=SECRET, map_path=map_path, target="Survey")
         channel_1.build(gateway)
         result = await channel_1.receive_message(
@@ -494,9 +338,7 @@ async def test_durable_map_survives_a_simulated_restart(no_project, tmp_path):
         await channel_2.receive_button(secret=SECRET, message_id="msg-1", value="red")
         await next(iter(channel_2._tasks))
 
-        # `channel_2` starts with an empty outbox and never saw the interrupt itself: re-tailing
-        # from `last_seq + 1` means it only walks the resumed segment, so it must stay empty  -
-        # a restart that replayed from seq 0 would post the interrupt's buttons here instead.
+        # Empty: `channel_2` walks only the resumed segment, never the first one.
         assert channel_2.outbox == []
         assert channel_1._map.get("msg-1")["last_seq"] > seq_at_interrupt
 

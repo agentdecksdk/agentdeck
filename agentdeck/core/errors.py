@@ -50,6 +50,13 @@ class ContextTypeError(ConfigError):
     """
 
 
+class InputError(AgentdeckError):
+    """Content or an answer the caller supplied that AgentDeck cannot take, as opposed to a bug
+    elsewhere in the call path. A binding maps it to its own bad-request code; an unrelated
+    ``TypeError``/``ValueError`` from a store or an executor stays internal.
+    """
+
+
 class SessionBusyError(AgentdeckError):
     """A turn was asked for on a session another run already holds.
 
