@@ -143,12 +143,12 @@ asyncio_mode = "auto"
 # what hangs here is a blocked `await`, which a signal handler never gets to interrupt.
 timeout = 300
 timeout_method = "thread"
-# tests/golden/conftest.py imports fake_model by name, tests/contract imports contract_cases,
-# tests/ imports concurrency_worker, and tests/test_generated_reference.py imports
+# tests/contract imports contract_cases, tests/ imports concurrency_worker,
+# tests/bindings imports fixture_plugin, and tests/test_generated_reference.py imports
 # generate_docs_reference from scripts/; all four basenames are unique across these dirs,
 # because a shared one collides on sys.modules. Explicit beats pytest's implicit basedir
 # insertion, which would go ambiguous if tests/conftest.py appeared.
-pythonpath = ["tests", "tests/golden", "tests/contract", "tests/bindings", "scripts"]
+pythonpath = ["tests", "tests/contract", "tests/bindings", "scripts"]
 
 [build-system]
 requires = ["hatchling"]
