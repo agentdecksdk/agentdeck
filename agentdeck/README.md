@@ -43,11 +43,3 @@ themselves, generated into `docs-site/content/reference/settings.mdx`. See
 [`runtime/settings.py`](runtime/settings.py) for the definitions. `get_settings()` is for code
 inside this package, not for application code.
 
-```python
-from agentdeck.runtime.settings import get_settings
-
-s = get_settings()  # cached
-s.openai.model
-s.runner.max_turns
-s.events.url  # e.g. "sqlite://.agentdeck/events.sqlite3"  -  the scheme names the backend
-```

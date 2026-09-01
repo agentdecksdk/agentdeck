@@ -22,10 +22,10 @@ from agentdeck.core.content import (
     TextBlock,
 )
 from agentdeck.core.context import ToolCtx, WorkflowCtx
+from agentdeck.core.events import Event
 from agentdeck.core.invocable import AgentInstance
 from agentdeck.core.ports import Observer
 from agentdeck.deck import Deck, Run, TurnResult
-from agentdeck.errors import AgentdeckError
 
 try:
     # The *distribution* is `agentdeck-sdk`; the import package is `agentdeck`. They differ
@@ -41,11 +41,11 @@ except PackageNotFoundError:
 __all__ = [
     "Agent",
     "AgentInstance",
-    "AgentdeckError",
     "AudioBlock",
     "ContentBlock",
     "DataBlock",
     "Deck",
+    "Event",
     "ImageBlock",
     "Observer",
     "ResourceBlock",
