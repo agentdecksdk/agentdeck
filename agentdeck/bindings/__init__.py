@@ -12,10 +12,9 @@ from agentdeck.bindings.binding import (
 )
 from agentdeck.bindings.gateway import (
     Capabilities,
+    DeckGateway,
     GatewayError,
     GatewayFailureCode,
-    JsonSchema,
-    ProtocolGateway,
     TargetInfo,
 )
 
@@ -24,12 +23,11 @@ __all__ = [
     "Binding",
     "BindingInfo",
     "Capabilities",
+    "DeckGateway",
     "Endpoint",
     "GatewayError",
     "GatewayFailureCode",
     "HttpEndpoint",
-    "JsonSchema",
-    "ProtocolGateway",
     "StdioEndpoint",
     "TargetInfo",
 ]

@@ -1,4 +1,4 @@
-# ProtocolGateway
+# DeckGateway
 
 The stable interface from a protocol into a Deck: what an external integration may ask a Deck to do.
 
@@ -9,7 +9,7 @@ The stable interface from a protocol into a Deck: what an external integration m
 ## Shape
 
 ```python
-class ProtocolGateway(Protocol):
+class DeckGateway(Protocol):
     def targets(self) -> Sequence[TargetInfo]: ...
     capabilities: Capabilities
 

@@ -1,6 +1,6 @@
-"""``Binding`` and the endpoints it builds: one concrete protocol over one transport
+"""``Binding`` and the endpoints it builds: one protocol over one transport
 (``docs/design/protocols/bindings.md``, ``spi.md``). No generic transport composition: a binding
-factory (``A2A.http()``, ``ACP.stdio()``) exposes only the pairs its protocol actually supports.
+factory (``A2A.http()``, ``ACP.stdio()``) exposes only the pairs its protocol supports.
 """
 
 from __future__ import annotations
@@ -11,13 +11,10 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from agentdeck.bindings.gateway import ProtocolGateway
+    from agentdeck.bindings.gateway import DeckGateway
 
 PROTOCOL_SPI_VERSION = 1
-"""The contract version a :class:`Binding` declares in its own :attr:`BindingInfo.spi_version`.
-Bumped on a breaking change to :class:`ProtocolGateway`, :class:`Binding`, an endpoint type or
-:class:`~agentdeck.bindings.gateway.GatewayFailureCode`; an added optional field never bumps it.
-"""
+"""The SPI version a :class:`Binding` declares; ``docs/design/protocols/spi.md`` holds what bumps it."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,9 +26,8 @@ class BindingInfo:
     transport: str
     spi_version: int
     advertises: frozenset[str]
-    """The capability names this binding claims (``streaming``, ``hitl``, ``control.cancel``, ...);
-    ``expose()`` checks each one against a real projection or action before anything opens
-    (``docs/design/protocols/rulings.md`` 26)."""
+    """Capability names this binding claims (``streaming``, ``hitl``, ``control.cancel``, ...);
+    ``expose()`` checks each against a real projection or action before anything opens."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,25 +49,20 @@ Endpoint = HttpEndpoint | StdioEndpoint
 
 
 class Binding(Protocol):
-    """One protocol, channel or surface over one transport. A contract, not a base class with
-    behavior: what happens in :meth:`start`/:meth:`stop` belongs to the concrete binding.
-    """
+    """One protocol, channel or surface over one transport."""
 
     info: BindingInfo
 
-    def build(self, gateway: ProtocolGateway) -> Endpoint:
-        """Pure: no I/O, no port opened, no stdin read. Every validation this binding needs
-        runs here, before anything opens, so a bad binding fails construction, not a live socket."""
+    def build(self, gateway: DeckGateway) -> Endpoint:
+        """Build and validate the endpoint. No I/O: nothing opens here."""
         ...
 
     async def start(self) -> None:
-        """Runs once the gateway exists, after every binding's :meth:`build`. A background task
-        this spawns is owned by the Exposure's own lifecycle, never left unsupervised (ruling 32)."""
+        """Start binding-owned resources; the Exposure owns any task spawned here."""
         ...
 
     async def stop(self) -> None:
-        """Runs in the reverse of start order, including during a partial-startup rollback. Must be
-        idempotent: a second call, for a binding whose own :meth:`start` never ran, is still safe."""
+        """Stop binding-owned resources. Idempotent: may run without a preceding start."""
         ...
 
 

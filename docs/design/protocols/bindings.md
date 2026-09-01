@@ -25,7 +25,7 @@ Shared HTTP and gRPC helpers live behind those factories, not in the public API.
 ```python
 class Binding(Protocol):
     info: BindingInfo           # name, kind ("protocol" | "channel" | "surface"), transport, spi_version, advertised capabilities
-    def build(self, gateway: ProtocolGateway) -> Endpoint: ...
+    def build(self, gateway: DeckGateway) -> Endpoint: ...
     async def start(self) -> None: ...   # background work the Exposure owns
     async def stop(self) -> None: ...
 ```
@@ -55,7 +55,7 @@ Hosting primitives with no AgentDeck semantics.
 stdio is why HTTP is not built into the gateway:
 
 ```text
-stdin → ACP binding → ProtocolGateway → Deck → ACP binding → stdout
+stdin → ACP binding → DeckGateway → Deck → ACP binding → stdout
 ```
 
 ## External surfaces are clients, not bindings

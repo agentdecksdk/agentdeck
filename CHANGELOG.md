@@ -19,7 +19,7 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Added
 
-- **`agentdeck.bindings`, the protocol SPI** (#545): `ProtocolGateway` (`targets()`,
+- **`agentdeck.bindings`, the protocol SPI** (#545): `DeckGateway` (`targets()`,
   `capabilities`, `start`/`get_run`/`list_runs`), `GatewayError`/`GatewayFailureCode`, `Binding`,
   `BindingInfo`, `HttpEndpoint`/`StdioEndpoint`. No concrete binding ships yet; this is the
   contract the first one (#548) builds against.
