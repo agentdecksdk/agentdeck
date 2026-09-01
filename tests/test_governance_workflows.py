@@ -67,9 +67,10 @@ def test_release_promotion_checks_skip_on_main_base() -> None:
     assert "github.event.pull_request.base.ref != 'main'" in docs_impact
 
 
-def test_changelog_position_runs_on_every_pr() -> None:
+def test_changelog_position_runs_on_every_dev_based_pr() -> None:
     """`release_bump.py` inserts a version heading above the entries it releases, so a branch cut
     before a release re-applies its entry into the released section (#545, #546 landed in 5.2.0
-    that way). Nothing but this check stands between that and a shipped release note."""
+    that way). It rides the `slop` job, which a `main`-based promotion PR skips (#536): that diff
+    re-accumulates entries already checked against dev, so there is nothing new to place."""
     ci = (WORKFLOWS / "ci.yml").read_text()
     assert "scripts/changelog_position.py" in ci

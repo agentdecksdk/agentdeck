@@ -38,6 +38,11 @@ One `gh stack` rooted on `dev`; PR 1 is this design (#539, closes #543). Epic #1
 
 ## Contract tests before SPI v1
 
+Proven in `tests/bindings/test_contract.py` against the out-of-tree fixture, except the last four
+(shared listener, stdio, rollback, shutdown order), which are Exposure's own and are proven in
+`tests/test_bindings_exposure.py`. Control mapping is `Run`'s contract: the gateway hands back
+real `Run`s, which `tests/test_bindings_gateway.py` proves.
+
 ```text
 A protocol starts a Run without touching Runtime.
 A protocol tails canonical events.

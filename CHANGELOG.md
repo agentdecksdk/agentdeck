@@ -20,6 +20,9 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
   `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
   `start()` on binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too.
+- **The content blocks are re-exported from `agentdeck.bindings`** (#547): `TextBlock`,
+  `ImageBlock`, `ContentBlock`, `ResourceBlock`, `AudioBlock` and `DataBlock`, so a plugin builds
+  against the SPI package alone rather than reaching into `agentdeck.core.content`.
 
 ## [5.2.1] - 2026-08-29
 

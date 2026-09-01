@@ -40,7 +40,7 @@ Concrete classes (`A2AHttpBinding`, `ACPStdioBinding`, ...) stay behind the fact
 | channel | existing communication network with its own messaging identity and API | Slack, WhatsApp, Telegram, Discord | no streaming; posts on `message.completed`; buttons from `run.interrupted` |
 | surface | user-facing interface AgentDeck hosts in-process | Terminal (`agentdeck chat`), TUI | streams; prompts from `run.interrupted` |
 
-Same contract, same gateway; the kind is data. A channel ACKs its webhook, then tails the run from an Exposure-owned task (`start()`), keeping a durable map from its message ids to the Run address. The fixture plugin under `tests/` is channel-shaped, so the SPI is proven against that harder pattern (`rulings.md` 31 to 33).
+Same contract, same gateway; the kind is data. A channel ACKs its webhook, then tails the run from a binding-owned task drained by `Binding.stop()`, keeping a durable map from its message ids to the Run address: there is no Run to tail when `start()` runs. The fixture plugin under `tests/` is channel-shaped, so the SPI is proven against that harder pattern (`rulings.md` 31 to 33).
 
 ## Endpoint types
 
@@ -72,7 +72,7 @@ Same intent down each kind; the bold rows are identical code against public `Run
 | identity | `contextId` to `session_id`; `taskId` to `key` | phone to `session_id`; message id in the binding's map | one session per process |
 | **`gateway.start(target, text, session_id=)`** | same | same | same |
 | busy session | A2A "task running" error | "still working on your last message" | printed notice |
-| **`run.events(follow=True)`**, one segment per interaction | Exposure-owned task | Exposure-owned task | inline in the stdio loop |
+| **`run.events(follow=True)`**, one segment per interaction | binding-owned tail | binding-owned tail | inline in the stdio loop |
 | `text.delta` | streamed parts | skipped; posts on `message.completed` | printed live |
 | `run.interrupted` | `input-required` with the question | reply buttons | numbered prompt |
 | **`run.answer(value)`**, then re-tail from `last_seq + 1` | next `message/send` on the task | button webhook, run found in the map | typed choice |

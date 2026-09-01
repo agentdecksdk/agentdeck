@@ -40,14 +40,20 @@ def first_released_line(text: str) -> int | None:
 
 
 def misplaced(diff: str, text: str) -> list[int]:
-    """Added lines that landed at or below the first released heading. A release bump adds that
-    heading itself, so it is exempt: every line it moves is already reviewed."""
-    if any(RELEASED_HEADING_RE.match(line[1:]) for line in diff.splitlines() if line.startswith("+")):
-        return []
+    """Added lines that landed at or below the first released heading.
+
+    A release bump is the one exempt case, and it is exempt because the boundary itself is one of
+    its added lines: `release_bump.py` inserts the new heading above the entries it releases. A PR
+    that adds some other version heading lower down is not exempt, so it cannot smuggle an entry
+    into an older section.
+    """
     boundary = first_released_line(text)
     if boundary is None:
         return []
-    return [number for number in added_line_numbers(diff) if number >= boundary]
+    added = added_line_numbers(diff)
+    if boundary in added:
+        return []
+    return [number for number in added if number >= boundary]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -55,7 +61,10 @@ def main(argv: list[str] | None = None) -> int:
     if len(args) != 1:
         print("usage: changelog_position.py <base-ref>", file=sys.stderr)
         return 2
-    diff = subprocess.check_output(["git", "diff", "--unified=0", args[0], "HEAD", "--", CHANGELOG], text=True)
+    # The merge base, not the base ref: dev advancing after the branch was cut must not turn
+    # someone else's merged entry into this PR's finding.
+    base = subprocess.check_output(["git", "merge-base", args[0], "HEAD"], text=True).strip()
+    diff = subprocess.check_output(["git", "diff", "--unified=0", base, "HEAD", "--", CHANGELOG], text=True)
     if not diff.strip():
         return 0
     with open(CHANGELOG, encoding="utf-8") as handle:
