@@ -12,11 +12,10 @@ agentdeck/
     runtime/       # settings, plugin discovery, the Runtime's own primitives
     authoring/     # Agent, @tool, @workflow: the declarative construction API, compiles to InvocableSpec
     skills/        # Skills: SKILL.md discovery, validation, disclosure text
-    adapters/      # executors (openai-agents, native), event stores, control ports, tool sources
-    surfaces/      # thin readers over the canonical event stream (HTTP compat, CLI)
+    adapters/      # executors, event stores, control ports, tool sources, bindings
+    bindings/      # the protocol SPI, and the public path to each in-tree binding
     deck.py        # Deck: the composition root: build a catalog, open it, run turns on it
     mcp.py         # MCP: .mcp.json parsing and validation
-    serve.py       # the FastAPI app agentdeck-serve runs
 ```
 
 `Deck` is the one class application code needs directly: see the top-level

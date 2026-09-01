@@ -31,12 +31,11 @@ dependencies = [
 ]
 
 [project.scripts]
-agentdeck-serve = "agentdeck.serve:main"
 agentdeck = "agentdeck.cli:main"
 
 [project.optional-dependencies]
 serve = [
-    "fastapi>=0.115",
+    "starlette>=0.40",
     "uvicorn>=0.30",
 ]
 observability = [
@@ -56,6 +55,9 @@ redis = [
 ]
 dev = [
     "pytest>=8.0",
+    # Jack's own server is a FastAPI app (`examples/jack/jack/server.py`), and its test suite is
+    # part of the gate. Nothing in `agentdeck/` imports FastAPI since the v1 wire was deleted.
+    "fastapi>=0.115",
     "pytest-asyncio>=0.23",
     # `make coverage`, not part of `make check`: the deletion waves (#71, #131) need
     # per-module coverage as one evidence stream for "nothing imports and nothing

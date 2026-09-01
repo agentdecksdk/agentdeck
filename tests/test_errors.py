@@ -4,11 +4,9 @@ import sys
 import textwrap
 
 import pytest
-from fastapi.testclient import TestClient
 
 from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, SkillError
 from agentdeck.runtime.registry import PluginRegistry
-from agentdeck.testing import ScriptedModel, patch_model
 
 AGENT_PY = """
 from agentdeck.authoring import Agent
@@ -118,16 +116,6 @@ def test_not_found_error_message_is_plain():
 
 def test_skill_error_is_an_agentdeck_error():
     assert issubclass(SkillError, AgentdeckError)
-
-
-def test_unknown_agent_chat_returns_404_with_body(project):
-    from agentdeck.serve import create_app
-
-    # context manager runs the lifespan; without it every endpoint is 503
-    with TestClient(create_app()) as client:
-        response = client.post("/agents/unknown/chat", json={"session_id": "s", "message": "hi"})
-    assert response.status_code == 404
-    assert response.json()["detail"].startswith("No agent named 'unknown'.")
 
 
 def test_two_same_kind_bundles_sharing_a_class_name_raise_naming_both(duplicate_class_name_project):
@@ -315,15 +303,3 @@ def test_code_first_agent_build_failure_is_not_wrapped_with_a_bundle_path():
     assert not isinstance(excinfo.value, ConfigError)
 
 
-def test_skill_error_returns_500_without_leaking_stderr(project):
-    from agentdeck.serve import create_app
-
-    secret = "Traceback: AWS_SECRET_ACCESS_KEY=hunter2"
-    # The turn fails at the SDK boundary, so the error travels the whole real path  -  engine,
-    # Runtime, surface  -  the way a failing tool or skill inside a turn does.
-    model = ScriptedModel(raises=SkillError(secret))
-    with patch_model(model), TestClient(create_app()) as client:
-        response = client.post("/agents/Greeter/chat", json={"session_id": "s", "message": "hi"})
-    assert response.status_code == 500
-    assert response.json() == {"detail": "internal error"}
-    assert "hunter2" not in response.text
