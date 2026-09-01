@@ -10,7 +10,7 @@ Two levels, held to different standards:
 
 | level | meaning | goal |
 |---|---|---|
-| wire compatibility | valid `RunAgentInput` parsing, official event schemas, HTTP/SSE behaviour | complete from the first merge |
+| wire compatibility | valid `RunAgentInput` parsing, official event schemas, HTTP/SSE behavior | complete from the first merge |
 | semantic capability | state, frontend tools, interrupts, multimodal, steering actually work | complete progressively |
 
 The name is a promise: `AGUI.http()` means real AG-UI compatibility, so an unsupported stable
@@ -78,9 +78,14 @@ agentdeck/adapters/bindings/agui/binding.py  transport: routes, SSE, lifecycle
 agentdeck/adapters/bindings/agui/adapter.py  translation, both directions
 ```
 
-A binding is transport plus adapter, and the adapter is not a new architectural concept: it is
-the translation half of the binding that `bindings.md` already describes. No generic adapter base
-class exists until a second binding proves the same abstraction is reusable.
+The AG-UI binding is transport plus adapter, and the adapter is not a new architectural concept:
+it is the translation half of the binding that `bindings.md` already describes. No generic adapter
+base class exists until a second binding proves the same abstraction is reusable, and no other
+binding is held to this file shape until one needs it.
+
+AG-UI is the protocol and `AGUI.http()` is its first transport: protocol translation lives in
+`adapter.py`, HTTP/SSE lifecycle in `binding.py`. A later persistent transport reuses the same
+adapter and may define its own disconnect and reconnect semantics.
 
 The official AG-UI Python models and encoder define the wire. This binding never redefines the
 schema, and no generic protocol-translation framework is extracted until a second protocol needs
@@ -115,16 +120,39 @@ an explicit AgentDeck extension:
  "forwardedProps": {"agentdeck": {"target": "Research"}}}
 ```
 
+Two modes, held to different interoperability claims:
+
+| mode | what the client needs to know |
+|---|---|
+| `AGUI.http("/support", target="Support")` | the URL, and nothing else: plain generic AG-UI |
+| `AGUI.http("/agui")` | the URL plus the target name, carried in the optional `forwardedProps.agentdeck.target` extension |
+
+`forwardedProps` is opaque application data that AG-UI itself never consumes, so a generic client
+cannot discover AgentDeck targets. AG-UI defines no target-discovery vocabulary, and this binding
+invents none.
+
+Resolution is deterministic:
+
+```text
+pinned                                    → the pinned target
+pinned, a different target requested      → 4xx
+not pinned, a target requested            → validate it, then use it
+not pinned, none requested, one target    → that target
+not pinned, none requested, many targets  → 4xx naming the available targets
+```
+
 `forwardedProps.agentdeck` is reserved for AgentDeck routing. Arbitrary AG-UI context is not
-converted into system prompts, `ctx.data` or runtime context: a mapping is added only when it has
-a generic AgentDeck equivalent.
+converted into system prompts, `ctx.data` or runtime context: a non-empty `context` is refused with
+a named reason, and a mapping is added only when it has a generic AgentDeck equivalent.
 
 ## Input and history
 
-An AG-UI client carries the transcript; an AgentDeck session already owns the conversation. The
-transcript is therefore protocol context, and only the new user message becomes AgentDeck input.
-Replaying the whole transcript each turn would duplicate history, so branching, editing and
-regeneration are unsupported rather than guessed at.
+An AG-UI client carries the transcript; an AgentDeck session already owns the conversation. For the
+initial append-only conversation capability the adapter accepts a transcript only when it represents
+a normal new user turn, and sends that new user content into the existing session. The full
+transcript is never replayed blindly, because replaying it would duplicate history. `parentRunId`,
+transcript edits, regeneration, new system or developer messages and tool-result continuation are
+explicit unsupported capabilities until AgentDeck has matching semantics.
 
 | AG-UI content | AgentDeck |
 |---|---|
@@ -149,23 +177,29 @@ def to_agentdeck_resume(run_input: RunAgentInput) -> object: ...
 ```
 
 `to_agui_event` returns a list because one canonical event may produce zero, one or several AG-UI
-events, which is what keeps lifecycle synthesis in one place. `AdapterState` is what a text
-lifecycle needs to know it has already opened a message.
+events, which is what keeps lifecycle synthesis in one place. `AdapterState` is what the text and
+reasoning lifecycles need to know which segment is already open.
+
+`RUN_STARTED` and `RUN_FINISHED` describe the AG-UI interaction, not the lifetime of the canonical
+Run: the binding emits `RUN_STARTED` once per incoming `RunAgentInput`, and the adapter closes the
+envelope from the segment's terminal event, which is the event that carries the outcome.
 
 | AgentDeck | AG-UI |
 |---|---|
 | first `text.delta` for a message id | `TEXT_MESSAGE_START` then `TEXT_MESSAGE_CONTENT` |
 | each later `text.delta` | `TEXT_MESSAGE_CONTENT` |
-| `message.completed` | `TEXT_MESSAGE_END`, synthesising START and CONTENT if no delta arrived |
+| `message.completed` | `TEXT_MESSAGE_END`, synthesizing START and CONTENT if no delta arrived |
 | first `thought.delta` | `REASONING_START`, `REASONING_MESSAGE_START`, `REASONING_MESSAGE_CONTENT` |
+| each later `thought.delta` | `REASONING_MESSAGE_CONTENT` |
+| an open reasoning segment at a text, tool, HITL or terminal boundary | `REASONING_MESSAGE_END` then `REASONING_END`; a later `thought.delta` opens a new segment |
 | `tool.call.started` | `TOOL_CALL_START`, `TOOL_CALL_ARGS`, `TOOL_CALL_END` |
 | `tool.call.completed` | `TOOL_CALL_RESULT`, from the recorded result preview, never a bypass of it |
-| `run.started` | `RUN_STARTED` |
+| `run.started` | nothing: the binding already opened the interaction (`rulings.md` 50) |
 | `run.completed` | `RUN_FINISHED` |
 | `run.failed` | `RUN_ERROR` |
 | `run.interrupted` | `RUN_FINISHED` carrying the interrupt outcome |
 | `run.paused` | an AgentDeck pause outcome, never a user question |
-| `run.cancelled` | the cancellation representation AG-UI has today |
+| `run.cancelled` | `RUN_ERROR(message="cancelled", code="cancelled")`, the conforming representation until AG-UI standardizes cancellation |
 | `run.resumed` | nothing: the next segment's own events carry it |
 | `report` | `CUSTOM agentdeck.report` |
 | `agent.changed` | `CUSTOM agentdeck.agent_changed`, which is what renders "Researcher is working" |
@@ -184,8 +218,10 @@ pauses and completes projects through exactly the same table. That equivalence i
 ## HITL and resume
 
 ```text
-ctx.ask(...) / ctx.approve(...)  →  run.interrupted  →  RUN_FINISHED(interrupt outcome)
-AG-UI resume interaction         →  run.answer(value) on the same Run  →  RUN_STARTED, next segment
+AG-UI run r1  RUN_STARTED               →  Run A starts
+              RUN_FINISHED(interrupt)   →  Run A interrupted at ctx.ask() / ctx.approve()
+AG-UI run r2  RUN_STARTED               →  Run A.answer(value), the next segment
+              RUN_FINISHED(success)     →  Run A completed
 ```
 
 The question and its options become the interrupt's metadata. The resumed AgentDeck Run is the
@@ -198,12 +234,9 @@ is added when the binding needs it and not before (`gateway.md`).
 
 ## Cancellation
 
-```text
-v1 transport rule: an AG-UI HTTP disconnect or abort means Run.cancel(...)
-```
-
-Stated as a transport-level rule because it stops being true the day AG-UI gains a resumable
-transport, at which point a disconnect can no longer imply cancellation.
+AG-UI's own client represents cancellation by aborting the request, so `AGUI.http()` maps request
+cancellation or disconnect to `Run.cancel()`. That is an AG-UI HTTP transport rule, not the default
+Run-reader behavior (`rulings.md` 10 and 46): a resumable AG-UI transport may choose otherwise.
 
 ## Errors
 
@@ -243,6 +276,8 @@ faked inside the binding, because a protocol-shaped workaround in a binding is e
 
 | AG-UI feature | missing AgentDeck primitive |
 |---|---|
+| `parentRunId`, transcript edit, regeneration | session or run branching, a fork semantics |
+| non-empty `context` | a generic run-scoped semantic context |
 | frontend tools | run-scoped tools supplied at start, useful to every protocol |
 | shared state (`STATE_SNAPSHOT`, RFC-6902 `STATE_DELTA`) | a real shared application-state contract; `ctx.data` is not proven to mean the same thing |
 | steering | mid-run input |
@@ -250,7 +285,8 @@ faked inside the binding, because a protocol-shaped workaround in a binding is e
 | tool-output streaming | richer tool progress and result events |
 
 Until each lands, the binding answers an explicit unsupported result rather than pretending: empty
-`tools` and empty state are supported, non-empty are refused with a named reason.
+`tools`, empty state, empty `context` and an absent `parentRunId` are supported, and anything else is
+refused with a named reason. A standard field is never ignored.
 
 ## Roadmap
 
@@ -292,7 +328,8 @@ and a capability added on a shaky wire foundation is a rewrite.
 | 18 | an unknown canonical event kind does not break the projection |
 | 19 | every emitted event validates against the official AG-UI models |
 | 20 | the official AG-UI client consumes the endpoint |
-| 21 | Assistant UI consumes the endpoint with no AgentDeck-specific frontend code |
+| 21 | a pinned endpoint works with Assistant UI with zero AgentDeck-specific frontend code |
+| 22 | full-Deck mode works when the client supplies `forwardedProps.agentdeck.target` |
 
 ## The DX this buys
 
@@ -301,13 +338,17 @@ from agentdeck import Agent, Deck, WorkflowCtx, workflow
 from agentdeck.bindings.agui import AGUI
 
 deck = Deck(agents=[support, analyst], workflows=[workflow(research), workflow(onboarding)])
-app = deck.expose(AGUI.http("/agui")).asgi()
+app = deck.expose(
+    AGUI.http("/agui"),                                            # the catalog, target per request
+    AGUI.http("/support", target="Support", name="agui-support"),   # pinned, plain AG-UI
+).asgi()
 ```
 
 ```javascript
-const agent = new HttpAgent({url: "/agui"})
+const agent = new HttpAgent({url: "/support"})
 const runtime = useAgUiRuntime({agent})
 ```
 
-The frontend picks any target in the catalog, and AgentDeck never learns that the caller happens
-to be Assistant UI.
+A pinned endpoint is plain AG-UI to any client. Reaching the whole catalog costs one extension
+field, `forwardedProps.agentdeck.target`, and either way AgentDeck never learns that the caller
+happens to be Assistant UI.
