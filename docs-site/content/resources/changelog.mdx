@@ -16,6 +16,56 @@ are written for someone using the package: what changed, and what to do about it
 
 The current release is **v5.2.1**. Earlier releases are listed at the bottom.
 
+## Unreleased
+
+### Added
+
+- **`agentdeck.bindings`, the protocol SPI** (#545): `DeckGateway` (`targets()`,
+  `capabilities`, `start`/`get_run`/`list_runs`), `GatewayError`/`GatewayFailureCode`, `Binding`,
+  `BindingInfo`, `HttpEndpoint`/`StdioEndpoint`. No concrete binding ships yet; this is the
+  contract the first one (#548) builds against.
+- **`Deck.expose(*bindings) -> Exposure`** (#546): validates duplicate HTTP paths, more than one
+  stdio binding, a repeated binding name, an unsupported `spi_version`, and a missing prerequisite
+  binding, all before anything opens. `exposure.asgi()` mounts every
+  `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
+  `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
+  `start()` on binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too.
+
+- **`Native.http()`, the AgentDeck protocol** (#548): `from agentdeck.bindings.native import
+  Native`, then `deck.expose(Native.http())`. Ten routes over `DeckGateway` and public `Run`
+  methods (targets, start, get/list runs, an SSE tail with `Last-Event-ID`/`from_seq` reconnect,
+  cancel/pause/resume, pending/answer), frames as `Event.model_dump_json()` verbatim, and a
+  versioned wire spec at `docs/design/protocols/native-wire.md`. The implementation lives under
+  `agentdeck/adapters/bindings/native/`; `adapters` is not a user import path.
+- **`RunStatus` is exported from `agentdeck`.** `deck.runs.list(status=...)` takes one and every
+  Native run summary reports one, so a caller reading runs needs the type.
+- **`InputError`** (#579): a public `AgentdeckError` for content or an answer the caller supplied
+  that AgentDeck cannot take, raised by `coerce_input` and by an answer outside an ask's own
+  `options`. A binding maps it to its own bad-request code (Native: 422); an unrelated
+  `TypeError`/`ValueError` from a store or an executor stays internal. Catch `InputError` (or
+  `AgentdeckError`) where you caught `TypeError` or `ValueError` from those calls before.
+- **`AGUI.http()`, the AG-UI protocol binding** (#595/#596, slices AGUI-0 through AGUI-3):
+  `pip install agentdeck-sdk[agui]`, then `from agentdeck.bindings.agui import AGUI` and
+  `deck.expose(AGUI.http("/agui"))` for the whole catalog, or `AGUI.http("/support",
+  target="Support")` pinned. Official `ag-ui-protocol` models and `EventEncoder` over HTTP/SSE:
+  target routing via `forwardedProps.agentdeck.target`, text/reasoning/backend-tool projection,
+  HITL ask/resume through the official `RunFinishedInterruptOutcome`/`resume` shapes, multimodal
+  input, and a client disconnect mapped to `Run.cancel()`. Frontend tools, shared state, and
+  steering are refused by name until their AgentDeck primitives exist
+  (`docs/design/protocols/agui.md`).
+
+### Changed
+
+- **`agentdeck.errors` is the one import path for the error taxonomy.** `AgentdeckError`,
+  `ConfigError`, `ContextTypeError`, `NotFoundError`, `SessionBusyError`, `SkillError` and
+  `StoreError` are no longer exported from `agentdeck` itself: `from agentdeck.errors import
+  AgentdeckError` for a catch-all. `agentdeck.errors` has always carried the complete set.
+- **`Event` is exported from `agentdeck`.** `run.events()` yields them, so a caller that reads a
+  run needs the type; it was already documented as a public import for binding authors.
+
+  The root keeps the everyday vocabulary, a feature namespace keeps its own, and no public name
+  lives at two paths (`docs/engineering/architecture.md` 3).
+
 ## v5.2.1
 
 *Released 2026-08-29.*
