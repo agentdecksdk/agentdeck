@@ -76,7 +76,7 @@ Success test: a React client, an IDE and another agent independently project the
 | [`exposure.md`](exposure.md) | `deck.expose(...)`: validation, lifecycle, ownership, HTTP composition |
 | [`spi.md`](spi.md) | SPI versioning and out-of-tree plugin packaging |
 | [`rulings.md`](rulings.md) | every decision taken while attacking the design: chosen, rejected, why |
-| [`roadmap.md`](roadmap.md) | implementation sequence, target protocols, contract tests, open rulings |
+| [`roadmap.md`](roadmap.md) | implementation sequence, target protocols, delivery, contract tests |
 
 ## Where the design and the tree disagree
 
