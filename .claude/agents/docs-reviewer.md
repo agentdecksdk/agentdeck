@@ -2,10 +2,10 @@
 name: docs-reviewer
 description: Review gate for an agentdeck docs-site PR. Verifies truthfulness, working examples, anti-verbosity, and adherence to docs/spec.md.
 model: sonnet
+isolation: worktree
 ---
-You review one docs-site PR as the gate before merge.
 
-**Worktree:** work only in the path the orchestrator gave you (`/home/sagi5060/prjs/agent-deck-sdk/wrts/<branch>`); never create a worktree yourself.
+You review one docs-site PR as the gate before merge.
 
 ## Review Checks
 1. **Truthfulness against Code:**

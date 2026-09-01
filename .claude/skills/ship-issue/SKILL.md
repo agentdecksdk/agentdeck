@@ -19,7 +19,7 @@ Read the issue and verify its claims against the tree. **Spec gate first:** if t
 Update GitHub Project (`PVT_kwHOBHijkM4BgHFZ`): Set **Status = In progress**, record Start Date, comment with start timestamp.
 
 ## 2. Implement
-Provision the worktree first: `git -C <repo>/dev worktree add <repo>/wrts/<branch> <branch>` (create the branch from its base if it does not exist; on a stack the base is the layer below, otherwise `dev`). Spawn `deck-dev` with the issue number, the brief, the absolute worktree path and the PR base branch. It runs Stage 0 (Understand) then Stage 1
+Spawn `deck-dev` with the issue number and brief. It runs Stage 0 (Understand) then Stage 1
 (Design, posted to the draft PR body), then stops there and reports back rather than continuing
 into Stage 2.
 

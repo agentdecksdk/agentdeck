@@ -19,12 +19,6 @@ The clean, user-intent API or behavior with minimal code snippets. Show the simp
 ## Notes
 Constraints, affected modules, existing patterns to follow, related issues/PRs.
 
-## Pitfalls
-Concrete ways this goes wrong, one line each, every one tied to a ruling, a file:line, or a past incident. A reviewer reads this list against the diff.
-
-## Must not
-Scope bounds a reviewer can block on: what this change must not add, touch, or decide.
-
 ## Done when
 Checklist of observable, testable behaviors (mapping 1:1 to deterministic tests without live model calls).
 ```
