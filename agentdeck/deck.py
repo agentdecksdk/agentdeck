@@ -651,22 +651,14 @@ class Deck:
 
     @property
     def is_open(self) -> bool:
-        """Whether ``__aenter__``/``async with`` has opened this Deck and ``aclose`` has not yet
-        run. What :class:`~agentdeck.bindings.exposure.Exposure` checks before deciding whether
-        it owns the close, without reaching for ``_state`` from outside this module."""
+        """Whether this Deck is open."""
         return self._state == "OPEN"
 
     def expose(self, *bindings: Binding) -> Exposure:
-        """Validate, host and own the lifecycle of a set of bindings. See
-        :class:`~agentdeck.bindings.exposure.Exposure`."""
+        """Host these bindings over this Deck. See :class:`~agentdeck.bindings.exposure.Exposure`."""
         from agentdeck.bindings.exposure import Exposure
 
         return Exposure(self, bindings)
-
-    async def serve(self, *bindings: Binding, **serve_kwargs: Any) -> None:
-        """Expose ``bindings`` and serve them until shutdown: ``await deck.expose(*bindings).serve(**serve_kwargs)``
-        in one call. ``expose()`` stays the contract for embedding (``exposure.asgi()``)."""
-        await self.expose(*bindings).serve(**serve_kwargs)
 
     def build(self) -> Deck:
         """Validate the whole catalog and compile every agent/workflow to an ``InvocableSpec``.

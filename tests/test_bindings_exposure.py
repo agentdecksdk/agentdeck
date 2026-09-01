@@ -1,5 +1,4 @@
-"""``Exposure``: validation at ``expose()``, then lifecycle ownership. Fake bindings only  -
-no concrete protocol exists yet (#548 adds the first)."""
+"""``Exposure``: validation at ``expose()``, then lifecycle ownership, against fake bindings."""
 
 from __future__ import annotations
 
@@ -19,6 +18,11 @@ def no_project(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
 
+@pytest.fixture
+def recorder():
+    return _Recorder()
+
+
 @dataclass
 class _Recorder:
     started: list[str] = field(default_factory=list)
@@ -36,7 +40,6 @@ class _Http:
         *,
         on_start=None,
         advertises: frozenset[str] = frozenset(),
-        projects: frozenset[str] = frozenset(),
         requires: frozenset[str] = frozenset(),
         spi_version: int = PROTOCOL_SPI_VERSION,
     ) -> None:
@@ -46,7 +49,6 @@ class _Http:
             transport="http",
             spi_version=spi_version,
             advertises=advertises,
-            projects=projects,
             requires=requires,
         )
         self._path = path
@@ -101,59 +103,51 @@ class _Stdio:
         self._recorder.stopped.append(self.info.name)
 
 
-# --- validation, pure -------------------------------------------------------------------------
-
-
-def test_duplicate_http_paths_name_both_bindings_and_open_nothing(no_project):
+def test_duplicate_http_paths_name_both_bindings_and_open_nothing(no_project, recorder):
     deck = Deck(agents=[])
-    recorder = _Recorder()
     with pytest.raises(ConfigError, match="'a'.*'b'|'b'.*'a'"):
         deck.expose(_Http("a", "/x", recorder), _Http("b", "/x", recorder))
     assert not deck.is_open
 
 
-def test_more_than_one_stdio_binding_names_both(no_project):
+def test_the_same_path_spelled_two_ways_is_one_claim(no_project, recorder):
     deck = Deck(agents=[])
-    recorder = _Recorder()
+    with pytest.raises(ConfigError, match="'/x'"):
+        deck.expose(_Http("a", "/x", recorder), _Http("b", "/x/", recorder))
+
+
+def test_more_than_one_stdio_binding_names_both(no_project, recorder):
+    deck = Deck(agents=[])
     with pytest.raises(ConfigError, match="'a'.*'b'|'b'.*'a'"):
         deck.expose(_Stdio("a", recorder), _Stdio("b", recorder))
 
 
-def test_unsupported_spi_version_names_both_versions(no_project):
+def test_unsupported_spi_version_names_both_versions(no_project, recorder):
     deck = Deck(agents=[])
-    recorder = _Recorder()
     with pytest.raises(ConfigError, match=r"spi_version=99.*spi_version=1"):
         deck.expose(_Http("a", "/a", recorder, spi_version=99))
 
 
-def test_advertised_capability_with_no_projection_names_binding_and_capability(no_project):
+def test_two_bindings_claiming_one_name_are_rejected(no_project, recorder):
     deck = Deck(agents=[])
-    recorder = _Recorder()
-    with pytest.raises(ConfigError, match="'a'.*streaming"):
-        deck.expose(_Http("a", "/a", recorder, advertises=frozenset({"streaming"}), projects=frozenset()))
+    with pytest.raises(ConfigError, match="unique.*'native'"):
+        deck.expose(_Http("native", "/a", recorder), _Http("native", "/b", recorder))
 
 
-def test_missing_prerequisite_binding_is_named(no_project):
+def test_missing_prerequisite_binding_is_named(no_project, recorder):
     deck = Deck(agents=[])
-    recorder = _Recorder()
     with pytest.raises(ConfigError, match="'a'.*'ghost'"):
         deck.expose(_Http("a", "/a", recorder, requires=frozenset({"ghost"})))
 
 
-def test_expose_opens_no_port_and_reads_no_stdin(no_project):
-    """Validation alone must not touch the Deck."""
+def test_expose_opens_no_port_and_reads_no_stdin(no_project, recorder):
     deck = Deck(agents=[])
-    recorder = _Recorder()
     deck.expose(_Http("a", "/a", recorder), _Stdio("b", recorder))
     assert not deck.is_open
 
 
-# --- hosting -----------------------------------------------------------------------------------
-
-
-def test_two_http_bindings_share_one_listener_each_sees_only_its_own_routes(no_project):
+def test_two_http_bindings_share_one_listener_each_sees_only_its_own_routes(no_project, recorder):
     deck = Deck(agents=[])
-    recorder = _Recorder()
     exposure = deck.expose(_Http("a", "/a", recorder), _Http("b", "/b", recorder))
 
     with TestClient(exposure.asgi()) as client:
@@ -162,9 +156,30 @@ def test_two_http_bindings_share_one_listener_each_sees_only_its_own_routes(no_p
         assert client.get("/nope").status_code == 404
 
 
-def test_stdio_and_http_binding_run_in_one_exposure(no_project):
+@pytest.mark.parametrize("root_first", [True, False])
+def test_a_root_mount_never_shadows_a_nested_one(no_project, recorder, root_first):
     deck = Deck(agents=[])
-    recorder = _Recorder()
+    root = _Http("native", "/", recorder)
+    nested = _Http("a2a", "/a2a", recorder)
+    exposure = deck.expose(*((root, nested) if root_first else (nested, root)))
+
+    with TestClient(exposure.asgi()) as client:
+        assert client.get("/a2a").content == b"a2a"
+        assert client.get("/a2a/").content == b"a2a"
+        assert client.get("/anything-else").content == b"native"
+
+
+def test_a_shallow_prefix_never_shadows_a_deeper_one(no_project, recorder):
+    deck = Deck(agents=[])
+    exposure = deck.expose(_Http("api", "/api", recorder), _Http("admin", "/api/admin", recorder))
+
+    with TestClient(exposure.asgi()) as client:
+        assert client.get("/api/admin/x").content == b"admin"
+        assert client.get("/api/x").content == b"api"
+
+
+def test_stdio_and_http_binding_run_in_one_exposure(no_project, recorder):
+    deck = Deck(agents=[])
     exposure = deck.expose(_Http("a", "/a", recorder), _Stdio("term", recorder, forever=True))
 
     with TestClient(exposure.asgi()) as client:
@@ -174,9 +189,26 @@ def test_stdio_and_http_binding_run_in_one_exposure(no_project):
     assert recorder.stopped == ["term", "a"]
 
 
-def test_failed_start_on_binding_three_rolls_back_and_closes_owned_deck(no_project):
+def test_the_binding_whose_start_raised_is_stopped_before_the_earlier_ones(no_project, recorder):
+    """``stop()`` is contracted to tolerate a missing start, so whatever ``start()`` allocated
+    before raising still gets released."""
     deck = Deck(agents=[])
-    recorder = _Recorder()
+
+    def boom():
+        raise RuntimeError("boom")
+
+    exposure = deck.expose(_Http("a", "/a", recorder), _Http("b", "/b", recorder, on_start=boom))
+
+    with pytest.raises(RuntimeError, match="boom"), TestClient(exposure.asgi()):
+        pass
+
+    assert recorder.started == ["a"]
+    assert recorder.stopped == ["b", "a"]
+    assert not deck.is_open
+
+
+def test_failed_start_on_binding_three_rolls_back_and_closes_owned_deck(no_project, recorder):
+    deck = Deck(agents=[])
 
     def boom():
         raise RuntimeError("boom")
@@ -191,14 +223,13 @@ def test_failed_start_on_binding_three_rolls_back_and_closes_owned_deck(no_proje
         pass
 
     assert recorder.started == ["a", "b"]
-    assert recorder.stopped == ["b", "a"]
+    assert recorder.stopped == ["c", "b", "a"]
     assert not deck.is_open
 
 
 @pytest.mark.asyncio
-async def test_mounting_onto_an_already_open_deck_never_closes_it(no_project):
+async def test_mounting_onto_an_already_open_deck_never_closes_it(no_project, recorder):
     deck = Deck(agents=[])
-    recorder = _Recorder()
     await deck.__aenter__()
     try:
         exposure = deck.expose(_Http("a", "/a", recorder))
@@ -210,10 +241,9 @@ async def test_mounting_onto_an_already_open_deck_never_closes_it(no_project):
 
 
 @pytest.mark.asyncio
-async def test_serve_stdio_only_never_imports_uvicorn(no_project, monkeypatch):
+async def test_serve_stdio_only_never_imports_uvicorn(no_project, recorder, monkeypatch):
     monkeypatch.setitem(__import__("sys").modules, "uvicorn", None)
     deck = Deck(agents=[])
-    recorder = _Recorder()
     exposure = deck.expose(_Stdio("term", recorder))
 
     await exposure.serve()
@@ -224,21 +254,8 @@ async def test_serve_stdio_only_never_imports_uvicorn(no_project, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_deck_serve_is_expose_then_serve(no_project):
+async def test_stdio_run_failure_still_stops_every_started_binding(no_project, recorder):
     deck = Deck(agents=[])
-    recorder = _Recorder()
-
-    await deck.serve(_Stdio("term", recorder))
-
-    assert recorder.started == ["term", "term:run"]
-    assert recorder.stopped == ["term"]
-    assert not deck.is_open
-
-
-@pytest.mark.asyncio
-async def test_stdio_run_failure_still_stops_every_started_binding(no_project):
-    deck = Deck(agents=[])
-    recorder = _Recorder()
     exposure = deck.expose(_Stdio("term", recorder, raises=RuntimeError("boom")))
 
     with pytest.raises(RuntimeError, match="boom"):
@@ -249,10 +266,23 @@ async def test_stdio_run_failure_still_stops_every_started_binding(no_project):
 
 
 @pytest.mark.asyncio
-async def test_serve_with_http_endpoints_runs_the_mounted_app_under_uvicorn(no_project, monkeypatch):
-    """Mirrors ``test_serve.py``'s fake-``uvicorn`` pattern: no real port bound."""
+async def test_a_failing_deck_close_never_replaces_the_first_error(no_project, recorder, monkeypatch):
     deck = Deck(agents=[])
-    recorder = _Recorder()
+    exposure = deck.expose(_Stdio("term", recorder, raises=RuntimeError("first")))
+
+    async def failing_aclose() -> None:
+        raise RuntimeError("close")
+
+    monkeypatch.setattr(deck, "aclose", failing_aclose)
+
+    with pytest.raises(RuntimeError, match="first"):
+        await exposure.serve()
+
+
+@pytest.mark.asyncio
+async def test_serve_with_http_endpoints_runs_the_mounted_app_under_uvicorn(no_project, recorder, monkeypatch):
+    """Fake uvicorn, as in ``test_serve.py``: no real port bound."""
+    deck = Deck(agents=[])
     exposure = deck.expose(_Http("a", "/a", recorder))
     served: list[object] = []
 

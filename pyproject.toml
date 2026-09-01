@@ -146,7 +146,7 @@ timeout_method = "thread"
 # generate_docs_reference from scripts/; all four basenames are unique across these dirs,
 # because a shared one collides on sys.modules. Explicit beats pytest's implicit basedir
 # insertion, which would go ambiguous if tests/conftest.py appeared.
-pythonpath = ["tests", "tests/golden", "tests/contract", "scripts"]
+pythonpath = ["tests", "tests/golden", "tests/contract", "tests/bindings", "scripts"]
 
 [build-system]
 requires = ["hatchling"]

@@ -16,6 +16,8 @@ Core types and public classes exported from `agentdeck`.
 - `ToolCtx`: The context a tool receives.
 - `WorkflowCtx`: `ToolCtx` plus orchestration, for a `@workflow` body.
 - `Observer`: One consumer of a deck's event stream, for `Deck(observers=[...])`.
+- `Event`: One canonical event, what `run.events()` yields and an `Observer` receives.
+- `RunStatus`: A run's lifecycle state, what `deck.runs.list(status=...)` filters on.
 
 ### Content blocks
 

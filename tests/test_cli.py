@@ -49,6 +49,15 @@ def _write_one_agent_project(tmp_path) -> None:
     (project / "agent.py").write_text(textwrap.dedent(_AGENT_PY))
 
 
+def _write_two_agent_project(tmp_path) -> None:
+    for name in ("Alpha", "Bravo"):
+        project = tmp_path / ".agentdeck" / "agents" / name.lower()
+        project.mkdir(parents=True)
+        (project / "agent.py").write_text(
+            f'from agentdeck.authoring import Agent\n\nit = Agent(name="{name}", instructions=".")\n'
+        )
+
+
 def _write_slow_workflow_project(tmp_path) -> None:
     project = tmp_path / ".agentdeck" / "workflows" / "slow"
     project.mkdir(parents=True)
@@ -127,15 +136,47 @@ def test_agentdeck_chat_starts_with_no_http_dependency_importable(tmp_path) -> N
     assert done.returncode == 0, done.stderr
 
 
+def test_chat_names_the_targets_when_the_deck_holds_more_than_one(tmp_path) -> None:
+    """`agentdeck chat` with nothing to default to fails at `expose()` naming what is available,
+    before any prompt."""
+    _write_two_agent_project(tmp_path)
+    probe = textwrap.dedent("""
+        from agentdeck.cli import main
+        raise SystemExit(main(["chat"]))
+        """)
+
+    done = subprocess.run(
+        [sys.executable, "-c", probe], cwd=tmp_path, input="", capture_output=True, text=True, timeout=60
+    )
+
+    assert done.returncode != 0
+    assert "Alpha" in done.stderr and "Bravo" in done.stderr
+
+
+def test_chat_refuses_an_unknown_target(tmp_path) -> None:
+    _write_one_agent_project(tmp_path)
+    probe = textwrap.dedent("""
+        from agentdeck.cli import main
+        raise SystemExit(main(["chat", "Nope"]))
+        """)
+
+    done = subprocess.run(
+        [sys.executable, "-c", probe], cwd=tmp_path, input="", capture_output=True, text=True, timeout=60
+    )
+
+    assert done.returncode != 0
+    assert "Nope" in done.stderr
+
+
 def test_ctrl_c_mid_run_cancels_the_run_and_exits_cleanly(tmp_path) -> None:
     """Ctrl-C while a run is in flight: a real SIGINT to a real subprocess, self-sent once a
     slow workflow's run has actually started (a durable sqlite log, read after exit, is how the
     run's own status is checked  -  the subprocess is gone by then). `asyncio.Runner` converts
     the resulting `CancelledError` into `KeyboardInterrupt` (rulings.md 35, #549 review).
 
-    Drives `Deck.from_project().serve(Terminal.stdio(target=...))` directly rather than
-    `main(["chat"])`: the CLI's own target auto-resolution (`build()`) only ever considers
-    agents, so a workflow-only scratch project has no other way to name one as the target.
+    Drives the CLI itself: `agentdeck chat Slow` names the target, so a workflow-only project
+    needs no direct `Deck` call. Exit is ordinary too: the binding's stdin reader is a daemon
+    thread, so nothing is left to join and `os._exit` is gone.
     """
     _write_slow_workflow_project(tmp_path)
     db_path = tmp_path / "events.sqlite3"
@@ -158,13 +199,9 @@ def test_ctrl_c_mid_run_cancels_the_run_and_exits_cleanly(tmp_path) -> None:
 
         threading.Thread(target=_watch, daemon=True).start()
 
-        from agentdeck.adapters.bindings.terminal import Terminal
-        from agentdeck.deck import Deck
+        from agentdeck.cli import main
 
-        try:
-            asyncio.run(Deck.from_project().serve(Terminal.stdio(target="Slow")))
-        except KeyboardInterrupt:
-            os._exit(0)
+        raise SystemExit(main(["chat", "Slow"]))
         """)
     env = {**os.environ, "AGENTDECK_EVENTS": f"sqlite:///{db_path}"}
 

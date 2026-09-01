@@ -24,6 +24,7 @@ from agentdeck.composition import build_runtime
 from agentdeck.core.content import DataBlock, TextBlock
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import Signal
+from agentdeck.core.errors import DOCS_URL
 from agentdeck.core.events import (
     Event,
     RunCompleted,
@@ -39,7 +40,7 @@ from agentdeck.core.events import (
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.ports import Observer, SessionClaim
 from agentdeck.core.status import Play, RunStatus, continuation_of, status_of
-from agentdeck.errors import DOCS_URL, ConfigError, NotFoundError, SessionBusyError, StoreError
+from agentdeck.errors import ConfigError, InputError, NotFoundError, SessionBusyError, StoreError
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import RuntimeSettings, reset_settings_cache
 
@@ -1511,7 +1512,7 @@ async def test_an_answer_the_log_cannot_hold_is_refused_rather_than_dropped(
     ]
     run_id = opened[0].run_id
 
-    with pytest.raises(ValueError, match="cannot be recorded"):
+    with pytest.raises(InputError, match="cannot be recorded"):
         async for _ in runtime.resume(
             "Approver", value, run_id=run_id, session_id=CTX.session_id, namespace=CTX.namespace
         ):

@@ -1,7 +1,6 @@
 """`Native.http()` end to end through `Exposure.asgi()` (`docs/design/protocols/native-wire.md`):
-every route, every `GatewayFailureCode`, SSE reconnect from `Last-Event-ID`, an interrupt
-answered over the wire and re-tailed, and the wire spec's own route table proven against the
-app it describes.
+every route and status code over the wire, SSE reconnect from `Last-Event-ID`, and an interrupt
+answered and re-tailed.
 """
 
 from __future__ import annotations
@@ -9,17 +8,16 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import socket  # noqa: TC003  -  get_type_hints() resolves `_unschematizable`'s annotation at runtime
+import socket  # noqa: TC003 (get_type_hints() resolves `_unschematizable`'s annotation at runtime)
 from pathlib import Path
 
-import httpx
 import pytest
 from starlette.testclient import TestClient
 
 from agentdeck import WorkflowCtx, workflow
-from agentdeck.adapters.bindings.native.binding import Native, NativeBinding, _error_response
+from agentdeck.adapters.bindings.native.binding import _NativeBinding, _on_unsupported
 from agentdeck.authoring import Agent
-from agentdeck.bindings import ProtocolGateway
+from agentdeck.bindings.native import Native
 from agentdeck.deck import Deck
 from agentdeck.errors import UnsupportedControlError
 from agentdeck.testing import ScriptedModel, patch_model
@@ -50,7 +48,9 @@ def _deck() -> Deck:
 
 
 def _client(deck: Deck) -> TestClient:
-    return TestClient(deck.expose(Native.http()).asgi())
+    # raise_server_exceptions=False: Starlette's own 500 handler re-raises after responding, so
+    # the server still logs the bug. A client sees the response, which is what these assert.
+    return TestClient(deck.expose(Native.http()).asgi(), raise_server_exceptions=False)
 
 
 def _events_from(response) -> list[dict]:
@@ -61,8 +61,6 @@ def _ids_from(response) -> list[int]:
     return [int(line.removeprefix("id: ")) for line in response.text.splitlines() if line.startswith("id: ")]
 
 
-# --- routes -------------------------------------------------------------------------------------
-
 
 def test_targets_lists_every_agent_and_workflow(no_project):
     with _client(_deck()) as client:
@@ -72,7 +70,7 @@ def test_targets_lists_every_agent_and_workflow(no_project):
     assert {t["name"] for t in response.json()} == {"Greeter", "Survey"}
 
 
-def test_targets_maps_a_schema_generation_failure_to_internal_500(no_project):
+def test_targets_maps_a_schema_generation_failure_to_internal_500_without_echoing_it(no_project):
     """`_workflow_schema` calls pydantic's `create_model(...).model_json_schema()`; a parameter
     type pydantic cannot schematize must not reach the client as a bare, non-JSON 500."""
     deck = Deck(workflows=[workflow(_unschematizable, name="Bad")])
@@ -152,7 +150,7 @@ def test_pending_and_answer_over_the_wire_then_re_tail(no_project):
         pending = client.get(f"/runs/{run_id}/pending")
         assert pending.json()["payload"]["question"] == "pick a color for kites?"
 
-        # waiting for a value refuses resume  -  the RunStateError/CONFLICT path, with the
+        # waiting for a value refuses resume: the RunStateError/CONFLICT path, with the
         # operation that would work named in the message (`run.answer`).
         resumed_too_early = client.post(f"/runs/{run_id}/resume")
         assert resumed_too_early.status_code == 409
@@ -169,8 +167,8 @@ def test_pending_and_answer_over_the_wire_then_re_tail(no_project):
 
 
 def test_cancel_and_resume_are_quiet_no_ops_on_a_terminal_run(no_project):
-    """``Run.cancel``/``Run.resume`` both return quietly once a run has ended  -  nothing to
-    stop or lift  -  so the route answers 200, not an error (``core/status.py``'s own table)."""
+    """``Run.cancel``/``Run.resume`` both return quietly once a run has ended. Nothing to stop
+    or lift, so the route answers 200 rather than an error (``core/status.py``'s own table)."""
     model = ScriptedModel(deltas=("hi",))
     with patch_model(model), _client(_deck()) as client:
         started = client.post("/runs", json={"target": "Greeter", "input": "hi", "session_id": "s1"})
@@ -183,8 +181,6 @@ def test_cancel_and_resume_are_quiet_no_ops_on_a_terminal_run(no_project):
     assert cancelled.status_code == 200
     assert resumed.status_code == 200
 
-
-# --- error codes ----------------------------------------------------------------------------
 
 
 def test_unknown_run_id_maps_to_404(no_project):
@@ -211,7 +207,7 @@ def test_events_for_a_run_in_another_namespace_is_404(no_project):
     model = ScriptedModel(deltas=("hi",))
     deck = _deck()
     default_binding = Native.http(path="/default")
-    other_binding = Native.http(path="/other", namespace="elsewhere")
+    other_binding = Native.http(path="/other", namespace="elsewhere", name="native-elsewhere")
     with patch_model(model), TestClient(deck.expose(default_binding, other_binding).asgi()) as client:
         started = client.post("/default/runs", json={"target": "Greeter", "input": "hi", "session_id": "s1"})
         run_id = started.json()["run_id"]
@@ -240,6 +236,39 @@ def test_missing_target_field_maps_to_422(no_project):
     assert "target" in response.json()["detail"]
 
 
+def test_answering_outside_the_offered_options_maps_to_422(no_project):
+    """`run.answer()` refuses a value the ask did not offer with `InputError`, which is caller
+    input, not a bug: 422, not 500."""
+    deck = _deck()
+    with _client(deck) as client:
+        started = client.post("/runs", json={"target": "Survey", "input": {"topic": "kites"}, "session_id": "s1"})
+        run_id = started.json()["run_id"]
+        client.get(f"/runs/{run_id}/events")
+
+        response = client.post(f"/runs/{run_id}/answer", json={"value": "chartreuse"})
+
+    assert response.status_code == 422
+    assert "waiting for one of" in response.json()["detail"]
+
+
+def test_a_non_object_json_body_is_422_not_500(no_project):
+    deck = _deck()
+    with _client(deck) as client:
+        for body in ("[]", "7", '"hello"', "null"):
+            response = client.post("/runs", content=body, headers={"content-type": "application/json"})
+            assert response.status_code == 422, body
+            assert "object" in response.json()["detail"]
+
+
+def test_a_negative_limit_is_422_not_a_store_error(no_project):
+    deck = _deck()
+    with _client(deck) as client:
+        response = client.get("/runs", params={"limit": "-1"})
+
+    assert response.status_code == 422
+    assert "negative" in response.json()["detail"]
+
+
 def test_unknown_status_query_maps_to_422_naming_accepted_values(no_project):
     with _client(_deck()) as client:
         response = client.get("/runs", params={"status": "bogus"})
@@ -248,64 +277,15 @@ def test_unknown_status_query_maps_to_422_naming_accepted_values(no_project):
     assert "completed" in response.json()["detail"]
 
 
-def test_internal_error_never_echoes_the_exception_text():
-    response = _error_response(RuntimeError("db password is hunter2"))
-
-    assert response.status_code == 500
-    assert json.loads(bytes(response.body)) == {"detail": "internal error"}
-
-
-def test_an_unrequested_value_error_is_a_bug_not_a_422():
-    """Only a deliberate `InvalidRequestError` earns 422; a `ValueError` no parsing helper
-    raised on purpose is a bug in the handler, not bad client input."""
-    response = _error_response(ValueError("some internal invariant broke"))
-
-    assert response.status_code == 500
-    assert json.loads(bytes(response.body)) == {"detail": "internal error"}
-
-
-def test_unsupported_control_error_maps_to_501():
-    response = _error_response(UnsupportedControlError("run r1 cannot pause: no control backend reaches it"))
-
-    assert response.status_code == 501
-    assert "no control backend" in json.loads(bytes(response.body))["detail"]
-
-
 @pytest.mark.asyncio
-async def test_pause_route_maps_no_control_backend_to_501(no_project):
-    """The reachable `UNSUPPORTED` path over the wire: `ProtocolGateway.get_run` always
-    rehydrates a `Run` with `suspendable=True` (`deck.py`'s `_RECOVERED_SUSPENDABLE`, "assumed,
-    not read"), so `tests/test_deck.py`'s `run._suspendable = False` recipe never reaches a
-    route that only ever holds a rehydrated `Run` -- that recipe mutates one specific handle,
-    and every route here calls `get_run` fresh. Its sibling recipe (no `ControlPort`) does reach
-    it: `Run.pause` doesn't consult `_suspendable` for that failure. Uses a raw ASGI transport,
-    not `TestClient`, so `model.holding.wait()` and the request share one event loop.
+async def test_unsupported_control_translates_to_501() -> None:
+    """Translated directly rather than over the wire: every deck a supported configuration can
+    build has a control port, and reaching this state needed `deck._runtime._control = None`.
     """
-    hold = asyncio.Event()
-    model = ScriptedModel(deltas=("hi", "there"), hold=hold)
-    deck = _deck()
-    with patch_model(model):
-        async with deck:
-            gateway = ProtocolGateway(deck)
-            endpoint = Native.http().build(gateway)
-            transport = httpx.ASGITransport(app=endpoint.app)
-            async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-                started = await client.post("/runs", json={"target": "Greeter", "input": "hi", "session_id": "s1"})
-                run_id = started.json()["run_id"]
-                await model.holding.wait()
-                deck._runtime._control = None
-
-                response = await client.post(f"/runs/{run_id}/pause")
-
-            hold.set()
-            run = await gateway.get_run(run_id)
-            await run
+    response = await _on_unsupported(None, UnsupportedControlError("run r1 cannot pause: set AGENTDECK_CONTROL"))
 
     assert response.status_code == 501
-    assert "AGENTDECK_CONTROL" in response.json()["detail"]
-
-
-# --- the wire spec must not drift from the app ---------------------------------------------------
+    assert "AGENTDECK_CONTROL" in json.loads(bytes(response.body))["detail"]
 
 
 def _doc_routes() -> set[tuple[str, str]]:
@@ -316,7 +296,7 @@ def _doc_routes() -> set[tuple[str, str]]:
 def _app_routes() -> set[tuple[str, str]]:
     # build() is pure and never reads the gateway (only stores it), so a placeholder proves the
     # route table without needing a real Deck.
-    endpoint = NativeBinding().build(object())  # ty: ignore[invalid-argument-type]
+    endpoint = _NativeBinding().build(object())  # ty: ignore[invalid-argument-type]
     return {
         (method, route.path)
         for route in endpoint.app.routes
@@ -326,4 +306,6 @@ def _app_routes() -> set[tuple[str, str]]:
 
 
 def test_native_wire_doc_route_table_matches_the_app():
+    """The route table only: request shapes and status codes are proven by the tests above, not
+    by parsing the doc."""
     assert _doc_routes() == _app_routes()

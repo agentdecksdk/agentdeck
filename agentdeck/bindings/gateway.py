@@ -1,4 +1,4 @@
-"""``ProtocolGateway``: the stable interface from a protocol into a Deck
+"""``DeckGateway``: the stable interface from a protocol into a Deck
 (``docs/design/protocols/gateway.md``).
 
 ``Deck``/``Run`` are imported for typing only; this module reaches a Deck through its public
@@ -35,11 +35,7 @@ JsonSchema = dict[str, Any]
 
 @dataclass(frozen=True, slots=True)
 class TargetInfo:
-    """One agent or workflow a protocol may start a run against.
-
-    ``input_schema`` is ``None`` for a free-text agent; a workflow's is built from its own
-    parameters, so a target the catalog changes never drifts from what starting it actually takes.
-    """
+    """One agent or workflow a protocol may start a run against."""
 
     name: str
     kind: Literal["agent", "workflow"]
@@ -49,14 +45,8 @@ class TargetInfo:
 
 @dataclass(frozen=True, slots=True)
 class Capabilities:
-    """What varies by deployment, never by run  -  advertised once, before any run exists.
-
-    ``control=False`` under the default ``memory://`` backend still delivers pause/cancel/resume
-    to a run *executing in this process* (``deck.py``'s ``_NO_CONTROL_PORT``); it means signals
-    cannot reach a run in another worker, never "control unsupported"  -  ``run.can`` and the
-    ``Run`` methods stay the per-run authority. ``durable=False`` means the log does not survive
-    a restart and is unreadable from another process; both flip ``True`` off ``memory://``.
-    """
+    """What varies by deployment, never by run. ``gateway.md`` holds what each flag does and
+    does not mean."""
 
     control: bool
     durable: bool
@@ -75,16 +65,17 @@ _INTERNAL_MESSAGE = "internal error"
 
 
 class GatewayError(Exception):
-    """What every :class:`ProtocolGateway` method raises on failure; a :class:`~agentdeck.deck.Run`
-    method (``cancel``, ``pause``, ``resume``, ``answer``) is not one and keeps its own public
-    error instead (``RunStateError``, ``UnsupportedControlError``, ``RunSuspendedError``), mapped by a binding.
+    """The one exception a binding catches.
 
-    ``message`` is wire-safe only for ``NOT_FOUND``, ``BUSY``, ``CONFLICT`` and ``INVALID_INPUT``;
-    ``INTERNAL`` always carries the fixed ``"internal error"``, never the cause's own text, which
-    may hold configuration values or a skill's stderr. ``cause`` is for logging, not display.
+    ``message`` is wire-safe only for ``NOT_FOUND``, ``BUSY``, ``CONFLICT`` and ``INVALID_INPUT``.
+    An ``INTERNAL`` message is replaced here, not merely documented: a caller cannot leak
+    configuration values or a skill's stderr through one, whatever it passes. ``cause`` is for
+    logging, not display.
     """
 
     def __init__(self, code: GatewayFailureCode, message: str, cause: BaseException | None = None) -> None:
+        if code is GatewayFailureCode.INTERNAL:
+            message = _INTERNAL_MESSAGE
         super().__init__(message)
         self.code = code
         self.message = message
@@ -107,9 +98,7 @@ def _map_failure(exc: Exception) -> GatewayError:
 
 
 def _workflow_schema(definition: NativeDefinition) -> JsonSchema | None:
-    """The object schema for a workflow's input, or ``None`` if it takes none. Every field is
-    marked required: :meth:`ProtocolGateway.targets` explains why.
-    """
+    """The object schema for a workflow's input, or ``None`` if it takes none."""
     parameters = definition.analysis.visible_parameters
     if not parameters:
         return None
@@ -121,23 +110,18 @@ def _workflow_schema(definition: NativeDefinition) -> JsonSchema | None:
     return model.model_json_schema()
 
 
-class ProtocolGateway:
-    """The stable surface a :class:`~agentdeck.bindings.binding.Binding` builds an
-    :class:`~agentdeck.bindings.binding.Endpoint` against. A thin facade over :attr:`Deck.runs`:
-    it delegates every run operation and adds only what ``Runs`` lacks for a protocol  -
-    ``targets()``, ``capabilities`` and failure classification.
-    """
+class DeckGateway:
+    """A facade over :attr:`Deck.runs` adding what a protocol needs: ``targets()``,
+    ``capabilities`` and failure classification."""
 
     def __init__(self, deck: Deck) -> None:
         self._deck = deck
 
     def targets(self) -> Sequence[TargetInfo]:
-        """Every agent and workflow in the deck's catalog, as a protocol advertises them.
+        """Every agent and workflow in the deck's catalog.
 
-        ``description`` is the agent's ``handoff_description`` or the workflow's own ``description``;
-        ``kind`` distinguishes them. ``input_schema`` is ``None`` for a free-text agent; for a workflow
-        it is the schema built from its parameters, every field required regardless of its own default,
-        because ``NativeExecutor._arguments`` takes no partial mapping for a multi-parameter workflow.
+        A workflow's schema marks every field required regardless of its own default, because
+        ``NativeExecutor._arguments`` takes no partial mapping for a multi-parameter workflow.
         """
         agents = [
             TargetInfo(name=agent.name, kind="agent", description=agent.handoff_description, input_schema=None)
@@ -156,9 +140,7 @@ class ProtocolGateway:
 
     @property
     def capabilities(self) -> Capabilities:
-        """See :class:`Capabilities`. Read from :attr:`Deck.settings` alone, so this needs
-        nothing beyond the deck's public surface: ``memory://`` (either backend's default)
-        reports ``False``, anything else ``True``."""
+        """See :class:`Capabilities`: ``memory://`` reports ``False``, anything else ``True``."""
         settings = self._deck.settings
         return Capabilities(
             control=_is_configured(settings.control.url),
@@ -175,13 +157,7 @@ class ProtocolGateway:
         key: str | None = None,
         context: object = None,
     ) -> Run:
-        """Begin a run against ``target`` with the same parameters as :meth:`Runs.start`, mapping every
-        failure to one :class:`GatewayError`.
-
-        ``NOT_FOUND``: no target named ``target``. ``INVALID_INPUT``: ``input`` the target cannot take.
-        ``BUSY``: ``session_id`` already holds a run in flight, named in the message. ``CONFLICT``:
-        ``(namespace, key)`` already held. ``INTERNAL``: anything else, with a fixed message.
-        """
+        """:meth:`Runs.start`, with every failure mapped to a :class:`GatewayError`."""
         try:
             return await self._deck.runs.start(
                 target, input, session_id=session_id, namespace=namespace, key=key, context=context
@@ -190,11 +166,7 @@ class ProtocolGateway:
             raise _map_failure(exc) from exc
 
     async def get_run(self, run_id: str, *, namespace: str | None = None) -> Run:
-        """Rehydrate the run named ``run_id``, scoped to ``namespace`` exactly like
-        :meth:`Runs.get`: ``run_id`` in a namespace other than the one it was started in is
-        ``NOT_FOUND``, never a cross-namespace lookup. ``INTERNAL`` for anything else. Both
-        arrive as a :class:`GatewayError`.
-        """
+        """:meth:`Runs.get`, with every failure mapped to a :class:`GatewayError`."""
         try:
             return await self._deck.runs.get(run_id, namespace=namespace)
         except Exception as exc:
@@ -203,12 +175,7 @@ class ProtocolGateway:
     async def list_runs(
         self, *, namespace: str | None = None, status: RunStatus | None = None, limit: int | None = None
     ) -> Sequence[Run]:
-        """Every run in ``namespace``, per :meth:`Runs.list`: stays scoped to that one
-        namespace, never spanning several, and an unknown ``namespace`` is an empty sequence,
-        never ``NOT_FOUND``  -  a namespace is a partition, not an identity the store can fail
-        to find. Order is not guaranteed. Any failure arrives as a :class:`GatewayError` with
-        code ``INTERNAL``.
-        """
+        """:meth:`Runs.list`, with every failure mapped to a :class:`GatewayError`."""
         try:
             return await self._deck.runs.list(namespace=namespace, status=status, limit=limit)
         except Exception as exc:
@@ -216,16 +183,14 @@ class ProtocolGateway:
 
 
 def _is_configured(url: str) -> bool:
-    """``memory://`` is every backend's own unconfigured default; anything else was set on
-    purpose."""
+    """``memory://`` is every backend's unconfigured default; anything else was set on purpose."""
     return url.partition("://")[0] != "memory"
 
 
 __all__ = [
     "Capabilities",
+    "DeckGateway",
     "GatewayError",
     "GatewayFailureCode",
-    "JsonSchema",
-    "ProtocolGateway",
     "TargetInfo",
 ]

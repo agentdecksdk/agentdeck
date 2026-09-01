@@ -19,7 +19,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
-import os
 
 from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.core.control import Signal
@@ -32,7 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(prog="agentdeck")
     subcommands = parser.add_subparsers(dest="resource", required=True)
-    subcommands.add_parser("chat", help="a one-process terminal client over Terminal.stdio()")
+    chat = subcommands.add_parser("chat", help="a one-process terminal client over Terminal.stdio()")
+    chat.add_argument("target", nargs="?", help="the agent or workflow to talk to; omit it when the deck holds one")
     runs = subcommands.add_parser("runs")
     runs_commands = runs.add_subparsers(dest="action", required=True)
     signal_cmd = runs_commands.add_parser("signal")
@@ -45,25 +45,23 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _chat() -> int:
-    """``Deck.from_project().serve(Terminal.stdio())``  -  a stdio-only ``Exposure``, so
-    ``serve()`` never imports uvicorn (``exposure.py``). Mid-run Ctrl-C surfaces here as
-    ``KeyboardInterrupt``; idle Ctrl-C raises nothing (``terminal/binding.py``). ``os._exit``
-    covers both: the stdio loop's blocked ``stdin.readline()`` runs in a worker thread a live
-    terminal never gives an EOF, so normal shutdown would hang joining it.
+def _chat(target: str | None) -> int:
+    """A stdio-only ``Exposure``, so ``serve()`` never imports uvicorn (``exposure.py``). Mid-run
+    Ctrl-C surfaces here as ``KeyboardInterrupt``; idle Ctrl-C raises nothing
+    (``terminal/binding.py``). An unknown target fails at ``expose()``, before any prompt.
     """
-    from agentdeck.adapters.bindings.terminal import Terminal
+    from agentdeck.bindings.terminal import Terminal
     from agentdeck.deck import Deck
 
     with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(Deck.from_project().serve(Terminal.stdio()))
-    os._exit(0)
+        asyncio.run(Deck.from_project().expose(Terminal.stdio(target=target)).serve())
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.resource == "chat":
-        return _chat()
+        return _chat(args.target)
     control = SqliteControlPort(args.control_db)
     # A run's id is minted and canonical, so this CLI's argument addresses one directly  -  no
     # namespace to combine it with, no resolution step, and nothing to derive.
