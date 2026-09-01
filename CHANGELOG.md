@@ -10,24 +10,6 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Added
 
-- **A channel-shaped out-of-tree fixture plugin proving the SPI** (#547): `tests/bindings/`
-  covers every `docs/design/protocols/roadmap.md` contract item against `ProtocolGateway`/`Run`
-  directly and against the fixture, with its own `.importlinter` contract wired into
-  `make check`. No product code changes; `ProtocolGateway.list_runs`/`get_run` docstrings were
-  tightened on namespace scope alongside it.
-- **`Native.http()`, the AgentDeck protocol** (#548): `agentdeck/adapters/bindings/native/`, the
-  SPI's reference binding. Ten routes over `ProtocolGateway`/`Run` only (targets, start, get/list
-  runs, SSE tail with `Last-Event-ID`/`from_seq` reconnect, cancel/pause/resume, pending/answer),
-  frames as `Event.model_dump_json()` verbatim, and a versioned wire spec at
-  `docs/design/protocols/native-wire.md` diffed against the app's own routes by a test.
-
-### Fixed
-
-- **`BindingInfo.advertises`/`projects` were two conflated vocabularies** (#578):
-  `agentdeck/bindings/binding.py` adds `REQUIRED_KINDS`, a capability -> canonical-kinds table;
-  `Exposure` now checks the kinds an advertised capability actually requires against `projects`
-  (canonical event kinds only), instead of comparing capability names to themselves. The fixture
-  and Native's `BindingInfo.projects` are fixed to hold kinds, not capability names.
 - **`agentdeck.bindings`, the protocol SPI** (#545): `DeckGateway` (`targets()`,
   `capabilities`, `start`/`get_run`/`list_runs`), `GatewayError`/`GatewayFailureCode`, `Binding`,
   `BindingInfo`, `HttpEndpoint`/`StdioEndpoint`. No concrete binding ships yet; this is the
@@ -38,6 +20,20 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
   `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
   `start()` on binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too.
+
+- **`Native.http()`, the AgentDeck protocol** (#548): `from agentdeck.bindings.native import
+  Native`, then `deck.expose(Native.http())`. Ten routes over `DeckGateway` and public `Run`
+  methods (targets, start, get/list runs, an SSE tail with `Last-Event-ID`/`from_seq` reconnect,
+  cancel/pause/resume, pending/answer), frames as `Event.model_dump_json()` verbatim, and a
+  versioned wire spec at `docs/design/protocols/native-wire.md`. The implementation lives under
+  `agentdeck/adapters/bindings/native/`; `adapters` is not a user import path.
+- **`RunStatus` is exported from `agentdeck`.** `deck.runs.list(status=...)` takes one and every
+  Native run summary reports one, so a caller reading runs needs the type.
+- **`InputError`** (#579): a public `AgentdeckError` for content or an answer the caller supplied
+  that AgentDeck cannot take, raised by `coerce_input` and by an answer outside an ask's own
+  `options`. A binding maps it to its own bad-request code (Native: 422); an unrelated
+  `TypeError`/`ValueError` from a store or an executor stays internal. Catch `InputError` (or
+  `AgentdeckError`) where you caught `TypeError` or `ValueError` from those calls before.
 
 ### Changed
 
