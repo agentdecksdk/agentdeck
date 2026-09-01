@@ -371,6 +371,24 @@ A caller who wants to wait polls `status()`/`pending()` instead of awaiting.
 is parked in memory with the `ctx` it already holds, so it reads the original value when it
 continues on its next line.
 
+## Serving through bindings
+
+`expose(*bindings)` validates a set of bindings and owns their lifecycle. A binding is one
+external protocol, channel or surface over one transport. The first one is the terminal:
+
+```python
+import asyncio
+
+from agentdeck import Deck
+from agentdeck.bindings.terminal import Terminal
+
+deck = Deck.from_project("./.agentdeck")
+asyncio.run(deck.expose(Terminal.stdio()).serve())   # what `agentdeck chat` runs
+```
+
+Embedding uses `deck.expose(...).asgi()` instead of `serve()`. HTTP bindings and the full guide
+arrive with the bindings section of these docs.
+
 ## Serving over HTTP
 
 `asgi()` returns an ASGI application  -  a FastAPI app whose lifespan **opens the deck on startup
