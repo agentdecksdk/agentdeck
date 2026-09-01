@@ -149,11 +149,15 @@ def test_chat_names_the_targets_when_the_deck_holds_more_than_one(tmp_path) -> N
         [sys.executable, "-c", probe], cwd=tmp_path, input="", capture_output=True, text=True, timeout=60
     )
 
-    assert done.returncode != 0
+    assert done.returncode == 2, done.stderr
     assert "Alpha" in done.stderr and "Bravo" in done.stderr
+    assert "Traceback" not in done.stderr  # a usage mistake reads as one
 
 
-def test_chat_refuses_an_unknown_target(tmp_path) -> None:
+def test_chat_refuses_an_unknown_target_without_a_traceback(tmp_path) -> None:
+    """Verified against a real pty as well: `agentdeck chat Nope` prints
+    `agentdeck chat: no target named 'Nope' in this deck. Available: [...]` and exits 2.
+    """
     _write_one_agent_project(tmp_path)
     probe = textwrap.dedent("""
         from agentdeck.cli import main
@@ -164,8 +168,9 @@ def test_chat_refuses_an_unknown_target(tmp_path) -> None:
         [sys.executable, "-c", probe], cwd=tmp_path, input="", capture_output=True, text=True, timeout=60
     )
 
-    assert done.returncode != 0
+    assert done.returncode == 2, done.stderr
     assert "Nope" in done.stderr
+    assert "Traceback" not in done.stderr
 
 
 def test_ctrl_c_mid_run_cancels_the_run_and_exits_cleanly(tmp_path) -> None:

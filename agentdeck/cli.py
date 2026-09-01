@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import sys
 
 from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.core.control import Signal
@@ -52,9 +53,16 @@ def _chat(target: str | None) -> int:
     """
     from agentdeck.bindings.terminal import Terminal
     from agentdeck.deck import Deck
+    from agentdeck.errors import ConfigError
 
-    with contextlib.suppress(KeyboardInterrupt):
-        asyncio.run(Deck.from_project().expose(Terminal.stdio(target=target)).serve())
+    try:
+        with contextlib.suppress(KeyboardInterrupt):
+            asyncio.run(Deck.from_project().expose(Terminal.stdio(target=target)).serve())
+    except ConfigError as error:
+        # A mistyped target is a usage mistake, so it reads as one: the message already names
+        # the alternatives, and a traceback above it says nothing a person can act on.
+        sys.stderr.write(f"agentdeck chat: {error}\n")
+        return 2
     return 0
 
 
