@@ -485,6 +485,8 @@ continues on its next line.
 external protocol, channel or surface over one transport. The first one is the terminal:
 
 ```python
+import asyncio
+
 from agentdeck import Deck
 from agentdeck.bindings.terminal import Terminal
 

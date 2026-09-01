@@ -11,7 +11,7 @@ app = exposure.asgi()                       # embed in FastAPI/Starlette
 await exposure.serve(host="0.0.0.0", port=8000)   # standalone
 ```
 
-`expose()` is the only verb on `Deck`; `serve()` lives on the exposure. `deck.serve(*bindings)` is one line over `expose(*bindings).serve()`; `expose()` remains the contract for embedding (`asgi()`).
+`expose()` is the only verb on `Deck`; `serve()` lives on the exposure, and `expose()` is the contract for embedding (`asgi()`). A `deck.serve(*bindings)` shorthand stays deferred (`rulings.md` 23): saving `expose(...)` is not reason enough for a second permanent verb on `Deck`.
 
 Every binding on one exposure shares the Deck's agents, Runs, sessions, events and controls: a run started over A2A is visible over native HTTP, namespace permitting. That is a contract test.
 

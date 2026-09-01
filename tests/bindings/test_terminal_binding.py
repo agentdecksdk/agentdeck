@@ -77,7 +77,7 @@ async def test_a_turn_an_interrupt_and_an_answer_reach_completion_matching_the_s
 
 
 async def test_an_out_of_range_choice_is_refused_and_re_prompts_instead_of_raising():
-    """`run.answer` raises `ValueError` for a choice outside the declared options: the one path
+    """`run.answer` raises `InputError` for a choice outside the declared options: the one path
     `_answer` exists to catch, so a fat-fingered number cannot crash the whole session.
     """
     deck = Deck(workflows=[workflow(_survey, name="Survey")])
