@@ -5,11 +5,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections import Counter
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
 from agentdeck.bindings.binding import PROTOCOL_SPI_VERSION, HttpEndpoint, StdioEndpoint
-from agentdeck.bindings.gateway import ProtocolGateway
+from agentdeck.bindings.gateway import DeckGateway
 from agentdeck.errors import ConfigError
 
 if TYPE_CHECKING:
@@ -20,27 +21,21 @@ if TYPE_CHECKING:
 
 
 class Exposure:
-    """Owns the lifecycle of the bindings validated at construction. Never inspects an
-    :class:`~agentdeck.core.events.Event`: hosting and rollback only, no protocol semantics.
-    """
+    """Hosts and owns a validated set of bindings."""
 
     def __init__(self, deck: Deck, bindings: Sequence[Binding]) -> None:
         bindings = tuple(bindings)
         _validate_info(bindings)
-        # Both pure (build() by contract, ProtocolGateway.__init__ only stores deck), so both
-        # run here, ahead of exposure.md's "open Deck -> build gateway" order.
-        gateway = ProtocolGateway(deck)
+        gateway = DeckGateway(deck)
         endpoints = [binding.build(gateway) for binding in bindings]
         _validate_endpoints(bindings, endpoints)
         self._deck = deck
         self._bindings = bindings
-        self._http_endpoints = [e for e in endpoints if isinstance(e, HttpEndpoint)]
-        self._stdio_endpoint = next((e for e in endpoints if isinstance(e, StdioEndpoint)), None)
+        self._http = [endpoint for endpoint in endpoints if isinstance(endpoint, HttpEndpoint)]
+        self._stdio = next((e for e in endpoints if isinstance(e, StdioEndpoint)), None)
 
     @asynccontextmanager
     async def _lifecycle(self) -> AsyncIterator[asyncio.Future[None] | None]:
-        """``started`` holds only bindings whose ``start()`` returned, so a failure on binding N
-        stops 1..N-1 and never N; shutdown steps each run in their own ``try`` so none is skipped."""
         owns_deck = not self._deck.is_open
         if owns_deck:
             await self._deck.__aenter__()
@@ -51,12 +46,14 @@ class Exposure:
             for binding in self._bindings:
                 await binding.start()
                 started.append(binding)
-            if self._stdio_endpoint is not None:
-                stdio_task = asyncio.ensure_future(self._stdio_endpoint.run())
+            if self._stdio is not None:
+                stdio_task = asyncio.ensure_future(self._stdio.run())
             yield stdio_task
         except BaseException as error:
             first_error = error
         finally:
+            # Every step in its own try: one failure must not skip the rest, and the error the
+            # caller sees is the first one, not whatever failed last on the way out.
             if stdio_task is not None:
                 stdio_task.cancel()
                 try:
@@ -71,18 +68,15 @@ class Exposure:
                 except BaseException as error:
                     first_error = first_error or error
             if owns_deck:
-                await self._deck.aclose()
+                try:
+                    await self._deck.aclose()
+                except BaseException as error:
+                    first_error = first_error or error
             if first_error is not None:
                 raise first_error
 
     def asgi(self) -> Any:
-        """One ``Starlette`` app with one ``Mount`` per :class:`~agentdeck.bindings.binding.HttpEndpoint`,
-        for embedding in a host that owns the server. Its lifespan is the exposure's lifecycle:
-        on startup it opens the Deck only if the Deck is not already open, then calls each
-        binding's ``start()`` in order; on shutdown it calls ``stop()`` in reverse, then closes the
-        Deck only if this exposure opened it. A ``start()`` failure stops the bindings already
-        started and re-raises; the first exception wins, and every shutdown step still runs.
-        """
+        """Build the shared ASGI application, with this exposure's lifecycle as its lifespan."""
         from starlette.applications import Starlette
         from starlette.routing import Mount
 
@@ -91,16 +85,23 @@ class Exposure:
             async with self._lifecycle():
                 yield
 
-        routes = [Mount(endpoint.path, app=endpoint.app) for endpoint in self._http_endpoints]
-        return Starlette(routes=routes, lifespan=lifespan)
+        # A Mount matches by prefix and Starlette takes the first match, so "/api" ahead of
+        # "/api/admin" would swallow it: deepest path first.
+        ordered = sorted(self._http, key=lambda endpoint: _depth(endpoint.path), reverse=True)
+        root = next((e for e in ordered if _normalize(e.path) == "/"), None)
+        app = Starlette(
+            routes=[Mount(_normalize(e.path), app=e.app) for e in ordered if e is not root],
+            lifespan=lifespan,
+        )
+        if root is not None:
+            # Not a Mount: `Mount("/")` matches everything, and a bare "/a2a" (no trailing slash,
+            # which no Mount pattern matches) would reach the root app instead of redirecting.
+            app.router.default = root.app
+        return app
 
     async def serve(self, *, host: str = "0.0.0.0", port: int = 8000) -> None:
-        """A stdio-only exposure never imports uvicorn or binds a port: it runs the lifecycle
-        directly and waits for the stdio endpoint to finish. Any
-        :class:`~agentdeck.bindings.binding.HttpEndpoint` routes this through :meth:`asgi` and
-        uvicorn instead, whose own signal handling already runs ``stop()`` in reverse on Ctrl-C.
-        """
-        if not self._http_endpoints:
+        """Serve the exposure: stdio alone runs the lifecycle directly, HTTP runs under uvicorn."""
+        if not self._http:
             async with self._lifecycle() as stdio_task:
                 if stdio_task is not None:
                     await stdio_task
@@ -111,8 +112,23 @@ class Exposure:
         await uvicorn.Server(config).serve()
 
 
+def _normalize(path: str) -> str:
+    """One spelling per path, so ``/a2a`` and ``/a2a/`` cannot both be claimed."""
+    return "/" + path.strip("/")
+
+
+def _depth(path: str) -> int:
+    return len([segment for segment in _normalize(path).split("/") if segment])
+
+
 def _validate_info(bindings: Sequence[Binding]) -> None:
-    names = {binding.info.name for binding in bindings}
+    counts = Counter(binding.info.name for binding in bindings)
+    if repeated := sorted(name for name, count in counts.items() if count > 1):
+        raise ConfigError(
+            f"binding names must be unique in one exposure, but {repeated} appear more than once. "
+            f"`requires` resolves by name, so give each binding its own `BindingInfo.name`."
+        )
+    names = set(counts)
     for binding in bindings:
         info = binding.info
         if info.spi_version != PROTOCOL_SPI_VERSION:
@@ -124,8 +140,6 @@ def _validate_info(bindings: Sequence[Binding]) -> None:
             raise ConfigError(
                 f"binding {info.name!r} requires {missing}, not in this exposure. Available: {sorted(names)}."
             )
-        if unimplemented := sorted(info.advertises - info.projects):
-            raise ConfigError(f"binding {info.name!r} advertises {unimplemented} with no projection implemented.")
 
 
 def _validate_endpoints(bindings: Sequence[Binding], endpoints: Sequence[Endpoint]) -> None:
@@ -133,11 +147,10 @@ def _validate_endpoints(bindings: Sequence[Binding], endpoints: Sequence[Endpoin
     stdio_owners: list[str] = []
     for binding, endpoint in zip(bindings, endpoints, strict=True):
         if isinstance(endpoint, HttpEndpoint):
-            if owner := owner_of_path.get(endpoint.path):
-                raise ConfigError(
-                    f"HTTP path {endpoint.path!r} is claimed by both {owner!r} and {binding.info.name!r}."
-                )
-            owner_of_path[endpoint.path] = binding.info.name
+            path = _normalize(endpoint.path)
+            if owner := owner_of_path.get(path):
+                raise ConfigError(f"HTTP path {path!r} is claimed by both {owner!r} and {binding.info.name!r}.")
+            owner_of_path[path] = binding.info.name
         elif isinstance(endpoint, StdioEndpoint):
             stdio_owners.append(binding.info.name)
     if len(stdio_owners) > 1:

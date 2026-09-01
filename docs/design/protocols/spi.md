@@ -1,14 +1,12 @@
 # Protocol SPI: versioning and packaging
 
-Status: proposed, 2026-08-29.
-
 ## Version
 
 ```python
 PROTOCOL_SPI_VERSION = 1
 ```
 
-A plugin declares `spi_version = 1` in its `BindingInfo`; `expose()` refuses a binding whose `spi_version` this AgentDeck does not support, naming both versions, before anything opens. Breaking `ProtocolGateway`, `Binding`, endpoint contracts or `GatewayFailureCode` bumps the major; adding optional fields or capabilities does not.
+A plugin declares `spi_version = 1` in its `BindingInfo`; `expose()` refuses a binding whose `spi_version` this AgentDeck does not support, naming both versions, before anything opens. Breaking `DeckGateway`, `Binding`, endpoint contracts or `GatewayFailureCode` bumps the major; adding optional fields or capabilities does not.
 
 Independent version lines, never coupled:
 
@@ -27,10 +25,10 @@ from agentdeck_a2a import A2A
 app = Deck(...).expose(A2A.http()).asgi()
 ```
 
-| may import | may not import |
+| may use | may not use |
 |---|---|
 | `agentdeck.bindings` (gateway, `Binding`, endpoint, failure types) | `agentdeck.runtime.*` |
 | `agentdeck.Run`, `agentdeck.Event` | `agentdeck.adapters.*` |
-| content blocks, public errors and value types | `deck._*` |
+| content blocks, public errors and value types | `Deck._*` |
 
-The Native binding is held to the same list. Needing a private Deck method means the gateway lacks a legitimate capability, and the gateway grows, not the import list.
+The Native binding is held to the same list. Needing a private Deck method means the gateway lacks a legitimate capability, and the gateway grows, not this list.

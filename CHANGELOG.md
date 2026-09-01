@@ -24,11 +24,15 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `BindingInfo`, `HttpEndpoint`/`StdioEndpoint`. No concrete binding ships yet; this is the
   contract the first one (#548) builds against.
 - **`Deck.expose(*bindings) -> Exposure`** (#546): validates duplicate HTTP paths, more than one
-  stdio binding, an unsupported `spi_version`, an advertised capability with no projection, and a
-  missing prerequisite binding, all before anything opens. `exposure.asgi()` mounts every
+  stdio binding, a repeated binding name, an unsupported `spi_version`, and a missing prerequisite
+  binding, all before anything opens. `exposure.asgi()` mounts every
   `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
   `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
   `start()` on binding N stops 1..N-1 in reverse and raises. `Deck.is_open` is new too.
+- **`agentdeck.bindings`, the protocol SPI** (#545): `DeckGateway` (`targets()`,
+  `capabilities`, `start`/`get_run`/`list_runs`), `GatewayError`/`GatewayFailureCode`, `Binding`,
+  `BindingInfo`, `HttpEndpoint`/`StdioEndpoint`. No concrete binding ships yet; this is the
+  contract the first one (#548) builds against.
 - **A deployment guide for running a Deck as a service** (#353): the
   `AGENTDECK_EVENTS`/`AGENTDECK_CONTROL`/`AGENTDECK_SESSION` durability defaults, a systemd unit,
   `aclose()` on `SIGTERM`, uvicorn's graceful-shutdown behavior against an open SSE connection,
