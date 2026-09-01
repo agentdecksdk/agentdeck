@@ -11,10 +11,11 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 ### Added
 
 - **A channel-shaped out-of-tree fixture plugin proving the SPI** (#547): `tests/bindings/`
-  covers every `docs/design/protocols/roadmap.md` contract item against `ProtocolGateway`/`Run`
-  directly and against the fixture, with its own `.importlinter` contract wired into
-  `make check`. No product code changes; `ProtocolGateway.list_runs`/`get_run` docstrings were
-  tightened on namespace scope alongside it.
+  drives `FixtureChannel` against a real Deck, with its own `.importlinter` contract wired into
+  `make check` and forbidding `agentdeck.core` as well as runtime, adapters and `Deck`.
+- **The content blocks are re-exported from `agentdeck.bindings`** (#547): `TextBlock`,
+  `ImageBlock`, `ContentBlock`, `ResourceBlock`, `AudioBlock` and `DataBlock`, so a plugin builds
+  against the SPI package alone rather than reaching into `agentdeck.core.content`.
 
 ## [5.2.1] - 2026-08-29
 
@@ -27,16 +28,16 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Added
 
-- **`agentdeck.bindings`, the protocol SPI** (#545): `ProtocolGateway` (`targets()`,
+- **`Deck.expose(*bindings) -> Exposure`** (#546): validates duplicate HTTP paths, more than one
+  stdio binding, a repeated binding name, an unsupported `spi_version`, and a missing prerequisite
+  binding, all before anything opens. `exposure.asgi()` mounts every
+  `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
+  `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
+  `start()` on binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too.
+- **`agentdeck.bindings`, the protocol SPI** (#545): `DeckGateway` (`targets()`,
   `capabilities`, `start`/`get_run`/`list_runs`), `GatewayError`/`GatewayFailureCode`, `Binding`,
   `BindingInfo`, `HttpEndpoint`/`StdioEndpoint`. No concrete binding ships yet; this is the
   contract the first one (#548) builds against.
-- **`Deck.expose(*bindings) -> Exposure`** (#546): validates duplicate HTTP paths, more than one
-  stdio binding, an unsupported `spi_version`, an advertised capability with no projection, and a
-  missing prerequisite binding, all before anything opens. `exposure.asgi()` mounts every
-  `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
-  `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
-  `start()` on binding N stops 1..N-1 in reverse and raises. `Deck.is_open` is new too.
 - **A deployment guide for running a Deck as a service** (#353): the
   `AGENTDECK_EVENTS`/`AGENTDECK_CONTROL`/`AGENTDECK_SESSION` durability defaults, a systemd unit,
   `aclose()` on `SIGTERM`, uvicorn's graceful-shutdown behavior against an open SSE connection,

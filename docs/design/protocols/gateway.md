@@ -1,8 +1,6 @@
-# ProtocolGateway
+# DeckGateway
 
 The stable interface from a protocol into a Deck: what an external integration may ask a Deck to do.
-
-Status: proposed, 2026-08-29.
 
 ## Why not hand plugins the Deck
 
@@ -11,7 +9,7 @@ Status: proposed, 2026-08-29.
 ## Shape
 
 ```python
-class ProtocolGateway(Protocol):
+class DeckGateway(Protocol):
     def targets(self) -> Sequence[TargetInfo]: ...
     capabilities: Capabilities
 
@@ -23,11 +21,18 @@ class ProtocolGateway(Protocol):
                         limit: int | None = None) -> Sequence[Run]: ...
 ```
 
-`start`, `get_run` and `list_runs` are `deck.runs.start`, `deck.runs.get` and `deck.runs.list` (`agentdeck/deck.py`, class `Runs`) with the same signatures. The gateway does not reimplement them; it wraps them and adds what `Runs` lacks: `targets()`, `capabilities`, and failure classification. The gateway covers targets, runs, events, control and HITL; artifact bytes are out of its scope (`rulings.md` 14).
+`start`, `get_run` and `list_runs` wrap `deck.runs.start/get/list` (`agentdeck/deck.py`, class `Runs`) with the same signatures, adding what `Runs` lacks: `targets()`, `capabilities`, failure classification. Artifact bytes are out of scope (`rulings.md` 14).
 
 Everything else is already on `Run`: `id`, `namespace`, `session_id`, `status()`, `can`, `events(from_seq=, follow=)`, `cancel()`, `pause()`, `resume()`, `pending()`, `answer()`.
 
-`events(follow=True)` stops at a segment boundary (terminal or suspension), which is every protocol's own HITL boundary. A binding tails one segment per interaction and re-tails from `last_seq + 1` after `answer()` or `resume()`; the follow waits through the suspension, so no polling (`rulings.md` 29). Bindings never register `Observer`s: those are deck-wide lossy taps for telemetry, and a protocol needs a per-run replayable stream (`rulings.md` 30). Plugins consume `Run`; they never construct one. A binding translates only the subset of these capabilities its protocol can faithfully represent (`rulings.md` 24). The gateway grows when an execution-model capability is unreachable through it, never for a protocol-specific noun (`rulings.md` 27).
+## Following a run
+
+- A follow ends at its own segment's boundary: a terminal event or a suspension.
+- The binding re-tails from `last_seq + 1` after `answer()` or `resume()`.
+- A re-tail started while the run is suspended blocks until the resumed segment writes, so nothing polls on a timer.
+- One segment is one interaction: every protocol's HITL boundary is already a stream boundary (`rulings.md` 29).
+
+Bindings never register `Observer`s: an observer is a deck-wide lossy telemetry tap, a protocol needs a per-run replayable stream (`rulings.md` 30). Plugins consume `Run`, never construct one, and translate only the subset of these capabilities their protocol can represent (`rulings.md` 24). The gateway grows only for an execution-model capability unreachable through it (`rulings.md` 27).
 
 Not introduced: `ProtocolRun`, `ProtocolEvent`, `ProtocolSession`, `ProtocolControl`. Each would duplicate an existing contract.
 
@@ -42,15 +47,15 @@ class TargetInfo:
     input_schema: JsonSchema | None   # None for free-text agents
 ```
 
-Enough for an A2A AgentCard skill and an MCP tool definition. Never A2A AgentCard fields or ACP capability fields; those are produced by their adapter from `TargetInfo`. No per-target capability flags: every target on a deck can stream and interrupt.
+Enough for an A2A AgentCard skill or an MCP tool definition, which the adapter builds from it. No protocol fields, and no per-target flags: every target can stream and interrupt.
 
 ## Capabilities
 
-Two layers, never merged.
+Two layers:
 
 | layer | question | where |
 |---|---|---|
-| deployment | `control`: control signals are written to a backend other processes read, so a binding in one worker can pause or cancel a run executing in another (False on `memory://`, where control still reaches runs in this process); `durable`: events survive a restart and are readable from other processes, so `from_seq` reconnect is honest (False on `memory://`) | `gateway.capabilities` |
+| deployment | `control`: control signals reach a run executing in another process, so a binding in one worker can pause or cancel it (False on `memory://`, where control still reaches runs in this process); `durable`: events survive a restart and are readable from other processes, so `from_seq` reconnect is honest (False on `memory://`) | `gateway.capabilities` |
 | run | can this Run be cancelled, paused, resumed right now | `run.can` |
 
 ```python
@@ -60,7 +65,7 @@ class Capabilities:
     durable: bool
 ```
 
-Only what varies per deployment. Streaming, sessions, listing, interrupts and artifacts are true for every Deck, so they are not flags; A2A cards and ACP or MCP `initialize` state them as constants.
+Only what varies per deployment. Streaming, sessions, listing, interrupts and artifacts hold for every Deck, so A2A cards and ACP or MCP `initialize` state them as constants.
 
 `run.can` is informational and the `Run` methods are authoritative: a protocol may advertise cancellation and still be refused on a completed run.
 
@@ -94,4 +99,4 @@ One exception type; a binding writes one `except GatewayError`.
 | unavailable control backend | `UNSUPPORTED` | none yet |
 | any other `AgentdeckError` or exception | `INTERNAL` | 500, message never echoed |
 
-Only `NOT_FOUND`, `BUSY`, `CONFLICT` and `INVALID_INPUT` messages are safe to put on the wire. The protocol maps codes to its own vocabulary (HTTP status, A2A error, JSON-RPC error).
+The protocol maps each code to its own vocabulary (HTTP status, A2A error, JSON-RPC error).

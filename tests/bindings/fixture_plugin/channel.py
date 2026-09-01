@@ -1,8 +1,6 @@
-"""A channel-shaped out-of-tree plugin (``docs/design/protocols/rulings.md`` 19, 33): built only
-on ``agentdeck.bindings``, ``agentdeck.core.events``, ``agentdeck.core.content`` and
-``agentdeck.errors`` (enforced by this package's own ``.importlinter``). Ack-then-continue, no
-streaming advertised, a durable message-id to run map that survives a restart  -  the reference
-shape ``tests/bindings/test_contract.py`` proves the SPI against.
+"""A channel-shaped out-of-tree plugin (``docs/design/protocols/rulings.md`` 19, 33), built on
+``agentdeck.bindings`` and ``agentdeck.errors`` alone, enforced by this package's own
+``.importlinter``. Ack-then-continue, no streaming, a durable message-id to run map.
 """
 
 from __future__ import annotations
@@ -11,13 +9,22 @@ import asyncio
 import json
 from typing import TYPE_CHECKING, Any
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from agentdeck.bindings import PROTOCOL_SPI_VERSION, BindingInfo, GatewayError, GatewayFailureCode, HttpEndpoint
-from agentdeck.core.content import ContentBlock, TextBlock
+from agentdeck.bindings import (
+    PROTOCOL_SPI_VERSION,
+    BindingInfo,
+    ContentBlock,
+    DeckGateway,
+    GatewayError,
+    GatewayFailureCode,
+    HttpEndpoint,
+    TextBlock,
+)
+from agentdeck.errors import RunStateError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -36,6 +43,27 @@ _STATUS = {
 }
 
 
+async def _json(request: Request, *required: str) -> dict[str, Any]:
+    """The body as a dict with every required key present, or ``INVALID_INPUT``: a plugin's HTTP
+    edge is the one place a malformed request must not surface as a 500.
+    """
+    try:
+        body = await request.json()
+        missing = [key for key in required if key not in body]
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError) as error:
+        raise GatewayError(GatewayFailureCode.INVALID_INPUT, f"malformed JSON body: {error}") from error
+    if missing:
+        raise GatewayError(GatewayFailureCode.INVALID_INPUT, f"body is missing {missing}")
+    return body
+
+
+def _content(raw: Any) -> ContentBlock:
+    try:
+        return _CONTENT.validate_python(raw)
+    except ValidationError as error:
+        raise GatewayError(GatewayFailureCode.INVALID_INPUT, f"unrecognized content: {error}") from error
+
+
 def _error_response(error: PermissionError | GatewayError) -> JSONResponse:
     if isinstance(error, PermissionError):
         return JSONResponse({"error": "PERMISSION_DENIED", "message": str(error)}, status_code=401)
@@ -43,10 +71,9 @@ def _error_response(error: PermissionError | GatewayError) -> JSONResponse:
 
 
 class _DurableMap:
-    """``message_id -> {namespace, run_id, session_id, conversation_id, last_seq}``, one JSON
-    file. Every read loads the whole file and every write saves it back whole, so a second
-    ``_DurableMap`` opened on the same path (a simulated restart) sees exactly what the first
-    one wrote  -  no in-process cache to go stale.
+    """``message_id -> {namespace, run_id, session_id, conversation_id, last_seq}`` in one JSON
+    file, read and written whole: a second instance on the same path (a restart) sees what the
+    first wrote, with no in-process cache to go stale.
     """
 
     def __init__(self, path: Path) -> None:
@@ -56,9 +83,6 @@ class _DurableMap:
 
     def _read(self) -> dict[str, Any]:
         return json.loads(self._path.read_text())
-
-    def _write(self, data: dict[str, Any]) -> None:
-        self._path.write_text(json.dumps(data))
 
     def put(
         self, message_id: str, *, namespace: str | None, run_id: str, session_id: str, conversation_id: str
@@ -71,7 +95,7 @@ class _DurableMap:
             "conversation_id": conversation_id,
             "last_seq": 0,
         }
-        self._write(data)
+        self._path.write_text(json.dumps(data))
 
     def get(self, message_id: str) -> dict[str, Any] | None:
         return self._read().get(message_id)
@@ -80,17 +104,12 @@ class _DurableMap:
         data = self._read()
         if message_id in data:
             data[message_id]["last_seq"] = seq
-            self._write(data)
+            self._path.write_text(json.dumps(data))
 
 
 class FixtureChannel:
-    """``kind="channel"``: a fake webhook in, ACK at once, an Exposure-owned tail, posts on
-    ``message.completed``, buttons from ``run.interrupted``, a durable message-id to run map
-    across a restart (``docs/design/protocols/rulings.md`` 31, 33). No streaming advertised.
-
-    Constructed with everything it needs before a gateway exists, per :class:`Binding`'s real
-    shape: :meth:`build` is where the gateway arrives, never the constructor  -  an out-of-tree
-    author copies this file, so it has to be the canonical order.
+    """``kind="channel"``: webhook in, ACK at once, tail the run, post on ``message.completed``,
+    buttons from ``run.interrupted``, durable across a restart.
     """
 
     def __init__(
@@ -102,7 +121,6 @@ class FixtureChannel:
             transport="fake",
             spi_version=PROTOCOL_SPI_VERSION,
             advertises=frozenset({"hitl"}),
-            projects=frozenset({"hitl"}),
         )
         self._secret = secret
         self._target = target
@@ -110,15 +128,11 @@ class FixtureChannel:
         self._map = _DurableMap(map_path)
         self.outbox: list[dict[str, Any]] = []
         self._tasks: set[asyncio.Task[None]] = set()
-        # Typed loosely on purpose: the fixture never imports ``agentdeck.deck`` (own
-        # ``.importlinter`` contract), so ``ProtocolGateway``/``Run`` are reached only by
-        # calling their public methods, never by naming their types.
-        self._gateway: Any = None
+        self._gateway: DeckGateway | None = None
 
-    def build(self, gateway: Any) -> HttpEndpoint:
-        """Pure: stores the gateway, wires two routes, opens nothing. Routes are bare
-        (``/message``, ``/button``): the Exposure mounts this app at :attr:`_path` and
-        Starlette's ``Mount`` already strips that prefix before it reaches here.
+    def build(self, gateway: DeckGateway) -> HttpEndpoint:
+        """Store the gateway and wire the routes. Bare paths: the Exposure mounts this app at
+        :attr:`_path` and the mount strips that prefix.
         """
         self._gateway = gateway
         app = Starlette(
@@ -130,15 +144,12 @@ class FixtureChannel:
         return HttpEndpoint(path=self._path, app=app)
 
     async def start(self) -> None:
-        """Nothing to prewarm: a tail task is spawned per inbound message, not once here."""
+        """A tail task is spawned per inbound message, so there is nothing to prewarm."""
 
     async def stop(self) -> None:
-        """Cancel and await every tail task this channel spawned, each in its own ``try`` so one
-        task's exception never stops another's cancellation  -  the Exposure owns ``start``/
-        ``stop``, never a task this binding did not hand it (ruling 32); this mirrors
-        ``Exposure._lifecycle``'s own shutdown loop for the same reason. Re-raises the first
-        non-``CancelledError`` any task raised, once every task has been cancelled and awaited,
-        same as that shutdown loop.
+        """Cancel and await every tail task, each in its own ``try``, then re-raise the first
+        error any of them held. A task that already failed is still in the set: nothing discards
+        it on completion, so its exception cannot go unretrieved.
         """
         tasks = list(self._tasks)
         first_error: BaseException | None = None
@@ -151,18 +162,14 @@ class FixtureChannel:
                 pass
             except BaseException as error:
                 first_error = first_error or error
+        self._tasks.clear()
         if first_error is not None:
             raise first_error
 
     async def receive_message(
         self, *, secret: str, conversation_id: str, message_id: str, content: Any
     ) -> dict[str, Any]:
-        """The fake webhook: verify the secret, reject anything but text naming the part, start
-        the run, record it in the durable map, spawn its tail, and return  -  never awaits the
-        run itself, which is the whole ACK-then-continue point (ruling 33). Raises
-        ``PermissionError`` for a bad secret, ``GatewayError`` for unsupported content or
-        anything :meth:`ProtocolGateway.start` itself refuses.
-        """
+        """The webhook: start the run, record it, spawn its tail, return. Never awaits the run."""
         if secret != self._secret:
             raise PermissionError("bad shared secret")
         if not isinstance(content, TextBlock):
@@ -170,7 +177,7 @@ class FixtureChannel:
                 GatewayFailureCode.INVALID_INPUT, f"fixture channel supports text only, got {content.type!r}"
             )
         session_id = f"fixture:{conversation_id}"
-        run = await self._gateway.start(self._target, content.text, session_id=session_id)
+        run = await self._require_gateway().start(self._target, content.text, session_id=session_id)
         self._map.put(
             message_id, namespace=run.namespace, run_id=run.id, session_id=session_id, conversation_id=conversation_id
         )
@@ -178,25 +185,31 @@ class FixtureChannel:
         return {"run_id": run.id, "namespace": run.namespace}
 
     async def receive_button(self, *, secret: str, message_id: str, value: Any) -> dict[str, Any]:
-        """The later inbound button: resolve the run from the durable map, answer it, and
-        re-tail from ``last_seq + 1``  -  no polling, ``Run.events(follow=True)`` waits through
-        the suspension itself (ruling 29). Raises ``PermissionError`` for a bad secret,
-        ``GatewayError(NOT_FOUND)`` for a ``message_id`` the durable map never heard of.
-        """
+        """Resolve the run from the durable map, answer it, re-tail from ``last_seq + 1``."""
         if secret != self._secret:
             raise PermissionError("bad shared secret")
         entry = self._map.get(message_id)
         if entry is None:
             raise GatewayError(GatewayFailureCode.NOT_FOUND, f"no run recorded for message {message_id!r}")
-        run = await self._gateway.get_run(entry["run_id"], namespace=entry["namespace"])
-        await run.answer(value)
+        run = await self._require_gateway().get_run(entry["run_id"], namespace=entry["namespace"])
+        try:
+            await run.answer(value)
+        except ValueError as error:
+            raise GatewayError(GatewayFailureCode.INVALID_INPUT, str(error), error) from error
+        except RunStateError as error:
+            raise GatewayError(GatewayFailureCode.CONFLICT, str(error), error) from error
         self._spawn_tail(run, message_id, from_seq=entry["last_seq"] + 1)
         return {"run_id": run.id}
 
+    def _require_gateway(self) -> DeckGateway:
+        if self._gateway is None:
+            raise GatewayError(GatewayFailureCode.INTERNAL, "build() has not run: this binding has no gateway")
+        return self._gateway
+
     def _spawn_tail(self, run: Any, message_id: str, *, from_seq: int) -> None:
-        task = asyncio.create_task(self._tail(run, message_id, from_seq=from_seq))
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        # No done callback: a task discarded on completion takes its exception with it, and
+        # stop() is where this binding is contracted to surface it.
+        self._tasks.add(asyncio.create_task(self._tail(run, message_id, from_seq=from_seq)))
 
     async def _tail(self, run: Any, message_id: str, *, from_seq: int) -> None:
         async for event in run.events(from_seq=from_seq, follow=True):
@@ -204,10 +217,8 @@ class FixtureChannel:
             self._project(event, message_id)
 
     def _project(self, event: Any, message_id: str) -> None:
-        """What this channel does with one canonical event: post on ``message.completed``,
-        render buttons on ``run.interrupted``, skip everything else  -  including a kind this
-        version has never seen (:class:`~agentdeck.core.events.UnknownEvent`), which carries no
-        ``kind`` this ``match`` recognises and so falls straight through.
+        """Post on ``message.completed``, render buttons on ``run.interrupted``, skip the rest,
+        an event kind this version has never seen included.
         """
         payload = event.payload
         kind = getattr(payload, "kind", None)
@@ -218,32 +229,30 @@ class FixtureChannel:
         if kind == "message.completed":
             self.outbox.append({"conversation_id": conversation_id, "text": payload.text})
         else:
-            options = payload.payload.get("options") or []
             self.outbox.append(
                 {
                     "conversation_id": conversation_id,
                     "question": payload.payload.get("question"),
-                    "buttons": list(options),
+                    "buttons": list(payload.payload.get("options") or []),
                 }
             )
 
     async def _http_message(self, request: Request) -> JSONResponse:
-        body = await request.json()
         try:
-            content = _CONTENT.validate_python(body["content"])
+            body = await _json(request, "secret", "conversation_id", "message_id", "content")
             result = await self.receive_message(
                 secret=body["secret"],
                 conversation_id=body["conversation_id"],
                 message_id=body["message_id"],
-                content=content,
+                content=_content(body["content"]),
             )
         except (PermissionError, GatewayError) as error:
             return _error_response(error)
         return JSONResponse(result, status_code=200)
 
     async def _http_button(self, request: Request) -> JSONResponse:
-        body = await request.json()
         try:
+            body = await _json(request, "secret", "message_id", "value")
             result = await self.receive_button(
                 secret=body["secret"], message_id=body["message_id"], value=body["value"]
             )
