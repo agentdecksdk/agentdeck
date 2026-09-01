@@ -16,6 +16,7 @@ module alias, so two live decks in one process read each other's bundles.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,7 @@ def test_the_examples_directory_has_not_moved() -> None:
     assert [p.name for p in DECKS] == [
         "agent-with-a-skill",
         "chat-agent-with-a-tool",
+        "chat-in-the-terminal",
     ]
 
 
@@ -65,8 +67,35 @@ def test_the_skill_example_declares_an_agent_holding_its_skill() -> None:
 @pytest.mark.parametrize("example", DECKS, ids=lambda p: p.name)
 def test_every_example_has_the_run_script_its_readme_tells_you_to_run(example: Path) -> None:
     """``python run.py`` is an instruction, and an instruction naming a file that does not exist
-    (or no longer imports what it imports) is the rot this whole issue is about.
+    (or no longer imports what it imports) is the rot this whole issue is about. Read from the
+    README rather than assumed: an example run by `agentdeck chat` has no script to name.
     """
+    readme = (example / "README.md").read_text()
+    if "python run.py" not in readme:
+        return
     script = example / "run.py"
     assert script.is_file(), f"{example.name}/README.md says `python run.py`, but there is none"
     _assert_agentdeck_imports_exist(script.read_text(), script)
+
+
+@pytest.mark.parametrize("example", DECKS, ids=lambda p: p.name)
+def test_every_agentdeck_chat_instruction_names_a_real_target(example: Path) -> None:
+    """The same rot in the other shape: `agentdeck chat <target>` naming something the deck does
+    not discover fails at the reader's first command.
+    """
+    named = re.findall(r"^agentdeck chat (\S+)$", (example / "README.md").read_text(), re.MULTILINE)
+    if not named:
+        return
+    deck = Deck.from_project(example / ".agentdeck").build()
+    targets = set(deck.agents) | set(deck.workflows)
+    for target in named:
+        assert target in targets, f"{example.name}/README.md says `agentdeck chat {target}`: {sorted(targets)}"
+
+
+def test_the_terminal_example_declares_a_workflow_and_needs_no_model() -> None:
+    """The example's whole point is that it runs with no credentials: a `@workflow` is the
+    caller's own Python, so a deck holding only one reaches no model at all.
+    """
+    deck = Deck.from_project(EXAMPLES / "chat-in-the-terminal" / ".agentdeck").build()
+    assert sorted(deck.workflows) == ["shift_handover"]
+    assert not deck.agents

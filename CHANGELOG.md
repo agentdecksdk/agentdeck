@@ -35,6 +35,10 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `TypeError`/`ValueError` from a store or an executor stays internal. Catch `InputError` (or
   `AgentdeckError`) where you caught `TypeError` or `ValueError` from those calls before.
 
+- **A terminal chat example needing no API key** (`examples/chat-in-the-terminal/`): one
+  `@workflow` asking the questions, driven by `agentdeck chat`. The first example that runs with
+  no credentials at all.
+
 ### Changed
 
 - **`agentdeck.errors` is the one import path for the error taxonomy.** `AgentdeckError`,
