@@ -35,6 +35,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `TypeError`/`ValueError` from a store or an executor stays internal. Catch `InputError` (or
   `AgentdeckError`) where you caught `TypeError` or `ValueError` from those calls before.
 
+- **`Terminal.stdio()`, the first surface** (#549): `from agentdeck.bindings.terminal import
+  Terminal`, then `deck.expose(Terminal.stdio(target="Research"))`. One session per process over
+  stdin and stdout: prompts, streams the run's text back, renders a numbered prompt for
+  `ctx.ask` and re-asks on a refused answer, and cancels an in-flight run on Ctrl-C.
+  `agentdeck chat [TARGET]` runs it, where `TARGET` is any agent or workflow in the deck and may
+  be omitted when the deck holds exactly one.
+
 ### Changed
 
 - **`agentdeck.errors` is the one import path for the error taxonomy.** `AgentdeckError`,
