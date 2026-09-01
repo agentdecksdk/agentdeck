@@ -25,15 +25,7 @@ from agentdeck.core.context import ToolCtx, WorkflowCtx
 from agentdeck.core.invocable import AgentInstance
 from agentdeck.core.ports import Observer
 from agentdeck.deck import Deck, Run, TurnResult
-from agentdeck.errors import (
-    AgentdeckError,
-    ConfigError,
-    ContextTypeError,
-    NotFoundError,
-    SessionBusyError,
-    SkillError,
-    StoreError,
-)
+from agentdeck.errors import AgentdeckError
 
 try:
     # The *distribution* is `agentdeck-sdk`; the import package is `agentdeck`. They differ
@@ -51,19 +43,13 @@ __all__ = [
     "AgentInstance",
     "AgentdeckError",
     "AudioBlock",
-    "ConfigError",
     "ContentBlock",
-    "ContextTypeError",
     "DataBlock",
     "Deck",
     "ImageBlock",
-    "NotFoundError",
     "Observer",
     "ResourceBlock",
     "Run",
-    "SessionBusyError",
-    "SkillError",
-    "StoreError",
     "TextBlock",
     "ToolCtx",
     "TurnResult",

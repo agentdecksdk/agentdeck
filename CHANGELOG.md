@@ -8,11 +8,14 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
-### Added
+### Changed
 
-- **The content blocks are re-exported from `agentdeck.bindings`** (#547): `TextBlock`,
-  `ImageBlock`, `ContentBlock`, `ResourceBlock`, `AudioBlock` and `DataBlock`, so a plugin builds
-  against the SPI package alone rather than reaching into `agentdeck.core.content`.
+- **`agentdeck.errors` is the one import path for the error taxonomy.** `ConfigError`,
+  `ContextTypeError`, `NotFoundError`, `SessionBusyError`, `SkillError` and `StoreError` are no
+  longer exported from `agentdeck` itself; import them from `agentdeck.errors`, which has always
+  carried the complete set. `AgentdeckError` stays at the root for `except AgentdeckError`.
+  The root keeps the everyday vocabulary, a feature namespace keeps its own, and no public name
+  lives at two paths (`docs/engineering/architecture.md` 3).
 
 ## [5.2.1] - 2026-08-29
 

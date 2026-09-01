@@ -1,6 +1,6 @@
 """A channel-shaped out-of-tree plugin (``docs/design/protocols/rulings.md`` 19, 33), built on
-``agentdeck.bindings`` and ``agentdeck.errors`` alone, enforced by this package's own
-``.importlinter``. Ack-then-continue, no streaming, a durable message-id to run map.
+the public surface alone (``agentdeck``, ``agentdeck.bindings``, ``agentdeck.errors``),
+enforced by this package's own ``.importlinter``. Ack-then-continue, no streaming, a durable message-id to run map.
 """
 
 from __future__ import annotations
@@ -14,15 +14,14 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from agentdeck import ContentBlock, TextBlock
 from agentdeck.bindings import (
     PROTOCOL_SPI_VERSION,
     BindingInfo,
-    ContentBlock,
     DeckGateway,
     GatewayError,
     GatewayFailureCode,
     HttpEndpoint,
-    TextBlock,
 )
 from agentdeck.errors import RunStateError
 

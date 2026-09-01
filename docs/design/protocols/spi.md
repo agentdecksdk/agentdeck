@@ -29,7 +29,7 @@ app = Deck(...).expose(A2A.http()).asgi()
 |---|---|
 | `agentdeck.bindings` (gateway, `Binding`, endpoint, failure types) | `agentdeck.runtime.*` |
 | `agentdeck.Run`, `agentdeck.Event` | `agentdeck.adapters.*` |
-| content blocks, re-exported from `agentdeck.bindings` | `agentdeck.core.*` |
-| public errors and value types (`agentdeck.errors`) | `Deck._*` |
+| content blocks from `agentdeck` (`TextBlock`, `ImageBlock`, ...) | `agentdeck.core.*` |
+| the error taxonomy from `agentdeck.errors` | `Deck._*` |
 
 The Native binding is held to the same list. Needing a private Deck method means the gateway lacks a legitimate capability, and the gateway grows, not this list.
