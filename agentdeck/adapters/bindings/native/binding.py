@@ -40,7 +40,7 @@ _STATUS: dict[GatewayFailureCode, int] = {
 _INTERNAL_MESSAGE = "internal error"
 
 
-class InvalidRequestError(Exception):
+class _InvalidRequestError(Exception):
     """A malformed request this binding rejects, never a gateway or ``Run`` failure."""
 
 
@@ -191,7 +191,7 @@ def _require(body: dict[str, Any], field: str) -> Any:
     try:
         return body[field]
     except KeyError:
-        raise InvalidRequestError(f"missing field: {field!r}") from None
+        raise _InvalidRequestError(f"missing field: {field!r}") from None
 
 
 def _parse_status(raw: str | None) -> RunStatus | None:
@@ -200,7 +200,7 @@ def _parse_status(raw: str | None) -> RunStatus | None:
     try:
         return RunStatus(raw)
     except ValueError:
-        raise InvalidRequestError(f"status must be one of {sorted(s.value for s in RunStatus)}, got {raw!r}") from None
+        raise _InvalidRequestError(f"status must be one of {sorted(s.value for s in RunStatus)}, got {raw!r}") from None
 
 
 def _parse_non_negative(raw: str | None, field: str) -> int | None:
@@ -210,9 +210,9 @@ def _parse_non_negative(raw: str | None, field: str) -> int | None:
     try:
         value = int(raw)
     except ValueError:
-        raise InvalidRequestError(f"{field} must be an integer, got {raw!r}") from None
+        raise _InvalidRequestError(f"{field} must be an integer, got {raw!r}") from None
     if value < 0:
-        raise InvalidRequestError(f"{field} must not be negative, got {value}")
+        raise _InvalidRequestError(f"{field} must not be negative, got {value}")
     return value
 
 
@@ -222,9 +222,9 @@ async def _json_body(request: Request) -> dict[str, Any]:
     try:
         body = await request.json()
     except ValueError as exc:
-        raise InvalidRequestError(f"malformed JSON body: {exc}") from None
+        raise _InvalidRequestError(f"malformed JSON body: {exc}") from None
     if not isinstance(body, dict):
-        raise InvalidRequestError("JSON body must be an object")
+        raise _InvalidRequestError("JSON body must be an object")
     return body
 
 
@@ -276,7 +276,7 @@ async def _on_unexpected(request: Request, exc: Exception) -> JSONResponse:
 
 _HANDLERS: dict[Any, Any] = {
     GatewayError: _on_gateway_error,
-    InvalidRequestError: _on_bad_request,
+    _InvalidRequestError: _on_bad_request,
     InputError: _on_bad_request,
     RunStateError: _on_run_state,
     UnsupportedControlError: _on_unsupported,
