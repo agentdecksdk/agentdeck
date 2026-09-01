@@ -17,10 +17,10 @@ from starlette.routing import Route
 
 from agentdeck import RunStatus
 from agentdeck.adapters.bindings.agui.adapter import (
-    AdapterState,
-    to_agentdeck_input,
-    to_agentdeck_resume,
-    to_agui_event,
+    _AdapterState,
+    _to_agentdeck_input,
+    _to_agentdeck_resume,
+    _to_agui_event,
 )
 from agentdeck.bindings import (
     PROTOCOL_SPI_VERSION,
@@ -150,15 +150,15 @@ class _AGUIBinding:
             from_seq = interrupt.seq + 1
             action_run: Run | None = run
             target = None
-            input_value: Any = to_agentdeck_resume(run_input)
+            input_value: Any = _to_agentdeck_resume(run_input)
         else:
             target = self._resolve_target(run_input)
-            input_value = to_agentdeck_input(run_input)
+            input_value = _to_agentdeck_input(run_input)
             from_seq = 0
             action_run = None
 
         encoder = EventEncoder(accept=request.headers.get("accept", ""))
-        state = AdapterState(thread_id=run_input.thread_id, run_id=run_input.run_id)
+        state = _AdapterState(thread_id=run_input.thread_id, run_id=run_input.run_id)
 
         async def frames() -> AsyncIterator[str]:
             nonlocal action_run
@@ -172,7 +172,7 @@ class _AGUIBinding:
                 else:
                     await action_run.answer(input_value)
                 async for event in action_run.events(from_seq=from_seq, follow=True):
-                    for ag_ui_event in to_agui_event(event, state):
+                    for ag_ui_event in _to_agui_event(event, state):
                         yield encoder.encode(ag_ui_event)
             except asyncio.CancelledError:
                 if action_run is not None:

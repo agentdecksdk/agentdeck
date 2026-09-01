@@ -18,7 +18,7 @@ from pydantic import TypeAdapter
 from starlette.testclient import TestClient
 
 from agentdeck import Deck, ImageBlock, Run, TextBlock, WorkflowCtx, workflow
-from agentdeck.adapters.bindings.agui.adapter import AdapterState, to_agentdeck_input, to_agui_event
+from agentdeck.adapters.bindings.agui.adapter import _AdapterState, _to_agentdeck_input, _to_agui_event
 from agentdeck.adapters.bindings.agui.binding import _AGUIBinding
 from agentdeck.authoring import Agent
 from agentdeck.bindings import DeckGateway
@@ -203,23 +203,23 @@ def test_a_workflows_text_projects_identically_to_an_agents():
     from_agent = _event(payload, run_id="r1", origin="Greeter")
     from_workflow = _event(payload, run_id="r2", origin="Echo")
 
-    agent_projection = [e.model_dump() for e in to_agui_event(from_agent, AdapterState(thread_id="t", run_id="r"))]
+    agent_projection = [e.model_dump() for e in _to_agui_event(from_agent, _AdapterState(thread_id="t", run_id="r"))]
     workflow_projection = [
-        e.model_dump() for e in to_agui_event(from_workflow, AdapterState(thread_id="t", run_id="r"))
+        e.model_dump() for e in _to_agui_event(from_workflow, _AdapterState(thread_id="t", run_id="r"))
     ]
 
     assert agent_projection == workflow_projection
 
 
 def test_thought_delta_projects_to_the_reasoning_family():
-    state = AdapterState(thread_id="t", run_id="r")
+    state = _AdapterState(thread_id="t", run_id="r")
     first = _event(ThoughtDelta(message_id="th1", text="hmm"))
     second = _event(ThoughtDelta(message_id="th1", text=" more"))
     boundary = _event(TextDelta(message_id="m1", text="hi"))
 
-    opened = [e.type.value for e in to_agui_event(first, state)]
-    continued = [e.type.value for e in to_agui_event(second, state)]
-    closed = [e.type.value for e in to_agui_event(boundary, state)]
+    opened = [e.type.value for e in _to_agui_event(first, state)]
+    continued = [e.type.value for e in _to_agui_event(second, state)]
+    closed = [e.type.value for e in _to_agui_event(boundary, state)]
 
     assert opened == ["REASONING_START", "REASONING_MESSAGE_START", "REASONING_MESSAGE_CONTENT"]
     assert continued == ["REASONING_MESSAGE_CONTENT"]
@@ -381,7 +381,7 @@ def test_internal_exception_text_never_reaches_the_wire(no_project, monkeypatch)
     import agentdeck.adapters.bindings.agui.binding as binding_module
 
     monkeypatch.setattr(
-        binding_module, "to_agui_event", lambda event, state: (_ for _ in ()).throw(RuntimeError("secret detail"))
+        binding_module, "_to_agui_event", lambda event, state: (_ for _ in ()).throw(RuntimeError("secret detail"))
     )
     model = ScriptedModel(deltas=("hi",))
     with patch_model(model), _client(_deck(), AGUI.http("/agui", target="Greeter")) as client:
@@ -396,7 +396,7 @@ def test_internal_exception_text_never_reaches_the_wire(no_project, monkeypatch)
 def test_an_unknown_canonical_event_kind_does_not_break_the_projection():
     event = _event(UnknownEvent(kind="some.new.kind", raw_payload={}))
 
-    assert to_agui_event(event, AdapterState(thread_id="t", run_id="r")) == []
+    assert _to_agui_event(event, _AdapterState(thread_id="t", run_id="r")) == []
 
 
 def test_every_emitted_event_validates_against_the_official_agui_models(no_project):
@@ -425,6 +425,6 @@ def test_multimodal_input_maps_agui_content_to_agentdeck_blocks():
         )
     )
 
-    blocks = to_agentdeck_input(run_input)
+    blocks = _to_agentdeck_input(run_input)
 
     assert blocks == [TextBlock(text="look at this"), ImageBlock(media_type="image/png", data_b64="aGVsbG8=")]

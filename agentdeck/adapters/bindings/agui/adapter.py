@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class AdapterState:
+class _AdapterState:
     """Per AG-UI interaction: its own ``threadId``/``runId``, and which text or reasoning
     segment (if any) is currently open, so a later delta knows whether to start a new one."""
 
@@ -57,7 +57,7 @@ class AdapterState:
     reasoning_message_id: str | None = None
 
 
-def to_agui_event(event: Event, state: AdapterState) -> list[BaseEvent]:
+def _to_agui_event(event: Event, state: _AdapterState) -> list[BaseEvent]:
     """Zero, one or several AG-UI events for one canonical AgentDeck event, mutating ``state``
     as segments open and close. A kind this module has no projection for  -  unknown to this
     schema version, or known but not part of the table  -  is skipped, never breaks the stream.
@@ -66,7 +66,7 @@ def to_agui_event(event: Event, state: AdapterState) -> list[BaseEvent]:
     return projector(event.payload, state) if projector is not None else []
 
 
-def to_agentdeck_input(run_input: RunAgentInput) -> str | list[ContentBlock]:
+def _to_agentdeck_input(run_input: RunAgentInput) -> str | list[ContentBlock]:
     """The new user turn, never the whole transcript (ruling 45): only the last message, and
     only when it is a normal user turn.
     """
@@ -90,11 +90,11 @@ def to_agentdeck_input(run_input: RunAgentInput) -> str | list[ContentBlock]:
     return blocks
 
 
-def to_agentdeck_resume(run_input: RunAgentInput) -> Any:
+def _to_agentdeck_resume(run_input: RunAgentInput) -> Any:
     """The answer for ``Run.answer()``: the one ``ResumeEntry``'s payload. ``binding.py``
     validates shape and matches the interrupt id before calling this.
     """
-    assert run_input.resume, "to_agentdeck_resume is only called for a resume request"
+    assert run_input.resume, "_to_agentdeck_resume is only called for a resume request"
     return run_input.resume[0].payload
 
 
@@ -120,7 +120,7 @@ def _media_block(source: Any, inline_cls: type[ImageBlock] | type[AudioBlock]) -
     return ResourceBlock(uri=source.value, media_type=source.mime_type)
 
 
-def _close_reasoning(state: AdapterState) -> list[BaseEvent]:
+def _close_reasoning(state: _AdapterState) -> list[BaseEvent]:
     if state.reasoning_message_id is None:
         return []
     message_id = state.reasoning_message_id
@@ -128,7 +128,7 @@ def _close_reasoning(state: AdapterState) -> list[BaseEvent]:
     return [ReasoningMessageEndEvent(message_id=message_id), ReasoningEndEvent(message_id=message_id)]
 
 
-def _text_delta(payload: Any, state: AdapterState) -> list[BaseEvent]:
+def _text_delta(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     events = _close_reasoning(state)
     if state.text_message_id != payload.message_id:
         if state.text_message_id is not None:
@@ -139,7 +139,7 @@ def _text_delta(payload: Any, state: AdapterState) -> list[BaseEvent]:
     return events
 
 
-def _message_completed(payload: Any, state: AdapterState) -> list[BaseEvent]:
+def _message_completed(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     events = _close_reasoning(state)
     if state.text_message_id != payload.message_id:
         if state.text_message_id is not None:
@@ -151,7 +151,7 @@ def _message_completed(payload: Any, state: AdapterState) -> list[BaseEvent]:
     return events
 
 
-def _thought_delta(payload: Any, state: AdapterState) -> list[BaseEvent]:
+def _thought_delta(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     events: list[BaseEvent] = []
     if state.reasoning_message_id != payload.message_id:
         events += _close_reasoning(state)
@@ -162,7 +162,7 @@ def _thought_delta(payload: Any, state: AdapterState) -> list[BaseEvent]:
     return events
 
 
-def _tool_call_started(payload: Any, state: AdapterState) -> list[BaseEvent]:
+def _tool_call_started(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     return [
         *_close_reasoning(state),
         ToolCallStartEvent(tool_call_id=payload.call_id, tool_call_name=payload.tool),
@@ -171,28 +171,28 @@ def _tool_call_started(payload: Any, state: AdapterState) -> list[BaseEvent]:
     ]
 
 
-def _tool_call_completed(payload: Any, state: AdapterState) -> list[BaseEvent]:
+def _tool_call_completed(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     return [
         ToolCallResultEvent(message_id=payload.call_id, tool_call_id=payload.call_id, content=payload.result_preview)
     ]
 
 
-def _run_completed(payload: Any, state: AdapterState) -> list[BaseEvent]:
+def _run_completed(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     return [
         *_close_reasoning(state),
         RunFinishedEvent(thread_id=state.thread_id, run_id=state.run_id, outcome=RunFinishedSuccessOutcome()),
     ]
 
 
-def _run_failed(payload: Any, state: AdapterState) -> list[BaseEvent]:
+def _run_failed(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     return [*_close_reasoning(state), RunErrorEvent(message=payload.message, code=payload.error_code)]
 
 
-def _run_cancelled(payload: Any, state: AdapterState) -> list[BaseEvent]:
+def _run_cancelled(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     return [*_close_reasoning(state), RunErrorEvent(message="cancelled", code="cancelled")]
 
 
-def _run_interrupted(payload: Any, state: AdapterState) -> list[BaseEvent]:
+def _run_interrupted(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     question = payload.payload.get("question")
     options = payload.payload.get("options")
     interrupt = Interrupt(
@@ -209,7 +209,7 @@ def _run_interrupted(payload: Any, state: AdapterState) -> list[BaseEvent]:
     ]
 
 
-def _run_paused(payload: Any, state: AdapterState) -> list[BaseEvent]:
+def _run_paused(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     # No official outcome fits a pause without misreading it as a question, so it is data instead.
     return [
         *_close_reasoning(state),
@@ -218,7 +218,7 @@ def _run_paused(payload: Any, state: AdapterState) -> list[BaseEvent]:
     ]
 
 
-def _agent_changed(payload: Any, state: AdapterState) -> list[BaseEvent]:
+def _agent_changed(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     return [
         CustomEvent(
             name="agentdeck.agent_changed",
@@ -227,7 +227,7 @@ def _agent_changed(payload: Any, state: AdapterState) -> list[BaseEvent]:
     ]
 
 
-def _artifact_created(payload: Any, state: AdapterState) -> list[BaseEvent]:
+def _artifact_created(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     return [
         CustomEvent(
             name="agentdeck.artifact",
@@ -241,11 +241,11 @@ def _artifact_created(payload: Any, state: AdapterState) -> list[BaseEvent]:
     ]
 
 
-def _usage_reported(payload: Any, state: AdapterState) -> list[BaseEvent]:
+def _usage_reported(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     return [CustomEvent(name="agentdeck.usage", value={"model": payload.model, "usage": payload.usage.model_dump()})]
 
 
-def _reported(payload: Any, state: AdapterState) -> list[BaseEvent]:
+def _reported(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     return [
         CustomEvent(
             name="agentdeck.report",
@@ -254,11 +254,11 @@ def _reported(payload: Any, state: AdapterState) -> list[BaseEvent]:
     ]
 
 
-def _ignored(payload: Any, state: AdapterState) -> list[BaseEvent]:
+def _ignored(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     return []
 
 
-_PROJECTIONS: dict[str, Callable[[Any, AdapterState], list[BaseEvent]]] = {
+_PROJECTIONS: dict[str, Callable[[Any, _AdapterState], list[BaseEvent]]] = {
     "run.started": _ignored,  # the binding's own RUN_STARTED already opened the interaction (ruling 50)
     "run.completed": _run_completed,
     "run.failed": _run_failed,
@@ -278,5 +278,3 @@ _PROJECTIONS: dict[str, Callable[[Any, AdapterState], list[BaseEvent]]] = {
     "control.requested": _ignored,
     "control.observed": _ignored,
 }
-
-__all__ = ["AdapterState", "to_agentdeck_input", "to_agentdeck_resume", "to_agui_event"]
