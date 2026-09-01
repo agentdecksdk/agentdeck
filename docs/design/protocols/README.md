@@ -37,7 +37,7 @@ Status: proposed, 2026-08-29. Supersedes the single-file `design.md`, kept in gi
  └──────────────────────────────────┬────────────────────────────────────────────────┘
                                     ▼
  ┌───────────────────────────────────────────────────────────────────────────────────┐
- │  ProtocolGateway   agentdeck/bindings/          stable SPI v1                     │
+ │  DeckGateway   agentdeck/bindings/          stable SPI v1                         │
  │  targets() · start() · get_run() · list_runs() · capabilities(control, durable)   │
  │  GatewayError(code) · returns Run                                                 │
  └──────────────────────────────────┬────────────────────────────────────────────────┘
@@ -70,7 +70,7 @@ Success test: a React client, an IDE and another agent independently project the
 | file | subject |
 |---|---|
 | [`invariants.md`](invariants.md) | the rules every protocol implementation is held to, and what may never enter core |
-| [`gateway.md`](gateway.md) | `ProtocolGateway`: targets, capabilities, start/get/list, failure taxonomy |
+| [`gateway.md`](gateway.md) | `DeckGateway`: targets, capabilities, start/get/list, failure taxonomy |
 | [`projection.md`](projection.md) | how a protocol maps sessions, identities, events and input onto AgentDeck's |
 | [`bindings.md`](bindings.md) | `Binding` (protocol or channel) and endpoint types: one external system over one transport it supports |
 | [`exposure.md`](exposure.md) | `deck.expose(...)`: validation, lifecycle, ownership, HTTP composition |
