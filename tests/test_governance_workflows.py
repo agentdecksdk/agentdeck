@@ -63,5 +63,5 @@ def test_release_promotion_checks_skip_on_main_base() -> None:
     last advance; each change was already gated against dev as its base at merge time (#536)."""
     ci = (WORKFLOWS / "ci.yml").read_text()
     docs_impact = (WORKFLOWS / "docs-impact.yml").read_text()
-    assert "github.base_ref != 'main'" in ci
+    assert "github.event.pull_request.base.ref != 'main'" in ci
     assert "github.event.pull_request.base.ref != 'main'" in docs_impact
