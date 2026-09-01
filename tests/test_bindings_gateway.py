@@ -134,7 +134,6 @@ def test_map_failure_never_echoes_the_cause_for_internal():
 
     assert mapped.code is GatewayFailureCode.INTERNAL
     assert mapped.message == "internal error"
-    assert "hunter2" not in mapped.message
     assert mapped.cause is cause
 
 
