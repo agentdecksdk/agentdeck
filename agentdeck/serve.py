@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING, Any
 
 from agentdeck.core.content import coerce_input
 from agentdeck.core.status import status_of
-from agentdeck.errors import AgentdeckError, NotFoundError, RunStateError, SessionBusyError
+from agentdeck.errors import AgentdeckError, InputError, NotFoundError, RunStateError, SessionBusyError
 from agentdeck.surfaces.serve.compat import chat_frames, chat_result
 
 if TYPE_CHECKING:
@@ -160,7 +160,7 @@ def build_asgi_app(deck: Deck) -> Any:
             raise HTTPException(status_code=422, detail=f"session_id must be a string, got {type(session_id).__name__}")
         try:
             content = coerce_input(message)
-        except TypeError as exc:
+        except InputError as exc:
             raise HTTPException(
                 status_code=422, detail=f"message must be a string, got {type(message).__name__}"
             ) from exc

@@ -14,7 +14,14 @@ from agentdeck.authoring import Agent
 from agentdeck.bindings import Capabilities, DeckGateway, GatewayError, GatewayFailureCode, TargetInfo
 from agentdeck.bindings.gateway import _map_failure
 from agentdeck.deck import Deck, Run
-from agentdeck.errors import DuplicateKeyError, NotFoundError, RunStateError, SessionBusyError, UnsupportedControlError
+from agentdeck.errors import (
+    DuplicateKeyError,
+    InputError,
+    NotFoundError,
+    RunStateError,
+    SessionBusyError,
+    UnsupportedControlError,
+)
 from agentdeck.runtime.settings import reset_settings_cache
 from agentdeck.testing import ScriptedModel, patch_model
 
@@ -75,7 +82,7 @@ async def test_start_maps_bad_input_to_invalid_input(gateway):
         await gateway.start("Greeter", 123)  # an agent only ever takes str/content blocks
 
     assert excinfo.value.code is GatewayFailureCode.INVALID_INPUT
-    assert isinstance(excinfo.value.cause, TypeError)
+    assert isinstance(excinfo.value.cause, InputError)
 
 
 @pytest.mark.asyncio
@@ -142,6 +149,12 @@ def test_map_failure_maps_errors_the_facade_methods_never_raise(exc, code):
     """Both are ``Run``-method refusals, so neither reaches ``start``/``get``/``list``: their
     mapping is exercised on the mapper directly."""
     assert _map_failure(exc).code is code
+
+
+def test_an_internal_gateway_error_cannot_carry_arbitrary_text():
+    """Enforced in `GatewayError`, so a binding does not have to trust the invariant and no
+    future one can leak through a message it passed itself."""
+    assert GatewayError(GatewayFailureCode.INTERNAL, "db dsn=postgres://user:hunter2@host").message == "internal error"
 
 
 def test_map_failure_never_echoes_the_cause_for_internal():

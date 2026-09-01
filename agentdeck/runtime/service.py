@@ -50,7 +50,7 @@ from agentdeck.core.status import (
     can_resume,
     decide,
 )
-from agentdeck.errors import ConfigError, NotFoundError, RunStateError, SessionBusyError, StoreError
+from agentdeck.errors import ConfigError, InputError, NotFoundError, RunStateError, SessionBusyError, StoreError
 from agentdeck.runtime.dispatch import SinkDispatch
 
 if TYPE_CHECKING:
@@ -326,7 +326,7 @@ class Runtime:
             # Recorded, then raised, and both before the claim: the run is still waiting, so the
             # answerer can send a real one  -  and the log keeps the fact that somebody tried.
             await self._record(AnswerRefused(reason=why), spec, ctx)
-            raise ValueError(why)
+            raise InputError(why)
         opening = await self._claim_resume(spec, ctx, value)
         if opening is None:
             return

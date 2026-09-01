@@ -21,6 +21,7 @@ ROOT = {
     "Observer",
     "ResourceBlock",
     "Run",
+    "RunStatus",
     "TextBlock",
     "ToolCtx",
     "TurnResult",

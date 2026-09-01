@@ -25,6 +25,7 @@ from agentdeck.core.context import ToolCtx, WorkflowCtx
 from agentdeck.core.events import Event
 from agentdeck.core.invocable import AgentInstance
 from agentdeck.core.ports import Observer
+from agentdeck.core.status import RunStatus
 from agentdeck.deck import Deck, Run, TurnResult
 
 try:
@@ -50,6 +51,7 @@ __all__ = [
     "Observer",
     "ResourceBlock",
     "Run",
+    "RunStatus",
     "TextBlock",
     "ToolCtx",
     "TurnResult",

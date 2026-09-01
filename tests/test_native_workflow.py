@@ -16,7 +16,7 @@ import pytest
 from agentdeck import Deck, ToolCtx, WorkflowCtx, tool, workflow
 from agentdeck.core.control import CONTROL_POLL_INTERVAL
 from agentdeck.core.status import RunStatus
-from agentdeck.errors import ConfigError, NotFoundError
+from agentdeck.errors import ConfigError, InputError, NotFoundError
 
 
 @pytest.fixture(autouse=True)
@@ -216,7 +216,7 @@ async def test_an_answer_outside_the_options_is_refused_and_the_run_stays_answer
         assert pending is not None
         assert pending["payload"]["options"] == [True, False]
 
-        with pytest.raises(ValueError, match="waiting for one of"):
+        with pytest.raises(InputError, match="waiting for one of"):
             await run.answer("maybe")
 
         assert await run.status() is RunStatus.WAITING_ANSWER
@@ -260,7 +260,7 @@ async def test_an_unrecordable_freeform_answer_leaves_the_run_answerable() -> No
         run = await deck.runs.start("freeform", None)
         await _settles(run, RunStatus.WAITING_ANSWER)
 
-        with pytest.raises(ValueError, match="cannot be recorded"):
+        with pytest.raises(InputError, match="cannot be recorded"):
             await run.answer(object())
 
         assert await run.status() is RunStatus.WAITING_ANSWER

@@ -16,6 +16,7 @@ from pydantic import create_model
 
 from agentdeck.errors import (
     DuplicateKeyError,
+    InputError,
     NotFoundError,
     RunStateError,
     SessionBusyError,
@@ -66,12 +67,15 @@ _INTERNAL_MESSAGE = "internal error"
 class GatewayError(Exception):
     """The one exception a binding catches.
 
-    ``message`` is wire-safe only for ``NOT_FOUND``, ``BUSY``, ``CONFLICT`` and ``INVALID_INPUT``;
-    ``INTERNAL`` carries the fixed ``"internal error"``, never the cause's own text, which may
-    hold configuration values or a skill's stderr. ``cause`` is for logging, not display.
+    ``message`` is wire-safe only for ``NOT_FOUND``, ``BUSY``, ``CONFLICT`` and ``INVALID_INPUT``.
+    An ``INTERNAL`` message is replaced here, not merely documented: a caller cannot leak
+    configuration values or a skill's stderr through one, whatever it passes. ``cause`` is for
+    logging, not display.
     """
 
     def __init__(self, code: GatewayFailureCode, message: str, cause: BaseException | None = None) -> None:
+        if code is GatewayFailureCode.INTERNAL:
+            message = _INTERNAL_MESSAGE
         super().__init__(message)
         self.code = code
         self.message = message
@@ -86,7 +90,7 @@ def _map_failure(exc: Exception) -> GatewayError:
         return GatewayError(GatewayFailureCode.BUSY, str(exc), exc)
     if isinstance(exc, (RunStateError, DuplicateKeyError)):
         return GatewayError(GatewayFailureCode.CONFLICT, str(exc), exc)
-    if isinstance(exc, (TypeError, ValueError)):
+    if isinstance(exc, InputError):
         return GatewayError(GatewayFailureCode.INVALID_INPUT, str(exc), exc)
     if isinstance(exc, UnsupportedControlError):
         return GatewayError(GatewayFailureCode.UNSUPPORTED, str(exc), exc)

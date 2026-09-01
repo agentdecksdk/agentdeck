@@ -88,7 +88,7 @@ class GatewayError(Exception):
     cause: BaseException | None
 ```
 
-One exception type; a binding writes one `except GatewayError`.
+One exception type; a binding writes one `except GatewayError`. `Run` methods (`cancel`, `pause`, `resume`, `answer`) are not gateway methods and keep their own public errors (`RunStateError`, `UnsupportedControlError`, `RunSuspendedError`, all in `agentdeck.errors`); a binding maps those itself.
 
 | AgentDeck error | code | HTTP precedent in `agentdeck/serve.py` |
 |---|---|---|
@@ -99,4 +99,4 @@ One exception type; a binding writes one `except GatewayError`.
 | unavailable control backend | `UNSUPPORTED` | none yet |
 | any other `AgentdeckError` or exception | `INTERNAL` | 500, message never echoed |
 
-The protocol maps each code to its own vocabulary (HTTP status, A2A error, JSON-RPC error).
+An `INTERNAL` message is replaced by the fixed text in `GatewayError` itself, so a binding never has to trust the caller. The protocol maps each code to its own vocabulary (HTTP status, A2A error, JSON-RPC error).

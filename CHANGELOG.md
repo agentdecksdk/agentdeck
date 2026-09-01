@@ -21,6 +21,20 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
   `start()` on binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too.
 
+- **`Native.http()`, the AgentDeck protocol** (#548): `from agentdeck.bindings.native import
+  Native`, then `deck.expose(Native.http())`. Ten routes over `DeckGateway` and public `Run`
+  methods (targets, start, get/list runs, an SSE tail with `Last-Event-ID`/`from_seq` reconnect,
+  cancel/pause/resume, pending/answer), frames as `Event.model_dump_json()` verbatim, and a
+  versioned wire spec at `docs/design/protocols/native-wire.md`. The implementation lives under
+  `agentdeck/adapters/bindings/native/`; `adapters` is not a user import path.
+- **`RunStatus` is exported from `agentdeck`.** `deck.runs.list(status=...)` takes one and every
+  Native run summary reports one, so a caller reading runs needs the type.
+- **`InputError`** (#579): a public `AgentdeckError` for content or an answer the caller supplied
+  that AgentDeck cannot take, raised by `coerce_input` and by an answer outside an ask's own
+  `options`. A binding maps it to its own bad-request code (Native: 422); an unrelated
+  `TypeError`/`ValueError` from a store or an executor stays internal. Catch `InputError` (or
+  `AgentdeckError`) where you caught `TypeError` or `ValueError` from those calls before.
+
 ### Changed
 
 - **`agentdeck.errors` is the one import path for the error taxonomy.** `AgentdeckError`,

@@ -163,7 +163,11 @@ def coerce_input(value: str | Input) -> Input:
         return [TextBlock(text=value)]
     if isinstance(value, list) and all(isinstance(block, _BLOCK_TYPES) for block in value):
         return list(value)
-    raise TypeError(f"expected str or list[ContentBlock], got {type(value).__name__}")
+    # Imported here, not at module scope: `status.py` imports `answer_of` from this module, so
+    # content -> errors -> status -> content would close a cycle.
+    from agentdeck.core.errors import InputError
+
+    raise InputError(f"expected str or list[ContentBlock], got {type(value).__name__}")
 
 
 def as_answer(value: Any) -> Input | None:
@@ -186,14 +190,16 @@ def as_answer(value: Any) -> Input | None:
     # A type check, not a comparison: `!=` runs the caller's own `__ne__`, and an array-like
     # answer (ndarray, Series) returns elementwise and then raises on `bool()`.
     if not (isinstance(value, list) and not value):
+        from agentdeck.core.errors import InputError
+
         try:
             return coerce_input(value)
-        except TypeError:
+        except InputError:
             pass
     try:
         return [DataBlock(data=value)]
     except ValidationError as invalid:
-        raise ValueError(
+        raise InputError(
             f"an answer of type {type(value).__name__} cannot be recorded, and an answer the log "
             "cannot hold is one no resume can read back. Pass something JSON can carry: a string, "
             "a number, a bool, a list or a dict."
