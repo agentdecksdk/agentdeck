@@ -233,6 +233,7 @@ allow_indirect_imports = True
 # `import agentdeck.bindings` still reaches no adapter and no HTTP dependency.
 ignore_imports =
     agentdeck.bindings.native -> agentdeck.adapters.bindings.native.binding
+    agentdeck.bindings.terminal -> agentdeck.adapters.bindings.terminal.binding
 
 # Native (#548): the first in-tree binding, held to the same allow-list ruling 19 gives an
 # out-of-tree plugin (proven separately by `tests/bindings/fixture_plugin/.importlinter`).
@@ -244,6 +245,24 @@ type = forbidden
 source_modules =
     agentdeck.adapters.bindings.native
 forbidden_modules =
+    agentdeck.runtime
+    agentdeck.deck
+    agentdeck.adapters.control
+    agentdeck.adapters.executors
+    agentdeck.adapters.leases
+    agentdeck.adapters.stores
+    agentdeck.adapters.telemetry
+    agentdeck.adapters.tools
+allow_indirect_imports = True
+
+# Terminal (#549): the second in-tree binding, held to the same allow-list as Native.
+[importlinter:contract:terminal-binding-is-spi-facing-only]
+name = the Terminal binding reaches a Deck through the public SPI only, never runtime, Deck or another adapter
+type = forbidden
+source_modules =
+    agentdeck.adapters.bindings.terminal
+forbidden_modules =
+    agentdeck.core
     agentdeck.runtime
     agentdeck.deck
     agentdeck.adapters.control
