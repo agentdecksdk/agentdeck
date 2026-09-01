@@ -1,4 +1,5 @@
-"""`DeckGateway`'s structural boundary (#599): no `Deck` survives construction, and the generic
+"""`DeckGateway`'s structural boundary (#599): no attribute on the gateway itself is or holds a
+`Deck` (a bound method's `__self__` chain can still reach one), and the generic
 `agentdeck.adapters.bindings` import contract catches a new binding with no per-binding entry.
 """
 
