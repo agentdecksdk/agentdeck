@@ -217,14 +217,25 @@ pauses and completes projects through exactly the same table. That equivalence i
 
 ## HITL and resume
 
+The official shapes carry the round trip, never a custom `forwardedProps` extension:
+
 ```text
-AG-UI run r1  RUN_STARTED               →  Run A starts
-              RUN_FINISHED(interrupt)   →  Run A interrupted at ctx.ask() / ctx.approve()
-AG-UI run r2  RUN_STARTED               →  Run A.answer(value), the next segment
-              RUN_FINISHED(success)     →  Run A completed
+AG-UI run r1  RUN_STARTED                                          →  Run A starts
+              RUN_FINISHED(outcome=RunFinishedInterruptOutcome(    →  Run A interrupted at
+                  interrupts=[Interrupt(id, reason, message, ...)]))  ctx.ask() / ctx.approve()
+AG-UI run r2  RUN_STARTED, resume=[ResumeEntry(interruptId,        →  Run A.answer(value), the
+                  status="resolved", payload=value)]                  next segment
+              RUN_FINISHED(outcome=RunFinishedSuccessOutcome)      →  Run A completed
 ```
 
-The question and its options become the interrupt's metadata. The resumed AgentDeck Run is the
+`run.interrupted`'s `interrupt_id` becomes `Interrupt.id`, `reason` becomes `Interrupt.reason`,
+the question becomes `Interrupt.message`, and the options become `Interrupt.response_schema`,
+an enum schema rather than free metadata, since AG-UI gives interrupt data a typed home. The
+client answers by sending a new `RunAgentInput` whose `resume` carries one `ResumeEntry` naming
+that `interruptId`; the binding reads its `payload` as the answer. A `resume` naming an
+`interruptId` that is not this run's current one, or carrying more than one entry (several
+outstanding interrupts is a tracked gap below), is refused with a named 4xx; `status="cancelled"`
+is refused the same way until an answer-level cancel exists. The resumed AgentDeck Run is the
 same Run: a new AG-UI interaction is not a new execution.
 
 Finding the suspended Run starts with the public APIs: `threadId` is the `session_id`, and a
@@ -301,8 +312,9 @@ refused with a named reason. A standard field is never ignored.
 | AGUI-6 | steering, and richer long-running tool output |
 | AGUI-7 | official AG-UI conformance tests, plus Assistant UI, CopilotKit and the official `HttpAgent` |
 
-AGUI-0 merges first and alone: the wire architecture has to be right before capabilities fill in,
-and a capability added on a shaky wire foundation is a rewrite.
+AGUI-0 through AGUI-3 land together, in one PR (#596): the wire architecture and the capabilities
+AgentDeck already has are one binding, not four staged merges. AGUI-4/5/6 wait for their own core
+AgentDeck primitive and stay tracked gaps until then; AGUI-7 is #597.
 
 ## Tests
 

@@ -54,6 +54,12 @@ redis = [
     # adapter (adapters/stores/redis)  -  neither is a default, so the client isn't in base.
     "redis>=5.0",
 ]
+agui = [
+    # the official wire models and SSE encoder (rulings.md 16); starlette is listed directly
+    # here too, since a standalone `[agui]` install has no `[serve]` to pull it in transitively.
+    "ag-ui-protocol>=0.1.22",
+    "starlette>=0.37",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
@@ -69,6 +75,8 @@ dev = [
     # not exercised by any default path  -  installed here so the gate still covers the
     # redis session/event-log branches without making `[redis]` a base extra.
     "redis>=5.0",
+    # same reasoning as redis above, for the AG-UI binding's own test suite.
+    "ag-ui-protocol>=0.1.22",
     "ruff>=0.6",
     "ty>=0.0.1a21",
     "pre-commit>=4.0",
@@ -121,6 +129,7 @@ known-first-party = ["agentdeck"]
 # set, cancelled by its own stop() (docs/design/protocols/rulings.md 32), the same shape as the
 # native executor's parked bodies above  -  never the runtime's, since a binding lives outside it.
 "tests/bindings/fixture_plugin/channel.py" = ["TID251"]
+"tests/bindings/test_agui_binding.py" = ["TID251"]
 "tests/contract/test_store.py" = ["TID251"]
 "tests/test_deck.py" = ["TID251"]
 "tests/test_run_control.py" = ["TID251"]
