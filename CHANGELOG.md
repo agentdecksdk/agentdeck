@@ -37,6 +37,9 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Changed
 
+- **`DeckGateway.start` drops `context`** (#599): no binding ever passed one, and a served run
+  has no live Python execution context to hand it. `DeckGateway` also no longer retains the
+  `Deck` it was built from.
 - **`agentdeck.errors` is the one import path for the error taxonomy.** `AgentdeckError`,
   `ConfigError`, `ContextTypeError`, `NotFoundError`, `SessionBusyError`, `SkillError` and
   `StoreError` are no longer exported from `agentdeck` itself: `from agentdeck.errors import

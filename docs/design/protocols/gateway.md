@@ -14,14 +14,13 @@ class DeckGateway(Protocol):
     capabilities: Capabilities
 
     async def start(self, target: str, input: Input, *, session_id: str | None = None,
-                    namespace: str | None = None, key: str | None = None,
-                    context: object = None) -> Run: ...
+                    namespace: str | None = None, key: str | None = None) -> Run: ...
     async def get_run(self, run_id: str, *, namespace: str | None = None) -> Run: ...
     async def list_runs(self, *, namespace: str | None = None, status: RunStatus | None = None,
                         limit: int | None = None) -> Sequence[Run]: ...
 ```
 
-`start`, `get_run` and `list_runs` wrap `deck.runs.start/get/list` (`agentdeck/deck.py`, class `Runs`) with the same signatures, adding what `Runs` lacks: `targets()`, `capabilities`, failure classification. Artifact bytes are out of scope (`rulings.md` 14).
+`start`, `get_run` and `list_runs` wrap `deck.runs.start/get/list` (`agentdeck/deck.py`, class `Runs`), adding what `Runs` lacks: `targets()`, `capabilities`, failure classification. `start` drops `Runs.start`'s `context`: that parameter is a live Python execution context, and a served run has none. A future semantic context, serializable and protocol-agnostic, is designed separately (a generic AgentDeck primitive, not this escape hatch) before any binding needs one. Artifact bytes are out of scope (`rulings.md` 14).
 
 Everything else is already on `Run`: `id`, `namespace`, `session_id`, `status()`, `can`, `events(from_seq=, follow=)`, `cancel()`, `pause()`, `resume()`, `pending()`, `answer()`.
 
