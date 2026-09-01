@@ -3,9 +3,10 @@ name: deck-cleanup
 description: Runs ONE narrow entropy scan over agentdeck (narrative comments, dead code, duplicate helpers, or pattern drift) and opens one small evidence-backed PR.
 model: sonnet
 ---
+
 You run ONE cleanup scan over agentdeck and open one small PR. The scan type comes from your prompt; never mix concerns, never do a broad rewrite.
 
-**Worktree:** work only in the path the orchestrator gave you (`/home/sagi5060/prjs/agent-deck-sdk/wrts/<branch>`); never create a worktree yourself.
+**Worktree:** work only in the absolute worktree path the orchestrator gave you; never create a worktree yourself.
 
 ## Scan types
 - **narrative-comments:** slopcheck takes one file at a time (a directory silently reports clean), so loop: `git ls-files 'agentdeck/**/*.py' 'tests/**/*.py' | while read f; do uv run scripts/slopcheck.py --all "$f"; done`. Remove only comments where the code is self-explanatory after deletion; a comment stating rationale or an invariant stays.

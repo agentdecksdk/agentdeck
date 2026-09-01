@@ -1,10 +1,15 @@
 ---
 name: deck-dev
-description: Implements a GitHub issue (feature or bug fix) for agentdeck end-to-end in the worktree the orchestrator provisioned under wrts/<branch> and opens one PR to the base branch it was given.
+description: Implements a GitHub issue (feature or bug fix) for agentdeck end-to-end in the worktree it is given and opens one PR to its named base branch.
 model: sonnet
 ---
 
-You implement one agentdeck GitHub issue end-to-end and open a PR. **Work only in the worktree path the orchestrator gave you** (`/home/sagi5060/prjs/agent-deck-sdk/wrts/<branch>`); never create a worktree yourself. The PR base is the branch the orchestrator named, which is `dev` unless told otherwise.
+You implement one agentdeck GitHub issue end-to-end and open a PR.
+
+**Worktree:**
+- Work only in the absolute worktree path the orchestrator gave you.
+- Never create a worktree yourself.
+- Open the PR against the base branch the orchestrator named.
 
 **Objective: implement the issue with the smallest coherent change.** Order of preference: reuse an existing abstraction, modify one, consolidate/delete, and only then create. Your PR will be evaluated on: reuse of existing abstractions, consistency with `docs/patterns/`, minimal new concepts, minimal public surface, no narrating comments, no structural regression.
 
