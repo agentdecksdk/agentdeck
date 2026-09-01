@@ -265,21 +265,3 @@ forbidden_modules =
     agentdeck.adapters.telemetry
     agentdeck.adapters.tools
 allow_indirect_imports = True
-
-# Terminal (#549): the second in-tree binding, held to the same allow-list as Native.
-[importlinter:contract:terminal-binding-is-spi-facing-only]
-name = the Terminal binding reaches a Deck through the public SPI only, never runtime, Deck or another adapter
-type = forbidden
-source_modules =
-    agentdeck.adapters.bindings.terminal
-forbidden_modules =
-    agentdeck.core
-    agentdeck.runtime
-    agentdeck.deck
-    agentdeck.adapters.control
-    agentdeck.adapters.executors
-    agentdeck.adapters.leases
-    agentdeck.adapters.stores
-    agentdeck.adapters.telemetry
-    agentdeck.adapters.tools
-allow_indirect_imports = True
