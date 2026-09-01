@@ -75,6 +75,7 @@ Success test: a React client, an IDE and another agent independently project the
 | [`bindings.md`](bindings.md) | `Binding` (protocol or channel) and endpoint types: one external system over one transport it supports |
 | [`exposure.md`](exposure.md) | `deck.expose(...)`: validation, lifecycle, ownership, HTTP composition |
 | [`spi.md`](spi.md) | SPI versioning and out-of-tree plugin packaging |
+| [`agui.md`](agui.md) | the AG-UI binding: full-protocol target, Deck-level serving, identity, projection, gaps |
 | [`rulings.md`](rulings.md) | every decision taken while attacking the design: chosen, rejected, why |
 | [`roadmap.md`](roadmap.md) | implementation sequence, target protocols, delivery, contract tests |
 
