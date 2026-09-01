@@ -1,4 +1,4 @@
-"""``Exposure``: validation at ``expose()``, then lifecycle ownership. Fake bindings only  -
+"""``Exposure``: validation at ``expose()``, then lifecycle ownership. Fake bindings only:
 no concrete protocol exists yet (#548 adds the first)."""
 
 from __future__ import annotations

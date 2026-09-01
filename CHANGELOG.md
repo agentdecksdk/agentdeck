@@ -19,10 +19,6 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Added
 
-- **`agentdeck.bindings`, the protocol SPI** (#545): `ProtocolGateway` (`targets()`,
-  `capabilities`, `start`/`get_run`/`list_runs`), `GatewayError`/`GatewayFailureCode`, `Binding`,
-  `BindingInfo`, `HttpEndpoint`/`StdioEndpoint`. No concrete binding ships yet; this is the
-  contract the first one (#548) builds against.
 - **`Deck.expose(*bindings) -> Exposure`** (#546): validates duplicate HTTP paths, more than one
   stdio binding, a repeated binding name, an unsupported `spi_version`, and a missing prerequisite
   binding, all before anything opens. `exposure.asgi()` mounts every
