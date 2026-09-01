@@ -1,7 +1,5 @@
 # Protocol SPI: versioning and packaging
 
-Status: proposed, 2026-08-29.
-
 ## Version
 
 ```python

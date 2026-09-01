@@ -2,8 +2,6 @@
 
 One concrete protocol over one transport it actually supports.
 
-Status: proposed, 2026-08-29.
-
 ## No generic transport composition
 
 Rejected:
@@ -12,7 +10,7 @@ Rejected:
 Protocol(A2A(), transport=HTTP())
 ```
 
-It claims every protocol runs over every transport, which is false and leaves invalid combinations to validate forever. The protocol package decides what it supports and exposes only valid pairs:
+It claims every protocol runs over every transport, which is false and leaves invalid combinations to validate forever. Each protocol package exposes only the pairs it supports:
 
 ```python
 A2A.http()   A2A.grpc()
@@ -42,7 +40,7 @@ Concrete classes (`A2AHttpBinding`, `ACPStdioBinding`, ...) stay behind the fact
 | channel | existing communication network with its own messaging identity and API | Slack, WhatsApp, Telegram, Discord | no streaming; posts on `message.completed`; buttons from `run.interrupted` |
 | surface | user-facing interface AgentDeck hosts in-process | Terminal (`agentdeck chat`), TUI | streams; prompts from `run.interrupted` |
 
-Same contract, same gateway; the kind is data. A channel ACKs its webhook, then tails the run from a task the Exposure owns (`start()`), and keeps a durable map from its message ids to the Run address. `Terminal.stdio()` is the one surface in the v6 epic and the simplest binding: no webhook, auth, store or background task; channels are outside it; the fixture plugin under `tests/` is channel-shaped so the SPI is proven against that pattern (`rulings.md` 31 to 33).
+Same contract, same gateway; the kind is data. A channel ACKs its webhook, then tails the run from an Exposure-owned task (`start()`), keeping a durable map from its message ids to the Run address. The fixture plugin under `tests/` is channel-shaped, so the SPI is proven against that harder pattern (`rulings.md` 31 to 33).
 
 ## Endpoint types
 
@@ -60,23 +58,9 @@ stdio is why HTTP is not built into the gateway:
 stdin → ACP binding → ProtocolGateway → Deck → ACP binding → stdout
 ```
 
-The gateway knows nothing about transport.
-
 ## External surfaces are clients, not bindings
 
-```text
-Assistant UI React app       IDE            another agent      ← external surfaces
-        │                     │                  │
-@assistant-ui/react-ag-ui    ACP client        A2A client
-        │                     │                  │
-   AGUI.http()           ACP.stdio()         A2A.http()        ← AgentDeck bindings
-        └─────────────────────┼──────────────────┘
-                       ProtocolGateway
-                              │
-                             Deck
-```
-
-Assistant UI already ships AG-UI and A2A runtimes, so a web UI for the v6.0 trio is `useAgUiRuntime` or the A2A runtime pointed at the binding's path, with no AgentDeck code. No `AssistantUIBinding` is written (`rulings.md` 38).
+An external surface (Assistant UI, a custom React app, an IDE, another agent) consumes a binding's wire through its own client library; the diagram is in [`README.md`](README.md). Assistant UI ships AG-UI and A2A runtimes, so the v6.0 web UI is one of those runtimes pointed at a binding's path, with no AgentDeck code (`rulings.md` 38).
 
 ## The reference trio
 

@@ -1,7 +1,5 @@
 # Protocol invariants
 
-Status: proposed, 2026-08-29.
-
 ## Rules
 
 | rule | meaning |
@@ -17,7 +15,7 @@ Status: proposed, 2026-08-29.
 | Unsupported data is explicit | never silently drop content or events that change meaning |
 | One Deck, many projections | several protocols may expose the same Runs concurrently |
 
-The one that matters most:
+The boundary:
 
 ```text
 Protocol → AgentDeck public contract        always

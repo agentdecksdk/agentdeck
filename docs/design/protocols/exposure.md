@@ -2,8 +2,6 @@
 
 The composition object that validates bindings, owns their lifecycle, and hosts them.
 
-Status: proposed, 2026-08-29.
-
 ## API
 
 ```python
@@ -15,13 +13,7 @@ await exposure.serve(host="0.0.0.0", port=8000)   # standalone
 
 `expose()` is the only verb on `Deck`; `serve()` lives on the exposure. `deck.serve(...)` sugar is deferred to Phase 6 (`rulings.md` 23).
 
-## Many protocols, one Deck
-
-```python
-await deck.expose(Native.http(path="/"), A2A.http(path="/a2a"), AGUI.http(path="/ui")).serve()
-```
-
-Same agents, Runs, sessions, events and controls. A run started over A2A is visible over native HTTP, namespace and authorization permitting. That is a contract test.
+Every binding on one exposure shares the Deck's agents, Runs, sessions, events and controls: a run started over A2A is visible over native HTTP, namespace permitting. That is a contract test.
 
 ## HTTP composition
 
@@ -41,9 +33,9 @@ create Deck → create bindings → validate exposure → open Deck → build ga
 → binding.start() in order → serve → binding.stop() in reverse → close Deck if exposure opened it
 ```
 
-Every binding's background task runs under the Exposure; a failed `start()` cancels the ones already started.
+Every binding's background task runs under the Exposure. If any `start()` fails, the bindings already started stop in reverse, exposure-owned resources close, the Deck closes if the exposure opened it, and the failure is raised.
 
-Ownership: whoever opens something closes it. Mounting onto an already-open Deck takes no ownership of it; `exposure.serve()` that opened the Deck closes it. Same rule for binding-owned resources.
+Ownership: whoever opens something closes it. Mounting onto an open Deck takes no ownership; an `exposure.serve()` that opened the Deck closes it. Same for binding-owned resources.
 
 ## Validation before start
 
@@ -56,9 +48,3 @@ a binding whose spi_version is unsupported
 a binding whose projection misses a required event category
 invalid protocol configuration
 ```
-
-stdio and HTTP bindings may share one exposure: one stdio binding at most, HTTP bindings on one listener.
-
-## Atomic startup
-
-If any binding fails to start, every started binding stops, exposure-owned resources close, the Deck closes if exposure opened it, and the failure is raised. Never half a protocol set running.

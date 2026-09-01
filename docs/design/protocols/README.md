@@ -59,9 +59,9 @@ Status: proposed, 2026-08-29. Supersedes the single-file `design.md`, kept in gi
 | gateway | `deck.runs`, targets, failure mapping | transports |
 | deck | execution | that any binding exists |
 
-A protocol is a projection of a Deck. A binding translates the subset of the Deck's behavior its protocol can faithfully represent and never changes runtime semantics to ease the translation. Direction is always downward: external systems adapt to AgentDeck.
+Direction is downward: external systems adapt to AgentDeck, never the reverse.
 
-v6.0 ships `Native` plus one binding of each kind: `A2A.http()`, `WhatsApp.http()`, `Terminal.stdio()`. The rest are 6.x. The epic changes nothing in the Deck or the runtime.
+v6.0 ships `Native` plus one binding of each kind: `A2A.http()`, `WhatsApp.http()`, `Terminal.stdio()`. The rest are 6.x. Execution semantics and the runtime stay unchanged; Deck gains the exposure entry point, `deck.expose(...)`.
 
 Success test: a React client, an IDE and another agent independently project the same Deck through their native protocols, every execution is still an ordinary AgentDeck Run, and the runtime contains zero protocol-specific behavior.
 
