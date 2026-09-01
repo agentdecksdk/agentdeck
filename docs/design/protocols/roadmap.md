@@ -29,7 +29,7 @@ Phase 1 is small because `deck.runs` already has the gateway's shape (`gateway.m
 Every decision behind this sequence is in [`rulings.md`](rulings.md); the ones that shape it most are 34 (`surfaces/` deleted), 36 (package names) and 37 (the v6.0 trio). v6.0.0 is the trio on one Deck:
 
 ```python
-deck.expose(A2A.http(path="/a2a"), WhatsApp.http(path="/whatsapp"), Terminal.stdio()).serve()
+await deck.expose(A2A.http(path="/a2a"), WhatsApp.http(path="/whatsapp"), Terminal.stdio()).serve()
 ```
 
 ## Delivery
