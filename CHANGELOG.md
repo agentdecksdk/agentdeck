@@ -8,6 +8,12 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+### Added
+
+- **The content blocks are re-exported from `agentdeck.bindings`** (#547): `TextBlock`,
+  `ImageBlock`, `ContentBlock`, `ResourceBlock`, `AudioBlock` and `DataBlock`, so a plugin builds
+  against the SPI package alone rather than reaching into `agentdeck.core.content`.
+
 ## [5.2.1] - 2026-08-29
 
 ### Changed

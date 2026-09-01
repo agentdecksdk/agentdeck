@@ -115,6 +115,22 @@ async def test_get_run_maps_an_unknown_id_to_not_found(gateway):
     assert excinfo.value.code is GatewayFailureCode.NOT_FOUND
 
 
+@pytest.mark.asyncio
+async def test_get_run_in_the_wrong_namespace_is_not_found(gateway, scripted):
+    """A run started in one namespace is invisible from another: no search across the isolation
+    boundary, the same rule :meth:`Runs.get` enforces (run-identity.md 15)."""
+    started = await gateway.start("Greeter", "hi", namespace="acme", session_id="s1")
+    with pytest.raises(GatewayError) as excinfo:
+        await gateway.get_run(started.id, namespace="other")
+
+    assert excinfo.value.code is GatewayFailureCode.NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_list_runs_in_an_unknown_namespace_is_empty(gateway):
+    assert await gateway.list_runs(namespace="ghost-namespace") == []
+
+
 @pytest.mark.parametrize(
     ("exc", "code"),
     [

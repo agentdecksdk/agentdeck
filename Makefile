@@ -38,8 +38,9 @@ lint:           ## ruff check
 typecheck:      ## ty type check
 	$(E).venv/bin/ty check agentdeck $(QUIET)
 
-lint-imports:   ## import-linter contracts (.importlinter)
+lint-imports:   ## import-linter contracts (.importlinter, plus the fixture plugin's own)
 	$(E).venv/bin/lint-imports $(QUIET)
+	$(E).venv/bin/lint-imports --config tests/bindings/fixture_plugin/.importlinter $(QUIET)
 
 slop:           ## anti-slop gate on lines this branch adds vs origin/dev
 	$(E).venv/bin/python scripts/slopcheck.py --changed --base origin/dev < /dev/null $(QUIET)
