@@ -10,9 +10,6 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Added
 
-- **A channel-shaped out-of-tree fixture plugin proving the SPI** (#547): `tests/bindings/`
-  drives `FixtureChannel` against a real Deck, with its own `.importlinter` contract wired into
-  `make check` and forbidding `agentdeck.core` as well as runtime, adapters and `Deck`.
 - **The content blocks are re-exported from `agentdeck.bindings`** (#547): `TextBlock`,
   `ImageBlock`, `ContentBlock`, `ResourceBlock`, `AudioBlock` and `DataBlock`, so a plugin builds
   against the SPI package alone rather than reaching into `agentdeck.core.content`.

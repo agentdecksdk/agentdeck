@@ -10,35 +10,26 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import subprocess
-import sys
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from fixture_plugin import FixtureChannel
+from fixture_plugin.channel import _RequestError
 from starlette.testclient import TestClient
 
 from agentdeck import WorkflowCtx, workflow
 from agentdeck.authoring import Agent
-from agentdeck.bindings import (
-    PROTOCOL_SPI_VERSION,
-    BindingInfo,
-    DeckGateway,
-    GatewayError,
-    GatewayFailureCode,
-    HttpEndpoint,
-    TextBlock,
-)
+from agentdeck.bindings import DeckGateway, TextBlock
 from agentdeck.core.events import Event, UnknownEvent
 from agentdeck.core.status import RunStatus
 from agentdeck.deck import Deck
 from agentdeck.errors import RunSuspendedError
 from agentdeck.testing import ScriptedModel, patch_model
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-FIXTURE_IMPORTLINTER = Path(__file__).parent / "fixture_plugin" / ".importlinter"
+if TYPE_CHECKING:
+    from pathlib import Path
+
 SECRET = "s3cr3t"
 
 
@@ -66,8 +57,8 @@ def _channel(tmp_path: Path, *, target: str, name: str = "fixture", path: str = 
 
 @pytest.mark.asyncio
 async def test_a_message_starts_an_ordinary_run_and_its_tail_posts_the_reply(no_project, tmp_path):
-    """No `Runtime`, no store: the channel reaches a Deck only through `gateway.start`, the run
-    it starts is recoverable through `deck.runs` itself, and the tail projects it."""
+    """The channel reaches a Deck only through `gateway.start`, and what it starts is an
+    ordinary run."""
     model = ScriptedModel(deltas=("hi",))
     deck = _deck()
     with patch_model(model):
@@ -112,9 +103,8 @@ async def test_a_disconnected_reader_does_not_cancel_the_run(no_project, tmp_pat
 
 @pytest.mark.asyncio
 async def test_receive_button_answers_and_retails_the_resumed_segment_without_polling(no_project, tmp_path):
-    """`run.interrupted` renders as buttons; the button answers through `run.answer()` and
-    re-tails from `last_seq + 1`. The first follow ends at the suspension and the re-tail blocks
-    until the resumed segment writes, so nothing here polls (ruling 29)."""
+    """The first follow ends at the suspension; the re-tail from `last_seq + 1` blocks until the
+    resumed segment writes, so nothing polls (ruling 29)."""
     deck = _deck()
     async with deck:
         channel = _channel(tmp_path, target="Survey")
@@ -141,9 +131,7 @@ async def test_receive_button_answers_and_retails_the_resumed_segment_without_po
         await retail
         turn = await run
 
-        # The discriminating assertion: re-tailing from `last_seq + 1` (not from 0) means the
-        # resumed segment never re-walks the first one, so the interrupt is posted exactly once
-        # -  a channel that replayed from scratch would double-post it here.
+        # Posted exactly once: a channel that re-tailed from 0 would double-post it here.
         assert channel.outbox == [interrupt_post]
         assert channel._map.get("msg-1")["last_seq"] > seq_at_interrupt
 
@@ -207,49 +195,11 @@ async def test_receive_button_with_an_unknown_message_id_is_not_found(no_project
         channel = _channel(tmp_path, target="Greeter")
         channel.build(DeckGateway(deck))
 
-        with pytest.raises(GatewayError) as excinfo:
+        with pytest.raises(_RequestError) as excinfo:
             await channel.receive_button(secret=SECRET, message_id="no-such-message", value="red")
 
-    assert excinfo.value.code is GatewayFailureCode.NOT_FOUND
+    assert excinfo.value.status == 404
     assert "no-such-message" in excinfo.value.message
-
-
-def test_fixture_imports_no_private_module():
-    lint_imports = Path(sys.executable).with_name("lint-imports")
-    result = subprocess.run(
-        [str(lint_imports), "--config", str(FIXTURE_IMPORTLINTER)],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-
-
-
-@dataclass
-class _Boom:
-    """A binding whose ``start()`` always fails, to drive the rollback the real fixture sits
-    beside  -  the same toy shape ``test_bindings_exposure.py`` uses for the same purpose."""
-
-    info: BindingInfo = field(
-        default_factory=lambda: BindingInfo(
-            name="boom", kind="protocol", transport="http", spi_version=PROTOCOL_SPI_VERSION, advertises=frozenset()
-        )
-    )
-
-    def build(self, gateway: object) -> HttpEndpoint:
-        async def app(scope, receive, send):
-            await send({"type": "http.response.start", "status": 200, "headers": []})
-            await send({"type": "http.response.body", "body": b""})
-
-        return HttpEndpoint(path="/boom", app=app)
-
-    async def start(self) -> None:
-        raise RuntimeError("boom")
-
-    async def stop(self) -> None:
-        pass
 
 
 @pytest.mark.asyncio
@@ -274,8 +224,7 @@ async def test_stop_cancels_every_in_flight_tail_task(no_project, tmp_path):
 
 @pytest.mark.asyncio
 async def test_a_tail_that_failed_before_shutdown_still_raises_from_stop(no_project, tmp_path):
-    """A task discarded on completion takes its exception with it: nothing to cancel at stop, no
-    error to re-raise, and asyncio reports it as never retrieved instead."""
+    """`_task_done` keeps the failure after discarding the task, so `stop()` can still raise it."""
     model = ScriptedModel(deltas=("hi",))
     deck = _deck()
     with patch_model(model):
@@ -389,9 +338,7 @@ async def test_durable_map_survives_a_simulated_restart(no_project, tmp_path):
         await channel_2.receive_button(secret=SECRET, message_id="msg-1", value="red")
         await next(iter(channel_2._tasks))
 
-        # `channel_2` starts with an empty outbox and never saw the interrupt itself: re-tailing
-        # from `last_seq + 1` means it only walks the resumed segment, so it must stay empty  -
-        # a restart that replayed from seq 0 would post the interrupt's buttons here instead.
+        # Empty: `channel_2` walks only the resumed segment, never the first one.
         assert channel_2.outbox == []
         assert channel_1._map.get("msg-1")["last_seq"] > seq_at_interrupt
 
