@@ -73,6 +73,7 @@ The lifecycle is `NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED`:
   observers and tears down what this `Deck` itself opened  -  an `MCP(...)` it holds, always, and the event
   store it built from settings, but never one passed in through construction. Reopening a closed
   `Deck` raises; construct a new one instead.
+- **`deck.is_open`** reports whether `async with`/`__aenter__` has run and `aclose()` has not.
 
 **One `Deck` per process.** Constructing a second one while the first is still live raises
 `ConfigError`, naming both projects. The restriction is real rather than stylistic: every project

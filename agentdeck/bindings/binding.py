@@ -27,7 +27,10 @@ class BindingInfo:
     spi_version: int
     advertises: frozenset[str]
     """Capability names this binding claims (``streaming``, ``hitl``, ``control.cancel``, ...);
-    ``expose()`` checks each against a real projection or action before anything opens."""
+    the SPI contract suite holds a binding to each one."""
+
+    requires: frozenset[str] = frozenset()
+    """Other bindings, by :attr:`name`, this one needs in the same exposure."""
 
 
 @dataclass(frozen=True, slots=True)
