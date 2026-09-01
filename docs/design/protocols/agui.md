@@ -62,7 +62,7 @@ AGUI.http(
                    Run             canonical AgentDeck events
                     │
                     ▼
-              AG-UI projector      one private boundary
+               AGUI adapter        both directions, one module
                     │
                     ▼
                AG-UI events
@@ -73,10 +73,14 @@ Nothing below `DeckGateway` knows AG-UI exists.
 ## Package layout
 
 ```text
-agentdeck/bindings/agui.py                    the public import path
-agentdeck/adapters/bindings/agui/binding.py   the implementation
-agentdeck/adapters/bindings/agui/projector.py split out of binding.py only when it earns it
+agentdeck/bindings/agui.py                   the public import path
+agentdeck/adapters/bindings/agui/binding.py  transport: routes, SSE, lifecycle
+agentdeck/adapters/bindings/agui/adapter.py  translation, both directions
 ```
+
+A binding is transport plus adapter, and the adapter is not a new architectural concept: it is
+the translation half of the binding that `bindings.md` already describes. No generic adapter base
+class exists until a second binding proves the same abstraction is reusable.
 
 The official AG-UI Python models and encoder define the wire. This binding never redefines the
 schema, and no generic protocol-translation framework is extracted until a second protocol needs
@@ -135,8 +139,18 @@ No AG-UI-specific content type enters core.
 
 ## Event projection
 
-One private boundary, `_project(event) -> Iterable[BaseEvent]`, so one canonical event may produce
-zero, one or several AG-UI events and lifecycle synthesis stays in one place.
+`adapter.py` owns the translation in both directions, so the transport half holds no protocol
+semantics:
+
+```python
+def to_agui_event(event: Event, state: AdapterState) -> list[BaseEvent]: ...
+def to_agentdeck_input(run_input: RunAgentInput) -> Input: ...
+def to_agentdeck_resume(run_input: RunAgentInput) -> object: ...
+```
+
+`to_agui_event` returns a list because one canonical event may produce zero, one or several AG-UI
+events, which is what keeps lifecycle synthesis in one place. `AdapterState` is what a text
+lifecycle needs to know it has already opened a message.
 
 | AgentDeck | AG-UI |
 |---|---|
