@@ -99,4 +99,4 @@ One exception type; a binding writes one `except GatewayError`. `Run` methods (`
 | unavailable control backend | `UNSUPPORTED` | none yet |
 | any other `AgentdeckError` or exception | `INTERNAL` | 500, message never echoed |
 
-The protocol maps each code to its own vocabulary (HTTP status, A2A error, JSON-RPC error).
+An `INTERNAL` message is replaced by the fixed text in `GatewayError` itself, so a binding never has to trust the caller. The protocol maps each code to its own vocabulary (HTTP status, A2A error, JSON-RPC error).

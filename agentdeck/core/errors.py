@@ -134,6 +134,7 @@ __all__ = [
     "ConfigError",
     "ContextTypeError",
     "DuplicateKeyError",
+    "InputError",
     "NotFoundError",
     "RunStateError",
     "RunSuspendedError",

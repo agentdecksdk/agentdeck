@@ -67,12 +67,15 @@ _INTERNAL_MESSAGE = "internal error"
 class GatewayError(Exception):
     """The one exception a binding catches.
 
-    ``message`` is wire-safe only for ``NOT_FOUND``, ``BUSY``, ``CONFLICT`` and ``INVALID_INPUT``;
-    ``INTERNAL`` carries the fixed ``"internal error"``, never the cause's own text, which may
-    hold configuration values or a skill's stderr. ``cause`` is for logging, not display.
+    ``message`` is wire-safe only for ``NOT_FOUND``, ``BUSY``, ``CONFLICT`` and ``INVALID_INPUT``.
+    An ``INTERNAL`` message is replaced here, not merely documented: a caller cannot leak
+    configuration values or a skill's stderr through one, whatever it passes. ``cause`` is for
+    logging, not display.
     """
 
     def __init__(self, code: GatewayFailureCode, message: str, cause: BaseException | None = None) -> None:
+        if code is GatewayFailureCode.INTERNAL:
+            message = _INTERNAL_MESSAGE
         super().__init__(message)
         self.code = code
         self.message = message

@@ -151,6 +151,12 @@ def test_map_failure_maps_errors_the_facade_methods_never_raise(exc, code):
     assert _map_failure(exc).code is code
 
 
+def test_an_internal_gateway_error_cannot_carry_arbitrary_text():
+    """Enforced in `GatewayError`, so a binding does not have to trust the invariant and no
+    future one can leak through a message it passed itself."""
+    assert GatewayError(GatewayFailureCode.INTERNAL, "db dsn=postgres://user:hunter2@host").message == "internal error"
+
+
 def test_map_failure_never_echoes_the_cause_for_internal():
     cause = RuntimeError("db dsn=postgres://user:hunter2@host/db")
     mapped = _map_failure(cause)

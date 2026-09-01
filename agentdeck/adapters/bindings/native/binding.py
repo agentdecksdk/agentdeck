@@ -88,7 +88,9 @@ class _NativeBinding:
     @property
     def _deck(self) -> DeckGateway:
         if self._gateway is None:
-            raise GatewayError(GatewayFailureCode.INTERNAL, "build() has not run: this binding has no gateway")
+            # A 500 either way, but the reason stays in the log rather than being sanitized
+            # away by GatewayError's own INTERNAL rule.
+            raise RuntimeError("build() has not run: this binding has no gateway")
         return self._gateway
 
     async def _run_of(self, request: Request) -> Run:

@@ -248,7 +248,7 @@ def test_answering_outside_the_offered_options_maps_to_422(no_project):
         response = client.post(f"/runs/{run_id}/answer", json={"value": "chartreuse"})
 
     assert response.status_code == 422
-    assert "chartreuse" in response.json()["detail"] or "red" in response.json()["detail"]
+    assert "waiting for one of" in response.json()["detail"]
 
 
 def test_a_non_object_json_body_is_422_not_500(no_project):
