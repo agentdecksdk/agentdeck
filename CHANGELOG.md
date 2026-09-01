@@ -20,9 +20,18 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
   `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
   `start()` on binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too.
-- **The content blocks are re-exported from `agentdeck.bindings`** (#547): `TextBlock`,
-  `ImageBlock`, `ContentBlock`, `ResourceBlock`, `AudioBlock` and `DataBlock`, so a plugin builds
-  against the SPI package alone rather than reaching into `agentdeck.core.content`.
+
+### Changed
+
+- **`agentdeck.errors` is the one import path for the error taxonomy.** `AgentdeckError`,
+  `ConfigError`, `ContextTypeError`, `NotFoundError`, `SessionBusyError`, `SkillError` and
+  `StoreError` are no longer exported from `agentdeck` itself: `from agentdeck.errors import
+  AgentdeckError` for a catch-all. `agentdeck.errors` has always carried the complete set.
+- **`Event` is exported from `agentdeck`.** `run.events()` yields them, so a caller that reads a
+  run needs the type; it was already documented as a public import for binding authors.
+
+  The root keeps the everyday vocabulary, a feature namespace keeps its own, and no public name
+  lives at two paths (`docs/engineering/architecture.md` 3).
 
 ## [5.2.1] - 2026-08-29
 

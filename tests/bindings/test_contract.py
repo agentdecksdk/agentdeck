@@ -1,5 +1,5 @@
-"""The SPI contract suite: `FixtureChannel`, an out-of-tree plugin built only on
-`agentdeck.bindings`, driven against a real Deck.
+"""The SPI contract suite: `FixtureChannel`, an out-of-tree plugin built only on the
+public surface, driven against a real Deck.
 
 Every wait is on a real event (`ScriptedModel.holding`, a spawned tail task, `RunSuspendedError`)
 except one: the control gate's own documented batching window (`core/control.py`), which has no
@@ -18,9 +18,9 @@ from fixture_plugin import FixtureChannel
 from fixture_plugin.channel import _RequestError
 from starlette.testclient import TestClient
 
-from agentdeck import WorkflowCtx, workflow
+from agentdeck import TextBlock, WorkflowCtx, workflow
 from agentdeck.authoring import Agent
-from agentdeck.bindings import DeckGateway, TextBlock
+from agentdeck.bindings import DeckGateway
 from agentdeck.core.events import Event, UnknownEvent
 from agentdeck.core.status import RunStatus
 from agentdeck.deck import Deck

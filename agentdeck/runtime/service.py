@@ -24,6 +24,7 @@ from uuid import uuid4
 from agentdeck.core.content import as_answer
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import CONTROL_POLL_INTERVAL, Gate, Signal
+from agentdeck.core.errors import DOCS_URL
 from agentdeck.core.events import (
     TERMINAL_KINDS,
     AnswerRefused,
@@ -49,7 +50,7 @@ from agentdeck.core.status import (
     can_resume,
     decide,
 )
-from agentdeck.errors import DOCS_URL, ConfigError, NotFoundError, RunStateError, SessionBusyError, StoreError
+from agentdeck.errors import ConfigError, NotFoundError, RunStateError, SessionBusyError, StoreError
 from agentdeck.runtime.dispatch import SinkDispatch
 
 if TYPE_CHECKING:

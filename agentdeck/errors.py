@@ -9,7 +9,6 @@ the names below are the same class objects, so ``except ConfigError`` catches wh
 from __future__ import annotations
 
 from agentdeck.core.errors import (
-    DOCS_URL,
     AgentdeckError,
     ConfigError,
     ContextTypeError,
@@ -24,7 +23,6 @@ from agentdeck.core.errors import (
 )
 
 __all__ = [
-    "DOCS_URL",
     "AgentdeckError",
     "ConfigError",
     "ContextTypeError",

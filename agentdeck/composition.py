@@ -25,7 +25,7 @@ from agentdeck.adapters.leases.memory import MemoryLeasePort
 from agentdeck.adapters.leases.sqlite import SqliteLeasePort
 from agentdeck.adapters.stores.memory import MemoryEventStore
 from agentdeck.adapters.stores.sqlite import SqliteEventStore
-from agentdeck.errors import DOCS_URL
+from agentdeck.core.errors import DOCS_URL
 from agentdeck.runtime.discovery import InvocableRegistry
 from agentdeck.runtime.service import Runtime
 from agentdeck.runtime.settings import (

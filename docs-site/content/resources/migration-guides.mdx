@@ -32,7 +32,8 @@ The envelope's schema version bumped from `major=3` to `major=4`. SQLite and Pos
 | Redis | No such check. Its keys were shaped differently under 4.x; do not point a v5 process at 4.x Redis data |
 
 ```python illustrative reason="requires a project pointed at a 4.x SQLite event log"
-from agentdeck import Deck, StoreError
+from agentdeck import Deck
+from agentdeck.errors import StoreError
 
 try:
     async with Deck.from_project() as deck:
@@ -85,10 +86,10 @@ drop-in replacement.
 ### `EventSinkPort` is `Observer`
 
 ```python run
-from agentdeck.core.ports import Executor, Observer
+from agentdeck import Observer
 from agentdeck.observers import ConsoleObserver, FileObserver, LangfuseObserver
 
-print(Executor.__name__, Observer.__name__, LangfuseObserver.__name__)
+print(Observer.__name__, ConsoleObserver.__name__, FileObserver.__name__, LangfuseObserver.__name__)
 ```
 
 | v4 | v5 |

@@ -42,6 +42,20 @@ Do not add a port where no substitution boundary exists. A port with one impleme
 - No import-time I/O and no client construction at import time.
 - Import from the defining module unless the package-level import is deliberately the stable contract.
 
+### The public import surface
+
+| path | holds |
+|---|---|
+| `agentdeck` | the everyday vocabulary: `Agent`, `Deck`, `Run`, `tool`, `workflow`, the contexts, the content blocks, `Observer`, `views` |
+| `agentdeck.<feature>` | one cohesive feature's API: `errors`, `observers`, `skills`, `mcp`, `bindings`, `testing` |
+| `agentdeck.core.*`, `agentdeck.runtime.*`, `agentdeck.adapters.*`, `agentdeck.authoring.*` | internal |
+
+One canonical path per public concept, and no internal path in user-facing docs or examples.
+A name lives at the root or in one feature namespace, never both, with no exception: an alias in
+a second namespace is one more path to keep true. `agentdeck.errors` owns the whole taxonomy,
+`AgentdeckError` included. `tests/test_public_surface.py` pins the root's `__all__` and checks
+every feature namespace for collisions, so widening either is a deliberate diff.
+
 ## 4. Exceptions
 
 An exception is acceptable when it makes the design materially cleaner. It must be narrow, explicit, justified, reviewable, and recorded in [`import-boundaries.md`](./import-boundaries.md) when it crosses an external dependency boundary.

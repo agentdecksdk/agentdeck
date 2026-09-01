@@ -107,7 +107,8 @@ below. Declaring the type is what lets `build()` check it against every `ToolCtx
 the catalog before anything runs:
 
 ```python run
-from agentdeck import Agent, ToolCtx, ContextTypeError, Deck, tool
+from agentdeck import Agent, Deck, ToolCtx, tool
+from agentdeck.errors import ContextTypeError
 
 
 class Calendar:
@@ -454,7 +455,7 @@ what a tool actually received  -  and leave it off when you want one clean trace
 An observer implements `Observer`  -  one required method, two optional lifecycle hooks:
 
 ```python
-from agentdeck.core.ports import Observer
+from agentdeck import Observer
 
 
 class CostObserver(Observer):
