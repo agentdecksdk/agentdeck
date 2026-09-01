@@ -8,7 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import socket  # noqa: TC003  -  get_type_hints() resolves `_unschematizable`'s annotation at runtime
+import socket  # noqa: TC003 (get_type_hints() resolves `_unschematizable`'s annotation at runtime)
 from pathlib import Path
 
 import pytest
@@ -150,7 +150,7 @@ def test_pending_and_answer_over_the_wire_then_re_tail(no_project):
         pending = client.get(f"/runs/{run_id}/pending")
         assert pending.json()["payload"]["question"] == "pick a color for kites?"
 
-        # waiting for a value refuses resume  -  the RunStateError/CONFLICT path, with the
+        # waiting for a value refuses resume: the RunStateError/CONFLICT path, with the
         # operation that would work named in the message (`run.answer`).
         resumed_too_early = client.post(f"/runs/{run_id}/resume")
         assert resumed_too_early.status_code == 409
@@ -167,8 +167,8 @@ def test_pending_and_answer_over_the_wire_then_re_tail(no_project):
 
 
 def test_cancel_and_resume_are_quiet_no_ops_on_a_terminal_run(no_project):
-    """``Run.cancel``/``Run.resume`` both return quietly once a run has ended  -  nothing to
-    stop or lift  -  so the route answers 200, not an error (``core/status.py``'s own table)."""
+    """``Run.cancel``/``Run.resume`` both return quietly once a run has ended. Nothing to stop
+    or lift, so the route answers 200 rather than an error (``core/status.py``'s own table)."""
     model = ScriptedModel(deltas=("hi",))
     with patch_model(model), _client(_deck()) as client:
         started = client.post("/runs", json={"target": "Greeter", "input": "hi", "session_id": "s1"})

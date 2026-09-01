@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from starlette.applications import Starlette
@@ -26,6 +27,8 @@ if TYPE_CHECKING:
 
     from agentdeck import Event, Run
     from agentdeck.bindings import Binding
+
+logger = logging.getLogger(__name__)
 
 _ADVERTISES = frozenset({"streaming", "text", "hitl", "control.cancel", "control.pause", "control.resume"})
 
@@ -271,6 +274,10 @@ async def _on_unsupported(request: Request, exc: Exception) -> JSONResponse:
 
 
 async def _on_unexpected(request: Request, exc: Exception) -> JSONResponse:
+    """Logged as well as re-raised: whether an ASGI server logs a handled exception is its own
+    business, and ``serve.py`` sets the precedent that the reason is never only on the wire.
+    """
+    logger.exception("%s serving %s", type(exc).__name__, request.url.path, exc_info=exc)
     return _detail(_INTERNAL_MESSAGE, GatewayFailureCode.INTERNAL)
 
 
