@@ -87,7 +87,7 @@ const BUYS: [string, string][] = [
   ['Control', 'Execution can be paused, resumed or cancelled.'],
   ['Interaction', 'Branches can wait for external input.'],
   ['State', 'Sessions that outlive a single call.'],
-  ['Surfaces', 'Observers, HTTP and your UI read the same run.']
+  ['Bindings', 'Native HTTP/SSE, the terminal, AG-UI clients such as Assistant UI, and any binding you write reach the same run.']
 ]
 
 export function Model({ children }: { children?: React.ReactNode }) {
@@ -119,7 +119,8 @@ export function Model({ children }: { children?: React.ReactNode }) {
           ))}
         </dl>
         <p className="chapter-close">
-          The complexity is still there. It just lives in the layer built for it.
+          The complexity is still there. It just lives in the layer built for it. The outside
+          reaches them through bindings: the runtime never learns which one is talking.
         </p>
       </div>
     </section>

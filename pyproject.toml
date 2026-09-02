@@ -1,7 +1,7 @@
 [project]
 name = "agentdeck-sdk"
 version = "5.2.1"
-description = "Declarative harness over the OpenAI Agents SDK: settings, capabilities, skills, runners, plug-in discovery."
+description = "Build agents, tools and workflows as normal software, and serve them through bindings: one Deck, reachable over its own HTTP wire, the terminal and AG-UI, with the same runs and controls everywhere."
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
