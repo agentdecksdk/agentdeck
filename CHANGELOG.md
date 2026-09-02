@@ -44,6 +44,9 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `ctx.ask` and re-asks on a refused answer, and cancels an in-flight run on Ctrl-C.
   `agentdeck chat [TARGET]` runs it, where `TARGET` is any agent or workflow in the deck and may
   be omitted when the deck holds exactly one.
+- **A run event stream example** (#396, `examples/run-events-stream/`): iterates
+  `deck.stream(...)` and prints every event kind and payload in order. Scripts the model with
+  `agentdeck.testing`, so it needs no API key and prints one fixed output.
 - **`Deck.serve(*bindings, host=, port=)` and `Deck.asgi(*bindings)`** (#606): the front door,
   one-line delegations to `expose(*bindings).serve()`/`.asgi()`. `agentdeck.bindings` now
   lazily exports `Native` and `Terminal` too, so `from agentdeck.bindings import Native, Terminal`
