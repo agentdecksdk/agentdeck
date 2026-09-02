@@ -1,6 +1,6 @@
 [project]
 name = "agentdeck-sdk"
-version = "5.2.1"
+version = "6.0.0"
 description = "Build agents, tools and workflows as normal software, and serve them through bindings: one Deck, reachable over its own HTTP wire, the terminal and AG-UI, with the same runs and controls everywhere."
 license = "MIT"
 license-files = ["LICENSE"]

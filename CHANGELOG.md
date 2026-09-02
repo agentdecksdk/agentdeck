@@ -8,6 +8,8 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ## [Unreleased]
 
+## [6.0.0] - 2026-09-03
+
 ### Added
 
 - **The protocol SPI is frozen at v1** (#554): `DeckGateway`, `Binding`/`BindingInfo`,
@@ -2705,7 +2707,8 @@ documentation platform and its CI.
   `runtime/tools.py`, `PluginRegistry.pick`, `skill_runtime` LLM/batch
   helpers; deps typer, rich, prompt-toolkit.
 
-[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.1...HEAD
+[Unreleased]: https://github.com/agentdecksdk/agentdeck/compare/v6.0.0...HEAD
+[6.0.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.1...v6.0.0
 [5.2.1]: https://github.com/agentdecksdk/agentdeck/compare/v5.2.0...v5.2.1
 [5.2.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.1.0...v5.2.0
 [5.1.0]: https://github.com/agentdecksdk/agentdeck/compare/v5.0.3...v5.1.0
