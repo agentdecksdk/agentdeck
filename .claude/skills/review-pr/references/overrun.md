@@ -6,17 +6,20 @@ The number sends you looking. What you find is the finding.
 
 ## The trigger
 
-Measured delta exceeds the issue's `## Expected delta`, or the PR's `## Concept budget`, by roughly
-2x, and the body does not explain it. Nothing else fires this pass: a large diff that lands inside
-its own declaration is a PR that estimated correctly.
+Measured delta exceeds the PR's `## Expected delta` or `## Concept budget` by roughly 2x and the
+body does not explain it. Both were written into the draft body before the first source edit and
+cleared the design gate, so the overrun is against a real prediction. Nothing else fires this pass:
+a large diff landing inside its own declaration is a PR that estimated correctly, and a body with
+no estimate never ran Stage 1, so there is nothing to overrun.
 
 ## The pass
 
-Stop reading the diff. Read the issue's `## Proposed shape`, the `docs/design/` entry if there is
-one, and the decisions recorded on the issue and the PR. The question is not "which lines could
-go" but "what did this design ask for that cost this much".
+Pause line-level review and resume Attack and Craft after: an oversized PR must not end up with
+less correctness review than a small one. Read the issue's `## Proposed shape`, the PR's `## Design`
+and `## Analog`, the `docs/design/` entry if there is one, and the decisions recorded on both. The
+question is not "which lines could go" but "what did this design ask for that cost this much".
 
-| where the overrun sits | cause | remedy |
+| where the overrun sits | inspect for | remedy |
 |---|---|---|
 | one new module | a concept the design never named | name it in the design first |
 | spread evenly across files | a rename or refactor riding along | split |
@@ -35,7 +38,9 @@ against the estimate; the estimate was wrong, not the code.
 
 ## Classifying what it finds
 
-The cause blocks like any other BLOCK, and its consequence is the code the wrong shape produced.
-The fix is the smaller design, not the split. An overrun whose cause is real but out of this PR's
-reach is a DEFER carrying the design question, never a NIT: a NIT is small and optional, and a
-design that costs 2x its estimate is neither.
+The cause carries no class of its own; it classifies under the finding-class table like anything
+else. A cause touching public API shape is a DISCUSS carrying the smaller design, one that does not
+is a BLOCK whose consequence is the code the wrong shape produced, and either way the fix is the
+design rather than the split. A cause that is real but out of this PR's reach is a DEFER carrying
+the design question, never a NIT: a NIT is small and optional, and a design costing 2x its estimate
+is neither.
