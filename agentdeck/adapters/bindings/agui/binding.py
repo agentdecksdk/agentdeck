@@ -199,7 +199,11 @@ class _AGUIBinding:
                         yield encoder.encode(ag_ui_event)
             except asyncio.CancelledError:
                 if action_run is not None:
-                    await action_run.cancel("client disconnected")  # ruling 46
+                    try:
+                        await action_run.cancel("client disconnected")  # ruling 46
+                    except (UnsupportedControlError, RunStateError):
+                        # No control port, or already terminal: the disconnect is honored either way.
+                        logger.debug("cancel on disconnect found the run already past cancelling", exc_info=True)
                 raise
             except GatewayError as exc:
                 yield encoder.encode(RunErrorEvent(message=exc.message, code=exc.code.name.lower()))

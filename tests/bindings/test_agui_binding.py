@@ -36,7 +36,7 @@ from agentdeck.core.events import (
     UnknownEvent,
 )
 from agentdeck.core.status import RunStatus
-from agentdeck.errors import ConfigError, InputError
+from agentdeck.errors import ConfigError, InputError, RunStateError
 from agentdeck.testing import ScriptedModel, patch_model
 
 _WIRE_EVENT = TypeAdapter(AGUIWireEvent)
@@ -426,6 +426,33 @@ async def test_a_client_disconnect_cancels_the_run(no_project, monkeypatch):
                 await consumer
 
     assert calls == ["client disconnected"]
+
+
+async def test_a_disconnect_after_the_run_is_already_past_cancelling_does_not_raise(no_project, monkeypatch):
+    """``Run.cancel()`` on an already-terminal run can itself raise ``RunStateError``; the
+    disconnect handler swallows it (logged at debug) so only ``CancelledError`` ever
+    propagates out of the cancelled consumer task."""
+
+    async def _already_done(self: Run, reason: str | None = None) -> None:
+        raise RunStateError("run already completed")
+
+    monkeypatch.setattr(Run, "cancel", _already_done)
+
+    hold = asyncio.Event()
+    model = ScriptedModel(deltas=("one", "two"), hold=hold)
+    deck = _deck()
+    binding = _AGUIBinding(target="Greeter")
+    binding.build(DeckGateway(deck))
+
+    with patch_model(model):
+        async with deck:
+            response = await binding._handle(_FakeRequest(_body()))
+            consumer = asyncio.create_task(_drain(response))
+            await model.holding.wait()
+            await asyncio.sleep(0)
+            consumer.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await consumer
 
 
 async def test_a_gateway_error_after_the_run_starts_maps_to_run_error(no_project):
