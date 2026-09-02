@@ -57,7 +57,7 @@ def _chat(target: str | None) -> int:
 
     try:
         with contextlib.suppress(KeyboardInterrupt):
-            asyncio.run(Deck.from_project().serve(Terminal.stdio(target=target)))
+            Deck.from_project().serve(Terminal.stdio(target=target))
     except ConfigError as error:
         # A mistyped target is a usage mistake, so it reads as one: the message already names
         # the alternatives, and a traceback above it says nothing a person can act on.
