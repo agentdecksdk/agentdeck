@@ -817,6 +817,9 @@ class Deck:
                     logger.exception("__aenter__ rollback: %r failed to close", started)
             self._started_observers = ()
             self._runtime = None
+            # Single-use, like a closed Deck: a retry that silently succeeded here would
+            # already have handed the process claim to whoever asked for it next (#617).
+            self._state = "CLOSED"
             _release_process(self)
             raise
         self._state = "OPEN"

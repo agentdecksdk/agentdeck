@@ -388,6 +388,29 @@ async def test_aenter_failing_in_mcp_startup_closes_observers_and_releases_the_c
 
 
 @pytest.mark.asyncio
+async def test_a_failed_aenter_is_terminal_like_a_closed_deck(no_project, monkeypatch):
+    """A Deck whose open failed is single-use, the same as one that was closed: retrying
+    ``__aenter__()`` on it must not silently succeed after the claim was already released to
+    whoever asked for it next."""
+
+    async def _raise(*_a: Any, **_k: Any) -> None:
+        raise RuntimeError("MCP host unreachable")
+
+    monkeypatch.setattr(MCPLifecycle, "startup", _raise)
+    deck = Deck(agents=[_greeter()])
+
+    with pytest.raises(RuntimeError, match="MCP host unreachable"):
+        async with deck:
+            pass
+
+    with pytest.raises(ConfigError, match="already closed"):
+        await deck.__aenter__()
+
+    second = Deck(agents=[_greeter()])
+    await second.aclose()
+
+
+@pytest.mark.asyncio
 async def test_aenter_failing_in_build_runtime_closes_observers_and_releases_the_claim(no_project, monkeypatch):
     recorder = _Recorder()
 
