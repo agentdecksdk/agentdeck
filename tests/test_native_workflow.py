@@ -68,7 +68,7 @@ async def test_several_parameters_bind_by_name() -> None:
 
 async def test_a_mismatched_input_says_what_the_body_wanted() -> None:
     async with Deck(workflows=[joined]) as deck:
-        with pytest.raises(ConfigError, match="left, right"):
+        with pytest.raises(InputError, match="left, right"):
             await deck.run("joined", "just a string")
 
 
@@ -76,13 +76,13 @@ async def test_an_input_key_may_not_name_the_context_parameter() -> None:
     """The context is AgentDeck's to fill; a mapping key of the same name is refused rather than
     silently overwriting the injected ``WorkflowCtx``."""
     async with Deck(workflows=[joined]) as deck:
-        with pytest.raises(ConfigError, match="ctx"):
+        with pytest.raises(InputError, match="ctx"):
             await deck.run("joined", {"left": "a", "right": "b", "ctx": "not a context"})
 
 
 async def test_an_unknown_input_key_is_refused_by_name() -> None:
     async with Deck(workflows=[joined]) as deck:
-        with pytest.raises(ConfigError, match="left, right"):
+        with pytest.raises(InputError, match="left, right"):
             await deck.run("joined", {"left": "a", "middle": "b"})
 
 

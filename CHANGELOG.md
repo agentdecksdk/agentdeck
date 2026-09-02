@@ -95,6 +95,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   The root keeps the everyday vocabulary, a feature namespace keeps its own, and no public name
   lives at two paths (`docs/engineering/architecture.md` 3).
 
+### Fixed
+
+- **A workflow's input mapping that doesn't match its declared parameters raises `InputError`,
+  not `ConfigError`** (#583). It is caller-supplied content the target can't take, not a
+  configuration fault. A same-process caller now catches `InputError` instead of `ConfigError`;
+  `_map_failure` already maps `InputError` to `INVALID_INPUT`.
+
 ## [5.2.1] - 2026-08-29
 
 ### Changed
