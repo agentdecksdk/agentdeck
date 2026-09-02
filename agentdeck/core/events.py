@@ -136,7 +136,7 @@ class RunFailed(CoreModel):
     """Terminal. ``error_code`` is closed so callers branch on it instead of parsing prose."""
 
     kind: Literal["run.failed"] = "run.failed"
-    error_code: Literal["engine_error", "tool_error", "budget_exceeded", "deadline", "cancelled_hard"]
+    error_code: Literal["engine_error", "tool_error", "budget_exceeded", "deadline", "cancelled_hard", "invalid_input"]
     message: str
     retryable: bool
 
