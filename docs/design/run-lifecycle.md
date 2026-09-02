@@ -160,7 +160,7 @@ except where the verdict says otherwise.
 |---|---|
 | `RunStatus.PENDING` *(deleted by #295)* | The fold's identity element for an empty sequence, never a state a run is in: `run.started` is row 0, so there is no moment between "does not exist" and `RUNNING`. `status_of([])` answers `None` now |
 | `SafePoint`'s `tool_dispatch` | The only `checkpoint()` call site outside the langgraph engine is bare, so `stream_item` is the only value the openai-agents engine emits; nothing checkpoints before a tool dispatch yet. `node_boundary` moved out of this row when the langgraph engine started emitting it (#312) |
-| `RunFailed.error_code`'s `tool_error`, `budget_exceeded`, `deadline` | Only `engine_error` and `cancelled_hard` are ever constructed, and a tool that raises ends the run `completed` (#250) |
+| `RunFailed.error_code`'s `tool_error`, `budget_exceeded`, `deadline` | Only `engine_error`, `cancelled_hard` and `invalid_input` (#621) are ever constructed, and a tool that raises ends the run `completed` (#250) |
 
 ## `WAITING_HUMAN` was misnamed
 

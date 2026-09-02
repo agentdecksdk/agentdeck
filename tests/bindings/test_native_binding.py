@@ -19,7 +19,7 @@ from agentdeck.adapters.bindings.native.binding import _NativeBinding, _on_unsup
 from agentdeck.authoring import Agent
 from agentdeck.bindings.native import Native
 from agentdeck.deck import Deck
-from agentdeck.errors import UnsupportedControlError
+from agentdeck.errors import InputError, UnsupportedControlError
 from agentdeck.testing import ScriptedModel, patch_model
 
 NATIVE_WIRE_DOC = Path(__file__).resolve().parents[2] / "docs" / "design" / "protocols" / "native-wire.md"
@@ -38,6 +38,12 @@ async def _survey(ctx: WorkflowCtx, topic: str) -> str:
 
 async def _unschematizable(ctx: WorkflowCtx, conn: socket.socket) -> str:
     return "unreachable"  # never called: the point is the schema pydantic can't build for `conn`
+
+
+async def _greet(name: str, greeting: str) -> str:
+    if not greeting:
+        raise InputError(f"{name!r} needs a non-empty greeting")
+    return f"{greeting}, {name}"
 
 
 def _deck() -> Deck:
@@ -59,7 +65,6 @@ def _events_from(response) -> list[dict]:
 
 def _ids_from(response) -> list[int]:
     return [int(line.removeprefix("id: ")) for line in response.text.splitlines() if line.startswith("id: ")]
-
 
 
 def test_targets_lists_every_agent_and_workflow(no_project):
@@ -95,6 +100,26 @@ def test_start_run_returns_identity_then_get_run_reads_it_back(no_project):
     assert fetched.status_code == 200
     assert fetched.json()["run_id"] == run_id
     assert fetched.json()["status"] == "completed"
+
+
+def test_a_workflows_own_input_error_reaches_the_wire_with_its_code_and_message(no_project):
+    """#621: a caller-input failure recorded after `run.started` must not collapse to
+    `engine_error` with its message stripped to a type name."""
+    deck = Deck(workflows=[workflow(_greet, name="Greet")])
+    with _client(deck) as client:
+        started = client.post(
+            "/runs", json={"target": "Greet", "input": {"name": "Bob", "greeting": ""}, "session_id": "s1"}
+        )
+        response = client.get(f"/runs/{started.json()['run_id']}/events")
+
+    last = _events_from(response)[-1]
+    assert last["kind"] == "run.failed"
+    assert last["payload"] == {
+        "kind": "run.failed",
+        "error_code": "invalid_input",
+        "message": "'Bob' needs a non-empty greeting",
+        "retryable": False,
+    }
 
 
 def test_list_runs_filters_by_status(no_project):
@@ -180,7 +205,6 @@ def test_cancel_and_resume_are_quiet_no_ops_on_a_terminal_run(no_project):
 
     assert cancelled.status_code == 200
     assert resumed.status_code == 200
-
 
 
 def test_unknown_run_id_maps_to_404(no_project):
