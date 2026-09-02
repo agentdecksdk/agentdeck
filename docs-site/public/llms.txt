@@ -45,6 +45,7 @@ afterwards, approvals that outlive the process that requested them.
 - [Mental Model](https://agentdecksdk.com/meet-agentdeck/mental-model): The four primitives, what you declare versus what AgentDeck runs, and how one becomes the other.
 - [Overview](https://agentdecksdk.com/meet-agentdeck/overview): What AgentDeck is, the problem it solves, and what you keep when you adopt it.
 - [Quickstart](https://agentdecksdk.com/meet-agentdeck/quickstart): Build a Deck, start a Run, and watch its events.
+- [What's new in 6.0](https://agentdecksdk.com/meet-agentdeck/whats-new-6): One Deck, many bindings. How the outside reaches your agents, tools and workflows changed, and what it opens.
 - [Deployment](https://agentdecksdk.com/operate/deployment): Running a Deck as a supervised, long-lived service, not `python run.py`.
 - [Changelog](https://agentdecksdk.com/resources/changelog): What changed in each release of AgentDeck, and what to do about it when upgrading.
 - [Known Issues](https://agentdecksdk.com/resources/known-issues): Defects in the current release that will surprise you, what happens, and what to do until each is fixed.
