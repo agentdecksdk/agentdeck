@@ -61,6 +61,10 @@ async def _echo(ctx: WorkflowCtx, input: str) -> str:
     return input.upper()
 
 
+async def _gatekeeper(ctx: WorkflowCtx, input: str) -> str:
+    raise InputError(f"{input!r} is not a supported request")
+
+
 def _deck() -> Deck:
     return Deck(
         agents=[Agent(name="Greeter", instructions="Greet the user.", tools=[_lookup])],
@@ -523,6 +527,20 @@ def test_internal_exception_text_never_reaches_the_wire(no_project, monkeypatch)
     assert "secret detail" not in response.text
     events = _events_from(response)
     assert events[-1] == {"type": "RUN_ERROR", "message": "internal error", "code": "internal"}
+
+
+def test_a_workflows_own_input_error_reaches_the_wire_as_invalid_input(no_project):
+    """#621: a caller-input failure recorded after the run starts must project onto `RUN_ERROR`
+    with its own code, not the generic `engine_error` one."""
+    deck = Deck(workflows=[workflow(_gatekeeper, name="Gatekeeper")])
+    with _client(deck, AGUI.http("/agui", target="Gatekeeper")) as client:
+        response = client.post("/agui", json=_body())
+
+    assert _events_from(response)[-1] == {
+        "type": "RUN_ERROR",
+        "message": "'hi' is not a supported request",
+        "code": "invalid_input",
+    }
 
 
 def test_an_unknown_canonical_event_kind_does_not_break_the_projection():

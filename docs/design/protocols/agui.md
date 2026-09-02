@@ -20,12 +20,10 @@ protocol deliberately left out. A capability is advertised only once it works.
 ## Public API
 
 ```python
-import asyncio
-
 from agentdeck.bindings import AGUI
 
-asyncio.run(deck.serve(AGUI.http("/agui"), port=8000))                       # the whole catalog
-asyncio.run(deck.serve(AGUI.http("/support", target="Support"), port=8000))  # pinned
+deck.serve(AGUI.http("/agui"), port=8000)                       # the whole catalog
+deck.serve(AGUI.http("/support", target="Support"), port=8000)  # pinned
 ```
 
 ```python
