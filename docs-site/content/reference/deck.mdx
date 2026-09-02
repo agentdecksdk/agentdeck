@@ -173,8 +173,8 @@ defer and the parameter would promise something it never delivered.
 | `runs.start` | `(name, input, *, context=None, session_id=None, namespace=None, key=None)` | a [`Run`](#run) handle  -  the same admission as `run`/`stream`, without waiting for or reading it |
 
 `run`/`stream`/`runs.start` resolve `name` against whichever catalog holds it  -  an agent or a
-workflow  -  and play it on the Runtime, recorded exactly as `POST /agents/{name}/chat` or
-`POST /workflows/{name}` would record it. Pass `session_id=` for a conversational agent turn: the
+workflow  -  and play it on the Runtime, recorded exactly as `POST /runs` would record it. Pass
+`session_id=` for a conversational agent turn: the
 same id means the same history across calls. `key=` is an optional stable
 application identifier  -  for lookup (`runs.get(namespace=, key=)`) and idempotency, never the
 run's address: the run's own `id` is always minted, never derived from it, and reusing a
@@ -557,8 +557,8 @@ is never serialized, so it exists only for as long as some caller is holding it.
 **A context cannot cross the HTTP surface at all.** There is no wire form for a live object, and
 `asgi()` invents none. An agent or workflow whose callables require a context is therefore
 reachable from an embedded Python caller  -  `deck.run(...)`, a `Run` from `runs.start(context=...)`
- -  and **not** from a served deck. `POST /agents/{name}/chat` will run it with `ctx.data` set to
-`None`. If a root needs a context, do not serve it; drive it from the process that holds the
+ -  and **not** from a served deck. `POST /runs` will run it with `ctx.data` set to `None`. If a
+root needs a context, do not serve it; drive it from the process that holds the
 object.
 
 **The headless runner passes no context.** `Agent.run()` calls the SDK's own `Runner.run` with no
