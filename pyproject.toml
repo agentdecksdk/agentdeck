@@ -31,12 +31,11 @@ dependencies = [
 ]
 
 [project.scripts]
-agentdeck-serve = "agentdeck.serve:main"
 agentdeck = "agentdeck.cli:main"
 
 [project.optional-dependencies]
 serve = [
-    "fastapi>=0.115",
+    "starlette>=0.40",
     "uvicorn>=0.30",
 ]
 observability = [
@@ -56,6 +55,9 @@ redis = [
 ]
 dev = [
     "pytest>=8.0",
+    # Jack's own server is a FastAPI app (`examples/jack/jack/server.py`), and its test suite is
+    # part of the gate. Nothing in `agentdeck/` imports FastAPI since the v1 wire was deleted.
+    "fastapi>=0.115",
     "pytest-asyncio>=0.23",
     # `make coverage`, not part of `make check`: the deletion waves (#71, #131) need
     # per-module coverage as one evidence stream for "nothing imports and nothing
@@ -141,12 +143,12 @@ asyncio_mode = "auto"
 # what hangs here is a blocked `await`, which a signal handler never gets to interrupt.
 timeout = 300
 timeout_method = "thread"
-# tests/golden/conftest.py imports fake_model by name, tests/contract imports contract_cases,
-# tests/ imports concurrency_worker, and tests/test_generated_reference.py imports
+# tests/contract imports contract_cases, tests/ imports concurrency_worker,
+# tests/bindings imports fixture_plugin, and tests/test_generated_reference.py imports
 # generate_docs_reference from scripts/; all four basenames are unique across these dirs,
 # because a shared one collides on sys.modules. Explicit beats pytest's implicit basedir
 # insertion, which would go ambiguous if tests/conftest.py appeared.
-pythonpath = ["tests", "tests/golden", "tests/contract", "tests/bindings", "scripts"]
+pythonpath = ["tests", "tests/contract", "tests/bindings", "scripts"]
 
 [build-system]
 requires = ["hatchling"]

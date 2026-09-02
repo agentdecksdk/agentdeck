@@ -199,7 +199,7 @@ def render_cli_mdx() -> str:
         "",
         "{/* docs_sources:",
         '  - "agentdeck/cli.py"',
-        '  - "agentdeck/surfaces/cli/**"',
+        '  - "agentdeck/adapters/bindings/terminal/**"',
         "*/}",
         "",
         "# CLI",
