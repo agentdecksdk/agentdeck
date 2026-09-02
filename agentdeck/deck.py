@@ -809,9 +809,8 @@ class Deck:
                 refresh_mcp_status({name: invocables[name].native for name in self._agents}, agents)
         except BaseException:
             if self._runtime is not None:
-                # The observers are already this runtime's sinks, so draining closes them the
-                # way ``aclose()`` would; the store may hold a live connection of its own
-                # (``SqliteEventStore`` opens one at construction) and needs the same close.
+                # Draining closes the observers, already this runtime's sinks; the store may
+                # hold its own live connection (``SqliteEventStore`` opens one at construction).
                 try:
                     await self._runtime.drain()
                 except BaseException:
