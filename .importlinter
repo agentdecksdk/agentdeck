@@ -242,9 +242,9 @@ ignore_imports =
 # automatically, with no per-binding contract to remember. `agentdeck.core` joins the forbidden
 # list here (the fixture plugin already forbids it); `agentdeck.adapters` itself is not
 # forbidden: every binding lives under it, and Python imports every ancestor package on
-# `import agentdeck.adapters.bindings.<name>`. The independence contract between
-# `adapters.bindings.native` and `adapters.bindings.terminal`, so bindings never share
-# implementation helpers, waits until Terminal (#581) is on `dev`.
+# `import agentdeck.adapters.bindings.<name>`. Bindings sharing no implementation helpers is
+# a separate contract below (#599, #603), since `forbidden`/parent-package containment cannot
+# express "these siblings must not import each other".
 [importlinter:contract:binding-implementations-are-spi-facing-only]
 name = a binding implementation reaches a Deck through the public SPI only, never runtime, core, Deck or another adapter
 type = forbidden
@@ -265,3 +265,12 @@ forbidden_modules =
     agentdeck.adapters.telemetry
     agentdeck.adapters.tools
 allow_indirect_imports = True
+
+# The contract above cannot stop `native` importing `terminal`'s implementation directly
+# (both pass its `source_modules` check). AG-UI and every later binding join this list.
+[importlinter:contract:bindings-are-independent]
+name = in-tree bindings share no implementation: each reaches the Deck through the public SPI only
+type = independence
+modules =
+    agentdeck.adapters.bindings.native
+    agentdeck.adapters.bindings.terminal
