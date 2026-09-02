@@ -111,8 +111,11 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 - **A workflow bundle's `@tool` exports no longer register as workflows** (#488): a
   `.agentdeck/workflows/<name>/workflow.py` exporting a `@tool` alongside its `@workflow`
   (e.g. so `ctx.invoke` can reach it) used to sweep the tool into `deck.workflows` too, as a
-  runnable entry it never was. A bundle contributing no `@workflow` at all now names what it
-  found instead ("workflow bundle 'x' exports no workflow; found tool 'y'").
+  runnable entry it never was. `deck.workflows`, `deck.run`/`.stream` and `GET /targets` no
+  longer show or accept it by name (a direct `deck.run("the_tool", ...)` now raises
+  `InputError`); `ctx.invoke(the_tool, ...)` from inside a workflow keeps working. A bundle
+  contributing no `@workflow` at all still names what it found ("workflow bundle 'x' exports
+  no workflow; found tool 'y'").
 - **A workflow's own `InputError` after `run.started` reaches every wire as itself** (#621):
   `RunFailed.error_code` gains `"invalid_input"`, and its `message` carries the exception's own
   caller-safe text instead of being stripped to `"InputError in engine ..."`. Every other

@@ -111,10 +111,10 @@ class PluginRegistry(Generic[T]):
                 # A plainer miss than the ghost case below: name what was found instead of
                 # implying nothing was defined.
                 found_str = ", ".join(f"{fk} {name!r}" for name, fk in wrong_kind)
+                kinds = "/".join(dict.fromkeys(fk for _, fk in wrong_kind))
                 raise ConfigError(
                     f"{self.label} bundle {child.name!r} exports no {self.label}; found {found_str}. "
-                    f"Decorate the {self.label} with @{self.label} or move the "
-                    f"{wrong_kind[0][1]} out of the bundle module."
+                    f"Decorate the {self.label} with @{self.label} or move the {kinds} out of the bundle module."
                 )
             if not matched:
                 # v1 scanned for a *subclass*, so a bare declaration (`class Ghost(AgentDeclaration)`)
