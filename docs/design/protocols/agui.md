@@ -226,7 +226,7 @@ The official shapes carry the round trip, never a custom `forwardedProps` extens
 ```text
 AG-UI run r1  RUN_STARTED                                          →  Run A starts
               RUN_FINISHED(outcome=RunFinishedInterruptOutcome(    →  Run A interrupted at
-                  interrupts=[Interrupt(id, reason, message, ...)]))  ctx.ask() / ctx.approve()
+                  interrupts=[Interrupt(id, reason, message, ...)]))  ctx.ask(), an approval included
 AG-UI run r2  RUN_STARTED, resume=[ResumeEntry(interruptId,        →  Run A.answer(value), the
                   status="resolved", payload=value)]                  next segment
               RUN_FINISHED(outcome=RunFinishedSuccessOutcome)      →  Run A completed
