@@ -1,0 +1,58 @@
+---
+title: Bindings
+description: Serve one Deck over multiple protocols and surfaces at once.
+---
+
+{/* docs_sources:
+  - "agentdeck/deck.py"
+  - "agentdeck/bindings/__init__.py"
+  - "agentdeck/bindings/binding.py"
+  - "agentdeck/adapters/bindings/native/binding.py"
+  - "agentdeck/adapters/bindings/terminal/binding.py"
+  - "agentdeck/adapters/bindings/agui/binding.py"
+*/}
+
+# Bindings
+
+A binding projects a `Deck` onto one external protocol or surface. Nothing below `DeckGateway`
+knows which one is talking: the same runs, the same events, the same control.
+
+## Protocols, channels, and surfaces
+
+| kind | what it is | ships in 6.0 as |
+|---|---|---|
+| protocol | machine-facing interoperability contract | `Native`, `AG-UI` |
+| channel | existing messaging network with its own identity | none yet |
+| surface | user-facing interface AgentDeck hosts in-process | `Terminal` (`agentdeck chat`) |
+
+Same `Binding` contract, same gateway. Kind is data, not hierarchy: see the
+[protocol design folder](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/bindings.md)
+for the full picture. An external surface such as Assistant UI or CopilotKit is a client of a
+protocol binding, consuming its wire through its own library; it is not a binding of its own.
+
+## What ships in 6.0
+
+- `Native.http()`: AgentDeck's own HTTP/SSE protocol.
+- `Terminal.stdio()`: the terminal surface, what `agentdeck chat` runs.
+- `AGUI.http()`: the AG-UI protocol over HTTP/SSE.
+
+## The front door
+
+Serve every binding a Deck exposes from one call:
+
+```python
+import asyncio
+
+from agentdeck import Deck
+from agentdeck.bindings import AGUI, Native, Terminal
+
+deck = Deck.from_project()
+asyncio.run(deck.serve(Native.http("/api"), AGUI.http("/agui"), Terminal.stdio(), port=8000))
+```
+
+`deck.serve(...)` validates the set of bindings and owns their lifecycle: one process, one port,
+three protocols reaching the same runs.
+
+Embedding inside an app you already run swaps `serve` for `deck.asgi(...)`, which returns the
+ASGI application instead of blocking; `deck.expose(...)` is the lower-level call that returns the
+`Exposure` object underneath both. See the [Deck reference](/reference/deck) for the full API.

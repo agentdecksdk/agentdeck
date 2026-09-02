@@ -14,6 +14,7 @@ export default {
   'meet-agentdeck': 'Meet AgentDeck',
   'build-your-deck': 'Build Your Deck',
   'runs-and-control': 'Runs & Control',
+  bindings: 'Bindings',
   operate: 'Operate',
   integrations: 'Integrations',
   examples: 'Examples',
