@@ -45,6 +45,24 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `agentdeck chat [TARGET]` runs it, where `TARGET` is any agent or workflow in the deck and may
   be omitted when the deck holds exactly one.
 
+### Removed
+
+- **The v1 HTTP wire is gone** (#550): `agentdeck/serve.py`, all of `agentdeck/surfaces/`, the
+  `agentdeck-serve` console script, `Deck.asgi()` and the byte-for-byte goldens under
+  `tests/golden/`. A Deck no longer serves itself: expose a binding.
+
+  ```python
+  # before
+  app = Deck.from_project().asgi()          # agentdeck-serve
+  # after
+  app = Deck.from_project().expose(Native.http()).asgi()
+  ```
+
+  The v1 routes (`/agents/{name}/chat`, `/v2/invocables/{name}/chat`, `/health`) are replaced by
+  the [native wire](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/native-wire.md):
+  `POST /runs`, `GET /runs/{run_id}/events`, `GET /targets`. The `[serve]` extra now installs
+  starlette rather than fastapi, which nothing in `agentdeck/` imports any more.
+
 ### Changed
 
 - **`DeckGateway.start` drops `context`** (#599): no binding ever passed one, and a served run

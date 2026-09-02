@@ -26,7 +26,7 @@ Authoring / Composition / Surfaces
 | `runtime/` | lifecycle, routing, sequencing, control handling, persistence coordination, cleanup | knowledge of which concrete provider is installed |
 | `adapters/` | one external technology each: its SDK types, its lifecycle, its exceptions, and translation to and from core contracts | another adapter's implementation |
 | `authoring/` | user-facing declarations compiled to specs | run semantics |
-| `surfaces/` | transport translation for CLI, HTTP, ASGI and protocol ingress | alternate run semantics. A surface delegates lifecycle to the same model a Python caller uses |
+| `adapters/bindings/` | protocol ingress: one binding per external protocol, channel or surface, each over one transport |
 
 Two tests that settle most boundary arguments:
 

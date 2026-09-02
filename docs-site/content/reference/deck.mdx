@@ -386,32 +386,44 @@ deck = Deck.from_project("./.agentdeck")
 asyncio.run(deck.expose(Terminal.stdio()).serve())   # what `agentdeck chat` runs
 ```
 
-Embedding uses `deck.expose(...).asgi()` instead of `serve()`. HTTP bindings and the full guide
-arrive with the bindings section of these docs.
+Embedding uses `deck.expose(...).asgi()` instead of `serve()`.
 
 ## Serving over HTTP
 
-`asgi()` returns an ASGI application  -  a FastAPI app whose lifespan **opens the deck on startup
-and closes it on shutdown**, so a served deck needs no separate `async with`:
+A Deck does not serve itself: a binding does, and `Native.http()` is AgentDeck's own HTTP/SSE
+protocol.
 
 ```python
+import asyncio
+
 from agentdeck import Deck
+from agentdeck.bindings.native import Native
 
 deck = Deck.from_project("./.agentdeck")
-app = deck.asgi()                          # uvicorn yourmodule:app
+asyncio.run(deck.expose(Native.http()).serve(port=8000))
 ```
 
-That is all `agentdeck serve` is. It also means you can mount a deck inside an existing service
-and have it open and close with the host app.
+`exposure.asgi()` returns the ASGI application instead, for mounting inside a service you already
+run. Its lifespan **opens the deck on startup and closes it on shutdown**, so a served deck needs
+no separate `async with`, and a deck you opened yourself is left alone.
 
-Two details worth knowing. The FastAPI import is deferred inside the method, so `agentdeck.deck`
-stays importable without the `[serve]` extra  -  you only need it to actually serve. And requests
-arriving before the lifespan has run get `503 {"status": "starting"}` rather than touching a deck
-that is not open yet.
+```python
+app = deck.expose(Native.http(path="/api")).asgi()   # uvicorn yourmodule:app
+```
 
-A third, if any of this catalog's callables declare a context: **it does not reach a served run.**
-A context is a live Python object with no wire form, so an HTTP-started run always carries `None`
- -  [see below](#where-a-context-does-not-reach).
+Several bindings share one listener, so the same runs are reachable over more than one protocol at
+once:
+
+```python
+app = deck.expose(Native.http(path="/api"), Terminal.stdio()).asgi()
+```
+
+The routes, the SSE frames and the status codes are the
+[native wire spec](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/native-wire.md).
+
+If any of this catalog's callables declare a context: **it does not reach a served run.** A
+context is a live Python object with no wire form, so an HTTP-started run always carries `None`
+ - [see below](#where-a-context-does-not-reach).
 
 ## Observers
 
