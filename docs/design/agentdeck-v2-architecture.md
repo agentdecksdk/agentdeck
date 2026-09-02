@@ -1055,7 +1055,7 @@ What the architecture gives away for free:
 | `session/prompt` (content blocks) | `Runtime.run(name, Input, ctx)` | free  -  §4.1 chose blocks for this |
 | `session/update` stream | event payloads reserialized per kind | ~1 mapping table |
 | `session/cancel` | `Runtime.signal(run_id, CANCEL)` | free  -  §8 built it |
-| `session/request_permission` | `ApprovalPort` → `run.interrupted(reason="approval")` | free |
+| `session/request_permission` | `ApprovalPort` → `run.interrupted(reason="human", options=[...])` (amended: #468) | free |
 | per-session MCP servers | existing `tools/mcp` wiring | free |
 
 The one genuine gap  -  and the one Ring-1 change: everything so far pushes events

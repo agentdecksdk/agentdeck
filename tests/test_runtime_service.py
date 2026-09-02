@@ -169,7 +169,7 @@ async def test_sinks_see_the_resume_events_too_not_just_the_opening_run() -> Non
     recorder = Recorder()
     spec = stub_spec(
         "Approver",
-        RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1"),
+        RunInterrupted(interrupt_id="i1", reason="human", payload={}, thread_id="t1"),
         DONE,
         kind=InvocableKind.WORKFLOW,
     )
@@ -420,7 +420,7 @@ async def test_a_completed_run_is_not_cancelled_when_its_consumer_lets_go() -> N
 
 async def test_a_suspended_run_is_not_cancelled_when_its_consumer_lets_go() -> None:
     """An interrupted run is legitimately waiting; closing the stream must not close the run."""
-    spec = stub_spec("Approver", RunInterrupted(interrupt_id="i1", reason="approval", payload={}))
+    spec = stub_spec("Approver", RunInterrupted(interrupt_id="i1", reason="human", payload={}))
     store = MemoryEventStore()
     runtime = Runtime([StubExecutor()], store, {spec.name: spec})
 
@@ -586,7 +586,7 @@ async def test_a_turn_on_a_session_whose_run_is_waiting_on_a_human_is_refused() 
     "in flight"  -  that would be false of a run nobody is running, and the regression this guards
     is exactly that false claim reaching a caller.
     """
-    spec = stub_spec("Approver", RunInterrupted(interrupt_id="i1", reason="approval", payload={}))
+    spec = stub_spec("Approver", RunInterrupted(interrupt_id="i1", reason="human", payload={}))
     store = MemoryEventStore()
     runtime = Runtime([StubExecutor()], store, {spec.name: spec})
 
@@ -753,7 +753,7 @@ async def test_a_suspended_run_holds_its_session_even_when_its_lease_has_expired
     renewing. If that counted as evidence, every approval waiting overnight would be destroyed
     by the next turn on its session. Suspension is checked before the dead set, for that reason.
     """
-    spec = stub_spec("Approver", RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1"))
+    spec = stub_spec("Approver", RunInterrupted(interrupt_id="i1", reason="human", payload={}, thread_id="t1"))
     store = MemoryEventStore()
     runtime = Runtime([StubExecutor()], store, {spec.name: spec}, stale_run_after=timedelta(seconds=0.001), lease=None)
     parked = [
@@ -851,7 +851,7 @@ async def test_a_run_resurrected_into_an_interrupt_takes_its_session_back() -> N
     spec = stub_spec(
         "Approver",
         TextDelta(message_id="m1", text="thinking"),
-        RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1"),
+        RunInterrupted(interrupt_id="i1", reason="human", payload={}, thread_id="t1"),
         kind=InvocableKind.WORKFLOW,
     )
     store = MemoryEventStore(clock=_Ticking())
@@ -968,7 +968,7 @@ async def test_a_cancellation_after_the_answer_claim_closes_the_run_and_frees_th
     """
     spec = stub_spec(
         "Approver",
-        RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1"),
+        RunInterrupted(interrupt_id="i1", reason="human", payload={}, thread_id="t1"),
         DONE,
         kind=InvocableKind.WORKFLOW,
     )
@@ -1041,7 +1041,7 @@ async def test_a_consumer_that_stops_reading_a_served_cancel_still_gets_both_clo
     """
     spec = stub_spec(
         "Approver",
-        RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1"),
+        RunInterrupted(interrupt_id="i1", reason="human", payload={}, thread_id="t1"),
         DONE,
         kind=InvocableKind.WORKFLOW,
     )
@@ -1373,7 +1373,7 @@ def _approver() -> tuple[Runtime, MemoryEventStore]:
     """A workflow that suspends once, so a resume can be claimed against it."""
     spec = stub_spec(
         "Approver",
-        RunInterrupted(interrupt_id="i1", reason="approval", payload={}, thread_id="t1"),
+        RunInterrupted(interrupt_id="i1", reason="human", payload={}, thread_id="t1"),
         DONE,
         kind=InvocableKind.WORKFLOW,
     )
