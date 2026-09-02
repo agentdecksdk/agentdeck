@@ -60,7 +60,7 @@ BLOCK / DISCUSS / DEFER / NIT replace ERROR / WARNING / NOTE. Each is defined by
 
 - DISCUSS resolves when the author *answers*, not when the author agrees. Disagreement after an answer goes to the user; neither side rules.
 - A DISCUSS must state what would settle it. A shrug is not a DISCUSS.
-- Anything touching public API shape is a DISCUSS, never a unilateral BLOCK.
+- A public API finding classifies on what you are asserting, never on what the fix touches. A choice among several valid shapes is a DISCUSS, where a reviewer holds no more authority than the author. A demonstrated broken contract is a BLOCK even when the fix changes a signature.
 - A NIT needs no reply. Collect NITs in one list at the bottom of the verdict, never inline.
 - A cause the overrun pass names carries no class of its own and classifies by the rules above like any other finding, the public-API rule included. Whatever the class, the fix is the design: splitting a PR whose size came from a missing concept moves the bloat rather than removing it.
 - Cost is folded into the class, not a separate axis. Real, expensive, and not a regression is a DEFER; introduced by this PR is a BLOCK regardless of cost.

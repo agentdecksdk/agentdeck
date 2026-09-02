@@ -9,6 +9,16 @@ against a deck whose catalog held `Researcher`. `Writer` with `subagents=["Resea
 consequence, introduced by this PR, verified by reproducing it: BLOCK, not a DISCUSS. The fix
 (`self._agents` is already in scope at that line) is the author's, not the reviewer's.
 
+## BLOCK, not DISCUSS: #231, `run()`'s `TurnResult | Any`
+
+`Deck.run` is annotated `-> TurnResult | Any` (`deck.py:705`), so a checker narrows to the
+`TurnResult` member and rejects `paused["type"] == "interrupt"`, the idiom `concepts/workflows.mdx:100`
+teaches. Two outside reviewers hit it, and no shipped example indexes the value the way a user does
+on line one, so the gate never saw it. The fix changes a public signature, which the old rule read
+as automatically a DISCUSS. It is not: the reviewer is not unsure, the call is not above a
+reviewer's authority, and the consequence is named and reproducible with `pyright`. A demonstrated
+broken contract is a BLOCK; a choice between two workable signatures would have been the DISCUSS.
+
 ## Should have been DISCUSS: #415, "block, narrowly"
 
 A re-review at a later SHA read: "block, narrowly. The ERROR is genuinely fixed... What holds the
