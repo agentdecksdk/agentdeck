@@ -38,6 +38,9 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 - **A terminal chat example needing no API key** (`examples/chat-in-the-terminal/`): one
   `@workflow` asking the questions, driven by `agentdeck chat`. The first example that runs with
   no credentials at all.
+- **A run event stream example** (#396, `examples/run-events-stream/`): iterates
+  `deck.stream(...)` and prints every event kind and payload in order. Scripts the model with
+  `agentdeck.testing`, so it needs no API key and prints one fixed output.
 - **`Terminal.stdio()`, the first surface** (#549): `from agentdeck.bindings.terminal import
   Terminal`, then `deck.expose(Terminal.stdio(target="Research"))`. One session per process over
   stdin and stdout: prompts, streams the run's text back, renders a numbered prompt for
@@ -162,10 +165,6 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   one used to fail at decoration with `PydanticSchemaGenerationError: Unable to generate
   pydantic-core schema for <class 'agentdeck.core.control.Gate'>`, naming a private type and no
   fix. It now raises `ConfigError` naming the fix: use agentdeck's own `@tool`.
-- **Examples now show how to observe a run's event stream.** The new
-  `examples/run-events-stream/` example prints typed lifecycle, text, usage,
-  message, and completion events from `deck.stream(...)` without external model
-  credentials.
 
 ## [5.0.3] - 2026-08-23
 
