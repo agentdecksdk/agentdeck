@@ -2402,9 +2402,10 @@ v1 HTTP wire is gone and `deck.serve` is the new front door:
 | break | before (v5) | after (v6.0.0) |
 |---|---|---|
 | v1 routes gone | `POST /agents/{name}/chat` | `POST /runs`, then `GET /runs/{run_id}/events` |
-| `agentdeck-serve` gone; `deck.serve` is the front door, synchronous | `agentdeck-serve` | `deck.serve(Native.http("/api"), port=8000)` |
+| `agentdeck-serve` gone; `deck.serve(...)` is the new front door | `agentdeck-serve` | `deck.serve(Native.http("/api"), port=8000)` |
 | `Deck.asgi()` needs a binding | `Deck.from_project().asgi()` | `Deck.from_project().asgi(Native.http())` |
-| `DeckGateway.start` drops `context` (binding authors) | `gateway.start(target, input, context=ctx)` | `gateway.start(target, input)` |
+| the error taxonomy moved off the root package | `from agentdeck import ConfigError` | `from agentdeck.errors import ConfigError` |
+| `InputError` replaces raw `TypeError`/`ValueError` for caller input | `except (TypeError, ValueError)` | `except InputError` |
 | `InterruptReason` drops `"approval"` | `pending.reason == "approval"` | `pending.reason == "human"`; refusal comes from `payload["options"]`, which `Run.answer` already enforces |
 
 `agentdeck chat` is unchanged. Full detail: [migration guide](/resources/migration-guides#v5-to-v600).
@@ -2413,14 +2414,15 @@ v1 HTTP wire is gone and `deck.serve` is the new front door:
 
 - [`Native.http()`](/bindings/native): AgentDeck's own HTTP/SSE protocol, the lossless wire.
 - [`Terminal.stdio()`](/bindings/terminal): one session per process, what `agentdeck chat` runs.
-- [`AGUI.http()`](/bindings/agui): the AG-UI protocol. Assistant UI, CopilotKit, or any AG-UI
-  client point at it with zero AgentDeck-specific code, HITL included.
+- [`AGUI.http()`](/bindings/agui): the AG-UI protocol. A pinned endpoint takes any AG-UI
+  client (Assistant UI, CopilotKit) with zero AgentDeck-specific code; reaching the whole
+  catalog costs one extension field, `forwardedProps.agentdeck.target`. HITL included.
 
 The SPI is frozen at v1: a binding you [write today](/bindings/write-your-own) keeps working.
 
 ## What's on the roadmap
 
-Not shipped. Every row below is a future binding, not an available one.
+Not shipped yet: nothing below is available in 6.0.0.
 
 | binding | tracked at |
 |---|---|
@@ -2433,14 +2435,13 @@ Not shipped. Every row below is a future binding, not an available one.
 
 One Deck, five bindings, one event stream:
 
-```mermaid
-flowchart LR
-    deck["one Deck"]
-    deck --- native["Native.http()"]
-    deck --- agui["AGUI.http()"]
-    deck --- term["Terminal.stdio()"]
-    deck -.->|"roadmap, issue 552"| a2a["A2A.http()"]
-    deck -.->|"roadmap, issue 553"| wa["WhatsApp.http()"]
+```text
+                                           one Deck
+                                               │
+         ┬──────────────────┬──────────────────┼──────────────────┬──────────────────┬
+         │                  │                  │                  │                  │
+   Native.http()       AGUI.http()     Terminal.stdio()      A2A.http()       WhatsApp.http()
+      shipped            shipped            shipped         roadmap #552       roadmap #553
 ```
 
 ```python
@@ -2888,15 +2889,17 @@ Source: https://agentdecksdk.com/resources/migration-guides
 
 ## v5 to v6.0.0
 
-v6.0.0 replaces the v1 HTTP wire with bindings: a Deck is served over one or more of them, never
-itself. `agentdeck chat` is unchanged.
+See [What's new in 6.0](/meet-agentdeck/whats-new-6) for the model behind this release. v6.0.0
+replaces the v1 HTTP wire with bindings: a Deck is served over one or more of them, never itself.
+`agentdeck chat` is unchanged.
 
 | break | before (v5) | after (v6.0.0) |
 |---|---|---|
 | v1 routes gone | `POST /agents/{name}/chat` | `POST /runs`, then `GET /runs/{run_id}/events` |
-| `agentdeck-serve` gone; `deck.serve` is the front door, synchronous | `agentdeck-serve` | `deck.serve(Native.http("/api"), port=8000)` |
+| `agentdeck-serve` gone; `deck.serve(...)` is the new front door | `agentdeck-serve` | `deck.serve(Native.http("/api"), port=8000)` |
 | `Deck.asgi()` needs a binding | `Deck.from_project().asgi()` | `Deck.from_project().asgi(Native.http())` |
-| `DeckGateway.start` drops `context` (binding authors) | `gateway.start(target, input, context=ctx)` | `gateway.start(target, input)` |
+| the error taxonomy moved off the root package | `from agentdeck import ConfigError` | `from agentdeck.errors import ConfigError` |
+| `InputError` replaces raw `TypeError`/`ValueError` for caller input | `except (TypeError, ValueError)` | `except InputError` |
 | `InterruptReason` drops `"approval"` | `pending.reason == "approval"` | `pending.reason == "human"`; refusal comes from `payload["options"]`, which `Run.answer` already enforces |
 
 ## v4 to v5.0.0
