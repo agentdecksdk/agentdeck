@@ -660,15 +660,15 @@ class Deck:
 
         return Exposure(self, bindings)
 
-    async def serve(self, *bindings: Binding, host: str = "0.0.0.0", port: int = 8000) -> None:
-        """``expose(*bindings).serve(host=, port=)``. Call :meth:`expose` directly for the
-        ``Exposure`` object (advanced lifecycle control, embedding, inspection)."""
-        await self.expose(*bindings).serve(host=host, port=port)
+    async def serve(self, binding: Binding, /, *bindings: Binding, host: str = "0.0.0.0", port: int = 8000) -> None:
+        """``expose(binding, *bindings).serve(host=, port=)``. :meth:`expose` returns the
+        ``Exposure`` object itself, for callers who need it."""
+        await self.expose(binding, *bindings).serve(host=host, port=port)
 
-    def asgi(self, *bindings: Binding) -> Any:
-        """``expose(*bindings).asgi()``. Call :meth:`expose` directly for the ``Exposure``
-        object (advanced lifecycle control, embedding, inspection)."""
-        return self.expose(*bindings).asgi()
+    def asgi(self, binding: Binding, /, *bindings: Binding) -> Any:
+        """``expose(binding, *bindings).asgi()``. :meth:`expose` returns the ``Exposure`` object
+        itself, for callers who need it."""
+        return self.expose(binding, *bindings).asgi()
 
     def build(self) -> Deck:
         """Validate the whole catalog and compile every agent/workflow to an ``InvocableSpec``.

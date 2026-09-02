@@ -373,7 +373,7 @@ continues on its next line.
 
 ## Serving through bindings
 
-`deck.serve(*bindings)` validates a set of bindings and serves them, owning their lifecycle. A
+`deck.serve(binding, *bindings)` validates a set of bindings and serves them, owning their lifecycle. A
 binding is one external protocol, channel or surface over one transport. The first one is the
 terminal:
 
@@ -387,7 +387,7 @@ deck = Deck.from_project("./.agentdeck")
 asyncio.run(deck.serve(Terminal.stdio()))   # what `agentdeck chat` runs
 ```
 
-Embedding uses `deck.asgi(*bindings)` instead of `serve()`.
+Embedding uses `deck.asgi(binding, *bindings)` instead of `serve()`.
 
 ## Serving over HTTP
 
@@ -404,7 +404,7 @@ deck = Deck.from_project("./.agentdeck")
 asyncio.run(deck.serve(Native.http(), port=8000))
 ```
 
-`deck.asgi(*bindings)` returns the ASGI application instead, for mounting inside a service you
+`deck.asgi(binding, *bindings)` returns the ASGI application instead, for mounting inside a service you
 already run. Its lifespan **opens the deck on startup and closes it on shutdown**, so a served
 deck needs no separate `async with`, and a deck you opened yourself is left alone.
 

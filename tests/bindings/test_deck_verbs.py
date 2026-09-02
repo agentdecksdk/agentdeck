@@ -67,6 +67,16 @@ async def test_serve_delegates_to_expose_with_the_exact_bindings_and_host_port(m
     assert seen == {"host": "127.0.0.1", "port": 9001}
 
 
+def test_asgi_with_no_binding_raises_type_error() -> None:
+    with pytest.raises(TypeError):
+        _deck().asgi()
+
+
+async def test_serve_with_no_binding_raises_type_error() -> None:
+    with pytest.raises(TypeError):
+        await _deck().serve()
+
+
 def test_lazy_import_from_agentdeck_bindings() -> None:
     from agentdeck.bindings import Native as LazyNative
     from agentdeck.bindings import Terminal as LazyTerminal
