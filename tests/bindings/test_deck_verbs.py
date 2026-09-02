@@ -12,7 +12,6 @@ import pytest
 from starlette.applications import Starlette
 
 from agentdeck.authoring import Agent
-from agentdeck.bindings.exposure import Exposure
 from agentdeck.bindings.native import Native
 from agentdeck.deck import Deck
 
@@ -26,16 +25,45 @@ def test_asgi_returns_the_same_app_expose_would_build() -> None:
     assert isinstance(app, Starlette)
 
 
-async def test_serve_delegates_to_expose_with_the_same_bindings_and_host_port(monkeypatch) -> None:
+def test_asgi_delegates_to_expose_with_the_exact_bindings_given(monkeypatch) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    class FakeExposure:
+        def asgi(self) -> str:
+            return "sentinel-app"
+
+    def fake_expose(self: Deck, *bindings: object) -> FakeExposure:
+        calls.append(bindings)
+        return FakeExposure()
+
+    monkeypatch.setattr(Deck, "expose", fake_expose)
+    native = Native.http()
+
+    app = _deck().asgi(native)
+
+    assert calls == [(native,)]
+    assert app == "sentinel-app"
+
+
+async def test_serve_delegates_to_expose_with_the_exact_bindings_and_host_port(monkeypatch) -> None:
+    calls: list[tuple[object, ...]] = []
     seen = {}
 
-    async def fake_serve(self: Exposure, *, host: str, port: int) -> None:
-        seen["host"] = host
-        seen["port"] = port
+    class FakeExposure:
+        async def serve(self, *, host: str, port: int) -> None:
+            seen["host"] = host
+            seen["port"] = port
 
-    monkeypatch.setattr(Exposure, "serve", fake_serve)
-    await _deck().serve(Native.http(), host="127.0.0.1", port=9001)
+    def fake_expose(self: Deck, *bindings: object) -> FakeExposure:
+        calls.append(bindings)
+        return FakeExposure()
 
+    monkeypatch.setattr(Deck, "expose", fake_expose)
+    native = Native.http()
+
+    await _deck().serve(native, host="127.0.0.1", port=9001)
+
+    assert calls == [(native,)]
     assert seen == {"host": "127.0.0.1", "port": 9001}
 
 
