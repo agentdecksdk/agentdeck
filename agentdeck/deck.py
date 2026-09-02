@@ -660,9 +660,28 @@ class Deck:
 
         return Exposure(self, bindings)
 
-    async def serve(self, binding: Binding, /, *bindings: Binding, host: str = "0.0.0.0", port: int = 8000) -> None:
-        """``expose(binding, *bindings).serve(host=, port=)``. :meth:`expose` returns the
-        ``Exposure`` object itself, for callers who need it."""
+    def serve(self, binding: Binding, /, *bindings: Binding, host: str = "0.0.0.0", port: int = 8000) -> None:
+        """Synchronous, blocking: owns the event loop until the server exits. Ctrl-C stops the
+        server and returns. The primary entrypoint; see :meth:`serve_async` for a caller already
+        running inside asyncio."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise ConfigError(
+                "deck.serve() owns the event loop; inside a running loop use `await deck.serve_async(...)`."
+            )
+        # Matches uvicorn.run's own swallow: the server has already shut down cleanly by the
+        # time this unwinds. serve_async() leaves Ctrl-C to whatever owns its loop.
+        with suppress(KeyboardInterrupt):
+            asyncio.run(self.serve_async(binding, *bindings, host=host, port=port))
+
+    async def serve_async(
+        self, binding: Binding, /, *bindings: Binding, host: str = "0.0.0.0", port: int = 8000
+    ) -> None:
+        """``expose(binding, *bindings).serve(host=, port=)``. The async form of :meth:`serve`,
+        for an application that already owns an event loop."""
         await self.expose(binding, *bindings).serve(host=host, port=port)
 
     def asgi(self, binding: Binding, /, *bindings: Binding) -> Any:
