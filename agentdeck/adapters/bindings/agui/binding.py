@@ -94,10 +94,10 @@ class _AGUIBinding:
         self._gateway: DeckGateway | None = None
 
     def build(self, gateway: DeckGateway) -> HttpEndpoint:
-        """A pinned ``target=`` is deployment configuration, so a typo fails here, at
-        ``expose()``, rather than on a client's first request (the same pattern Terminal's own
-        ``target=`` uses). The unpinned mode has no target to validate yet: it is resolved per
-        request, off whichever one the client names.
+        """A pinned ``target=`` is deployment configuration, so a typo fails at
+        ``deck.serve()``/``deck.asgi()`` (which are ``expose()``), before any request  -  the
+        same pattern Terminal's own ``target=`` uses. The unpinned mode has no target to
+        validate yet: it is resolved per request, off whichever one the client names.
         """
         self._gateway = gateway
         if self._target is not None:
@@ -222,7 +222,7 @@ class AGUI:
     ) -> Binding:
         """``target=None`` serves the whole Deck, routed by ``forwardedProps.agentdeck.target``;
         ``target="Support"`` pins the endpoint, plain AG-UI to any client. ``name`` distinguishes
-        a second instance in the same exposure, which ``expose()`` requires (``exposure.md``)."""
+        a second instance."""
         return _AGUIBinding(path=path, target=target, namespace=namespace, name=name)
 
 

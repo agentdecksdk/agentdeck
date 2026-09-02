@@ -72,6 +72,7 @@ async def test_serve_with_no_binding_raises_type_error() -> None:
 
 
 def test_lazy_import_from_agentdeck_bindings() -> None:
+    from agentdeck.bindings import AGUI as LazyAGUI  # noqa: N811
     from agentdeck.bindings import Native as LazyNative
     from agentdeck.bindings import Terminal as LazyTerminal
 
@@ -79,25 +80,34 @@ def test_lazy_import_from_agentdeck_bindings() -> None:
     from agentdeck.bindings.terminal import Terminal
 
     assert LazyTerminal is Terminal
+    from agentdeck.bindings.agui import AGUI
+
+    assert LazyAGUI is AGUI
 
 
 def test_an_unknown_lazy_name_names_the_available_factories() -> None:
     import agentdeck.bindings as bindings
 
-    with pytest.raises(AttributeError, match="Native.*Terminal|Terminal.*Native"):
+    with pytest.raises(AttributeError) as excinfo:
         bindings.Bogus  # noqa: B018
+
+    message = str(excinfo.value)
+    assert "AGUI" in message
+    assert "Native" in message
+    assert "Terminal" in message
 
 
 def test_dir_lists_the_lazy_names_too() -> None:
     import agentdeck.bindings as bindings
 
-    assert {"Native", "Terminal"} <= set(dir(bindings))
+    assert {"AGUI", "Native", "Terminal"} <= set(dir(bindings))
 
 
 def test_importing_bindings_pulls_in_no_binding_module_or_new_starlette_module() -> None:
     """``agentdeck`` itself already imports the openai-agents SDK's ``agents.mcp``, which loads
     ``starlette`` transitively (a base dependency, not a binding); the claim under test is that
-    ``agentdeck.bindings`` adds nothing on top of that, until a factory is actually named.
+    ``agentdeck.bindings`` adds nothing on top of that, until a factory is actually named -
+    including AG-UI's own SDK, which no other binding pulls in at all.
     """
     probe = textwrap.dedent("""
         import sys
@@ -107,6 +117,7 @@ def test_importing_bindings_pulls_in_no_binding_module_or_new_starlette_module()
         after = {m for m in sys.modules if m.startswith("starlette")}
         assert after == before, after - before
         assert not [m for m in sys.modules if m.startswith("agentdeck.adapters.bindings")]
+        assert not [m for m in sys.modules if m.startswith("ag_ui")]
         """)
     done = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, timeout=60)
     assert done.returncode == 0, done.stderr

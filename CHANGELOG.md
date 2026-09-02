@@ -35,8 +35,8 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `TypeError`/`ValueError` from a store or an executor stays internal. Catch `InputError` (or
   `AgentdeckError`) where you caught `TypeError` or `ValueError` from those calls before.
 - **`AGUI.http()`, the AG-UI protocol binding** (#595/#596, slices AGUI-0 through AGUI-3):
-  `pip install agentdeck-sdk[agui]`, then `from agentdeck.bindings.agui import AGUI` and
-  `deck.expose(AGUI.http("/agui")).serve(port=8000)` for the whole catalog, or `AGUI.http(
+  `pip install agentdeck-sdk[agui]`, then `from agentdeck.bindings import AGUI` and
+  `deck.serve(AGUI.http("/agui"), port=8000)` for the whole catalog, or `AGUI.http(
   "/support", target="Support")` pinned. Official `ag-ui-protocol` models and `EventEncoder` over HTTP/SSE:
   target routing via `forwardedProps.agentdeck.target`, text/reasoning/backend-tool projection,
   HITL ask/resume through the official `RunFinishedInterruptOutcome`/`resume` shapes, multimodal
