@@ -1,4 +1,4 @@
-.PHONY: install build test lint typecheck lint-imports slop coverage golden docs-reference docs-impact roadmap-sync fmt clean check
+.PHONY: install build lock-check test lint typecheck lint-imports slop coverage golden docs-reference docs-impact roadmap-sync fmt clean check
 
 # An agent reads this gate's output, so a passing step says nothing and a failing one says only
 # what failed. 1,700 progress dots and 10 kept import contracts cost more attention than they
@@ -19,11 +19,17 @@ else
   QUIET =
 endif
 
-install:        ## editable install with every extra the gate needs
+install:        ## editable install with every extra the gate needs, from the locked resolution
 	# Every extra ci.yml installs, so `make check` locally runs the same tests CI does.
 	# `.[dev]` alone silently skipped serve, postgres and observability. The whole
 	# point of #142: a narrower install reads as a pass instead of as untested.
-	uv pip install -e ".[dev,serve,postgres,observability]"
+	# --locked: installs exactly what uv.lock resolved, and fails loudly if it's stale (#605)
+	# instead of silently resolving fresh and leaving the lockfile to drift. --inexact: unlike
+	# CI/release, don't prune an ad-hoc package a contributor installed by hand.
+	uv sync --locked --all-extras --inexact
+
+lock-check:     ## uv.lock matches pyproject.toml -- the thing CI and `make install` actually install
+	$(E)uv lock --check $(QUIET)
 
 build:          ## sdist + wheel into dist/
 	uv build
@@ -73,7 +79,7 @@ eval-jack:      ## Jack, judged: relevancy and faithfulness beside the exact che
 
 # docs-impact runs last and never fails: it is the one output of this gate that asks the reader
 # to go read something, so it has to be the last thing on screen rather than pytest's scrollback.
-check: lint typecheck lint-imports test slop docs-impact   ## full gate
+check: lock-check lint typecheck lint-imports test slop docs-impact   ## full gate
 
 fmt:            ## ruff format + autofix
 	.venv/bin/ruff format agentdeck/ && .venv/bin/ruff check --fix agentdeck/
