@@ -17,9 +17,11 @@ Event schema (core/events.py CURRENT_VERSION) ≠ Protocol SPI ≠ A2A version �
 ## Frozen at v1
 
 `PROTOCOL_SPI_VERSION = 1` is frozen with v6.0.0 (`rulings.md` 22, 37, amended: #554). v1 covers
-`Binding` and `BindingInfo`, `DeckGateway` and its methods (`targets`, `start`, `get_run`,
-`list_runs`, `capabilities`), `GatewayError`/`GatewayFailureCode`, `HttpEndpoint`/`StdioEndpoint`,
-and `Exposure` (`deck.serve`/`deck.asgi`/`deck.expose`). The freeze evidence is the contract suite
+every name `agentdeck.bindings.__all__` exports for a plugin to build against: `Binding` and
+`BindingInfo`, `DeckGateway` and its methods (`targets`, `start`, `get_run`, `list_runs`,
+`capabilities`), `Capabilities` and `TargetInfo` (what those methods return),
+`GatewayError`/`GatewayFailureCode`, `Endpoint`/`HttpEndpoint`/`StdioEndpoint`, and `Exposure`
+(`deck.serve`/`deck.asgi`/`deck.expose`). The freeze evidence is the contract suite
 (`tests/bindings/test_contract.py` against the out-of-tree fixture plugin) plus
 `tests/bindings/test_three_bindings_one_deck.py`, proving all three shipped kinds (protocol:
 Native and AG-UI, surface: Terminal) and, via the fixture plugin, the channel kind (rulings 19,

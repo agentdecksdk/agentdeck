@@ -11,6 +11,7 @@ import re
 import socket  # noqa: TC003 (get_type_hints() resolves `_unschematizable`'s annotation at runtime)
 from pathlib import Path
 
+import httpx
 import pytest
 from starlette.testclient import TestClient
 
@@ -18,6 +19,7 @@ from agentdeck import WorkflowCtx, tool, workflow
 from agentdeck.adapters.bindings.native.binding import _NativeBinding, _on_unsupported
 from agentdeck.authoring import Agent
 from agentdeck.bindings.native import Native
+from agentdeck.core.control import CONTROL_POLL_INTERVAL
 from agentdeck.deck import Deck
 from agentdeck.errors import InputError, UnsupportedControlError
 from agentdeck.testing import ScriptedModel, patch_model
@@ -230,6 +232,47 @@ def test_cancel_and_resume_are_quiet_no_ops_on_a_terminal_run(no_project):
 
     assert cancelled.status_code == 200
     assert resumed.status_code == 200
+
+
+async def test_a_run_is_paused_and_resumed_over_the_wire(no_project):
+    """``POST .../pause`` maps to ``Run.pause``, honored up to one ``CONTROL_POLL_INTERVAL`` late
+    (``core/control.py``): this waits past it rather than racing a held model, which is also why
+    it drives the ASGI app with ``httpx.AsyncClient`` directly instead of ``TestClient`` -
+    ``TestClient``'s blocking portal cannot serve a second request against the same run while an
+    ``events`` stream is already open on it.
+    """
+    model = ScriptedModel(deltas=("hi",))
+    deck = _deck()
+    with patch_model(model):
+        async with deck:
+            app = deck.asgi(Native.http())
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                started = await client.post("/runs", json={"target": "Greeter", "input": "hi", "session_id": "s1"})
+                run_id = started.json()["run_id"]
+
+                paused = await client.post(f"/runs/{run_id}/pause")
+                assert paused.status_code == 200
+
+                await asyncio.sleep(CONTROL_POLL_INTERVAL + 0.05)
+
+                at_pause = _events_from(await client.get(f"/runs/{run_id}/events"))
+                assert at_pause[-1]["kind"] == "run.paused"
+                assert (await client.get(f"/runs/{run_id}")).json()["status"] == "paused"
+
+                resumed = await client.post(f"/runs/{run_id}/resume")
+                assert resumed.status_code == 200
+
+                tail = _events_from(
+                    await client.get(f"/runs/{run_id}/events", headers={"Last-Event-ID": str(at_pause[-1]["seq"])})
+                )
+
+    assert [e["kind"] for e in tail] == [
+        "run.resumed",
+        "text.delta",
+        "usage.reported",
+        "message.completed",
+        "run.completed",
+    ]
 
 
 def test_unknown_run_id_maps_to_404(no_project):

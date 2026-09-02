@@ -106,14 +106,20 @@ async def test_a_run_started_over_agui_is_answered_over_native_and_agui_receives
 
 
 async def test_a_terminal_run_is_visible_over_native_but_terminal_cannot_observe_others(no_project):
-    """Terminal is one session per process (`bindings.md`): `StdioEndpoint.run` takes no run
-    identity, so it can drive only the run it starts itself, never one another binding started.
+    """Terminal is one session per process (`bindings.md`): a run left waiting on Native stays
+    untouched by Terminal's own, separate turn, and `StdioEndpoint.run` takes no run identity, so
+    it has no way to point itself at another run even if it wanted to.
     """
     deck = _deck()
     model = ScriptedModel(deltas=("hi",))
     async with deck:
         exposure = deck.expose(Native.http())
         with TestClient(exposure.asgi()) as client:
+            started = client.post("/runs", json={"target": "Survey", "input": "kites", "session_id": "s1"})
+            native_run_id = started.json()["run_id"]
+            client.get(f"/runs/{native_run_id}/events")  # drain to the first interrupt
+            assert client.get(f"/runs/{native_run_id}").json()["status"] == "waiting_answer"
+
             stdout = io.StringIO()
             terminal = Terminal.stdio(target="Greeter", stdin=io.StringIO("hello\n"), stdout=stdout)
             endpoint = terminal.build(DeckGateway(deck))
@@ -122,8 +128,10 @@ async def test_a_terminal_run_is_visible_over_native_but_terminal_cannot_observe
 
             assert "-- run.completed --" in stdout.getvalue()
 
-            listed = client.get("/runs").json()
-            assert len(listed) == 1
-            assert listed[0]["status"] == "completed"
+            statuses = {run["run_id"]: run["status"] for run in client.get("/runs").json()}
+            assert statuses[native_run_id] == "waiting_answer"  # untouched by Terminal's own turn
+            assert len(statuses) == 2
+            [terminal_run_id] = [run_id for run_id in statuses if run_id != native_run_id]
+            assert statuses[terminal_run_id] == "completed"
 
     assert inspect.signature(endpoint.run).parameters == {}

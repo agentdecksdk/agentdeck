@@ -50,11 +50,11 @@ at each row directly.
 | A disconnected reader does not cancel execution | `test_contract.py::test_a_disconnected_reader_does_not_cancel_the_run` |
 | A protocol reconnects from `Event.seq` | `test_native_binding.py::test_events_reconnect_with_last_event_id_resumes_after_that_seq` |
 | A protocol recovers a Run by identity | `test_contract.py::test_durable_map_survives_a_simulated_restart` |
-| Cancel maps to `Run.cancel()`; pause/resume map to the same Run | `test_bindings_gateway.py::test_start_get_list_delegate_to_deck_runs_and_return_real_runs` (the gateway hands back real `Run`s) plus `test_terminal_binding.py::test_cancelling_mid_run_records_the_cancel_then_re_raises` |
+| Cancel maps to `Run.cancel()`; pause/resume map to the same Run | `test_native_binding.py::test_a_run_is_paused_and_resumed_over_the_wire` (pause/resume), `test_bindings_gateway.py::test_start_get_list_delegate_to_deck_runs_and_return_real_runs` (the gateway hands back real `Run`s), `test_terminal_binding.py::test_cancelling_mid_run_records_the_cancel_then_re_raises` (cancel) |
 | An interrupt is answered through `Run.answer()` | `test_native_binding.py::test_pending_and_answer_over_the_wire_then_re_tail` |
 | Two protocols expose the same Deck concurrently and see the same Run | `test_contract.py::test_two_bindings_share_one_deck_and_see_the_same_run` |
-| A Run started through protocol A is an ordinary AgentDeck Run | `test_three_bindings_one_deck.py` (AG-UI starts, Native reads it back) |
-| Protocol metadata never appears in canonical Event payloads | `test_three_bindings_one_deck.py` (Native's raw event text carries none of AG-UI's own wire vocabulary) |
+| A Run started through protocol A is an ordinary AgentDeck Run | `test_three_bindings_one_deck.py::test_a_run_started_over_agui_is_answered_over_native_and_agui_receives_the_resumed_segment` (AG-UI starts, Native reads it back) |
+| Protocol metadata never appears in canonical Event payloads | `test_three_bindings_one_deck.py::test_a_run_started_over_agui_is_answered_over_native_and_agui_receives_the_resumed_segment` (Native's raw event text carries none of AG-UI's own wire vocabulary) |
 | Unknown future Event kinds do not crash a plugin | `test_contract.py::test_an_unknown_event_kind_is_skipped_not_raised` |
 | Unsupported content is rejected, not dropped | `test_contract.py::test_the_webhook_maps_every_rejection_to_an_http_code` |
 | A plugin imports no private AgentDeck module (import-linter contract) | `make lint-imports` against `tests/bindings/fixture_plugin/.importlinter` |
