@@ -27,12 +27,16 @@ Explicit scope boundaries.
 
 ## Done when
 Checklist of observable, testable behaviors (mapping 1:1 to deterministic tests without live model calls).
+
+## Expected delta
+One line: the code LOC and new public symbols the proposed shape should cost.
 ```
 
 ## Rules
 - **Anti-verbosity:** Avoid fluff and rambling rationale. One clear sentence beats a paragraph.
 - **Title:** Terse and specific: `<area>: <what>` (e.g., `runtime: propagate cancellation to subagents`).
 - **Single concern:** One issue per topic; split unrelated asks.
+- **Expected delta binds the PR:** review holds the PR to this number, and an unexplained 2x overrun is read as this shape having been wrong. Estimate the shape you proposed, not the one you fear.
 - **Check duplicates:** `gh issue list --state open`.
 - **Labels:** Select one type label (`bug`, `enhancement`, `feature`, `chore`, `design`, `documentation`, or `finding`) and the closest `area:*` label from `gh label list`.
 - **Output limits:** Keep text between tool calls to ≤25 words. Keep final responses to ≤100 words unless more detail is required.

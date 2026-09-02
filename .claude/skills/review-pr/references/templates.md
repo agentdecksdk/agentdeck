@@ -51,9 +51,14 @@ ALWAYS use this exact template structure:
     - `service.py:12` ...
     </details>
 
+    +214 LOC, 3 public symbols, against #431's estimate of 150 and 2
+
     0 BLOCK, 1 DISCUSS answered, 1 DEFER #431, 4 NIT
 
-- **300 words maximum**, excluding the rubric table and the collapsed NIT block.
+- **300 words maximum**, excluding the rubric table, the collapsed NIT block and the delta line.
+- The delta line is measured against the issue's `## Expected delta`, one line, always present. It
+  reports; it never argues. When it triggered the overrun pass (`overrun.md`), the cause that pass
+  named appears as a BLOCK or a DEFER above, never as commentary on the number.
 - **Per finding: 25 words. A DISCUSS gets 35**, because it carries `Settled by:`.
 - Sections in exactly this order. **An empty section is omitted entirely**, never written as
   "None".
