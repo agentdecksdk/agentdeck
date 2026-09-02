@@ -26,25 +26,11 @@ _PROJECT_ALIAS = "agentdeck_project"
 class PluginRegistry(Generic[T]):
     """Discover ``T`` instances in ``<package>/<type_dir>/<bundle>/<module_name>.py``.
 
-    Lazy: discovery runs on the first :meth:`list` call and is cached on
-    the instance. Pass ``refresh=True`` to force a re-scan. Two *different* bundles
-    that declare an invocable of the same name raise ``ConfigError`` naming both bundle
-    paths  -  one name is one invocable, never a silent shadow in bundle-sort order.
-    A single bundle exposing the same instance under two names (e.g. an alias kept
-    after a rename) is not a collision: it is the same object claiming its name twice.
-
-    ``base_class`` is matched by ``isinstance``  -  a bundle module holds one or more
-    already-constructed values (``authoring``'s ``Agent(...)``, or the ``NativeDefinition`` a
-    ``@workflow`` produces), not subclasses to discover. A bundle that imports cleanly but binds
-    no matching instance raises ``ConfigError`` naming it  -  shared code that belongs in a
-    ``<type_dir>/`` directory without contributing an invocable of its own opts out with a
-    leading ``_``/``.`` (already excluded from the scan by :meth:`_is_bundle`), the same way
-    a private helper module does anywhere else in the tree.
-
-    ``kind``, when set, narrows a ``base_class`` match further  -  ``NativeDefinition`` matches
-    both a ``@tool`` and a ``@workflow``, so the workflow registry passes ``kind=WORKFLOW`` to
-    keep a bundled ``@tool`` (e.g. one exported so ``ctx.invoke`` can reach it) from being
-    registered as a workflow it is not; a match of the wrong kind is skipped, not collected.
+    Matched by ``isinstance(base_class)``, narrowed by ``kind`` when several kinds share one
+    ``base_class`` (a ``@tool`` and a ``@workflow`` both produce ``NativeDefinition``, so the
+    workflow registry passes ``kind=WORKFLOW`` and a bundled ``@tool`` is skipped, not collected).
+    A bundle importing cleanly but binding nothing matching, or two bundles claiming one name,
+    both raise ``ConfigError`` naming the bundle(s)  -  see :meth:`_scan`.
     """
 
     package: str
@@ -125,9 +111,8 @@ class PluginRegistry(Generic[T]):
                 found[name] = attr
                 self.bundle_of[name] = child.name
             if not matched and wrong_kind:
-                # Every base_class match here is the wrong kind (a @tool bundled under
-                # workflows/): a plainer miss than the ghost case below, so it gets its own
-                # message naming what was found instead of implying nothing was defined.
+                # A plainer miss than the ghost case below: name what was found instead of
+                # implying nothing was defined.
                 found_str = ", ".join(f"{fk} {name!r}" for name, fk in wrong_kind)
                 raise ConfigError(
                     f"{self.label} bundle {child.name!r} exports no {self.label}; found {found_str}. "
