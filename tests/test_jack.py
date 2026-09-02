@@ -15,6 +15,7 @@ A page falling out of the top three means search stopped finding it at all.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -27,7 +28,7 @@ from agentdeck.errors import ContextTypeError
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "jack"
 sys.path.insert(0, str(EXAMPLE))
 
-from jack.agent import jack, read_changelog, read_doc, search_docs  # noqa: E402  -  needs the path above
+from jack.agent import INSTRUCTIONS, jack, read_changelog, read_doc, search_docs  # noqa: E402  -  needs the path above
 from jack.corpus import DEFAULT_CONTENT_ROOT, EXCLUDED, DocsCorpus  # noqa: E402
 
 
@@ -77,6 +78,21 @@ def test_slugs_are_the_sites_own_slugs(corpus: DocsCorpus) -> None:
     for slug in corpus.pages:
         page = DEFAULT_CONTENT_ROOT / f"{slug}.mdx"
         assert page.is_file() or (DEFAULT_CONTENT_ROOT / slug / "index.mdx").is_file(), f"{slug} names no page"
+
+
+_CITED_SLUG = re.compile(r"read `([\w./-]+)`")
+
+
+def test_instructions_slug_citations_exist_in_the_corpus(corpus: DocsCorpus) -> None:
+    """`INSTRUCTIONS` points Jack at specific pages by slug (`meet-agentdeck/whats-new-6`,
+    `resources/migration-guides`, `bindings`), unlike the page index in `instructions()` above it,
+    which is read fresh from the corpus and cannot go stale. These are typed into the string, so a
+    renamed page would leave a citation dangling with nothing to catch it but this test.
+    """
+    slugs = _CITED_SLUG.findall(INSTRUCTIONS)
+    assert slugs, "no `read `slug`` citations found in INSTRUCTIONS  -  did the wording change?"
+    missing = [slug for slug in slugs if slug not in corpus.pages]
+    assert not missing, f"INSTRUCTIONS cites slugs absent from the corpus: {missing}"
 
 
 # One case per question shape the docs panel will actually meet. Grown to #219's ten categories
