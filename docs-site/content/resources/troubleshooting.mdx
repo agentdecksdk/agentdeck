@@ -1,14 +1,61 @@
 {/* docs_sources:
+  - "agentdeck/errors.py"
   - "agentdeck/core/errors.py"
   - "agentdeck/runtime/settings.py"
-  - "agentdeck/runtime/service.py"
+  - "agentdeck/bindings/exposure.py"
 */}
 
 # Troubleshooting
 
-Common operational errors and how to resolve them.
+What AgentDeck raises when the fault is in the configuration or the call, and what to do about it.
+Defects in the release, where the fault is ours, are on [Known Issues](/resources/known-issues).
 
-## Common Issues
+Every error below is in `agentdeck.errors` and every one is an `AgentdeckError`, so one `except`
+catches the lot while the specific classes stay catchable on their own.
 
-- **Session is busy:** A run is already active on this session. Wait for completion or cancel it before starting another.
-- **Port conflicts:** Configure `AGENTDECK_SERVE_PORT` when running the HTTP server.
+```python
+from agentdeck.errors import ConfigError, InputError, SessionBusyError
+```
+
+## At build time
+
+These raise from `Deck(...)` or `Deck.build()`, before anything runs.
+
+| Error | What it means | What to do |
+|---|---|---|
+| `ConfigError` | Invalid or incomplete configuration: a duplicate target name, a workflow bundle exporting no `@workflow`, a binding declaring an SPI version this release does not support, two bindings claiming one HTTP path | The message names what collided or what was missing; fix the declaration it points at |
+| `ContextTypeError` | A tool declares `ToolCtx[T]` the deck's `context=` cannot satisfy | Give the deck the context type the tool asks for, or drop the annotation |
+| `NotFoundError` | An unknown agent, workflow or skill name | The message lists the available names; a pinned `target=` on a binding is checked here too |
+| `SkillError` | A skill failed to load or execute | Read the `SKILL.md` frontmatter it names |
+
+## When starting or driving a run
+
+| Error | What it means | What to do |
+|---|---|---|
+| `InputError` | Content or an answer AgentDeck cannot take: a `@tool` named as a top-level target, an input shape a workflow's parameters do not accept, an answer a `ctx.ask()` refuses | Caller-side fix; over a binding this is a 4xx, not a 500 |
+| `SessionBusyError` | Another run already holds this `session_id`, and sessions serialize turns | `await` the first run, `cancel()` it, or use a different `session_id` |
+| `DuplicateKeyError` | A run already claims this `(namespace, key)` | A duplicate start refuses rather than replaying; read the existing run with `deck.runs.get(key=...)` |
+| `RunStateError` | The run's current state does not admit the operation, such as resuming a run that is waiting for an answer | Check `await run.status()` or `run.can`, then send the control the state allows |
+| `RunSuspendedError` | `await run` reached a run that stopped `PAUSED` or `WAITING_ANSWER` | Answer it with `run.answer(...)` or resume it, then await again |
+| `UnsupportedControlError` | A control this run can never take, rather than one its state refuses now: usually no control backend | Set `AGENTDECK_CONTROL` to a durable URL, for example `sqlite:///./control.db` |
+| `StoreError` | A durable store failed: the event log, or the control rows beside it | The message names the backend; check `AGENTDECK_EVENTS` and the database behind it |
+
+## Ports and processes
+
+`deck.serve()` takes the port as an argument, so there is no environment variable to set:
+
+```python
+deck.serve(Native.http("/api"), port=8080)
+```
+
+Two bindings cannot claim one path, and only one stdio binding may run per exposure: both are
+`ConfigError` at `expose()`, before the listener opens.
+
+A second `Deck(...)` in the same process fails while the first holds the process claim. Close the
+first, or use `async with deck:` so it is released on the way out.
+
+## Nothing above matches
+
+If the behaviour is wrong rather than refused, it belongs on
+[Known Issues](/resources/known-issues), or in a new
+[issue](https://github.com/agentdecksdk/agentdeck/issues/new) with a reproduction.

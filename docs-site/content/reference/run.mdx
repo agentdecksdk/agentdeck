@@ -19,6 +19,9 @@ API reference for `Run` instances and execution controls. Starting, fetching and
 - `await run.resume()`: Resume paused execution.
 - `await run.answer(value)`: Supply input to a waiting run.
 - `await run.cancel()`: Cancel execution.
+- `await run.status()`: The run's lifecycle state, read from the store rather than cached. A
+  coroutine, not a property.
+- `await run.pending()`: The interrupt this run is waiting on, or `None`. What `answer()` answers.
 
 The three control methods are strict. They raise `RunStateError` when the run's state refuses the
 operation (resuming a run that is waiting for an answer), and `UnsupportedControlError` when the

@@ -79,7 +79,6 @@ Each of these sets the run's status. See [Lifecycle & Control](/runs-and-control
 |---|---|---|
 | `tool.call.started` | `call_id`, `tool`, `args` | Paired with the completion by `call_id` |
 | `tool.call.completed` | `call_id`, `tool`, `result_preview`, `result_size`, `result_sha256`, `artifacts` | A capped preview plus size and hash, never the result itself |
-| `node.updated` | `node`, `state_patch` | `state_patch` shallow-merges: top-level keys replace |
 
 ## Reporting
 
