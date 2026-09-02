@@ -5,13 +5,19 @@ The composition object that validates bindings, owns their lifecycle, and hosts 
 ## API
 
 ```python
-exposure = deck.expose(Native.http(path="/"), A2A.http(path="/a2a"))
-
-app = exposure.asgi()                       # embed in FastAPI/Starlette
-await exposure.serve(host="0.0.0.0", port=8000)   # standalone
+app = deck.asgi(Native.http(path="/"), A2A.http(path="/a2a"))          # embed in FastAPI/Starlette
+await deck.serve(Native.http(path="/"), A2A.http(path="/a2a"), port=8000)   # standalone
 ```
 
-`expose()` is the only verb on `Deck`; `serve()` lives on the exposure. `deck.serve(...)` sugar is deferred to Phase 6 (`rulings.md` 23).
+`deck.serve(*bindings)` and `deck.asgi(*bindings)` are the primary API, one-line delegations to
+`expose(*bindings).serve()`/`.asgi()` (`rulings.md` 23, amended by #606). `expose()` is the
+lower-level call: it returns the `Exposure` object itself, for callers who need that object:
+
+```python
+exposure = deck.expose(Native.http(path="/"), A2A.http(path="/a2a"))
+app = exposure.asgi()
+await exposure.serve(host="0.0.0.0", port=8000)
+```
 
 Every binding on one exposure shares the Deck's agents, Runs, sessions, events and controls: a run started over A2A is visible over native HTTP, namespace permitting. That is a contract test.
 

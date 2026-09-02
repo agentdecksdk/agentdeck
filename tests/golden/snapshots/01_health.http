@@ -1,4 +1,0 @@
-HTTP 200
-content-type: application/json
-
-{"status":"ok","agents":["Greeter"],"workflows":[],"skills":[]}

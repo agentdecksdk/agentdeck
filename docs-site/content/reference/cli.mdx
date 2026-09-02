@@ -5,7 +5,7 @@ description: The agentdeck command tree, generated from agentdeck/cli.py's own -
 
 {/* docs_sources:
   - "agentdeck/cli.py"
-  - "agentdeck/surfaces/cli/**"
+  - "agentdeck/adapters/bindings/terminal/**"
 */}
 
 # CLI
@@ -15,10 +15,23 @@ Generated from [`agentdeck/cli.py`](https://github.com/agentdecksdk/agentdeck/bl
 ## `agentdeck`
 
 ```text
-usage: agentdeck [-h] {runs} ...
+usage: agentdeck [-h] {chat,runs} ...
 
 positional arguments:
-  {runs}
+  {chat,runs}
+    chat       a one-process terminal client over Terminal.stdio()
+
+options:
+  -h, --help   show this help message and exit
+```
+
+## `agentdeck chat`
+
+```text
+usage: agentdeck chat [-h] [target]
+
+positional arguments:
+  target      the agent or workflow to talk to; omit it when the deck holds one
 
 options:
   -h, --help  show this help message and exit

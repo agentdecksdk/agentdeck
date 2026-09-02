@@ -58,10 +58,23 @@ Generated from [`agentdeck/cli.py`](https://github.com/agentdecksdk/agentdeck/bl
 ## `agentdeck`
 
 ```text
-usage: agentdeck [-h] {runs} ...
+usage: agentdeck [-h] {chat,runs} ...
 
 positional arguments:
-  {runs}
+  {chat,runs}
+    chat       a one-process terminal client over Terminal.stdio()
+
+options:
+  -h, --help   show this help message and exit
+```
+
+## `agentdeck chat`
+
+```text
+usage: agentdeck chat [-h] [target]
+
+positional arguments:
+  target      the agent or workflow to talk to; omit it when the deck holds one
 
 options:
   -h, --help  show this help message and exit
@@ -466,29 +479,63 @@ A caller who wants to wait polls `status()`/`pending()` instead of awaiting.
 is parked in memory with the `ctx` it already holds, so it reads the original value when it
 continues on its next line.
 
-## Serving over HTTP
+## Serving through bindings
 
-`asgi()` returns an ASGI application  -  a FastAPI app whose lifespan **opens the deck on startup
-and closes it on shutdown**, so a served deck needs no separate `async with`:
+`deck.serve(binding, *bindings)` validates a set of bindings and serves them, owning their lifecycle. A
+binding is one external protocol, channel or surface over one transport. The first one is the
+terminal:
 
 ```python
+import asyncio
+
 from agentdeck import Deck
+from agentdeck.bindings import Terminal
 
 deck = Deck.from_project("./.agentdeck")
-app = deck.asgi()                          # uvicorn yourmodule:app
+asyncio.run(deck.serve(Terminal.stdio()))   # what `agentdeck chat` runs
 ```
 
-That is all `agentdeck serve` is. It also means you can mount a deck inside an existing service
-and have it open and close with the host app.
+Embedding uses `deck.asgi(binding, *bindings)` instead of `serve()`.
 
-Two details worth knowing. The FastAPI import is deferred inside the method, so `agentdeck.deck`
-stays importable without the `[serve]` extra  -  you only need it to actually serve. And requests
-arriving before the lifespan has run get `503 {"status": "starting"}` rather than touching a deck
-that is not open yet.
+## Serving over HTTP
 
-A third, if any of this catalog's callables declare a context: **it does not reach a served run.**
-A context is a live Python object with no wire form, so an HTTP-started run always carries `None`
- -  [see below](#where-a-context-does-not-reach).
+A Deck does not serve itself: a binding does, and `Native.http()` is AgentDeck's own HTTP/SSE
+protocol.
+
+```python
+import asyncio
+
+from agentdeck import Deck
+from agentdeck.bindings import Native
+
+deck = Deck.from_project("./.agentdeck")
+asyncio.run(deck.serve(Native.http(), port=8000))
+```
+
+`deck.asgi(binding, *bindings)` returns the ASGI application instead, for mounting inside a service you
+already run. Its lifespan **opens the deck on startup and closes it on shutdown**, so a served
+deck needs no separate `async with`, and a deck you opened yourself is left alone.
+
+```python
+app = deck.asgi(Native.http(path="/api"))   # uvicorn yourmodule:app
+```
+
+Several bindings share one listener, so the same runs are reachable over more than one protocol at
+once:
+
+```python
+app = deck.asgi(Native.http(path="/api"), Terminal.stdio())
+```
+
+`deck.expose(*bindings)` is the lower-level call: it returns the `Exposure` object itself, for
+callers who need that object.
+
+The routes, the SSE frames and the status codes are the
+[native wire spec](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/native-wire.md).
+
+If any of this catalog's callables declare a context: **it does not reach a served run.** A
+context is a live Python object with no wire form, so an HTTP-started run always carries `None`
+ - [see below](#where-a-context-does-not-reach).
 
 ## Observers
 
@@ -1434,6 +1481,9 @@ Explore real-world runnable examples built with AgentDeck.
 
 - **Chat Agent with a Tool:** Basic tool execution and streaming.
 - **Agent with a Skill:** Extending agent capability using domain skills.
+- **Chat in the Terminal:** A workflow that asks the questions, driven by `agentdeck chat`. No API key.
+- **Run Events Stream:** Observing a run's typed event log from `deck.stream(...)`. No API key.
+
 The reference application, [Jack](/jack), is documented separately: he is the agent answering
 questions on this site, and his page records the reasoning behind each decision in him.
 
@@ -1940,7 +1990,7 @@ Source: https://agentdecksdk.com/operate/deployment
 
 # Running a Deck as a service
 
-Everything up to `agentdeck-serve` or `uvicorn app:server` is covered elsewhere on this site.
+Everything up to `uvicorn app:server` is covered elsewhere on this site.
 This page is what comes after: a worked systemd deployment that starts on boot, restarts on
 failure, and shuts down without losing a run in flight.
 
@@ -1974,10 +2024,17 @@ restart must not lose in-progress conversations. `AGENTDECK_EVENTS=redis://`/`po
 
 ## A supervised process
 
-`agentdeck-serve` is `Deck.from_project().asgi()` behind a console script: it reads `HOST`/`PORT`
-from the environment (default `0.0.0.0:8000`) and must run from the directory holding
-`.agentdeck/`, since there is no `--project-dir` flag. An application composing its own `Deck`,
-like Jack, runs the same way under a plain `uvicorn module:app`.
+A served Deck is one you exposed: `deck.asgi(Native.http())` is the ASGI app, and
+`uvicorn module:app` runs it. An application composing its own `Deck`, like Jack, runs the same
+way.
+
+```python
+# app.py
+from agentdeck import Deck
+from agentdeck.bindings import Native
+
+app = Deck.from_project("./.agentdeck").asgi(Native.http())
+```
 
 ```ini
 [Unit]
@@ -2005,10 +2062,9 @@ time for.
 
 ## Health checks
 
-`agentdeck-serve`'s built-in `/health` is `{"status": "ok", "agents": [...], "workflows": [...],
-"skills": [...]}` once the Deck has opened, `503 {"status": "starting"}` before its lifespan has
-run. That proves the catalog built; it does not touch the event store. A Postgres event store
-gone unreachable *after* startup still answers `200`. Jack's own `/health`
+`Native.http()` has no health route: `GET /targets` is the equivalent probe, answering the
+catalog once the Deck has opened. That proves the catalog built; it does not touch the event
+store, so a Postgres event store gone unreachable *after* startup still answers `200`. Jack's own `/health`
 (`{"status": "ok", "pages": N}`) has the identical gap: it counts loaded documentation pages, not
 store connectivity.
 
@@ -2040,12 +2096,11 @@ itself afterward.
 
 ## Behind a reverse proxy
 
-`agentdeck-serve`'s streamed routes already send `Cache-Control: no-cache` and
-`X-Accel-Buffering: no`, the header nginx needs to stop buffering a proxied response. Without it,
-nginx holds the whole SSE stream until the run ends, which looks exactly like a hung agent from
-the client's side. A hand-rolled route, like Jack's own (which sends only `Cache-Control:
-no-cache`), does not get this for free: set `proxy_buffering off;` for that location in nginx
-instead, or add the header yourself.
+`Native.http()`'s SSE route sends `Cache-Control: no-cache`. nginx also needs
+`X-Accel-Buffering: no` to stop buffering a proxied response, and no binding sends it. Without
+one or the other, nginx holds the whole SSE stream until the run ends, which looks exactly like a
+hung agent from the client's side: set `proxy_buffering off;` for that location instead. Jack's
+own hand-rolled route has the same gap.
 
 Also raise `proxy_read_timeout` past the longest idle gap a real run can have between events
 (a slow tool call, a model thinking before its first token), or the proxy closes a connection
@@ -2088,8 +2143,8 @@ The current release is **v5.2.1**. Earlier releases are listed at the bottom.
   `exposure.serve(host=, port=)` runs standalone, closing the Deck only if it opened it. A failed
   `start()` on binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too.
 
-- **`Native.http()`, the AgentDeck protocol** (#548): `from agentdeck.bindings.native import
-  Native`, then `deck.expose(Native.http())`. Ten routes over `DeckGateway` and public `Run`
+- **`Native.http()`, the AgentDeck protocol** (#548): `from agentdeck.bindings import
+  Native`, then `deck.serve(Native.http())`. Ten routes over `DeckGateway` and public `Run`
   methods (targets, start, get/list runs, an SSE tail with `Last-Event-ID`/`from_seq` reconnect,
   cancel/pause/resume, pending/answer), frames as `Event.model_dump_json()` verbatim, and a
   versioned wire spec at `docs/design/protocols/native-wire.md`. The implementation lives under
@@ -2111,8 +2166,47 @@ The current release is **v5.2.1**. Earlier releases are listed at the bottom.
   steering are refused by name until their AgentDeck primitives exist
   (`docs/design/protocols/agui.md`).
 
+- **A terminal chat example needing no API key** (`examples/chat-in-the-terminal/`): one
+  `@workflow` asking the questions, driven by `agentdeck chat`. The first example that runs with
+  no credentials at all.
+- **`Terminal.stdio()`, the first surface** (#549): `from agentdeck.bindings import
+  Terminal`, then `deck.serve(Terminal.stdio(target="Research"))`. One session per process over
+  stdin and stdout: prompts, streams the run's text back, renders a numbered prompt for
+  `ctx.ask` and re-asks on a refused answer, and cancels an in-flight run on Ctrl-C.
+  `agentdeck chat [TARGET]` runs it, where `TARGET` is any agent or workflow in the deck and may
+  be omitted when the deck holds exactly one.
+- **A run event stream example** (#396, `examples/run-events-stream/`): iterates
+  `deck.stream(...)` and prints every event kind and payload in order. Scripts the model with
+  `agentdeck.testing`, so it needs no API key and prints one fixed output.
+- **`Deck.serve(*bindings, host=, port=)` and `Deck.asgi(*bindings)`** (#606): the front door,
+  one-line delegations to `expose(*bindings).serve()`/`.asgi()`. `agentdeck.bindings` now
+  lazily exports `Native` and `Terminal` too, so `from agentdeck.bindings import Native, Terminal`
+  works without importing either module until named. `expose()` is the lower-level call, returning
+  the `Exposure` object itself.
+
+### Removed
+
+- **The v1 HTTP wire is gone** (#550): `agentdeck/serve.py`, all of `agentdeck/surfaces/`, the
+  `agentdeck-serve` console script, `Deck.asgi()` and the byte-for-byte goldens under
+  `tests/golden/`. A Deck no longer serves itself: expose a binding.
+
+  ```python
+  # before
+  app = Deck.from_project().asgi()          # agentdeck-serve
+  # after
+  app = Deck.from_project().asgi(Native.http())
+  ```
+
+  The v1 routes (`/agents/{name}/chat`, `/v2/invocables/{name}/chat`, `/health`) are replaced by
+  the [native wire](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/native-wire.md):
+  `POST /runs`, `GET /runs/{run_id}/events`, `GET /targets`. The `[serve]` extra now installs
+  starlette rather than fastapi, which nothing in `agentdeck/` imports any more.
+
 ### Changed
 
+- **`DeckGateway.start` drops `context`** (#599): no binding ever passed one, and a served run
+  has no live Python execution context to hand it. `DeckGateway` no longer stores or directly
+  exposes the `Deck` it was built from.
 - **`agentdeck.errors` is the one import path for the error taxonomy.** `AgentdeckError`,
   `ConfigError`, `ContextTypeError`, `NotFoundError`, `SessionBusyError`, `SkillError` and
   `StoreError` are no longer exported from `agentdeck` itself: `from agentdeck.errors import

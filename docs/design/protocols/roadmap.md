@@ -9,7 +9,7 @@
 | 3 | `A2A.http()` (protocol) | tasks, `contextId` session, `taskId` key, `input-required` HITL, `tasks/resubscribe` from `seq`, AgentCard from `TargetInfo` |
 | 4 | `WhatsApp.http()` (channel) | webhook ACK then Exposure-owned tail, `message.completed` posting, reply buttons for HITL, durable phone-to-run map |
 | 5 | freeze SPI v1 | the trio runs on one Deck: a run started over A2A is visible from the Terminal, WhatsApp answers an interrupt, every contract test passes |
-| 6 | AG-UI, A2UI, ACP, MCP server as 6.x minors; convenience: `deck.serve` sugar, `.agentdeck/bindings` config, CLI flags, extras, docs | v6.x |
+| 6 | AG-UI, A2UI, ACP, MCP server as 6.x minors; convenience: `.agentdeck/bindings` config, CLI flags, extras, docs | v6.x |
 
 Phase 1 is small because `deck.runs` already has the gateway's shape (`gateway.md`).
 
@@ -29,7 +29,7 @@ Phase 1 is small because `deck.runs` already has the gateway's shape (`gateway.m
 Every decision behind this sequence is in [`rulings.md`](rulings.md); the ones that shape it most are 34 (`surfaces/` deleted), 36 (package names) and 37 (the v6.0 trio). v6.0.0 is the trio on one Deck:
 
 ```python
-await deck.expose(A2A.http(path="/a2a"), WhatsApp.http(path="/whatsapp"), Terminal.stdio()).serve()
+await deck.serve(A2A.http(path="/a2a"), WhatsApp.http(path="/whatsapp"), Terminal.stdio())
 ```
 
 ## Delivery

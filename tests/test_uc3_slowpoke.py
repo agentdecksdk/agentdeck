@@ -46,12 +46,9 @@ from agentdeck.core.control import Signal
 from agentdeck.core.invocable import InvocableKind, InvocableSpec
 from agentdeck.core.status import RunStatus, status_of
 from agentdeck.runtime.service import Runtime
-from agentdeck.surfaces.cli.chat import render
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
-
-    import pytest
 
     from agentdeck.core.events import Event
     from agentdeck.core.ports import EventStorePort
@@ -210,9 +207,11 @@ async def test_uc3_run_cancelled_is_terminal_and_a_followup_signal_is_a_noop() -
     assert after == before
 
 
-async def test_uc3_replay_is_truncated_but_coherent_and_the_renderer_copes(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+async def test_uc3_replay_is_truncated_but_coherent() -> None:
+    """A cancelled run's log is a coherent prefix: deltas, no `message.completed`, terminal last.
+    The half that fed the deleted v1 renderer is gone with it; `Terminal.stdio()` proves its own
+    render copes with a stream it has no branch for (`test_terminal_binding.py`).
+    """
     control = MemoryControlPort()
     runtime, store = _build(control)
     ctx = RunContext(namespace="demo", run_id="reader", session_id="s-replay")
@@ -234,14 +233,7 @@ async def test_uc3_replay_is_truncated_but_coherent_and_the_renderer_copes(
     assert sum(1 for event in log if event.kind == "text.delta") > 0
     assert not any(event.kind == "message.completed" for event in log)  # the message never finished
 
-    async def lines() -> AsyncIterator[str]:
-        for event in log:
-            yield f"data: {event.model_dump_json()}\n\n"
-
-    await render(lines())  # UC1's unedited renderer must not crash on a truncated run
-    out = capsys.readouterr().out
-    assert "run.cancelled" in out
-    assert MESSAGE_ID not in out  # no message.completed line prints for the unfinished bubble
+    assert [event.kind for event in log][-1] == "run.cancelled"
 
 
 async def test_uc3_chaos_gap_detection_recovers_from_store() -> None:
