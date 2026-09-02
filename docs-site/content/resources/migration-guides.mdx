@@ -14,6 +14,19 @@
 
 # Migration Guides
 
+## v5 to v6.0.0
+
+v6.0.0 replaces the v1 HTTP wire with bindings: a Deck is served over one or more of them, never
+itself. `agentdeck chat` is unchanged.
+
+| break | before (v5) | after (v6.0.0) |
+|---|---|---|
+| v1 routes gone | `POST /agents/{name}/chat` | `POST /runs`, then `GET /runs/{run_id}/events` |
+| `agentdeck-serve` gone; `deck.serve` is the front door, synchronous | `agentdeck-serve` | `deck.serve(Native.http("/api"), port=8000)` |
+| `Deck.asgi()` needs a binding | `Deck.from_project().asgi()` | `Deck.from_project().asgi(Native.http())` |
+| `DeckGateway.start` drops `context` (binding authors) | `gateway.start(target, input, context=ctx)` | `gateway.start(target, input)` |
+| `InterruptReason` drops `"approval"` | `pending.reason == "approval"` | `pending.reason == "human"`; refusal comes from `payload["options"]`, which `Run.answer` already enforces |
+
 ## v4 to v5.0.0
 
 v5.0.0 is a breaking release: a v5 build cannot read an event log v4 wrote, and several public
