@@ -12,9 +12,9 @@ description: Validate a set of bindings, then serve them standalone or embed the
 # Serve
 
 `deck.serve(binding, *bindings, host=, port=)` is synchronous: it owns the event loop, validates
-the bindings, opens the Deck, starts every binding, and blocks until interrupted. At least one
-binding is required: `binding` is positional, so `deck.serve()` alone is a `TypeError` before any
-binding code runs.
+the bindings, opens the Deck, starts every binding, and blocks until interrupted. Ctrl-C stops the
+server and returns. At least one binding is required: `binding` is positional, so `deck.serve()`
+alone is a `TypeError` before any binding code runs.
 
 ## Standalone
 
@@ -31,8 +31,9 @@ loop directly, and no listener opens.
 
 ## Inside an existing event loop
 
-If your app already runs asyncio, `deck.serve(...)` can't be called directly: it owns the loop.
-Use `await deck.serve_async(...)` instead, with the same arguments:
+Already inside asyncio, embedding AgentDeck serving in an application that owns its own event
+loop: `deck.serve(...)` refuses to run there, since it cannot own a loop that is already running.
+Use `await deck.serve_async(...)` instead, same behavior, without owning the loop:
 
 ```python
 await deck.serve_async(Native.http("/api"), port=8000)

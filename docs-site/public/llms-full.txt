@@ -481,21 +481,22 @@ continues on its next line.
 
 ## Serving through bindings
 
-`deck.serve(binding, *bindings)` validates a set of bindings and serves them, owning their lifecycle. A
-binding is one external protocol, channel or surface over one transport. The first one is the
-terminal:
+`deck.serve(binding, *bindings)` validates a set of bindings and serves them, owning their
+lifecycle. It is synchronous and blocking: it owns the event loop until the server exits, so it
+runs from plain application code with no `asyncio.run(...)` of your own. A binding is one external
+protocol, channel or surface over one transport. The first one is the terminal:
 
 ```python
-import asyncio
-
 from agentdeck import Deck
 from agentdeck.bindings import Terminal
 
 deck = Deck.from_project("./.agentdeck")
-asyncio.run(deck.serve(Terminal.stdio()))   # what `agentdeck chat` runs
+deck.serve(Terminal.stdio())   # what `agentdeck chat` runs
 ```
 
-Embedding uses `deck.asgi(binding, *bindings)` instead of `serve()`.
+Already inside asyncio  -  embedding AgentDeck serving in an application that owns its own event
+loop  -  use `await deck.serve_async(binding, *bindings)` instead: same behaviour, without owning
+the loop. Embedding as an ASGI app uses `deck.asgi(binding, *bindings)` instead of either.
 
 ## Serving over HTTP
 
@@ -503,13 +504,11 @@ A Deck does not serve itself: a binding does, and `Native.http()` is AgentDeck's
 protocol.
 
 ```python
-import asyncio
-
 from agentdeck import Deck
 from agentdeck.bindings import Native
 
 deck = Deck.from_project("./.agentdeck")
-asyncio.run(deck.serve(Native.http(), port=8000))
+deck.serve(Native.http(), port=8000)
 ```
 
 `deck.asgi(binding, *bindings)` returns the ASGI application instead, for mounting inside a service you
@@ -1181,9 +1180,9 @@ Source: https://agentdecksdk.com/bindings/serve
 # Serve
 
 `deck.serve(binding, *bindings, host=, port=)` is synchronous: it owns the event loop, validates
-the bindings, opens the Deck, starts every binding, and blocks until interrupted. At least one
-binding is required: `binding` is positional, so `deck.serve()` alone is a `TypeError` before any
-binding code runs.
+the bindings, opens the Deck, starts every binding, and blocks until interrupted. Ctrl-C stops the
+server and returns. At least one binding is required: `binding` is positional, so `deck.serve()`
+alone is a `TypeError` before any binding code runs.
 
 ## Standalone
 
@@ -1200,8 +1199,9 @@ loop directly, and no listener opens.
 
 ## Inside an existing event loop
 
-If your app already runs asyncio, `deck.serve(...)` can't be called directly: it owns the loop.
-Use `await deck.serve_async(...)` instead, with the same arguments:
+Already inside asyncio, embedding AgentDeck serving in an application that owns its own event
+loop: `deck.serve(...)` refuses to run there, since it cannot own a loop that is already running.
+Use `await deck.serve_async(...)` instead, same behavior, without owning the loop:
 
 ```python
 await deck.serve_async(Native.http("/api"), port=8000)
@@ -2598,6 +2598,13 @@ The current release is **v5.2.1**. Earlier releases are listed at the bottom.
 
 ### Changed
 
+- **`Deck.serve()` is synchronous and blocking** (#623), breaking versus the unreleased #606
+  shape: it owns the event loop (`asyncio.run` internally) instead of returning a coroutine, so
+  it runs from plain application code with no `asyncio.run(deck.serve(...))` of your own. The
+  previous coroutine is now `Deck.serve_async()`, for a caller already running inside asyncio.
+  Ctrl-C stops the server and returns quietly, matching `uvicorn.run`; `serve_async()` leaves its
+  own `KeyboardInterrupt` handling to the caller. `agentdeck chat` calls `deck.serve(...)`
+  directly. `Deck.asgi()` is unchanged.
 - **`DeckGateway.start` drops `context`** (#599): no binding ever passed one, and a served run
   has no live Python execution context to hand it. `DeckGateway` no longer stores or directly
   exposes the `Deck` it was built from.
@@ -2610,6 +2617,18 @@ The current release is **v5.2.1**. Earlier releases are listed at the bottom.
 
   The root keeps the everyday vocabulary, a feature namespace keeps its own, and no public name
   lives at two paths (`docs/engineering/architecture.md` 3).
+
+### Fixed
+
+- **A workflow's own `InputError` after `run.started` reaches every wire as itself** (#621):
+  `RunFailed.error_code` gains `"invalid_input"`, and its `message` carries the exception's own
+  caller-safe text instead of being stripped to `"InputError in engine ..."`. Every other
+  exception's shape is unchanged.
+- **`Deck.__aenter__` rolls back a late failure** (#572): a failure after observers started  -  building the runtime, connecting MCP servers  -  used to leave every started observer open and the process claim held, blocking a second `Deck(...)` in the same process. It now closes what it started and releases the claim before re-raising, same as an observer-start failure already did.
+- **A workflow's input mapping that doesn't match its declared parameters raises `InputError`,
+  not `ConfigError`** (#583). It is caller-supplied content the target can't take, not a
+  configuration fault. A same-process caller now catches `InputError` instead of `ConfigError`;
+  `_map_failure` already maps `InputError` to `INVALID_INPUT`.
 
 ## v5.2.1
 
