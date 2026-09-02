@@ -174,10 +174,16 @@ async def test_shutdown_drains_a_running_job_and_rejects_new_ones() -> None:
 async def test_cancel_during_a_sync_tools_execution_never_completes_the_run() -> None:
     """A sync body offers no safepoint of its own; ``run.cancel()`` while it is still on its
     worker must still end the run as CANCELLED, never COMPLETED, once the body eventually
-    returns  -  it cannot be interrupted, but its result must not overwrite the verdict."""
+    returns  -  it cannot be interrupted, but its result must not overwrite the verdict.
+
+    A bare ``@tool`` is no longer a run `Deck.run`/``Runs.start`` takes by name (#488), so it
+    is reached the way any body reaches one: ``ctx.invoke`` from a thin wrapping ``@workflow``.
+    Nothing else about the case changes  -  the assertions still read the tool's own run.
+    """
     started = threading.Event()
     release = threading.Event()
     finished: list[str] = []
+    held: dict[str, Any] = {}
 
     @tool
     def blocking() -> str:
@@ -186,15 +192,25 @@ async def test_cancel_during_a_sync_tools_execution_never_completes_the_run() ->
         finished.append("ran to the end regardless")
         return "too late to matter"
 
-    async with Deck(workflows=[blocking]) as deck:
-        run = await deck.runs.start("blocking", None)
+    @workflow
+    async def running(ctx: WorkflowCtx) -> str:
+        child = ctx.invoke(blocking)
+        held["child"] = child
+        try:
+            return str(await child)
+        except RuntimeError:
+            return "cancelled"  # the cancel this test causes; discarded the same as the body's own result
+
+    async with Deck(workflows=[blocking, running]) as deck:
+        await deck.runs.start("running", None)
         await asyncio.to_thread(started.wait, 5)
-        await run.cancel("operator said stop")
+        child = held["child"]
+        await child.cancel("operator said stop")
         release.set()
-        await _settles(run, RunStatus.CANCELLED)
+        await _settles(child, RunStatus.CANCELLED)
 
         assert finished == ["ran to the end regardless"]
-        kinds = [event.kind async for event in run.events()]
+        kinds = [event.kind async for event in child.events()]
         assert kinds[-1] == "run.cancelled"
         assert "run.completed" not in kinds
 
@@ -202,9 +218,14 @@ async def test_cancel_during_a_sync_tools_execution_never_completes_the_run() ->
 async def test_a_sync_bodys_own_failure_is_discarded_once_cancelled() -> None:
     """The RunFailed half of plan §3: a sync body that raises after the run was already
     cancelled must not surface as ``run.failed``  -  the cancel takes precedence, and the raise
-    the body could not be stopped from making is discarded the same as a return would be."""
+    the body could not be stopped from making is discarded the same as a return would be.
+
+    Reached through a wrapping ``@workflow`` and ``ctx.invoke``, as above (#488): a bare
+    ``@tool`` is no longer a name ``Runs.start`` takes.
+    """
     started = threading.Event()
     release = threading.Event()
+    held: dict[str, Any] = {}
 
     @tool
     def failing() -> str:
@@ -212,14 +233,24 @@ async def test_a_sync_bodys_own_failure_is_discarded_once_cancelled() -> None:
         release.wait(timeout=5)
         raise ValueError("too late to matter")
 
-    async with Deck(workflows=[failing]) as deck:
-        run = await deck.runs.start("failing", None)
-        await asyncio.to_thread(started.wait, 5)
-        await run.cancel("operator said stop")
-        release.set()
-        await _settles(run, RunStatus.CANCELLED)
+    @workflow
+    async def running(ctx: WorkflowCtx) -> str:
+        child = ctx.invoke(failing)
+        held["child"] = child
+        try:
+            return str(await child)
+        except RuntimeError:
+            return "cancelled"
 
-        kinds = [event.kind async for event in run.events()]
+    async with Deck(workflows=[failing, running]) as deck:
+        await deck.runs.start("running", None)
+        await asyncio.to_thread(started.wait, 5)
+        child = held["child"]
+        await child.cancel("operator said stop")
+        release.set()
+        await _settles(child, RunStatus.CANCELLED)
+
+        kinds = [event.kind async for event in child.events()]
         assert kinds[-1] == "run.cancelled"
         assert "run.failed" not in kinds
 
@@ -228,7 +259,11 @@ async def test_deck_aclose_drains_a_still_running_sync_tool_without_deadlocking(
     """Plan §4, the trap the deadlock check exists for: ``NativeExecutor.aclose()`` cancels the
     parked body's *task* before the pool ever sees ``aclose()``, which must not make the pool
     think the job itself is done  -  closing while genuinely still running must drain, not block
-    the loop the worker's reporter bridge would otherwise need to unblock it."""
+    the loop the worker's reporter bridge would otherwise need to unblock it.
+
+    Reached through ``ctx.invoke`` (#488): a bare ``@tool`` is no longer a name ``Runs.start``
+    takes.
+    """
     started = threading.Event()
     release = threading.Event()
     finished: list[str] = []
@@ -240,9 +275,13 @@ async def test_deck_aclose_drains_a_still_running_sync_tool_without_deadlocking(
         finished.append("done")
         return "done"
 
-    deck = Deck(workflows=[slow])
+    @workflow
+    async def running(ctx: WorkflowCtx) -> str:
+        return str(await ctx.invoke(slow))
+
+    deck = Deck(workflows=[slow, running])
     await deck.__aenter__()
-    await deck.runs.start("slow", None)
+    await deck.runs.start("running", None)
     await asyncio.to_thread(started.wait, 5)
 
     async def release_shortly_after_close_begins() -> None:
@@ -258,7 +297,11 @@ async def test_deck_aclose_drains_a_still_running_sync_tool_without_deadlocking(
 
 async def test_a_blocking_sync_tool_does_not_delay_an_unrelated_concurrent_run() -> None:
     """The core regression #516 left open: a blocking sync tool on a worker must never stall an
-    unrelated run sharing the same loop."""
+    unrelated run sharing the same loop.
+
+    ``slow`` is reached through a thin wrapping ``@workflow`` and ``ctx.invoke`` (#488): a bare
+    ``@tool`` is no longer a name ``Deck.run`` takes.
+    """
     order: list[str] = []
     holding = threading.Event()
     release = threading.Event()
@@ -271,12 +314,16 @@ async def test_a_blocking_sync_tool_does_not_delay_an_unrelated_concurrent_run()
         return "slow done"
 
     @workflow
+    async def running(ctx: WorkflowCtx) -> str:
+        return str(await ctx.invoke(slow))
+
+    @workflow
     async def fast(ctx: WorkflowCtx) -> str:
         order.append("fast")
         return "fast done"
 
     async def run_slow() -> Any:
-        return await deck.run("slow", None)
+        return await deck.run("running", None)
 
     async def run_fast_once_slow_is_running() -> Any:
         await asyncio.to_thread(holding.wait, 5)
@@ -284,7 +331,7 @@ async def test_a_blocking_sync_tool_does_not_delay_an_unrelated_concurrent_run()
         release.set()
         return result
 
-    async with Deck(workflows=[slow, fast]) as deck:
+    async with Deck(workflows=[slow, running, fast]) as deck:
         slow_result, fast_result = await asyncio.gather(run_slow(), run_fast_once_slow_is_running())
 
     assert (slow_result, fast_result) == ("slow done", "fast done")
@@ -295,7 +342,11 @@ async def test_a_blocking_sync_tool_does_not_delay_an_unrelated_concurrent_run()
 async def test_ctx_data_and_reporter_work_from_a_sync_body_with_no_orchestration() -> None:
     """``ctx.data``/``ctx.reporter`` work from a sync body; ``ctx.invoke``/``parallel``/``ask``/
     ``approve`` are absent (leaf-only surface, unchanged by this plan); ``ctx.safepoint()`` is
-    refused explicitly rather than silently doing nothing."""
+    refused explicitly rather than silently doing nothing.
+
+    Reached through ``ctx.invoke`` (#488): a bare ``@tool`` is no longer a name ``Deck.run``
+    takes. ``context`` still reaches it, by reference, through the wrapping run.
+    """
     seen: dict[str, Any] = {}
 
     @tool
@@ -310,8 +361,12 @@ async def test_ctx_data_and_reporter_work_from_a_sync_body_with_no_orchestration
             seen["safepoint_error"] = str(refused)
         return "ok"
 
-    async with Deck(workflows=[inspecting]) as deck:
-        assert await deck.run("inspecting", None, context="the data") == "ok"
+    @workflow
+    async def running(ctx: WorkflowCtx[str]) -> str:
+        return str(await ctx.invoke(inspecting))
+
+    async with Deck(workflows=[inspecting, running]) as deck:
+        assert await deck.run("running", None, context="the data") == "ok"
 
     assert seen["data"] == "the data"
     assert seen["invoke"] is False

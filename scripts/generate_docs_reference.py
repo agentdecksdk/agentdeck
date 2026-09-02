@@ -357,9 +357,16 @@ def _site_pages() -> list[tuple[str, Path]]:
         "changelog",
     ]
 
+    # The 6.0 announcement (#618) ranks right after the landing page, near the top for anything
+    # indexing the docs  -  not wherever "whats-new-6" happens to alphabetize among its siblings.
+    announcement_slug = "meet-agentdeck/whats-new-6"
+
     def rank(slug: str) -> tuple[int, str]:
+        if slug == announcement_slug:
+            return (order.index("index"), "index\uffff")
         head = slug.split("/")[0]
-        return (order.index(head) if head in order else len(order), slug)
+        base = order.index(head) if head in order else len(order)
+        return (base, slug)
 
     pages = []
     for path in sorted(root.rglob("*.mdx")):
