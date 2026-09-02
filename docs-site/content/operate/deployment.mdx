@@ -46,16 +46,16 @@ restart must not lose in-progress conversations. `AGENTDECK_EVENTS=redis://`/`po
 
 ## A supervised process
 
-A served Deck is one you exposed: `deck.expose(Native.http()).asgi()` is the ASGI app, and
+A served Deck is one you exposed: `deck.asgi(Native.http())` is the ASGI app, and
 `uvicorn module:app` runs it. An application composing its own `Deck`, like Jack, runs the same
 way.
 
 ```python
 # app.py
 from agentdeck import Deck
-from agentdeck.bindings.native import Native
+from agentdeck.bindings import Native
 
-app = Deck.from_project("./.agentdeck").expose(Native.http()).asgi()
+app = Deck.from_project("./.agentdeck").asgi(Native.http())
 ```
 
 ```ini

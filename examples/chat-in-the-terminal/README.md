@@ -46,7 +46,7 @@ Ctrl-C cancels a run in flight, or leaves the prompt if nothing is running. Ctrl
 - **`agentdeck chat <target>` takes any agent or workflow.** Omit the name only when the deck
   holds exactly one target; a name that does not exist fails before the first prompt.
 - **The terminal is a binding, not a special case.** `agentdeck chat` is
-  `deck.expose(Terminal.stdio(target=...)).serve()`, and the same run is reachable over HTTP from
+  `deck.serve(Terminal.stdio(target=...))`, and the same run is reachable over HTTP from
   `Native.http()` at the same time.
 
 Next: [Workflows](https://agentdecksdk.com/build-your-deck/workflows) ·

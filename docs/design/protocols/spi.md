@@ -22,7 +22,7 @@ A protocol must be implementable outside this repository:
 from agentdeck import Deck
 from agentdeck_a2a import A2A
 
-app = Deck(...).expose(A2A.http()).asgi()
+app = Deck(...).asgi(A2A.http())
 ```
 
 | may use | may not use |

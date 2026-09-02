@@ -373,20 +373,21 @@ continues on its next line.
 
 ## Serving through bindings
 
-`expose(*bindings)` validates a set of bindings and owns their lifecycle. A binding is one
-external protocol, channel or surface over one transport. The first one is the terminal:
+`deck.serve(*bindings)` validates a set of bindings and serves them, owning their lifecycle. A
+binding is one external protocol, channel or surface over one transport. The first one is the
+terminal:
 
 ```python
 import asyncio
 
 from agentdeck import Deck
-from agentdeck.bindings.terminal import Terminal
+from agentdeck.bindings import Terminal
 
 deck = Deck.from_project("./.agentdeck")
-asyncio.run(deck.expose(Terminal.stdio()).serve())   # what `agentdeck chat` runs
+asyncio.run(deck.serve(Terminal.stdio()))   # what `agentdeck chat` runs
 ```
 
-Embedding uses `deck.expose(...).asgi()` instead of `serve()`.
+Embedding uses `deck.asgi(*bindings)` instead of `serve()`.
 
 ## Serving over HTTP
 
@@ -397,26 +398,30 @@ protocol.
 import asyncio
 
 from agentdeck import Deck
-from agentdeck.bindings.native import Native
+from agentdeck.bindings import Native
 
 deck = Deck.from_project("./.agentdeck")
-asyncio.run(deck.expose(Native.http()).serve(port=8000))
+asyncio.run(deck.serve(Native.http(), port=8000))
 ```
 
-`exposure.asgi()` returns the ASGI application instead, for mounting inside a service you already
-run. Its lifespan **opens the deck on startup and closes it on shutdown**, so a served deck needs
-no separate `async with`, and a deck you opened yourself is left alone.
+`deck.asgi(*bindings)` returns the ASGI application instead, for mounting inside a service you
+already run. Its lifespan **opens the deck on startup and closes it on shutdown**, so a served
+deck needs no separate `async with`, and a deck you opened yourself is left alone.
 
 ```python
-app = deck.expose(Native.http(path="/api")).asgi()   # uvicorn yourmodule:app
+app = deck.asgi(Native.http(path="/api"))   # uvicorn yourmodule:app
 ```
 
 Several bindings share one listener, so the same runs are reachable over more than one protocol at
 once:
 
 ```python
-app = deck.expose(Native.http(path="/api"), Terminal.stdio()).asgi()
+app = deck.asgi(Native.http(path="/api"), Terminal.stdio())
 ```
+
+`deck.expose(*bindings)` returns the underlying `Exposure` object directly, for lifecycle control
+beyond one call (inspecting it before serving, reusing the same exposure for both `.serve()` and
+a health check, closing it manually).
 
 The routes, the SSE frames and the status codes are the
 [native wire spec](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/native-wire.md).

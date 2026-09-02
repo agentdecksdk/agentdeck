@@ -660,6 +660,16 @@ class Deck:
 
         return Exposure(self, bindings)
 
+    async def serve(self, *bindings: Binding, host: str = "0.0.0.0", port: int = 8000) -> None:
+        """``expose(*bindings).serve(host=, port=)``. Call :meth:`expose` directly for the
+        ``Exposure`` object (advanced lifecycle control, embedding, inspection)."""
+        await self.expose(*bindings).serve(host=host, port=port)
+
+    def asgi(self, *bindings: Binding) -> Any:
+        """``expose(*bindings).asgi()``. Call :meth:`expose` directly for the ``Exposure``
+        object (advanced lifecycle control, embedding, inspection)."""
+        return self.expose(*bindings).asgi()
+
     def build(self) -> Deck:
         """Validate the whole catalog and compile every agent/workflow to an ``InvocableSpec``.
 
@@ -1236,6 +1246,7 @@ class Deck:
         """Conversation memory for ``session_id``  -  the engine's own store, so a turn started
         here and one started over HTTP land in the same conversation."""
         return self._ensure_sessions().session_for(_new_context(session_id))
+
 
 _NO_CONTROL_PORT = (
     "the run could not be told to {verb}: this deck has no control backend, so nothing was "
