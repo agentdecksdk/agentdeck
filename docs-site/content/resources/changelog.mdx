@@ -48,6 +48,9 @@ The current release is **v5.2.1**. Earlier releases are listed at the bottom.
 - **A terminal chat example needing no API key** (`examples/chat-in-the-terminal/`): one
   `@workflow` asking the questions, driven by `agentdeck chat`. The first example that runs with
   no credentials at all.
+- **A run event stream example** (#396, `examples/run-events-stream/`): iterates
+  `deck.stream(...)` and prints every event kind and payload in order. Scripts the model with
+  `agentdeck.testing`, so it needs no API key and prints one fixed output.
 - **`Terminal.stdio()`, the first surface** (#549): `from agentdeck.bindings.terminal import
   Terminal`, then `deck.expose(Terminal.stdio(target="Research"))`. One session per process over
   stdin and stdout: prompts, streams the run's text back, renders a numbered prompt for

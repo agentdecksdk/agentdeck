@@ -10,6 +10,10 @@ Do not "fix" this into ``deck.run(...)``. A chat turn needs a real model, and no
 suite is allowed to reach one; the docs suite already executes turns against a scripted local
 endpoint, and that is where a run-level example check would belong.
 
+One example is exempt because it reaches no model either: ``run-events-stream`` stubs the SDK
+boundary in its own script, so running it keeps the suite offline and deterministic, which is
+what the rule above protects rather than "never execute an example".
+
 One ``Deck`` per test function, deliberately: discovery mounts every project under a single
 module alias, so two live decks in one process read each other's bundles.
 """
@@ -17,6 +21,8 @@ module alias, so two live decks in one process read each other's bundles.
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -99,3 +105,27 @@ def test_the_terminal_example_declares_a_workflow_and_needs_no_model() -> None:
     deck = Deck.from_project(EXAMPLES / "chat-in-the-terminal" / ".agentdeck").build()
     assert sorted(deck.workflows) == ["shift_handover"]
     assert not deck.agents
+
+
+def test_the_events_example_prints_the_lifecycle_in_order() -> None:
+    """The README's output block is the example's whole payload, so the sequence behind it is what
+    rots. Kinds only: pinning the payload text here would fail on every ``ScriptedModel`` default
+    that changes, which is not this example's contract.
+    """
+    result = subprocess.run(
+        [sys.executable, "run.py"],
+        cwd=EXAMPLES / "run-events-stream",
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    kinds = [line.split(":", 1)[0] for line in result.stdout.splitlines()]
+    assert kinds == [
+        "run.started",
+        "text.delta",
+        "text.delta",
+        "usage.reported",
+        "message.completed",
+        "run.completed",
+    ]
