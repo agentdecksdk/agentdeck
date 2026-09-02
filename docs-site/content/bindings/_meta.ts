@@ -1,5 +1,6 @@
 export default {
   index: 'Overview',
   serve: 'Serve',
-  native: 'Native'
+  native: 'Native',
+  terminal: 'Terminal'
 }
