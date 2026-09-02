@@ -79,6 +79,7 @@ from agentdeck.core.workers import SyncToolWorkers
 from agentdeck.errors import (
     AgentdeckError,
     ConfigError,
+    InputError,
     NotFoundError,
     RunStateError,
     RunSuspendedError,
@@ -638,7 +639,11 @@ class Deck:
 
     @property
     def workflows(self) -> Mapping[str, NativeDefinition]:
-        return self._workflows
+        """Only ``@workflow`` kind: a bundled ``@tool`` compiles into the runtime catalog too
+        (``ctx.invoke`` needs it there), but it is not a target this lists or ``run``/``stream``
+        accept by name.
+        """
+        return {name: d for name, d in self._workflows.items() if d.kind is InvocableKind.WORKFLOW}
 
     @property
     def skills(self) -> Skills | None:
@@ -978,6 +983,19 @@ class Deck:
             f"No agent or workflow named {name!r}. Available: {sorted({*self._agents, *self._workflows})}."
         )
 
+    def _catalog_root(self, name: str) -> Agent | NativeDefinition:
+        """What ``run``/``stream``/``Runs.start`` resolve a caller-supplied name against: every
+        :meth:`_root` target minus a bundled tool, which compiles into the runtime catalog for
+        ``ctx.invoke`` (:func:`_invoked_name`) but is never addressable by name from outside one.
+        """
+        root = self._root(name)
+        if isinstance(root, NativeDefinition) and root.kind is not InvocableKind.WORKFLOW:
+            raise InputError(
+                f"{name!r} is a tool, not a runnable target. Available targets: "
+                f"{sorted({*self._agents, *self.workflows})}. Call it from a workflow with ctx.invoke(...)."
+            )
+        return root
+
     async def _start(
         self,
         name: str,
@@ -1169,7 +1187,7 @@ class Deck:
         ``(namespace, key)`` pair whose run already started raises ``DuplicateKeyError`` rather
         than replaying that run, since this call always begins a new one.
         """
-        root = self._root(name)
+        root = self._catalog_root(name)
         self._require_open()
         content = _content_for(root, input)
         opening, task = await self._start(
@@ -1204,7 +1222,7 @@ class Deck:
         cancelled out from under it  -  only stops *watching*. It does not stop the run, which
         keeps executing to its own natural end regardless.
         """
-        root = self._root(name)
+        root = self._catalog_root(name)
         self._require_open()
         content = _content_for(root, input)
         opening, task = await self._start(
@@ -1598,7 +1616,7 @@ class Runs:
         duplicate start never replays the run that holds the key, it refuses.
         """
         deck = self._deck
-        root = deck._root(name)
+        root = deck._catalog_root(name)
         deck._require_open()
         content = _content_for(root, input)
         opening, _task = await deck._start(

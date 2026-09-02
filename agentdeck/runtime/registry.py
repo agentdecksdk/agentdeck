@@ -26,11 +26,11 @@ _PROJECT_ALIAS = "agentdeck_project"
 class PluginRegistry(Generic[T]):
     """Discover ``T`` instances in ``<package>/<type_dir>/<bundle>/<module_name>.py``.
 
-    Matched by ``isinstance(base_class)``, narrowed by ``kind`` when several kinds share one
-    ``base_class`` (a ``@tool`` and a ``@workflow`` both produce ``NativeDefinition``, so the
-    workflow registry passes ``kind=WORKFLOW`` and a bundled ``@tool`` is skipped, not collected).
-    A bundle importing cleanly but binding nothing matching, or two bundles claiming one name,
-    both raise ``ConfigError`` naming the bundle(s)  -  see :meth:`_scan`.
+    Lazy: :meth:`list` scans once and caches; pass ``refresh=True`` to force a re-scan. Matched
+    by ``isinstance(base_class)``, narrowed by ``kind`` (a wrong-kind match still returns, just
+    uncounted). A bundle aliasing its own instance under a second name is not a collision  -  only
+    a second, different instance claiming a name already taken is; both that and a bundle binding
+    nothing matching raise ``ConfigError`` naming the bundle(s), see :meth:`_scan`.
     """
 
     package: str
@@ -92,15 +92,12 @@ class PluginRegistry(Generic[T]):
                 if not isinstance(attr, self.base_class):
                     continue
                 found_kind = getattr(attr, "kind", None)
-                if self.kind is not None and found_kind != self.kind:
+                if self.kind is None or found_kind == self.kind:
+                    matched = True
+                else:
                     wrong_kind.append((attr_name, found_kind.value if found_kind is not None else "?"))
-                    continue
-                matched = True
                 name = attr.name
-                # Identity, not name: ``vars(module)`` yields one entry per *binding*, so a
-                # bundle aliasing its own instance under a second name (kept after a rename)
-                # must not trip this against itself  -  only a second, different instance
-                # claiming a name already taken is the collision.
+                # Identity, not name  -  see the alias-vs-collision rule on the class docstring.
                 claimant = found.get(name)
                 if claimant is not None and claimant is not attr:
                     raise ConfigError(

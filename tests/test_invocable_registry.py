@@ -164,13 +164,15 @@ def test_load_compiles_each_bundle_shape_into_a_spec(project: None, executors: l
     assert isinstance(shout.native, NativeDefinition), "a native workflow's spec carries its own decorated definition"
 
 
-def test_a_bundled_tool_is_not_discovered_as_a_workflow(
+def test_a_bundled_tool_still_compiles_into_the_runtime_catalog(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, executors: list[Executor]
 ) -> None:
-    """#488, through ``InvocableRegistry``'s own discovery scan  -  ``load()`` called with no
-    explicit ``workflows=``, the path ``Deck.build()`` never takes (it always passes its own
-    already-discovered list) but ``InvocableRegistry(...).load()`` is public and callable
-    directly.
+    """#488 is a `Deck.workflows`/public-name concern, not a compile-time one: ``specs`` is the
+    Runtime's own catalog, kind-blind by design, so a bundled ``@tool`` still needs a spec here
+    for ``ctx.invoke`` to find  -  ``Deck.workflows`` and ``Deck.run`` are what hide it, and
+    ``load()`` called with no explicit ``workflows=`` is the path ``Deck.build()`` never takes
+    (it always passes its own already-discovered list) but ``InvocableRegistry(...).load()`` is
+    public and callable directly.
     """
     root = tmp_path / ".agentdeck"
     (root / "workflows" / "shout").mkdir(parents=True)
@@ -181,7 +183,8 @@ def test_a_bundled_tool_is_not_discovered_as_a_workflow(
 
     specs = InvocableRegistry(executors).load()
 
-    assert sorted(specs) == ["Shout"]
+    assert sorted(specs) == ["Shout", "helper"]
+    assert specs["helper"].kind is InvocableKind.TOOL
 
 
 def test_skills_are_not_discovered_as_invocables(project: None, executors: list[Executor]) -> None:

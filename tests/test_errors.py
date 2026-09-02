@@ -5,7 +5,7 @@ import textwrap
 
 import pytest
 
-from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, SkillError
+from agentdeck.errors import AgentdeckError, ConfigError, InputError, NotFoundError, SkillError
 from agentdeck.runtime.registry import PluginRegistry
 
 AGENT_PY = """
@@ -97,6 +97,27 @@ from agentdeck import ToolCtx, tool
 @tool
 async def places_lookup(ctx: ToolCtx, query: str) -> str:
     return query
+"""
+
+# #488: the reporter's own reason for exporting `tools = [places_lookup]` in the first place  -
+# `ctx.invoke(places_lookup, ...)` from inside the bundle's own workflow. The fix must not break
+# the very call it was written to keep working.
+TOOL_INVOKED_BY_WORKFLOW_BUNDLE_PY = """
+from agentdeck import ToolCtx, WorkflowCtx, tool, workflow
+
+
+@tool
+async def places_lookup(ctx: ToolCtx, query: str) -> str:
+    return query.upper()
+
+
+@workflow(name="discovery")
+async def discovery(ctx: WorkflowCtx, said: str) -> str:
+    return str(await ctx.invoke(places_lookup, said))
+
+
+workflow = discovery
+tools = [places_lookup]
 """
 
 
@@ -260,6 +281,38 @@ def test_a_bundled_tool_is_not_registered_as_a_workflow(tmp_path, monkeypatch):
 
     deck = Deck.from_project()
     assert sorted(deck.workflows) == ["discovery"]
+
+
+async def test_a_bundled_tool_is_invocable_from_its_own_bundles_workflow(tmp_path, monkeypatch):
+    """#488's motivating case, end to end: the workflow body itself calls
+    `ctx.invoke(places_lookup, ...)`, and the run must still complete."""
+    root = tmp_path / ".agentdeck"
+    (root / "workflows" / "discovery").mkdir(parents=True)
+    (root / "workflows" / "discovery" / "workflow.py").write_text(textwrap.dedent(TOOL_INVOKED_BY_WORKFLOW_BUNDLE_PY))
+    monkeypatch.chdir(tmp_path)
+    _drop_project_mount(monkeypatch)
+    from agentdeck.deck import Deck
+
+    async with Deck.from_project() as deck:
+        assert await deck.run("discovery", "hi") == "HI"
+
+
+async def test_a_bundled_tool_is_refused_as_a_run_target_by_name(tmp_path, monkeypatch):
+    """The public counterpart: a tool reachable through `ctx.invoke` from inside its own
+    bundle's workflow is still not a name `deck.run` accepts directly."""
+    root = tmp_path / ".agentdeck"
+    (root / "workflows" / "discovery").mkdir(parents=True)
+    (root / "workflows" / "discovery" / "workflow.py").write_text(textwrap.dedent(TOOL_AND_WORKFLOW_BUNDLE_PY))
+    monkeypatch.chdir(tmp_path)
+    _drop_project_mount(monkeypatch)
+    from agentdeck.deck import Deck
+
+    async with Deck.from_project() as deck:
+        with pytest.raises(InputError) as excinfo:
+            await deck.run("places_lookup", "hi")
+    message = str(excinfo.value)
+    assert "'places_lookup' is a tool, not a runnable target" in message
+    assert "ctx.invoke" in message
 
 
 def test_a_workflow_bundle_exporting_only_a_tool_raises_naming_what_it_found(tmp_path, monkeypatch):
