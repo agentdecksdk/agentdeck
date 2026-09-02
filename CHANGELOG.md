@@ -20,7 +20,7 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   mounts every `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
   `deck.serve(...)` runs standalone, closing the Deck only if it opened it. A failed `start()` on
   binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too. `expose(...)`
-  returns the underlying `Exposure` object for lifecycle control beyond one call.
+  is the lower-level call, returning the `Exposure` object itself.
 
 - **`Native.http()`, the AgentDeck protocol** (#548): `from agentdeck.bindings import
   Native`, then `deck.serve(Native.http())`. Ten routes over `DeckGateway` and public `Run`
@@ -51,8 +51,8 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 - **`Deck.serve(*bindings, host=, port=)` and `Deck.asgi(*bindings)`** (#606): the front door,
   one-line delegations to `expose(*bindings).serve()`/`.asgi()`. `agentdeck.bindings` now
   lazily exports `Native` and `Terminal` too, so `from agentdeck.bindings import Native, Terminal`
-  works without importing either module until named. `expose()` stays for the `Exposure` object
-  itself (embedding, inspection, advanced lifecycle control).
+  works without importing either module until named. `expose()` is the lower-level call, returning
+  the `Exposure` object itself.
 
 ### Removed
 

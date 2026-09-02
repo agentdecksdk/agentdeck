@@ -481,7 +481,7 @@ continues on its next line.
 
 ## Serving through bindings
 
-`deck.serve(*bindings)` validates a set of bindings and serves them, owning their lifecycle. A
+`deck.serve(binding, *bindings)` validates a set of bindings and serves them, owning their lifecycle. A
 binding is one external protocol, channel or surface over one transport. The first one is the
 terminal:
 
@@ -495,7 +495,7 @@ deck = Deck.from_project("./.agentdeck")
 asyncio.run(deck.serve(Terminal.stdio()))   # what `agentdeck chat` runs
 ```
 
-Embedding uses `deck.asgi(*bindings)` instead of `serve()`.
+Embedding uses `deck.asgi(binding, *bindings)` instead of `serve()`.
 
 ## Serving over HTTP
 
@@ -512,7 +512,7 @@ deck = Deck.from_project("./.agentdeck")
 asyncio.run(deck.serve(Native.http(), port=8000))
 ```
 
-`deck.asgi(*bindings)` returns the ASGI application instead, for mounting inside a service you
+`deck.asgi(binding, *bindings)` returns the ASGI application instead, for mounting inside a service you
 already run. Its lifespan **opens the deck on startup and closes it on shutdown**, so a served
 deck needs no separate `async with`, and a deck you opened yourself is left alone.
 
@@ -527,9 +527,8 @@ once:
 app = deck.asgi(Native.http(path="/api"), Terminal.stdio())
 ```
 
-`deck.expose(*bindings)` returns the underlying `Exposure` object directly, for lifecycle control
-beyond one call (inspecting it before serving, reusing the same exposure for both `.serve()` and
-a health check, closing it manually).
+`deck.expose(*bindings)` is the lower-level call: it returns the `Exposure` object itself, for
+callers who need that object.
 
 The routes, the SSE frames and the status codes are the
 [native wire spec](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/native-wire.md).
@@ -2143,7 +2142,7 @@ The current release is **v5.2.1**. Earlier releases are listed at the bottom.
   mounts every `HttpEndpoint` on one Starlette app with the lifecycle bound to its lifespan;
   `deck.serve(...)` runs standalone, closing the Deck only if it opened it. A failed `start()` on
   binding N stops N..1 in reverse, N included, and raises. `Deck.is_open` is new too. `expose(...)`
-  returns the underlying `Exposure` object for lifecycle control beyond one call.
+  is the lower-level call, returning the `Exposure` object itself.
 
 - **`Native.http()`, the AgentDeck protocol** (#548): `from agentdeck.bindings import
   Native`, then `deck.serve(Native.http())`. Ten routes over `DeckGateway` and public `Run`
@@ -2174,8 +2173,8 @@ The current release is **v5.2.1**. Earlier releases are listed at the bottom.
 - **`Deck.serve(*bindings, host=, port=)` and `Deck.asgi(*bindings)`** (#606): the front door,
   one-line delegations to `expose(*bindings).serve()`/`.asgi()`. `agentdeck.bindings` now
   lazily exports `Native` and `Terminal` too, so `from agentdeck.bindings import Native, Terminal`
-  works without importing either module until named. `expose()` stays for the `Exposure` object
-  itself (embedding, inspection, advanced lifecycle control).
+  works without importing either module until named. `expose()` is the lower-level call, returning
+  the `Exposure` object itself.
 
 ### Removed
 

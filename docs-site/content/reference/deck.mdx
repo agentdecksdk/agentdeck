@@ -419,9 +419,8 @@ once:
 app = deck.asgi(Native.http(path="/api"), Terminal.stdio())
 ```
 
-`deck.expose(*bindings)` returns the underlying `Exposure` object directly, for lifecycle control
-beyond one call (inspecting it before serving, reusing the same exposure for both `.serve()` and
-a health check, closing it manually).
+`deck.expose(*bindings)` is the lower-level call: it returns the `Exposure` object itself, for
+callers who need that object.
 
 The routes, the SSE frames and the status codes are the
 [native wire spec](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/native-wire.md).

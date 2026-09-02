@@ -10,8 +10,8 @@ await deck.serve(Native.http(path="/"), A2A.http(path="/a2a"), port=8000)   # st
 ```
 
 `deck.serve(*bindings)` and `deck.asgi(*bindings)` are the primary API, one-line delegations to
-`expose(*bindings).serve()`/`.asgi()` (`rulings.md` 23, amended by #606). `expose()` stays the
-escape hatch for the `Exposure` object itself, needed for lifecycle control beyond a single call:
+`expose(*bindings).serve()`/`.asgi()` (`rulings.md` 23, amended by #606). `expose()` is the
+lower-level call: it returns the `Exposure` object itself, for callers who need that object:
 
 ```python
 exposure = deck.expose(Native.http(path="/"), A2A.http(path="/a2a"))
