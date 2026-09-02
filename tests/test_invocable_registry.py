@@ -106,6 +106,21 @@ description: Echo input back.
 Run `scripts/run.py`.
 """
 
+# #488: a workflow bundle also exporting a `@tool`  -  must not surface as a second spec.
+TOOL_AND_WORKFLOW_PY = """
+from agentdeck import ToolCtx, WorkflowCtx, tool, workflow
+
+
+@tool
+async def helper(ctx: ToolCtx, text: str) -> str:
+    return text
+
+
+@workflow(name="Shout")
+async def shout(ctx: WorkflowCtx, text: str) -> str:
+    return text.upper()
+"""
+
 
 def _project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, agent: str, workflow: str) -> None:
     """Write a scratch ``.agentdeck/`` holding one agent, one workflow and one skill, and cd into it."""
@@ -147,6 +162,26 @@ def test_load_compiles_each_bundle_shape_into_a_spec(project: None, executors: l
     shout = specs["Shout"]
     assert (shout.name, shout.kind, shout.executor) == ("Shout", InvocableKind.WORKFLOW, "native")
     assert isinstance(shout.native, NativeDefinition), "a native workflow's spec carries its own decorated definition"
+
+
+def test_a_bundled_tool_is_not_discovered_as_a_workflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, executors: list[Executor]
+) -> None:
+    """#488, through ``InvocableRegistry``'s own discovery scan  -  ``load()`` called with no
+    explicit ``workflows=``, the path ``Deck.build()`` never takes (it always passes its own
+    already-discovered list) but ``InvocableRegistry(...).load()`` is public and callable
+    directly.
+    """
+    root = tmp_path / ".agentdeck"
+    (root / "workflows" / "shout").mkdir(parents=True)
+    (root / "workflows" / "shout" / "workflow.py").write_text(textwrap.dedent(TOOL_AND_WORKFLOW_PY))
+    monkeypatch.chdir(tmp_path)
+    for module in [name for name in sys.modules if name.startswith("agentdeck_project")]:
+        del sys.modules[module]
+
+    specs = InvocableRegistry(executors).load()
+
+    assert sorted(specs) == ["Shout"]
 
 
 def test_skills_are_not_discovered_as_invocables(project: None, executors: list[Executor]) -> None:
