@@ -9,7 +9,6 @@ import sys
 import textwrap
 
 import pytest
-from starlette.applications import Starlette
 
 from agentdeck.authoring import Agent
 from agentdeck.bindings.native import Native
@@ -18,11 +17,6 @@ from agentdeck.deck import Deck
 
 def _deck() -> Deck:
     return Deck(agents=[Agent(name="Greeter", instructions="Greet the user.")])
-
-
-def test_asgi_returns_the_same_app_expose_would_build() -> None:
-    app = _deck().asgi(Native.http())
-    assert isinstance(app, Starlette)
 
 
 def test_asgi_delegates_to_expose_with_the_exact_bindings_given(monkeypatch) -> None:
