@@ -62,21 +62,24 @@ stdin → ACP binding → DeckGateway → Deck → ACP binding → stdout
 
 An external surface (Assistant UI, a custom React app, an IDE, another agent) consumes a binding's wire through its own client library; the diagram is in [`README.md`](README.md). Assistant UI ships AG-UI and A2A runtimes, so the v6.0 web UI is one of those runtimes pointed at a binding's path, with no AgentDeck code (`rulings.md` 38).
 
-## The reference trio
+## The v6.0 set
 
-Same intent down each kind; the bold rows are identical code against public `Run`.
+(amended: #554) v6.0.0 ships two protocols and one surface, not the original A2A/WhatsApp/Terminal
+trio; A2A and WhatsApp follow in v6.x with no SPI change, and until WhatsApp ships the channel kind
+is proven only by the out-of-tree fixture plugin (rulings 19, 32, 33). Same intent down each kind;
+the bold rows are identical code against public `Run`.
 
-| step | A2A (protocol) | WhatsApp (channel) | Terminal (surface) |
+| step | Native (protocol) | AG-UI (protocol) | Terminal (surface) |
 |---|---|---|---|
-| arrives as | `message/send {contextId, message}` | webhook `{from, text}`, ACK 200 at once | a typed line |
-| identity | `contextId` to `session_id`; `taskId` to `key` | phone to `session_id`; message id in the binding's map | one session per process |
+| arrives as | `POST /runs {target, input, session_id}` | `RunAgentInput` over `POST` | a typed line |
+| identity | `session_id`/`key` passed straight through | `threadId` to `session_id` (ruling 8) | one session per process |
 | **`gateway.start(target, text, session_id=)`** | same | same | same |
-| busy session | A2A "task running" error | "still working on your last message" | printed notice |
-| **`run.events(follow=True)`**, one segment per interaction | binding-owned tail | binding-owned tail | inline in the stdio loop |
-| `text.delta` | streamed parts | skipped; posts on `message.completed` | printed live |
-| `run.interrupted` | `input-required` with the question | reply buttons | numbered prompt |
-| **`run.answer(value)`**, then re-tail from `last_seq + 1` | next `message/send` on the task | button webhook, run found in the map | typed choice |
-| stop | `tasks/cancel` | "stop" keyword | Ctrl-C |
+| busy session | `BUSY` maps to `409` | `BUSY` maps to a `RunErrorEvent` on the stream | printed notice |
+| **`run.events(follow=True)`**, one segment per interaction | streamed as SSE, `Last-Event-ID` reconnect | tailed inline into the response | inline in the stdio loop |
+| `text.delta` | raw event JSON | `TEXT_MESSAGE_CONTENT` | printed live |
+| `run.interrupted` | `GET /runs/{id}/pending` | `RUN_FINISHED` with `RunFinishedInterruptOutcome` | numbered prompt |
+| **`run.answer(value)`**, then re-tail from `last_seq + 1` | `POST /runs/{id}/answer`, then reconnect | next `POST` with `resume=[{interruptId, ...}]` | typed choice |
+| stop | `POST /runs/{id}/cancel` | client disconnect (`abortRun`, ruling 46) | Ctrl-C |
 | **`run.cancel()`** | same | same | same |
-| binding-owned state | task metadata, push subscriptions | phone-to-run map, access token | none |
+| binding-owned state | none | none | none |
 | enters the runtime | nothing | nothing | nothing |

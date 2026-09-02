@@ -10,6 +10,11 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Added
 
+- **The protocol SPI is frozen at v1** (#554): `DeckGateway`, `Binding`/`BindingInfo`,
+  `GatewayError`/`GatewayFailureCode`, `HttpEndpoint`/`StdioEndpoint`, and `Exposure`
+  (`deck.serve`/`deck.asgi`/`deck.expose`) are stable. A plugin author builds against them without
+  an SPI major bump until one of those types breaks; a new capability name or a new binding is not
+  a version bump (`docs/design/protocols/spi.md`).
 - **`agentdeck.bindings`, the protocol SPI** (#545): `DeckGateway` (`targets()`,
   `capabilities`, `start`/`get_run`/`list_runs`), `GatewayError`/`GatewayFailureCode`, `Binding`,
   `BindingInfo`, `HttpEndpoint`/`StdioEndpoint`. No concrete binding ships yet; this is the
