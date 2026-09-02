@@ -14,8 +14,8 @@ description: Serve one Deck over multiple protocols and surfaces at once.
 
 # Bindings
 
-A binding projects a `Deck` onto one external protocol or surface. Nothing below `DeckGateway`
-knows which one is talking: the same runs, the same events, the same control.
+A binding serves a `Deck` over one protocol or surface. Add one line, and the same runs,
+events, and controls are reachable through it.
 
 ## Protocols, channels, and surfaces
 
@@ -25,7 +25,8 @@ knows which one is talking: the same runs, the same events, the same control.
 | channel | existing messaging network with its own identity | none yet |
 | surface | user-facing interface AgentDeck hosts in-process | `Terminal` (`agentdeck chat`) |
 
-Same `Binding` contract, same gateway. Kind is data, not hierarchy: see the
+Every kind builds against the same `Binding` contract and the same gateway; only the label
+differs. See the
 [protocol design folder](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/bindings.md)
 for the full picture. An external surface such as Assistant UI or CopilotKit is a client of a
 protocol binding, consuming its wire through its own library; it is not a binding of its own.

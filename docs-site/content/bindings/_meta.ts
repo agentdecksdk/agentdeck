@@ -3,5 +3,6 @@ export default {
   serve: 'Serve',
   native: 'Native',
   terminal: 'Terminal',
-  agui: 'AG-UI'
+  agui: 'AG-UI',
+  'write-your-own': 'Write Your Own'
 }

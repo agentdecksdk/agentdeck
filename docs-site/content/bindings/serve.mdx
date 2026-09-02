@@ -47,7 +47,7 @@ app = deck.asgi(Native.http("/api"))
 uvicorn myapp:app --host 0.0.0.0 --port 8000
 ```
 
-`deck.expose(binding, *bindings)` is the lower-level call underneath both: it returns the
+`deck.expose(*bindings)` is the lower-level call underneath both: it returns the
 `Exposure` object itself, for callers who need that object.
 
 ## Validation before anything opens
@@ -56,7 +56,7 @@ Every check below runs before any binding opens a socket or a process:
 
 | failure | the error you see |
 |---|---|
-| two bindings share a `name` | `ConfigError: binding names must be unique in one exposure, but ['native'] appear more than once. requires resolves by name, so give each binding its own BindingInfo.name.` |
+| two bindings share a `name` | ``ConfigError: binding names must be unique in one exposure, but ['native'] appear more than once. `requires` resolves by name, so give each binding its own `BindingInfo.name`.`` |
 | a binding declares an unsupported `spi_version` | `ConfigError: binding 'native' declares spi_version=2, but this AgentDeck supports spi_version=1.` |
 | a binding's `requires` names something absent from the exposure | `ConfigError: binding 'agui' requires ['native'], not in this exposure. Available: ['agui'].` |
 | two HTTP bindings claim one path | `ConfigError: HTTP path '/api' is claimed by both 'native' and 'agui'.` |

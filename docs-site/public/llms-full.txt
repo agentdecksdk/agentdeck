@@ -990,8 +990,8 @@ Source: https://agentdecksdk.com/bindings
 
 # Bindings
 
-A binding projects a `Deck` onto one external protocol or surface. Nothing below `DeckGateway`
-knows which one is talking: the same runs, the same events, the same control.
+A binding serves a `Deck` over one protocol or surface. Add one line, and the same runs,
+events, and controls are reachable through it.
 
 ## Protocols, channels, and surfaces
 
@@ -1001,7 +1001,8 @@ knows which one is talking: the same runs, the same events, the same control.
 | channel | existing messaging network with its own identity | none yet |
 | surface | user-facing interface AgentDeck hosts in-process | `Terminal` (`agentdeck chat`) |
 
-Same `Binding` contract, same gateway. Kind is data, not hierarchy: see the
+Every kind builds against the same `Binding` contract and the same gateway; only the label
+differs. See the
 [protocol design folder](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/bindings.md)
 for the full picture. An external surface such as Assistant UI or CopilotKit is a client of a
 protocol binding, consuming its wire through its own library; it is not a binding of its own.
@@ -1219,7 +1220,7 @@ app = deck.asgi(Native.http("/api"))
 uvicorn myapp:app --host 0.0.0.0 --port 8000
 ```
 
-`deck.expose(binding, *bindings)` is the lower-level call underneath both: it returns the
+`deck.expose(*bindings)` is the lower-level call underneath both: it returns the
 `Exposure` object itself, for callers who need that object.
 
 ## Validation before anything opens
@@ -1228,7 +1229,7 @@ Every check below runs before any binding opens a socket or a process:
 
 | failure | the error you see |
 |---|---|
-| two bindings share a `name` | `ConfigError: binding names must be unique in one exposure, but ['native'] appear more than once. requires resolves by name, so give each binding its own BindingInfo.name.` |
+| two bindings share a `name` | ``ConfigError: binding names must be unique in one exposure, but ['native'] appear more than once. `requires` resolves by name, so give each binding its own `BindingInfo.name`.`` |
 | a binding declares an unsupported `spi_version` | `ConfigError: binding 'native' declares spi_version=2, but this AgentDeck supports spi_version=1.` |
 | a binding's `requires` names something absent from the exposure | `ConfigError: binding 'agui' requires ['native'], not in this exposure. Available: ['agui'].` |
 | two HTTP bindings claim one path | `ConfigError: HTTP path '/api' is claimed by both 'native' and 'agui'.` |
@@ -1292,6 +1293,85 @@ One process is already one session, so there is nothing to route: `Terminal.stdi
 
 - No auth, no store: the session lives in process memory and dies with it.
 - Ctrl-D, or a scripted stdin running out, cancels any run in flight rather than hanging.
+
+---
+
+# Write Your Own
+
+*The SPI a binding is held to, in or out of tree.*
+Source: https://agentdecksdk.com/bindings/write-your-own
+
+# Write your own
+
+A binding is any object satisfying the `Binding` protocol. Nothing under `agentdeck.adapters` or
+`agentdeck.runtime` is needed to write one; `Native`, `Terminal` and `AGUI` are held to the same
+SPI as a plugin outside this repository.
+
+## The shape
+
+- `info: BindingInfo`: what this binding is, for `expose()` to validate and a health check to report.
+- `build(gateway: DeckGateway) -> Endpoint`: resolve and validate; no I/O, nothing opens here.
+- `async def start()`: start binding-owned resources; the `Exposure` owns any task spawned here.
+- `async def stop()`: stop binding-owned resources; idempotent, may run without a preceding `start()`.
+
+## BindingInfo
+
+- `name`: unique within one exposure; `requires` resolves by it.
+- `kind`: `"protocol" | "channel" | "surface"`, data, not behavior.
+- `transport`: `"http"`, `"stdio"`, or a transport this binding defines.
+- `spi_version`: see below.
+- `advertises`: capability names (`streaming`, `hitl`, `control.cancel`, ...) a contract test holds this binding to.
+- `requires`: other bindings, by `name`, this one needs in the same exposure.
+
+## DeckGateway
+
+The one surface a binding talks to a Deck through:
+
+- `targets()`: every agent and workflow in the catalog.
+- `capabilities`: what varies by deployment (`control`, `durable`), never by run.
+- `start(target, input, ...)`, `get_run(run_id, ...)`, `list_runs(...)`: `Runs.start/get/list`, every failure mapped.
+- `GatewayError(code, message)`: the one exception a binding catches; `GatewayFailureCode` maps onto a wire status.
+
+## Endpoints
+
+- `HttpEndpoint(path, app)`: an isolated ASGI app or router, mounted on the shared listener.
+- `StdioEndpoint(run)`: a coroutine over stdin/stdout, run as a task, no port opened.
+
+## The import boundary
+
+A plugin package is held to this by `tests/bindings/fixture_plugin/.importlinter`'s own forbidden-modules contract, run against the fixture plugin the same way it would run against any out-of-tree package:
+
+| may use | may not use |
+|---|---|
+| `agentdeck.bindings` (gateway, `Binding`, endpoint, failure types) | `agentdeck.runtime.*` |
+| `agentdeck.Run`, `agentdeck.Event` | `agentdeck.adapters.*` |
+| content blocks from `agentdeck` (`TextBlock`, `ImageBlock`, ...) | `agentdeck.core.*` |
+| the error taxonomy from `agentdeck.errors` | `Deck._*` |
+
+```python no-test reason="agentdeck_myprotocol is a placeholder package name, not a real import"
+from agentdeck import Deck
+from agentdeck_myprotocol import MyProtocol
+
+app = Deck.from_project().asgi(MyProtocol.http())
+```
+
+## spi_version
+
+`PROTOCOL_SPI_VERSION = 1`, frozen in 6.0. A binding declaring an unsupported one is refused when
+you call `deck.serve()` or `deck.asgi()`, before anything opens, naming both versions.
+
+## Prove it
+
+A checklist generalized from the SPI contract suite, run against a channel-shaped fixture plugin
+since a channel is the harder pattern:
+
+- A message reaches the Deck only through `gateway.start`, and what it starts is an ordinary run.
+- A disconnected reader never cancels the run; the run completes on its own.
+- Resume re-tails from `last_seq + 1`; nothing polls.
+- Two bindings on one exposure share one gateway and see the same runs.
+- An unknown event kind is skipped, never raised.
+- Every rejection maps to a real error, never a raw exception reaching the wire.
+- `stop()` cancels every in-flight task, and still surfaces whichever failure happened first.
 
 ---
 
