@@ -97,6 +97,8 @@ if TYPE_CHECKING:
     from agents.memory.session import Session
 
     from agentdeck.authoring.interrupts import InterruptResult
+    from agentdeck.bindings.binding import Binding
+    from agentdeck.bindings.exposure import Exposure
     from agentdeck.core.content import Input
     from agentdeck.core.events import Event, Usage
     from agentdeck.core.ports import EventStorePort, Executor
@@ -646,6 +648,27 @@ class Deck:
     @property
     def settings(self) -> Settings:
         return get_settings()
+
+    @property
+    def is_open(self) -> bool:
+        """Whether this Deck is open."""
+        return self._state == "OPEN"
+
+    def expose(self, *bindings: Binding) -> Exposure:
+        """Host these bindings over this Deck. See :class:`~agentdeck.bindings.exposure.Exposure`."""
+        from agentdeck.bindings.exposure import Exposure
+
+        return Exposure(self, bindings)
+
+    async def serve(self, binding: Binding, /, *bindings: Binding, host: str = "0.0.0.0", port: int = 8000) -> None:
+        """``expose(binding, *bindings).serve(host=, port=)``. :meth:`expose` returns the
+        ``Exposure`` object itself, for callers who need it."""
+        await self.expose(binding, *bindings).serve(host=host, port=port)
+
+    def asgi(self, binding: Binding, /, *bindings: Binding) -> Any:
+        """``expose(binding, *bindings).asgi()``. :meth:`expose` returns the ``Exposure`` object
+        itself, for callers who need it."""
+        return self.expose(binding, *bindings).asgi()
 
     def build(self) -> Deck:
         """Validate the whole catalog and compile every agent/workflow to an ``InvocableSpec``.
@@ -1223,17 +1246,6 @@ class Deck:
         """Conversation memory for ``session_id``  -  the engine's own store, so a turn started
         here and one started over HTTP land in the same conversation."""
         return self._ensure_sessions().session_for(_new_context(session_id))
-
-    def asgi(self) -> Any:
-        """The ASGI app ``agentdeck serve`` runs: a FastAPI app whose lifespan opens this Deck
-        on startup and closes it on shutdown, so a mounted Deck needs no separate
-        ``async with``. The HTTP contract is v1's own, unchanged (``tests/golden/`` proves it
-        byte-for-byte)  -  building it lives in ``agentdeck.serve`` (the one module allowed to
-        import FastAPI), not here, so ``agentdeck.deck`` stays free of that dependency.
-        """
-        from agentdeck.serve import build_asgi_app
-
-        return build_asgi_app(self)
 
 
 _NO_CONTROL_PORT = (

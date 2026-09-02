@@ -129,11 +129,11 @@ jobs:
             grep -oE 'needs the \[[a-z]+\] extra|no (Postgres|Redis) at [^"]*' /tmp/pytest-results.xml | sort -u
             exit 1
           fi
-      # `Test` already replayed the goldens once; this second, separate process is what
-      # proves the snapshots don't depend on process state (in-process stability has its
-      # own test).
-      - name: Golden replay (second process)
-        run: .venv/bin/pytest tests/golden -q
+      # `Test` already replayed the event-schema snapshots once; this second, separate process
+      # is what proves they don't depend on process state (in-process stability has its own
+      # test). The v1 wire goldens this also covered are deleted with that wire (#550).
+      - name: Snapshot replay (second process)
+        run: .venv/bin/pytest tests/core -q
       - name: Build
         run: uv build
 
@@ -178,3 +178,5 @@ jobs:
         run: python3 scripts/concept_budget.py "origin/${{ github.event.pull_request.base.ref }}"
       - name: Quality delta
         run: python3 scripts/quality_delta.py "origin/${{ github.event.pull_request.base.ref }}"
+      - name: Changelog entries land under [Unreleased]
+        run: python3 scripts/changelog_position.py "origin/${{ github.event.pull_request.base.ref }}"

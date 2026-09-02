@@ -48,7 +48,8 @@ instead of running against a conversation still being written:
 ```python run
 import asyncio
 
-from agentdeck import Agent, Deck, SessionBusyError
+from agentdeck import Agent, Deck
+from agentdeck.errors import SessionBusyError
 
 assistant = Agent(name="Assistant", instructions="Keep replies to one short sentence.")
 

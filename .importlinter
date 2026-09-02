@@ -32,9 +32,9 @@ forbidden_modules =
     agentdeck.skills
     agentdeck.mcp
     agentdeck.runtime
-    agentdeck.serve
     agentdeck.deck
     agentdeck.testing
+    agentdeck.adapters
 
 # The Runtime is the use-case layer: it orchestrates through ports and must never reach for
 # an engine, a store or a surface directly: those arrive from the composition root.
@@ -55,7 +55,6 @@ forbidden_modules =
     agentdeck.authoring
     agentdeck.skills
     agentdeck.mcp
-    agentdeck.serve
     agentdeck.deck
 
 # These adapters wrap no external system at all (sqlite3 is stdlib), so they stay pure
@@ -84,41 +83,6 @@ forbidden_modules =
     agentdeck.authoring
     agentdeck.skills
     agentdeck.mcp
-    agentdeck.serve
-    agentdeck.deck
-
-# Ring 3 (#52): surfaces render events for a Runtime handed to them by the composition
-# root: they never mint an engine or a store themselves.
-[importlinter:contract:surfaces-are-adapter-free]
-name = surfaces import runtime and core only, never an adapter or an engine SDK
-type = forbidden
-source_modules =
-    agentdeck.surfaces
-forbidden_modules =
-    agents
-    redis
-    psycopg
-    agentdeck.adapters
-
-# Redis and Postgres event logs (#75): one external system each, which is the rule that
-# keeps "delete any adapter directory and nothing outside it breaks" true. Two contracts
-# rather than one because each store's own driver is the only one it may name: the pair
-# forbids the other's, so a shared helper reaching for both would have to be a third
-# module somewhere neither contract covers, and there is no such place.
-[importlinter:contract:redis-store-takes-only-redis]
-name = the Redis event log imports core and the Redis client only
-type = forbidden
-source_modules =
-    agentdeck.adapters.stores.redis
-forbidden_modules =
-    agents
-    fastapi
-    psycopg
-    agentdeck.runtime
-    agentdeck.authoring
-    agentdeck.skills
-    agentdeck.mcp
-    agentdeck.serve
     agentdeck.deck
 
 [importlinter:contract:postgres-store-takes-only-psycopg]
@@ -134,7 +98,6 @@ forbidden_modules =
     agentdeck.authoring
     agentdeck.skills
     agentdeck.mcp
-    agentdeck.serve
     agentdeck.deck
 
 # MCP relocation (#78): the raw MCP protocol SDK is the tool adapter's alone, so a second
@@ -153,8 +116,6 @@ source_modules =
     agentdeck.adapters.stores
     agentdeck.adapters.control
     agentdeck.adapters.executors
-    agentdeck.surfaces
-    agentdeck.serve
     agentdeck.deck
     agentdeck.authoring
     agentdeck.skills
@@ -185,7 +146,6 @@ source_modules =
     agentdeck.adapters.control
     agentdeck.adapters.executors
     agentdeck.adapters.tools
-    agentdeck.surfaces
 forbidden_modules =
     langfuse
 
@@ -209,6 +169,103 @@ forbidden_modules =
     agentdeck.skills
     agentdeck.mcp
     agentdeck.observers
-    agentdeck.surfaces
-    agentdeck.serve
     agentdeck.deck
+
+# Protocol SPI (#545): a plugin wraps a Deck through this package's public surface, never a
+# backend directly. allow_indirect_imports lets `Deck`/`Run` in under TYPE_CHECKING for typing
+# (Deck itself imports both rings) while still failing on a direct `agentdeck.runtime`/
+# `agentdeck.adapters` import inside `agentdeck/bindings/`  -  the reach-around the issue warns
+# review would otherwise have to catch by eye.
+[importlinter:contract:bindings-spi-is-deck-facing-only]
+name = the protocol SPI reaches a Deck through its public surface, never runtime or adapters directly
+type = forbidden
+source_modules =
+    agentdeck.bindings
+forbidden_modules =
+    agentdeck.runtime
+    agentdeck.adapters
+allow_indirect_imports = True
+# The exceptions, each narrow: `agentdeck/bindings/native.py` and `agentdeck/bindings/agui.py`
+# are the public import paths for in-tree bindings whose implementations live under `adapters/`
+# (ruling 36). Each is a factory, not part of the SPI, and `agentdeck/bindings/__init__.py`
+# imports neither, so `import agentdeck.bindings` still reaches no adapter and no HTTP dependency.
+ignore_imports =
+    agentdeck.bindings.native -> agentdeck.adapters.bindings.native.binding
+    agentdeck.bindings.terminal -> agentdeck.adapters.bindings.terminal.binding
+    agentdeck.bindings.agui -> agentdeck.adapters.bindings.agui.binding
+
+# Every in-tree binding (#548, #599), held to the same allow-list ruling 19 gives an
+# out-of-tree plugin (proven separately by `tests/bindings/fixture_plugin/.importlinter`).
+# `source_modules` names the parent package once: a new `adapters/bindings/<name>/` is covered
+# automatically, with no per-binding contract to remember. `agentdeck.core` joins the forbidden
+# list here (the fixture plugin already forbids it); `agentdeck.adapters` itself is not
+# forbidden: every binding lives under it, and Python imports every ancestor package on
+# `import agentdeck.adapters.bindings.<name>`. Bindings sharing no implementation helpers is
+# a separate contract below (#599, #603), since `forbidden`/parent-package containment cannot
+# express "these siblings must not import each other".
+[importlinter:contract:binding-implementations-are-spi-facing-only]
+name = a binding implementation reaches a Deck through the public SPI only, never runtime, core, Deck or another adapter
+type = forbidden
+source_modules =
+    agentdeck.adapters.bindings
+forbidden_modules =
+    agentdeck.deck
+    agentdeck.runtime
+    agentdeck.core
+    agentdeck.authoring
+    agentdeck.skills
+    agentdeck.mcp
+    agentdeck.serve
+    agentdeck.adapters.control
+    agentdeck.adapters.executors
+    agentdeck.adapters.leases
+    agentdeck.adapters.stores
+    agentdeck.adapters.telemetry
+    agentdeck.adapters.tools
+allow_indirect_imports = True
+
+# The contract above cannot stop `native` importing `terminal`'s implementation directly
+# (both pass its `source_modules` check). AG-UI and every later binding join this list.
+[importlinter:contract:bindings-are-independent]
+name = in-tree bindings share no implementation: each reaches the Deck through the public SPI only
+type = independence
+modules =
+    agentdeck.adapters.bindings.native
+    agentdeck.adapters.bindings.terminal
+    agentdeck.adapters.bindings.agui
+# #606's TYPE_CHECKING re-exports (agentdeck/bindings/__init__.py) are never executed, so
+# they are not the shared-implementation route this contract exists to catch.
+ignore_imports =
+    agentdeck.bindings -> agentdeck.bindings.native
+    agentdeck.bindings -> agentdeck.bindings.terminal
+    agentdeck.bindings -> agentdeck.bindings.agui
+
+# AG-UI (#595/#596): the `ag-ui-protocol` SDK is this binding's wire, not a general-purpose
+# dependency, so no other ring may import it (ruling 16); everything else mirrors Native's own
+# contract above, since the AG-UI binding is held to the same SPI-facing-only rule.
+# `agentdeck.bindings` itself is not listed: `bindings-spi-is-deck-facing-only` already keeps
+# everything in it but the one named exception off `agentdeck.adapters` entirely.
+[importlinter:contract:agui-protocol-sdk-is-agui-adapter-private]
+name = only the AG-UI binding imports the ag-ui-protocol SDK
+type = forbidden
+source_modules =
+    agentdeck.core
+    agentdeck.runtime
+    agentdeck.adapters.stores
+    agentdeck.adapters.control
+    agentdeck.adapters.executors
+    agentdeck.adapters.leases
+    agentdeck.adapters.telemetry
+    agentdeck.adapters.tools
+    agentdeck.adapters.bindings.native
+    agentdeck.adapters.bindings.terminal
+    agentdeck.deck
+    agentdeck.authoring
+    agentdeck.skills
+    agentdeck.mcp
+forbidden_modules =
+    ag_ui
+# The same TYPE_CHECKING lazy-export chain the sibling contracts above ignore: it is never
+# executed (agentdeck/bindings/__init__.py), so it carries no runtime path to ag_ui.
+ignore_imports =
+    agentdeck.bindings -> agentdeck.bindings.agui

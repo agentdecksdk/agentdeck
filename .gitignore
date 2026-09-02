@@ -26,3 +26,4 @@ docs/brand/*.jpg
 
 # make check's per-target logs (worktree-scoped, see Makefile's LOG)
 .make-*.log
+node_modules/

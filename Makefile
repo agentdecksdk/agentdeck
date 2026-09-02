@@ -28,7 +28,7 @@ install:        ## editable install with every extra the gate needs
 build:          ## sdist + wheel into dist/
 	uv build
 
-test:           ## run the test suite (includes the golden replay suite)
+test:           ## run the test suite (includes the event-schema snapshot replay)
 	$(E).venv/bin/pytest tests/ $(PYTEST_ARGS) $(QUIET)
 
 # examples/ too: they are code a reader copies, and nothing else in the gate reads them.
@@ -38,8 +38,9 @@ lint:           ## ruff check
 typecheck:      ## ty type check
 	$(E).venv/bin/ty check agentdeck $(QUIET)
 
-lint-imports:   ## import-linter contracts (.importlinter)
+lint-imports:   ## import-linter contracts (.importlinter, plus the fixture plugin's own)
 	$(E).venv/bin/lint-imports $(QUIET)
+	$(E).venv/bin/lint-imports --config tests/bindings/fixture_plugin/.importlinter $(QUIET)
 
 slop:           ## anti-slop gate on lines this branch adds vs origin/dev
 	$(E).venv/bin/python scripts/slopcheck.py --changed --base origin/dev < /dev/null $(QUIET)
@@ -50,8 +51,8 @@ coverage:       ## per-module coverage: audit input for #71/#131, not part of `m
 	# as uncovered while being load-bearing. Corroborate with grep + the import graph.
 	.venv/bin/pytest tests/ -q --cov=agentdeck --cov-report=term-missing:skip-covered
 
-golden:         ## re-record the wire + schema snapshots: deliberate, never automatic
-	AGENTDECK_GOLDEN_UPDATE=1 .venv/bin/pytest tests/golden tests/core -q
+golden:         ## re-record the event-schema snapshots: deliberate, never automatic
+	AGENTDECK_GOLDEN_UPDATE=1 .venv/bin/pytest tests/core -q
 
 docs-reference: ## regenerate the five generated docs-site files from the code
 	.venv/bin/python scripts/generate_docs_reference.py

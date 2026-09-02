@@ -73,6 +73,7 @@ The lifecycle is `NEW -> build() -> BUILT -> (async with) -> OPEN -> CLOSED`:
   observers and tears down what this `Deck` itself opened  -  an `MCP(...)` it holds, always, and the event
   store it built from settings, but never one passed in through construction. Reopening a closed
   `Deck` raises; construct a new one instead.
+- **`deck.is_open`** reports whether `async with`/`__aenter__` has run and `aclose()` has not.
 
 **One `Deck` per process.** Constructing a second one while the first is still live raises
 `ConfigError`, naming both projects. The restriction is real rather than stylistic: every project
@@ -106,7 +107,8 @@ below. Declaring the type is what lets `build()` check it against every `ToolCtx
 the catalog before anything runs:
 
 ```python run
-from agentdeck import Agent, ToolCtx, ContextTypeError, Deck, tool
+from agentdeck import Agent, Deck, ToolCtx, tool
+from agentdeck.errors import ContextTypeError
 
 
 class Calendar:
@@ -369,29 +371,63 @@ A caller who wants to wait polls `status()`/`pending()` instead of awaiting.
 is parked in memory with the `ctx` it already holds, so it reads the original value when it
 continues on its next line.
 
-## Serving over HTTP
+## Serving through bindings
 
-`asgi()` returns an ASGI application  -  a FastAPI app whose lifespan **opens the deck on startup
-and closes it on shutdown**, so a served deck needs no separate `async with`:
+`deck.serve(binding, *bindings)` validates a set of bindings and serves them, owning their lifecycle. A
+binding is one external protocol, channel or surface over one transport. The first one is the
+terminal:
 
 ```python
+import asyncio
+
 from agentdeck import Deck
+from agentdeck.bindings import Terminal
 
 deck = Deck.from_project("./.agentdeck")
-app = deck.asgi()                          # uvicorn yourmodule:app
+asyncio.run(deck.serve(Terminal.stdio()))   # what `agentdeck chat` runs
 ```
 
-That is all `agentdeck serve` is. It also means you can mount a deck inside an existing service
-and have it open and close with the host app.
+Embedding uses `deck.asgi(binding, *bindings)` instead of `serve()`.
 
-Two details worth knowing. The FastAPI import is deferred inside the method, so `agentdeck.deck`
-stays importable without the `[serve]` extra  -  you only need it to actually serve. And requests
-arriving before the lifespan has run get `503 {"status": "starting"}` rather than touching a deck
-that is not open yet.
+## Serving over HTTP
 
-A third, if any of this catalog's callables declare a context: **it does not reach a served run.**
-A context is a live Python object with no wire form, so an HTTP-started run always carries `None`
- -  [see below](#where-a-context-does-not-reach).
+A Deck does not serve itself: a binding does, and `Native.http()` is AgentDeck's own HTTP/SSE
+protocol.
+
+```python
+import asyncio
+
+from agentdeck import Deck
+from agentdeck.bindings import Native
+
+deck = Deck.from_project("./.agentdeck")
+asyncio.run(deck.serve(Native.http(), port=8000))
+```
+
+`deck.asgi(binding, *bindings)` returns the ASGI application instead, for mounting inside a service you
+already run. Its lifespan **opens the deck on startup and closes it on shutdown**, so a served
+deck needs no separate `async with`, and a deck you opened yourself is left alone.
+
+```python
+app = deck.asgi(Native.http(path="/api"))   # uvicorn yourmodule:app
+```
+
+Several bindings share one listener, so the same runs are reachable over more than one protocol at
+once:
+
+```python
+app = deck.asgi(Native.http(path="/api"), Terminal.stdio())
+```
+
+`deck.expose(*bindings)` is the lower-level call: it returns the `Exposure` object itself, for
+callers who need that object.
+
+The routes, the SSE frames and the status codes are the
+[native wire spec](https://github.com/agentdecksdk/agentdeck/blob/main/docs/design/protocols/native-wire.md).
+
+If any of this catalog's callables declare a context: **it does not reach a served run.** A
+context is a live Python object with no wire form, so an HTTP-started run always carries `None`
+ - [see below](#where-a-context-does-not-reach).
 
 ## Observers
 
@@ -453,7 +489,7 @@ what a tool actually received  -  and leave it off when you want one clean trace
 An observer implements `Observer`  -  one required method, two optional lifecycle hooks:
 
 ```python
-from agentdeck.core.ports import Observer
+from agentdeck import Observer
 
 
 class CostObserver(Observer):
