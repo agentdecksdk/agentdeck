@@ -1,7 +1,8 @@
 import type { Metadata } from 'next'
 import { Inter, Poppins } from 'next/font/google'
 import { Footer, Layout, Navbar } from 'nextra-theme-docs'
-import { Banner, Head } from 'nextra/components'
+import { Head } from 'nextra/components'
+import { Announcement } from './announcement'
 import { Mark } from './mark'
 import { getPageMap } from 'nextra/page-map'
 import type { ReactNode } from 'react'
@@ -63,12 +64,9 @@ const footer = (
 )
 
 const banner = (
-  <Banner storageKey="agentdeck-v6" dismissible>
-    <a href="/meet-agentdeck/whats-new-6">
-      6.0: a Deck is served through bindings. deck.serve(Native.http(), AGUI.http(),
-      Terminal.stdio()) reaches every agent and workflow. Read what changed →
-    </a>
-  </Banner>
+  <Announcement id="v6-launch" href="/meet-agentdeck/whats-new-6">
+    AgentDeck 6.0 is here: serve one deck over HTTP, AG-UI or the terminal.
+  </Announcement>
 )
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
