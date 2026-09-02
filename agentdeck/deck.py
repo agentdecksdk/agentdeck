@@ -672,10 +672,8 @@ class Deck:
             raise ConfigError(
                 "deck.serve() owns the event loop; inside a running loop use `await deck.serve_async(...)`."
             )
-        # Matches uvicorn.run's own swallow: uvicorn has already shut down cleanly on the signal
-        # by the time this unwinds, so a caller of the blocking entrypoint sees a quiet return,
-        # not a traceback. serve_async() is untouched: a caller already inside a loop owns its
-        # own Ctrl-C handling.
+        # Matches uvicorn.run's own swallow: the server has already shut down cleanly by the
+        # time this unwinds. serve_async() leaves Ctrl-C to whatever owns its loop.
         with suppress(KeyboardInterrupt):
             asyncio.run(self.serve_async(binding, *bindings, host=host, port=port))
 
