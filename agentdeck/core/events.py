@@ -172,8 +172,10 @@ class RunCancelled(CoreModel):
     reason: str | None = None
 
 
-InterruptReason = Literal["human", "pause", "approval"]
-"""What a suspended run is waiting for. ``approval`` is the one with a shape: a yes or a no."""
+InterruptReason = Literal["human", "pause"]
+"""What a suspended run is waiting for. Shape comes from ``payload["options"]``, not from
+``reason``: an interrupt that named options refuses any answer outside them, one that named
+none takes whatever it is given."""
 
 
 class RunInterrupted(CoreModel):

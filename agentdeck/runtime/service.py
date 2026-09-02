@@ -117,8 +117,8 @@ class PendingRun:
     thread_id: str
     payload: dict[str, Any]
     reason: InterruptReason = "human"
-    """What kind of answer this run is waiting for. An ``approval`` takes a yes or a no and
-    nothing else, which is checked before the answer is recorded rather than after."""
+    """What kind of answer this run is waiting for. The shape, if any, is in ``payload["options"]``:
+    an answer outside them is refused before it is recorded, same as :func:`_refuses`."""
 
 
 class Runtime:

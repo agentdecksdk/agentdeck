@@ -1,0 +1,50 @@
+---
+title: Terminal
+description: The surface over stdin/stdout, one session per process.
+---
+
+{/* docs_sources:
+  - "agentdeck/adapters/bindings/terminal/binding.py"
+  - "agentdeck/cli.py"
+*/}
+
+# Terminal
+
+`Terminal.stdio()` is the surface over stdin/stdout: one session per process, no auth, no store,
+no background task.
+
+## Serve
+
+```python
+from agentdeck import Deck
+from agentdeck.bindings import Terminal
+
+deck = Deck.from_project()
+deck.serve(Terminal.stdio())
+```
+
+`agentdeck chat [target]` runs the same thing: `Deck.from_project().serve(Terminal.stdio(target=target))`.
+
+## target= and session_id=
+
+`target=` is validated when you call `deck.serve()` or `deck.asgi()`, against the deck's own
+targets; omit it only when the deck holds exactly one, since there is nothing to default to
+otherwise. `session_id=` fixes the one session this process holds; without it, each process gets
+a fresh random id.
+
+## One session, no namespace=
+
+One process is already one session, so there is nothing to route: `Terminal.stdio()` takes no
+`namespace=`, unlike `Native.http()` or `AGUI.http()`.
+
+## Capabilities
+
+- `streaming`: printed live as `text.delta` events arrive.
+- `text`: plain text in and out.
+- `hitl`: a numbered prompt for `run.interrupted`, in the interrupt's own option order.
+- `control.cancel`: Ctrl-C cancels the run in flight.
+
+## Limits
+
+- No auth, no store: the session lives in process memory and dies with it.
+- Ctrl-D, or a scripted stdin running out, cancels any run in flight rather than hanging.
