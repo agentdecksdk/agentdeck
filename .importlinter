@@ -185,13 +185,14 @@ forbidden_modules =
     agentdeck.runtime
     agentdeck.adapters
 allow_indirect_imports = True
-# The one exception, and a narrow one: `agentdeck/bindings/native.py` is the public import path
-# for an in-tree binding whose implementation lives under `adapters/` (ruling 36). It is a
-# factory, not part of the SPI, and `agentdeck/bindings/__init__.py` does not import it, so
-# `import agentdeck.bindings` still reaches no adapter and no HTTP dependency.
+# The exceptions, each narrow: `agentdeck/bindings/native.py` and `agentdeck/bindings/agui.py`
+# are the public import paths for in-tree bindings whose implementations live under `adapters/`
+# (ruling 36). Each is a factory, not part of the SPI, and `agentdeck/bindings/__init__.py`
+# imports neither, so `import agentdeck.bindings` still reaches no adapter and no HTTP dependency.
 ignore_imports =
     agentdeck.bindings.native -> agentdeck.adapters.bindings.native.binding
     agentdeck.bindings.terminal -> agentdeck.adapters.bindings.terminal.binding
+    agentdeck.bindings.agui -> agentdeck.adapters.bindings.agui.binding
 
 # Every in-tree binding (#548, #599), held to the same allow-list ruling 19 gives an
 # out-of-tree plugin (proven separately by `tests/bindings/fixture_plugin/.importlinter`).
@@ -231,8 +232,40 @@ type = independence
 modules =
     agentdeck.adapters.bindings.native
     agentdeck.adapters.bindings.terminal
+    agentdeck.adapters.bindings.agui
 # #606's TYPE_CHECKING re-exports (agentdeck/bindings/__init__.py) are never executed, so
 # they are not the shared-implementation route this contract exists to catch.
 ignore_imports =
     agentdeck.bindings -> agentdeck.bindings.native
     agentdeck.bindings -> agentdeck.bindings.terminal
+    agentdeck.bindings -> agentdeck.bindings.agui
+
+# AG-UI (#595/#596): the `ag-ui-protocol` SDK is this binding's wire, not a general-purpose
+# dependency, so no other ring may import it (ruling 16); everything else mirrors Native's own
+# contract above, since the AG-UI binding is held to the same SPI-facing-only rule.
+# `agentdeck.bindings` itself is not listed: `bindings-spi-is-deck-facing-only` already keeps
+# everything in it but the one named exception off `agentdeck.adapters` entirely.
+[importlinter:contract:agui-protocol-sdk-is-agui-adapter-private]
+name = only the AG-UI binding imports the ag-ui-protocol SDK
+type = forbidden
+source_modules =
+    agentdeck.core
+    agentdeck.runtime
+    agentdeck.adapters.stores
+    agentdeck.adapters.control
+    agentdeck.adapters.executors
+    agentdeck.adapters.leases
+    agentdeck.adapters.telemetry
+    agentdeck.adapters.tools
+    agentdeck.adapters.bindings.native
+    agentdeck.adapters.bindings.terminal
+    agentdeck.deck
+    agentdeck.authoring
+    agentdeck.skills
+    agentdeck.mcp
+forbidden_modules =
+    ag_ui
+# The same TYPE_CHECKING lazy-export chain the sibling contracts above ignore: it is never
+# executed (agentdeck/bindings/__init__.py), so it carries no runtime path to ag_ui.
+ignore_imports =
+    agentdeck.bindings -> agentdeck.bindings.agui

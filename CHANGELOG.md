@@ -34,6 +34,15 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   `options`. A binding maps it to its own bad-request code (Native: 422); an unrelated
   `TypeError`/`ValueError` from a store or an executor stays internal. Catch `InputError` (or
   `AgentdeckError`) where you caught `TypeError` or `ValueError` from those calls before.
+- **`AGUI.http()`, the AG-UI protocol binding** (#595/#596, slices AGUI-0 through AGUI-3):
+  `pip install agentdeck-sdk[agui]`, then `from agentdeck.bindings import AGUI` and
+  `deck.serve(AGUI.http("/agui"), port=8000)` for the whole catalog, or `AGUI.http(
+  "/support", target="Support")` pinned. Official `ag-ui-protocol` models and `EventEncoder` over HTTP/SSE:
+  target routing via `forwardedProps.agentdeck.target`, text/reasoning/backend-tool projection,
+  HITL ask/resume through the official `RunFinishedInterruptOutcome`/`resume` shapes, multimodal
+  input, and a client disconnect mapped to `Run.cancel()`. Frontend tools, shared state, and
+  steering are refused by name until their AgentDeck primitives exist
+  (`docs/design/protocols/agui.md`).
 
 - **A terminal chat example needing no API key** (`examples/chat-in-the-terminal/`): one
   `@workflow` asking the questions, driven by `agentdeck chat`. The first example that runs with

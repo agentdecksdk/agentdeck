@@ -18,7 +18,7 @@ Phase 1 is small because `deck.runs` already has the gateway's shape (`gateway.m
 | protocol | binding | transport | notes |
 |---|---|---|---|
 | Native | `Native.http()` | HTTP/SSE | phase 2, the reference; the AgentDeck protocol, versioned spec plus JS client (`rulings.md` 18) |
-| AG-UI | `AGUI.http()` | HTTP/SSE | 6.x; CopilotKit's agent-user event stream |
+| AG-UI | `AGUI.http()` | HTTP/SSE | 6.x; CopilotKit's agent-user event stream, planned in [`agui.md`](agui.md) |
 | A2UI | `A2UI.http()` | HTTP/SSE | 6.x; Google's declarative agent-to-UI protocol |
 | ACP | `ACP.stdio()`, later `ACP.http()` | stdio JSON-RPC | 6.x |
 | A2A | `A2A.http()`, later `A2A.grpc()` | HTTP JSON-RPC | phase 3, the reference protocol |

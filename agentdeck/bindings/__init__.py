@@ -25,10 +25,15 @@ from agentdeck.bindings.gateway import (
 if TYPE_CHECKING:
     # Re-exported for the type checker only: __getattr__ below resolves these at runtime,
     # so `import agentdeck.bindings` alone still imports neither module (#606).
+    from agentdeck.bindings.agui import AGUI as AGUI
     from agentdeck.bindings.native import Native as Native
     from agentdeck.bindings.terminal import Terminal as Terminal
 
-_LAZY = {"Native": "agentdeck.bindings.native", "Terminal": "agentdeck.bindings.terminal"}
+_LAZY = {
+    "AGUI": "agentdeck.bindings.agui",
+    "Native": "agentdeck.bindings.native",
+    "Terminal": "agentdeck.bindings.terminal",
+}
 
 
 def __getattr__(name: str) -> Any:
@@ -42,6 +47,7 @@ def __dir__() -> list[str]:
 
 
 __all__ = [
+    "AGUI",
     "PROTOCOL_SPI_VERSION",
     "Binding",
     "BindingInfo",
