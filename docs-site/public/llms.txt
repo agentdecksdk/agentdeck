@@ -38,6 +38,10 @@ afterwards, approvals that outlive the process that requested them.
 - [tools](https://agentdecksdk.com/build-your-deck/tools)
 - [workflows](https://agentdecksdk.com/build-your-deck/workflows)
 - [index](https://agentdecksdk.com/examples)
+- [Agent with a Skill](https://agentdecksdk.com/examples/agent-with-a-skill): Two tools and one skill, prose the model loads only when it decides it needs it.
+- [Chat Agent with a Tool](https://agentdecksdk.com/examples/chat-agent-with-a-tool): An agent that answers order questions by calling a plain Python function.
+- [Chat in the Terminal](https://agentdecksdk.com/examples/chat-in-the-terminal): A workflow that asks the questions, driven by agentdeck chat. No API key.
+- [Run Events Stream](https://agentdecksdk.com/examples/run-events-stream): A run's typed event log, printed as it arrives. No API key.
 - [existing-agents](https://agentdecksdk.com/integrations/existing-agents)
 - [mcp](https://agentdecksdk.com/integrations/mcp)
 - [openai-agents-sdk](https://agentdecksdk.com/integrations/openai-agents-sdk)

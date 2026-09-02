@@ -2010,15 +2010,15 @@ Source: https://agentdecksdk.com/examples
 
 # Examples
 
-Four runnable examples live in the repository, each one file or two and each about a single idea.
-Clone the repo and run them from their own directory.
+Four runnable examples, each one file or two and each about a single idea. Every page below links
+to its own source.
 
 | Example | What it shows | Needs a key |
 |---|---|---|
-| [Chat agent with a tool](https://github.com/agentdecksdk/agentdeck/tree/main/examples/chat-agent-with-a-tool) | A `@tool` and an `Agent` discovered from `.agentdeck/`, then `deck.run(...)`. Six lines of declaration, no JSON schema and no tool loop | yes |
-| [Agent with a skill](https://github.com/agentdecksdk/agentdeck/tree/main/examples/agent-with-a-skill) | A `SKILL.md` the model loads only when it decides it needs it, across two turns on one session | yes |
-| [Chat in the terminal](https://github.com/agentdecksdk/agentdeck/tree/main/examples/chat-in-the-terminal) | A `@workflow` that asks the questions with `ctx.ask(...)`, driven by `agentdeck chat` | no |
-| [Run events stream](https://github.com/agentdecksdk/agentdeck/tree/main/examples/run-events-stream) | A run's typed event log, printed as it arrives from `deck.stream(...)` | no |
+| [Chat agent with a tool](/examples/chat-agent-with-a-tool) | A `@tool` and an `Agent` discovered from `.agentdeck/`, then `deck.run(...)`. Six lines of declaration, no JSON schema and no tool loop | yes |
+| [Agent with a skill](/examples/agent-with-a-skill) | A `SKILL.md` the model loads only when it decides it needs it, across two turns on one session | yes |
+| [Chat in the terminal](/examples/chat-in-the-terminal) | A `@workflow` that asks the questions with `ctx.ask(...)`, driven by `agentdeck chat` | no |
+| [Run events stream](/examples/run-events-stream) | A run's typed event log, printed as it arrives from `deck.stream(...)` | no |
 
 The two without a key run the same on every machine: a `@workflow` is your own Python, and the
 events example scripts the model in-process.
@@ -2032,6 +2032,260 @@ python run.py
 
 The reference application, [Jack](/jack), is documented separately: he is the agent answering
 questions on this site, and his page records the reasoning behind each decision in him.
+
+---
+
+# Agent with a Skill
+
+*Two tools and one skill, prose the model loads only when it decides it needs it.*
+Source: https://agentdecksdk.com/examples/agent-with-a-skill
+
+# Agent with a skill
+
+An agent with two tools and one skill. The tools are what it can *do*; the skill is prose that
+shapes *how*, loaded only when the model decides it needs it.
+[Source](https://github.com/agentdecksdk/agentdeck/tree/main/examples/agent-with-a-skill).
+
+```text
+.agentdeck/
+├── agents/handover_desk/agent.py     # two @tools + Agent(..., skills=["shift-notes"])
+└── skills/shift-notes/SKILL.md       # frontmatter + instructions the model loads on demand
+run.py                                # two turns on one session: a lookup, then a note
+```
+
+The directory name is the skill's name and must match the `name:` in its frontmatter.
+`description:` is what the agent sees when deciding whether the skill applies. Both are required,
+or `Deck.build()` fails naming the bundle.
+
+## Run it
+
+```bash
+uv pip install agentdeck-sdk
+export OPENAI_MODEL=gpt-4.1-mini OPENAI_API_KEY=sk-...
+python run.py
+```
+
+Filing a note writes `handover_notes.json` into the working directory. That file is the observable
+side effect, so delete it between runs if you want a clean one.
+
+## What to look at
+
+- **A skill is not a tool.** `skills=[...]` puts its `description` in the agent's instructions; the
+  model then calls `load_skill("shift-notes")` to read the prose, and only then writes the note.
+  Watch `tool.call.started` and you will see `load_skill` fire before `file_handover_note`.
+- **The contract is prose plus a tool call, nothing typed.** `SKILL.md` says to ask before filing
+  if the user has not said what is still open, and the model reading it is the enforcement. Never
+  import a skill's own module from agent code.
+- **The skill earns its place by changing the output.** Ask for a note without it and you get three
+  invented sentences; with it, the model asks for what is missing first. That is the reason to
+  reach for a skill instead of a longer `instructions` string.
+- **`session_id` is what makes the second turn a follow-up.** Both runs share one session, so the
+  note turn already knows which shift was discussed.
+
+Next: [Skills](/build-your-deck/skills) · [Tools](/build-your-deck/tools)
+
+---
+
+# Chat Agent with a Tool
+
+*An agent that answers order questions by calling a plain Python function.*
+Source: https://agentdecksdk.com/examples/chat-agent-with-a-tool
+
+# Chat agent with a tool
+
+An agent that answers questions about orders, and a plain Python function it calls to look one up.
+Six lines of declaration: no JSON schema, no call parsing, no tool loop.
+[Source](https://github.com/agentdecksdk/agentdeck/tree/main/examples/chat-agent-with-a-tool).
+
+```text
+.agentdeck/
+└── agents/order_desk/agent.py    # @tool + Agent(name="OrderDesk", tools=[...])
+run.py                            # deck.run("OrderDesk", "where is order A-1001?")
+```
+
+The file's location is the registration. Nothing imports `agent.py`, and there is no catalog file
+to add it to.
+
+## The declaration
+
+```python no-test reason="the example's own file, discovered from .agentdeck/ rather than imported"
+from agentdeck import Agent, tool
+
+_ORDERS = {"A-1001": "shipped, arriving Thursday"}
+
+
+@tool
+def order_status(order_id: str) -> str:
+    """Look up the current status of one order by its id."""
+    return _ORDERS.get(order_id, "no such order")
+
+
+order_desk = Agent(
+    name="OrderDesk",
+    instructions=(
+        "You are the order desk for an online shop. Call order_status before answering any "
+        "question about an order, and never guess a status. Keep replies to one short sentence."
+    ),
+    tools=[order_status],
+)
+```
+
+## Run it
+
+```bash
+uv pip install agentdeck-sdk
+export OPENAI_MODEL=gpt-4.1-mini OPENAI_API_KEY=sk-...
+python run.py
+```
+
+Run it from the example's own directory: `Deck.from_project()` discovers `./.agentdeck`, so the
+working directory picks the project. `OPENAI_BASE_URL` points it at any OpenAI-compatible server
+instead, and Chat-Completions-only servers also want `OPENAI_USE_RESPONSES=false`.
+
+## What to look at
+
+- The parameter schema comes off the type hints and the description off the docstring;
+  `build()` compiles the function into the tool the model is offered. A sync body runs on a worker
+  thread rather than the event loop.
+- The instructions telling the model to call the tool are the whole contract. No rule engine
+  enforces it.
+- The tool runs in this process with these privileges, on arguments the model chose. Keep anything
+  destructive behind [human approval](/runs-and-control/human-input) rather than an agent's
+  judgement.
+
+Next: [Tools](/build-your-deck/tools) · [Agents](/build-your-deck/agents)
+
+---
+
+# Chat in the Terminal
+
+*A workflow that asks the questions, driven by agentdeck chat. No API key.*
+Source: https://agentdecksdk.com/examples/chat-in-the-terminal
+
+# Chat in the terminal
+
+A workflow that asks the questions instead of answering them, driven from a terminal by
+`agentdeck chat`. **No API key**: a `@workflow` is your own Python, so nothing here reaches a
+model. [Source](https://github.com/agentdecksdk/agentdeck/tree/main/examples/chat-in-the-terminal).
+
+```text
+.agentdeck/
+└── workflows/shift_handover/workflow.py    # @workflow + ctx.ask(...)
+```
+
+## The workflow
+
+```python no-test reason="the example's own file, discovered from .agentdeck/ rather than imported"
+from agentdeck import WorkflowCtx, workflow
+
+
+@workflow
+async def shift_handover(ctx: WorkflowCtx, area: str) -> str:
+    """Write a handover note for one area, asking the outgoing operator what to flag."""
+    severity = await ctx.ask(
+        f"how did {area} run this shift?",
+        options=["quiet", "busy", "problems"],
+    )
+    if severity == "problems":
+        detail = await ctx.ask("what should the next shift look at first?")
+        return f"{area}: problems. First: {detail}"
+    return f"{area}: {severity}, nothing to escalate."
+```
+
+## Run it
+
+```bash
+uv pip install agentdeck-sdk
+agentdeck chat shift_handover
+```
+
+```text
+> bay 4
+? how did bay 4 run this shift?
+  1) quiet
+  2) busy
+  3) problems
+> 3
+? what should the next shift look at first?
+> the conveyor stalled twice
+-- run.completed --
+>
+```
+
+Ctrl-C cancels a run in flight, or leaves the prompt if nothing is running. Ctrl-D exits.
+
+## What to look at
+
+- **`ctx.ask` suspends the run.** Nothing polls and no prompt is held open: the run reaches
+  `WAITING_ANSWER`, the terminal renders the question, and answering resumes the same run. Close
+  the terminal mid-question and the run is still waiting.
+- **The options are enforced, not suggested.** An answer outside them is refused and the run stays
+  answerable, which is why the terminal re-asks instead of failing.
+- **`agentdeck chat <target>` takes any agent or workflow.** Omit the name only when the deck holds
+  exactly one target; a name that does not exist fails before the first prompt.
+- **The terminal is a binding, not a special case.** `agentdeck chat` is
+  `deck.serve(Terminal.stdio(target=...))`, and the same run is reachable over
+  [`Native.http()`](/bindings/native) at the same time.
+
+Next: [Workflows](/build-your-deck/workflows) · [Terminal](/bindings/terminal)
+
+---
+
+# Run Events Stream
+
+*A run's typed event log, printed as it arrives. No API key.*
+Source: https://agentdecksdk.com/examples/run-events-stream
+
+# Run events stream
+
+Every AgentDeck execution is a `Run` with an ordered event log. This example streams one and prints
+each event as it arrives. **No API key**: the model is scripted in-process, so the run reaches
+nothing external and the output is the same on every machine.
+[Source](https://github.com/agentdecksdk/agentdeck/tree/main/examples/run-events-stream).
+
+No `.agentdeck/` here: the agent is declared inline, because the subject is the stream rather than
+project discovery.
+
+```python no-test reason="the example's own run.py, which drives the stream to completion"
+import asyncio
+
+from agentdeck import Agent, Deck
+from agentdeck.testing import ScriptedModel, patch_model
+
+
+async def main() -> None:
+    deck = Deck(agents=[Agent(name="Greeter", instructions="Answer with a short greeting.")])
+    with patch_model(ScriptedModel(deltas=("Hel", "lo"))):
+        async with deck:
+            async for event in deck.stream("Greeter", "Say hello", session_id="demo-session"):
+                print(f"{event.kind}: {event.payload.model_dump(exclude={'kind'})}")
+
+
+asyncio.run(main())
+```
+
+```text
+run.started: {'invocable': 'Greeter', 'kind_of_invocable': 'agent', ...}
+text.delta: {'message_id': 'msg_scripted_1', 'text': 'Hel'}
+text.delta: {'message_id': 'msg_scripted_1', 'text': 'lo'}
+usage.reported: {'model': 'fake-scripted', 'usage': {'input_tokens': 3, 'output_tokens': 4, 'usd': None}}
+message.completed: {'message_id': 'msg_scripted_1', 'text': 'Hello'}
+run.completed: {'output': [{'type': 'text', 'text': 'Hello'}], 'usage': {...}}
+```
+
+## What to look at
+
+- **`event.kind` is the switch.** A consumer routes on the string: `text.delta` into a live UI,
+  `usage.reported` into token accounting, `run.completed` into a completion handler. The payload is
+  a typed model per kind.
+- **The envelope is the same for every kind.** `run_id`, `session_id`, `seq` and the rest sit on the
+  event rather than in the payload, so a store indexes them without parsing.
+- **An unfamiliar kind parses, it does not raise.** A newer writer's event lands as an unknown
+  payload, which is what lets a released reader survive a schema addition.
+- **`agentdeck.testing` is public.** `ScriptedModel` and `patch_model` stub the SDK boundary in your
+  own tests the same way they do here.
+
+Next: [Runs](/runs-and-control/runs) · [Events](/reference/events)
 
 ---
 
