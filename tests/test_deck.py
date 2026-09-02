@@ -553,7 +553,7 @@ def test_agent_and_workflow_sharing_a_name_fails_build_naming_both():
 
     # a bare `match="Twin"` would still pass a regression to a message naming only one kind  -
     # pin that both are named, not just that the shared name appears somewhere in the text.
-    with pytest.raises(ConfigError, match=r"agent.*Twin.*workflow|workflow.*Twin.*agent"):
+    with pytest.raises(ConfigError, match=r"Twin.*agent.*workflow|Twin.*workflow.*agent"):
         deck.build()
 
 
