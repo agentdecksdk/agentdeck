@@ -24,8 +24,9 @@ install:        ## editable install with every extra the gate needs, from the lo
 	# `.[dev]` alone silently skipped serve, postgres and observability. The whole
 	# point of #142: a narrower install reads as a pass instead of as untested.
 	# --locked: installs exactly what uv.lock resolved, and fails loudly if it's stale (#605)
-	# instead of silently resolving fresh and leaving the lockfile to drift.
-	uv sync --locked --all-extras
+	# instead of silently resolving fresh and leaving the lockfile to drift. --inexact: unlike
+	# CI/release, don't prune an ad-hoc package a contributor installed by hand.
+	uv sync --locked --all-extras --inexact
 
 lock-check:     ## uv.lock matches pyproject.toml -- the thing CI and `make install` actually install
 	$(E)uv lock --check $(QUIET)
