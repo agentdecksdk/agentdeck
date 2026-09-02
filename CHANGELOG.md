@@ -95,6 +95,10 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   The root keeps the everyday vocabulary, a feature namespace keeps its own, and no public name
   lives at two paths (`docs/engineering/architecture.md` 3).
 
+### Fixed
+
+- **`Deck.__aenter__` rolls back a late failure** (#572): a failure after observers started  -  building the runtime, connecting MCP servers  -  used to leave every started observer open and the process claim held, blocking a second `Deck(...)` in the same process. It now closes what it started and releases the claim before re-raising, same as an observer-start failure already did.
+
 ## [5.2.1] - 2026-08-29
 
 ### Changed

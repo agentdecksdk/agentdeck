@@ -783,38 +783,42 @@ class Deck:
         # suppress the settings-derived one entirely  -  a Deck told which taps to open must not
         # quietly open a Langfuse client beside them.
         observers = resolve_observers() if self._observers_arg is None else tuple(self._observers_arg)
-        for observer in observers:
-            # An observer that refuses the open (Langfuse with no keys) must not leave the ones
-            # before it holding a client nobody will ever close  -  this open is not going to
-            # finish, and there is no ``__aexit__`` for a ``__aenter__`` that raised.
-            try:
+        # One try for the whole open sequence: no ``__aexit__`` runs for a raised
+        # ``__aenter__``, so a failure anywhere here must unwind everything itself (#572).
+        try:
+            for observer in observers:
                 await observer.start()
-            except BaseException:
-                for started in self._started_observers:
+                self._started_observers = (*self._started_observers, observer)
+            self._runtime = build_runtime(
+                executors=self._executor_instances,
+                # A view, not a copy: what ``ctx.agents`` mints after this point resolves
+                # against the already-open Runtime, and never shadows a catalog name.
+                invocables=ChainMap(self._minted, dict(self._invocables or {})),
+                store=store,
+                sinks=observers,
+                control=resolve_control_port(),
+            )
+            await MCPLifecycle.startup(self._mcp_obj.config() if self._mcp_obj is not None else None)
+            self._started_mcp = True
+            if self._mcp_obj is not None:
+                # build() compiled every agent's mcp= before any server connected, so its
+                # tools/banner are stale the moment startup() above finishes  -  correct it here.
+                invocables = self._invocables
+                assert invocables is not None  # build() just above guarantees this
+                agents = list(self._agents.values())
+                refresh_mcp_status({name: invocables[name].native for name in self._agents}, agents)
+        except BaseException:
+            for started in self._started_observers:
+                try:
                     await started.close()
-                self._started_observers = ()
-                raise
-            self._started_observers = (*self._started_observers, observer)
-        self._runtime = build_runtime(
-            executors=self._executor_instances,
-            # A view, not a copy: what ``ctx.agents`` mints after this point has to be resolvable
-            # by the Runtime that is already open, and a minted name never shadows a catalog one
-            # because it carries a mint the catalog cannot have written.
-            invocables=ChainMap(self._minted, dict(self._invocables or {})),
-            store=store,
-            sinks=observers,
-            control=resolve_control_port(),
-        )
-        await MCPLifecycle.startup(self._mcp_obj.config() if self._mcp_obj is not None else None)
-        self._started_mcp = True
-        if self._mcp_obj is not None:
-            # build() compiled every agent's mcp= against MCPLifecycle before any server had
-            # connected, so its tools/banner are stale the moment startup() above finishes  -
-            # correct the compiled agent in place before anything can run a turn against it.
-            invocables = self._invocables
-            assert invocables is not None  # build() just above guarantees this
-            agents = list(self._agents.values())
-            refresh_mcp_status({name: invocables[name].native for name in self._agents}, agents)
+                except BaseException:
+                    # Best-effort, mirrors ``Exposure._lifecycle``: keep closing the rest, never
+                    # let one observer's close mask the exception this open is already dying of.
+                    logger.exception("__aenter__ rollback: %r failed to close", started)
+            self._started_observers = ()
+            self._runtime = None
+            _release_process(self)
+            raise
         self._state = "OPEN"
         return self
 
