@@ -30,6 +30,7 @@ from agentdeck.core.events import (
     RunCancelled,
     RunFailed,
     RunInterrupted,
+    RunPaused,
     TextDelta,
     ThoughtDelta,
     UnknownEvent,
@@ -277,6 +278,29 @@ def test_text_delta_then_run_cancelled_ends_the_text_message_first():
     closed = [e.type.value for e in _to_agui_event(_event(RunCancelled()), state)]
 
     assert closed == ["TEXT_MESSAGE_END", "RUN_ERROR"]
+
+
+def test_run_paused_projects_to_a_custom_event_then_run_finished_success():
+    """A pause is neither a question nor a failure: it closes the interaction with a
+    CustomEvent carrying the reason, then RunFinishedSuccessOutcome (agui.md's own table)."""
+    state = _AdapterState(thread_id="t", run_id="r")
+
+    events = _to_agui_event(_event(RunPaused(reason="operator stepped away")), state)
+
+    assert [e.type.value for e in events] == ["CUSTOM", "RUN_FINISHED"]
+    custom, finished = events
+    assert custom.name == "agentdeck.paused"
+    assert custom.value == {"reason": "operator stepped away"}
+    assert finished.outcome.type == "success"
+
+
+def test_text_delta_then_run_paused_ends_the_text_message_first():
+    state = _AdapterState(thread_id="t", run_id="r")
+    _to_agui_event(_event(TextDelta(message_id="m1", text="hi")), state)
+
+    closed = [e.type.value for e in _to_agui_event(_event(RunPaused(reason=None)), state)]
+
+    assert closed == ["TEXT_MESSAGE_END", "CUSTOM", "RUN_FINISHED"]
 
 
 def test_backend_tool_calls_and_results_project_correctly(no_project):
