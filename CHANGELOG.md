@@ -95,6 +95,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   The root keeps the everyday vocabulary, a feature namespace keeps its own, and no public name
   lives at two paths (`docs/engineering/architecture.md` 3).
 
+### Fixed
+
+- **A workflow's own `InputError` after `run.started` reaches every wire as itself** (#621):
+  `RunFailed.error_code` gains `"invalid_input"`, and its `message` carries the exception's own
+  caller-safe text instead of being stripped to `"InputError in engine ..."`. Every other
+  exception's shape is unchanged.
+
 ## [5.2.1] - 2026-08-29
 
 ### Changed
