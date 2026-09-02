@@ -130,6 +130,7 @@ known-first-party = ["agentdeck"]
 # native executor's parked bodies above  -  never the runtime's, since a binding lives outside it.
 "tests/bindings/fixture_plugin/channel.py" = ["TID251"]
 "tests/bindings/test_agui_binding.py" = ["TID251"]
+"tests/bindings/test_agui_client_conformance.py" = ["TID251"]
 "tests/contract/test_store.py" = ["TID251"]
 "tests/test_deck.py" = ["TID251"]
 "tests/test_run_control.py" = ["TID251"]

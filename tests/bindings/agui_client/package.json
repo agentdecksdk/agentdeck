@@ -1,0 +1,9 @@
+{
+  "name": "agui-client-conformance",
+  "private": true,
+  "version": "0.0.0",
+  "description": "The official @ag-ui/client driven against AGUI.http(), for test_agui_client_conformance.py.",
+  "dependencies": {
+    "@ag-ui/client": "0.0.59"
+  }
+}
