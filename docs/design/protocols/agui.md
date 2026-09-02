@@ -20,10 +20,12 @@ protocol deliberately left out. A capability is advertised only once it works.
 ## Public API
 
 ```python
+import asyncio
+
 from agentdeck.bindings.agui import AGUI
 
-deck.expose(AGUI.http("/agui"))                                  # the whole catalog
-deck.expose(AGUI.http("/support", target="Support", name="agui-support"))  # pinned
+asyncio.run(deck.expose(AGUI.http("/agui")).serve(port=8000))                       # the whole catalog
+asyncio.run(deck.expose(AGUI.http("/support", target="Support")).serve(port=8000))  # pinned
 ```
 
 ```python
@@ -345,6 +347,8 @@ AgentDeck primitive and stay tracked gaps until then; AGUI-7 is #597.
 
 ## The DX this buys
 
+Embedding inside an existing service uses `asgi()` instead of `serve()`, both endpoints on one listener:
+
 ```python
 from agentdeck import Agent, Deck, WorkflowCtx, workflow
 from agentdeck.bindings.agui import AGUI
@@ -353,7 +357,7 @@ deck = Deck(agents=[support, analyst], workflows=[workflow(research), workflow(o
 app = deck.expose(
     AGUI.http("/agui"),                                            # the catalog, target per request
     AGUI.http("/support", target="Support", name="agui-support"),   # pinned, plain AG-UI
-).asgi()
+).asgi()                                                             # uvicorn yourmodule:app
 ```
 
 ```javascript
