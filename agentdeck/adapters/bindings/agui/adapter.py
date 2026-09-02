@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from ag_ui.core import (
     AudioInputContent,
     BaseEvent,
+    BinaryInputContent,
     CustomEvent,
     DocumentInputContent,
     ImageInputContent,
@@ -33,6 +34,7 @@ from ag_ui.core import (
     ToolCallEndEvent,
     ToolCallResultEvent,
     ToolCallStartEvent,
+    VideoInputContent,
 )
 
 from agentdeck import AudioBlock, ImageBlock, ResourceBlock, TextBlock
@@ -107,17 +109,31 @@ def _content_block(part: InputContentPart) -> ContentBlock:
         case AudioInputContent(source=source):
             return _media_block(source, AudioBlock)
         case DocumentInputContent(source=source):
-            if source.type == "url":
-                return ResourceBlock(uri=source.value, media_type=source.mime_type)
-            raise InputError("an inline document has no AgentDeck content block yet; send it by URL")
+            return _url_only_block(source, "document")
+        case VideoInputContent(source=source):
+            return _url_only_block(source, "video")
+        case BinaryInputContent():
+            raise InputError(
+                "BinaryInputContent has no AgentDeck content block yet; send image, audio, video or a document instead"
+            )
         case _:
             raise InputError(f"{type(part).__name__} has no AgentDeck content block yet")
 
 
 def _media_block(source: Any, inline_cls: type[ImageBlock] | type[AudioBlock]) -> ContentBlock:
+    """Image and audio round-trip either way AG-UI sends them: inline as their own block,
+    by URL as a `ResourceBlock`."""
     if source.type == "data":
         return inline_cls(media_type=source.mime_type, data_b64=source.value)
     return ResourceBlock(uri=source.value, media_type=source.mime_type)
+
+
+def _url_only_block(source: Any, kind: str) -> ContentBlock:
+    """A document or video has no AgentDeck block for bytes held inline: `ResourceBlock` is a
+    reference by uri, never a container, so only the URL source has anywhere to go."""
+    if source.type == "url":
+        return ResourceBlock(uri=source.value, media_type=source.mime_type)
+    raise InputError(f"an inline {kind} has no AgentDeck content block yet; send it by URL")
 
 
 def _close_reasoning(state: _AdapterState) -> list[BaseEvent]:

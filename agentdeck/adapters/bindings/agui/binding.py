@@ -43,7 +43,21 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_ADVERTISES = frozenset({"streaming", "text", "reasoning", "hitl", "multimodal-input", "control.cancel"})
+_ADVERTISES = frozenset(
+    {
+        "streaming",
+        "text",
+        "reasoning",
+        "hitl",
+        "control.cancel",
+        # image/audio round-trip inline or by URL; document/video only by URL (agui.md gap
+        # table); BinaryInputContent and inline document/video bytes are refused outright.
+        "multimodal-input.image",
+        "multimodal-input.audio",
+        "multimodal-input.document",
+        "multimodal-input.video",
+    }
+)
 
 _STATUS: dict[GatewayFailureCode, int] = {
     GatewayFailureCode.NOT_FOUND: 404,

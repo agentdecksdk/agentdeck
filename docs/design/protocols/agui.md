@@ -159,9 +159,11 @@ explicit unsupported capabilities until AgentDeck has matching semantics.
 | AG-UI content | AgentDeck |
 |---|---|
 | text | `TextBlock` |
-| image | `ImageBlock` |
-| audio | `AudioBlock` |
-| document, resource | `ResourceBlock` |
+| image, audio, inline | `ImageBlock`/`AudioBlock` |
+| image, audio, by URL | `ResourceBlock` |
+| document, video, by URL | `ResourceBlock` |
+| document, video, inline bytes | refused: no block holds bytes AG-UI sent inline for a reference-only kind |
+| `BinaryInputContent` | refused: no generic binary content block |
 | structured JSON | `DataBlock` where it is genuinely data |
 | anything else | protocol error, never dropped |
 
@@ -296,6 +298,8 @@ faked inside the binding, because a protocol-shaped workaround in a binding is e
 | steering | mid-run input |
 | several outstanding interrupts | `run.answer(interrupt_id, value)`; until then one outstanding ask per Run |
 | tool-output streaming | richer tool progress and result events |
+| inline document/video bytes | a content block for bytes held inline, not by reference; `ResourceBlock` is a uri only |
+| `BinaryInputContent` | a generic binary content block; today's blocks are each typed to a kind |
 
 Until each lands, the binding answers an explicit unsupported result rather than pretending: empty
 `tools`, empty state, empty `context` and an absent `parentRunId` are supported, and anything else is

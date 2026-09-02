@@ -17,7 +17,7 @@ from ag_ui.core import RunAgentInput
 from pydantic import TypeAdapter
 from starlette.testclient import TestClient
 
-from agentdeck import Deck, ImageBlock, Run, TextBlock, WorkflowCtx, workflow
+from agentdeck import Deck, ImageBlock, ResourceBlock, Run, TextBlock, WorkflowCtx, workflow
 from agentdeck.adapters.bindings.agui.adapter import _AdapterState, _to_agentdeck_input, _to_agui_event
 from agentdeck.adapters.bindings.agui.binding import _AGUIBinding
 from agentdeck.authoring import Agent
@@ -35,7 +35,7 @@ from agentdeck.core.events import (
     UnknownEvent,
 )
 from agentdeck.core.status import RunStatus
-from agentdeck.errors import ConfigError
+from agentdeck.errors import ConfigError, InputError
 from agentdeck.testing import ScriptedModel, patch_model
 
 _WIRE_EVENT = TypeAdapter(AGUIWireEvent)
@@ -481,3 +481,40 @@ def test_multimodal_input_maps_agui_content_to_agentdeck_blocks():
     blocks = _to_agentdeck_input(run_input)
 
     assert blocks == [TextBlock(text="look at this"), ImageBlock(media_type="image/png", data_b64="aGVsbG8=")]
+
+
+def _content_input(*parts: dict) -> RunAgentInput:
+    return RunAgentInput.model_validate(_body(messages=[{"id": "m1", "role": "user", "content": list(parts)}]))
+
+
+def test_url_video_maps_to_a_resource_block():
+    run_input = _content_input(
+        {"type": "video", "source": {"type": "url", "value": "https://x/clip.mp4", "mimeType": "video/mp4"}}
+    )
+
+    assert _to_agentdeck_input(run_input) == [ResourceBlock(uri="https://x/clip.mp4", media_type="video/mp4")]
+
+
+def test_inline_video_is_refused_with_a_named_reason():
+    run_input = _content_input(
+        {"type": "video", "source": {"type": "data", "value": "aGVsbG8=", "mimeType": "video/mp4"}}
+    )
+
+    with pytest.raises(InputError, match="inline video"):
+        _to_agentdeck_input(run_input)
+
+
+def test_inline_document_is_refused_with_a_named_reason():
+    run_input = _content_input(
+        {"type": "document", "source": {"type": "data", "value": "aGVsbG8=", "mimeType": "application/pdf"}}
+    )
+
+    with pytest.raises(InputError, match="inline document"):
+        _to_agentdeck_input(run_input)
+
+
+def test_binary_input_content_is_refused_with_a_named_reason():
+    run_input = _content_input({"type": "binary", "mimeType": "application/octet-stream", "data": "aGVsbG8="})
+
+    with pytest.raises(InputError, match="BinaryInputContent"):
+        _to_agentdeck_input(run_input)
