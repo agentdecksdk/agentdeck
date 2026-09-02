@@ -9,9 +9,12 @@ import types
 from dataclasses import dataclass, field
 from importlib.machinery import ModuleSpec
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 from agentdeck.errors import ConfigError, NotFoundError
+
+if TYPE_CHECKING:
+    from agentdeck.core.invocable import InvocableKind
 
 T = TypeVar("T")
 
@@ -23,20 +26,11 @@ _PROJECT_ALIAS = "agentdeck_project"
 class PluginRegistry(Generic[T]):
     """Discover ``T`` instances in ``<package>/<type_dir>/<bundle>/<module_name>.py``.
 
-    Lazy: discovery runs on the first :meth:`list` call and is cached on
-    the instance. Pass ``refresh=True`` to force a re-scan. Two *different* bundles
-    that declare an invocable of the same name raise ``ConfigError`` naming both bundle
-    paths  -  one name is one invocable, never a silent shadow in bundle-sort order.
-    A single bundle exposing the same instance under two names (e.g. an alias kept
-    after a rename) is not a collision: it is the same object claiming its name twice.
-
-    ``base_class`` is matched by ``isinstance``  -  a bundle module holds one or more
-    already-constructed values (``authoring``'s ``Agent(...)``, or the ``NativeDefinition`` a
-    ``@workflow`` produces), not subclasses to discover. A bundle that imports cleanly but binds
-    no matching instance raises ``ConfigError`` naming it  -  shared code that belongs in a
-    ``<type_dir>/`` directory without contributing an invocable of its own opts out with a
-    leading ``_``/``.`` (already excluded from the scan by :meth:`_is_bundle`), the same way
-    a private helper module does anywhere else in the tree.
+    Lazy: :meth:`list` scans once and caches; pass ``refresh=True`` to force a re-scan. Matched
+    by ``isinstance(base_class)``, narrowed by ``kind`` (a wrong-kind match still returns, just
+    uncounted). A bundle aliasing its own instance under a second name is not a collision  -  only
+    a second, different instance claiming a name already taken is; both that and a bundle binding
+    nothing matching raise ``ConfigError`` naming the bundle(s), see :meth:`_scan`.
     """
 
     package: str
@@ -44,6 +38,7 @@ class PluginRegistry(Generic[T]):
     module_name: str
     type_dir: str
     label: str = "plugin"
+    kind: InvocableKind | None = None
     _cache: dict[str, T] | None = field(default=None, init=False, repr=False)
     bundle_of: dict[str, str] = field(default_factory=dict, init=False, repr=False)
 
@@ -92,15 +87,17 @@ class PluginRegistry(Generic[T]):
                 bundle_file = f"{self.type_dir}/{child.name}/{self.module_name}.py"
                 raise ConfigError(f"{bundle_file} failed to import: {exc}") from exc
             matched = False
-            for attr in vars(module).values():
+            wrong_kind: list[tuple[str, str]] = []  # (attr name, its actual kind) for the error below
+            for attr_name, attr in vars(module).items():
                 if not isinstance(attr, self.base_class):
                     continue
-                matched = True
+                found_kind = getattr(attr, "kind", None)
+                if self.kind is None or found_kind == self.kind:
+                    matched = True
+                else:
+                    wrong_kind.append((attr_name, found_kind.value if found_kind is not None else "?"))
                 name = attr.name
-                # Identity, not name: ``vars(module)`` yields one entry per *binding*, so a
-                # bundle aliasing its own instance under a second name (kept after a rename)
-                # must not trip this against itself  -  only a second, different instance
-                # claiming a name already taken is the collision.
+                # Identity, not name  -  see the alias-vs-collision rule on the class docstring.
                 claimant = found.get(name)
                 if claimant is not None and claimant is not attr:
                     raise ConfigError(
@@ -110,6 +107,15 @@ class PluginRegistry(Generic[T]):
                     )
                 found[name] = attr
                 self.bundle_of[name] = child.name
+            if not matched and wrong_kind:
+                # A plainer miss than the ghost case below: name what was found instead of
+                # implying nothing was defined.
+                found_str = ", ".join(f"{fk} {name!r}" for name, fk in wrong_kind)
+                kinds = "/".join(dict.fromkeys(fk for _, fk in wrong_kind))
+                raise ConfigError(
+                    f"{self.label} bundle {child.name!r} exports no {self.label}; found {found_str}. "
+                    f"Decorate the {self.label} with @{self.label} or move the {kinds} out of the bundle module."
+                )
             if not matched:
                 # v1 scanned for a *subclass*, so a bare declaration (`class Ghost(AgentDeclaration)`)
                 # was itself the agent; here only an *instance* counts, so the natural port of an

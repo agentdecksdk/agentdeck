@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from starlette.testclient import TestClient
 
-from agentdeck import WorkflowCtx, workflow
+from agentdeck import WorkflowCtx, tool, workflow
 from agentdeck.adapters.bindings.native.binding import _NativeBinding, _on_unsupported
 from agentdeck.authoring import Agent
 from agentdeck.bindings.native import Native
@@ -46,6 +46,15 @@ async def _greet(name: str, greeting: str) -> str:
     return f"{greeting}, {name}"
 
 
+@tool(name="places_lookup")
+async def _places_lookup(query: str) -> str:
+    return query.upper()
+
+
+async def _discovery(ctx: WorkflowCtx, said: str) -> str:
+    return str(await ctx.invoke(_places_lookup, said))
+
+
 def _deck() -> Deck:
     return Deck(
         agents=[Agent(name="Greeter", instructions="Greet the user.")],
@@ -73,6 +82,22 @@ def test_targets_lists_every_agent_and_workflow(no_project):
 
     assert response.status_code == 200
     assert {t["name"] for t in response.json()} == {"Greeter", "Survey"}
+
+
+def test_targets_excludes_a_bundled_tool_and_running_it_by_name_maps_to_422(no_project):
+    """#488: a `@tool` compiled alongside a `@workflow` (so `ctx.invoke` can reach it) is in the
+    runtime catalog but is not a target  -  `GET /targets` must not list it, and `POST /runs`
+    naming it directly is a caller-supplied bad value, the same 422 class every other one on
+    this wire maps to."""
+    deck = Deck(workflows=[_places_lookup, workflow(_discovery, name="discovery")])
+    with _client(deck) as client:
+        listed = client.get("/targets")
+        assert listed.status_code == 200
+        assert {t["name"] for t in listed.json()} == {"discovery"}
+
+        response = client.post("/runs", json={"target": "places_lookup", "input": "hi", "session_id": "s1"})
+
+    assert response.status_code == 422
 
 
 def test_targets_maps_a_schema_generation_failure_to_internal_500_without_echoing_it(no_project):
