@@ -38,7 +38,7 @@ protocol binding, consuming its wire through its own library; it is not a bindin
 
 ## The front door
 
-Serve every binding a Deck exposes from one call:
+Serve a Deck over several bindings from one call:
 
 ```python
 import asyncio
@@ -50,8 +50,8 @@ deck = Deck.from_project()
 asyncio.run(deck.serve(Native.http("/api"), AGUI.http("/agui"), Terminal.stdio(), port=8000))
 ```
 
-`deck.serve(...)` validates the set of bindings and owns their lifecycle: one process, one port,
-three protocols reaching the same runs.
+`deck.serve(...)` validates the set of bindings and owns their lifecycle: one process, three
+bindings reaching the same runs.
 
 Embedding inside an app you already run swaps `serve` for `deck.asgi(...)`, which returns the
 ASGI application instead of blocking; `deck.expose(...)` is the lower-level call that returns the
