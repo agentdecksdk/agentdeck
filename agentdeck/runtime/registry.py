@@ -9,9 +9,12 @@ import types
 from dataclasses import dataclass, field
 from importlib.machinery import ModuleSpec
 from pathlib import Path
-from typing import Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 from agentdeck.errors import ConfigError, NotFoundError
+
+if TYPE_CHECKING:
+    from agentdeck.core.invocable import InvocableKind
 
 T = TypeVar("T")
 
@@ -37,6 +40,11 @@ class PluginRegistry(Generic[T]):
     ``<type_dir>/`` directory without contributing an invocable of its own opts out with a
     leading ``_``/``.`` (already excluded from the scan by :meth:`_is_bundle`), the same way
     a private helper module does anywhere else in the tree.
+
+    ``kind``, when set, narrows a ``base_class`` match further  -  ``NativeDefinition`` matches
+    both a ``@tool`` and a ``@workflow``, so the workflow registry passes ``kind=WORKFLOW`` to
+    keep a bundled ``@tool`` (e.g. one exported so ``ctx.invoke`` can reach it) from being
+    registered as a workflow it is not; a match of the wrong kind is skipped, not collected.
     """
 
     package: str
@@ -44,6 +52,7 @@ class PluginRegistry(Generic[T]):
     module_name: str
     type_dir: str
     label: str = "plugin"
+    kind: InvocableKind | None = None
     _cache: dict[str, T] | None = field(default=None, init=False, repr=False)
     bundle_of: dict[str, str] = field(default_factory=dict, init=False, repr=False)
 
@@ -92,8 +101,13 @@ class PluginRegistry(Generic[T]):
                 bundle_file = f"{self.type_dir}/{child.name}/{self.module_name}.py"
                 raise ConfigError(f"{bundle_file} failed to import: {exc}") from exc
             matched = False
-            for attr in vars(module).values():
+            wrong_kind: list[tuple[str, str]] = []  # (attr name, its actual kind) for the error below
+            for attr_name, attr in vars(module).items():
                 if not isinstance(attr, self.base_class):
+                    continue
+                found_kind = getattr(attr, "kind", None)
+                if self.kind is not None and found_kind != self.kind:
+                    wrong_kind.append((attr_name, found_kind.value if found_kind is not None else "?"))
                     continue
                 matched = True
                 name = attr.name
@@ -110,6 +124,16 @@ class PluginRegistry(Generic[T]):
                     )
                 found[name] = attr
                 self.bundle_of[name] = child.name
+            if not matched and wrong_kind:
+                # Every base_class match here is the wrong kind (a @tool bundled under
+                # workflows/): a plainer miss than the ghost case below, so it gets its own
+                # message naming what was found instead of implying nothing was defined.
+                found_str = ", ".join(f"{fk} {name!r}" for name, fk in wrong_kind)
+                raise ConfigError(
+                    f"{self.label} bundle {child.name!r} exports no {self.label}; found {found_str}. "
+                    f"Decorate the {self.label} with @{self.label} or move the "
+                    f"{wrong_kind[0][1]} out of the bundle module."
+                )
             if not matched:
                 # v1 scanned for a *subclass*, so a bare declaration (`class Ghost(AgentDeclaration)`)
                 # was itself the agent; here only an *instance* counts, so the natural port of an

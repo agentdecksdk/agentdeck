@@ -607,7 +607,12 @@ class Deck:
         )
         agents = list(agent_registry.list(refresh=True).values())
         workflow_registry = PluginRegistry(
-            package, base_class=NativeDefinition, module_name="workflow", type_dir="workflows", label="workflow"
+            package,
+            base_class=NativeDefinition,
+            module_name="workflow",
+            type_dir="workflows",
+            label="workflow",
+            kind=InvocableKind.WORKFLOW,
         )
         workflows = list(workflow_registry.list(refresh=True).values())
         project_root = Path(path).resolve()

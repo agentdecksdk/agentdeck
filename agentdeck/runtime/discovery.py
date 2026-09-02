@@ -104,7 +104,13 @@ class InvocableRegistry:
             agents = list(registry.list().values())
             bundle_of.update(registry.bundle_files())
         if workflows is None:
-            registry = self._discover(NativeDefinition, type_dir="workflows", module_name="workflow", label="workflow")
+            registry = self._discover(
+                NativeDefinition,
+                type_dir="workflows",
+                module_name="workflow",
+                label="workflow",
+                kind=InvocableKind.WORKFLOW,
+            )
             workflows = list(registry.list().values())
             bundle_of.update(registry.bundle_files())
         specs: dict[str, InvocableSpec] = {}
@@ -132,10 +138,18 @@ class InvocableRegistry:
             self._add(specs, workflow.name, workflow.kind, workflow, executor=NATIVE_EXECUTOR)
         return specs
 
-    def _discover(self, base_class: type, *, type_dir: str, module_name: str, label: str) -> PluginRegistry[Any]:
+    def _discover(
+        self,
+        base_class: type,
+        *,
+        type_dir: str,
+        module_name: str,
+        label: str,
+        kind: InvocableKind | None = None,
+    ) -> PluginRegistry[Any]:
         package = mount_project_dir()
         registry = PluginRegistry(
-            package, base_class=base_class, module_name=module_name, type_dir=type_dir, label=label
+            package, base_class=base_class, module_name=module_name, type_dir=type_dir, label=label, kind=kind
         )
         registry.list(refresh=True)
         return registry

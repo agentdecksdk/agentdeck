@@ -67,6 +67,38 @@ BOOM_WORKFLOW_PY = """
 raise ValueError("bad workflow module")
 """
 
+# #488: the exact repro  -  a workflow bundle also exporting a `@tool` (bound under its own
+# name so `ctx.invoke` can reach it, and aliased into a `tools = [...]` list). Only `discovery`
+# is a workflow; `places_lookup` and the list must not be swept in as one.
+TOOL_AND_WORKFLOW_BUNDLE_PY = """
+from agentdeck import ToolCtx, WorkflowCtx, tool, workflow
+
+
+@tool
+async def places_lookup(ctx: ToolCtx, query: str) -> str:
+    return query
+
+
+@workflow(name="discovery")
+async def discovery(ctx: WorkflowCtx, said: str) -> str:
+    return said
+
+
+workflow = discovery
+tools = [places_lookup]
+"""
+
+# #488: a workflow bundle exporting only a `@tool`  -  no `@workflow` at all, so discovery must
+# still refuse it, naming what it actually found instead of implying the module defines nothing.
+TOOL_ONLY_WORKFLOW_PY = """
+from agentdeck import ToolCtx, tool
+
+
+@tool
+async def places_lookup(ctx: ToolCtx, query: str) -> str:
+    return query
+"""
+
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
@@ -215,6 +247,39 @@ def test_a_workflow_module_defining_no_workflow_raises_naming_the_bundle(tmp_pat
     assert "NativeDefinition(...)" in message
 
 
+def test_a_bundled_tool_is_not_registered_as_a_workflow(tmp_path, monkeypatch):
+    """#488: a `@tool` exported alongside a `@workflow`  -  even bound under its own name for
+    `ctx.invoke` and aliased into a `tools = [...]` list  -  must not become a runnable
+    `deck.workflows` entry."""
+    root = tmp_path / ".agentdeck"
+    (root / "workflows" / "discovery").mkdir(parents=True)
+    (root / "workflows" / "discovery" / "workflow.py").write_text(textwrap.dedent(TOOL_AND_WORKFLOW_BUNDLE_PY))
+    monkeypatch.chdir(tmp_path)
+    _drop_project_mount(monkeypatch)
+    from agentdeck.deck import Deck
+
+    deck = Deck.from_project()
+    assert sorted(deck.workflows) == ["discovery"]
+
+
+def test_a_workflow_bundle_exporting_only_a_tool_raises_naming_what_it_found(tmp_path, monkeypatch):
+    """#488: unlike the fully-empty ghost case above, this bundle does define a
+    ``NativeDefinition``  -  just the wrong kind. The error must say what it found and what it
+    wanted, not imply nothing was defined."""
+    root = tmp_path / ".agentdeck"
+    (root / "workflows" / "discovery").mkdir(parents=True)
+    (root / "workflows" / "discovery" / "workflow.py").write_text(textwrap.dedent(TOOL_ONLY_WORKFLOW_PY))
+    monkeypatch.chdir(tmp_path)
+    _drop_project_mount(monkeypatch)
+    from agentdeck.deck import Deck
+
+    with pytest.raises(ConfigError) as excinfo:
+        Deck.from_project()
+    message = str(excinfo.value)
+    assert "workflow bundle 'discovery' exports no workflow" in message
+    assert "found tool 'places_lookup'" in message
+
+
 def test_ghost_check_suggests_a_valid_identifier_for_a_hyphenated_bundle(tmp_path, monkeypatch):
     """The suggested fix must itself be legal Python  -  a bundle dir name is not required to be."""
     root = tmp_path / ".agentdeck"
@@ -301,5 +366,3 @@ def test_code_first_agent_build_failure_is_not_wrapped_with_a_bundle_path():
     with pytest.raises(Exception) as excinfo:  # noqa: PT011  -  asserting it's specifically *not* a ConfigError
         deck.build()
     assert not isinstance(excinfo.value, ConfigError)
-
-
