@@ -19,6 +19,12 @@ The clean, user-intent API or behavior with minimal code snippets. Show the simp
 ## Notes
 Constraints, affected modules, existing patterns to follow, related issues/PRs.
 
+## Pitfalls
+Known failure modes, each backed by evidence.
+
+## Must not
+Explicit scope boundaries.
+
 ## Done when
 Checklist of observable, testable behaviors (mapping 1:1 to deterministic tests without live model calls).
 ```

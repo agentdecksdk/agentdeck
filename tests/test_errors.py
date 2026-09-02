@@ -4,11 +4,9 @@ import sys
 import textwrap
 
 import pytest
-from fastapi.testclient import TestClient
 
-from agentdeck.errors import AgentdeckError, ConfigError, NotFoundError, SkillError
+from agentdeck.errors import AgentdeckError, ConfigError, InputError, NotFoundError, SkillError
 from agentdeck.runtime.registry import PluginRegistry
-from agentdeck.testing import ScriptedModel, patch_model
 
 AGENT_PY = """
 from agentdeck.authoring import Agent
@@ -69,6 +67,59 @@ BOOM_WORKFLOW_PY = """
 raise ValueError("bad workflow module")
 """
 
+# #488: the exact repro  -  a workflow bundle also exporting a `@tool` (bound under its own
+# name so `ctx.invoke` can reach it, and aliased into a `tools = [...]` list). Only `discovery`
+# is a workflow; `places_lookup` and the list must not be swept in as one.
+TOOL_AND_WORKFLOW_BUNDLE_PY = """
+from agentdeck import ToolCtx, WorkflowCtx, tool, workflow
+
+
+@tool
+async def places_lookup(ctx: ToolCtx, query: str) -> str:
+    return query
+
+
+@workflow(name="discovery")
+async def discovery(ctx: WorkflowCtx, said: str) -> str:
+    return said
+
+
+workflow = discovery
+tools = [places_lookup]
+"""
+
+# #488: a workflow bundle exporting only a `@tool`  -  no `@workflow` at all, so discovery must
+# still refuse it, naming what it actually found instead of implying the module defines nothing.
+TOOL_ONLY_WORKFLOW_PY = """
+from agentdeck import ToolCtx, tool
+
+
+@tool
+async def places_lookup(ctx: ToolCtx, query: str) -> str:
+    return query
+"""
+
+# #488: the reporter's own reason for exporting `tools = [places_lookup]` in the first place  -
+# `ctx.invoke(places_lookup, ...)` from inside the bundle's own workflow. The fix must not break
+# the very call it was written to keep working.
+TOOL_INVOKED_BY_WORKFLOW_BUNDLE_PY = """
+from agentdeck import ToolCtx, WorkflowCtx, tool, workflow
+
+
+@tool
+async def places_lookup(ctx: ToolCtx, query: str) -> str:
+    return query.upper()
+
+
+@workflow(name="discovery")
+async def discovery(ctx: WorkflowCtx, said: str) -> str:
+    return str(await ctx.invoke(places_lookup, said))
+
+
+workflow = discovery
+tools = [places_lookup]
+"""
+
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
@@ -118,16 +169,6 @@ def test_not_found_error_message_is_plain():
 
 def test_skill_error_is_an_agentdeck_error():
     assert issubclass(SkillError, AgentdeckError)
-
-
-def test_unknown_agent_chat_returns_404_with_body(project):
-    from agentdeck.serve import create_app
-
-    # context manager runs the lifespan; without it every endpoint is 503
-    with TestClient(create_app()) as client:
-        response = client.post("/agents/unknown/chat", json={"session_id": "s", "message": "hi"})
-    assert response.status_code == 404
-    assert response.json()["detail"].startswith("No agent named 'unknown'.")
 
 
 def test_two_same_kind_bundles_sharing_a_class_name_raise_naming_both(duplicate_class_name_project):
@@ -227,6 +268,90 @@ def test_a_workflow_module_defining_no_workflow_raises_naming_the_bundle(tmp_pat
     assert "NativeDefinition(...)" in message
 
 
+def test_a_bundled_tool_is_not_registered_as_a_workflow(tmp_path, monkeypatch):
+    """#488: a `@tool` exported alongside a `@workflow`  -  even bound under its own name for
+    `ctx.invoke` and aliased into a `tools = [...]` list  -  must not become a runnable
+    `deck.workflows` entry."""
+    root = tmp_path / ".agentdeck"
+    (root / "workflows" / "discovery").mkdir(parents=True)
+    (root / "workflows" / "discovery" / "workflow.py").write_text(textwrap.dedent(TOOL_AND_WORKFLOW_BUNDLE_PY))
+    monkeypatch.chdir(tmp_path)
+    _drop_project_mount(monkeypatch)
+    from agentdeck.deck import Deck
+
+    deck = Deck.from_project()
+    assert sorted(deck.workflows) == ["discovery"]
+
+
+async def test_a_bundled_tool_is_invocable_from_its_own_bundles_workflow(tmp_path, monkeypatch):
+    """#488's motivating case, end to end: the workflow body itself calls
+    `ctx.invoke(places_lookup, ...)`, and the run must still complete."""
+    root = tmp_path / ".agentdeck"
+    (root / "workflows" / "discovery").mkdir(parents=True)
+    (root / "workflows" / "discovery" / "workflow.py").write_text(textwrap.dedent(TOOL_INVOKED_BY_WORKFLOW_BUNDLE_PY))
+    monkeypatch.chdir(tmp_path)
+    _drop_project_mount(monkeypatch)
+    from agentdeck.deck import Deck
+
+    async with Deck.from_project() as deck:
+        assert await deck.run("discovery", "hi") == "HI"
+
+
+async def test_a_bundled_tool_is_refused_as_a_run_target_by_name(tmp_path, monkeypatch):
+    """The public counterpart: a tool reachable through `ctx.invoke` from inside its own
+    bundle's workflow is still not a name `deck.run` accepts directly."""
+    root = tmp_path / ".agentdeck"
+    (root / "workflows" / "discovery").mkdir(parents=True)
+    (root / "workflows" / "discovery" / "workflow.py").write_text(textwrap.dedent(TOOL_AND_WORKFLOW_BUNDLE_PY))
+    monkeypatch.chdir(tmp_path)
+    _drop_project_mount(monkeypatch)
+    from agentdeck.deck import Deck
+
+    async with Deck.from_project() as deck:
+        with pytest.raises(InputError) as excinfo:
+            await deck.run("places_lookup", "hi")
+    message = str(excinfo.value)
+    assert "'places_lookup' is a tool, not a runnable target" in message
+    assert "ctx.invoke" in message
+
+
+async def test_an_unknown_run_target_is_not_pointed_at_a_bundled_tool(tmp_path, monkeypatch):
+    """The not-found hint on the public path must name only what it actually accepts: a bundled
+    tool sits in the runtime catalog for `ctx.invoke`, but pointing an unknown-name caller at it
+    would just trade one error for a second one."""
+    root = tmp_path / ".agentdeck"
+    (root / "workflows" / "discovery").mkdir(parents=True)
+    (root / "workflows" / "discovery" / "workflow.py").write_text(textwrap.dedent(TOOL_AND_WORKFLOW_BUNDLE_PY))
+    monkeypatch.chdir(tmp_path)
+    _drop_project_mount(monkeypatch)
+    from agentdeck.deck import Deck
+
+    async with Deck.from_project() as deck:
+        with pytest.raises(NotFoundError) as excinfo:
+            await deck.run("totally_unknown", "hi")
+    message = str(excinfo.value)
+    assert "discovery" in message
+    assert "places_lookup" not in message
+
+
+def test_a_workflow_bundle_exporting_only_a_tool_raises_naming_what_it_found(tmp_path, monkeypatch):
+    """#488: unlike the fully-empty ghost case above, this bundle does define a
+    ``NativeDefinition``  -  just the wrong kind. The error must say what it found and what it
+    wanted, not imply nothing was defined."""
+    root = tmp_path / ".agentdeck"
+    (root / "workflows" / "discovery").mkdir(parents=True)
+    (root / "workflows" / "discovery" / "workflow.py").write_text(textwrap.dedent(TOOL_ONLY_WORKFLOW_PY))
+    monkeypatch.chdir(tmp_path)
+    _drop_project_mount(monkeypatch)
+    from agentdeck.deck import Deck
+
+    with pytest.raises(ConfigError) as excinfo:
+        Deck.from_project()
+    message = str(excinfo.value)
+    assert "workflow bundle 'discovery' exports no workflow" in message
+    assert "found tool 'places_lookup'" in message
+
+
 def test_ghost_check_suggests_a_valid_identifier_for_a_hyphenated_bundle(tmp_path, monkeypatch):
     """The suggested fix must itself be legal Python  -  a bundle dir name is not required to be."""
     root = tmp_path / ".agentdeck"
@@ -313,17 +438,3 @@ def test_code_first_agent_build_failure_is_not_wrapped_with_a_bundle_path():
     with pytest.raises(Exception) as excinfo:  # noqa: PT011  -  asserting it's specifically *not* a ConfigError
         deck.build()
     assert not isinstance(excinfo.value, ConfigError)
-
-
-def test_skill_error_returns_500_without_leaking_stderr(project):
-    from agentdeck.serve import create_app
-
-    secret = "Traceback: AWS_SECRET_ACCESS_KEY=hunter2"
-    # The turn fails at the SDK boundary, so the error travels the whole real path  -  engine,
-    # Runtime, surface  -  the way a failing tool or skill inside a turn does.
-    model = ScriptedModel(raises=SkillError(secret))
-    with patch_model(model), TestClient(create_app()) as client:
-        response = client.post("/agents/Greeter/chat", json={"session_id": "s", "message": "hi"})
-    assert response.status_code == 500
-    assert response.json() == {"detail": "internal error"}
-    assert "hunter2" not in response.text

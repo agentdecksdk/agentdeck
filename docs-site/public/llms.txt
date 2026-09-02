@@ -18,12 +18,19 @@ afterwards, approvals that outlive the process that requested them.
 ## Documentation
 
 - [Agentic software should feel like software](https://agentdecksdk.com/): Build agents, tools and workflows as normal software. AgentDeck gives them one execution model you can observe, control and extend.
+- [What's new in 6.0](https://agentdecksdk.com/meet-agentdeck/whats-new-6): One Deck, many bindings. How the outside reaches your agents, tools and workflows changed, and what it opens.
 - [CLI](https://agentdecksdk.com/reference/cli): The agentdeck command tree, generated from agentdeck/cli.py's own --help output.
 - [Deck](https://agentdecksdk.com/reference/deck): The composition root  -  builds a catalog from Agent objects and @workflow definitions or a project directory, and runs every turn on it.
 - [Events](https://agentdecksdk.com/reference/events): Every event kind a run can emit, with its payload fields.
 - [python-api](https://agentdecksdk.com/reference/python-api)
 - [run](https://agentdecksdk.com/reference/run)
 - [Settings](https://agentdecksdk.com/reference/settings): Every AGENTDECK_*, OPENAI_*, ANTHROPIC_*, GEMINI_*, OLLAMA_*, OPENROUTER_*, and TAVILY_* environment variable, generated from agentdeck/runtime/settings.py.
+- [Bindings](https://agentdecksdk.com/bindings): Serve one Deck over multiple protocols and surfaces at once.
+- [AG-UI](https://agentdecksdk.com/bindings/agui): Project a whole Deck, or one pinned target, into the AG-UI protocol.
+- [Native](https://agentdecksdk.com/bindings/native): AgentDeck's own HTTP/SSE protocol, one route per Run operation.
+- [Serve](https://agentdecksdk.com/bindings/serve): Validate a set of bindings, then serve them standalone or embed them in an app you already run.
+- [Terminal](https://agentdecksdk.com/bindings/terminal): The surface over stdin/stdout, one session per process.
+- [Write Your Own](https://agentdecksdk.com/bindings/write-your-own): The SPI a binding is held to, in or out of tree.
 - [Agents](https://agentdecksdk.com/build-your-deck/agents): Declarative agents with tools, instructions, and model configurations.
 - [Context](https://agentdecksdk.com/build-your-deck/context): Typed, request-scoped access to your own application state, for tools and workflows.
 - [deck](https://agentdecksdk.com/build-your-deck/deck)
@@ -31,6 +38,10 @@ afterwards, approvals that outlive the process that requested them.
 - [tools](https://agentdecksdk.com/build-your-deck/tools)
 - [workflows](https://agentdecksdk.com/build-your-deck/workflows)
 - [index](https://agentdecksdk.com/examples)
+- [Agent with a Skill](https://agentdecksdk.com/examples/agent-with-a-skill): Two tools and one skill, prose the model loads only when it decides it needs it.
+- [Chat Agent with a Tool](https://agentdecksdk.com/examples/chat-agent-with-a-tool): An agent that answers order questions by calling a plain Python function.
+- [Chat in the Terminal](https://agentdecksdk.com/examples/chat-in-the-terminal): A workflow that asks the questions, driven by agentdeck chat. No API key.
+- [Run Events Stream](https://agentdecksdk.com/examples/run-events-stream): A run's typed event log, printed as it arrives. No API key.
 - [existing-agents](https://agentdecksdk.com/integrations/existing-agents)
 - [mcp](https://agentdecksdk.com/integrations/mcp)
 - [openai-agents-sdk](https://agentdecksdk.com/integrations/openai-agents-sdk)

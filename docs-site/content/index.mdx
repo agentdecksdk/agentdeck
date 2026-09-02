@@ -17,7 +17,7 @@ description: Build agents, tools and workflows as normal software. AgentDeck giv
 <Foundation />
 
 <Model>
-<Snippet status="shipped">
+<Snippet>
 ```python
 jack = Agent(
     name="Jack",
@@ -26,6 +26,7 @@ jack = Agent(
 )
 
 deck = Deck(agents=[jack], context=DocsCorpus)
+deck.serve(Native.http("/api"), AGUI.http("/agui"), Terminal.stdio())
 ```
 </Snippet>
 </Model>

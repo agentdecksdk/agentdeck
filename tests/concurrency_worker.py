@@ -237,7 +237,7 @@ def approver_spec() -> InvocableSpec:
     return stub_spec(
         APPROVER,
         TextDelta(message_id="m1", text="checking "),
-        RunInterrupted(interrupt_id="i1", reason="approval", payload={"question": "approve?"}, thread_id=THREAD_ID),
+        RunInterrupted(interrupt_id="i1", reason="human", payload={"question": "approve?"}, thread_id=THREAD_ID),
         Custom(name="node.b", data={"decision": "approved"}),
         MessageCompleted(message_id="m1", text="approved"),
         RunCompleted(output=[TextBlock(text="approved")], usage=Usage(input_tokens=1, output_tokens=1)),

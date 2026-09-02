@@ -75,19 +75,6 @@ function useHeroPhase() {
   return phase;
 }
 
-function DeckMark({ active = false }: { active?: boolean }) {
-  return (
-    <svg
-      className={`ad-mark ${active ? "is-active" : ""}`}
-      viewBox="880 152.5 196.8 196.7"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path d="M 998.23,319.84 l -9.95,22.78 c -3.82,8.76 -15.94,8.76 -19.77,0 l -9.95,-22.78 c -8.86,-20.28 -24.79,-36.42 -44.66,-45.24 L 886.53,262.45 c -8.7,-3.86 -8.7,-16.53 0,-20.4 l 26.52,-11.77 C 933.44,221.23 949.65,204.5 958.36,183.54 l 10.07,-24.28 c 3.74,-9.01 16.19,-9.01 19.93,0 L 998.43,183.54 c 8.7,20.97 24.92,37.71 45.31,46.75 l 26.52,11.77 c 8.7,3.86 8.7,16.53 0,20.4 l -27.38,12.16 C 1023.02,283.43 1007.08,299.57 998.23,319.84 z" />
-    </svg>
-  )
-}
-
 /**
  * The Deck, drawn as the mark itself: the ace-cut card in outline with the A knocked out of it,
  * and the spark in Ace Red. Both paths are copied verbatim from `docs/brand/components/`, in the
@@ -215,7 +202,6 @@ export function Hero() {
 
       <div className="ad-hero__content">
         <div className="ad-hero__eyebrow">
-          <DeckMark active />
           <Wordmark />
         </div>
 

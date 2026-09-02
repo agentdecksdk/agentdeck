@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
+import sys
 
 from agentdeck.adapters.control.sqlite import SqliteControlPort
 from agentdeck.core.control import Signal
@@ -30,6 +32,8 @@ def build_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(prog="agentdeck")
     subcommands = parser.add_subparsers(dest="resource", required=True)
+    chat = subcommands.add_parser("chat", help="a one-process terminal client over Terminal.stdio()")
+    chat.add_argument("target", nargs="?", help="the agent or workflow to talk to; omit it when the deck holds one")
     runs = subcommands.add_parser("runs")
     runs_commands = runs.add_subparsers(dest="action", required=True)
     signal_cmd = runs_commands.add_parser("signal")
@@ -42,8 +46,30 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _chat(target: str | None) -> int:
+    """A stdio-only ``Exposure``, so ``serve()`` never imports uvicorn (``exposure.py``). Mid-run
+    Ctrl-C surfaces here as ``KeyboardInterrupt``; idle Ctrl-C raises nothing
+    (``terminal/binding.py``). An unknown target fails at ``expose()``, before any prompt.
+    """
+    from agentdeck.bindings import Terminal
+    from agentdeck.deck import Deck
+    from agentdeck.errors import ConfigError
+
+    try:
+        with contextlib.suppress(KeyboardInterrupt):
+            Deck.from_project().serve(Terminal.stdio(target=target))
+    except ConfigError as error:
+        # A mistyped target is a usage mistake, so it reads as one: the message already names
+        # the alternatives, and a traceback above it says nothing a person can act on.
+        sys.stderr.write(f"agentdeck chat: {error}\n")
+        return 2
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.resource == "chat":
+        return _chat(args.target)
     control = SqliteControlPort(args.control_db)
     # A run's id is minted and canonical, so this CLI's argument addresses one directly  -  no
     # namespace to combine it with, no resolution step, and nothing to derive.

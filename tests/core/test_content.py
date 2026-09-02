@@ -21,6 +21,7 @@ from agentdeck.core import (
     coerce_input,
 )
 from agentdeck.core.content import INLINE_BYTES_CAP
+from agentdeck.errors import InputError
 
 BLOCKS = TypeAdapter(list[ContentBlock])
 
@@ -49,8 +50,10 @@ def test_empty_list_is_valid_input():
 
 
 @pytest.mark.parametrize("value", [None, 42, {"type": "text", "text": "hi"}, [{"type": "text", "text": "hi"}]])
-def test_anything_else_raises(value):
-    with pytest.raises(TypeError):
+def test_anything_else_raises_input_error(value):
+    """`InputError`, not `TypeError`: a binding maps caller content it cannot take to its own
+    bad-request code, and an unrelated `TypeError` from deeper in the call path stays internal."""
+    with pytest.raises(InputError):
         coerce_input(value)
 
 

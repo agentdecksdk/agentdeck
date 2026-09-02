@@ -155,32 +155,14 @@
 .ad-hero__eyebrow {
   display: inline-flex;
   align-items: center;
-  gap: 11px;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
   color: var(--hero-accent);
-  font-size: 13px;
-  font-weight: 650;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-}
-
-.ad-mark {
-  width: 20px;
-  height: 20px;
-  color: var(--hero-accent-muted);
-  filter: drop-shadow(0 0 0 var(--hero-accent-2));
-  transition: color 340ms ease, filter 340ms ease, transform 340ms cubic-bezier(.2,.8,.2,1);
-}
-
-.ad-mark.is-active {
-  color: var(--hero-accent);
-  filter: drop-shadow(0 0 10px var(--hero-accent-3));
 }
 
 .ad-hero h1 {
   max-width: 1100px;
   margin: 0 auto;
-  font-size: clamp(44px, 6.4vw, 92px);
+  font-size: clamp(40px, 5.8vw, 83px);
   line-height: 0.98;
   letter-spacing: -0.055em;
   font-weight: 760;
@@ -189,7 +171,7 @@
 
 .ad-hero__subtitle {
   max-width: 760px;
-  margin: 24px auto 0;
+  margin: 18px auto 0;
   color: var(--hero-ink-soft);
   font-size: clamp(17px, 2vw, 21px);
   line-height: 1.62;
@@ -200,7 +182,7 @@
   display: flex;
   justify-content: center;
   gap: 12px;
-  margin-top: 30px;
+  margin-top: 32px;
   flex-wrap: wrap;
 }
 
@@ -447,11 +429,6 @@
   align-items: center;
   justify-content: center;
   gap: 14px;
-}
-
-.ad-deck__surface .ad-mark {
-  width: 44px;
-  height: 44px;
 }
 
 .ad-tree {
@@ -785,11 +762,6 @@
     --scatter-y: 70% !important;
   }
 
-  .ad-deck__surface .ad-mark {
-    width: 34px;
-    height: 34px;
-  }
-
   /* No pulse on a phone. At this size the spark sits close enough to the edge that scaling it
      clipped, and the mark taking its colour already reads as the activation. */
   .ad-deck.is-active .ad-deck__surface .ad-card__spark {
@@ -816,13 +788,12 @@
 
 /* Set from the wordmark's own outlines, so the lockup above the headline is the brand's rather
    than the body face in capitals. */
+/* The page has no navbar (`content/_meta.ts`), so this is the only place the name is set in the
+   brand's own face. Sized by ink rather than by box: 30px of a 143-unit viewBox whose glyphs fill
+   97 of it puts about 27px of letter on the screen, roughly a third of the headline rather than
+   a fifth of it: the brand reads as the hero's anchor and not as a label above it. */
 .ad-wordmark {
-  height: 23px;
+  height: 40px;
   width: auto;
   color: var(--hero-ink);
-}
-
-.ad-hero__eyebrow .ad-mark {
-  width: 22px;
-  height: 22px;
 }

@@ -11,9 +11,10 @@ description: Declarative agents with tools, instructions, and model configuratio
 
 # Agents
 
-Agents are autonomous decision-making entities that use tools to achieve goals.
+An `Agent` is a declaration: a name, the instructions it runs under, the model that answers and the
+tools it may call. AgentDeck compiles it to a spec and an executor runs it.
 
-## Declaring an Agent
+## Declare an agent
 
 ```python
 from agentdeck import Agent
@@ -27,15 +28,19 @@ support_agent = Agent(
 
 ## Choose a model provider
 
-Prefix `model=` to select a provider. Each provider reads its own credential at the actual model
-call; a missing or invalid one surfaces there, not from `Deck.build()`.
+`model=` takes a provider prefix. Each provider reads its own credential at the model call, so a
+missing or invalid one surfaces there rather than from `Deck.build()`.
+
+| `model=` | goes to | credential |
+|---|---|---|
+| `gpt-4o` | OpenAI | `OPENAI_API_KEY` |
+| `anthropic/claude-3-7-sonnet` | Anthropic | `ANTHROPIC_API_KEY` |
+| `gemini/gemini-2.5-flash` | Gemini | `GEMINI_API_KEY` |
+| `ollama/llama3.2` | a local Ollama | `OLLAMA_BASE_URL` |
+| `openrouter/openai/gpt-4o` | OpenRouter | `OPENROUTER_API_KEY` |
 
 ```python
-openai_agent = Agent(name="openai", model="openai/gpt-4o")
-anthropic_agent = Agent(name="anthropic", model="anthropic/claude-3-7-sonnet")
-gemini_agent = Agent(name="gemini", model="gemini/gemini-2.5-flash")
-ollama_agent = Agent(name="ollama", model="ollama/llama3.2")
-openrouter_agent = Agent(name="openrouter", model="openrouter/openai/gpt-4o")
+reviewer = Agent(name="reviewer", model="anthropic/claude-3-7-sonnet")
 ```
 
 Configure only the providers your deck uses:
@@ -44,17 +49,15 @@ Configure only the providers your deck uses:
 OPENAI_MODEL=gpt-4.1-mini
 OPENAI_API_KEY=sk-...
 ANTHROPIC_API_KEY=sk-ant-...
-GEMINI_API_KEY=...
-OLLAMA_BASE_URL=http://localhost:11434/v1
-OPENROUTER_API_KEY=sk-or-...
 ```
 
-An agent without `model=` uses `OPENAI_MODEL`. Bare model names use OpenAI, while namespaced IDs
-such as `vendor/model` remain available for an endpoint configured with `OPENAI_BASE_URL`.
-## Send an agent an image
+An agent without `model=` uses `OPENAI_MODEL`. A bare model name goes to OpenAI, and a namespaced
+id with no prefix above stays available for whatever `OPENAI_BASE_URL` points at.
 
-`deck.run()` takes a list of content blocks as well as a plain string. That is how an image
-reaches a vision model.
+## Send an image
+
+`deck.run()` takes a list of content blocks as well as a plain string. That is how an image reaches
+a vision model.
 
 ```python no-test reason="needs an image file and a live model that accepts one"
 import base64
@@ -64,24 +67,27 @@ from agentdeck import ImageBlock, TextBlock
 photo = base64.b64encode(open("receipt.png", "rb").read()).decode()
 result = await deck.run(
     "Intake",
-    [TextBlock(text="What is the total on this receipt?"), ImageBlock(media_type="image/png", data_b64=photo)],
+    [
+        TextBlock(text="What is the total on this receipt?"),
+        ImageBlock(media_type="image/png", data_b64=photo),
+    ],
 )
 ```
 
-The model must accept images: `ollama/qwen3.5:9b` and `openai/gpt-4o` do, `gpt-4.1-mini` does not.
+The model has to accept images: `ollama/qwen3.5:9b` and `openai/gpt-4o` do, `gpt-4.1-mini` does not.
 
-Inline blocks are capped at **1 MB decoded**. Anything larger needs a `ResourceBlock`, which
-references bytes held elsewhere instead of carrying them. `AudioBlock` and `DataBlock` cover audio
-and structured JSON. See [the block reference](/reference/deck) for the full table and the
-per-engine limits.
+Inline blocks are capped at 1 MB decoded, and anything larger needs a `ResourceBlock`, which points
+at bytes held elsewhere instead of carrying them. `AudioBlock` and `DataBlock` cover audio and
+structured JSON; the [block reference](/reference/deck) has the full table and the per-engine
+limits.
 
-An image cannot reach the model through a tool's return value: tool results are text. Content
-blocks on the way in are the only path.
+An image cannot reach the model through a tool's return value, because tool results are text.
+Content blocks on the way in are the only path.
 
-## SDK-native Options
+## Use SDK-native options
 
-Some agent options come directly from the OpenAI Agents SDK. For example, structured output can use
-`AgentOutputSchema` from the SDK's `agents` package:
+Options the OpenAI Agents SDK owns stay the SDK's. Structured output, for one, takes that SDK's own
+`AgentOutputSchema`:
 
 ```python
 from agents import AgentOutputSchema
@@ -102,6 +108,5 @@ reviewer = Agent(
 )
 ```
 
-`AgentOutputSchema` comes from the OpenAI Agents SDK (`agents`). `agentdeck` keeps that boundary
-visible: it discovers and configures your agent, then passes SDK-native options through to the SDK
-runner rather than wrapping them in a second `agentdeck` type.
+AgentDeck discovers and configures the agent, then passes options like this one straight to the SDK
+runner rather than wrapping them in a second AgentDeck type.

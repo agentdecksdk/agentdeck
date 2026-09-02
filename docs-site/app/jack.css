@@ -1,54 +1,120 @@
 /* The Jack panel: brand palette from brand.css, no new tokens. */
 
+/* The assistant, as a small dark pill in the bar: a secondary CTA rather than another icon. The
+   spark sits in its own tinted badge, because loose on a filled surface it read as decoration. */
 .ask-launch {
-  position: fixed;
-  right: 1.25rem;
-  bottom: 1.25rem;
-  z-index: 40;
-  padding: 0.6rem 1.1rem;
-  border-radius: 10px 10px 4px 10px;
-  border: 1px solid transparent;
-  background: var(--brand-blue);
-  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  height: 34px;
+  padding: 0 0.85rem 0 0.4rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--brand-blue) 34%, transparent);
+  background: color-mix(in srgb, var(--brand-blue) 7%, #fff);
+  color: var(--brand-night);
   font-family: var(--font-display), sans-serif;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 600;
-  box-shadow: 0 6px 20px rgb(8 61 119 / 25%);
   cursor: pointer;
+  transition: background 140ms ease;
 }
 
-.ask-launch:hover {
-  background: #1d4fd8;
+.ask-launch__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand-ace) 13%, transparent);
+}
+
+.ask-launch svg {
+  height: 13px;
+  width: 13px;
+  color: var(--brand-ace);
+}
+
+.ask-launch:hover,
+.ask-launch.is-open {
+  border-color: var(--brand-blue);
+  background: color-mix(in srgb, var(--brand-blue) 13%, #fff);
 }
 
 .dark .ask-launch {
-  background: var(--brand-frost);
-  color: var(--brand-night);
+  border-color: rgb(148 163 184 / 30%);
+  background: var(--brand-slate);
+  color: #f8fafc;
 }
 
-.dark .ask-launch:hover {
-  background: #b9d0ff;
+.dark .ask-launch:hover,
+.dark .ask-launch.is-open {
+  background: #1d2b45;
+}
+
+@media (max-width: 767px) {
+  .ask-launch {
+    padding: 0 0.4rem;
+  }
+
+  .ask-launch__label {
+    display: none;
+  }
+}
+
+:root {
+  --ask-width: min(30rem, 100vw);
 }
 
 .ask-panel {
   position: fixed;
-  right: 1.25rem;
-  bottom: 1.25rem;
+  right: 0;
+  top: 0;
+  bottom: 0;
   z-index: 40;
   display: flex;
   flex-direction: column;
-  width: min(30rem, calc(100vw - 2.5rem));
-  height: min(34rem, calc(100vh - 6rem));
-  border: 1px solid var(--brand-soft-gray);
-  border-radius: 14px 14px 6px 14px;
+  width: var(--ask-width);
+  border: 0;
+  border-inline-start: 1px solid var(--brand-soft-gray);
+  border-radius: 0;
   background: var(--brand-canvas);
-  box-shadow: 0 12px 40px rgb(15 23 42 / 18%);
   overflow: hidden;
+  animation: ask-slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes ask-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+/* The page is pushed rather than covered: `--ask-width` is the figure the panel is sized from, and
+   everything in flow moves with it, the sticky bar included. Below the breakpoint there is no room
+   to give, so the panel overlays instead. */
+body {
+  transition: padding-inline-end 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (min-width: 1100px) {
+  :root.ask-open body {
+    padding-inline-end: var(--ask-width);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ask-panel {
+    animation: none;
+  }
+
+  body {
+    transition: none;
+  }
 }
 
 .dark .ask-panel {
   background: var(--brand-slate);
-  border-color: rgb(148 163 184 / 25%);
+  border-inline-start-color: rgb(148 163 184 / 25%);
 }
 
 .ask-head {
@@ -240,4 +306,73 @@
     right: 1rem;
     bottom: 1rem;
   }
+}
+
+/* The empty state: the mark, one question, and three ways in. What a reader sees before they have
+   asked anything is the whole first impression of the assistant. */
+.ask-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 2.75rem 0.5rem 0;
+  text-align: center;
+}
+
+.ask-empty__mark {
+  color: var(--brand-blue);
+}
+
+.dark .ask-empty__mark {
+  color: var(--brand-frost);
+}
+
+.ask-empty__title {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.ask-empty__note {
+  margin: 0;
+  max-width: 22rem;
+  font-size: 0.8rem;
+  line-height: 1.55;
+  color: var(--brand-cool-gray);
+}
+
+.ask-empty__suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 100%;
+  margin-top: 0.4rem;
+}
+
+.ask-empty__suggestions button {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--brand-border-light);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.8rem;
+  text-align: center;
+  cursor: pointer;
+}
+
+.dark .ask-empty__suggestions button {
+  border-color: var(--brand-border-dark);
+}
+
+.ask-empty__suggestions button:hover {
+  border-color: var(--brand-blue);
+  color: var(--brand-blue);
+}
+
+.dark .ask-empty__suggestions button:hover {
+  border-color: var(--brand-frost);
+  color: var(--brand-frost);
 }

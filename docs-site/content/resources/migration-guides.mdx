@@ -14,6 +14,21 @@
 
 # Migration Guides
 
+## v5 to v6.0.0
+
+See [What's new in 6.0](/meet-agentdeck/whats-new-6) for the model behind this release. v6.0.0
+replaces the v1 HTTP wire with bindings: a Deck is served over one or more of them, never itself.
+`agentdeck chat` is unchanged.
+
+| break | before (v5) | after (v6.0.0) |
+|---|---|---|
+| v1 routes gone | `POST /agents/{name}/chat` | `POST /runs`, then `GET /runs/{run_id}/events` |
+| `agentdeck-serve` gone; `deck.serve(...)` is the new front door | `agentdeck-serve` | `deck.serve(Native.http("/api"), port=8000)` |
+| `Deck.asgi()` needs a binding | `Deck.from_project().asgi()` | `Deck.from_project().asgi(Native.http())` |
+| the error taxonomy moved off the root package | `from agentdeck import ConfigError` | `from agentdeck.errors import ConfigError` |
+| `InputError` replaces raw `TypeError`/`ValueError` for caller input | `except (TypeError, ValueError)` | `except InputError` |
+| `InterruptReason` drops `"approval"` | `pending.reason == "approval"` | `pending.reason == "human"`; refusal comes from `payload["options"]`, which `Run.answer` already enforces |
+
 ## v4 to v5.0.0
 
 v5.0.0 is a breaking release: a v5 build cannot read an event log v4 wrote, and several public
@@ -32,7 +47,8 @@ The envelope's schema version bumped from `major=3` to `major=4`. SQLite and Pos
 | Redis | No such check. Its keys were shaped differently under 4.x; do not point a v5 process at 4.x Redis data |
 
 ```python illustrative reason="requires a project pointed at a 4.x SQLite event log"
-from agentdeck import Deck, StoreError
+from agentdeck import Deck
+from agentdeck.errors import StoreError
 
 try:
     async with Deck.from_project() as deck:
@@ -85,10 +101,10 @@ drop-in replacement.
 ### `EventSinkPort` is `Observer`
 
 ```python run
-from agentdeck.core.ports import Executor, Observer
+from agentdeck import Observer
 from agentdeck.observers import ConsoleObserver, FileObserver, LangfuseObserver
 
-print(Executor.__name__, Observer.__name__, LangfuseObserver.__name__)
+print(Observer.__name__, ConsoleObserver.__name__, FileObserver.__name__, LangfuseObserver.__name__)
 ```
 
 | v4 | v5 |

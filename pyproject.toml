@@ -1,7 +1,7 @@
 [project]
 name = "agentdeck-sdk"
-version = "5.2.1"
-description = "Declarative harness over the OpenAI Agents SDK: settings, capabilities, skills, runners, plug-in discovery."
+version = "6.0.0"
+description = "Build agents, tools and workflows as normal software, and serve them through bindings: one Deck, reachable over its own HTTP wire, the terminal and AG-UI, with the same runs and controls everywhere."
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
@@ -31,12 +31,11 @@ dependencies = [
 ]
 
 [project.scripts]
-agentdeck-serve = "agentdeck.serve:main"
 agentdeck = "agentdeck.cli:main"
 
 [project.optional-dependencies]
 serve = [
-    "fastapi>=0.115",
+    "starlette>=0.40",
     "uvicorn>=0.30",
 ]
 observability = [
@@ -54,8 +53,19 @@ redis = [
     # adapter (adapters/stores/redis)  -  neither is a default, so the client isn't in base.
     "redis>=5.0",
 ]
+agui = [
+    # the official wire models and SSE encoder (rulings.md 16); starlette is listed directly
+    # here too, since a standalone `[agui]` install has no `[serve]` to pull it in transitively.
+    # Floor matches `serve`'s own: two independent installs of the same dependency must not
+    # silently diverge on what version actually works.
+    "ag-ui-protocol>=0.1.22,<0.2",
+    "starlette>=0.40",
+]
 dev = [
     "pytest>=8.0",
+    # Jack's own server is a FastAPI app (`examples/jack/jack/server.py`), and its test suite is
+    # part of the gate. Nothing in `agentdeck/` imports FastAPI since the v1 wire was deleted.
+    "fastapi>=0.115",
     "pytest-asyncio>=0.23",
     # `make coverage`, not part of `make check`: the deletion waves (#71, #131) need
     # per-module coverage as one evidence stream for "nothing imports and nothing
@@ -69,11 +79,13 @@ dev = [
     # not exercised by any default path  -  installed here so the gate still covers the
     # redis session/event-log branches without making `[redis]` a base extra.
     "redis>=5.0",
+    # same reasoning as redis above, for the AG-UI binding's own test suite.
+    "ag-ui-protocol>=0.1.22,<0.2",
     "ruff>=0.6",
     "ty>=0.0.1a21",
     "pre-commit>=4.0",
     # pinned: a contract that passes today must not start failing on a linter upgrade
-    "import-linter==2.13",
+    "import-linter==2.14",
     # scripts/repomap.py only: the public-API map agents read before writing new code
     "griffe>=1.6",
 ]
@@ -117,6 +129,12 @@ known-first-party = ["agentdeck"]
 # so its coroutine has to outlive the call that started it. Owned, not loose  -  the executor holds
 # every parked body and `Executor.aclose()` cancels them (docs/patterns/lifecycle.md).
 "agentdeck/adapters/executors/native/executor.py" = ["TID251"]
+# A channel binding spawns its own tail task per inbound webhook and owns it: tracked in its own
+# set, cancelled by its own stop() (docs/design/protocols/rulings.md 32), the same shape as the
+# native executor's parked bodies above  -  never the runtime's, since a binding lives outside it.
+"tests/bindings/fixture_plugin/channel.py" = ["TID251"]
+"tests/bindings/test_agui_binding.py" = ["TID251"]
+"tests/bindings/test_agui_client_conformance.py" = ["TID251"]
 "tests/contract/test_store.py" = ["TID251"]
 "tests/test_deck.py" = ["TID251"]
 "tests/test_run_control.py" = ["TID251"]
@@ -137,12 +155,12 @@ asyncio_mode = "auto"
 # what hangs here is a blocked `await`, which a signal handler never gets to interrupt.
 timeout = 300
 timeout_method = "thread"
-# tests/golden/conftest.py imports fake_model by name, tests/contract imports contract_cases,
-# tests/ imports concurrency_worker, and tests/test_generated_reference.py imports
+# tests/contract imports contract_cases, tests/ imports concurrency_worker,
+# tests/bindings imports fixture_plugin, and tests/test_generated_reference.py imports
 # generate_docs_reference from scripts/; all four basenames are unique across these dirs,
 # because a shared one collides on sys.modules. Explicit beats pytest's implicit basedir
 # insertion, which would go ambiguous if tests/conftest.py appeared.
-pythonpath = ["tests", "tests/golden", "tests/contract", "scripts"]
+pythonpath = ["tests", "tests/contract", "tests/bindings", "scripts"]
 
 [build-system]
 requires = ["hatchling"]

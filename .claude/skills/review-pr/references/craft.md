@@ -7,6 +7,7 @@ Medium freedom. A preferred pattern exists for each concern below; some variatio
 - Read the `docs/patterns/` file for this PR's concern before judging it (see `docs/patterns/README.md` for the map). A new way of doing something a pattern already covers is a defect, not a style choice.
 - Pick 2-3 canonical siblings from `uv run scripts/repomap.py` (same package, same responsibility class), read them end to end, and compare naming, error handling, dependency usage, structure, typing, and test style.
 - Verify the PR's `## Analog` claim against the actual code, not the PR's description of it.
+- Public API documentation must contain the contract a caller needs. Private helpers must not carry contract details absent from the public callable. SLOP013 detects obvious size inversions; judge semantic sufficiency separately.
 
 ## The Harvest bar
 

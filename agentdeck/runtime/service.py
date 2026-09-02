@@ -24,6 +24,7 @@ from uuid import uuid4
 from agentdeck.core.content import as_answer
 from agentdeck.core.context import RunContext
 from agentdeck.core.control import CONTROL_POLL_INTERVAL, Gate, Signal
+from agentdeck.core.errors import DOCS_URL
 from agentdeck.core.events import (
     TERMINAL_KINDS,
     AnswerRefused,
@@ -49,7 +50,7 @@ from agentdeck.core.status import (
     can_resume,
     decide,
 )
-from agentdeck.errors import DOCS_URL, ConfigError, NotFoundError, RunStateError, SessionBusyError, StoreError
+from agentdeck.errors import ConfigError, InputError, NotFoundError, RunStateError, SessionBusyError, StoreError
 from agentdeck.runtime.dispatch import SinkDispatch
 
 if TYPE_CHECKING:
@@ -116,8 +117,8 @@ class PendingRun:
     thread_id: str
     payload: dict[str, Any]
     reason: InterruptReason = "human"
-    """What kind of answer this run is waiting for. An ``approval`` takes a yes or a no and
-    nothing else, which is checked before the answer is recorded rather than after."""
+    """What kind of answer this run is waiting for. The shape, if any, is in ``payload["options"]``:
+    an answer outside them is refused before it is recorded, same as :func:`_refuses`."""
 
 
 class Runtime:
@@ -325,7 +326,7 @@ class Runtime:
             # Recorded, then raised, and both before the claim: the run is still waiting, so the
             # answerer can send a real one  -  and the log keeps the fact that somebody tried.
             await self._record(AnswerRefused(reason=why), spec, ctx)
-            raise ValueError(why)
+            raise InputError(why)
         opening = await self._claim_resume(spec, ctx, value)
         if opening is None:
             return
@@ -587,7 +588,7 @@ class Runtime:
             raise
         except Exception as exc:
             # The exception is the caller's, the event is the record  -  both, always. The type
-            # name only: an exception message can carry content that must not reach a sink.
+            # name only, `InputError` excepted: its message is written for the caller.
             logger.exception("run %s failed in engine %r", ctx.run_id, executor.name)
             yield await self._record(_failed(exc, executor.name), spec, ctx)
             raise
@@ -1170,12 +1171,15 @@ def _summed(one: Usage, other: Usage) -> Usage:
 
 def _failed(exc: Exception, engine: str) -> RunFailed:
     """The record for an exception the Runtime caught. The type name only  -  an exception message
-    can carry content that must not reach a sink.
+    can carry content that must not reach a sink, ``InputError`` excepted: its own contract is
+    that its message is written for the caller.
 
     A log that could not be written is not the engine misbehaving, so the record does not say it
     was. ``error_code`` stays ``engine_error`` either way: the closed set has no entry for a store
     fault, and minting one is a schema change rather than this line's business.
     """
+    if isinstance(exc, InputError):
+        return RunFailed(error_code="invalid_input", message=str(exc), retryable=False)
     if isinstance(exc, StoreError):
         return _engine_failed(f"{type(exc).__name__} recording this run")
     return _engine_failed(f"{type(exc).__name__} in engine {engine!r}")

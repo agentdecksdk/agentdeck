@@ -63,5 +63,14 @@ def test_release_promotion_checks_skip_on_main_base() -> None:
     last advance; each change was already gated against dev as its base at merge time (#536)."""
     ci = (WORKFLOWS / "ci.yml").read_text()
     docs_impact = (WORKFLOWS / "docs-impact.yml").read_text()
-    assert "github.base_ref != 'main'" in ci
+    assert "github.event.pull_request.base.ref != 'main'" in ci
     assert "github.event.pull_request.base.ref != 'main'" in docs_impact
+
+
+def test_changelog_position_runs_on_every_dev_based_pr() -> None:
+    """`release_bump.py` inserts a version heading above the entries it releases, so a branch cut
+    before a release re-applies its entry into the released section (#545, #546 landed in 5.2.0
+    that way). It rides the `slop` job, which a `main`-based promotion PR skips (#536): that diff
+    re-accumulates entries already checked against dev, so there is nothing new to place."""
+    ci = (WORKFLOWS / "ci.yml").read_text()
+    assert "scripts/changelog_position.py" in ci

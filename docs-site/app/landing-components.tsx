@@ -25,22 +25,8 @@ export { Hero }
 const REPO = 'https://github.com/agentdecksdk/agentdeck'
 const JACK_SOURCE = `${REPO}/tree/dev/examples/jack`
 
-type Status = 'shipped' | 'proposed'
-
-/** Whether a code block is shipped or proposed, on the block. */
-export function Snippet({ status, children }: { status: Status; children?: React.ReactNode }) {
-  const shipped = status === 'shipped'
-  return (
-    <div className={`snippet is-${status}`}>
-      <p className="snippet-head">
-        <span className={`status-chip is-${status}`}>
-          <span aria-hidden="true">{shipped ? '◆' : '◇'}</span>
-          {status}
-        </span>
-      </p>
-      {children}
-    </div>
-  )
+export function Snippet({ children }: { children?: React.ReactNode }) {
+  return <div className="snippet">{children}</div>
 }
 
 /* ------------------------------------------------------------ the argument */
@@ -87,7 +73,7 @@ const BUYS: [string, string][] = [
   ['Control', 'Execution can be paused, resumed or cancelled.'],
   ['Interaction', 'Branches can wait for external input.'],
   ['State', 'Sessions that outlive a single call.'],
-  ['Surfaces', 'Observers, HTTP and your UI read the same run.']
+  ['Bindings', 'Native HTTP/SSE, the terminal, AG-UI clients such as Assistant UI, and any binding you write reach the same run.']
 ]
 
 export function Model({ children }: { children?: React.ReactNode }) {
@@ -119,7 +105,8 @@ export function Model({ children }: { children?: React.ReactNode }) {
           ))}
         </dl>
         <p className="chapter-close">
-          The complexity is still there. It just lives in the layer built for it.
+          The complexity is still there. It just lives in the layer built for it. The outside
+          reaches them through bindings: the runtime never learns which one is talking.
         </p>
       </div>
     </section>

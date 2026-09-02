@@ -58,9 +58,6 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
-          # v6 made this opt-in; without it `uv pip install` below finds no venv, and the
-          # Makefile's `.venv/bin/*` calls have nothing to run.
-          activate-environment: true
           enable-cache: true
           cache-dependency-glob: "uv.lock"
       - name: Verify tag matches pyproject version
@@ -73,9 +70,9 @@ jobs:
           fi
       - name: Install and check
         # Same extras as ci.yml: a release build must run the same gate as a merge, not a
-        # narrower one.
+        # narrower one. --locked: fails loudly if `uv.lock` is stale (#605).
         run: |
-          uv pip install -e ".[dev,serve,postgres,observability]"
+          uv sync --locked --all-extras
           .venv/bin/python -c "import fastapi, uvicorn, langfuse, psycopg, redis"
           .venv/bin/ruff check agentdeck/ tests/
           .venv/bin/ty check agentdeck
