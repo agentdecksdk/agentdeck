@@ -23,7 +23,17 @@ from agentdeck.adapters.bindings.agui.binding import _AGUIBinding
 from agentdeck.authoring import Agent
 from agentdeck.bindings import DeckGateway
 from agentdeck.bindings.agui import AGUI
-from agentdeck.core.events import Event, KnownPayload, MessageCompleted, TextDelta, ThoughtDelta, UnknownEvent
+from agentdeck.core.events import (
+    Event,
+    KnownPayload,
+    MessageCompleted,
+    RunCancelled,
+    RunFailed,
+    RunInterrupted,
+    TextDelta,
+    ThoughtDelta,
+    UnknownEvent,
+)
 from agentdeck.core.status import RunStatus
 from agentdeck.errors import ConfigError
 from agentdeck.testing import ScriptedModel, patch_model
@@ -232,6 +242,41 @@ def test_thought_delta_projects_to_the_reasoning_family():
     assert opened == ["REASONING_START", "REASONING_MESSAGE_START", "REASONING_MESSAGE_CONTENT"]
     assert continued == ["REASONING_MESSAGE_CONTENT"]
     assert closed == ["REASONING_MESSAGE_END", "REASONING_END", "TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT"]
+
+
+def test_text_delta_then_run_failed_ends_the_text_message_first():
+    state = _AdapterState(thread_id="t", run_id="r")
+    _to_agui_event(_event(TextDelta(message_id="m1", text="hi")), state)
+
+    closed = [
+        e.type.value
+        for e in _to_agui_event(_event(RunFailed(error_code="engine_error", message="boom", retryable=False)), state)
+    ]
+
+    assert closed == ["TEXT_MESSAGE_END", "RUN_ERROR"]
+
+
+def test_text_delta_then_run_interrupted_ends_the_text_message_first():
+    state = _AdapterState(thread_id="t", run_id="r")
+    _to_agui_event(_event(TextDelta(message_id="m1", text="hi")), state)
+
+    closed = [
+        e.type.value
+        for e in _to_agui_event(
+            _event(RunInterrupted(interrupt_id="i1", reason="human", payload={"question": "ok?"})), state
+        )
+    ]
+
+    assert closed == ["TEXT_MESSAGE_END", "RUN_FINISHED"]
+
+
+def test_text_delta_then_run_cancelled_ends_the_text_message_first():
+    state = _AdapterState(thread_id="t", run_id="r")
+    _to_agui_event(_event(TextDelta(message_id="m1", text="hi")), state)
+
+    closed = [e.type.value for e in _to_agui_event(_event(RunCancelled()), state)]
+
+    assert closed == ["TEXT_MESSAGE_END", "RUN_ERROR"]
 
 
 def test_backend_tool_calls_and_results_project_correctly(no_project):

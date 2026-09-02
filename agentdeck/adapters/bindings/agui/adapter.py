@@ -128,6 +128,16 @@ def _close_reasoning(state: _AdapterState) -> list[BaseEvent]:
     return [ReasoningMessageEndEvent(message_id=message_id), ReasoningEndEvent(message_id=message_id)]
 
 
+def _close_open_segments(state: _AdapterState) -> list[BaseEvent]:
+    """Every terminal, suspension and tool boundary closes whichever segment is open: a text
+    delta stopped mid-message is still a message AG-UI expects an END for."""
+    events = _close_reasoning(state)
+    if state.text_message_id is not None:
+        events.append(TextMessageEndEvent(message_id=state.text_message_id))
+        state.text_message_id = None
+    return events
+
+
 def _text_delta(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     events = _close_reasoning(state)
     if state.text_message_id != payload.message_id:
@@ -164,7 +174,7 @@ def _thought_delta(payload: Any, state: _AdapterState) -> list[BaseEvent]:
 
 def _tool_call_started(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     return [
-        *_close_reasoning(state),
+        *_close_open_segments(state),
         ToolCallStartEvent(tool_call_id=payload.call_id, tool_call_name=payload.tool),
         ToolCallArgsEvent(tool_call_id=payload.call_id, delta=json.dumps(payload.args)),
         ToolCallEndEvent(tool_call_id=payload.call_id),
@@ -179,17 +189,17 @@ def _tool_call_completed(payload: Any, state: _AdapterState) -> list[BaseEvent]:
 
 def _run_completed(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     return [
-        *_close_reasoning(state),
+        *_close_open_segments(state),
         RunFinishedEvent(thread_id=state.thread_id, run_id=state.run_id, outcome=RunFinishedSuccessOutcome()),
     ]
 
 
 def _run_failed(payload: Any, state: _AdapterState) -> list[BaseEvent]:
-    return [*_close_reasoning(state), RunErrorEvent(message=payload.message, code=payload.error_code)]
+    return [*_close_open_segments(state), RunErrorEvent(message=payload.message, code=payload.error_code)]
 
 
 def _run_cancelled(payload: Any, state: _AdapterState) -> list[BaseEvent]:
-    return [*_close_reasoning(state), RunErrorEvent(message="cancelled", code="cancelled")]
+    return [*_close_open_segments(state), RunErrorEvent(message="cancelled", code="cancelled")]
 
 
 def _run_interrupted(payload: Any, state: _AdapterState) -> list[BaseEvent]:
@@ -202,7 +212,7 @@ def _run_interrupted(payload: Any, state: _AdapterState) -> list[BaseEvent]:
         response_schema={"enum": options} if options is not None else None,
     )
     return [
-        *_close_reasoning(state),
+        *_close_open_segments(state),
         RunFinishedEvent(
             thread_id=state.thread_id, run_id=state.run_id, outcome=RunFinishedInterruptOutcome(interrupts=[interrupt])
         ),
@@ -212,7 +222,7 @@ def _run_interrupted(payload: Any, state: _AdapterState) -> list[BaseEvent]:
 def _run_paused(payload: Any, state: _AdapterState) -> list[BaseEvent]:
     # No official outcome fits a pause without misreading it as a question, so it is data instead.
     return [
-        *_close_reasoning(state),
+        *_close_open_segments(state),
         CustomEvent(name="agentdeck.paused", value={"reason": payload.reason}),
         RunFinishedEvent(thread_id=state.thread_id, run_id=state.run_id, outcome=RunFinishedSuccessOutcome()),
     ]
