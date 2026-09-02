@@ -1,3 +1,4 @@
 export default {
-  index: 'Overview'
+  index: 'Overview',
+  serve: 'Serve'
 }
