@@ -95,6 +95,13 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   The root keeps the everyday vocabulary, a feature namespace keeps its own, and no public name
   lives at two paths (`docs/engineering/architecture.md` 3).
 
+### Fixed
+
+- **A workflow started with an input mapping that doesn't match its declared parameters gets
+  `INVALID_INPUT`, not `INTERNAL`** (#583). `NativeExecutor._arguments` raised `ConfigError` for
+  this, which `DeckGateway` has no mapping for, so a caller mistake surfaced as an internal error.
+  It now raises `InputError`, which `DeckGateway` already maps to `INVALID_INPUT`.
+
 ## [5.2.1] - 2026-08-29
 
 ### Changed

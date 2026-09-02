@@ -86,6 +86,32 @@ async def test_start_maps_bad_input_to_invalid_input(gateway):
 
 
 @pytest.mark.asyncio
+async def test_a_workflow_argument_shape_mismatch_maps_to_invalid_input(no_project):
+    """A workflow's own execution failure surfaces on ``await run``, not on ``gateway.start``
+    (``DeckGateway.start`` returns once ``run.started`` is durable, before the executor ever binds
+    the input), so this is the ``_map_failure`` case a facade method never raises itself  -  the
+    same shape as ``test_map_failure_maps_errors_the_facade_methods_never_raise`` below.
+
+    An argument-shape mismatch is caller-supplied content the target can't take, not a
+    configuration fault: ``INVALID_INPUT``, not the ``INTERNAL`` an unmapped ``ConfigError``
+    would fall through to (#583)."""
+
+    async def greet(ctx: WorkflowCtx, name: str, greeting: str) -> str:
+        return f"{greeting}, {name}!"
+
+    deck = Deck(workflows=[workflow(greet, name="Greet")])
+    async with deck:
+        gateway = DeckGateway(deck)
+        run = await gateway.start("Greet", {"name": "Bob"})
+        with pytest.raises(InputError) as excinfo:
+            await run
+
+    mapped = _map_failure(excinfo.value)
+    assert mapped.code is GatewayFailureCode.INVALID_INPUT
+    assert "greeting" in mapped.message
+
+
+@pytest.mark.asyncio
 async def test_start_maps_a_busy_session_to_busy(no_project):
     hold = asyncio.Event()
     model = ScriptedModel(deltas=("Hel", "lo"), hold=hold)
@@ -205,8 +231,8 @@ def test_targets_input_schema_is_none_for_a_workflow_with_no_parameters(no_proje
 async def test_starting_from_input_built_off_the_advertised_schema_completes(no_project):
     """A defaulted parameter is still required in the schema: ``NativeExecutor._arguments``
     needs every visible name present for a multi-parameter workflow regardless of its own
-    default, so a caller following the advertised schema must not be refused with an unmapped
-    ``ConfigError`` instead of a ``GatewayError``."""
+    default, so a caller following the advertised schema must not be refused with an
+    ``InputError`` it never expected to hit."""
 
     async def greet(ctx: WorkflowCtx, name: str, greeting: str = "hi") -> str:
         return f"{greeting}, {name}!"
