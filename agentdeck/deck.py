@@ -822,7 +822,7 @@ class Deck:
                     except BaseException:
                         logger.exception("__aenter__ rollback: closing the store failed")
             else:
-                for started in self._started_observers:
+                for started in reversed(self._started_observers):
                     try:
                         await started.close()
                     except BaseException:
