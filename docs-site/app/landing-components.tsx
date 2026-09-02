@@ -25,22 +25,8 @@ export { Hero }
 const REPO = 'https://github.com/agentdecksdk/agentdeck'
 const JACK_SOURCE = `${REPO}/tree/dev/examples/jack`
 
-type Status = 'shipped' | 'proposed'
-
-/** Whether a code block is shipped or proposed, on the block. */
-export function Snippet({ status, children }: { status: Status; children?: React.ReactNode }) {
-  const shipped = status === 'shipped'
-  return (
-    <div className={`snippet is-${status}`}>
-      <p className="snippet-head">
-        <span className={`status-chip is-${status}`}>
-          <span aria-hidden="true">{shipped ? '◆' : '◇'}</span>
-          {status}
-        </span>
-      </p>
-      {children}
-    </div>
-  )
+export function Snippet({ children }: { children?: React.ReactNode }) {
+  return <div className="snippet">{children}</div>
 }
 
 /* ------------------------------------------------------------ the argument */

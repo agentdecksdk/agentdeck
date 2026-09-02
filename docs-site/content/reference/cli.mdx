@@ -12,6 +12,8 @@ description: The agentdeck command tree, generated from agentdeck/cli.py's own -
 
 Generated from [`agentdeck/cli.py`](https://github.com/agentdecksdk/agentdeck/blob/main/agentdeck/cli.py) by capturing each subcommand's own `--help` output  -  the same rendering a terminal would show, not a second hand-written copy of it. `make check` regenerates this page and fails if the result differs (`scripts/generate_docs_reference.py`).
 
+Two commands, neither a second way to do something a binding already does. `agentdeck chat` *is* the terminal binding: it serves `Terminal.stdio()` over the project's own deck, so the command is the shortcut and [Terminal](/bindings/terminal) is the contract. `agentdeck runs signal` is the out-of-band path, writing a control signal straight into the SQLite `ControlPort` without a served deck or an HTTP call.
+
 ## `agentdeck`
 
 ```text

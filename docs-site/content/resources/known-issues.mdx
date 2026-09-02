@@ -6,6 +6,7 @@ description: Defects in the current release that will surprise you, what happens
 {/* docs_sources:
   - "agentdeck/authoring/interrupts.py"
   - "agentdeck/authoring/runners/**"
+  - "agentdeck/bindings/gateway.py"
   - "agentdeck/adapters/executors/openai_agents/translate.py"
   - "agentdeck/cli.py"
   - "agentdeck/deck.py"
@@ -13,7 +14,7 @@ description: Defects in the current release that will surprise you, what happens
 
 # Known Issues
 
-Everything here is real, reproduced, and open against **v4.0.0**. It is published rather than
+Everything here is real, reproduced, and open against **v6.0.0**. It is published rather than
 quietly tracked because most of these fail *silently*  -  you get a plausible wrong answer, not an
 error  -  and an hour spent debugging one of them is an hour this page could have saved.
 
@@ -33,11 +34,10 @@ Return a value JSON cannot carry and it is neither rejected nor flagged  -  it i
 and the prompt. `result_sha256`/`result_size` are computed over that same repr, so two identical
 non-serializable results are recorded as two different ones.
 
-This was filed as #251 and closed by folding its done-when items into #250 (below), on the
-reasoning that both are "a tool result mishandled in the same translation function". #250's fix
-shipped only the raise half; this half  -  the warning and the hashing fix  -  was never
-implemented. The behavior described here is unchanged in the tree, and no open issue currently
-tracks it.
+This was filed as #251 and closed by folding its done-when items into #250, on the reasoning that
+both are "a tool result mishandled in the same translation function". #250's fix shipped only the
+raise half; this half  -  the warning and the hashing fix  -  was never implemented, and no open
+issue tracks it.
 
 ```python
 @tool
@@ -61,38 +61,22 @@ Not silent, not traps  -  just things that will cost you a few minutes.
 
 | What | Issue |
 |---|---|
+| A binding cannot supply per-request context: `DeckGateway.start()` takes none, so a run started over `Native.http()`, `AGUI.http()` or `Terminal.stdio()` gets `context=None`. A deck-level `Deck(context=...)` is the way to give tools their dependencies; a request cannot vary it | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
 | `run()`'s return type makes the documented interrupt idiom fail a type checker | [#231](https://github.com/agentdecksdk/agentdeck/issues/231) |
 | The CLI can send signals but cannot read anything  -  no inbox, no run view | [#256](https://github.com/agentdecksdk/agentdeck/issues/256) |
-| `Deck.asgi()` cannot serve an agent whose tools declare a `ToolCtx` | [#227](https://github.com/agentdecksdk/agentdeck/issues/227) |
 
-## Fixed in v3.1.0
+## Fixed in v6.0.0
 
 Removed from this page rather than struck through, because a Known Issues page that lists fixed
-things teaches you to distrust the entries that are still true. Recorded here so an upgrade is
-worth it, and in full in the [changelog](/resources/changelog).
+things teaches you to distrust the entries that are still true. Every release's fixes in full are
+in the [changelog](/resources/changelog).
 
 | What | Issue |
 |---|---|
-| `Agent(model=...)` was ignored  -  every run used `OPENAI_MODEL` | [#247](https://github.com/agentdecksdk/agentdeck/issues/247) |
-| Checkpointer connection failures surfaced as raw driver exceptions | [#233](https://github.com/agentdecksdk/agentdeck/issues/233) |
-| `agentdeck-serve --help` crashed instead of printing usage | [#245](https://github.com/agentdecksdk/agentdeck/issues/245) |
-
-## Fixed in v4.0.0
-
-| What | Issue |
-|---|---|
-| A worker killed outright held its session for up to an hour; a run now holds a lease, and with `AGENTDECK_CONTROL=sqlite:///<path>` the session is free within one 90s TTL | [#244](https://github.com/agentdecksdk/agentdeck/issues/244) |
-| A handoff against a non-OpenAI endpoint returned a bare 400; set `AGENTDECK_RUNNER_HANDOFF_ENDS_ON_USER_TURN=true` to append the closing user turn those providers require. Off by default, since it changes what every model sees on every handoff | [#178](https://github.com/agentdecksdk/agentdeck/issues/178) |
-| A pause or cancel could land on the wrong tenant's run when two namespaces shared a caller-supplied `run_id` | [#315](https://github.com/agentdecksdk/agentdeck/issues/315) |
-| A parked approval was destroyed by the staleness timer once its window passed | [#311](https://github.com/agentdecksdk/agentdeck/issues/311) |
-| `sleep_until` never woke up: an open Deck now sweeps for its own lifetime | [#303](https://github.com/agentdecksdk/agentdeck/issues/303) |
-| A tool that raises completed the run with `tool.call.completed.error` never set | [#250](https://github.com/agentdecksdk/agentdeck/issues/250) |
-| Cancelling a run waiting on a human did nothing | [#229](https://github.com/agentdecksdk/agentdeck/issues/229) |
-| A default install could not run a `durable=True` workflow  -  the SQLite checkpointer moved into base dependencies | [#232](https://github.com/agentdecksdk/agentdeck/issues/232) |
-| An engine failure over HTTP returned bare text rather than the documented 500 shape | [#243](https://github.com/agentdecksdk/agentdeck/issues/243) |
-| Omitting `context` on `answer()` silently gave the re-run node `None`  -  now demonstrated in the human-approval guide | [#255](https://github.com/agentdecksdk/agentdeck/issues/255) |
-| `redis` was a base dependency because the default session path imported it unconditionally | [#253](https://github.com/agentdecksdk/agentdeck/issues/253) |
-| A `DataBlock` could not be sent *to* a model, only received from one | [#226](https://github.com/agentdecksdk/agentdeck/issues/226) |
+| A `@tool` exported beside a `@workflow` became a runnable target and could be started by name | [#488](https://github.com/agentdecksdk/agentdeck/issues/488) |
+| A workflow's own `InputError` after `run.started` reached the wire as `engine_error` with its message stripped | [#621](https://github.com/agentdecksdk/agentdeck/issues/621) |
+| A failure late in `Deck.__aenter__` left observers open and the process claim held, blocking a second `Deck(...)` | [#572](https://github.com/agentdecksdk/agentdeck/issues/572) |
+| A workflow input mapping that did not match its parameters raised `ConfigError` rather than `InputError` | [#583](https://github.com/agentdecksdk/agentdeck/issues/583) |
 
 <Callout type="info">
   `usage.usd` used to be listed on this page. It isn't a defect: agentdeck does not price model
@@ -102,21 +86,12 @@ worth it, and in full in the [changelog](/resources/changelog).
 
 ## What is being done about all this
 
-The hardening milestone most of this page belonged to shipped as **v4.0.0** and closed. What is
-left above is being re-evaluated against the execution model **v5.0.0** introduces rather than
-carried forward as-is: the surfaces some of these entries describe are the ones it replaces. See
-the [GitHub issues](https://github.com/agentdecksdk/agentdeck/issues).
+v6.0.0 replaced the serve surface with bindings, which is why #227 reads the way it does now: the
+limitation survived the rewrite in a new shape. The reference bindings still to come, and the
+read-path CLI in #256, are tracked on the [v6.x milestone](https://github.com/agentdecksdk/agentdeck/milestones).
 
 <Callout type="info">
   Hit something that is not here?
   [Open an issue](https://github.com/agentdecksdk/agentdeck/issues/new). A reproduction is worth more
   than a diagnosis  -  most of this page came from people who sent one.
 </Callout>
-
-<Contribute
-  issue={352}
-  difficulty="medium"
-  scope="example"
-  need="Every entry explains its defect in prose, and none carries the smallest snippet that makes it visible alongside the output it really produces."
-  because="These fail silently, so a reader needs to match what their terminal says against what this page says."
-/>

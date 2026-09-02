@@ -14,6 +14,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
 import { AnswerLink } from './jack-answer-link'
+import { Mark } from './mark'
 import { jackCitationsPlugin } from './jack-citations'
 import { JackUnavailable, askJack } from './jack-stream'
 
@@ -52,9 +53,22 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
     transcript.current?.scrollTo({ top: transcript.current.scrollHeight })
   }, [turns])
 
-  async function ask(event: React.FormEvent) {
+  // The page makes room for the panel rather than being covered by it: the class is on the root so
+  // the padding applies to everything in flow, the sticky bar included.
+  useEffect(() => {
+    document.documentElement.classList.toggle('ask-open', open)
+    return () => document.documentElement.classList.remove('ask-open')
+  }, [open])
+
+  async function submit(event: React.FormEvent) {
     event.preventDefault()
-    const asked = question.trim()
+    await ask(question)
+  }
+
+  // Takes the question rather than reading state, so a suggestion can fire one on click: setting
+  // the input first and submitting after would send whatever the previous render still held.
+  async function ask(text: string) {
+    const asked = text.trim()
     if (!asked || busy) return
     setQuestion('')
     setError(null)
@@ -95,16 +109,28 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
   // it would be a second way to reach the same agent on the one page that already has him.
   if (slugOf(pathname) === 'index') return null
 
-  if (!open) {
-    return (
-      <button className="ask-launch" onClick={() => setOpen(true)} aria-label="Ask Jack">
-        Ask Jack
-      </button>
-    )
-  }
+  // The launcher stays in the bar while the panel is open: it is the toggle, so it cannot be the
+  // thing the panel replaces.
+  const launcher = (
+    <button
+      className={`ask-launch ${open ? 'is-open' : ''}`}
+      onClick={() => setOpen(!open)}
+      aria-expanded={open}
+      aria-label="Ask Jack"
+    >
+      <span className="ask-launch__badge">
+        <AskIcon />
+      </span>
+      <span className="ask-launch__label">Ask Jack</span>
+    </button>
+  )
+
+  if (!open) return launcher
 
   return (
-    <aside className="ask-panel" aria-label="Ask Jack">
+    <>
+      {launcher}
+      <aside className="ask-panel" aria-label="Ask Jack">
       <header className="ask-head">
         <strong>Ask Jack</strong>
         <span className="ask-page">{slugOf(pathname)}</span>
@@ -113,10 +139,23 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
 
       <div className="ask-transcript" ref={transcript}>
         {turns.length === 0 && (
-          <p className="ask-hint">
-            Ask about this page or anything else in the docs. Answers are read out of the
-            documentation, not recalled  -  if it is not written down, you will be told so.
-          </p>
+          <div className="ask-empty">
+            <span className="ask-empty__mark">
+              <Mark size={34} />
+            </span>
+            <p className="ask-empty__title">What can I help with?</p>
+            <p className="ask-empty__note">
+              Answers are read out of the documentation, not recalled: if it is not written down,
+              you will be told so.
+            </p>
+            <div className="ask-empty__suggestions">
+              {SUGGESTIONS.map(suggestion => (
+                <button key={suggestion} onClick={() => void ask(suggestion)}>
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          </div>
         )}
         {turns.map((turn, at) => (
           <div key={at} className="ask-turn">
@@ -135,7 +174,7 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
         {error && <p className="ask-error">{error}</p>}
       </div>
 
-      <form className="ask-form" onSubmit={ask}>
+      <form className="ask-form" onSubmit={submit}>
         <input
           value={question}
           onChange={event => setQuestion(event.target.value)}
@@ -144,7 +183,23 @@ export function JackPanel({ validSlugs }: { validSlugs: string[] }) {
           autoFocus
         />
         <button type="submit" disabled={busy || !question.trim()}>Ask</button>
-      </form>
-    </aside>
+        </form>
+      </aside>
+    </>
   )
 }
+
+/** The brand spark, in `currentColor` so it takes the pill's own colour on hover. */
+function AskIcon() {
+  return (
+    <svg viewBox="828.765 -64.697 257.229 257.086" fill="currentColor" aria-hidden="true">
+      <path d="M 983.307 154.026 l -13.007 29.775 c -4.993 11.450 -20.837 11.450 -25.843 0.000 l -13.007 -29.775 c -11.582 -26.508 -32.405 -47.604 -58.379 -59.132 L 837.294 79.013 c -11.373 -5.045 -11.373 -21.606 0.000 -26.664 l 34.667 -15.384 C 898.614 25.135 919.804 3.268 931.190 -24.129 l 13.163 -31.736 c 4.889 -11.777 21.163 -11.777 26.052 0.000 L 983.569 -24.129 c 11.373 27.409 32.575 49.290 59.229 61.106 l 34.667 15.384 c 11.373 5.045 11.373 21.606 0.000 26.664 l -35.791 15.894 C 1015.712 106.435 994.876 127.532 983.307 154.026 Z" />
+    </svg>
+  )
+}
+
+const SUGGESTIONS = [
+  'What does this page cover?',
+  'Show me the smallest working example',
+  'How is a Run different from a session?',
+]

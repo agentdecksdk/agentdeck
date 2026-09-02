@@ -319,6 +319,22 @@ article:has(.landing) > .x\:float-end {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
+/* The code and the figure it illustrates are one pair, so they end level rather than each
+   ending wherever its own content stops. */
+.chapter.is-wide .chapter-grid {
+  align-items: stretch;
+}
+
+.chapter.is-wide .chapter-code,
+.chapter.is-wide .chapter-figure,
+.chapter.is-wide .snippet,
+/* Nextra wraps every code block in `.nextra-code`, so the fill has to pass through it. */
+.chapter.is-wide .snippet .nextra-code,
+.chapter.is-wide .snippet pre,
+.chapter.is-wide .tree-figure {
+  height: 100%;
+}
+
 .chapter-code {
   min-width: 0;
   display: grid;
@@ -329,30 +345,6 @@ article:has(.landing) > .x\:float-end {
 
 .snippet {
   min-width: 0;
-}
-
-.snippet-head {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
-  margin: 0 0 0.55rem;
-}
-
-.status-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.68rem;
-  letter-spacing: 0.06em;
-  padding: 0.2rem 0.5rem;
-  border: 1px solid var(--rail);
-  color: var(--ink-soft);
-}
-
-.status-chip.is-shipped {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .snippet-label {
@@ -369,12 +361,6 @@ article:has(.landing) > .x\:float-end {
   font-size: 0.83rem;
   line-height: 1.62;
   overflow-x: auto;
-}
-
-.landing .snippet.is-proposed pre {
-  /* Not yet real, and it should not read as loudly as the code that is. */
-  opacity: 0.92;
-  border-style: dashed !important;
 }
 
 /* --------------------------------------------------------- the deck figure */

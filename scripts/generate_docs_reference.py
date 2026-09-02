@@ -108,6 +108,23 @@ def _env_var(cls: type[LayeredSettings], field_name: str) -> str:
     return f"{prefix}{field_name}".upper()
 
 
+_DIRECT_ENV_SECTION = [
+    "## Read directly from the environment",
+    "",
+    "Owned by no settings model: read where it is used, so it takes no `with_overrides` and appears",
+    "in no layered dump.",
+    "",
+    "| Env var | Type | Default | Description |",
+    "|---|---|---|---|",
+    "| `AGENTDECK_OPENAI_AGENTS_TRACING_ENABLED` | `bool` | `False` | Opt in to the OpenAI Agents "
+    "SDK's own trace exporter (`adapters/executors/openai_agents/runconfig.py`). Off by default: a "
+    "keyless or fake-model run has no account to export to, and the exporter otherwise attempts a "
+    "real HTTPS call per run. Langfuse traces are built from the event stream, and are a separate "
+    "switch. |",
+    "",
+]
+
+
 def render_settings_mdx() -> str:
     lines = [
         "---",
@@ -155,6 +172,7 @@ def render_settings_mdx() -> str:
             description = _description(field_name, info, cls)
             lines.append(f"| `{env_var}` | {type_cell} | {default} | {description} |")
         lines.append("")
+    lines.extend(_DIRECT_ENV_SECTION)
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -208,6 +226,12 @@ def render_cli_mdx() -> str:
         "`--help` output  -  the same rendering a terminal would show, not a second hand-written copy "
         "of it. `make check` regenerates this page and fails if the result differs "
         "(`scripts/generate_docs_reference.py`).",
+        "",
+        "Two commands, neither a second way to do something a binding already does. `agentdeck chat` "
+        "*is* the terminal binding: it serves `Terminal.stdio()` over the project's own deck, so the "
+        "command is the shortcut and [Terminal](/bindings/terminal) is the contract. `agentdeck runs "
+        "signal` is the out-of-band path, writing a control signal straight into the SQLite "
+        "`ControlPort` without a served deck or an HTTP call.",
         "",
     ]
     with _fixed_terminal_width():
