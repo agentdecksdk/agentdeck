@@ -428,7 +428,7 @@ async def test_an_interrupted_run_ships_its_half_and_the_resume_continues_the_sa
     waiting, continued = collector.traces
     assert waiting.trace_key == continued.trace_key == run_id
     assert (waiting.status, waiting.metadata["suspended"], waiting.metadata["interrupt_id"]) == (
-        "waiting for approval",
+        "waiting for human",
         True,
         "i1",
     )

@@ -94,6 +94,10 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
   The root keeps the everyday vocabulary, a feature namespace keeps its own, and no public name
   lives at two paths (`docs/engineering/architecture.md` 3).
+- **`InterruptReason` drops `"approval"`** (#468): nothing ever produced it  -  `RunInterrupted`
+  is built in one place with `reason="human"` hardcoded, and refusal always came from
+  `payload["options"]`, never from `reason`. `PendingRun.reason`'s docstring now states that rule
+  instead of an approval check that didn't exist.
 
 ### Fixed
 
