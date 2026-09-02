@@ -28,7 +28,7 @@ install:        ## editable install with every extra the gate needs
 build:          ## sdist + wheel into dist/
 	uv build
 
-test:           ## run the test suite (includes the golden replay suite)
+test:           ## run the test suite (includes the event-schema snapshot replay)
 	$(E).venv/bin/pytest tests/ $(PYTEST_ARGS) $(QUIET)
 
 # examples/ too: they are code a reader copies, and nothing else in the gate reads them.
@@ -51,8 +51,8 @@ coverage:       ## per-module coverage: audit input for #71/#131, not part of `m
 	# as uncovered while being load-bearing. Corroborate with grep + the import graph.
 	.venv/bin/pytest tests/ -q --cov=agentdeck --cov-report=term-missing:skip-covered
 
-golden:         ## re-record the wire + schema snapshots: deliberate, never automatic
-	AGENTDECK_GOLDEN_UPDATE=1 .venv/bin/pytest tests/golden tests/core -q
+golden:         ## re-record the event-schema snapshots: deliberate, never automatic
+	AGENTDECK_GOLDEN_UPDATE=1 .venv/bin/pytest tests/core -q
 
 docs-reference: ## regenerate the five generated docs-site files from the code
 	.venv/bin/python scripts/generate_docs_reference.py

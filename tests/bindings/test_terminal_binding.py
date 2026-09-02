@@ -132,6 +132,30 @@ async def test_two_targets_and_no_target_argument_raises_config_error_naming_bot
     assert "Bravo" in str(excinfo.value)
 
 
+async def test_an_unknown_event_kind_does_not_stop_the_render():
+    """The forward-compatibility promise the deleted `surfaces/cli/chat.py` renderer carried: a
+    kind this version has no branch for is skipped, not raised on, so a deck emitting a newer
+    canonical event still drives an older terminal.
+    """
+
+    class _FutureEvent:
+        seq = 7
+        payload = type("_FuturePayload", (), {"kind": "some.future.kind"})()
+
+    class _FakeRun:
+        def events(self, *, from_seq: int, follow: bool):
+            async def one() -> object:
+                yield _FutureEvent()
+
+            return one()
+
+    stdout = io.StringIO()
+    binding = Terminal.stdio(target="Survey", stdout=stdout)
+
+    assert await binding._tail(_FakeRun(), 0) is None  # ran to the end of the stream
+    assert stdout.getvalue() == ""  # and printed nothing for a kind it does not know
+
+
 async def test_many_interrupts_cost_no_stack():
     """Driving is iterative: the old shape recursed through `_answer` into `_drive` per ask, so a
     workflow with many asks grew the Python stack until it broke.

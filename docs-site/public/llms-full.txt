@@ -1465,6 +1465,8 @@ Explore real-world runnable examples built with AgentDeck.
 
 - **Chat Agent with a Tool:** Basic tool execution and streaming.
 - **Agent with a Skill:** Extending agent capability using domain skills.
+- **Chat in the Terminal:** A workflow that asks the questions, driven by `agentdeck chat`. No API key.
+
 The reference application, [Jack](/jack), is documented separately: he is the agent answering
 questions on this site, and his page records the reasoning behind each decision in him.
 
@@ -2133,6 +2135,9 @@ The current release is **v5.2.1**. Earlier releases are listed at the bottom.
   `TypeError`/`ValueError` from a store or an executor stays internal. Catch `InputError` (or
   `AgentdeckError`) where you caught `TypeError` or `ValueError` from those calls before.
 
+- **A terminal chat example needing no API key** (`examples/chat-in-the-terminal/`): one
+  `@workflow` asking the questions, driven by `agentdeck chat`. The first example that runs with
+  no credentials at all.
 - **`Terminal.stdio()`, the first surface** (#549): `from agentdeck.bindings.terminal import
   Terminal`, then `deck.expose(Terminal.stdio(target="Research"))`. One session per process over
   stdin and stdout: prompts, streams the run's text back, renders a numbered prompt for
