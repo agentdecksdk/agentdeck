@@ -783,38 +783,58 @@ class Deck:
         # suppress the settings-derived one entirely  -  a Deck told which taps to open must not
         # quietly open a Langfuse client beside them.
         observers = resolve_observers() if self._observers_arg is None else tuple(self._observers_arg)
-        for observer in observers:
-            # An observer that refuses the open (Langfuse with no keys) must not leave the ones
-            # before it holding a client nobody will ever close  -  this open is not going to
-            # finish, and there is no ``__aexit__`` for a ``__aenter__`` that raised.
-            try:
+        # One try for the whole open sequence: no ``__aexit__`` runs for a raised
+        # ``__aenter__``, so a failure anywhere here must unwind everything itself (#572).
+        try:
+            for observer in observers:
                 await observer.start()
-            except BaseException:
-                for started in self._started_observers:
-                    await started.close()
-                self._started_observers = ()
-                raise
-            self._started_observers = (*self._started_observers, observer)
-        self._runtime = build_runtime(
-            executors=self._executor_instances,
-            # A view, not a copy: what ``ctx.agents`` mints after this point has to be resolvable
-            # by the Runtime that is already open, and a minted name never shadows a catalog one
-            # because it carries a mint the catalog cannot have written.
-            invocables=ChainMap(self._minted, dict(self._invocables or {})),
-            store=store,
-            sinks=observers,
-            control=resolve_control_port(),
-        )
-        await MCPLifecycle.startup(self._mcp_obj.config() if self._mcp_obj is not None else None)
-        self._started_mcp = True
-        if self._mcp_obj is not None:
-            # build() compiled every agent's mcp= against MCPLifecycle before any server had
-            # connected, so its tools/banner are stale the moment startup() above finishes  -
-            # correct the compiled agent in place before anything can run a turn against it.
-            invocables = self._invocables
-            assert invocables is not None  # build() just above guarantees this
-            agents = list(self._agents.values())
-            refresh_mcp_status({name: invocables[name].native for name in self._agents}, agents)
+                self._started_observers = (*self._started_observers, observer)
+            self._runtime = build_runtime(
+                executors=self._executor_instances,
+                # A view, not a copy: what ``ctx.agents`` mints after this point resolves
+                # against the already-open Runtime, and never shadows a catalog name.
+                invocables=ChainMap(self._minted, dict(self._invocables or {})),
+                store=store,
+                sinks=observers,
+                control=resolve_control_port(),
+            )
+            await MCPLifecycle.startup(self._mcp_obj.config() if self._mcp_obj is not None else None)
+            self._started_mcp = True
+            if self._mcp_obj is not None:
+                # build() compiled every agent's mcp= before any server connected, so its
+                # tools/banner are stale the moment startup() above finishes  -  correct it here.
+                invocables = self._invocables
+                assert invocables is not None  # build() just above guarantees this
+                agents = list(self._agents.values())
+                refresh_mcp_status({name: invocables[name].native for name in self._agents}, agents)
+        except BaseException:
+            if self._runtime is not None:
+                # Draining closes the observers, already this runtime's sinks; the store may
+                # hold its own live connection (``SqliteEventStore`` opens one at construction).
+                try:
+                    await self._runtime.drain()
+                except BaseException:
+                    logger.exception("__aenter__ rollback: draining the runtime failed")
+                if self._owns_store:
+                    try:
+                        await _aclose_store(self._runtime.store)
+                    except BaseException:
+                        logger.exception("__aenter__ rollback: closing the store failed")
+            else:
+                for started in reversed(self._started_observers):
+                    try:
+                        await started.close()
+                    except BaseException:
+                        # Best-effort, mirrors ``Exposure._lifecycle``: keep closing the rest,
+                        # never let one observer's close mask the exception this open is dying of.
+                        logger.exception("__aenter__ rollback: %r failed to close", started)
+            self._started_observers = ()
+            self._runtime = None
+            # Single-use, like a closed Deck: a retry that silently succeeded here would
+            # already have handed the process claim to whoever asked for it next (#617).
+            self._state = "CLOSED"
+            _release_process(self)
+            raise
         self._state = "OPEN"
         return self
 
