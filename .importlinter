@@ -265,4 +265,7 @@ source_modules =
     agentdeck.mcp
 forbidden_modules =
     ag_ui
-allow_indirect_imports = True
+# The same TYPE_CHECKING lazy-export chain the sibling contracts above ignore: it is never
+# executed (agentdeck/bindings/__init__.py), so it carries no runtime path to ag_ui.
+ignore_imports =
+    agentdeck.bindings -> agentdeck.bindings.agui
