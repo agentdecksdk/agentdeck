@@ -661,8 +661,9 @@ class Deck:
         return Exposure(self, bindings)
 
     def serve(self, binding: Binding, /, *bindings: Binding, host: str = "0.0.0.0", port: int = 8000) -> None:
-        """Synchronous, blocking: owns the event loop until the server exits. The primary
-        entrypoint; see :meth:`serve_async` for a caller already running inside asyncio."""
+        """Synchronous, blocking: owns the event loop until the server exits. Ctrl-C stops the
+        server and returns. The primary entrypoint; see :meth:`serve_async` for a caller already
+        running inside asyncio."""
         try:
             asyncio.get_running_loop()
         except RuntimeError:
@@ -671,7 +672,12 @@ class Deck:
             raise ConfigError(
                 "deck.serve() owns the event loop; inside a running loop use `await deck.serve_async(...)`."
             )
-        asyncio.run(self.serve_async(binding, *bindings, host=host, port=port))
+        # Matches uvicorn.run's own swallow: uvicorn has already shut down cleanly on the signal
+        # by the time this unwinds, so a caller of the blocking entrypoint sees a quiet return,
+        # not a traceback. serve_async() is untouched: a caller already inside a loop owns its
+        # own Ctrl-C handling.
+        with suppress(KeyboardInterrupt):
+            asyncio.run(self.serve_async(binding, *bindings, host=host, port=port))
 
     async def serve_async(
         self, binding: Binding, /, *bindings: Binding, host: str = "0.0.0.0", port: int = 8000

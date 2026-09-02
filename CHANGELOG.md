@@ -86,7 +86,9 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
   shape: it owns the event loop (`asyncio.run` internally) instead of returning a coroutine, so
   it runs from plain application code with no `asyncio.run(deck.serve(...))` of your own. The
   previous coroutine is now `Deck.serve_async()`, for a caller already running inside asyncio.
-  `agentdeck chat` calls `deck.serve(...)` directly. `Deck.asgi()` is unchanged.
+  Ctrl-C stops the server and returns quietly, matching `uvicorn.run`; `serve_async()` leaves its
+  own `KeyboardInterrupt` handling to the caller. `agentdeck chat` calls `deck.serve(...)`
+  directly. `Deck.asgi()` is unchanged.
 - **`DeckGateway.start` drops `context`** (#599): no binding ever passed one, and a served run
   has no live Python execution context to hand it. `DeckGateway` no longer stores or directly
   exposes the `Deck` it was built from.

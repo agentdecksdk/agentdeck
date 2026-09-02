@@ -153,6 +153,18 @@ def test_serve_propagates_a_startup_exception() -> None:
         _deck().serve(_RaisingBinding())
 
 
+def test_serve_swallows_keyboard_interrupt_like_uvicorn_run(monkeypatch) -> None:
+    """Matches the cited analog, `uvicorn.run`: Ctrl-C stops the server and returns quietly,
+    rather than a raw traceback reaching a caller of the blocking entrypoint."""
+
+    async def fake_serve_async(self: Deck, *bindings: object, host: str, port: int) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(Deck, "serve_async", fake_serve_async)
+
+    assert _deck().serve(Native.http()) is None
+
+
 def test_lazy_import_from_agentdeck_bindings() -> None:
     from agentdeck.bindings import AGUI as LazyAGUI  # noqa: N811
     from agentdeck.bindings import Native as LazyNative
