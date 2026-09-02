@@ -57,7 +57,7 @@ redis = [
 agui = [
     # the official wire models and SSE encoder (rulings.md 16); starlette is listed directly
     # here too, since a standalone `[agui]` install has no `[serve]` to pull it in transitively.
-    "ag-ui-protocol>=0.1.22",
+    "ag-ui-protocol>=0.1.22,<0.2",
     "starlette>=0.37",
 ]
 dev = [
@@ -76,7 +76,7 @@ dev = [
     # redis session/event-log branches without making `[redis]` a base extra.
     "redis>=5.0",
     # same reasoning as redis above, for the AG-UI binding's own test suite.
-    "ag-ui-protocol>=0.1.22",
+    "ag-ui-protocol>=0.1.22,<0.2",
     "ruff>=0.6",
     "ty>=0.0.1a21",
     "pre-commit>=4.0",
