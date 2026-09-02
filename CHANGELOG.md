@@ -102,6 +102,10 @@ Fixed / Security` order  -  and are written to be attached to a release as-is.
 
 ### Fixed
 
+- **A workflow's own `InputError` after `run.started` reaches every wire as itself** (#621):
+  `RunFailed.error_code` gains `"invalid_input"`, and its `message` carries the exception's own
+  caller-safe text instead of being stripped to `"InputError in engine ..."`. Every other
+  exception's shape is unchanged.
 - **`Deck.__aenter__` rolls back a late failure** (#572): a failure after observers started  -  building the runtime, connecting MCP servers  -  used to leave every started observer open and the process claim held, blocking a second `Deck(...)` in the same process. It now closes what it started and releases the claim before re-raising, same as an observer-start failure already did.
 - **A workflow's input mapping that doesn't match its declared parameters raises `InputError`,
   not `ConfigError`** (#583). It is caller-supplied content the target can't take, not a
