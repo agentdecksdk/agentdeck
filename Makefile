@@ -27,6 +27,9 @@ install:        ## editable install with every extra the gate needs, from the lo
 	# instead of silently resolving fresh and leaving the lockfile to drift.
 	uv sync --locked --all-extras
 
+lock-check:     ## uv.lock matches pyproject.toml -- the thing CI and `make install` actually install
+	$(E)uv lock --check $(QUIET)
+
 build:          ## sdist + wheel into dist/
 	uv build
 
@@ -34,9 +37,6 @@ test:           ## run the test suite (includes the event-schema snapshot replay
 	$(E).venv/bin/pytest tests/ $(PYTEST_ARGS) $(QUIET)
 
 # examples/ too: they are code a reader copies, and nothing else in the gate reads them.
-lock-check:     ## uv.lock matches pyproject.toml -- the thing CI and `make install` actually install
-	$(E)uv lock --check $(QUIET)
-
 lint:           ## ruff check
 	$(E).venv/bin/ruff check agentdeck/ tests/ examples/ $(QUIET)
 
