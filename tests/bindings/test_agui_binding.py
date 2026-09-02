@@ -395,6 +395,34 @@ def test_a_namespace_isolates_runs_between_two_bindings(no_project):
     assert "waiting for an answer" in cross_namespace.json()["detail"]
 
 
+async def test_a_pinned_endpoint_cannot_resume_another_targets_run(no_project):
+    """The same session, the same namespace, the same interrupt id  -  only the target differs.
+    Neither a pinned endpoint nor an explicit ``forwardedProps.agentdeck.target`` may resume a
+    run that belongs to a different target than the one this request addresses."""
+    deck = _deck()
+    bindings = (
+        AGUI.http("/survey", target="Survey", name="agui-survey"),
+        AGUI.http("/support", target="Greeter", name="agui-support"),
+        AGUI.http("/agui", name="agui-catalog"),
+    )
+    with _client(deck, *bindings) as client:
+        content = [{"id": "m1", "role": "user", "content": "kites"}]
+        started = _events_from(client.post("/survey", json=_body(messages=content)))
+        interrupt = _outcome(started)["interrupts"][0]
+
+        resume = [{"interruptId": interrupt["id"], "status": "resolved", "payload": "red"}]
+        cross_target_pinned = client.post("/support", json=_body(runId="r2", resume=resume))
+        cross_target_unpinned = client.post("/agui", json=_targeted("Greeter", runId="r3", resume=resume))
+
+        waiting = await deck.runs.list(status=RunStatus.WAITING_ANSWER)
+
+    assert cross_target_pinned.status_code == 422
+    assert "Survey" in cross_target_pinned.json()["detail"]
+    assert cross_target_unpinned.status_code == 422
+    assert "Survey" in cross_target_unpinned.json()["detail"]
+    assert len(waiting) == 1
+
+
 async def test_a_client_disconnect_cancels_the_run(no_project, monkeypatch):
     """``Run.cancel()`` is cooperative (``docs/patterns``), so whether a held engine ever
     reaches a safe point is that method's own contract, not this binding's; what ruling 46

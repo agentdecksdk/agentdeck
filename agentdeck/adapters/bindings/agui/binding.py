@@ -170,6 +170,17 @@ class _AGUIBinding:
                 raise _InvalidRequestError(
                     f"resume names interruptId {entry.interrupt_id!r}, but run {run.id!r} is waiting on {waiting_on!r}"
                 )
+            # `interrupt.origin` is the target the caller originally addressed (core/events.py):
+            # a pinned or explicitly-named endpoint may only resume a run it could have started.
+            if self._target is not None and interrupt.origin != self._target:
+                raise _InvalidRequestError(
+                    f"this endpoint serves {self._target!r}; the waiting run belongs to {interrupt.origin!r}"
+                )
+            requested = _extension_target(run_input.forwarded_props)
+            if requested is not None and requested != interrupt.origin:
+                raise _InvalidRequestError(
+                    f"forwardedProps.agentdeck.target names {requested!r}; the waiting run belongs to {interrupt.origin!r}"
+                )
             from_seq = interrupt.seq + 1
             action_run: Run | None = run
             target = None
